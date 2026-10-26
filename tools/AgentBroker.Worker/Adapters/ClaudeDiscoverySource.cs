@@ -17,6 +17,8 @@ internal interface IClaudeDiscoverySource
     void RejectReparseComponents(string image);
     string? ReadProductVersion(string image);
     string ReadImageSha256(string image);
+    ClaudePublicImageTrustResult ObserveUnpinnedPublicImage(string image)
+        => new(ClaudePublicImageTrust.Unavailable);
 }
 
 internal interface IClaudeDiscoveryProcess : IDisposable
@@ -24,6 +26,9 @@ internal interface IClaudeDiscoveryProcess : IDisposable
     string ProcessName { get; }
     string? ImagePath { get; }
     ulong StartFileTime { get; }
+    // Existing test sources and unsupported process readers cannot grant observation trust.
+    bool IsCurrentUser => false;
+    bool HasExited => true;
 }
 
 internal sealed class WindowsClaudeDiscoverySource : IClaudeDiscoverySource
@@ -45,6 +50,8 @@ internal sealed class WindowsClaudeDiscoverySource : IClaudeDiscoverySource
         string hash = Convert.ToHexString(SHA256.HashData(input));
         return hash;
     }
+    public ClaudePublicImageTrustResult ObserveUnpinnedPublicImage(string image)
+        => WindowsClaudePublicImageTrust.Observe(image);
 
     private sealed class PublicProcess(Process process) : IClaudeDiscoveryProcess
     {
@@ -52,6 +59,8 @@ internal sealed class WindowsClaudeDiscoverySource : IClaudeDiscoverySource
         public string? ImagePath => process.MainModule?.FileName;
         // This is the unchanged native FILETIME conversion, not DateTime.Ticks.
         public ulong StartFileTime => checked((ulong)process.StartTime.ToUniversalTime().ToFileTimeUtc());
+        public bool IsCurrentUser => WindowsClaudePublicImageTrust.IsCurrentUserProcess(process.SafeHandle);
+        public bool HasExited => process.HasExited;
         public void Dispose() => process.Dispose();
     }
 }

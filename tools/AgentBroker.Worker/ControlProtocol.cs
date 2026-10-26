@@ -9,6 +9,7 @@ using System.Security.Authentication;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace AgentBroker.Protocol;
 
@@ -29,8 +30,11 @@ public sealed record BrokerSnapshot(Guid BrokerId, string Name, string LoopbackE
 public sealed record ControlRequest(string Operation, Guid Id = default, PeerView? Peer = null,
     string? SessionId = null, bool Value = false);
 public sealed record LocalConnection(string McpEndpoint, string? BearerToken);
+public sealed record PeerDiagnosticView(Guid BrokerId, string Endpoint, string CertificateSha256,
+    bool Success, string Code, int? ReturnedSessionCount, string AuthenticationStatus, DateTimeOffset? CheckedAtUtc);
 public sealed record ControlResponse(bool Success, string Code, BrokerSnapshot? Snapshot = null,
-    LocalConnection? Connection = null);
+    LocalConnection? Connection = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] PeerDiagnosticView[]? PeerDiagnostics = null);
 
 public static class ControlProtocol
 {
@@ -43,8 +47,10 @@ public static class ControlProtocol
     public static bool IsPairingOperation(string? operation) => operation is "pair-request" or "pair-approve";
     // Requesting pairing performs two ten-second HTTPS exchanges. The worker must finish
     // and report a classified result before its caller's outer deadline expires.
-    public static TimeSpan ClientTimeout(string? operation) => TimeSpan.FromSeconds(IsPairingOperation(operation) ? 30 : 3);
-    public static TimeSpan ServerTimeout(string? operation) => TimeSpan.FromSeconds(IsPairingOperation(operation) ? 25 : 20);
+    public static TimeSpan ClientTimeout(string? operation) => TimeSpan.FromSeconds(IsPairingOperation(operation) ? 30 :
+        operation == "peer-diagnostics" ? 8 : 3);
+    public static TimeSpan ServerTimeout(string? operation) => TimeSpan.FromSeconds(IsPairingOperation(operation) ? 25 :
+        operation == "peer-diagnostics" ? 7 : 20);
     public static string FailureCode(string? operation, Exception error)
     {
         if (!IsPairingOperation(operation)) return "control_request_failed";

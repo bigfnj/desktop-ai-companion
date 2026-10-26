@@ -6,8 +6,16 @@ using System.Text;
 
 namespace AgentBroker.Worker.Adapters;
 
+public enum ClaudeDiscoveryProvenance { Unverified, ExactPinned, PublisherSignedObservation }
+
 public sealed record ClaudeNativeCandidate(NativeTarget Target, string? Status)
 {
+    // The historical constructor grants no authority to an unpinned target.
+    public ClaudeDiscoveryProvenance Provenance { get; init; } =
+        EngineProfile.Find(Target.EngineVersion, Target.ImageSha256) is not null
+            ? ClaudeDiscoveryProvenance.ExactPinned : ClaudeDiscoveryProvenance.Unverified;
+    public bool CanDeliver => Provenance == ClaudeDiscoveryProvenance.ExactPinned &&
+        EngineProfile.Find(Target.EngineVersion, Target.ImageSha256) is not null;
     public Guid NativeSessionIncarnation
     {
         get
@@ -61,7 +69,7 @@ public sealed class ClaudeNativeAdapter : ILocalAgentAdapter
                 if (!Valid(row)) continue;
                 var address = new SessionAddress(brokerId, "claude:" + row.Target.SessionId, row.NativeSessionIncarnation);
                 if (!found.TryAdd(address, row)) continue;
-                result.Add(new(address, "Claude " + row.Target.SessionId[..8], Id, enablePeerCredentials
+                result.Add(new(address, "Claude " + row.Target.SessionId[..8], Id, enablePeerCredentials && row.CanDeliver
                     ? SessionCapabilities.Receive | SessionCapabilities.WakeIdle | SessionCapabilities.Reply : SessionCapabilities.None,
                     Activity(row.Status), clock.GetUtcNow().AddSeconds(30)));
             }
@@ -79,12 +87,15 @@ public sealed class ClaudeNativeAdapter : ILocalAgentAdapter
             ObjectDisposedException.ThrowIf(disposed, this);
             if (!enablePeerCredentials) return new(AdapterAdmission.Refused, "claude_credentials_disabled");
             if (!candidates.TryGetValue(message.Recipient, out var previous)) return Deferred("native_session_unavailable");
+            // A signature permits observation only. Refuse before refresh, transport or credentials.
+            if (!previous.CanDeliver) return new(AdapterAdmission.Refused, "claude_observation_only");
             ClaudeNativeCandidate? fresh;
             try { fresh = await provider.RefreshAsync(previous.Target.ProcessId, token); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or OperationCanceledException)
             { return Deferred("native_metadata_unavailable"); }
             if (fresh is null || !Valid(fresh) || fresh.NativeSessionIncarnation != message.Recipient.Incarnation)
                 return Deferred("native_owner_changed");
+            if (!fresh.CanDeliver) return new(AdapterAdmission.Refused, "claude_observation_only");
             if (fresh.Status != "idle") return Deferred("native_recipient_not_idle");
             // Immediate metadata refresh occurred before any credential handling. The native gate is
             // authoritative for actual mode/settings and the idle snapshot can race with GUI activity.
@@ -108,7 +119,8 @@ public sealed class ClaudeNativeAdapter : ILocalAgentAdapter
 
     private static bool Valid(ClaudeNativeCandidate candidate) => candidate.Target.ProcessId > 1 && candidate.Target.StartFileTime > 0 &&
         Guid.TryParseExact(candidate.Target.SessionId, "D", out Guid id) && id != Guid.Empty && id.ToString("D") == candidate.Target.SessionId &&
-        EngineProfile.Find(candidate.Target.EngineVersion, candidate.Target.ImageSha256) is not null;
+        (candidate.CanDeliver || candidate.Provenance == ClaudeDiscoveryProvenance.PublisherSignedObservation &&
+            candidate.Target.ImageSha256.Length == 64 && candidate.Target.ImageSha256.All(Uri.IsHexDigit));
     private static SessionActivity Activity(string? status) => status switch
     {
         "idle" => SessionActivity.Idle,

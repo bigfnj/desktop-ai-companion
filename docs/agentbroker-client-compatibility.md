@@ -2,6 +2,55 @@
 
 Compatibility snapshot: 2026-10-22. The ordinary Codex desktop passed one idle wake test through its existing owner. After a client update, public source and read-only connection checks were repeated. This records those limited live results and the remaining acceptance gates.
 
+## Discovery and diagnostics update, 2026-10-26
+
+Claude discovery and native delivery now have separate trust outcomes. An exact
+reviewed image retains the existing delivery profile. An updated executable can
+appear as an observation-only session when Windows Authenticode verifies the
+expected Anthropic publisher and its process user, creation time, image path and
+bounded numeric registration metadata match. Publisher observations have no
+receive, wake or reply capabilities, even with credential opt-in; submission is
+refused before provider transport or credential access. Public-image trust is
+unavailable when Windows cannot verify it from its current cache. This changes
+Claude discovery only; Codex compatibility and native delivery profiles remain
+separate. Sources: `ClaudeNativeProvider.ObserveUnpinned`,
+`WindowsClaudePublicImageTrust.Observe`, and `ClaudeNativeAdapter.CanDeliver` in
+`tools/AgentBroker.Worker/Adapters/`.
+
+The owned management operation `peer-diagnostics` performs the existing pinned,
+authenticated directory request against current paired peers. A validated empty
+response has a confirmed count of zero. Failed checks have null counts and fixed
+failure codes; peers not reached within the bounded batch remain not checked.
+Authorization is rechecked after the request and before publishing the batch.
+`tools/agentbroker/Test-AgentBrokerPeerAuthentication.ps1` exposes this diagnostic
+without session contents or identifiers. Its `-CompileOnly` path sends no request.
+An older worker reports `unknown_control_operation`; that is unavailable evidence,
+not successful authentication. Sources: `PeerDiagnostics.cs`, `ControlProtocol.cs`
+and `LocalControlServer.cs` in `tools/AgentBroker.Worker/`.
+
+Generic MCP clients still require both client configuration and a live
+`register_agent` inbox. Connection or tools-list success does not create an inbox.
+The one-minute generic lease must be renewed; successful reads, sends, replies and
+acknowledgements renew an already live polling session. Fresh-client onboarding is
+tracked as `N-agentbroker-client-onboarding-01` in `BACKLOG.md`.
+
+These source changes do not establish automatic native wake, a fresh-client setup
+result or physical two-PC acceptance. The following older observations remain
+historical evidence, including the stricter discovery policy used at that time.
+
+The inspected VS Code `26.1007.21434` renderer also distinguishes an idle turn
+from a loaded stream owner. Its inactive-thread unsubscriber uses a three-hour
+TTL and a ten-owner retention bound for undisplayed idle conversations without
+followers; successful unsubscribe marks the thread `needs_resume` and clears its
+stream role. An open mounted editor view is retained when hidden. Source:
+`webview/assets/app-initial-97d3534ad35f.js` (`inactiveThreadUnsubscriber`,
+`unsubscribeInactiveConversation`, `clearConversationStreamOwnership`) and
+`out/extension.js` (`retainContextWhenHidden`) in that public extension.
+Keep an intended native target mounted in its own conversation tab, or reopen it
+before delivery. A fresh read-only positive control found an existing loaded
+Code owner without input; it does not prove native wake or the cause of every
+historical `no-client-found` response.
+
 ## Latest live verification
 
 - A read-only public-image audit on 2026-10-22 found no replacement pin to apply. Installed Claude Code 2.1.292 and running VS Code Claude Code 2.1.306 retain their exact verified hashes and valid Anthropic signatures. Codex desktop 26.1016.6573.0, extension 26.1007.21434 and VS Code router 1.143.0 retain their existing image/source pins; the public Codex binaries have valid OpenAI signatures, and the router has a valid Microsoft signature. The fresh built `--verify-vscode-profile` check passed. These checks preserve the earlier source evidence for those exact images; they do not rerun the outstanding live acceptance matrix.
@@ -49,7 +98,7 @@ The reported offsets are JavaScript string character offsets in the decoded memb
 
 ## Codex desktop on native Windows
 
-The first live plain-input wake used `OpenAI.Codex_26.1013.4894.0_x64__2p2nqsd0c76g0`. That package was removed by an application update. The current pin is `OpenAI.Codex_26.1016.6573.0_x64__2p2nqsd0c76g0`, with public executable SHA256 `602A21169FA011CF48997DBC07A0FFCDC11058CAA5DC992E534876E8CB6F9A4E`, archive SHA256 `6F56542B508EEA5B6E4D03E852DCD90AFC2578AAC7125BAA3F25EBE85EBC7E25`, and separate Electron product version `155.0.8059.80`.
+The first live plain-input wake used `OpenAI.Codex_26.1013.4894.0_x64__2p2nqsd0c76g0`. That package was removed by an application update. `DesktopCompatibilityProfile.Packages` now contains complete profiles for both `26.1016.6573.0` and `26.1016.8622.0`; its public `ApplicationVersion` constant names only the former. The earlier profile has public executable SHA256 `602A21169FA011CF48997DBC07A0FFCDC11058CAA5DC992E534876E8CB6F9A4E`, archive SHA256 `6F56542B508EEA5B6E4D03E852DCD90AFC2578AAC7125BAA3F25EBE85EBC7E25`, and separate Electron product version `155.0.8059.80`. The later profile has executable SHA256 `F7F605CCEB2E75DCA52E03362329A889F917CC1F8D1036CD26386727A2319415`, archive SHA256 `A05DFD86CA508148C83C25590639CF91A52C6647733CDF200723D85357052B49`, and the same Electron version. `SelectProfile` selects the complete tuple by the actual executable path; the constant alone is not the allowlist. Source: `tools/AgentBroker.CodexDesktopAdapter/WindowsDesktopConnection.cs`.
 
 Current `application-network-startup-BG13czUt.js:277288` retains the fixed Windows pipe and four-byte little-endian framing. `src-CsH31EEu.js:8058` retains the protocol versions, `:531343` delegates follower start to the existing owner, and `:874335` / `:876683` contain both pre-injection idle checks. The exact-owner read-only probe passes connection, public-image, process and ACL verification on the new package. The earlier dedicated test conversation no longer has a loaded owner after the crash, so its previous wake proof must not be represented as a current-package delivery test.
 

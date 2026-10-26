@@ -68,7 +68,7 @@ public sealed class ClaudeNativeProvider : IClaudeNativeProvider
                 if (!EngineProfile.IsSupportedPublicVersion(version))
                 {
                     diagnostics?.Add(CompatibilityDiagnostic("unsupported_public_version", version));
-                    return Task.FromResult<ClaudeNativeCandidate?>(null);
+                    return Task.FromResult(ObserveUnpinned(processId, metadata, process, image, started, version, diagnostics, token));
                 }
                 string hash = source.ReadImageSha256(image);
                 profile = EngineProfile.Verified
@@ -76,7 +76,7 @@ public sealed class ClaudeNativeProvider : IClaudeNativeProvider
                 if (profile is null)
                 {
                     diagnostics?.Add(CompatibilityDiagnostic("image_hash_mismatch", version));
-                    return Task.FromResult<ClaudeNativeCandidate?>(null);
+                    return Task.FromResult(ObserveUnpinned(processId, metadata, process, image, started, version, diagnostics, token));
                 }
                 if (profiles.Count >= 32) profiles.Remove(profiles.Keys.First());
                 profiles[key] = profile;
@@ -90,6 +90,35 @@ public sealed class ClaudeNativeProvider : IClaudeNativeProvider
         catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or
             InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException or OverflowException)
         { return Task.FromResult<ClaudeNativeCandidate?>(null); }
+    }
+
+    private ClaudeNativeCandidate? ObserveUnpinned(int processId, NativeSessionMetadata metadata,
+        IClaudeDiscoveryProcess process, string image, ulong started, string? version,
+        List<AdapterDiscoveryDiagnostic>? diagnostics, CancellationToken token)
+    {
+        // The default process implementation refuses this path. Exact-pin delivery remains separate.
+        if (!process.IsCurrentUser || process.HasExited) return null;
+        token.ThrowIfCancellationRequested();
+        using var trust = source.ObserveUnpinnedPublicImage(image);
+        token.ThrowIfCancellationRequested();
+        if (trust.Trust != ClaudePublicImageTrust.ExpectedPublisher || trust.ImageSha256 is not { Length: 64 } hash ||
+            !hash.All(Uri.IsHexDigit))
+        {
+            string code = trust.Trust switch
+            {
+                ClaudePublicImageTrust.UntrustedSignature => "public_image_signature_untrusted",
+                ClaudePublicImageTrust.UnexpectedPublisher => "public_image_publisher_mismatch",
+                _ => "public_image_trust_unavailable",
+            };
+            diagnostics?.Add(new(code, "Claude Code read-only observation refused: public image publisher trust was not established."));
+            return null;
+        }
+        if (process.HasExited || !process.IsCurrentUser || process.StartFileTime != started ||
+            !string.Equals(process.ImagePath, image, StringComparison.OrdinalIgnoreCase)) return null;
+        bool plausible = metadata.HasPlausibleActivityTimestamp(DateTimeOffset.UtcNow);
+        return new(new(metadata.CanonicalPipe, processId, image, hash, version ?? "unknown",
+            started, metadata.SessionId), plausible ? metadata.Status : null)
+        { Provenance = ClaudeDiscoveryProvenance.PublisherSignedObservation };
     }
 
     private static AdapterDiscoveryDiagnostic CompatibilityDiagnostic(string code, string? version)

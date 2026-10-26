@@ -58,6 +58,8 @@ public sealed class LocalControlServer(WorkerApplication worker) : IAsyncDisposa
         switch (request.Operation)
         {
             case "status": return new(true, "ok", Snapshot());
+            case "peer-diagnostics":
+                return new(true, "ok", PeerDiagnostics: await PeerDiagnostics.CollectAsync(worker.Runtime, token));
             case "connection":
                 return new(true, "ok", Connection: new(LoopbackEndpoint() + "/mcp",
                     worker.Options.AllowUnauthenticatedLoopback ? null : worker.LocalAccessToken));

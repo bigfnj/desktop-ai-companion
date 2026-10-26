@@ -13,6 +13,16 @@ using System.Text.Json;
 int assertions = 0;
 void Check(bool value, string name)
 { if (!value) throw new InvalidOperationException(name); assertions++; Console.WriteLine("PASS: " + name); }
+if (args.Length == 1 && args[0] == "--claude-public-discovery-observation")
+{
+    try
+    {
+        await ClaudeObservationChecks.RunPublicDiscoveryCheckAsync(Check);
+        Console.WriteLine($"RESULT=PASS assertions={assertions}");
+        return 0;
+    }
+    catch (Exception ex) { Console.Error.WriteLine(ex); Console.WriteLine("RESULT=FAIL"); return 1; }
+}
 if (args.Length >= 1 && args[0] is "--firewall-setup-only" or "--firewall-setup-case")
 {
     try
@@ -60,6 +70,36 @@ if (args.Length == 1 && args[0] == "--runtime-lifecycle-only")
     try
     {
         await RuntimeLifecycleChecks.RunAsync(Check);
+        Console.WriteLine($"RESULT=PASS assertions={assertions}");
+        return 0;
+    }
+    catch (Exception ex) { Console.Error.WriteLine(ex); Console.WriteLine("RESULT=FAIL"); return 1; }
+}
+if (args.Length == 1 && args[0] == "--peer-diagnostics-only")
+{
+    try
+    {
+        await PeerDiagnosticsChecks.RunAsync(Check);
+        Console.WriteLine($"RESULT=PASS assertions={assertions}");
+        return 0;
+    }
+    catch (Exception ex) { Console.Error.WriteLine(ex); Console.WriteLine("RESULT=FAIL"); return 1; }
+}
+if (args.Length == 2 && args[0] == "--claude-public-image-trust")
+{
+    try
+    {
+        ClaudeObservationChecks.RunPublicImageCheck(Check, args[1]);
+        Console.WriteLine($"RESULT=PASS assertions={assertions}");
+        return 0;
+    }
+    catch (Exception ex) { Console.Error.WriteLine(ex); Console.WriteLine("RESULT=FAIL"); return 1; }
+}
+if (args.Length == 1 && args[0] == "--claude-observation-only")
+{
+    try
+    {
+        await ClaudeObservationChecks.RunAsync(Check);
         Console.WriteLine($"RESULT=PASS assertions={assertions}");
         return 0;
     }
@@ -146,6 +186,8 @@ try
 {
     await ControlPipeChecks.RunAsync(Check);
     await RuntimeLifecycleChecks.RunAsync(Check);
+    await PeerDiagnosticsChecks.RunAsync(Check);
+    await ClaudeObservationChecks.RunAsync(Check);
     await PaginationChecks.RunAsync(Check);
     await McpActivityChecks.RunAsync(Check);
     await CodexQueueChecks.RunAsync(Check);
