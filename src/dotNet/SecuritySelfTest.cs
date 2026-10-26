@@ -72,6 +72,7 @@ namespace DesktopAICompanion
             // GenerationAwareIdleSchedule on 2026-09-27, and its dispose-counting double (DiagnosticOwnedValue)
             // followed on 2026-09-30 (F302).
             Section("CheckSecureDownloadDeadline", CheckSecureDownloadDeadline, ref failures, output);
+            Section("CheckSecureDownloadReliability", CheckSecureDownloadReliability, ref failures, output);
             Section("CheckRestartLifecycle", CheckRestartLifecycle, ref failures, output);
 
             output.WriteLine(failures == 0
@@ -1187,6 +1188,227 @@ namespace DesktopAICompanion
                 output);
         }
 
+        /// <summary>
+        /// The catalog and download reliability of feature/host-catalog, driven through fake handlers and
+        /// streams (no network): the one retry a status-less failure gets and what is never retried
+        /// (N-catalog-insight-02), the stall timeout and size-scaled cap an asset download gets while the catalog
+        /// keeps its deadline (-03), the reason a hash mismatch is refused with (-01), and the production
+        /// handler's proxy credentials (-04). Each label puts its measured outcome last.
+        /// </summary>
+        private static void CheckSecureDownloadReliability(
+            ref int failures,
+            TextWriter output)
+        {
+            byte[] payload = Encoding.ASCII.GetBytes("verified payload");
+            string served = "completed " + payload.Length.ToString(CultureInfo.InvariantCulture) + " bytes";
+
+            // ---- N-catalog-insight-02: one retry, of a request that never got a response ----
+            var flaky = new ScriptedHandler(delegate (int send)
+            {
+                if (send == 1)
+                    throw new HttpRequestException("No such host is known. (raw.githubusercontent.com:443)");
+                return Answer(HttpStatusCode.OK, new MemoryStream(payload), -1);
+            });
+            Stopwatch retryClock = Stopwatch.StartNew();
+            string flakyOutcome = DownloadOutcome(DownloadThrough(flaky, 1024, SecureDownload.CatalogLimits));
+            long retryMs = retryClock.ElapsedMilliseconds;
+            Check(
+                flakyOutcome == served && flaky.Sends == 2 && retryMs >= 400,
+                "a failure with no HTTP status (DNS, TLS, reset) is retried once after a pause and the second answer is used (" +
+                    flakyOutcome + ", sends=" + flaky.Sends + ", " + retryMs + " ms)",
+                ref failures,
+                output);
+
+            var notFound = new ScriptedHandler(delegate
+            {
+                return Answer(HttpStatusCode.NotFound, new MemoryStream(new byte[0]), -1);
+            });
+            string notFoundOutcome = DownloadOutcome(DownloadThrough(notFound, 1024, SecureDownload.CatalogLimits));
+            var redirected = new ScriptedHandler(delegate
+            {
+                return Answer(HttpStatusCode.Found, new MemoryStream(new byte[0]), -1);
+            });
+            string redirectedOutcome = DownloadOutcome(DownloadThrough(redirected, 1024, SecureDownload.CatalogLimits));
+            Check(
+                notFoundOutcome.StartsWith("threw HttpRequestException: ", StringComparison.Ordinal) && notFound.Sends == 1 &&
+                redirectedOutcome == "threw HttpRequestException: Catalog redirects are not permitted." && redirected.Sends == 1,
+                "WITNESS a response with a status is never retried, a 404 nor a refused 3xx whose exception carries none (" +
+                    notFoundOutcome + ", sends=" + notFound.Sends + "; " + redirectedOutcome + ", sends=" + redirected.Sends + ")",
+                ref failures,
+                output);
+
+            var unreachable = new ScriptedHandler(delegate (int send)
+            {
+                throw new HttpRequestException("No such host is known. (attempt " + send + ")");
+            });
+            string unreachableOutcome = DownloadOutcome(DownloadThrough(unreachable, 1024, SecureDownload.CatalogLimits));
+            Check(
+                unreachableOutcome == "threw HttpRequestException: No such host is known. (attempt 2)" && unreachable.Sends == 2,
+                "a second failure with no HTTP status is not retried again, and its own words are the reason (" +
+                    unreachableOutcome + ", sends=" + unreachable.Sends + ")",
+                ref failures,
+                output);
+
+            var cutOff = new ScriptedHandler(delegate
+            {
+                return Answer(HttpStatusCode.OK, new PacedStream(1000, 1, 0, PaceEnd.Fail), -1);
+            });
+            string cutOffOutcome = DownloadOutcome(DownloadThrough(cutOff, 1024 * 1024, SecureDownload.AssetLimits));
+            Check(
+                cutOffOutcome.StartsWith("threw IOException: ", StringComparison.Ordinal) && cutOff.Sends == 1,
+                "a failure after body bytes were accepted is not retried (" +
+                    cutOffOutcome + ", sends=" + cutOff.Sends + ")",
+                ref failures,
+                output);
+
+            // ---- N-catalog-insight-03: the catalog's deadline, and an asset's stall timeout and sized cap ----
+            TimeSpan fortunesCap = SecureDownload.AssetLimits.OverallFor(30481345);
+            Check(
+                SecureDownload.CatalogLimits.OverallFor(int.MaxValue) == TimeSpan.FromSeconds(60) &&
+                SecureDownload.CatalogLimits.Stall == TimeSpan.Zero &&
+                SecureDownload.AssetLimits.Stall == TimeSpan.FromSeconds(30) &&
+                SecureDownload.AssetLimits.OverallFor(1000) == TimeSpan.FromSeconds(60) &&
+                fortunesCap > TimeSpan.FromSeconds(116) && fortunesCap < TimeSpan.FromSeconds(117),
+                "the catalog keeps one 60 s deadline; an asset gets a 30 s stall timeout and a cap of its size at 256 KiB/s, " +
+                    "never under 60 s (fortunes.zip's 30,481,345 bytes: " +
+                    fortunesCap.TotalSeconds.ToString("0.0", CultureInfo.InvariantCulture) + " s)",
+                ref failures,
+                output);
+
+            // Test-sized limits: a 300 ms floor, a 500 ms stall timer and 4000 bytes a second, so a declared 8000
+            // bytes get 2 s and a declared 2000 get the floor's 300 ms raised to 500 ms. maximumBytes is far
+            // larger in both, so a cap sized by it (250 s) rather than by the declared length lets both finish.
+            // The moving download's 100 ms pauses add up to more than the stall timer, so it finishes only if
+            // every read that brings bytes restarts that timer.
+            var paced = new SecureDownload.DownloadLimits(
+                TimeSpan.FromMilliseconds(300), TimeSpan.FromMilliseconds(500), 4000);
+            var moving = new ScriptedHandler(delegate
+            {
+                return Answer(HttpStatusCode.OK, new PacedStream(1000, 8, 100, PaceEnd.End), 8000);
+            });
+            Stopwatch movingClock = Stopwatch.StartNew();
+            string movingOutcome = DownloadOutcome(DownloadThrough(moving, 1000000, paced));
+            long movingMs = movingClock.ElapsedMilliseconds;
+            Check(
+                movingOutcome == "completed 8000 bytes" && movingMs > 500,
+                "a slow asset download that keeps moving outlives the floor deadline and the stall timer when its " +
+                    "declared size allows it (" + movingOutcome + " in " + movingMs + " ms, floor 300 ms, stall 500 ms)",
+                ref failures,
+                output);
+
+            var trickle = new ScriptedHandler(delegate
+            {
+                return Answer(HttpStatusCode.OK, new PacedStream(100, 20, 100, PaceEnd.End), 2000);
+            });
+            string trickleOutcome = DownloadOutcome(DownloadThrough(trickle, 1000000, paced));
+            Check(
+                trickleOutcome.StartsWith("timed out: The download took longer than the ", StringComparison.Ordinal),
+                "the overall cap, sized by the declared length, still stops a download that trickles without stalling (" +
+                    trickleOutcome + ")",
+                ref failures,
+                output);
+
+            var stalling = new ScriptedHandler(delegate
+            {
+                return Answer(HttpStatusCode.OK, new PacedStream(1000, 1, 0, PaceEnd.Stall), -1);
+            });
+            string stallOutcome = DownloadOutcome(DownloadThrough(stalling, 1000000,
+                new SecureDownload.DownloadLimits(TimeSpan.FromSeconds(3), TimeSpan.FromMilliseconds(200), 4000)));
+            Check(
+                stallOutcome.StartsWith("timed out: No data arrived for ", StringComparison.Ordinal),
+                "WITNESS a stalled asset download still fails, with its own reason rather than the deadline's (" +
+                    stallOutcome + ")",
+                ref failures,
+                output);
+
+            // ---- N-catalog-insight-01: a hash mismatch is still refused, and now says why it may happen ----
+            const string assetUrl =
+                "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/selftest.zip";
+            var asset = new ScriptedHandler(delegate
+            {
+                return Answer(HttpStatusCode.OK, new MemoryStream(payload), -1);
+            });
+            string mismatchOutcome = DownloadOutcome(RemoteCatalogClient.DownloadVerifiedAsync(
+                assetUrl, SecureDownload.Sha256Hex(Encoding.ASCII.GetBytes("the previous payload")), 1024, asset,
+                CancellationToken.None));
+            Check(
+                mismatchOutcome.StartsWith("threw InvalidDataException: Downloaded content failed SHA-256 verification",
+                    StringComparison.Ordinal),
+                "a catalog asset that fails SHA-256 verification is refused and none of its bytes are returned (" +
+                    mismatchOutcome + ")",
+                ref failures,
+                output);
+            string mismatchReason = mismatchOutcome.StartsWith("threw InvalidDataException: ", StringComparison.Ordinal)
+                ? mismatchOutcome.Substring("threw InvalidDataException: ".Length) : "";
+            Check(
+                mismatchReason.Contains("so nothing was installed") &&
+                mismatchReason.Contains("five minutes after the catalog is published") &&
+                mismatchReason.Contains("old and new files") &&
+                mismatchReason.EndsWith("try again shortly.", StringComparison.Ordinal) &&
+                mismatchReason.Length <= 200,
+                "the hash-mismatch reason says a catalog published minutes ago can be served out of step, to try again " +
+                    "shortly, and fits the pane's 200 characters (" + mismatchReason.Length + ")",
+                ref failures,
+                output);
+            string matchOutcome = DownloadOutcome(RemoteCatalogClient.DownloadVerifiedAsync(
+                assetUrl, SecureDownload.Sha256Hex(payload), 1024, asset, CancellationToken.None));
+            Check(
+                matchOutcome == served && asset.Sends == 2,
+                "WITNESS a catalog asset whose SHA-256 matches is returned whole (" + matchOutcome + ")",
+                ref failures,
+                output);
+
+            // ---- N-catalog-insight-04: the production handler answers an authenticating proxy ----
+            using (HttpClientHandler production = SecureDownload.CreateHandler())
+            {
+                Check(
+                    ReferenceEquals(production.DefaultProxyCredentials, CredentialCache.DefaultCredentials) &&
+                    !production.UseDefaultCredentials && production.UseProxy && production.Proxy == null,
+                    "the production handler answers a proxy's 407 with the user's default credentials, offered to the " +
+                        "system proxy only and never to the server",
+                    ref failures,
+                    output);
+                Check(
+                    !production.AllowAutoRedirect && !production.UseCookies,
+                    "WITNESS the production handler still follows no redirect and keeps no cookies",
+                    ref failures,
+                    output);
+            }
+        }
+
+        private static Task<byte[]> DownloadThrough(
+            HttpMessageHandler handler,
+            int maximumBytes,
+            SecureDownload.DownloadLimits limits)
+        {
+            return SecureDownload.DownloadBytesAsync(
+                new Uri("https://example.invalid/reliability"), maximumBytes, limits, handler, CancellationToken.None);
+        }
+
+        /// <summary>How one download ended, waited for at most five seconds: "completed N bytes", "timed out:
+        /// reason", "threw Type: message", or that it did not end.</summary>
+        private static string DownloadOutcome(Task<byte[]> download)
+        {
+            try
+            {
+                if (!download.Wait(TimeSpan.FromSeconds(5))) return "did not end within 5 s";
+                return "completed " + download.Result.Length.ToString(CultureInfo.InvariantCulture) + " bytes";
+            }
+            catch (AggregateException ex)
+            {
+                Exception inner = ex;
+                while (inner is AggregateException && inner.InnerException != null) inner = inner.InnerException;
+                return (inner is TimeoutException ? "timed out: " : "threw " + inner.GetType().Name + ": ") + inner.Message;
+            }
+        }
+
+        private static HttpResponseMessage Answer(HttpStatusCode status, Stream body, long declaredLength)
+        {
+            var content = new StreamContent(body);
+            if (declaredLength >= 0) content.Headers.ContentLength = declaredLength;
+            return new HttpResponseMessage(status) { Content = content };
+        }
+
         private static void CheckRestartLifecycle(
             ref int failures,
             TextWriter output)
@@ -1545,6 +1767,132 @@ namespace DesktopAICompanion
                 if (disposing)
                     _pending.TrySetException(
                         new ObjectDisposedException("BlockingReadStream"));
+                base.Dispose(disposing);
+            }
+
+            public override long Seek(long offset, SeekOrigin origin)
+            {
+                throw new NotSupportedException();
+            }
+
+            public override void SetLength(long value)
+            {
+                throw new NotSupportedException();
+            }
+
+            public override void Write(byte[] buffer, int offset, int count)
+            {
+                throw new NotSupportedException();
+            }
+        }
+
+        /// <summary>A handler that answers each send through a script given its 1-based number, counting sends.
+        /// A script that throws is a send that failed before any response, the way a DNS, TLS or reset failure
+        /// reaches HttpClient.</summary>
+        private sealed class ScriptedHandler : HttpMessageHandler
+        {
+            private readonly Func<int, HttpResponseMessage> _answer;
+            private int _sends;
+
+            public ScriptedHandler(Func<int, HttpResponseMessage> answer)
+            {
+                _answer = answer;
+            }
+
+            public int Sends
+            {
+                get { return Volatile.Read(ref _sends); }
+            }
+
+            protected override Task<HttpResponseMessage> SendAsync(
+                HttpRequestMessage request,
+                CancellationToken cancellationToken)
+            {
+                int send = Interlocked.Increment(ref _sends);
+                try
+                {
+                    return Task.FromResult(_answer(send));
+                }
+                catch (Exception ex)
+                {
+                    return Task.FromException<HttpResponseMessage>(ex);
+                }
+            }
+        }
+
+        /// <summary>What a <see cref="PacedStream"/> does once its chunks are delivered.</summary>
+        private enum PaceEnd
+        {
+            End,
+            Stall,
+            Fail
+        }
+
+        /// <summary>
+        /// A response body that delivers <c>chunks</c> reads of <c>chunkBytes</c>, each after a pause of
+        /// <c>pauseMs</c>: a slow link. Then it ends, fails as a reset connection would, or stalls: the read
+        /// stays pending and ignores cancellation, as <see cref="BlockingReadStream"/>'s does, until disposal.
+        /// </summary>
+        private sealed class PacedStream : Stream
+        {
+            private readonly int _chunkBytes;
+            private readonly int _chunks;
+            private readonly int _pauseMs;
+            private readonly PaceEnd _end;
+            private readonly TaskCompletionSource<int> _stalled =
+                new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+            private int _delivered;
+
+            public PacedStream(int chunkBytes, int chunks, int pauseMs, PaceEnd end)
+            {
+                _chunkBytes = chunkBytes;
+                _chunks = chunks;
+                _pauseMs = pauseMs;
+                _end = end;
+            }
+
+            public override bool CanRead { get { return true; } }
+            public override bool CanSeek { get { return false; } }
+            public override bool CanWrite { get { return false; } }
+            public override long Length { get { throw new NotSupportedException(); } }
+            public override long Position
+            {
+                get { throw new NotSupportedException(); }
+                set { throw new NotSupportedException(); }
+            }
+
+            public override void Flush()
+            {
+            }
+
+            public override int Read(byte[] buffer, int offset, int count)
+            {
+                throw new NotSupportedException();
+            }
+
+            public override async Task<int> ReadAsync(
+                byte[] buffer,
+                int offset,
+                int count,
+                CancellationToken cancellationToken)
+            {
+                if (_delivered >= _chunks)
+                {
+                    if (_end == PaceEnd.Stall) return await _stalled.Task.ConfigureAwait(false);
+                    if (_end == PaceEnd.Fail) throw new IOException("The connection was reset after the body began.");
+                    return 0;
+                }
+                if (_pauseMs > 0) await Task.Delay(_pauseMs, cancellationToken).ConfigureAwait(false);
+                int delivered = Math.Min(count, _chunkBytes);
+                for (int i = 0; i < delivered; i++) buffer[offset + i] = (byte)'x';
+                _delivered++;
+                return delivered;
+            }
+
+            protected override void Dispose(bool disposing)
+            {
+                if (disposing)
+                    _stalled.TrySetException(new ObjectDisposedException("PacedStream"));
                 base.Dispose(disposing);
             }
 

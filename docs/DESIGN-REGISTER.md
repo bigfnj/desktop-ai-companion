@@ -5490,6 +5490,42 @@ and no other, rather than a new card changing the approved card order.
 **Measured on the owner's box, names only:** the storage folder (inside OneDrive) held 2 day folders with 3 recordings
 under the old names, 8 files (3 transcripts, 3 summaries, 2 recordings' audio; the third's audio already purged).
 
+#### feature/host-catalog
+
+Host, 2026-10-26: the four catalog and download items lane feature/catalog-insight filed (N-catalog-insight-01 to
+-04), in `src/dotNet/SecureDownload.cs` and `RemoteCatalogClient.DownloadVerifiedAsync`, checked by
+`--security-selftest`'s CheckSecureDownloadReliability through fake handlers and streams.
+
+**One retry, of a request that got no response, and nothing else is retried.** A failure with no HTTP status (DNS, TLS,
+a reset connection) is sent once more, as a fresh copy of the GET, after 500 ms and inside the same deadline. A
+response with any status is the server's answer and is never retried: the panes already tell a 429 or a 5xx to try
+again in a few minutes. The retry wraps the send alone, not the whole download, because the refused 3xx throws an
+HttpRequestException that carries no status and a wider retry would resend it; and nothing after the response began
+is retried, so a body is never read twice. Once, not more: the panes refetch on open and the weekly checks retry later.
+
+**The catalog keeps its one 60-second deadline; an asset gets a stall timeout and a cap sized by its length.** Every
+download through DownloadVerifiedAsync (modules, and pets and packs with them, since they share that door) fails after
+30 seconds with no data, and otherwise may run for its declared Content-Length at 256 KiB/s, never under 60 seconds.
+The length is the response's, not the catalog's "bytes", because it is what is actually being sent, the previous
+file included in the minutes after a publish. With no Content-Length the cap is the one for the caller's maximum (400
+seconds for a module). fortunes.zip's 30,481,345 bytes get 117 seconds, so it now installs on a link down to about 2.1
+Mbit/s instead of 4.1; slower than that it still fails, now in words of its own ("The download took longer than the
+117 seconds allowed for it and was stopped."), and the rate is the one constant to move if that floor proves too
+high. The rate is the brief's example, not a measurement of any link.
+
+**A hash mismatch is refused exactly as before; only its reason changed.** The reason now says a catalog published in
+the last five minutes can be served out of step with its files and to try again shortly (raw.githubusercontent.com's
+max-age=300, measured by lane feature/catalog-insight). Refused: commit-pinned asset URLs, which close the window only
+while the stamped commit survives the merge, and a squash or rebase would break every asset at once.
+
+**Proxy credentials go to the proxy only.** The handler sets `DefaultProxyCredentials` to the user's default
+credentials so an authenticating proxy's 407 is answered; `UseDefaultCredentials`, which would offer them to the server
+itself, stays false. No authenticating proxy was reachable, so the setting is asserted and the exchange is unverified.
+
+**Not guarded at run time: which limits each production call passes.** The catalog fetch reaches CatalogLimits
+through the three-argument `DownloadBytesAsync`, and DownloadVerifiedAsync passes AssetLimits; both build the real
+handler, so no offline check can see the choice. A source invariant would pin it.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

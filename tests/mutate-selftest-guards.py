@@ -12721,6 +12721,124 @@ CASES = (
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      'with another storage folder on screen, unapplied, it refuses'),
+    # ---- lane feature/host-catalog ----
+    # N-catalog-insight-01..04: the catalog and download reliability that CheckSecureDownloadReliability drives through
+    # fake handlers and streams (--security-selftest, no network). Each mutant rebuilds the host, where
+    # SecureDownload.cs and RemoteCatalog.cs compile.
+    ("host-catalog: a failure with no HTTP status is not retried",
+     SECURE_DOWNLOAD_CS,
+     b"                            attempt == 1 && !boundedToken.IsCancellationRequested && IsRetryable(failure, request))\n",
+     b"                            attempt == 0 && !boundedToken.IsCancellationRequested && IsRetryable(failure, request))\n",
+     HOST_CSPROJ, EXE,
+     SECURITY, None, "a failure with no HTTP status (DNS, TLS, reset) is retried once"),
+    ("host-catalog: the retry goes out with no pause",
+     SECURE_DOWNLOAD_CS,
+     b"        internal static readonly TimeSpan RetryDelay = TimeSpan.FromMilliseconds(500);\n",
+     b"        internal static readonly TimeSpan RetryDelay = TimeSpan.FromMilliseconds(0);\n",
+     HOST_CSPROJ, EXE,
+     SECURITY, None, "a failure with no HTTP status (DNS, TLS, reset) is retried once after a pause"),
+    ("host-catalog: a failure with no HTTP status is retried again and again",
+     SECURE_DOWNLOAD_CS,
+     b"                            attempt == 1 && !boundedToken.IsCancellationRequested && IsRetryable(failure, request))\n",
+     b"                            attempt <= 3 && !boundedToken.IsCancellationRequested && IsRetryable(failure, request))\n",
+     HOST_CSPROJ, EXE,
+     SECURITY, None, "a second failure with no HTTP status is not retried again"),
+    ("host-catalog: a response with an error status is retried",
+     SECURE_DOWNLOAD_CS,
+     b"                            received = await AwaitResponseWithCancellationRaceAsync(\n"
+     b"                                send,\n"
+     b"                                boundedToken).ConfigureAwait(false);\n",
+     b"                            received = await AwaitResponseWithCancellationRaceAsync(\n"
+     b"                                send,\n"
+     b"                                boundedToken).ConfigureAwait(false);\n"
+     b"                            if (attempt == 1 && !received.IsSuccessStatusCode) { received.Dispose(); received = null; }\n",
+     HOST_CSPROJ, EXE,
+     SECURITY, None, "WITNESS a response with a status is never retried"),
+    ("host-catalog: a failure after the body began is retried from the start",
+     SECURE_DOWNLOAD_CS,
+     b"                using (var request = new HttpRequestMessage(HttpMethod.Get, uri))\n"
+     b"                {\n"
+     b"                    return await DownloadBytesAsync(\n",
+     b"                try\n"
+     b"                {\n"
+     b"                    using (var first = new HttpRequestMessage(HttpMethod.Get, uri))\n"
+     b"                        return await DownloadBytesAsync(transport ?? owned, first, maximumBytes, limits, ct).ConfigureAwait(false);\n"
+     b"                }\n"
+     b"                catch (IOException) { }\n"
+     b"                using (var request = new HttpRequestMessage(HttpMethod.Get, uri))\n"
+     b"                {\n"
+     b"                    return await DownloadBytesAsync(\n",
+     HOST_CSPROJ, EXE,
+     SECURITY, None, "a failure after body bytes were accepted is not retried"),
+    ("host-catalog: an asset download gets no stall timer",
+     SECURE_DOWNLOAD_CS,
+     b"            if (limits.Stall > TimeSpan.Zero) stall.CancelAfter(limits.Stall);\n",
+     b"            if (limits.Stall < TimeSpan.Zero) stall.CancelAfter(limits.Stall);\n",
+     HOST_CSPROJ, EXE,
+     SECURITY, None, "WITNESS a stalled asset download still fails, with its own reason"),
+    ("host-catalog: a read that brings bytes does not restart the stall timer",
+     SECURE_DOWNLOAD_CS,
+     b"                                if (read == 0) break;\n"
+     b"                                ArmStall(stallCancellation, limits);\n",
+     b"                                if (read == 0) break;\n",
+     HOST_CSPROJ, EXE,
+     SECURITY, None, "a slow asset download that keeps moving outlives the floor deadline and the stall timer"),
+    ("host-catalog: a stall is reported in the deadline's words",
+     SECURE_DOWNLOAD_CS,
+     b"                        throw new TimeoutException(limits.StallReason());\n",
+     b"                        throw new TimeoutException(limits.DeadlineReason(deadline));\n",
+     HOST_CSPROJ, EXE,
+     SECURITY, None, "WITNESS a stalled asset download still fails, with its own reason"),
+    ("host-catalog: the cap is not sized by the declared length",
+     SECURE_DOWNLOAD_CS,
+     b"                        if (limits.ScalesWithSize && response.Content.Headers.ContentLength.HasValue)\n",
+     b"                        if (limits.ScalesWithSize && !response.Content.Headers.ContentLength.HasValue)\n",
+     HOST_CSPROJ, EXE,
+     SECURITY, None, "the overall cap, sized by the declared length, still stops a download that trickles"),
+    ("host-catalog: an asset's cap never rises above the floor with its size",
+     SECURE_DOWNLOAD_CS,
+     b"                return sized > Deadline ? sized : Deadline;\n",
+     b"                return Deadline;\n",
+     HOST_CSPROJ, EXE,
+     SECURITY, None, "a slow asset download that keeps moving outlives the floor deadline"),
+    ("host-catalog: an asset gets the catalog's limits",
+     SECURE_DOWNLOAD_CS,
+     b"            new DownloadLimits(DownloadDeadline, TimeSpan.FromSeconds(30), 256 * 1024);\n",
+     b"            new DownloadLimits(DownloadDeadline, TimeSpan.Zero, 0);\n",
+     HOST_CSPROJ, EXE,
+     SECURITY, None, "the catalog keeps one 60 s deadline; an asset gets a 30 s stall timeout"),
+    ("host-catalog: a hash mismatch keeps its old reason",
+     REMOTE_CATALOG,
+     b"                throw new InvalidDataException(HashMismatchReason, mismatch);\n",
+     b"                throw new InvalidDataException(mismatch.Message, mismatch);\n",
+     HOST_CSPROJ, EXE,
+     SECURITY, None, "the hash-mismatch reason says a catalog published minutes ago can be served out of step"),
+    ("host-catalog: a catalog asset is returned without its hash checked",
+     REMOTE_CATALOG,
+     b"                SecureDownload.RequireSha256(bytes, sha256);\n",
+     b"                SecureDownload.RequireSha256(bytes, SecureDownload.Sha256Hex(bytes));\n",
+     HOST_CSPROJ, EXE,
+     SECURITY, None, "a catalog asset that fails SHA-256 verification is refused"),
+    ("host-catalog: an authenticating proxy is answered with no credentials again",
+     SECURE_DOWNLOAD_CS,
+     b"                UseCookies = false,\n"
+     b"                DefaultProxyCredentials = CredentialCache.DefaultCredentials\n",
+     b"                UseCookies = false\n",
+     HOST_CSPROJ, EXE,
+     SECURITY, None, "the production handler answers a proxy's 407 with the user's default credentials"),
+    ("host-catalog: the user's credentials are offered to the server as well",
+     SECURE_DOWNLOAD_CS,
+     b"                DefaultProxyCredentials = CredentialCache.DefaultCredentials\n",
+     b"                DefaultProxyCredentials = CredentialCache.DefaultCredentials,\n"
+     b"                UseDefaultCredentials = true\n",
+     HOST_CSPROJ, EXE,
+     SECURITY, None, "the production handler answers a proxy's 407 with the user's default credentials"),
+    ("host-catalog: the production handler follows redirects",
+     SECURE_DOWNLOAD_CS,
+     b"                AllowAutoRedirect = false,\n",
+     b"                AllowAutoRedirect = true,\n",
+     HOST_CSPROJ, EXE,
+     SECURITY, None, "WITNESS the production handler still follows no redirect and keeps no cookies"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
