@@ -4937,7 +4937,7 @@ CASES = (
     # RA-104: the commit's catch deletes the backup whatever state the destination is in again.
     ("burn-fortunes: importer: a torn replace deletes the backup that holds the pack again",
      FORTUNE_IMPORTER,
-     b"                    RestoreTornReplace(destinationPath, backupPath);\n"
+     b"                    RestoreTornReplace(destinationPath, backupPath, report);\n"
      b"                    throw;",
      b"                    TryDeleteFile(backupPath);\n"
      b"                    throw;",
@@ -12721,6 +12721,148 @@ CASES = (
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      'with another storage folder on screen, unapplied, it refuses'),
+
+    # ---- lane feature/modules-small ----
+    # Campaign 2026-10-26, lane modules-small. Fortunes: the catalog block's reason walks InnerException as the host's
+    # CatalogText.Reason does (N-layout-fortunes-01), and an import's rollback and backup deletes are counted and logged
+    # (N-remembrance-delete-logging-03, -04). Every Fortunes case runs the module's own SelfTest through the convention
+    # flag (FortuneEngineProbe: CatalogFailureChecks, ImportDeleteLogChecks, the folder-action scenario). Names carry the
+    # "modules-small:" prefix so `--only=modules-small:` runs the lane.
+
+    # N-layout-fortunes-01: the block quotes the outer message again, "..., see inner exception." and all.
+    ("modules-small: fortunes: the catalog reason quotes the outer message again",
+     FORTUNES_MODULE,
+     b"            string reason = Short(CatalogReason(ex)).TrimEnd('.', ' ');\n",
+     b"            string reason = Short(ex == null ? \"\" : ex.Message).TrimEnd('.', ' ');\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "quotes the inner one's words after its head"),
+
+    # ...every message takes its inner exception's words, pointing at it or not.
+    ("modules-small: fortunes: every catalog reason takes its inner exception's words",
+     FORTUNES_MODULE,
+     b'                 text.IndexOf("inner exception", StringComparison.OrdinalIgnoreCase) >= 0; depth++)',
+     b'                 text.Length >= 0; depth++)',
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "WITNESS a message that does not point at its inner exception keeps its own words"),
+
+    # ...the walk stops one level down, short of the words at the chain's end.
+    ("modules-small: fortunes: the catalog reason stops one level down",
+     FORTUNES_MODULE,
+     b"                inner = inner.InnerException;\n",
+     b"                inner = null;\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a chain of messages that each point inward is followed to the words at its end"),
+
+    # N-remembrance-delete-logging-03: the rollback's removed pack goes uncounted.
+    ("modules-small: fortunes: a rollback's removed pack is not counted",
+     FORTUNE_IMPORTER,
+     b"                        if (report != null) report.RollbackRemoved++;\n",
+     b"                        if (report != null) report.RollbackRemoved += 0;\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a failed batch's rollback is counted"),
+
+    ("modules-small: fortunes: a rollback's restored pack is not counted",
+     FORTUNE_IMPORTER,
+     b"                        if (report != null) report.RollbackRestored++;\n",
+     b"                        if (report != null) report.RollbackRestored += 0;\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a failed batch's rollback is counted"),
+
+    # ...a pack the rollback could not undo only clears `complete` again.
+    ("modules-small: fortunes: a rollback failure is swallowed again",
+     FORTUNE_IMPORTER,
+     b"                    if (report != null) report.RollbackNotUndone(ex);\n",
+     b"                    if (report != null && ex == null) report.RollbackNotUndone(ex);\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "counts the failure by its exception type"),
+
+    # ...a rollback with nothing to undo writes a line of zeros.
+    ("modules-small: fortunes: a rollback with nothing to undo is logged",
+     FORTUNES_MODULE,
+     b'            if (result == null || result.RollbackRemoved + result.RollbackRestored + result.RollbackFailed == 0) return "";\n',
+     b'            if (result == null) return "";\n',
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "WITNESS a rollback with nothing to undo"),
+
+    # ...the line drops the failures' types.
+    ("modules-small: fortunes: the rollback line drops the failures' types",
+     FORTUNES_MODULE,
+     b'            return result.RollbackFailed > 0 ? line + " (" + result.RollbackFailureTypes + ")" : line;\n',
+     b"            return line;\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "counts the failure by its exception type"),
+
+    # ...the module never writes the rollback line it built.
+    ("modules-small: fortunes: the rollback line is never logged",
+     FORTUNES_MODULE,
+     b"            if (rollback.Length > 0) Log(rollback);\n",
+     b"            if (rollback.Length < 0) Log(rollback);\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "removes that pack and logs one line"),
+
+    # ...the pane's import never reports what its import deleted.
+    ("modules-small: fortunes: the pane's import does not log its deletes",
+     FORTUNES_MODULE,
+     b"                LogImportDeletes(result);\n",
+     b"",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "removes that pack and logs one line"),
+
+    # N-remembrance-delete-logging-04: a committed batch's backup goes through the silent delete again.
+    ("modules-small: fortunes: a committed replace's backup is deleted in silence again",
+     FORTUNE_IMPORTER,
+     b"                            DeleteBackup(committedImport.BackupPath, result);\n",
+     b"                            TryDeleteFile(committedImport.BackupPath);\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a replacing batch that committed deletes the earlier version's backup and counts it"),
+
+    # ...so does the backup a refused replace reserved.
+    ("modules-small: fortunes: a refused replace's backup is deleted in silence again",
+     FORTUNE_IMPORTER,
+     b"            DeleteBackup(backupPath, report);\n",
+     b"            TryDeleteFile(backupPath);\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a refused replace that left the pack in place deletes the backup it had reserved"),
+
+    # ...a deleted backup goes uncounted.
+    ("modules-small: fortunes: a deleted backup is not counted",
+     FORTUNE_IMPORTER,
+     b"                if (report != null) report.BackupsDeleted++;\n",
+     b"",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a replacing batch that committed deletes the earlier version's backup and counts it"),
+
+    # ...a backup that will not delete is swallowed again.
+    ("modules-small: fortunes: a backup that will not delete is swallowed again",
+     FORTUNE_IMPORTER,
+     b"                if (report != null) report.BackupNotDeleted(ex);\n",
+     b"                if (report != null && ex == null) report.BackupNotDeleted(ex);\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a backup that will not delete is counted as a failure by its exception type"),
+
+    # ...the module never writes the backups' line it built.
+    ("modules-small: fortunes: the backups line is never logged",
+     FORTUNES_MODULE,
+     b"            if (backups.Length > 0) Log(backups);\n",
+     b"            if (backups.Length < 0) Log(backups);\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "an import's backup deletes are logged in one line"),
+
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

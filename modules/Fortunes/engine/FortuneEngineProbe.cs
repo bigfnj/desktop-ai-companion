@@ -365,6 +365,8 @@ namespace DesktopAICompanion.FortunesModule
                         File.ReadAllText(Path.Combine(lockedDest, "replace.txt"), utf8) == beforeTorn &&
                         Directory.GetFiles(lockedDest).Length == 1);
 
+                    ok = ImportDeleteLogChecks(sb, folder, utf8, retried, refused, torn) && ok;
+
                     // R-030, pinned: F132's decode-then-validate order admits a tagged row whose text column
                     // carries whitespace around it, TRIMMED, where 1.0.11 refused the row as untrimmed. The
                     // friendlier contract is kept (register, burn/fortunes); a change to it fails here first.
@@ -1004,12 +1006,144 @@ namespace DesktopAICompanion.FortunesModule
                 longLine.IndexOf(new string('x', 161), StringComparison.Ordinal) < 0);
             ok &= Check(sb, "a host message that is empty leaves no empty reason line behind",
                 block(new System.Net.Http.HttpRequestException("")) == "✗ Couldn't reach the catalog" + unreachableWhose + when);
+            // N-layout-fortunes-01: a message that only points at its inner exception takes the inner one's words, as
+            // the host's own panels do (CatalogText.Reason). The outer sentence is .NET's own for an HttpRequestException
+            // over a failed TLS handshake; the inner one is an AuthenticationException's, as the handshake raises it.
+            var tls = new System.Net.Http.HttpRequestException(
+                "The SSL connection could not be established, see inner exception.",
+                new System.Security.Authentication.AuthenticationException(
+                    "The remote certificate is invalid because of errors in the certificate chain: UntrustedRoot"));
+            string tlsBlock = block(tls);
+            sb.AppendLine("    catalog tls: " + tlsBlock.Replace("\n", " | "));
+            ok &= Check(sb, "a failure whose message only points at its inner exception quotes the inner one's words after its head (N-layout-fortunes-01)",
+                tlsBlock == "✗ Couldn't reach the catalog\nWhat failed: The SSL connection could not be established: " +
+                            "The remote certificate is invalid because of errors in the certificate chain: UntrustedRoot." +
+                            unreachableWhose + when);
+            var chained = new InvalidOperationException("The catalog check failed, see inner exception.",
+                new System.Net.Http.HttpRequestException("An error occurred while sending the request, see inner exception.",
+                    new System.IO.IOException("Unable to read data from the transport connection.")));
+            ok &= Check(sb, "a chain of messages that each point inward is followed to the words at its end",
+                block(chained).StartsWith("✗ The catalog check failed\nWhat failed: The catalog check failed: " +
+                    "An error occurred while sending the request: Unable to read data from the transport connection.\n",
+                    StringComparison.Ordinal));
+            ok &= Check(sb, "WITNESS a message that does not point at its inner exception keeps its own words, with an inner exception beside it",
+                block(new System.Net.Http.HttpRequestException("No such host is known.",
+                        new System.Net.Sockets.SocketException(11001))) ==
+                "✗ Couldn't reach the catalog\nWhat failed: No such host is known." + unreachableWhose + when);
             // The time line: "today" only while it is. A block the pane draws the next morning names the date.
             DateTime yesterday = checkedAt.AddDays(-1);
             string aged = FortunesModule.CatalogFailureBlock(new TimeoutException("The request timed out."), yesterday, now);
             ok &= Check(sb, "a block checked on an earlier day names the date and time, never 'today'",
                 aged.EndsWith("\nChecked at " + yesterday.ToString("g", culture) + ". “Check online for packs” tries again.", StringComparison.Ordinal) &&
                 aged.IndexOf("today", StringComparison.Ordinal) < 0);
+            return ok;
+        }
+
+        /// <summary>
+        /// N-remembrance-delete-logging-03 and -04: what an import deletes of the user's packs is counted in its result
+        /// and written as at most two lines, by count and exception type, never by name. Through the importer's replace
+        /// seam on throwaway folders under <paramref name="folder"/>: a failed batch whose rollback removed the pack it
+        /// had written new and put back the one it had replaced, the same rollback unable to put that one back, and a
+        /// committed replace whose backup will not delete. The three results the checks above made stand for the cases
+        /// they already are: a committed replace (<paramref name="retried"/>), a refused one that left the pack in place
+        /// (<paramref name="refused"/>) and a torn one put back from its backup (<paramref name="torn"/>).
+        /// </summary>
+        private static bool ImportDeleteLogChecks(StringBuilder sb, string folder, Encoding utf8,
+            FortuneImportBatchResult retried, FortuneImportBatchResult refused, FortuneImportBatchResult torn)
+        {
+            bool ok = true;
+            ok &= Check(sb, "a replacing batch that committed deletes the earlier version's backup and counts it: one line, deleted=1",
+                retried.BackupsDeleted == 1 && retried.BackupsNotDeleted == 0 &&
+                FortunesModule.DescribeImportBackups(retried) == "replaced-pack backups: deleted=1 failed=0");
+            ok &= Check(sb, "WITNESS a batch that committed whole rolled nothing back and writes no rollback line",
+                FortunesModule.DescribeImportRollback(retried) == "");
+            ok &= Check(sb, "a refused replace that left the pack in place deletes the backup it had reserved, and counts it",
+                refused.BackupsDeleted == 1 && refused.BackupsNotDeleted == 0);
+            ok &= Check(sb, "WITNESS a rollback with nothing to undo (the batch's first commit failed) writes no line",
+                refused.RollbackRemoved + refused.RollbackRestored + refused.RollbackFailed == 0 &&
+                FortunesModule.DescribeImportRollback(refused) == "");
+            ok &= Check(sb, "WITNESS a torn replace put back from its backup deletes no backup and writes no backup line",
+                torn.BackupsDeleted == 0 && torn.BackupsNotDeleted == 0 && FortunesModule.DescribeImportBackups(torn) == "");
+
+            // A batch of three in source order: a replaced pack, a new one, and a replace refused last, so the first
+            // two are rolled back. The rollback's own restore goes through the same seam with no backup path, which is
+            // how failRestore tells it from a commit.
+            Func<bool, Action<string, string, string, bool>> seam = failRestore =>
+                delegate(string temporaryPath, string destinationPath, string backupPath, bool ignoreMetadataErrors)
+                {
+                    if (backupPath == null && failRestore)
+                        throw new UnauthorizedAccessException("fault-injected rollback refusal");
+                    if (backupPath != null && destinationPath.EndsWith("z-refused.txt", StringComparison.OrdinalIgnoreCase))
+                        throw new UnauthorizedAccessException("fault-injected last commit refusal");
+                    File.Replace(temporaryPath, destinationPath, backupPath, ignoreMetadataErrors);
+                };
+            var bothReplaced = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "a-replaced.txt", "z-refused.txt" };
+            Func<string, FortuneImportBatchResult> batch = delegate(string caseName)
+            {
+                string destination = Path.Combine(folder, caseName + "-dest");
+                string sources = Path.Combine(folder, caseName + "-src");
+                Directory.CreateDirectory(destination);
+                Directory.CreateDirectory(sources);
+                File.WriteAllText(Path.Combine(destination, "a-replaced.txt"), "The first pack's original line, long enough.\n", utf8);
+                File.WriteAllText(Path.Combine(destination, "z-refused.txt"), "The last pack's original line, long enough.\n", utf8);
+                var picked = new List<string>();
+                foreach (string name in new[] { "a-replaced.txt", "n-new.txt", "z-refused.txt" })
+                {
+                    string source = Path.Combine(sources, name);
+                    File.WriteAllText(source, "A replacement fortune line for this pack, long enough.\n", utf8);
+                    picked.Add(source);
+                }
+                return FortuneFileImporter.ImportForDiagnostics(picked, destination, bothReplaced, seam(caseName == "rollback-fails"));
+            };
+
+            FortuneImportBatchResult undone = batch("rollback-works");
+            string undoneDest = Path.Combine(folder, "rollback-works-dest");
+            string undoneLine = FortunesModule.DescribeImportRollback(undone);
+            sb.AppendLine("    import rollback: " + undoneLine);
+            ok &= Check(sb, "a failed batch's rollback is counted: the new pack removed, the replaced pack restored from its backup, nothing failed",
+                undone.ImportedCount == 0 && undone.RollbackRemoved == 1 && undone.RollbackRestored == 1 && undone.RollbackFailed == 0 &&
+                !File.Exists(Path.Combine(undoneDest, "n-new.txt")) &&
+                File.ReadAllText(Path.Combine(undoneDest, "a-replaced.txt"), utf8).StartsWith("The first pack's original", StringComparison.Ordinal) &&
+                Directory.GetFiles(undoneDest).Length == 2);
+            ok &= Check(sb, "...and its one line says so: import rolled back: removed=1 restored=1 failed=0",
+                undoneLine == "import rolled back: removed=1 restored=1 failed=0");
+
+            FortuneImportBatchResult stuck = batch("rollback-fails");
+            string stuckLine = FortunesModule.DescribeImportRollback(stuck);
+            sb.AppendLine("    import rollback that failed: " + stuckLine);
+            bool unverified = stuck.Items.Count > 0 && stuck.Items[0].Error != null &&
+                              stuck.Items[0].Error.IndexOf("rollback could not be fully verified", StringComparison.Ordinal) >= 0;
+            ok &= Check(sb, "a rollback that cannot put a replaced pack back counts the failure by its exception type, beside what it did undo",
+                unverified && stuck.RollbackRemoved == 1 && stuck.RollbackRestored == 0 && stuck.RollbackFailed == 1 &&
+                stuckLine == "import rolled back: removed=1 restored=0 failed=1 (UnauthorizedAccessException)");
+            ok &= Check(sb, "WITNESS the rollback line names no pack and no folder",
+                stuckLine.IndexOf("a-replaced", StringComparison.OrdinalIgnoreCase) < 0 &&
+                stuckLine.IndexOf("n-new", StringComparison.OrdinalIgnoreCase) < 0 &&
+                stuckLine.IndexOf(folder, StringComparison.OrdinalIgnoreCase) < 0);
+
+            // A committed replace whose backup will not delete: the seam replaces for real, then makes the backup
+            // read-only, which File.Delete refuses with UnauthorizedAccessException.
+            string keptDest = Path.Combine(folder, "backup-kept-dest");
+            string keptSrc = Path.Combine(folder, "backup-kept-src");
+            Directory.CreateDirectory(keptDest);
+            Directory.CreateDirectory(keptSrc);
+            File.WriteAllText(Path.Combine(keptDest, "kept.txt"), "The kept pack's original line, long enough.\n", utf8);
+            File.WriteAllText(Path.Combine(keptSrc, "kept.txt"), "The kept pack's replacement line, long enough.\n", utf8);
+            FortuneImportBatchResult kept = FortuneFileImporter.ImportForDiagnostics(
+                new[] { Path.Combine(keptSrc, "kept.txt") }, keptDest,
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "kept.txt" },
+                delegate(string temporaryPath, string destinationPath, string backupPath, bool ignoreMetadataErrors)
+                {
+                    File.Replace(temporaryPath, destinationPath, backupPath, ignoreMetadataErrors);
+                    File.SetAttributes(backupPath, FileAttributes.ReadOnly);
+                });
+            string keptLine = FortunesModule.DescribeImportBackups(kept);
+            sb.AppendLine("    import backup kept: " + keptLine);
+            ok &= Check(sb, "a backup that will not delete is counted as a failure by its exception type, and stays beside the pack",
+                kept.ImportedCount == 1 && kept.BackupsDeleted == 0 && kept.BackupsNotDeleted == 1 &&
+                keptLine == "replaced-pack backups: deleted=0 failed=1 (UnauthorizedAccessException)" &&
+                Directory.GetFiles(keptDest).Length == 2);
+            foreach (string leftover in Directory.GetFiles(keptDest)) File.SetAttributes(leftover, FileAttributes.Normal);
             return ok;
         }
 
@@ -1666,6 +1800,48 @@ namespace DesktopAICompanion.FortunesModule
                             rejected.IndexOf("(not-a-pack.txt: ", StringComparison.Ordinal) >= 0 &&
                             rejected.IndexOf(storage.DataDirectory, StringComparison.OrdinalIgnoreCase) < 0 &&
                             !File.Exists(Path.Combine(folder, "not-a-pack.txt")));
+
+                        // N-remembrance-delete-logging-03, through the pane's own import: a batch whose second pack
+                        // cannot land rolls back the first, and the module logs that once, by count. A FOLDER holding
+                        // the second pack's name is what refuses it: the importer's snapshot lists files only, so the
+                        // batch is admitted, and the move onto a folder's name fails at the commit, after the first
+                        // pack has landed. The imports above committed whole and wrote no such line.
+                        ok &= Check(sb, "WITNESS an import that committed whole, or refused a file before its commit, logs no rollback line and no backup line",
+                            CountLines(host.LoggedLines, "fortunes: import rolled back") == 0 &&
+                            CountLines(host.LoggedLines, "fortunes: replaced-pack backups") == 0);
+                        string blocker = Path.Combine(folder, "zz-blocked.txt");
+                        Directory.CreateDirectory(blocker);
+                        string landsFirst = Path.Combine(storage.DataDirectory, "aa-lands-first.txt");
+                        string blocked = Path.Combine(storage.DataDirectory, "zz-blocked.txt");
+                        File.WriteAllText(landsFirst, "A pack line that lands first, long enough to count.\n", utf8);
+                        File.WriteAllText(blocked, "A pack line whose name a folder holds, long enough.\n", utf8);
+                        host.PickedFiles = new List<string> { landsFirst, blocked };
+                        string rolledBack = import.InvokeAsync().GetAwaiter().GetResult() ?? "";
+                        host.PickedFiles = new List<string>();
+                        try { Directory.Delete(blocker); } catch { }
+                        string rollbackLine = host.LoggedLines.FindLast(delegate(string l)
+                        {
+                            return l.StartsWith("fortunes: import rolled back", StringComparison.Ordinal);
+                        });
+                        sb.AppendLine("    pane import rollback: " + (rollbackLine ?? "(no line)"));
+                        ok &= Check(sb, "an import whose batch fails after its first pack landed removes that pack and logs one line: import rolled back: removed=1 restored=0 failed=0",
+                            rolledBack.IndexOf("Imported 0 packs", StringComparison.Ordinal) >= 0 &&
+                            !File.Exists(Path.Combine(folder, "aa-lands-first.txt")) &&
+                            CountLines(host.LoggedLines, "fortunes: import rolled back") == 1 &&
+                            rollbackLine == "fortunes: import rolled back: removed=1 restored=0 failed=0");
+
+                        // The backups' line has no pane path to it (this import approves no overwrite), so it is driven
+                        // through the same method with the importer's counts handed in.
+                        var backupCounts = new FortuneImportBatchResult { BackupsDeleted = 2 };
+                        backupCounts.BackupNotDeleted(new IOException("C:\\Users\\someone\\fortunes\\.bsecret in use"));
+                        module.LogImportDeletes(backupCounts);
+                        string backupLine = host.LoggedLines.FindLast(delegate(string l)
+                        {
+                            return l.StartsWith("fortunes: replaced-pack backups", StringComparison.Ordinal);
+                        });
+                        ok &= Check(sb, "an import's backup deletes are logged in one line with the failures' types, never their messages",
+                            CountLines(host.LoggedLines, "fortunes: replaced-pack backups") == 1 &&
+                            backupLine == "fortunes: replaced-pack backups: deleted=2 failed=1 (IOException)");
 
                         // Download: the catalog stand-in hands the bytes; the file lands and joins the pool.
                         host.CatalogItems[CatalogKinds.Pack] = new List<CatalogItem>
