@@ -6338,6 +6338,59 @@ would cost one more read per minute while the pane stays open, never a tight loo
 user's own Claude Code settings files are read unless the switch is on, and that every Claude Code model call names the
 permission mode `default`; Remembrance's paragraph names its switch too.
 
+#### feature/remembrance-next
+
+The owner's three requests of 2026-10-27, for Remembrance 2.8.0 and host 1.7.1 (versions are the coordinator's, set at
+publish). The bounded model calls this lane was allowed ran on synthetic transcripts only, through the module's own
+runner and arguments; their outputs stay under the lane's TEMP and are not committed.
+
+**The summary's prompt is a file the user keeps, not text in the pane (the owner's design: "I can point it at a txt file
+and update the prompt on my own but new users have a nice built-in prompt already").** "Summary prompt" chooses "Use the
+built-in prompt" (the default) or "Use my own prompt file", whose `.txt` path row is live only while it is chosen. The
+file is read for every summary at the moment its prompt is built, so an edit reaches the next summary with no Apply. A
+file that is missing, unreadable, empty or over 16,000 characters is not used: the summary goes out on the built-in
+prompt, the Status line ends "(⚠ the built-in prompt was used: ...)", and the log says why in one word, never the path
+or the text. An empty prompt is never sent. "Save the built-in prompt to a file…" writes the built-in one to a file the
+user picks (a WinForms save dialog: the host offers modules an open dialog and no save one) and changes no setting.
+What is not a defect: the text in a pane row was refused because the host's Text row is a single-line WPF TextBox whose
+paste filter keeps only the first line (measured on .NET 10's WPF, `TextEditor._FilterText` with `AcceptsReturn` false);
+a host multi-line kind would have raised the module's floor; this lane's first build, a module-owned editor window, was
+replaced by the owner's design the same day. The follow-up's prompt is a file by the same mechanism, with no built-in
+one, so with no usable file no follow-up runs, and that is said.
+
+**What kept summaries brief, and what was lifted.** The built-in asks were "Summary (3-6 bullets), Decisions, Action items
+(owner where named), Open questions", and the CLI's system prompt asked for "plain text", against the table an action
+list wants. Both changed: the built-in prompt asks, generically, for an overview, a part per topic with its specifics,
+who contributed what, decisions with their reasoning and the alternatives weighed, concerns and how they were answered,
+a table of action items (Owner, Action, Details, Due, Follow up with) and open questions, and an ending never cut
+mid-sentence; its first line is still "Summarize this meeting transcript.". A cloud provider that stopped an answer at
+its own output limit (`finish_reason` "length") had the cut answer saved as a whole summary; it is now saved with a line
+saying it ends early. Refused: discarding the cut answer, or asking again, which is a second call's cost for the same
+limit. Not binding and left: the runner's 8 MB output read, Claude Code's own output ceiling (an error, not a cut), the
+360 KB one-call transcript limit, the ten-minute bound, the cloud's 1 MB response bound; the local map-reduce's part and
+merge sizes are a small local model's and its merge already says what it did not cover.
+
+**The follow-up after the summary (the owner: "yes, build the ability to chain please").** Off by default, in a card of
+its own after the CLI card, never greyed: it runs after a summary from any engine, and "Run the follow-up on the latest
+summary" works with the switch off. Codex unless the user picks Claude Code. It sends the summary with its header left
+off, and the transcript only when "The follow-up reads" says so. Its model, effort and Claude Code settings switch are the
+ones the Coding-agent CLI card saves for that CLI; refused: four more model and effort rows in this card that would have
+to be kept in step with the CLI card's. The answer is written to `<summary's name> - follow-up.md` beside the summary
+through a temporary file, and nothing in the follow-up writes the summary's file, so a failed follow-up leaves the
+summary and any earlier follow-up as they were. The latest summary is the newest of the one this session wrote and the
+newest `.summary.txt` in the storage folder and the folders one level under it. A follow-up file is not one of the names
+"Rename older recordings" moves, so one made for a recording still under its pre-2.6.0 name keeps that name when the
+recording is renamed.
+
+**The question card's height follows its content (host 1.7.1; the owner: "the prompt is too low, a refresh puts it in
+the correct place").** Reproduced on the owner's box (one monitor, 2560x1440 at 100%, the taskbar at the bottom) under
+`--trayquestions-selftest`: the pre-show measure was right (132 DIP measured, 131.84 laid out), but a question queued
+behind the card brings in "+1 more waiting", the content grew to 150.5 DIP inside a window whose height was fixed before
+it was shown, and the row of buttons ended 5.5 DIP past the card's bottom edge. The stack is now laid out at its own
+height, the window takes that height whenever it changes, every change of the window's size places it again in the
+tray's corner, and a work-area change (`WM_SETTINGCHANGE` with `SPI_SETWORKAREA`, or `WM_DISPLAYCHANGE`) places it again
+too. The pre-show measure stays as the estimate the first placement uses.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of
