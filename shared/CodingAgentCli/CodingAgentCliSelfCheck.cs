@@ -60,6 +60,27 @@ namespace DesktopAICompanion.CodingAgent
             int at = Arguments.IndexOf(flag);
             return at >= 0 && at + 1 < Arguments.Count ? Arguments[at + 1] : null;
         }
+
+        private const string SettingSourcesFlag = "--setting-sources";
+
+        /// <summary>Whether the call names the flag of the opt-in that keeps the user's own Claude Code settings files out,
+        /// in any form. Here, in the shared self-check, so a module's own checks never type the flag, which
+        /// tests/runtime-hardening-selftest.ps1 counts in the modules' code (lane feature/cli-followups, N-cli-runner-03).</summary>
+        internal bool NamesSettingSources
+        {
+            get { return Arguments.Exists(delegate(string a) { return a != null && a.StartsWith(SettingSourcesFlag, StringComparison.Ordinal); }); }
+        }
+
+        /// <summary>Whether the call reads none of the user's Claude Code settings files: the opt-in's flag with an empty
+        /// list, once.</summary>
+        internal bool LeavesOutOwnClaudeSettings
+        {
+            get
+            {
+                return Arguments.FindAll(delegate(string a) { return a != null && a.StartsWith(SettingSourcesFlag, StringComparison.Ordinal); }).Count == 1 &&
+                       After(SettingSourcesFlag) == "";
+            }
+        }
     }
 
     /// <summary>The fake CLI behind the runner's process seam: records each start and answers through Respond.</summary>
@@ -393,6 +414,11 @@ namespace DesktopAICompanion.CodingAgent
             Guard(check, "an organisation's managed MCP policy", CheckMcpPolicyRefusal);
             Guard(check, "the opt-in that keeps the user's Claude Code settings out", CheckOwnSettingsLeftOut);
             Guard(check, "Claude Code's permission mode named", CheckPermissionModeNamed);
+            // Lane feature/cli-followups.
+            Guard(check, "Codex's own analytics off", CheckCodexAnalyticsOff);
+            Guard(check, "Codex's real effort refusal", CheckCodexEffortRefusal);
+            Guard(check, "a Codex model at capacity", CheckCodexModelAtCapacity);
+            Guard(check, "a details read's landing", CheckDetailsReadLanded);
         }
 
         private static void Guard(Action<string, bool> check, string group, Action<Action<string, bool>> run)
@@ -569,7 +595,11 @@ namespace DesktopAICompanion.CodingAgent
                 "-c", "model_reasoning_effort=medium", "-c", "include_permissions_instructions=false",
                 // Re-pointed by lane feature/codex-project-docs (aibrain 1.5.2): no project AGENTS.md is read, which a .git
                 // above the module's folder made Codex send (measured 2026-10-11; the site has the rows).
-                "-c", "include_environment_context=false", "-c", "project_doc_max_bytes=0",
+                "-c", "include_environment_context=false",
+                // Re-pointed by lane feature/cli-followups (aibrain 1.6.0): Codex's own analytics off, a privacy control by
+                // the owner's decision of 2026-10-27 (the site has the measurement).
+                "-c", "analytics.enabled=false",
+                "-c", "project_doc_max_bytes=0",
                 // Re-pointed by lane feature/codex-config-refusal (aibrain 1.5.6): no skills section, whose skill-roots table
                 // names the user's profile folder, a privacy control by the owner's decision (the site has the reasons).
                 "-c", "skills.include_instructions=false",
@@ -1971,11 +2001,16 @@ namespace DesktopAICompanion.CodingAgent
                 manyListed.Count == CodingAgentCli.MaximumListedModels && manyFacts.Count == past &&
                 manyFacts.ContainsKey(lastOne) && !manyFacts[lastOne].TakesImages);
             // F17's reading of a refusal: about the effort only with "reasoning" or "effort" in it and the effort standing alone.
-            check("cli runner: a refusal is about the effort only when it says reasoning or effort and names the effort itself",
-                CodingAgentCli.RefusalNamesEffort("Unsupported value: 'reasoning.effort' does not support 'low' with this model.", "low") &&
+            // Re-pointed by lane feature/cli-followups (BACKLOG N-measure-model-01): the refusal that names the effort is
+            // Codex's REAL one as the pane quotes it (CodexServerCaptures.MinimalEffortStdout, gpt-6.1-sol sent effort
+            // minimal), where it was a wording made up for the review, which the real one turned out not to fit. The three
+            // refusals that must not read as the effort's are the review's, as they were.
+            string realEffort = Interpreted(CodingAgentKind.Codex, 1, CodexServerCaptures.MinimalEffortStdout, "", null).Said;
+            check("cli runner: a refusal is about the effort only when it says reasoning or effort and names the effort itself: " + realEffort,
+                CodingAgentCli.RefusalNamesEffort(realEffort, "minimal") &&
                 !CodingAgentCli.RefusalNamesEffort("reasoning models are not allowed for this account", "low") &&
                 !CodingAgentCli.RefusalNamesEffort("The requested model is not supported at low priority", "low") &&
-                !CodingAgentCli.RefusalNamesEffort("Unsupported value: 'reasoning.effort' does not support 'low'", ""));
+                !CodingAgentCli.RefusalNamesEffort(realEffort, ""));
 
             using (var scratch = new FakeCliScratch())
             {
@@ -2462,7 +2497,8 @@ namespace DesktopAICompanion.CodingAgent
         /// them, twelve --disable and five -c features keys, and since lane feature/codex-config-refusal (aibrain 1.5.6) the
         /// skills section off. Typed here and not read from the runner, so a switch dropped from CodexDisabledFeatures or
         /// CodexFeatureKeysOff is seen. The effort and the instructions file vary by call, so those two are read by their
-        /// key, the file only where the call has a persona.</summary>
+        /// key, the file only where the call has a persona. Since lane feature/cli-followups (aibrain 1.6.0) Codex's own
+        /// analytics off as well.</summary>
         private static List<string> MissingCodexRequiredFlags(List<string> arguments, bool persona, string where)
         {
             var missing = new List<string>();
@@ -2478,6 +2514,8 @@ namespace DesktopAICompanion.CodingAgent
                 new[] { "-s", "read-only" },
                 new[] { "-c", "include_permissions_instructions=false" },
                 new[] { "-c", "include_environment_context=false" },
+                // Lane feature/cli-followups (aibrain 1.6.0): Codex's own analytics off.
+                new[] { "-c", "analytics.enabled=false" },
                 new[] { "-c", "project_doc_max_bytes=0" },
                 new[] { "-c", "skills.include_instructions=false" },
             };
@@ -3780,6 +3818,220 @@ namespace DesktopAICompanion.CodingAgent
                     FlagMentions(new List<string> { "--permission-modes" }, "--permission-mode") == 0);
             }
         }
+
+        // ---- lane feature/cli-followups ----
+
+        /// <summary>
+        /// BACKLOG N-cli-home-files-07, the owner's decision of 2026-10-27 ("Always off for companion calls"): every Codex
+        /// MODEL call, each shape built (8) and each call through the runner's fake CLI (a remark, a screenshot, a summary
+        /// and Validate), carries -c analytics.enabled=false exactly once and no other analytics key; no probe carries one.
+        /// And the fail-closed path names it: a Codex that says it IGNORED the key (the measured notice's words, the key
+        /// put in) fails the call, its answer unused, naming analytics.enabled; the same notice on a command line that does
+        /// not set the key leaves the answer standing (the WITNESS that it is the call's own key that fails it). The
+        /// exact-argument pin in CheckFlags and the required flags of MissingCodexRequiredFlags type the key too.
+        /// </summary>
+        private static void CheckCodexAnalyticsOff(Action<string, bool> check)
+        {
+            const string lever = "analytics.enabled=false";
+            List<CliRequest> shapes = CodexModelCallShapes();
+            int carried = 0;
+            foreach (CliRequest shape in shapes)
+            {
+                List<string> args = BuildCodexShape(shape);
+                if (args != null && OverridePairs(args, lever) == 1 && Mentions(args, "analytics") == 1) carried++;
+            }
+            bool answered;
+            List<FakeCliCall> codexCalls = CodexCallsThroughRunner(out answered);
+            List<FakeCliCall> modelCalls = codexCalls.FindAll(delegate(FakeCliCall x) { return x.IsModelCall; });
+            List<FakeCliCall> probes = codexCalls.FindAll(delegate(FakeCliCall x) { return !x.IsModelCall; });
+            int runCarried = modelCalls.FindAll(delegate(FakeCliCall x)
+            {
+                return OverridePairs(x.Arguments, lever) == 1 && Mentions(x.Arguments, "analytics") == 1;
+            }).Count;
+            check("cli runner: every Codex model call turns Codex's own analytics off with -c " + lever + ", once and with no other " +
+                  "analytics key: " + carried + "/" + shapes.Count + " shapes, " + runCarried + "/" + modelCalls.Count + " calls",
+                answered && modelCalls.Count == 4 && carried == shapes.Count && runCarried == modelCalls.Count);
+            var leaked = new List<string>();
+            foreach (FakeCliCall probe in probes)
+                if (Mentions(probe.Arguments, "analytics") > 0) leaked.Add(string.Join(" ", probe.Arguments));
+            check("cli runner: no Codex probe, --version, login status, debug models or update, carries an analytics key (" +
+                  probes.Count + " probes" + (leaked.Count > 0 ? "; found on: " + string.Join(" | ", leaked) : "") + ")",
+                ProbeKindsRan(probes).Count == 4 && leaked.Count == 0);
+
+            // The ignored-key notice Codex 0.160.1 writes (CodexRefusalCaptures.IgnoredSkillsKeyStdout, verbatim) around this
+            // key: not a capture, since 0.160.1 knows the key (measure-model's runs with it reported none ignored).
+            string notice = CodexRefusalCaptures.IgnoredSkillsKeyStdout.Replace("skills.zz_not_a_key", "analytics.enabled");
+            List<string> todays = modelCalls.Count > 0 ? modelCalls[0].Arguments : new List<string>();
+            CliAnswer ignored = Interpreted(CodingAgentKind.Codex, 0, notice, "", todays);
+            string sentence = CodingAgentCliText.Describe(CodingAgentKind.Codex, ignored, null);
+            check("cli runner: a Codex that says it ignored analytics.enabled fails the call closed, its answer unused, naming the key: " + sentence,
+                OverridePairs(todays, lever) == 1 && ignored.Outcome == CliOutcome.ConfigRefused && ignored.SettingIgnored &&
+                ignored.RefusedSetting == "analytics.enabled" && ignored.Text.Length == 0 &&
+                sentence.StartsWith("✗ Codex ignored analytics.enabled, one of the settings " + CodingAgentModuleWords.Module +
+                                    " starts it with, so its answer was not used", StringComparison.Ordinal));
+            CliAnswer notOurs = Interpreted(CodingAgentKind.Codex, 0, notice, "", CaptureCommandLine(todays, null, lever, "zz_other_key=false"));
+            check("WITNESS cli runner: ...the same notice on a command line that does not set the key leaves the answer standing",
+                notOurs.Ok && notOurs.Text == "OK");
+        }
+
+        /// <summary>
+        /// BACKLOG N-measure-model-01: Codex's REAL refusal of an effort (CodexServerCaptures.MinimalEffortStdout: the server's
+        /// JSON error, its "param": "reasoning.effort" last) is quoted as its message and the parameter, once, so the
+        /// excerpt names the effort, the sentence points at the effort row and the automatic pick is kept, where it read as a
+        /// refused model and the pick was forgotten. Not vacuous: the same messages quoted whole, as before, leave the
+        /// parameter out of the excerpt (the WITNESS). The classifier still reads the whole text, so the outcome is the one
+        /// it was, a refused model. A message that is no such document, and one Codex gave twice, are quoted as they are,
+        /// once.
+        /// </summary>
+        private static void CheckCodexEffortRefusal(Action<string, bool> check)
+        {
+            const string expected = "Unsupported value: 'minimal' is not supported with the 'gpt-6.1-sol' model. Supported values are: " +
+                                    "'low', 'medium', 'high', 'xhigh', and 'max'. (reasoning.effort)";
+            CliAnswer real = Interpreted(CodingAgentKind.Codex, 1, CodexServerCaptures.MinimalEffortStdout, "", null);
+            check("cli runner: Codex's real effort refusal is quoted as the server's message and the parameter it names, once: " + real.Said,
+                real.Outcome == CliOutcome.ModelRefused && real.Said == expected);
+            string text, errors;
+            bool failed;
+            long tokens;
+            CodingAgentCli.ParseCodexStream(CodexServerCaptures.MinimalEffortStdout, out text, out errors, out failed, out tokens);
+            string whole = CodingAgentCli.OneLine(errors);
+            check("WITNESS cli runner: ...quoted whole, as until this lane, the 240-character excerpt ends before the parameter and reads as no effort refusal",
+                failed && whole.Length > 200 && whole.IndexOf("reasoning", StringComparison.Ordinal) < 0 &&
+                !CodingAgentCli.RefusalNamesEffort(whole, "minimal") && errors.Contains("\"param\": \"reasoning.effort\""));
+
+            // Through the runner, as the automatic pick: Codex refuses the effort the call was sent with (low here, in the
+            // capture's words with "'low'" for "'minimal'"; the runner sends no minimal), and the pick is kept.
+            using (var scratch = new FakeCliScratch())
+            {
+                var fake = new FakeCliProcess { Respond = FakeCliProcess.Answering("ok") };
+                CodingAgentCli runner = scratch.NewRunner(fake, new List<string>());
+                Wait(runner.AskAsync(Remark(CodingAgentKind.Codex, "t", null), CancellationToken.None));
+                int fetches = runner.CatalogFetchesForDiagnostics;
+                string lowRefused = CodexServerCaptures.MinimalEffortStdout.Replace("'minimal' is not supported", "'low' is not supported")
+                    .Replace("Supported values are: 'low', ", "Supported values are: ");
+                fake.Respond = delegate(FakeCliCall call, CancellationToken token)
+                {
+                    return call.Is("exec") ? Task.FromResult(FakeCliProcess.Result(1, lowRefused, "")) : FakeCliProcess.Answering("ok")(call, token);
+                };
+                CliAnswer refused = Wait(runner.AskAsync(Remark(CodingAgentKind.Codex, "t", null), CancellationToken.None));
+                fake.Respond = FakeCliProcess.Answering("ok");
+                CliAnswer after = Wait(runner.AskAsync(Remark(CodingAgentKind.Codex, "t", null), CancellationToken.None));
+                string words = CodingAgentCliText.Describe(CodingAgentKind.Codex, refused, null);
+                check("cli runner: the automatic pick's effort refused in Codex's real words keeps the pick cached and points at the effort row: " + words,
+                    refused.Outcome == CliOutcome.ModelRefused && refused.Effort == "low" && after.Ok &&
+                    runner.CatalogFetchesForDiagnostics == fetches &&
+                    words.EndsWith("Its words are about the effort (low): choose another effort, or another model, in the CLI card, then press Validate again.",
+                        StringComparison.Ordinal));
+            }
+
+            CliAnswer plain = Interpreted(CodingAgentKind.Codex, 1, FakeCliProcess.CodexFailure("SELFTEST-PLAIN-6610 went wrong"), "", null);
+            CliAnswer notAnError = Interpreted(CodingAgentKind.Codex, 1, FakeCliProcess.CodexFailure("{\"detail\": \"SELFTEST-OTHER-6611\"}"), "", null);
+            check("WITNESS cli runner: a message that is no server error document is quoted as Codex wrote it, and a message Codex gave twice once: " +
+                  plain.Said + " | " + notAnError.Said,
+                plain.Said == "SELFTEST-PLAIN-6610 went wrong" && notAnError.Said == "{\"detail\": \"SELFTEST-OTHER-6611\"}");
+        }
+
+        /// <summary>
+        /// BACKLOG N-measure-model-02: Codex's "Selected model is at capacity. Please try a different model." is its own
+        /// outcome, ModelAtCapacity, with its own sentence (try again shortly, or choose another model), its own few words
+        /// on the card's Status row and its own log word, and the automatic pick is kept; it was a plain failure. The words
+        /// are the ones two of lane measure-model's judge calls met (CodexServerCaptures.AtCapacityMessage), as an error event
+        /// and again in turn.failed. An ordinary failure stays one (the WITNESS).
+        /// </summary>
+        private static void CheckCodexModelAtCapacity(Action<string, bool> check)
+        {
+            using (var scratch = new FakeCliScratch())
+            {
+                var log = new List<string>();
+                var fake = new FakeCliProcess { Respond = FakeCliProcess.Answering("ok") };
+                CodingAgentCli runner = scratch.NewRunner(fake, log);
+                Wait(runner.AskAsync(Remark(CodingAgentKind.Codex, "t", null), CancellationToken.None));
+                int fetches = runner.CatalogFetchesForDiagnostics;
+                fake.Respond = delegate(FakeCliCall call, CancellationToken token)
+                {
+                    return call.Is("exec")
+                        ? Task.FromResult(FakeCliProcess.Result(1, FakeCliProcess.CodexFailure(CodexServerCaptures.AtCapacityMessage), ""))
+                        : FakeCliProcess.Answering("ok")(call, token);
+                };
+                CliAnswer busy = Wait(runner.ValidateAsync(CodingAgentKind.Codex, CancellationToken.None, null, "gpt-user-1", "low"));
+                CliAnswer remark = Wait(runner.AskAsync(Remark(CodingAgentKind.Codex, "t", null), CancellationToken.None));
+                string sentence = CodingAgentCliText.Describe(CodingAgentKind.Codex, busy, null);
+                check("cli runner: Codex's model at capacity is its own outcome, said as passing, with what to do: " + sentence,
+                    busy.Outcome == CliOutcome.ModelAtCapacity &&
+                    sentence == "⚠ Codex's server has the model gpt-user-1 at capacity right now: try again shortly, or choose another model in the CLI card.");
+                string row = runner.LatestValidation() ?? "";
+                string line = LastLogLine(log, "cli: codex validate ");
+                check("cli runner: ...the card's Status row says it in a few words, the log by its own word, and the automatic pick is kept: " +
+                      row + " | " + line,
+                    row.StartsWith("⚠ Codex: model at capacity, try again shortly at ", StringComparison.Ordinal) &&
+                    line.StartsWith("cli: codex validate model-at-capacity exit=1 ", StringComparison.Ordinal) &&
+                    remark.Outcome == CliOutcome.ModelAtCapacity && runner.CatalogFetchesForDiagnostics == fetches);
+            }
+            CliAnswer ordinary = Interpreted(CodingAgentKind.Codex, 1, FakeCliProcess.CodexFailure("Please try a different approach."), "", null);
+            CliAnswer refused = Interpreted(CodingAgentKind.Codex, 1, FakeCliProcess.CodexFailure("The requested model is not supported for this account."), "", null);
+            check("WITNESS cli runner: ...an ordinary failure and a refused model stay what they were: " + ordinary.Outcome + ", " + refused.Outcome,
+                ordinary.Outcome == CliOutcome.Failed && refused.Outcome == CliOutcome.ModelRefused);
+        }
+
+        /// <summary>
+        /// BACKLOG N-remembrance-backlog-01: a details read the card's cached read starts behind it (CachedDetails) says when
+        /// it has landed, once, naming its CLI (CodingAgentCli.DetailsRead), and the reading is kept by then; the read after
+        /// it finds the reading fresh, starts no read and says nothing, which is what keeps a module's reload from starting
+        /// another (the WITNESS). Through the runner's fake CLI.
+        /// </summary>
+        private static void CheckDetailsReadLanded(Action<string, bool> check)
+        {
+            using (var scratch = new FakeCliScratch())
+            {
+                var fake = new FakeCliProcess { Respond = FakeCliProcess.Answering("ok") };
+                CodingAgentCli runner = scratch.NewRunner(fake, new List<string>());
+                var landed = new List<CodingAgentKind>();
+                CodingAgentCli.CliDetails keptWhenSaid = null;
+                runner.DetailsRead = delegate(CodingAgentKind agent)
+                {
+                    lock (landed) landed.Add(agent);
+                    keptWhenSaid = runner.KeptDetailsForDiagnostics(agent);
+                };
+                CodingAgentCli.CliDetails first = runner.CachedDetails(CodingAgentKind.Claude);
+                bool said = SpinWait.SpinUntil(delegate { lock (landed) return landed.Count > 0; }, TimeSpan.FromSeconds(10));
+                SpinWait.SpinUntil(delegate { return !runner.DetailsReadInFlightForDiagnostics(CodingAgentKind.Claude); }, TimeSpan.FromSeconds(10));
+                int startsAfter = fake.Calls.Count;
+                CodingAgentCli.CliDetails second = runner.CachedDetails(CodingAgentKind.Claude);
+                Thread.Sleep(50);
+                string names;
+                int count;
+                lock (landed) { names = string.Join(", ", landed); count = landed.Count; }
+                check("cli runner: a details read started behind the card's cached read says when it has landed, once, naming its CLI: " + names,
+                    first == null && said && count == 1 && landed[0] == CodingAgentKind.Claude && keptWhenSaid != null && keptWhenSaid.Installed);
+                check("WITNESS cli runner: ...and the read after it finds the reading fresh, starts no read and says nothing",
+                    second != null && ReferenceEquals(second, keptWhenSaid) && fake.Calls.Count == startsAfter && count == 1 &&
+                    !runner.DetailsReadInFlightForDiagnostics(CodingAgentKind.Claude));
+            }
+        }
+    }
+
+    /// <summary>
+    /// What Codex's SERVER answered to real model calls, as Codex 0.160.1 passed it on (lane feature/cli-followups, from
+    /// lane measure-model's runs of 2026-10-27 with the companion's own argument list; evidence local, not committed). The
+    /// repository is public, so a capture loses what identifies a run, an account or an organisation before it comes here,
+    /// and each summary says what was taken out.
+    /// </summary>
+    internal static class CodexServerCaptures
+    {
+        /// <summary>gpt-6.1-sol sent effort minimal (measure-model item 2, arm b-sol-minimal, stdout.jsonl): exit 1 in 3.5 s.
+        /// Taken out: the thread id (a per-run id, here "selftest-thread") and the five item.completed items of type error
+        /// ahead of turn.started, which named the organisation's managed requirement layers and a requirement group's id;
+        /// nothing reads those items on this path. The rest is byte for byte as Codex wrote it.</summary>
+        internal const string MinimalEffortStdout =
+            "{\"type\":\"thread.started\",\"thread_id\":\"selftest-thread\"}\n" +
+            "{\"type\":\"turn.started\"}\n" +
+            "{\"type\":\"error\",\"message\":\"{\\n  \\\"type\\\": \\\"error\\\",\\n  \\\"error\\\": {\\n    \\\"type\\\": \\\"invalid_request_error\\\",\\n    \\\"code\\\": \\\"unsupported_value\\\",\\n    \\\"message\\\": \\\"Unsupported value: 'minimal' is not supported with the 'gpt-6.1-sol' model. Supported values are: 'low', 'medium', 'high', 'xhigh', and 'max'.\\\",\\n    \\\"param\\\": \\\"reasoning.effort\\\"\\n  },\\n  \\\"status\\\": 400\\n}\"}\n" +
+            "{\"type\":\"turn.failed\",\"error\":{\"message\":\"{\\n  \\\"type\\\": \\\"error\\\",\\n  \\\"error\\\": {\\n    \\\"type\\\": \\\"invalid_request_error\\\",\\n    \\\"code\\\": \\\"unsupported_value\\\",\\n    \\\"message\\\": \\\"Unsupported value: 'minimal' is not supported with the 'gpt-6.1-sol' model. Supported values are: 'low', 'medium', 'high', 'xhigh', and 'max'.\\\",\\n    \\\"param\\\": \\\"reasoning.effort\\\"\\n  },\\n  \\\"status\\\": 400\\n}\"}}\n";
+
+        /// <summary>The words two of measure-model's judge calls met (Codex 0.160.1, gpt-6.1-sol at high effort, item 1's
+        /// judges; each answered when asked again after the batch), as an error event and again in turn.failed. Only the
+        /// words were kept (meta.capacity-attempt1.json's errorText), so the checks put them in CodexFailure's stream.</summary>
+        internal const string AtCapacityMessage = "Selected model is at capacity. Please try a different model.";
     }
 
     /// <summary>

@@ -1,13 +1,16 @@
 ﻿# Desktop AI Companion privacy
 
-Last updated: 2026-10-15
+Last updated: 2026-10-27
 
 DesktopAICompanion does not include advertising, analytics, crash reporting, or telemetry. Fortunes and
 smart-fortune matching run locally. The optional AI brain is disabled by default. Claude Code, when the AI brain
 or a meeting summary runs on it, does its own reporting to Anthropic; that reporting is Claude Code's, not this
 application's, and is described below. The companion starts Codex without your own Codex `config.toml`, so an
-analytics or telemetry choice made there does not apply to these calls; what Codex itself reports to OpenAI has not
-been measured.
+analytics or telemetry choice made there does not apply to these calls. Since AI Brain 1.6.0 and Remembrance 2.7.0
+every Codex model call turns Codex's own analytics off (`-c analytics.enabled=false`). Measured on 2026-10-27 with Codex
+0.160.1, by the names of the servers the Codex process connected to: without that setting each call reached
+`chatgpt.com` and also `ab.chatgpt.com`, with it `chatgpt.com` alone, and the call still answered. What was sent to
+either was not read. Should a later Codex say it ignored the setting, the call fails instead of answering.
 
 ## Data that can leave the computer
 
