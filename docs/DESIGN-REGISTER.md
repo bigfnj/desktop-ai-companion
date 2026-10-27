@@ -5538,6 +5538,14 @@ every module's time and what the children left. Not kept, because keeping it is 
 `FortuneFileImporter.RunSelfTest` deletes its own scratch even on a failure, and `TestPortableReplacementFallback`
 reports its five conditions as one line.
 
+**A `\\.\pipe\LOCAL\cc-msg-<id>` pipe in a trace of a companion call is Claude Code's own (N-cli-home-files-04,
+ACCEPTED-RECORDED).** Each Claude Code call AI Brain or Remembrance makes through `shared/CodingAgentCli` starts a
+Claude Code process, and that process opens a messaging pipe per session and names it in its stream's init line as
+`messaging_socket_path` (lane feature/cli-home-files' census, 2026-10-10, Claude Code 2.1.293). The companion neither
+creates, reads nor passes it: `ReadClaudeStream` skips the init line whole. The census saw it local to the session and
+gone with the process. It is accepted as the CLI's behaviour, with no lever sought, so a reader who finds one in a handle
+or process trace knows it belongs to that call's Claude Code child, one per call.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of
