@@ -55,7 +55,7 @@ DesktopAICompanion sends data only when a network feature is used:
   shows) and the title of the window the companion is standing on, the text read off the screen or the screenshot
   itself, and a summary's transcript. A later Codex that renamed the key the companion uses to turn the skills section
   off would ignore it and send that section again with the call; since the AI Brain and Remembrance versions after
-  1.5.6 and 2.3.6 such a call fails instead of answering, says Codex ignored one of the module's settings and leaves
+  1.5.6 and 2.6.1 such a call fails instead of answering, says Codex ignored one of the module's settings and leaves
   its answer unused, so it cannot go on unnoticed. Your own `~/.codex/AGENTS.md` still goes, as above, with
   whatever it says.
 - **Since Remembrance 2.1.0 the meeting summary can run on a coding-agent CLI** too. It is off by default
@@ -86,7 +86,7 @@ DesktopAICompanion sends data only when a network feature is used:
   organisation's managed settings still apply, and so do the companion's own settings for the call. It is off by
   default because of what it drops. Your version checks, sign-in checks and updates read your settings as before.
   Remembrance runs the same code and gets the switch once its pane offers it.
-- **Since the AI Brain and Remembrance versions after 1.5.6 and 2.3.6, a Claude Code call never runs in auto
+- **Since the AI Brain and Remembrance versions after 1.5.6 and 2.6.1, a Claude Code call never runs in auto
   mode.** In auto mode, which your own Claude Code settings can select, every request carried context for Claude
   Code's auto-mode safety classifier that held the module's work folder 13 more times (on an installed copy it sits
   under your user profile, so it names your Windows account), your home folder and your Windows user name; Claude
