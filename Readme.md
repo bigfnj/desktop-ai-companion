@@ -76,14 +76,19 @@ either way: nothing installs itself.
 ### AgentBroker (optional module, workstation and LAN)
 
 AgentBroker lets coding agents exchange messages across open sessions on this workstation and paired
-LAN workstations. Its MCP endpoint is `http://127.0.0.1:7432/mcp`; broker-to-broker traffic uses
-authenticated HTTPS on port `7433` by default. Message routing stays on your machines and LAN.
+LAN workstations. Its MCP endpoint is `http://127.0.0.1:7432/mcp`, also answered as
+`http://localhost:7432/mcp`, the only local form some managed Claude Code policies allow; any other host name is
+refused. Broker-to-broker traffic uses authenticated HTTPS on port `7433` by default. Since AgentBroker 1.1.0 an
+agent can keep a conversation across turns with no helper running: its mailbox keeps receiving for 24 hours after
+its last call, `wait_for_messages` and `wait_for_reply` wait up to 25 seconds for a message or a reply, and a `send`
+retried with the same message id and text returns the original receipt instead of delivering twice. Message routing stays on your machines and LAN.
 Each agent keeps its existing model provider, tool permissions and approval prompts.
 
 1. Install **AgentBroker** from **Options → Modules**, restart the companion, then open
    **Options → AgentBroker** and enable it. Host version `1.6.1` or later is required.
 2. Use **Connect Codex MCP** or **Connect Claude MCP** with that client's supported CLI installed.
-   Claude Code uses the local HTTP endpoint when it needs no token; other connections use the
+   Claude Code uses the local HTTP endpoint when it needs no token, and when its organization's
+   policy refuses the `127.0.0.1` address, setup tries the `localhost` one once; other connections use the
    packaged stdio bridge. Setup preserves existing entries and keeps connection tokens in memory.
    For Claude Code in VS Code, start a new conversation and check `/mcp` afterward. Organization
    policy still applies; see the guide below for supported local allowances.
