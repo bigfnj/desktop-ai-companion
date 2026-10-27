@@ -3484,6 +3484,31 @@ CASES = (
         b'            if (CodingAgentKind.Claude == request.Agent)\n            {\n                args.Add("-p");\n',
         "cli-runner-aibrain: BuildArguments and its Claude Code branch were sliced",
     ),
+    # ---- lane feature/abi-pane-actions ----
+    # ICatalogListing (app 1.6.2) wired like ITrayQuestions: on RecordingHost, which would change every module's payload;
+    # off the host; and onto IHost, which would do both. "abi-pane-actions:" for one --only.
+    (
+        "abi-pane-actions: RecordingHost grows ICatalogListing, changing every module's payload",
+        RECORDING_HOST_CS,
+        b"    public class RecordingHost : IHost\n",
+        b"    public class RecordingHost : IHost, DesktopAICompanion.Modules.ICatalogListing\n",
+        "abi-pane-actions: ICatalogListing is its own interface",
+    ),
+    (
+        "abi-pane-actions: the host stops implementing ICatalogListing",
+        COMPANION_HOST_CS,
+        b"    internal sealed class CompanionHost : IHost, ICompanionStandDown, ITrayQuestions, ICatalogListing\n",
+        b"    internal sealed class CompanionHost : IHost, ICompanionStandDown, ITrayQuestions\n",
+        "abi-pane-actions: ICatalogListing is its own interface",
+    ),
+    (
+        "abi-pane-actions: FetchCatalogListingAsync moves onto IHost",
+        os.path.join(REPO, "src", "DesktopAICompanion.Contracts", "PluginApi.cs"),
+        b"        System.Threading.Tasks.Task<byte[]> DownloadCatalogItemAsync(string kind, string id);\n",
+        b"        System.Threading.Tasks.Task<byte[]> DownloadCatalogItemAsync(string kind, string id);\n"
+        b"        System.Threading.Tasks.Task<CatalogListing> FetchCatalogListingAsync(string kind);\n",
+        "abi-pane-actions: ICatalogListing is its own interface",
+    ),
 )
 
 

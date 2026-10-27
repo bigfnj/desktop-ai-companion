@@ -459,6 +459,9 @@ namespace DesktopAICompanion.FortunesModule
                 // online's red block (layout F2): the wording at a fixed time, then a fetch that really throws.
                 ok &= CatalogFailureChecks(sb);
                 ok &= CatalogBlockChecks(sb);
+                // ---- lane feature/abi-pane-actions ----
+                // A pack the host refused is named with why, not missing in silence (N-catalog-insight-05, host 1.6.2).
+                ok &= RefusedPackChecks(sb);
                 // The line logged at publish time says what is true THEN (F145).
                 string constructed = FortunesModule.DescribeSmartBuild(3214, SmartStandDownReason.None);
                 ok &= Check(sb, "the publish-time log line says constructed and warming, never ready or indexed",
@@ -1259,9 +1262,12 @@ namespace DesktopAICompanion.FortunesModule
         /// fetch is not virtual and has no failing case, so this RE-IMPLEMENTS the one IHost member (the module
         /// calls through the interface) and inherits everything else.
         /// </summary>
-        private sealed class CatalogFaultHost : DesktopAICompanion.ModuleKit.Testing.RecordingHost, IHost
+        private sealed class CatalogFaultHost : DesktopAICompanion.ModuleKit.Testing.RecordingHost, IHost, ICatalogListing
         {
             public Exception FetchFault;
+
+            /// <summary>The pack entries this double's listing reports the host refused (ICatalogListing, host 1.6.2).</summary>
+            public readonly List<RefusedCatalogItem> RefusedPacks = new List<RefusedCatalogItem>();
 
             System.Threading.Tasks.Task<IReadOnlyList<CatalogItem>> IHost.FetchCatalogItemsAsync(string kind)
             {
@@ -1269,6 +1275,154 @@ namespace DesktopAICompanion.FortunesModule
                 if (fault != null) return System.Threading.Tasks.Task.FromException<IReadOnlyList<CatalogItem>>(fault);
                 return FetchCatalogItemsAsync(kind);
             }
+
+            // The host's shape: one read for both lists, throwing exactly when the plain fetch throws.
+            System.Threading.Tasks.Task<CatalogListing> ICatalogListing.FetchCatalogListingAsync(string kind)
+            {
+                Exception fault = FetchFault;
+                if (fault != null) return System.Threading.Tasks.Task.FromException<CatalogListing>(fault);
+                IReadOnlyList<CatalogItem> items = FetchCatalogItemsAsync(kind).GetAwaiter().GetResult();
+                return System.Threading.Tasks.Task.FromResult(new CatalogListing
+                {
+                    Items = items,
+                    Refused = kind == CatalogKinds.Pack ? new List<RefusedCatalogItem>(RefusedPacks) : new List<RefusedCatalogItem>(),
+                });
+            }
+        }
+
+        /// <summary>
+        /// Lane feature/abi-pane-actions (BACKLOG N-catalog-insight-05): a pack the host REFUSED is named in "Check online for
+        /// packs"' answer with why, in this module's words by category; one already on disk is not; a whole pack list that
+        /// could not be read says so; it is never a row to tick; and a host without the listing (a double, under
+        /// MinHostVersion 1.6.2) still lists the packs. The words first, pure; then the check through two doubles.
+        /// </summary>
+        private static bool RefusedPackChecks(StringBuilder sb)
+        {
+            bool ok = true;
+            var installed = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "kept-pack" };
+            Func<string, int, CatalogRefusalReason, RefusedCatalogItem> refusedPack = delegate (string id, int position, CatalogRefusalReason reason)
+            {
+                return new RefusedCatalogItem { Id = id, Position = position, Reason = reason };
+            };
+            string one = FortunesModule.RefusedPacksNote(new List<RefusedCatalogItem>
+            {
+                refusedPack("zz-refused", 2, CatalogRefusalReason.UntrustedAddress),
+            }, installed);
+            ok &= Check(sb, "fortunes refused: a refused pack is named with why, and the note says nothing on this PC needs fixing (" + one + ")",
+                one == "⚠ Not offered: “zz refused” (its download address is not this project's). Nothing on this PC needs fixing.");
+            string byPosition = FortunesModule.RefusedPacksNote(new List<RefusedCatalogItem>
+            {
+                refusedPack("", 4, CatalogRefusalReason.DuplicateId),
+            }, installed);
+            ok &= Check(sb, "fortunes refused: a pack refused for its id is named by its place in the catalog's list (" + byPosition + ")",
+                byPosition == "⚠ Not offered: entry 4 of the catalog's pack list (its id repeats an earlier pack's). Nothing on this PC needs fixing.");
+            string onDisk = FortunesModule.RefusedPacksNote(new List<RefusedCatalogItem>
+            {
+                refusedPack("KEPT-PACK", 3, CatalogRefusalReason.BadText),
+            }, installed);
+            ok &= Check(sb, "fortunes refused: a refused pack already on disk is not named, since Available online never lists it (" + onDisk + ")",
+                onDisk == "");
+            var five = new List<RefusedCatalogItem>();
+            for (int i = 0; i < 5; i++) five.Add(refusedPack("zz-p" + i, i + 2, CatalogRefusalReason.OutOfBounds));
+            string many = FortunesModule.RefusedPacksNote(five, installed);
+            ok &= Check(sb, "fortunes refused: five refused packs name " + FortunesModule.RefusedPacksShown + " and count the rest (" + many + ")",
+                many.StartsWith("⚠ Not offered: “zz p0” (its size or line count is outside what the app loads); “zz p1”", StringComparison.Ordinal) &&
+                many.Contains("“zz p2” (its size or line count is outside what the app loads); and 2 more. ") && !many.Contains("zz p3"));
+            string noList = FortunesModule.RefusedPacksNote(new List<RefusedCatalogItem>
+            {
+                refusedPack("", 0, CatalogRefusalReason.ListUnreadable),
+            }, installed);
+            ok &= Check(sb, "fortunes refused: a pack list that could not be read is said as such (" + noList + ")",
+                noList == "⚠ The catalog's pack list could not be read, so it offers no pack. Nothing on this PC needs fixing.");
+            ok &= Check(sb, "fortunes refused: a category this build does not know reads as the general one",
+                FortunesModule.RefusalWords((CatalogRefusalReason)99) == FortunesModule.RefusalWords(CatalogRefusalReason.Other));
+            var unworded = new List<string>();
+            foreach (CatalogRefusalReason reason in Enum.GetValues(typeof(CatalogRefusalReason)))
+                if (reason != CatalogRefusalReason.Other && reason != CatalogRefusalReason.ListUnreadable &&
+                    FortunesModule.RefusalWords(reason) == FortunesModule.RefusalWords(CatalogRefusalReason.Other))
+                    unworded.Add(reason.ToString());
+            ok &= Check(sb, "fortunes refused: WITNESS every category the ABI names has words of its own" +
+                (unworded.Count > 0 ? " (falls to the general words: " + string.Join(", ", unworded.ToArray()) + ")" : ""),
+                unworded.Count == 0);
+
+            // THROUGH THE CHECK: the listing double, then a plain RecordingHost, which has no listing.
+            string previousRoot = FortunePaths.RootForDiagnostics;
+            var host = new CatalogFaultHost();
+            var module = new FortunesModule();
+            using (var storage = new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("fortunes-refusedpacks"))
+            {
+                host.UseStorage("fortunes", storage);
+                host.SettingsFor("fortunes").Set("smartFortunes", "false");
+                try
+                {
+                    module.Init(host);
+                    OptionsPane pane = host.OptionsPanes.Count > 0 ? host.OptionsPanes[0] : null;
+                    ListCard available = FindCard(pane, "Available online");
+                    PaneAction check = FindCardAction(pane, "Available online", "Check online for packs");
+                    if (available == null || available.LoadItems == null || check == null)
+                    {
+                        ok &= Check(sb, "fortunes refused: the Available online card and its check were found", false);
+                        return ok;
+                    }
+                    host.CatalogItems[CatalogKinds.Pack] = new List<CatalogItem> { new CatalogItem { Id = "golf", Name = "Golf", Bytes = 10, Count = 1 } };
+                    host.RefusedPacks.Add(refusedPack("zz-refused", 2, CatalogRefusalReason.UntrustedAddress));
+                    string answered = check.InvokeAsync().GetAwaiter().GetResult() ?? "";
+                    int rows = available.LoadItems().Count;
+                    ok &= Check(sb, "fortunes refused: Check online for packs names the refused pack under its answer, and lists only the pack it can offer (" +
+                        answered.Replace("\n", " | ") + "; " + rows + " row(s))",
+                        answered == "1 pack available — tick the ones you want, then “Download selected”.\n" +
+                                    "⚠ Not offered: “zz refused” (its download address is not this project's). Nothing on this PC needs fixing." &&
+                        rows == 1 && available.EmptyHint == FortunesModule.AvailableEmptyHint);
+
+                    host.CatalogItems[CatalogKinds.Pack] = new List<CatalogItem>();
+                    string onlyRefused = check.InvokeAsync().GetAwaiter().GetResult() ?? "";
+                    ok &= Check(sb, "fortunes refused: a catalog whose only pack was refused does not say it lists none (" + onlyRefused.Replace("\n", " | ") + ")",
+                        onlyRefused.StartsWith("The catalog lists no fortune pack this app can offer.\n⚠ Not offered: “zz refused”", StringComparison.Ordinal));
+
+                    host.RefusedPacks.Clear();
+                    host.CatalogItems[CatalogKinds.Pack] = new List<CatalogItem> { new CatalogItem { Id = "golf", Name = "Golf", Bytes = 10, Count = 1 } };
+                    string clean = check.InvokeAsync().GetAwaiter().GetResult() ?? "";
+                    ok &= Check(sb, "fortunes refused: WITNESS a clean read answers exactly as before, with no note (" + clean + ")",
+                        clean == "1 pack available — tick the ones you want, then “Download selected”.");
+                }
+                catch (Exception ex)
+                {
+                    ok &= Check(sb, "fortunes refused: the listing scenario ran (" + ex.GetType().Name + ": " + ex.Message + ")", false);
+                }
+                finally
+                {
+                    try { module.Shutdown(); } catch { }
+                    FortunePaths.SetRoot(previousRoot);
+                }
+            }
+
+            var plainHost = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+            var plainModule = new FortunesModule();
+            using (var storage = new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("fortunes-refusedplain"))
+            {
+                plainHost.UseStorage("fortunes", storage);
+                plainHost.SettingsFor("fortunes").Set("smartFortunes", "false");
+                try
+                {
+                    plainModule.Init(plainHost);
+                    OptionsPane pane = plainHost.OptionsPanes.Count > 0 ? plainHost.OptionsPanes[0] : null;
+                    PaneAction check = FindCardAction(pane, "Available online", "Check online for packs");
+                    plainHost.CatalogItems[CatalogKinds.Pack] = new List<CatalogItem> { new CatalogItem { Id = "golf", Name = "Golf", Bytes = 10, Count = 1 } };
+                    string plain = check != null ? check.InvokeAsync().GetAwaiter().GetResult() ?? "" : "(no check)";
+                    ok &= Check(sb, "fortunes refused: WITNESS a host without the listing still lists the packs (" + plain + ")",
+                        plain == "1 pack available — tick the ones you want, then “Download selected”.");
+                }
+                catch (Exception ex)
+                {
+                    ok &= Check(sb, "fortunes refused: WITNESS a host without the listing still lists the packs (" + ex.GetType().Name + ": " + ex.Message + ")", false);
+                }
+                finally
+                {
+                    try { plainModule.Shutdown(); } catch { }
+                    FortunePaths.SetRoot(previousRoot);
+                }
+            }
+            return ok;
         }
 
         /// <summary>What the host's "All" row does to a card (ListCard.MasterToggle, host 1.4.0): it moves every

@@ -17,7 +17,7 @@ namespace DesktopAICompanion.Plugins
     /// Program.MyData; contributions are collected here (the tray/options renderer consumes them in the
     /// WPF-shell phase). Everything runs on the UI thread; a throwing module never breaks the host.
     /// </summary>
-    internal sealed class CompanionHost : IHost, ICompanionStandDown, ITrayQuestions
+    internal sealed class CompanionHost : IHost, ICompanionStandDown, ITrayQuestions, ICatalogListing
     {
         private readonly StartUp _startUp;
         private readonly ConditionalWeakTable<FormCompanion, CompanionHandle> _handles = new ConditionalWeakTable<FormCompanion, CompanionHandle>();
@@ -819,30 +819,18 @@ namespace DesktopAICompanion.Plugins
             RemoteCatalog catalog = await RemoteCatalogClient
                 .FetchSharedAsync(System.Threading.CancellationToken.None)
                 .ConfigureAwait(false);
-            var items = new List<CatalogItem>();
-            if (IsPackKind(kind))
-                foreach (CatalogPack pack in catalog.Packs)
-                    items.Add(new CatalogItem
-                    {
-                        Id = pack.Id,
-                        Name = pack.Name,
-                        Group = pack.Group,
-                        Description = pack.Description,
-                        Bytes = pack.Bytes,
-                        Count = pack.Count,
-                    });
-            else if (IsPetKind(kind))
-                foreach (CatalogCompanion pet in catalog.Pets)
-                    items.Add(new CatalogItem
-                    {
-                        Id = pet.Id,
-                        Name = pet.Name,
-                        Group = pet.Author ?? "",   // pets have no collection; the author is the useful grouping
-                        Description = "",
-                        Bytes = pet.Bytes,
-                        Count = 0,
-                    });
-            return items;
+            return CatalogForModules.ListingFrom(catalog, kind).Items;
+        }
+
+        // ICatalogListing (host 1.6.2, BACKLOG N-catalog-insight-05): the same read and the same conversion as the verb
+        // above, plus the entries of the kind the parser refused, as id, position and category only (CatalogForModules
+        // says why no rule text crosses). Throws where FetchCatalogItemsAsync throws, from the same shared copy.
+        public async System.Threading.Tasks.Task<CatalogListing> FetchCatalogListingAsync(string kind)
+        {
+            RemoteCatalog catalog = await RemoteCatalogClient
+                .FetchSharedAsync(System.Threading.CancellationToken.None)
+                .ConfigureAwait(false);
+            return CatalogForModules.ListingFrom(catalog, kind);
         }
 
         public async System.Threading.Tasks.Task<byte[]> DownloadCatalogItemAsync(string kind, string id)
@@ -881,12 +869,12 @@ namespace DesktopAICompanion.Plugins
 
         private static bool IsPackKind(string kind)
         {
-            return string.Equals(kind, CatalogKinds.Pack, StringComparison.OrdinalIgnoreCase);
+            return CatalogForModules.IsPackKind(kind);
         }
 
         private static bool IsPetKind(string kind)
         {
-            return string.Equals(kind, CatalogKinds.Pet, StringComparison.OrdinalIgnoreCase);
+            return CatalogForModules.IsPetKind(kind);
         }
 
         public bool OpenLink(string moduleId, string httpsUrl)

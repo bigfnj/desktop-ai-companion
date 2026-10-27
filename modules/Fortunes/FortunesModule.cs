@@ -1662,7 +1662,7 @@ namespace DesktopAICompanion.FortunesModule
         // UI THREAD ONLY. Neither is synchronized, and both are read and written by the pane callbacks
         // (LoadAvailablePackItems, SetPackSelected, which the "All packs" row drives once per pack, and the
         // check's ShowCatalogFailure) which the host always calls on the UI thread. Anything that awaits
-        // before touching them must resume there too -- which is why the two awaits in this section have no
+        // before touching them must resume there too -- which is why no await in this section has
         // ConfigureAwait(false).
         private readonly List<CatalogItem> _availablePacks = new List<CatalogItem>();
         private readonly HashSet<string> _selectedPacks = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -1725,16 +1725,34 @@ namespace DesktopAICompanion.FortunesModule
                 // those are the same collections LoadAvailablePackItems / SetPackSelected touch from checkbox
                 // clicks. The packs card sets DeferChanges false on purpose, so a tick fires SetPackSelected
                 // immediately and can land mid-fetch. The network call itself still runs off the UI thread:
-                // that is FetchCatalogItemsAsync's business, and it is the only blocking part.
-                IReadOnlyList<CatalogItem> items = await host.FetchCatalogItemsAsync(CatalogKinds.Pack);
+                // that is the host's business, and it is the only blocking part.
+                //
+                // The listing (ICatalogListing, host 1.6.2; BACKLOG N-catalog-insight-05) is the same read plus the packs
+                // the host REFUSED, so a pack the user looks for and does not find is named, with why, rather than missing
+                // in silence. A host without it is only a test double now (MinHostVersion 1.6.2), and gets the old read.
+                IReadOnlyList<CatalogItem> items;
+                IReadOnlyList<RefusedCatalogItem> refused = new List<RefusedCatalogItem>();
+                ICatalogListing listing = host as ICatalogListing;
+                if (listing != null)
+                {
+                    CatalogListing read = await listing.FetchCatalogListingAsync(CatalogKinds.Pack);
+                    items = (read != null ? read.Items : null) ?? new List<CatalogItem>();
+                    if (read != null && read.Refused != null) refused = read.Refused;
+                }
+                else items = await host.FetchCatalogItemsAsync(CatalogKinds.Pack);
                 _catalogFailure = null;   // this check worked: the card's hint goes back to the plain one
                 RefreshAvailableHint(DateTime.Now);
                 int available = CacheMissingPacks(items);
-                if (items.Count == 0) return "The catalog lists no fortune packs.";
-                return available == 0
-                    ? ("You already have every catalog pack (" + items.Count + ").")
-                    : (available + (available == 1 ? " pack" : " packs") +
-                       " available — tick the ones you want, then “Download selected”.");
+                string notOffered = RefusedPacksNote(refused, InstalledPackIds());
+                string found;
+                if (items.Count == 0)
+                    found = refused.Count == 0 ? "The catalog lists no fortune packs." : "The catalog lists no fortune pack this app can offer.";
+                else
+                    found = available == 0
+                        ? ("You already have every catalog pack (" + items.Count + ").")
+                        : (available + (available == 1 ? " pack" : " packs") +
+                           " available — tick the ones you want, then “Download selected”.");
+                return notOffered.Length == 0 ? found : found + "\n" + notOffered;
             }
             catch (Exception ex)
             {
@@ -1793,7 +1811,7 @@ namespace DesktopAICompanion.FortunesModule
         ///
         /// <para>REFUSED: the catalog was fetched and failed the host's own checks. Host 1.4.0 throws its
         /// CatalogRejectedException; host 1.3.0 threw an InvalidDataException, which can no longer reach this
-        /// code (MinHostVersion is 1.4.0) and stays recognised as the data refusal it always meant; a
+        /// code (MinHostVersion is 1.4.0 or later) and stays recognised as the data refusal it always meant; a
         /// JsonException is a catalog that came back but does not parse. The fault is the published catalog's,
         /// not the user's.</para>
         ///
@@ -2067,17 +2085,85 @@ namespace DesktopAICompanion.FortunesModule
         {
             var source = new List<CatalogItem>(items ?? (IReadOnlyList<CatalogItem>)new List<CatalogItem>());
             _availablePacks.Clear();
+            HashSet<string> installed = InstalledPackIds();
+            foreach (CatalogItem item in source)
+                if (item != null && !string.IsNullOrEmpty(item.Id) && !installed.Contains(item.Id))
+                    _availablePacks.Add(item);
+            _selectedPacks.RemoveWhere(id => installed.Contains(id));
+            return _availablePacks.Count;
+        }
+
+        /// <summary>The ids of the packs on disk, ignoring case: what Available online leaves out.</summary>
+        private static HashSet<string> InstalledPackIds()
+        {
             var installed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             try
             {
                 foreach (SourceStat st in FortuneProvider.Sources()) installed.Add(st.Id);
             }
             catch { }
-            foreach (CatalogItem item in source)
-                if (item != null && !string.IsNullOrEmpty(item.Id) && !installed.Contains(item.Id))
-                    _availablePacks.Add(item);
-            _selectedPacks.RemoveWhere(id => installed.Contains(id));
-            return _availablePacks.Count;
+            return installed;
+        }
+
+        /// <summary>How many refused packs "Check online for packs" names before it only counts the rest.</summary>
+        internal const int RefusedPacksShown = 3;
+
+        /// <summary>
+        /// What "Check online for packs" adds under its answer when the host REFUSED pack entries (ICatalogListing, host
+        /// 1.6.2; BACKLOG N-catalog-insight-05): each refused pack that is not on disk, named and with why, so a pack the
+        /// user looks for in Available online is accounted for rather than missing in silence. "" when nothing is.
+        ///
+        /// In the CHECK'S ANSWER, the line beside the button, and not as a row in the list. A list row is a checkbox (a
+        /// ListItem has no state that cannot be ticked), so a refused pack there would be a box that ticks, counts in
+        /// "All packs" and downloads nothing; the Companions pane says its refused entries in its check line too. The
+        /// host's catalog rule never reaches a module, only a category (RefusedCatalogItem), so the words are this
+        /// module's, and the full rule is in the app's diagnostic log. A pack already on disk is left out: Available
+        /// online never lists one, so nothing is missing. Pure, so each case is asserted.
+        /// </summary>
+        internal static string RefusedPacksNote(IReadOnlyList<RefusedCatalogItem> refused, ICollection<string> installed)
+        {
+            if (refused == null || refused.Count == 0) return "";
+            var named = new List<string>();
+            int count = 0;
+            foreach (RefusedCatalogItem entry in refused)
+            {
+                if (entry == null) continue;
+                // The whole list could not be read: no pack is offered, and there is nothing to name one by.
+                if (entry.Reason == CatalogRefusalReason.ListUnreadable)
+                    return "⚠ The catalog's pack list could not be read, so it offers no pack. Nothing on this PC needs fixing.";
+                string id = entry.Id ?? "";
+                if (id.Length > 0 && installed != null && installed.Contains(id)) continue;
+                count++;
+                if (named.Count >= RefusedPacksShown) continue;
+                string which = id.Length > 0
+                    ? "“" + PrettySource(id) + "”"
+                    : "entry " + entry.Position + " of the catalog's pack list";
+                named.Add(which + " (" + RefusalWords(entry.Reason) + ")");
+            }
+            if (count == 0) return "";
+            var text = new StringBuilder("⚠ Not offered: ");
+            text.Append(string.Join("; ", named.ToArray()));
+            if (count > named.Count) text.Append("; and ").Append(count - named.Count).Append(" more");
+            text.Append(". Nothing on this PC needs fixing.");
+            return text.ToString();
+        }
+
+        /// <summary>Why the host refused a pack, in this module's words, by category. A category this build does not
+        /// know (a newer host's) reads as the general one, as the ABI asks.</summary>
+        internal static string RefusalWords(CatalogRefusalReason reason)
+        {
+            switch (reason)
+            {
+                case CatalogRefusalReason.Unreadable: return "its entry in the catalog could not be read";
+                case CatalogRefusalReason.BadId: return "its id is not one this app accepts";
+                case CatalogRefusalReason.DuplicateId: return "its id repeats an earlier pack's";
+                case CatalogRefusalReason.BadText: return "its name or description is missing or too long";
+                case CatalogRefusalReason.UnsupportedFormat: return "it is in a pack format this version of the app does not read";
+                case CatalogRefusalReason.BadChecksum: return "its checksum is malformed";
+                case CatalogRefusalReason.UntrustedAddress: return "its download address is not this project's";
+                case CatalogRefusalReason.OutOfBounds: return "its size or line count is outside what the app loads";
+                default: return "its catalog entry breaks one of the app's rules";
+            }
         }
 
         private static string ApproximateSize(int bytes)

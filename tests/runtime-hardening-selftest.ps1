@@ -5148,6 +5148,19 @@ Assert-True ($crSettingSources -eq 1 -and
     $crClaude -cmatch 'if \(request\.LeaveOutOwnClaudeSettings\)\s*\{\s*args\.Add\("--setting-sources"\);\s*args\.Add\(""\);\s*\}') (
     "cli-runner-aibrain: --setting-sources is in BuildArguments' Claude Code branch alone, once, behind the opt-in's condition (found $crSettingSources)")
 
+# ---- lane feature/abi-pane-actions ----
+# THE CATALOG AS LISTED, REFUSALS INCLUDED (ICatalogListing, app 1.6.2; BACKLOG N-catalog-insight-05), wired the way
+# ITrayQuestions is above: its own interface, never an IHost member, so RecordingHost -- in every module's zip -- does not
+# change and no other module republishes; and the host's IHost implements it, so `host as ICatalogListing` is never null on
+# 1.6.2+. --catalog-selftest asserts what the listing carries; this is the wiring it cannot see. The slices are the
+# tray-questions block's ($tqContracts, $tqIHost, $tqRecordingHost, $tqHost), whose positive control ran above.
+Assert-True ($tqContracts -cmatch 'public interface ICatalogListing\s*\{\s*System\.Threading\.Tasks\.Task<CatalogListing> FetchCatalogListingAsync\(string kind\);' -and
+    $tqIHost.Contains('FetchCatalogItemsAsync(string kind)') -and $tqIHost -cnotmatch 'FetchCatalogListingAsync' -and
+    $tqRecordingHost -cnotmatch 'ICatalogListing' -and
+    $tqHost -cmatch 'internal sealed class CompanionHost : IHost,[^{]*\bICatalogListing\b' -and
+    $tqHost -cmatch 'public async System\.Threading\.Tasks\.Task<CatalogListing> FetchCatalogListingAsync\(string kind\)') (
+    'abi-pane-actions: ICatalogListing is its own interface, not on IHost and not on RecordingHost, and the host implements it')
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever
