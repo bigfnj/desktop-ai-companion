@@ -1,3 +1,4 @@
+using AgentBroker.Pins;
 using System.Security.Cryptography;
 
 namespace AgentBroker.CodexDesktopAdapter;
@@ -8,32 +9,55 @@ namespace AgentBroker.CodexDesktopAdapter;
 /// </summary>
 public static class VsCodeCompatibilityProfile
 {
-    public const string Version = "26.1007.21434";
-    public const string DirectoryName = "openai.chatgpt-26.1007.21434-win32-x64";
-    internal const string NativeImageSha256 = "F5521B058CA08E249AFD3B25B4681E81100181D92E73AA6B94BB8E75C2AA487B";
-    private static readonly IReadOnlyDictionary<string, string> Images = new Dictionary<string, string>
-    {
-        ["out/extension.js"] = "A8069DE80C8F8141481D033F94C3A95E1B59F399143CB2554D3F68469DFBE5B8",
-        ["webview/assets/app-main-92173aa1395c.js"] = "B4B080A8F62E22CFD67F2FAE85E39854DF5FF4ED8F898B8A7D8A6FE36886A357",
-        ["webview/assets/app-initial-c014f9ee4429.js"] = "AABBFA7C366706365A239B090CA1C657B6A0213D7287E54EF0A32D1B2E5FF6A0",
-        ["webview/assets/app-initial-97d3534ad35f.js"] = "47E9E488122CF37A6564ED57D11F499D9AC062B2E49DB729091FE3C163A64B49",
-        ["webview/assets/app-initial-7a199c66e670.js"] = "59B909377A370E09CB8523AB99A1F4FF282A0126527BD339DB31E6D9AC7C9C26"
-    };
+    internal sealed record ExtensionProfile(string Version, string DirectoryName, string NativeImageSha256,
+        string ManifestFunctionalSha256, IReadOnlyList<KeyValuePair<string, string>> Images);
+
+    // Each reviewed extension build is a "codexVsCode" pin of the embedded document
+    // tools/AgentBroker.Pins/agentbroker-pins.json: its folder, engine hash, manifest functional hash and the hashed
+    // bundles holding the coordination bridge and owner logic. With one pin every check below is exactly the
+    // single-profile check it replaced.
+    internal static IReadOnlyList<ExtensionProfile> Profiles => ProfilesOf(PinDocument.Current);
+
+    /// <summary>The reviewed extension versions, for status text. Empty when the pin document was refused.</summary>
+    public static string VerifiedVersions => string.Join(", ", PinDocument.Current.CodexVsCode.Select(pin => pin.Version));
+
+    // A refused document is its own refusal (pin_document_invalid), never one of the exact-pin mismatch codes, so
+    // update-tolerant publisher evidence cannot stand in for it.
+    internal static IReadOnlyList<ExtensionProfile> ProfilesOf(PinDocument pins) => pins.Error is not null
+        ? throw new DesktopAdapterException("pin_document_invalid")
+        : pins.CodexVsCode.Select(pin => new ExtensionProfile(pin.Version, pin.DirectoryName, pin.NativeImageSha256,
+            pin.ManifestFunctionalSha256, pin.Images)).ToArray();
+
+    private static string ExtensionsRoot => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".vscode", "extensions");
 
     public static void VerifyInstalled()
     {
         if (!OperatingSystem.IsWindows()) throw new DesktopAdapterException("native_windows_required");
-        string root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".vscode", "extensions", DirectoryName);
-        VerifyInstalledAt(root);
+        VerifyInstalledIn(ExtensionsRoot, Profiles);
     }
 
-    internal static void VerifyInstalledAt(string root)
+    // Every reviewed build whose folder is installed must verify completely, and at least one must be installed.
+    internal static void VerifyInstalledIn(string extensionsRoot, IReadOnlyList<ExtensionProfile> profiles)
+    {
+        bool installed = false;
+        foreach (var profile in profiles)
+        {
+            string root = Path.Combine(extensionsRoot, profile.DirectoryName);
+            if (!File.Exists(Path.Combine(root, "package.json"))) continue;
+            VerifyInstalledAt(root, profile);
+            installed = true;
+        }
+        if (!installed) throw new DesktopAdapterException("unsupported_vscode_profile");
+    }
+
+    internal static void VerifyInstalledAt(string root, ExtensionProfile profile)
     {
         string manifest = Path.Combine(root, "package.json");
         if (!File.Exists(manifest)) throw new DesktopAdapterException("unsupported_vscode_profile");
         DesktopCompatibilityProfile.VerifyRegularPath(manifest);
-        using (var stream = File.OpenRead(manifest)) VsCodeManifestProfile.Verify(VsCodeManifestProfile.ReadBounded(stream));
-        foreach (var image in Images)
+        using (var stream = File.OpenRead(manifest))
+            VsCodeManifestProfile.Verify(VsCodeManifestProfile.ReadBounded(stream), profile.ManifestFunctionalSha256);
+        foreach (var image in profile.Images)
         {
             string file = Path.Combine(root, image.Key.Replace('/', Path.DirectorySeparatorChar));
             if (!File.Exists(file)) throw new DesktopAdapterException("unsupported_vscode_profile");
@@ -58,22 +82,29 @@ public static class VsCodeCompatibilityProfile
     }
 
     internal static int ValidateRunningClients(IReadOnlyList<CodeOwnedEngine> engines)
+        => ValidateRunningClients(engines, engines.Count == 0 ? [] : Profiles);
+
+    internal static int ValidateRunningClients(IReadOnlyList<CodeOwnedEngine> engines, IReadOnlyList<ExtensionProfile> profiles)
     {
-        string expected = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".vscode", "extensions",
-            DirectoryName, "bin", "windows-x86_64", "codex.exe");
         foreach (var engine in engines)
         {
+            // The engine's own image path selects the reviewed build it belongs to; its hash must be that build's.
+            var profile = profiles.FirstOrDefault(candidate => string.Equals(Path.GetFullPath(engine.Image),
+                Path.GetFullPath(EngineImage(candidate)), StringComparison.OrdinalIgnoreCase));
             if (!engine.SameUser || engine.ParentCreationFileTime > engine.CreationFileTime
                 || !string.Equals(Path.GetFileName(engine.ParentImage), "Code.exe", StringComparison.OrdinalIgnoreCase)
-                || !string.Equals(Path.GetFullPath(engine.Image), Path.GetFullPath(expected), StringComparison.OrdinalIgnoreCase))
+                || profile is null)
                 throw new DesktopAdapterException("unsupported_running_vscode_profile");
             DesktopCompatibilityProfile.VerifyRegularPath(engine.Image);
             using var stream = File.OpenRead(engine.Image);
-            if (Convert.ToHexString(SHA256.HashData(stream)) != NativeImageSha256)
+            if (Convert.ToHexString(SHA256.HashData(stream)) != profile.NativeImageSha256)
                 throw new DesktopAdapterException("running_vscode_image_mismatch");
         }
         return engines.Count;
     }
+
+    private static string EngineImage(ExtensionProfile profile)
+        => Path.Combine(ExtensionsRoot, profile.DirectoryName, "bin", "windows-x86_64", "codex.exe");
 
     /// <summary>
     /// Publisher counterpart of <see cref="VerifyRunningClients"/> for a build that is not exactly pinned: every direct

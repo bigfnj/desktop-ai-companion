@@ -177,35 +177,20 @@ function Find-ArchiveMarkers([string]$Archive, $Markers) {
 }
 
 function Get-PinnedProfiles([string]$Root) {
-    $desktopSource = [IO.File]::ReadAllText((Join-Path $Root 'tools\AgentBroker.CodexDesktopAdapter\WindowsDesktopConnection.cs'))
-    $constants = @{}
-    foreach ($match in [regex]::Matches($desktopSource, 'const string (\w+) = "([^"]*)";')) { $constants[$match.Groups[1].Value] = $match.Groups[2].Value }
-    $desktop = New-Object 'Collections.Generic.List[object]'
-    if ($constants.ContainsKey('PackageFullName')) {
-        $desktop.Add([pscustomobject]@{ Package = $constants['PackageFullName']; Version = $constants['ApplicationVersion']
-                ExecutableSha256 = $constants['ExecutableSha256']; ArchiveSha256 = $constants['ArchiveSha256']; Electron = $constants['ElectronVersion'] })
-    }
-    $tuple = 'new\("(OpenAI\.Codex_[^"]+)",\s*"([^"]+)",\s*"([0-9A-F]{64})",\s*"([0-9A-F]{64})",\s*"([^"]+)"\)'
-    foreach ($match in [regex]::Matches($desktopSource, $tuple)) {
-        $desktop.Add([pscustomobject]@{ Package = $match.Groups[1].Value; Version = $match.Groups[2].Value
-                ExecutableSha256 = $match.Groups[3].Value; ArchiveSha256 = $match.Groups[4].Value; Electron = $match.Groups[5].Value })
-    }
-    $extensionSource = [IO.File]::ReadAllText((Join-Path $Root 'tools\AgentBroker.CodexDesktopAdapter\VsCodeCompatibilityProfile.cs'))
-    $extension = [pscustomobject]@{
-        Version = [regex]::Match($extensionSource, 'const string Version = "([^"]+)";').Groups[1].Value
-        NativeImageSha256 = [regex]::Match($extensionSource, 'NativeImageSha256 = "([0-9A-F]{64})"').Groups[1].Value
-    }
-    $routerSource = [IO.File]::ReadAllText((Join-Path $Root 'tools\AgentBroker.CodexDesktopAdapter\VsCodeRouterCompatibilityProfile.cs'))
-    $routerConstants = @{}
-    foreach ($match in [regex]::Matches($routerSource, 'const string (\w+) = "([^"]*)";')) { $routerConstants[$match.Groups[1].Value] = $match.Groups[2].Value }
-    $router = @(
-        [pscustomobject]@{ Version = $routerConstants['ProductVersion']; Sha256 = $routerConstants['ExecutableSha256'] },
-        [pscustomobject]@{ Version = $routerConstants['AdditionalProductVersion']; Sha256 = $routerConstants['AdditionalExecutableSha256'] }) |
-        Where-Object { $_.Version -and $_.Sha256 }
-    $claudeSource = [IO.File]::ReadAllText((Join-Path $Root 'tools\AgentBroker.ClaudeAdapter\NativePeerModels.cs'))
-    $claude = @(foreach ($match in [regex]::Matches($claudeSource, 'new\("(\d+\.\d+\.\d+)",\s*"([0-9A-F]{64})"\)')) {
-            [pscustomobject]@{ Version = $match.Groups[1].Value; Sha256 = $match.Groups[2].Value } })
-    [pscustomobject]@{ Desktop = $desktop.ToArray(); Extension = $extension; Router = @($router); Claude = $claude }
+    # The pins are data since lane broker-pins: ONE document embedded in both adapter assemblies. The adapters'
+    # loader validates it strictly; this reader only needs the compared fields, and refuses a document it cannot read.
+    $path = Join-Path $Root 'tools\AgentBroker.Pins\agentbroker-pins.json'
+    $document = [IO.File]::ReadAllText($path, (New-Object Text.UTF8Encoding($false, $true))) | ConvertFrom-Json
+    if ($document.schema -ne 1) { throw "The pin document $path is not schema 1." }
+    $desktop = @(foreach ($pin in @($document.codexDesktop)) {
+            [pscustomobject]@{ Package = [string]$pin.packageFullName; Version = [string]$pin.applicationVersion
+                ExecutableSha256 = [string]$pin.executableSha256; ArchiveSha256 = [string]$pin.archiveSha256; Electron = [string]$pin.electronVersion } })
+    $extension = @(foreach ($pin in @($document.codexVsCode)) {
+            [pscustomobject]@{ Version = [string]$pin.version; NativeImageSha256 = [string]$pin.nativeImageSha256 } })
+    $router = @(foreach ($pin in @($document.vscodeRouter)) {
+            [pscustomobject]@{ Version = [string]$pin.productVersion; Sha256 = [string]$pin.executableSha256 } })
+    $claude = @(foreach ($pin in @($document.claudeCode)) { [pscustomobject]@{ Version = [string]$pin.version; Sha256 = [string]$pin.sha256 } })
+    [pscustomobject]@{ Desktop = $desktop; Extension = $extension; Router = $router; Claude = $claude }
 }
 
 function New-Result([string]$Kind, [string]$Name, [string]$Version, [string]$Image) {
@@ -299,7 +284,7 @@ function Measure-CodexExtension([string]$Directory, $Pins, $Providers) {
     $result = New-Result 'codex-vscode' 'Codex VS Code extension' $version $engine
     $result.Checks.Add((Test-Publisher (& $Providers.Signature $engine) $script:OpenAIPublisher 'publisher.engine-authenticode'))
     $result.Sha256 = & $Providers.Hash $engine
-    $result.Pinned = $Pins.Extension.Version -eq $version -and $Pins.Extension.NativeImageSha256 -eq $result.Sha256
+    $result.Pinned = @($Pins.Extension | Where-Object { $_.Version -eq $version -and $_.NativeImageSha256 -eq $result.Sha256 }).Count -gt 0
     $bundles = New-Object 'Collections.Generic.List[string]'
     $extensionJs = Join-Path $Directory 'out\extension.js'
     if (Test-Path -LiteralPath $extensionJs -PathType Leaf) { $bundles.Add($extensionJs) }
@@ -428,27 +413,26 @@ function Invoke-SelfTest {
     $fixture = Join-Path ([IO.Path]::GetTempPath()) ('agentbroker-repin-selftest-' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $fixture | Out-Null
     try {
-        # Pin sources in the exact shapes the adapters use, so the parser is exercised against real formats.
+        # A pin document in the exact shape the adapters embed, so the reader is exercised against the real format.
         $sources = Join-Path $fixture 'repo'
-        foreach ($dir in @('tools\AgentBroker.CodexDesktopAdapter', 'tools\AgentBroker.ClaudeAdapter')) { New-Item -ItemType Directory -Path (Join-Path $sources $dir) | Out-Null }
+        New-Item -ItemType Directory -Path (Join-Path $sources 'tools\AgentBroker.Pins') | Out-Null
         $hexA = 'A' * 64; $hexB = 'B' * 64; $hexC = 'C' * 64; $hexD = 'D' * 64; $hexE = 'E' * 64; $hexF = 'F' * 64
-        $desktopCs = "public const string PackageFullName = ""OpenAI.Codex_1.0.0.0_x64__2p2nqsd0c76g0"";`npublic const string ApplicationVersion = ""1.0.0.0"";`n" +
-            "public const string ExecutableSha256 = ""$hexA"";`npublic const string ArchiveSha256 = ""$hexB"";`npublic const string ElectronVersion = ""1.2.3"";`n" +
-            "new(""OpenAI.Codex_1.0.1.0_x64__2p2nqsd0c76g0"", ""1.0.1.0"",`n    ""$hexC"",`n    ""$hexD"", ""1.2.3"")`n"
-        $files = @{
-            'tools\AgentBroker.CodexDesktopAdapter\WindowsDesktopConnection.cs' = $desktopCs
-            'tools\AgentBroker.CodexDesktopAdapter\VsCodeCompatibilityProfile.cs' = "public const string Version = ""9.0.1"";`ninternal const string NativeImageSha256 = ""$hexE"";`n"
-            'tools\AgentBroker.CodexDesktopAdapter\VsCodeRouterCompatibilityProfile.cs' = "public const string ProductVersion = ""1.1.0"";`npublic const string ExecutableSha256 = ""$hexF"";`n"
-            'tools\AgentBroker.ClaudeAdapter\NativePeerModels.cs' = "new(""2.1.300"",`n        ""$hexA"");`n"
-        }
+        $pinJson = '{"schema":1,"claudeCode":[{"version":"2.1.300","sha256":"' + $hexA + '"}],' +
+            '"codexDesktop":[{"packageFullName":"OpenAI.Codex_1.0.0.0_x64__2p2nqsd0c76g0","applicationVersion":"1.0.0.0","executableSha256":"' + $hexA +
+            '","archiveSha256":"' + $hexB + '","electronVersion":"1.2.3"},{"packageFullName":"OpenAI.Codex_1.0.1.0_x64__2p2nqsd0c76g0","applicationVersion":"1.0.1.0",' +
+            '"executableSha256":"' + $hexC + '","archiveSha256":"' + $hexD + '","electronVersion":"1.2.3"}],' +
+            '"codexVsCode":[{"version":"9.0.1","directoryName":"openai.chatgpt-9.0.1-win32-x64","nativeImageSha256":"' + $hexE +
+            '","manifestFunctionalSha256":"' + $hexE + '","images":{"out/extension.js":"' + $hexE + '"}}],' +
+            '"vscodeRouter":[{"productVersion":"1.1.0","executableSha256":"' + $hexF + '"}]}'
+        $files = @{ 'tools\AgentBroker.Pins\agentbroker-pins.json' = $pinJson }
         foreach ($entry in $files.GetEnumerator()) { [IO.File]::WriteAllText((Join-Path $sources $entry.Key), $entry.Value) }
         $before = @{}
         foreach ($entry in $files.GetEnumerator()) { $before[$entry.Key] = (Get-FileHash -LiteralPath (Join-Path $sources $entry.Key)).Hash }
 
         $pins = Get-PinnedProfiles $sources
-        Assert (@($pins.Desktop).Count -eq 2 -and $pins.Desktop[0].Version -eq '1.0.0.0' -and $pins.Desktop[1].ArchiveSha256 -eq $hexD) 'pin parser reads both desktop tuple shapes exactly'
-        Assert ($pins.Extension.Version -eq '9.0.1' -and $pins.Extension.NativeImageSha256 -eq $hexE -and @($pins.Router).Count -eq 1 -and
-            @($pins.Claude).Count -eq 1 -and $pins.Claude[0].Version -eq '2.1.300') 'pin parser reads extension, router and Claude pins exactly'
+        Assert (@($pins.Desktop).Count -eq 2 -and $pins.Desktop[0].Version -eq '1.0.0.0' -and $pins.Desktop[1].ArchiveSha256 -eq $hexD) 'pin reader reads both desktop tuples exactly'
+        Assert (@($pins.Extension).Count -eq 1 -and $pins.Extension[0].Version -eq '9.0.1' -and $pins.Extension[0].NativeImageSha256 -eq $hexE -and @($pins.Router).Count -eq 1 -and
+            @($pins.Claude).Count -eq 1 -and $pins.Claude[0].Version -eq '2.1.300') 'pin reader reads extension, router and Claude pins exactly'
 
         $all = @{}
         foreach ($key in $script:ClaudeMarkers.Keys) { $all[$key] = $true }

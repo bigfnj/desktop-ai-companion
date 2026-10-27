@@ -75,7 +75,7 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
             {
                 profileTrust = DesktopRouterTrust.Unverified;
                 diagnostics.Add(new("vscode_profile_unavailable",
-                    $"Codex VS Code compatibility verification could not complete; verified extension {VsCodeCompatibilityProfile.Version}."));
+                    $"Codex VS Code compatibility verification could not complete; verified extension {VsCodeCompatibilityProfile.VerifiedVersions}."));
             }
         }
         var observed = await observe(token);

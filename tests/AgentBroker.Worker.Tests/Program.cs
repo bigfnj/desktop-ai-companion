@@ -87,6 +87,20 @@ if (args.Length >= 1 && args[0] is "--tombstone-only" or "--tombstone-case")
     }
     catch (Exception ex) { Console.Error.WriteLine(ex); Console.WriteLine("RESULT=FAIL"); return 1; }
 }
+// What the Native status line says about the embedded pin document (lane broker-pins). --pin-status-case runs one
+// group, so each mutation witness fails on the check it targets.
+if (args.Length >= 1 && args[0] is "--pin-status-only" or "--pin-status-case")
+{
+    try
+    {
+        if (args[0] == "--pin-status-only" && args.Length == 1) await PinStatusChecks.RunAsync(Check);
+        else if (args[0] == "--pin-status-case" && args.Length == 2) await PinStatusChecks.RunAsync(Check, args[1]);
+        else throw new ArgumentException("Unexpected pin status test arguments.");
+        Console.WriteLine($"RESULT=PASS assertions={assertions}");
+        return 0;
+    }
+    catch (Exception ex) { Console.Error.WriteLine(ex); Console.WriteLine("RESULT=FAIL"); return 1; }
+}
 if (args.Length == 1 && args[0] == "--channel-only")
 {
     try
@@ -278,6 +292,8 @@ try
         await LoopbackHostChecks.RunAsync(Check);
         // Tombstone on acknowledgement, rollback to 1.0.4 and the unchanged federation wire (lane broker-e, N-broker-a-02).
         await TombstoneChecks.RunAsync(Check);
+        // The embedded pin document in the Native status (lane broker-pins).
+        await PinStatusChecks.RunAsync(Check);
     }
     try { WorkerOptions.Parse(["--data", scratch, "--lan", "false", "--lan", "true"]); throw new Exception("Accepted duplicate option."); }
     catch (ArgumentException) { Check(true, "duplicate worker options fail before startup"); }

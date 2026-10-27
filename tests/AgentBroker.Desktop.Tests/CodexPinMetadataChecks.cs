@@ -26,7 +26,7 @@ internal static class CodexPinMetadataChecks
                 "Rejected desktop package reports its installed version before any image or hash read");
         }
         check(DesktopCompatibilityProfile.InstalledApplicationVersion(Path.Combine(windowsApps,
-            DesktopCompatibilityProfile.PackageFullName, "app", "ChatGPT.exe")) == DesktopCompatibilityProfile.ApplicationVersion,
+            DesktopCompatibilityProfile.Packages[0].PackageFullName, "app", "ChatGPT.exe")) == DesktopCompatibilityProfile.Packages[0].ApplicationVersion,
             "Desktop package diagnostics identify the currently verified package version");
         foreach (string unsupportedImage in new[]
         {
@@ -43,7 +43,7 @@ internal static class CodexPinMetadataChecks
         try
         {
             VsCodeRouterCompatibilityProfile.ValidateMetadata(VsCodeRouterCompatibilityProfile.ExpectedImage,
-                VsCodeRouterCompatibilityProfile.ExecutableSha256, "1.144.0");
+                VsCodeRouterCompatibilityProfile.Pins[0].ExecutableSha256, "1.144.0");
             throw new InvalidOperationException("An unverified VS Code router passed its existing exact version pin.");
         }
         catch (DesktopAdapterException error)

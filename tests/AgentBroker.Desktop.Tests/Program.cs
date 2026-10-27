@@ -144,6 +144,22 @@ if (args.Length == 2 && args[0] == "--codex-publisher-router")
         return 1;
     }
 }
+// Lane broker-pins: the embedded pin document's loader, strict schema and fail-closed consumers.
+if (args.SequenceEqual(new[] { "--pin-document-only" }) || args.Length == 2 && args[0] == "--pin-document-case")
+{
+    try
+    {
+        PinDocumentChecks.Run(Check, args.Length == 2 ? args[1] : null);
+        Console.WriteLine($"AgentBroker pin document checks passed: {passed}");
+        return 0;
+    }
+    catch (Exception error)
+    {
+        Console.Error.WriteLine(error);
+        Console.WriteLine("RESULT=FAIL");
+        return 1;
+    }
+}
 if (args.SequenceEqual(new[] { "--exact-thread-metadata-only" }))
 {
     try
@@ -478,13 +494,13 @@ Check(DesktopFrames.Text(JsonValue.Create("bad shape"), "id") is null, "Scalar c
 Check(!DesktopFrames.IsTrue(new JsonObject { ["supportsUntrustedAppInput"] = "true" }, "supportsUntrustedAppInput"), "Capability requires boolean true.");
 Check(VsCodeCompatibilityProfile.ValidateRunningClients([]) == 0, "No running VS Code engine does not require an installed extension.");
 VsCodeRouterCompatibilityProfile.ValidateMetadata(VsCodeRouterCompatibilityProfile.ExpectedImage,
-    VsCodeRouterCompatibilityProfile.ExecutableSha256, VsCodeRouterCompatibilityProfile.ProductVersion);
+    VsCodeRouterCompatibilityProfile.Pins[0].ExecutableSha256, VsCodeRouterCompatibilityProfile.Pins[0].ProductVersion);
 Check(true, "Exact supported Code router metadata is accepted independently of desktop package metadata.");
 foreach (var metadata in new[]
 {
-    (Image: "synthetic-Code.exe", Hash: VsCodeRouterCompatibilityProfile.ExecutableSha256, Version: VsCodeRouterCompatibilityProfile.ProductVersion),
-    (Image: VsCodeRouterCompatibilityProfile.ExpectedImage, Hash: new string('0', 64), Version: VsCodeRouterCompatibilityProfile.ProductVersion),
-    (Image: VsCodeRouterCompatibilityProfile.ExpectedImage, Hash: VsCodeRouterCompatibilityProfile.ExecutableSha256, Version: "unsupported")
+    (Image: "synthetic-Code.exe", Hash: VsCodeRouterCompatibilityProfile.Pins[0].ExecutableSha256, Version: VsCodeRouterCompatibilityProfile.Pins[0].ProductVersion),
+    (Image: VsCodeRouterCompatibilityProfile.ExpectedImage, Hash: new string('0', 64), Version: VsCodeRouterCompatibilityProfile.Pins[0].ProductVersion),
+    (Image: VsCodeRouterCompatibilityProfile.ExpectedImage, Hash: VsCodeRouterCompatibilityProfile.Pins[0].ExecutableSha256, Version: "unsupported")
 })
     await Refuses("unsupported_vscode_router", () => Task.Run(() => VsCodeRouterCompatibilityProfile.ValidateMetadata(metadata.Image, metadata.Hash, metadata.Version)));
 foreach (var engine in new[]
@@ -533,6 +549,8 @@ if (!args.SequenceEqual(new[] { "--existing-tests-only" })) VsCodeManifestChecks
 if (!args.SequenceEqual(new[] { "--existing-tests-only" })) DesktopPackageProfileChecks.Run(Check);
 // Codex observation-only discovery and the opt-in update-tolerant delivery gate (lane broker-b).
 if (!args.SequenceEqual(new[] { "--existing-tests-only" })) await CodexObservationChecks.RunAsync(Check);
+// The embedded pin document (lane broker-pins), after the --existing-tests-only cut-off.
+if (!args.SequenceEqual(new[] { "--existing-tests-only" })) PinDocumentChecks.Run(Check);
 Console.WriteLine($"AgentBroker desktop synthetic checks passed: {passed}");
 return 0;
 

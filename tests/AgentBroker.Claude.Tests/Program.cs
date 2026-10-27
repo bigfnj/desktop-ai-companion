@@ -6,6 +6,8 @@ using System.Text.Json;
 using AgentBroker.ClaudeAdapter;
 using AgentBroker.ClaudeSmokeProbe;
 
+// The reviewed pins live in the embedded pin document (lane broker-pins); select one by its version.
+static EngineProfile Pinned(string version) => EngineProfile.Verified.Single(pin => pin.Version == version);
 int checks = 0;
 void Check(bool condition, string description)
 {
@@ -22,7 +24,7 @@ const string pipe = @"\\.\pipe\cc-msg-0123456789abcdef0123456789abcdef";
 const string token = "0123456789abcdef0123456789abcdef"; // Synthetic in-memory input, never a file fixture.
 const ulong start = 134_000_000_000_000_000;
 string home = @"C:\SyntheticUser";
-var profile = EngineProfile.Standalone21292;
+var profile = Pinned("2.1.292");
 string session = "11111111-2222-4333-8444-555555555555";
 NativeTarget Target() => new(pipe, 12345, @"C:\SyntheticPublic\claude.exe", profile.Sha256, profile.Version, start, session);
 NativeMessage Message(RecipientMode mode = RecipientMode.Prompting, NativeInboundSetting inbound = NativeInboundSetting.Unspecified)
@@ -270,14 +272,14 @@ try
     var unsupportedFactory = new FakeFactory(identity); var unsupportedSource = new MemorySource(Credential);
     Check((await new NativePeerAdapter(unsupportedFactory, unsupportedSource).SendAsync(Target() with { EngineVersion = "2.1.308" }, Message(), home)).Reason == "unsupported_engine_profile"
         && unsupportedFactory.Connects == 0 && unsupportedSource.Reads == 0, "unverified newer VS Code 2.1.308 profile fails closed without protected access");
-    Check(EngineProfile.Find("2.1.304", profile.Sha256) is null && EngineProfile.Find("2.1.292", EngineProfile.VsCode21304.Sha256) is null,
+    Check(EngineProfile.Find("2.1.304", profile.Sha256) is null && EngineProfile.Find("2.1.292", Pinned("2.1.304").Sha256) is null,
         "engine version and public hash pins cannot be mixed between profiles");
-    var vscode = EngineProfile.VsCode21304;
+    var vscode = Pinned("2.1.304");
     var vscodeTarget = Target() with { EngineVersion = vscode.Version, ImageSha256 = vscode.Sha256 };
     var vscodeFactory = new FakeFactory(identity with { ImageSha256 = vscode.Sha256 });
     Check((await new NativePeerAdapter(vscodeFactory, new MemorySource(Credential)).SendAsync(vscodeTarget, Message(), home)).Status == SubmissionStatus.SubmittedUnconfirmed,
         "independently verified VS Code 2.1.304 profile uses the same minimal native peer protocol in a fake transport");
-    var updatedVscode = EngineProfile.VsCode21306;
+    var updatedVscode = Pinned("2.1.306");
     var updatedTarget = Target() with { EngineVersion = updatedVscode.Version, ImageSha256 = updatedVscode.Sha256 };
     var updatedFactory = new FakeFactory(identity with { ImageSha256 = updatedVscode.Sha256 });
     Check((await new NativePeerAdapter(updatedFactory, new MemorySource(Credential)).SendAsync(updatedTarget, Message(), home)).Status == SubmissionStatus.SubmittedUnconfirmed,

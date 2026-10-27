@@ -8,14 +8,18 @@ public sealed class ClaudeNativeProvider : IClaudeNativeProvider
     private readonly Dictionary<(int Pid, ulong Started, string Path), EngineProfile> profiles = [];
     private readonly IClaudeDiscoverySource source;
     private readonly bool enablePeerCredentials;
+    private readonly Func<string?> pinDocumentError;
     private IReadOnlyList<AdapterDiscoveryDiagnostic> discoveryDiagnostics = Array.Empty<AdapterDiscoveryDiagnostic>();
     private bool disposed;
 
     public ClaudeNativeProvider(bool enablePeerCredentials = false)
         : this(new WindowsClaudeDiscoverySource(), enablePeerCredentials) { }
 
-    internal ClaudeNativeProvider(IClaudeDiscoverySource source, bool enablePeerCredentials = false)
-    { this.source = source; this.enablePeerCredentials = enablePeerCredentials; }
+    internal ClaudeNativeProvider(IClaudeDiscoverySource source, bool enablePeerCredentials = false, Func<string?>? pinDocumentError = null)
+    {
+        this.source = source; this.enablePeerCredentials = enablePeerCredentials;
+        this.pinDocumentError = pinDocumentError ?? (() => EngineProfile.PinDocumentError);
+    }
 
     public IReadOnlyList<AdapterDiscoveryDiagnostic> DiscoveryDiagnostics => discoveryDiagnostics;
 
@@ -24,6 +28,11 @@ public sealed class ClaudeNativeProvider : IClaudeNativeProvider
         ObjectDisposedException.ThrowIf(disposed, this);
         var found = new List<ClaudeNativeCandidate>();
         var diagnostics = new List<AdapterDiscoveryDiagnostic>();
+        // A refused pin document verifies no build (EngineProfile.Verified is empty), so every session below is at
+        // most a read-only observation. Say why first, on every pass, rather than only "not a verified build".
+        if (pinDocumentError() is { } refused)
+            diagnostics.Add(new("pin_document_invalid", "AgentBroker's pin document was refused (" + refused
+                + "); no Claude Code build is verified, so no session can be woken until an AgentBroker module update replaces it."));
         var live = new HashSet<int>();
         foreach (int processId in source.GetProcessIds().Order().Take(32))
         {

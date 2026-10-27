@@ -68,7 +68,7 @@ if (args.Length == 1 && args[0] == "--verify-vscode-profile")
         VsCodeCompatibilityProfile.VerifyInstalled();
         int runningClients = VsCodeCompatibilityProfile.VerifyRunningClients();
         Console.WriteLine(JsonSerializer.Serialize(new { probe = "codex-vscode-public-profile", verified = true,
-            runningClients, extensionVersion = VsCodeCompatibilityProfile.Version }));
+            runningClients, extensionVersion = VsCodeCompatibilityProfile.VerifiedVersions }));
         return 0;
     }
     catch (Exception e) when (e is DesktopAdapterException or IOException or UnauthorizedAccessException)
@@ -114,7 +114,7 @@ if (args.Length is 1 or 3 && args[0] == "--observe-directory"
             probe = "codex-open-session-directory", sessionCount = sessions.Count,
             containsKnownThread = known.HasValue ? sessions.Any(s => s.ConversationId == known.Value) : (bool?)null,
             unknownActivityCount = sessions.Count(s => s.Activity == DesktopSessionActivity.Unknown),
-            compatibilityBaselineVersion = DesktopCompatibilityProfile.ApplicationVersion
+            compatibilityBaselineVersion = DesktopCompatibilityProfile.VerifiedVersions
         }));
         return 0;
     }
@@ -157,7 +157,7 @@ try
             probe = smokeExternal ? "codex-desktop-external-peer-smoke" : "codex-desktop-authorized-smoke", ownerFound = true,
             submission = result.Outcome.ToString(), result.ErrorCode,
             result.Diagnostic,
-            expectedReply = marker, compatibilityBaselineVersion = DesktopCompatibilityProfile.ApplicationVersion,
+            expectedReply = marker, compatibilityBaselineVersion = DesktopCompatibilityProfile.VerifiedVersions,
             note = "Native admission is not proof of a completed or visible reply. Check the dedicated GUI conversation."
         }));
         return result.Outcome == DesktopSubmissionOutcome.Accepted ? 0 : 1;
@@ -166,7 +166,7 @@ try
     {
         probe = "codex-desktop-pinned-owner", connected = true, connectionEstablished, stage = "complete", ownerFound = binding is not null,
         supportsUntrustedAppInput = binding?.SupportsUntrustedAppInput == true,
-        compatibilityBaselineVersion = DesktopCompatibilityProfile.ApplicationVersion
+        compatibilityBaselineVersion = DesktopCompatibilityProfile.VerifiedVersions
     }));
     return binding is null ? 1 : 0;
 }

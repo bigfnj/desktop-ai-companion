@@ -6391,6 +6391,32 @@ height, the window takes that height whenever it changes, every change of the wi
 tray's corner, and a work-area change (`WM_SETTINGCHANGE` with `SPI_SETWORKAREA`, or `WM_DISPLAYCHANGE`) places it again
 too. The pre-show measure stays as the estimate the first placement uses.
 
+#### feature/agentbroker-pin-automation
+
+AgentBroker's vendor re-pins as data, a scheduled check that drafts them, and the first re-pin (lane broker-pins, owner
+decision 2026-10-27: automation detects, checks and DRAFTS; the owner's review stays one merge, because for Claude the
+pin is the only check that a new build still treats broker input as untrusted).
+
+**One pin document, embedded in both adapter assemblies.** `tools/AgentBroker.Pins/agentbroker-pins.json` is an
+embedded resource of `AgentBroker.ClaudeAdapter` and `AgentBroker.CodexDesktopAdapter`, and both compile the same
+loader, `PinDocument.cs`, as internal types. Each adapter validates the whole document, so the two cannot disagree, and
+an assembly that references both (the worker) sees neither copy. Refused alternatives: a third `AgentBroker.Pins`
+assembly, which would add a payload file to the publish and packaging lists for no extra guarantee; and a loose file
+beside the worker, which any process running as the user could edit. The pin is inside the payload the catalog hashes,
+so a re-pin is a module update and nothing else.
+
+**A refused document fails closed, and differently per vendor, on purpose.** Codex refuses with
+`pin_document_invalid`, which `DesktopCompatibilityProfile.IsExactPinMismatch` does not list, so a broken document
+cannot be mistaken for "an unreviewed build" and fall through to publisher evidence or update-tolerant delivery; the
+cost is that Codex sessions are not even observed until a fixed module arrives. Claude keeps its publisher-signed,
+read-only observation, because that path never consulted a pin, and no Claude build can be woken. Both say why in
+the Native status on every pass.
+
+**Each pin carries exactly what the adapters compared, and no more.** A Claude pin is a version and a hash, with no
+field naming the client it was reviewed in (the compatibility document says which); adding one would be a member the
+loader must validate and no check reads. The loader's own bindings (package name and VS Code folder derived from the
+version, uppercase hex, one Claude pin per image hash) refuse documents the adapters could load but never match.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

@@ -102,7 +102,7 @@ internal static class VsCodeManifestChecks
                     break;
                 }
                 case "hash-bound": Refuses("vscode_manifest_invalid", () => VsCodeManifestProfile.ComputeSha256(OversizedValidJson()), check); break;
-                case "required-hash": Refuses("vscode_image_mismatch", () => VsCodeManifestProfile.Verify(Encoding.UTF8.GetBytes("{}")), check); break;
+                case "required-hash": Refuses("vscode_image_mismatch", () => VsCodeManifestProfile.Verify(Encoding.UTF8.GetBytes("{}"), VsCodeCompatibilityProfile.Profiles[0].ManifestFunctionalSha256), check); break;
                 case "installed-manifest-required":
                 {
                     string root = Path.Combine(Path.GetTempPath(), "dac-manifest-" + Guid.NewGuid().ToString("N"));
@@ -111,7 +111,7 @@ internal static class VsCodeManifestChecks
                     try
                     {
                         File.WriteAllText(manifest, "{}", new UTF8Encoding(false));
-                        Refuses("vscode_image_mismatch", () => VsCodeCompatibilityProfile.VerifyInstalledAt(root), check);
+                        Refuses("vscode_image_mismatch", () => VsCodeCompatibilityProfile.VerifyInstalledAt(root, VsCodeCompatibilityProfile.Profiles[0]), check);
                     }
                     finally { File.Delete(manifest); Directory.Delete(root); }
                     break;
@@ -119,15 +119,16 @@ internal static class VsCodeManifestChecks
                 case "router-pairs":
                 {
                     string image = VsCodeRouterCompatibilityProfile.ExpectedImage;
-                    VsCodeRouterCompatibilityProfile.ValidateMetadata(image, VsCodeRouterCompatibilityProfile.ExecutableSha256, VsCodeRouterCompatibilityProfile.ProductVersion);
-                    VsCodeRouterCompatibilityProfile.ValidateMetadata(image, VsCodeRouterCompatibilityProfile.AdditionalExecutableSha256, VsCodeRouterCompatibilityProfile.AdditionalProductVersion);
+                    var (first, second) = (VsCodeRouterCompatibilityProfile.Pins[0], VsCodeRouterCompatibilityProfile.Pins[1]);
+                    VsCodeRouterCompatibilityProfile.ValidateMetadata(image, first.ExecutableSha256, first.ProductVersion);
+                    VsCodeRouterCompatibilityProfile.ValidateMetadata(image, second.ExecutableSha256, second.ProductVersion);
                     check(true, "VsCodeManifestChecks.cs: both independently pinned old and current Code executable pairs remain supported.");
                     foreach (var invalid in new[]
                     {
-                        (VsCodeRouterCompatibilityProfile.ExecutableSha256, VsCodeRouterCompatibilityProfile.AdditionalProductVersion),
-                        (VsCodeRouterCompatibilityProfile.AdditionalExecutableSha256, VsCodeRouterCompatibilityProfile.ProductVersion),
-                        (VsCodeRouterCompatibilityProfile.AdditionalExecutableSha256, "1.143.2"),
-                        (new string('0', 64), VsCodeRouterCompatibilityProfile.AdditionalProductVersion)
+                        (first.ExecutableSha256, second.ProductVersion),
+                        (second.ExecutableSha256, first.ProductVersion),
+                        (second.ExecutableSha256, "1.143.2"),
+                        (new string('0', 64), second.ProductVersion)
                     }) Refuses("unsupported_vscode_router", () => VsCodeRouterCompatibilityProfile.ValidateMetadata(image, invalid.Item1, invalid.Item2), check);
                     break;
                 }

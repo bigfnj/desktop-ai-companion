@@ -111,6 +111,36 @@ no acknowledgement or classification at runtime. Clearing this needs a
 vendor-published peer-class ingress contract, or an inbox that reports its
 admission outcome.
 
+## Pins as data, 2026-10-27
+
+Every exact pin is one entry of `tools/AgentBroker.Pins/agentbroker-pins.json`:
+Claude Code executables (`claudeCode`: version and image SHA-256), Codex desktop
+packages (`codexDesktop`: package name, version, executable and archive SHA-256,
+Electron version), Codex VS Code extensions (`codexVsCode`: version, folder, engine
+SHA-256, manifest functional hash and the hashed bundles) and Code routers
+(`vscodeRouter`: version and executable SHA-256). Each entry carries exactly what
+the adapters compared when the pins were compiled constants, and every earlier pin
+moved unchanged.
+
+The document is an embedded resource of both adapter assemblies, which compile the
+same loader (`tools/AgentBroker.Pins/PinDocument.cs`). It ships inside the worker
+payload that the module catalog hashes, never as a loose file that a process
+running as the user could edit, so a re-pin reaches users as an AgentBroker module
+update. The loader validates the document once per process: schema 1; exactly the
+expected members, so an unknown, missing or repeated name refuses the whole
+document; uppercase SHA-256 values; version formats; a desktop package name and a
+VS Code folder bound to their own versions; plain relative image paths; and no
+repeated pin. A refused or missing document verifies no build. Claude sessions are
+then at most read-only observations. Codex discovery refuses with
+`pin_document_invalid`, which is not an exact-pin mismatch, so neither publisher
+evidence nor update-tolerant delivery can stand in for it. The Native status names
+the reason on every pass.
+
+With more than one Codex VS Code pin, a running engine's image path selects its
+pin, and every pinned extension folder that is installed must verify completely.
+With one pin, each check is the earlier single-profile check. Status text lists
+every verified version, where it used to name only the first.
+
 ## Re-pin helper, 2026-10-27
 
 `tools/agentbroker/Test-AgentBrokerRepin.ps1` is a read-only assistant for exact
@@ -220,7 +250,7 @@ A read-only source review of the installed Codex VS Code extension `26.1021.2202
 - Owner discovery answers a boolean plus `{supportsUntrustedAppInput:true}` (`extension.js:2027331`); `getThreadRole` reports the view's in-memory stream role (`initialize-app-host-services.extension-f722db488e05.js:284833`). The vendor's own `findThreadOwner` trusts `handledByClientId` (`src-Dl21kCYQ.js:753725`).
 - The VS Code engine is spawned over private stdio pipes with no `--listen` (`extension.js:2230360`, `:2226090`), so an adapter cannot reach that engine to ask which connection owns a loaded thread.
 
-Owning the router would allow a client-process lookup per connection, but that replaces the vendor router, which these adapters never do. The item stays blocked until the vendor attests client processes, issues a verifiable per-view credential, or exposes an authenticated owner query. Both installed versions are newer than the exact pins (extension `26.1007.21434` in `VsCodeCompatibilityProfile.cs`; desktop `26.1016.6573.0` and `26.1016.8622.0` in `WindowsDesktopConnection.cs`), so those pins do not match the current installation.
+Owning the router would allow a client-process lookup per connection, but that replaces the vendor router, which these adapters never do. The item stays blocked until the vendor attests client processes, issues a verifiable per-view credential, or exposes an authenticated owner query. Both installed versions were newer than the exact pins at the time (extension `26.1007.21434`; desktop `26.1016.6573.0` and `26.1016.8622.0`, now entries of `tools/AgentBroker.Pins/agentbroker-pins.json`), so those pins did not match the installation.
 
 ## Latest live verification
 

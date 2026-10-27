@@ -163,17 +163,20 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
         string installed = error.InstalledVersion is { } version ? version + " installed" : "installed version unknown";
         string description = error.Code switch
         {
-            "unsupported_desktop_version" => $"Codex desktop {installed}; verified {DesktopCompatibilityProfile.ApplicationVersion}.",
-            "desktop_image_mismatch" => $"Codex desktop {installed}; public image does not match verified {DesktopCompatibilityProfile.ApplicationVersion}.",
-            "unsupported_vscode_router" => $"VS Code {installed}; verified router {VsCodeRouterCompatibilityProfile.ProductVersion}.",
-            "unsupported_vscode_profile" => $"Codex VS Code {installed}; verified extension {VsCodeCompatibilityProfile.Version} is unavailable.",
-            "vscode_image_mismatch" => $"Codex VS Code {installed}; extension public image does not match verified {VsCodeCompatibilityProfile.Version}.",
-            "unsupported_running_vscode_profile" => $"Codex VS Code {installed}; running engine does not match verified extension {VsCodeCompatibilityProfile.Version}.",
-            "running_vscode_image_mismatch" => $"Codex VS Code {installed}; running engine public image does not match verified extension {VsCodeCompatibilityProfile.Version}.",
+            "unsupported_desktop_version" => $"Codex desktop {installed}; verified {DesktopCompatibilityProfile.VerifiedVersions}.",
+            "desktop_image_mismatch" => $"Codex desktop {installed}; public image does not match verified {DesktopCompatibilityProfile.VerifiedVersions}.",
+            "unsupported_vscode_router" => $"VS Code {installed}; verified router {VsCodeRouterCompatibilityProfile.VerifiedVersions}.",
+            "unsupported_vscode_profile" => $"Codex VS Code {installed}; verified extension {VsCodeCompatibilityProfile.VerifiedVersions} is unavailable.",
+            "vscode_image_mismatch" => $"Codex VS Code {installed}; extension public image does not match verified {VsCodeCompatibilityProfile.VerifiedVersions}.",
+            "unsupported_running_vscode_profile" => $"Codex VS Code {installed}; running engine does not match verified extension {VsCodeCompatibilityProfile.VerifiedVersions}.",
+            "running_vscode_image_mismatch" => $"Codex VS Code {installed}; running engine public image does not match verified extension {VsCodeCompatibilityProfile.VerifiedVersions}.",
             "public_image_signature_untrusted" => $"Codex {installed}; Windows did not verify the public image signature.",
             "public_image_publisher_mismatch" => $"Codex {installed}; the public image is not signed by the expected publisher.",
             "public_image_location_unprotected" => $"Codex desktop {installed}; package files are writable outside the protected app location.",
             "public_image_trust_unavailable" => $"Codex {installed}; public image publisher trust could not be established.",
+            // Fails closed: not an exact-pin mismatch, so no publisher evidence stands in and nothing is observed or woken.
+            "pin_document_invalid" => "AgentBroker's pin document was refused (" + (DesktopCompatibilityProfile.PinDocumentError ?? "unknown reason")
+                + "); Codex native discovery and wake are off until an AgentBroker module update replaces it.",
             _ => "Codex native discovery failed" + (error.InstalledVersion is { } known ? "; installed version " + known : "") + "."
         };
         return new(error.Code, description);

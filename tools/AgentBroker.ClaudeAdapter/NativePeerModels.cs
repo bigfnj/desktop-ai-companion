@@ -1,17 +1,19 @@
+using AgentBroker.Pins;
+
 namespace AgentBroker.ClaudeAdapter;
 
 public sealed record EngineProfile(string Version, string Sha256)
 {
-    // Verified public standalone executable, not a claim about the Desktop-bundled runtime.
-    public static readonly EngineProfile Standalone21292 = new("2.1.292",
-        "EB95BB65955F8B1702E800815F9A2C0388A5DE0F196C354C7EE1DD5CB9A2BA23");
-    // Independently inspected public Windows VS Code extension runtime.
-    public static readonly EngineProfile VsCode21304 = new("2.1.304",
-        "019E5174D5D954585EDB1A946FE280E44A973050B4897034ADF0E16306F85FDD");
-    // The public Windows VS Code 2.1.306 native source was independently checked after client update.
-    public static readonly EngineProfile VsCode21306 = new("2.1.306",
-        "F6BC9DE38F507C36C9A3BB0085A59A27E32156E2208252BF1707C4E3EF309114");
-    public static IReadOnlyList<EngineProfile> Verified { get; } = Array.AsReadOnly(new[] { Standalone21292, VsCode21304, VsCode21306 });
+    // The reviewed public executables (standalone or npm CLI, and the VS Code extension runtime; never a claim about
+    // the Desktop-bundled runtime) are the "claudeCode" pins of the embedded document
+    // tools/AgentBroker.Pins/agentbroker-pins.json; docs/agentbroker-client-compatibility.md says which client each
+    // was reviewed in. A refused document leaves this list empty, so Find returns null for every build and no Claude
+    // session can be woken.
+    public static IReadOnlyList<EngineProfile> Verified { get; } =
+        Array.AsReadOnly(PinDocument.Current.ClaudeCode.Select(pin => new EngineProfile(pin.Version, pin.Sha256)).ToArray());
+
+    /// <summary>Why the embedded pin document was refused, or null when it validated.</summary>
+    public static string? PinDocumentError => PinDocument.Current.Error;
 
     public static EngineProfile? Find(string version, string sha256)
     {

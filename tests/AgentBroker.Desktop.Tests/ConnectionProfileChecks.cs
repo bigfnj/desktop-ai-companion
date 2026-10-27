@@ -18,7 +18,7 @@ internal static class ConnectionProfileChecks
                 {
                     bool code = name == "vscode";
                     string image = code ? VsCodeRouterCompatibilityProfile.ExpectedImage
-                        : Path.Combine(DesktopCompatibilityProfile.ApplicationDirectory, "ChatGPT.exe");
+                        : Path.Combine(DesktopCompatibilityProfile.Packages[0].ApplicationDirectory, "ChatGPT.exe");
                     int codeChecks = 0, desktopChecks = 0;
                     var result = WindowsDesktopConnection.VerifyPublicProfile(image,
                         actual => { check(actual == image, "ConnectionProfileChecks.cs: Code verification receives the connected image."); codeChecks++; },
@@ -34,7 +34,7 @@ internal static class ConnectionProfileChecks
                 {
                     bool code = name == "vscode-rejection";
                     string image = code ? VsCodeRouterCompatibilityProfile.ExpectedImage
-                        : Path.Combine(DesktopCompatibilityProfile.ApplicationDirectory, "ChatGPT.exe");
+                        : Path.Combine(DesktopCompatibilityProfile.Packages[0].ApplicationDirectory, "ChatGPT.exe");
                     int checks = 0;
                     Action<string> reject = _ => { checks++; throw new DesktopAdapterException("synthetic_public_image_mismatch"); };
                     await RefusesAsync("synthetic_public_image_mismatch", () => Task.Run(() =>

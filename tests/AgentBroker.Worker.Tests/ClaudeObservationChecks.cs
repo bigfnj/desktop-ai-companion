@@ -7,6 +7,9 @@ using AgentBroker.Worker.Adapters;
 
 internal static class ClaudeObservationChecks
 {
+    // The reviewed pin lives in the embedded pin document (lane broker-pins); selected by version.
+    private static readonly EngineProfile Pin21306 = EngineProfile.Verified.Single(pin => pin.Version == "2.1.306");
+
     internal static async Task RunAsync(Action<bool, string> check)
     {
         PublisherSubjectChecks(check);
@@ -87,7 +90,7 @@ internal static class ClaudeObservationChecks
         check((await provider.RefreshAsync(source.Pid, CancellationToken.None))?.Status is null,
             "Claude observation: implausible activity remains unknown");
         source.Metadata = source.Metadata with { UpdatedAt = DateTimeOffset.UtcNow };
-        source.Version = EngineProfile.VsCode21306.Version;
+        source.Version = Pin21306.Version;
         source.Hash = new string('B', 64);
         var reissued = (await provider.DiscoverAsync(CancellationToken.None)).Single();
         check(reissued.Provenance == ClaudeDiscoveryProvenance.PublisherSignedObservation && !reissued.CanDeliver &&
@@ -182,7 +185,7 @@ internal static class ClaudeObservationChecks
         }
         var pinned = observed with
         {
-            Target = observed.Target with { EngineVersion = EngineProfile.VsCode21306.Version, ImageSha256 = EngineProfile.VsCode21306.Sha256 },
+            Target = observed.Target with { EngineVersion = Pin21306.Version, ImageSha256 = Pin21306.Sha256 },
             Provenance = ClaudeDiscoveryProvenance.ExactPinned,
         };
         var changing = new CandidateProvider(pinned);
@@ -203,7 +206,7 @@ internal static class ClaudeObservationChecks
     private static async Task PinnedBehaviorAsync(Action<bool, string> check)
     {
         var source = new ObservationSource
-        { Version = EngineProfile.VsCode21306.Version, Hash = EngineProfile.VsCode21306.Sha256 };
+        { Version = Pin21306.Version, Hash = Pin21306.Sha256 };
         ClaudeNativeCandidate pinned;
         await using (var provider = new ClaudeNativeProvider(source))
         {

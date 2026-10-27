@@ -6,7 +6,6 @@ namespace AgentBroker.CodexDesktopAdapter;
 internal static class VsCodeManifestProfile
 {
     internal const int MaximumBytes = 256 * 1024;
-    internal const string FunctionalSha256 = "C5C2262E3E36E38E4BF00F885811190F8DFE18B98D8FCB898F22A8600DE96F13";
 
     internal static byte[] ReadBounded(Stream source)
     {
@@ -21,9 +20,10 @@ internal static class VsCodeManifestProfile
         return contents.ToArray();
     }
 
-    internal static void Verify(byte[] bytes)
+    // The expected hash is the reviewed build's "manifestFunctionalSha256" pin.
+    internal static void Verify(byte[] bytes, string functionalSha256)
     {
-        if (ComputeSha256(bytes) != FunctionalSha256) throw new DesktopAdapterException("vscode_image_mismatch");
+        if (ComputeSha256(bytes) != functionalSha256) throw new DesktopAdapterException("vscode_image_mismatch");
     }
 
     internal static string ComputeSha256(byte[] bytes)

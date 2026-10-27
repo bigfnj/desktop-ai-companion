@@ -13,12 +13,10 @@ internal static class DesktopPackageProfileChecks
                 "F7F605CCEB2E75DCA52E03362329A889F917CC1F8D1036CD26386727A2319415",
                 "A05DFD86CA508148C83C25590639CF91A52C6647733CDF200723D85357052B49", "155.0.8059.80")
         };
-        check(DesktopCompatibilityProfile.PackageFullName == profiles[0].PackageFullName &&
-            DesktopCompatibilityProfile.ApplicationVersion == profiles[0].ApplicationVersion &&
-            DesktopCompatibilityProfile.ExecutableSha256 == profiles[0].ExecutableSha256 &&
-            DesktopCompatibilityProfile.ArchiveSha256 == profiles[0].ArchiveSha256 &&
-            DesktopCompatibilityProfile.ElectronVersion == profiles[0].ElectronVersion,
-            "DesktopPackage: historical public constants retain the original exact package tuple.");
+        // Re-pointed by lane broker-pins: the tuples moved from compiled constants into the embedded pin document,
+        // which must still carry both historical tuples exactly, the original first.
+        check(DesktopCompatibilityProfile.Packages[0] == profiles[0] && DesktopCompatibilityProfile.Packages.Contains(profiles[1]),
+            "DesktopPackage: the pin document retains the original exact package tuples.");
         foreach (var profile in profiles)
         {
             var selected = DesktopCompatibilityProfile.SelectProfile(profile.ExecutablePath);

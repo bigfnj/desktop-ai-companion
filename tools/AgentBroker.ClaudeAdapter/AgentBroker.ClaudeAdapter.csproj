@@ -15,4 +15,12 @@
   <ItemGroup>
     <Compile Remove="MetadataProbe\**\*.cs" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- The reviewed exact vendor pins: ONE document, embedded in both adapter assemblies and validated by
+         one loader compiled into both (tools/AgentBroker.Pins/PinDocument.cs). Inside the hashed worker
+         payload, never a loose file. -->
+    <Compile Include="..\AgentBroker.Pins\PinDocument.cs" Link="Pins\PinDocument.cs" />
+    <EmbeddedResource Include="..\AgentBroker.Pins\agentbroker-pins.json" Link="Pins\agentbroker-pins.json"
+                      LogicalName="AgentBroker.Pins.agentbroker-pins.json" />
+  </ItemGroup>
 </Project>

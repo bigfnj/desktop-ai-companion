@@ -142,7 +142,7 @@ try
             "A client profile change between discovery and send removes capability and prevents model input.");
     }
 
-    var profile = EngineProfile.VsCode21304;
+    var profile = EngineProfile.Verified.Single(pin => pin.Version == "2.1.304");
     string session = "11111111-2222-4333-8444-555555555555";
     var target = new NativeTarget(@"\\.\pipe\cc-msg-0123456789abcdef0123456789abcdef", 12345,
         @"C:\SyntheticPublic\claude.exe", profile.Sha256, profile.Version, 134000000000000000, session);

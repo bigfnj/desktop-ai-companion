@@ -1,3 +1,4 @@
+using AgentBroker.Pins;
 using Microsoft.Win32.SafeHandles;
 using System.Diagnostics;
 using System.IO.Pipes;
@@ -11,12 +12,6 @@ namespace AgentBroker.CodexDesktopAdapter;
 
 public static class DesktopCompatibilityProfile
 {
-    public const string PackageFullName = "OpenAI.Codex_26.1016.6573.0_x64__2p2nqsd0c76g0";
-    public const string ApplicationVersion = "26.1016.6573.0";
-    public const string ExecutableSha256 = "602A21169FA011CF48997DBC07A0FFCDC11058CAA5DC992E534876E8CB6F9A4E";
-    public const string ArchiveSha256 = "6F56542B508EEA5B6E4D03E852DCD90AFC2578AAC7125BAA3F25EBE85EBC7E25";
-    public const string ElectronVersion = "155.0.8059.80";
-
     internal sealed record PackageProfile(string PackageFullName, string ApplicationVersion,
         string ExecutableSha256, string ArchiveSha256, string ElectronVersion)
     {
@@ -25,18 +20,23 @@ public static class DesktopCompatibilityProfile
         internal string ExecutablePath => Path.Combine(ApplicationDirectory, "ChatGPT.exe");
     }
 
-    // Each reviewed package is a complete tuple. Never mix an executable from one
-    // package with an archive from another or infer compatibility from its version.
-    private static readonly PackageProfile[] Packages =
-    [
-        new(PackageFullName, ApplicationVersion, ExecutableSha256, ArchiveSha256, ElectronVersion),
-        new("OpenAI.Codex_26.1016.8622.0_x64__2p2nqsd0c76g0", "26.1016.8622.0",
-            "F7F605CCEB2E75DCA52E03362329A889F917CC1F8D1036CD26386727A2319415",
-            "A05DFD86CA508148C83C25590639CF91A52C6647733CDF200723D85357052B49", "155.0.8059.80")
-    ];
+    // Each reviewed package is a complete tuple, a "codexDesktop" pin of the embedded document
+    // tools/AgentBroker.Pins/agentbroker-pins.json. Never mix an executable from one package with an archive from
+    // another or infer compatibility from its version.
+    internal static IReadOnlyList<PackageProfile> Packages => PackagesOf(PinDocument.Current);
 
-    internal static string ApplicationDirectory => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "WindowsApps", PackageFullName, "app");
+    /// <summary>The reviewed desktop package versions, for status text. Empty when the pin document was refused.</summary>
+    public static string VerifiedVersions => string.Join(", ", PinDocument.Current.CodexDesktop.Select(pin => pin.ApplicationVersion));
+
+    /// <summary>Why the embedded pin document was refused, or null when it validated.</summary>
+    public static string? PinDocumentError => PinDocument.Current.Error;
+
+    // A refused document is its own refusal, never an exact-pin mismatch: IsExactPinMismatch must stay false for it,
+    // so publisher evidence cannot stand in and the router fails closed instead of being observed or woken.
+    internal static IReadOnlyList<PackageProfile> PackagesOf(PinDocument pins) => pins.Error is not null
+        ? throw new DesktopAdapterException("pin_document_invalid")
+        : pins.CodexDesktop.Select(pin => new PackageProfile(pin.PackageFullName, pin.ApplicationVersion,
+            pin.ExecutableSha256, pin.ArchiveSha256, pin.ElectronVersion)).ToArray();
 
     internal static void VerifyPublicImages(string image)
     {
@@ -48,10 +48,12 @@ public static class DesktopCompatibilityProfile
         ValidateMetadata(image, Hash(expected), Hash(archive), FileVersionInfo.GetVersionInfo(expected).ProductVersion);
     }
 
-    internal static PackageProfile SelectProfile(string image)
+    internal static PackageProfile SelectProfile(string image) => SelectProfile(image, PinDocument.Current);
+
+    internal static PackageProfile SelectProfile(string image, PinDocument pins)
     {
         string fullImage = Path.GetFullPath(image);
-        foreach (var profile in Packages)
+        foreach (var profile in PackagesOf(pins))
             if (string.Equals(fullImage, Path.GetFullPath(profile.ExecutablePath), StringComparison.OrdinalIgnoreCase))
                 return profile;
         throw new DesktopAdapterException("unsupported_desktop_version", InstalledApplicationVersion(image));

@@ -11,9 +11,9 @@ internal static class CodexPinDiagnosticChecks
     {
         foreach (var fixture in new[]
         {
-            (Code: "unsupported_desktop_version", Version: "26.1020.1.0", Verified: DesktopCompatibilityProfile.ApplicationVersion),
-            (Code: "desktop_image_mismatch", Version: DesktopCompatibilityProfile.ApplicationVersion, Verified: DesktopCompatibilityProfile.ApplicationVersion),
-            (Code: "unsupported_vscode_router", Version: "1.144.0", Verified: VsCodeRouterCompatibilityProfile.ProductVersion),
+            (Code: "unsupported_desktop_version", Version: "26.1020.1.0", Verified: DesktopCompatibilityProfile.VerifiedVersions),
+            (Code: "desktop_image_mismatch", Version: "26.1016.6573.0", Verified: DesktopCompatibilityProfile.VerifiedVersions),
+            (Code: "unsupported_vscode_router", Version: "1.144.0", Verified: VsCodeRouterCompatibilityProfile.VerifiedVersions),
             (Code: "owner_discovery_rejected", Version: (string?)null, Verified: (string?)null)
         })
         foreach (bool failOwnerResolution in new[] { false, true })
@@ -44,7 +44,7 @@ internal static class CodexPinDiagnosticChecks
             catch (AdapterDiscoveryException error)
             {
                 check(error.Diagnostic.Description.Contains("installed version unknown", StringComparison.Ordinal) &&
-                    error.Diagnostic.Description.Contains(DesktopCompatibilityProfile.ApplicationVersion, StringComparison.Ordinal),
+                    error.Diagnostic.Description.Contains(DesktopCompatibilityProfile.VerifiedVersions, StringComparison.Ordinal),
                     "Unknown installed Codex version remains explicit instead of claiming the verified build is installed");
             }
         }
@@ -65,7 +65,7 @@ internal static class CodexPinDiagnosticChecks
             await UntilAsync(() => runtime.AdapterErrors.ContainsKey("codex-native"));
             check(runtime.AdapterErrors["codex-native"].Contains("unsupported_desktop_version", StringComparison.Ordinal) &&
                 runtime.AdapterErrors["codex-native"].Contains("26.1020.1.0 installed", StringComparison.Ordinal) &&
-                runtime.AdapterErrors["codex-native"].Contains(DesktopCompatibilityProfile.ApplicationVersion, StringComparison.Ordinal),
+                runtime.AdapterErrors["codex-native"].Contains(DesktopCompatibilityProfile.VerifiedVersions, StringComparison.Ordinal),
                 "Real broker runtime exposes the Codex pin rejection with its specific code and installed and verified versions");
             engine.ClearFailure();
             await UntilAsync(() => !runtime.AdapterErrors.ContainsKey("codex-native") &&

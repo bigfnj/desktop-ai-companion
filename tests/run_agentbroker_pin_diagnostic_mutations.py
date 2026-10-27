@@ -55,6 +55,7 @@ SOURCES = {
     "channel": "tools/AgentBroker.Worker/McpChannelBridge.cs",
     "federation": "tools/AgentBroker.Worker/Federation/PeerFederation.cs",
     "models": "src/AgentBroker.Core/BrokerModels.cs",
+    "pins": "tools/AgentBroker.Pins/PinDocument.cs",
 }
 PROJECTS = {
     "worker": "tests/AgentBroker.Worker.Tests/AgentBroker.Worker.Tests.csproj",
@@ -99,7 +100,7 @@ WITNESSES = (
     Witness("codex-profile-reporting", "provider", "worker", ("--codex-provider-diagnostics-only",), "CodexProviderDiagnosticChecks.cs", (
         ('                diagnostics.Add(CodexNativeAdapter.DescribeDiscoveryFailure(error));', "                _ = error;"),
         ('                diagnostics.Add(new("vscode_profile_unavailable",\n'
-         '                    $"Codex VS Code compatibility verification could not complete; verified extension {VsCodeCompatibilityProfile.Version}."));', ""),
+         '                    $"Codex VS Code compatibility verification could not complete; verified extension {VsCodeCompatibilityProfile.VerifiedVersions}."));', ""),
     )),
     Witness("desktop-package-version-reporting", "desktop", "desktop", ("--pin-diagnostics-only",), "CodexPinMetadataChecks.cs", (
         ('throw new DesktopAdapterException("unsupported_desktop_version", InstalledApplicationVersion(image));',
@@ -449,6 +450,86 @@ WITNESSES = (
     DateTimeOffset UpdatedAt, string? Reason = null, int Attempts = 0);""",
         """public sealed record MessageReceipt(BrokerMessage Message, MessageStatus Status,
     DateTimeOffset UpdatedAt, string? Reason = null, int Attempts = 0, bool Tombstone = false);""",
+    ),)),
+    # ---- lane feature/agentbroker-pin-automation ----
+    # The exact pins moved into ONE embedded JSON document (lane broker-pins, owner decision 2026-10-27): its strict
+    # schema, the bindings between fields, and the fail-closed consumers. Each runs one PinDocumentChecks or
+    # PinStatusChecks group; the checks run after the --existing-tests-only cut-off, so the existing pins stay 148/196.
+    Witness("pins-unknown-member-admitted", "pins", "desktop", ("--pin-document-case", "unknown-member"), "PinDocumentChecks.cs", ((
+        "            if (!expected.Contains(property.Name, StringComparer.Ordinal))\n"
+        '                throw new PinDocumentException(at + " has an unknown member " + Describe(property.Name));\n',
+        "",
+    ),)),
+    Witness("pins-repeated-member-admitted", "pins", "desktop", ("--pin-document-case", "repeated-member"), "PinDocumentChecks.cs", ((
+        "            if (!members.TryAdd(property.Name, property.Value))\n"
+        '                throw new PinDocumentException(at + " repeats the member " + property.Name);',
+        "            members[property.Name] = property.Value;",
+    ),)),
+    Witness("pins-missing-member-admitted", "pins", "desktop", ("--pin-document-case", "missing-member"), "PinDocumentChecks.cs", ((
+        "        foreach (string name in expected)\n"
+        '            if (!members.ContainsKey(name)) throw new PinDocumentException(at + " is missing the member " + name);\n',
+        "",
+    ),)),
+    Witness("pins-schema-ignored", "pins", "desktop", ("--pin-document-case", "schema"), "PinDocumentChecks.cs", ((
+        '            if (schema.ValueKind != JsonValueKind.Number || schema.GetRawText() != "1")\n'
+        '                throw new PinDocumentException("schema must be the number 1");\n',
+        "",
+    ),)),
+    Witness("pins-lowercase-hash-admitted", "pins", "desktop", ("--pin-document-case", "formats"), "PinDocumentChecks.cs", ((
+        'private static readonly Regex Hex64 = new(@"\\A[0-9A-F]{64}\\z", RegexOptions.CultureInvariant);',
+        'private static readonly Regex Hex64 = new(@"\\A[0-9A-Fa-f]{64}\\z", RegexOptions.CultureInvariant);',
+    ),)),
+    Witness("pins-package-name-unbound", "pins", "desktop", ("--pin-document-case", "bindings"), "PinDocumentChecks.cs", ((
+        '                if (pin.PackageFullName != "OpenAI.Codex_" + pin.ApplicationVersion + "_x64__" + CodexPublisherId)\n'
+        '                    throw new PinDocumentException(at + ".packageFullName is not the OpenAI.Codex x64 package of its applicationVersion");\n',
+        "",
+    ),)),
+    Witness("pins-directory-name-unbound", "pins", "desktop", ("--pin-document-case", "bindings"), "PinDocumentChecks.cs", ((
+        '                if (directory != "openai.chatgpt-" + version + "-win32-x64")\n'
+        '                    throw new PinDocumentException(at + ".directoryName is not the win32-x64 extension folder of its version");\n',
+        "",
+    ),)),
+    Witness("pins-image-path-unchecked", "pins", "desktop", ("--pin-document-case", "image-paths"), "PinDocumentChecks.cs", ((
+        "            if (!RelativeImage.IsMatch(property.Name))\n",
+        "            if (property.Name.Length == 0)\n",
+    ),)),
+    Witness("pins-image-path-case-sensitive", "pins", "desktop", ("--pin-document-case", "image-paths"), "PinDocumentChecks.cs", ((
+        "        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);",
+        "        var names = new HashSet<string>(StringComparer.Ordinal);",
+    ),)),
+    Witness("pins-claude-hash-repeats", "pins", "desktop", ("--pin-document-case", "duplicates"), "PinDocumentChecks.cs", ((
+        '            Unique(claude.Select(pin => pin.Sha256), "claudeCode", "sha256");\n',
+        "",
+    ),)),
+    Witness("pins-desktop-refusal-is-mismatch", "desktop", "desktop", ("--pin-document-case", "fail-closed"), "PinDocumentChecks.cs", ((
+        "    internal static IReadOnlyList<PackageProfile> PackagesOf(PinDocument pins) => pins.Error is not null\n"
+        '        ? throw new DesktopAdapterException("pin_document_invalid")\n',
+        "    internal static IReadOnlyList<PackageProfile> PackagesOf(PinDocument pins) => pins.Error is not null\n"
+        "        ? Array.Empty<PackageProfile>()\n",
+    ),)),
+    Witness("pins-router-refusal-is-mismatch", "router", "desktop", ("--pin-document-case", "fail-closed"), "PinDocumentChecks.cs", ((
+        "    internal static IReadOnlyList<RouterPin> PinsOf(PinDocument pins) => pins.Error is not null\n"
+        '        ? throw new DesktopAdapterException("pin_document_invalid")\n',
+        "    internal static IReadOnlyList<RouterPin> PinsOf(PinDocument pins) => pins.Error is not null\n"
+        "        ? Array.Empty<RouterPin>()\n",
+    ),)),
+    Witness("pins-vscode-refusal-is-mismatch", "vscode", "desktop", ("--pin-document-case", "fail-closed"), "PinDocumentChecks.cs", ((
+        "    internal static IReadOnlyList<ExtensionProfile> ProfilesOf(PinDocument pins) => pins.Error is not null\n"
+        '        ? throw new DesktopAdapterException("pin_document_invalid")\n',
+        "    internal static IReadOnlyList<ExtensionProfile> ProfilesOf(PinDocument pins) => pins.Error is not null\n"
+        "        ? Array.Empty<ExtensionProfile>()\n",
+    ),)),
+    Witness("pins-refusal-lent-publisher-trust", "desktop", "desktop", ("--pin-document-case", "fail-closed"), "PinDocumentChecks.cs", ((
+        '        "running_vscode_image_mismatch",\n    };',
+        '        "running_vscode_image_mismatch", "pin_document_invalid",\n    };',
+    ),)),
+    Witness("pins-claude-status-silent", "claude", "worker", ("--pin-status-case", "claude-refused-document"), "PinStatusChecks.cs", ((
+        "        if (pinDocumentError() is { } refused)\n",
+        "        if (pinDocumentError() is { } refused && refused.Length < 0)\n",
+    ),)),
+    Witness("pins-codex-status-generic", "codex", "worker", ("--pin-status-case", "codex-refused-document"), "PinStatusChecks.cs", ((
+        '            "pin_document_invalid" => "AgentBroker\'s pin document was refused ("',
+        '            "pin_document_invalid_unmatched" => "AgentBroker\'s pin document was refused ("',
     ),)),
 )
 

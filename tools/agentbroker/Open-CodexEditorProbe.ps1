@@ -69,20 +69,24 @@ function Confirm-CodeImageMetadata([string]$Image, [string]$Hash, [string]$Versi
         $Hash -cne $ExpectedHash -or $Version -cne $ExpectedVersion) { throw 'Code CLI public image does not match the existing router profile.' }
 }
 function Get-CodeCli {
-    # Consume existing pins rather than inventing another compatibility profile.
+    # Consume existing pins rather than inventing another compatibility profile: the router pairs of the embedded
+    # pin document (lane broker-pins moved them out of VsCodeRouterCompatibilityProfile.cs), and that file's image path.
     $profile = Read-ProbeText (Join-Path $repoRoot 'tools\AgentBroker.CodexDesktopAdapter\VsCodeRouterCompatibilityProfile.cs') $repoRoot
-    $versions = [regex]::Matches($profile, 'public const string ProductVersion = "([0-9.]+)";')
-    $hashes = [regex]::Matches($profile, 'public const string ExecutableSha256 = "([A-F0-9]{64})";')
+    $pins = @(((Read-ProbeText (Join-Path $repoRoot 'tools\AgentBroker.Pins\agentbroker-pins.json') $repoRoot) | ConvertFrom-Json).vscodeRouter)
     $expectedFormula = 'internal static string ExpectedImage\s*=>\s*Path\.Combine\(Environment\.GetFolderPath\(Environment\.SpecialFolder\.LocalApplicationData\),\s*"Programs",\s*"Microsoft VS Code",\s*"Code\.exe"\);'
-    if ($versions.Count -ne 1 -or $hashes.Count -ne 1 -or -not [regex]::IsMatch($profile, $expectedFormula)) {
+    if ($pins.Count -lt 1 -or -not [regex]::IsMatch($profile, $expectedFormula)) {
         throw 'Existing Code router profile cannot be consumed safely.'
     }
     $root = Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)) 'Programs\Microsoft VS Code'
     $code = Assert-ProbePath (Join-Path $root 'Code.exe') $root
     $cmd = Assert-ProbePath (Join-Path $root 'bin\code.cmd') $root
     if (-not [IO.File]::Exists($code) -or -not [IO.File]::Exists($cmd)) { throw 'The existing profile Code installation was not found. Nothing was installed.' }
-    Confirm-CodeImageMetadata $code (Get-ProbeHash $code $root).ToUpperInvariant() ([Diagnostics.FileVersionInfo]::GetVersionInfo($code).ProductVersion) `
-        (Join-Path $root 'Code.exe') $hashes[0].Groups[1].Value $versions[0].Groups[1].Value
+    $installedVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo($code).ProductVersion
+    # The installed version selects one reviewed pair; its hash must then match exactly, as in the adapter.
+    $pin = @($pins | Where-Object { [string]$_.productVersion -ceq $installedVersion }) | Select-Object -First 1
+    if ($null -eq $pin) { throw 'Code CLI public image does not match the existing router profile.' }
+    Confirm-CodeImageMetadata $code (Get-ProbeHash $code $root).ToUpperInvariant() $installedVersion `
+        (Join-Path $root 'Code.exe') ([string]$pin.executableSha256) ([string]$pin.productVersion)
     $body = Read-ProbeText $cmd $root 8192
     $match = [regex]::Match($body, '(?m)^"%~dp0\.\.\\Code\.exe" "%~dp0\.\.\\(?<cli>[^"\r\n]+\\resources\\app\\out\\cli\.js)" %\*\r?$')
     if (-not $match.Success -or $body -notmatch 'set ELECTRON_RUN_AS_NODE=1') { throw 'Installed Code CLI wrapper is not recognized.' }

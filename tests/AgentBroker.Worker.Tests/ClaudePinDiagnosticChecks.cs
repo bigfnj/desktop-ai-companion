@@ -5,6 +5,11 @@ using AgentBroker.Worker.Adapters;
 
 internal static class ClaudePinDiagnosticChecks
 {
+    // The reviewed pins live in the embedded pin document (lane broker-pins); the same three, selected by version.
+    private static readonly EngineProfile Pin21292 = EngineProfile.Verified.Single(pin => pin.Version == "2.1.292");
+    private static readonly EngineProfile Pin21304 = EngineProfile.Verified.Single(pin => pin.Version == "2.1.304");
+    private static readonly EngineProfile Pin21306 = EngineProfile.Verified.Single(pin => pin.Version == "2.1.306");
+
     internal static async Task RunAsync(Action<bool, string> check, string? scenario = null)
     {
         string[] selected = scenario is null
@@ -69,7 +74,7 @@ internal static class ClaudePinDiagnosticChecks
 
     private static async Task HashMismatchAsync(Action<bool, string> check)
     {
-        var entry = Create(301) with { Version = EngineProfile.VsCode21306.Version, Hash = new string('0', 64) };
+        var entry = Create(301) with { Version = Pin21306.Version, Hash = new string('0', 64) };
         var source = new PublicSource(entry);
         await using var provider = new ClaudeNativeProvider(source);
         var sessions = await provider.DiscoverAsync(CancellationToken.None);
@@ -92,13 +97,13 @@ internal static class ClaudePinDiagnosticChecks
     private static async Task MixedPassAndRecoveryAsync(Action<bool, string> check)
     {
         var stale = Create(401);
-        var supported = Create(402) with { Version = EngineProfile.Standalone21292.Version, Hash = EngineProfile.Standalone21292.Sha256 };
+        var supported = Create(402) with { Version = Pin21292.Version, Hash = Pin21292.Sha256 };
         var source = new PublicSource(stale, supported);
         await using var provider = new ClaudeNativeProvider(source);
         var first = await provider.DiscoverAsync(CancellationToken.None);
         var firstSnapshot = provider.DiscoveryDiagnostics;
         check(first.Count == 1 && first[0].Target.ProcessId == supported.Pid &&
-            EngineProfile.Find(first[0].Target.EngineVersion, first[0].Target.ImageSha256) == EngineProfile.Standalone21292 &&
+            EngineProfile.Find(first[0].Target.EngineVersion, first[0].Target.ImageSha256) == Pin21292 &&
             firstSnapshot.Count == 1 && firstSnapshot[0].Code == "unsupported_public_version",
             "Claude mixed discovery retains its exactly pinned supported session and reports a stale peer in the same pass");
         source.Processes.Remove(stale.Pid);
@@ -115,7 +120,7 @@ internal static class ClaudePinDiagnosticChecks
             "Claude lifetime mismatch stays silent even when an old incarnation was cached");
         source.Processes.Clear();
         await provider.DiscoverAsync(CancellationToken.None);
-        source.Processes[supported.Pid] = supported with { Version = EngineProfile.VsCode21306.Version, Hash = new string('0', 64) };
+        source.Processes[supported.Pid] = supported with { Version = Pin21306.Version, Hash = new string('0', 64) };
         var reused = await provider.DiscoverAsync(CancellationToken.None);
         check(reused.Count == 0 && provider.DiscoveryDiagnostics.Single().Code == "image_hash_mismatch" &&
             source.Calls.Count(call => call == "402:hash") == 2,
@@ -149,7 +154,7 @@ internal static class ClaudePinDiagnosticChecks
         await using var provider = new ClaudeNativeProvider(source);
         await provider.DiscoverAsync(CancellationToken.None);
         var staleSnapshot = provider.DiscoveryDiagnostics;
-        source.Processes[stale.Pid] = stale with { Version = EngineProfile.VsCode21304.Version, Hash = EngineProfile.VsCode21304.Sha256 };
+        source.Processes[stale.Pid] = stale with { Version = Pin21304.Version, Hash = Pin21304.Sha256 };
         var recovered = await provider.DiscoverAsync(CancellationToken.None);
         check(staleSnapshot.Count == 1 && recovered.Count == 1 && provider.DiscoveryDiagnostics.Count == 0,
             "Claude stale-version diagnostic clears when the same process becomes an exactly verified supported candidate");
@@ -177,7 +182,7 @@ internal static class ClaudePinDiagnosticChecks
         });
         var metadata = NativeSessionMetadata.Parse(pid.ToString(System.Globalization.CultureInfo.InvariantCulture) + ".json", json);
         return new(pid, metadata, "claude", Path.Combine(Path.GetTempPath(), "agentbroker-claude-diagnostic-" + pid, "claude.exe"),
-            started, "2.1.310", EngineProfile.VsCode21306.Sha256);
+            started, "2.1.310", Pin21306.Sha256);
     }
 
     private sealed record PublicProcess(int Pid, NativeSessionMetadata Metadata, string Name, string? Image,
