@@ -161,6 +161,18 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
     internal static AdapterDiscoveryDiagnostic DescribeDiscoveryFailure(DesktopAdapterException error)
     {
         string installed = error.InstalledVersion is { } version ? version + " installed" : "installed version unknown";
+        // A build newer than every pin is the update case the owner asked the pane to name (lane broker-pins).
+        string? newer = error.Code switch
+        {
+            "unsupported_desktop_version" when DesktopCompatibilityProfile.IsNewerThanEveryVerified(error.InstalledVersion)
+                => AdapterDiscoveryDiagnostic.NewerThanVerified("Codex desktop", error.InstalledVersion!, DesktopCompatibilityProfile.VerifiedVersions),
+            "unsupported_vscode_router" when VsCodeRouterCompatibilityProfile.IsNewerThanEveryVerified(error.InstalledVersion)
+                => AdapterDiscoveryDiagnostic.NewerThanVerified("VS Code", error.InstalledVersion!, VsCodeRouterCompatibilityProfile.VerifiedVersions),
+            "unsupported_vscode_profile" or "unsupported_running_vscode_profile" when VsCodeCompatibilityProfile.IsNewerThanEveryVerified(error.InstalledVersion)
+                => AdapterDiscoveryDiagnostic.NewerThanVerified("Codex VS Code", error.InstalledVersion!, VsCodeCompatibilityProfile.VerifiedVersions),
+            _ => null,
+        };
+        if (newer is not null) return new(error.Code, newer);
         string description = error.Code switch
         {
             "unsupported_desktop_version" => $"Codex desktop {installed}; verified {DesktopCompatibilityProfile.VerifiedVersions}.",

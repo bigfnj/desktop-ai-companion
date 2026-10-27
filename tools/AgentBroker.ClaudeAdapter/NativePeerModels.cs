@@ -15,6 +15,9 @@ public sealed record EngineProfile(string Version, string Sha256)
     /// <summary>Why the embedded pin document was refused, or null when it validated.</summary>
     public static string? PinDocumentError => PinDocument.Current.Error;
 
+    /// <summary>Status text only: the public version is newer than every verified build. Grants no trust.</summary>
+    public static bool IsNewerThanEveryVerified(string? version) => PinDocument.IsNewer(version, Verified.Select(profile => profile.Version));
+
     public static EngineProfile? Find(string version, string sha256)
     {
         foreach (var profile in Verified)

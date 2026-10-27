@@ -56,6 +56,7 @@ SOURCES = {
     "federation": "tools/AgentBroker.Worker/Federation/PeerFederation.cs",
     "models": "src/AgentBroker.Core/BrokerModels.cs",
     "pins": "tools/AgentBroker.Pins/PinDocument.cs",
+    "diagnostic": "tools/AgentBroker.Worker/AdapterDiscoveryDiagnostic.cs",
 }
 PROJECTS = {
     "worker": "tests/AgentBroker.Worker.Tests/AgentBroker.Worker.Tests.csproj",
@@ -530,6 +531,34 @@ WITNESSES = (
     Witness("pins-codex-status-generic", "codex", "worker", ("--pin-status-case", "codex-refused-document"), "PinStatusChecks.cs", ((
         '            "pin_document_invalid" => "AgentBroker\'s pin document was refused ("',
         '            "pin_document_invalid_unmatched" => "AgentBroker\'s pin document was refused ("',
+    ),)),
+    # The Native status names a client newer than every pin, first and within the pane's 160-character line, and says a
+    # reviewed re-pin arrives as a module update (lane broker-pins item 4). Reporting only.
+    Witness("repin-claude-newer-silent", "claude", "worker", ("--pin-status-case", "claude-newer"), "PinStatusChecks.cs", ((
+        '        if (code == "unsupported_public_version" && EngineProfile.IsNewerThanEveryVerified(version))\n',
+        '        if (code == "unsupported_public_version" && EngineProfile.IsNewerThanEveryVerified(version) && version is null)\n',
+    ),)),
+    Witness("repin-codex-newer-silent", "codex", "worker", ("--pin-status-case", "codex-newer"), "PinStatusChecks.cs", ((
+        "        if (newer is not null) return new(error.Code, newer);",
+        "        _ = newer;",
+    ),)),
+    Witness("repin-newer-sentence-last", "diagnostic", "worker", ("--pin-status-case", "claude-newer"), "PinStatusChecks.cs", ((
+        '        => client + " " + version + " installed is newer than every verified build; a reviewed re-pin arrives as a module update. Verified " +\n'
+        '            verified + ".";',
+        '        => client + " " + version + " installed; verified " + verified + ". It is newer than every verified build; a reviewed re-pin arrives as a module update.";',
+    ),)),
+    Witness("repin-newer-ignores-zero-revision", "pins", "desktop", ("--pin-document-case", "newer"), "PinDocumentChecks.cs", ((
+        "        => new(value.Major, value.Minor, Math.Max(value.Build, 0), Math.Max(value.Revision, 0));",
+        "        => value;",
+    ),)),
+    Witness("repin-running-version-dropped", "vscode", "desktop", ("--pin-document-case", "running-version"), "PinDocumentChecks.cs", ((
+        '                throw new DesktopAdapterException("unsupported_running_vscode_profile",\n'
+        "                    PublisherEngineVersion(engine.Image, Path.GetFullPath(ExtensionsRoot)));",
+        '                throw new DesktopAdapterException("unsupported_running_vscode_profile");',
+    ),)),
+    Witness("repin-installed-version-dropped", "vscode", "desktop", ("--pin-document-case", "running-version"), "PinDocumentChecks.cs", ((
+        "            { throw new DesktopAdapterException(error.Code, NewestRunningVersion(engines)); }",
+        "            { throw; }",
     ),)),
 )
 

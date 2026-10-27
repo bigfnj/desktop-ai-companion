@@ -71,6 +71,28 @@ internal sealed class PinDocument
 
     internal static PinDocument Refused(string error) => new(error, [], [], [], []);
 
+    /// <summary>
+    /// Reporting only, never trust: true when <paramref name="candidate"/> parses as a version and is newer than every
+    /// pinned version. Missing parts count as zero, so "2.1.310.0" is the pinned "2.1.310", not newer than it. With no
+    /// pin at all (a refused document) nothing is "newer": the refusal is reported instead.
+    /// </summary>
+    internal static bool IsNewer(string? candidate, IEnumerable<string> pinned)
+    {
+        if (!System.Version.TryParse(candidate, out var parsed)) return false;
+        var installed = Normalize(parsed);
+        bool any = false;
+        foreach (string version in pinned)
+        {
+            if (!System.Version.TryParse(version, out var pin)) continue;
+            any = true;
+            if (Normalize(pin) >= installed) return false;
+        }
+        return any;
+    }
+
+    private static System.Version Normalize(System.Version value)
+        => new(value.Major, value.Minor, Math.Max(value.Build, 0), Math.Max(value.Revision, 0));
+
     internal static PinDocument Load(Assembly assembly)
     {
         try

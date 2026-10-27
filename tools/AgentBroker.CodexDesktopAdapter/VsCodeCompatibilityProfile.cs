@@ -76,9 +76,31 @@ public static class VsCodeCompatibilityProfile
     public static int VerifyRunningClients()
     {
         if (!OperatingSystem.IsWindows()) throw new DesktopAdapterException("native_windows_required");
-        var engines = WindowsClientProcesses.ReadCodeOwnedEngines();
-        if (engines.Count > 0) VerifyInstalled();
+        return VerifyRunningClients(WindowsClientProcesses.ReadCodeOwnedEngines(), VerifyInstalled);
+    }
+
+    internal static int VerifyRunningClients(IReadOnlyList<CodeOwnedEngine> engines, Action verifyInstalled)
+    {
+        if (engines.Count > 0)
+        {
+            try { verifyInstalled(); }
+            // Status text only: no reviewed folder is installed, so name the version the running engine's own folder
+            // declares (lane broker-pins). It is read from the path, never trusted, and the refusal is unchanged.
+            catch (DesktopAdapterException error) when (error.Code == "unsupported_vscode_profile" && error.InstalledVersion is null)
+            { throw new DesktopAdapterException(error.Code, NewestRunningVersion(engines)); }
+        }
         return ValidateRunningClients(engines);
+    }
+
+    /// <summary>Status text only: the extension version is newer than every verified extension. Grants no trust.</summary>
+    public static bool IsNewerThanEveryVerified(string? version)
+        => PinDocument.IsNewer(version, PinDocument.Current.CodexVsCode.Select(pin => pin.Version));
+
+    private static string? NewestRunningVersion(IReadOnlyList<CodeOwnedEngine> engines)
+    {
+        string root = Path.GetFullPath(ExtensionsRoot);
+        return engines.Select(engine => PublisherEngineVersion(engine.Image, root)).OfType<string>()
+            .OrderByDescending(System.Version.Parse).FirstOrDefault();
     }
 
     internal static int ValidateRunningClients(IReadOnlyList<CodeOwnedEngine> engines)
@@ -94,7 +116,9 @@ public static class VsCodeCompatibilityProfile
             if (!engine.SameUser || engine.ParentCreationFileTime > engine.CreationFileTime
                 || !string.Equals(Path.GetFileName(engine.ParentImage), "Code.exe", StringComparison.OrdinalIgnoreCase)
                 || profile is null)
-                throw new DesktopAdapterException("unsupported_running_vscode_profile");
+                // The version an OpenAI extension layout declares, for status text; null for any other path.
+                throw new DesktopAdapterException("unsupported_running_vscode_profile",
+                    PublisherEngineVersion(engine.Image, Path.GetFullPath(ExtensionsRoot)));
             DesktopCompatibilityProfile.VerifyRegularPath(engine.Image);
             using var stream = File.OpenRead(engine.Image);
             if (Convert.ToHexString(SHA256.HashData(stream)) != profile.NativeImageSha256)

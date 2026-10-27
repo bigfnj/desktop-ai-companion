@@ -6436,6 +6436,12 @@ root `__metadata` exclusion and the whole-tree duplicate check). Checked against
 vectors: on 26.1007.21434's VSIX it reproduces the pinned hash. Refused alternative: a hidden adapter command-line flag
 that prints the hash, which would make the helper build and run the adapter.
 
+**"Newer than every pin" leads the status text, and keeps the existing code.** The pane's per-client Native line shows
+the first 160 characters of its adapter's status (`AgentBrokerModule.NativeLine`), so the client's name, its version
+and "a reviewed re-pin arrives as a module update" come first and end within them (asserted), and the verified list
+follows for the full Native adapters field. The codes stay `unsupported_public_version`, `unsupported_desktop_version`
+and so on, so nothing that keys on a code changes; raising the module's 160 was refused as a module change for a
+worker-side sentence. It looks nothing up: the app makes no network call, and the comparison is reporting only.
 
 
 ## Known ABI gaps

@@ -130,12 +130,16 @@ public sealed class ClaudeNativeProvider : IClaudeNativeProvider
         { Provenance = ClaudeDiscoveryProvenance.PublisherSignedObservation };
     }
 
-    private static AdapterDiscoveryDiagnostic CompatibilityDiagnostic(string code, string? version)
+    internal static AdapterDiscoveryDiagnostic CompatibilityDiagnostic(string code, string? version)
     {
         string installed = string.IsNullOrWhiteSpace(version) ? "unknown version" :
             new string(version.Where(character => !char.IsControl(character)).Take(64).ToArray());
+        string verified = string.Join(", ", EngineProfile.Verified.Select(profile => profile.Version));
+        // A build newer than every pin is the update case the owner asked the pane to name (lane broker-pins).
+        if (code == "unsupported_public_version" && EngineProfile.IsNewerThanEveryVerified(version))
+            return new(code, AdapterDiscoveryDiagnostic.NewerThanVerified("Claude Code", installed, verified));
         string refusal = code == "image_hash_mismatch" ? "; executable hash does not match a verified build" : "";
-        return new(code, $"Claude Code {installed} installed{refusal}; verified {string.Join(", ", EngineProfile.Verified.Select(profile => profile.Version))}.");
+        return new(code, $"Claude Code {installed} installed{refusal}; verified {verified}.");
     }
 
     public Task<SubmissionResult> SubmitAsync(NativeTarget target, NativeMessage message, CancellationToken token)

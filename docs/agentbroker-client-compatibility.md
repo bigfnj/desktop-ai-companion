@@ -141,6 +141,16 @@ pin, and every pinned extension folder that is installed must verify completely.
 With one pin, each check is the earlier single-profile check. Status text lists
 every verified version, where it used to name only the first.
 
+When an installed client is newer than every pin, its Native status names it, for
+example `unsupported_public_version: Claude Code 2.1.312.0 installed is newer than
+every verified build; a reviewed re-pin arrives as a module update. Verified ...`.
+The name, the version and that sentence come first, because the pane's
+per-client Native line shows only the first 160 characters of its adapter's
+status; the full Native adapters field keeps the verified list. Nothing is looked
+up online: a reviewed re-pin reaches users only inside a published AgentBroker
+module. A Codex VS Code refusal names the version that the running engine's
+extension folder declares, read from the path for this text and never trusted.
+
 ## Re-pin helper, 2026-10-27
 
 `tools/agentbroker/Test-AgentBrokerRepin.ps1` is a read-only assistant for exact

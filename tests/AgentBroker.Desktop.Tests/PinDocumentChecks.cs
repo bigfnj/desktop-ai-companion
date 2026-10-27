@@ -7,7 +7,7 @@ using AgentBroker.Pins;
 internal static class PinDocumentChecks
 {
     private static readonly string[] Cases = ["embedded", "unknown-member", "missing-member", "repeated-member", "schema",
-        "formats", "bindings", "image-paths", "duplicates", "malformed", "missing-resource", "fail-closed"];
+        "formats", "bindings", "image-paths", "duplicates", "malformed", "missing-resource", "fail-closed", "newer", "running-version"];
 
     private const string Hex = "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF";
     private const string Claude = "{\"version\":\"2.1.300\",\"sha256\":\"" + Hex + "\"}";
@@ -167,6 +167,35 @@ internal static class PinDocumentChecks
                         "PinDocumentChecks.cs: pin_document_invalid is never an exact-pin mismatch; WITNESS: a version miss is");
                     break;
                 }
+                // Lane broker-pins item 4: the Native status names a client newer than every pin. Reporting only.
+                case "newer":
+                    check(PinDocument.IsNewer("2.1.311", ["2.1.292", "2.1.310"]) && PinDocument.IsNewer("26.1021.3705.0", ["26.1016.8622.0"]),
+                        "PinDocumentChecks.cs: WITNESS: a version above every pin is newer, compared as a version");
+                    check(!PinDocument.IsNewer("2.1.310.0", ["2.1.310"]) && !PinDocument.IsNewer("2.1.310", ["2.1.310.0"]),
+                        "PinDocumentChecks.cs: a zero fourth part is the pinned version itself, never newer");
+                    check(!PinDocument.IsNewer("2.1.309", ["2.1.292", "2.1.310"]) && !PinDocument.IsNewer("2.1.310", ["2.1.310"]),
+                        "PinDocumentChecks.cs: a version at or below some pin is not newer than every pin");
+                    check(!PinDocument.IsNewer(null, ["2.1.310"]) && !PinDocument.IsNewer("unrecognized", ["2.1.310"]) && !PinDocument.IsNewer("2.1.311", []),
+                        "PinDocumentChecks.cs: an unknown version or an empty pin list is never newer");
+                    check(DesktopCompatibilityProfile.IsNewerThanEveryVerified("26.9999.1.0") && !DesktopCompatibilityProfile.IsNewerThanEveryVerified("26.1016.6573.0") &&
+                        VsCodeCompatibilityProfile.IsNewerThanEveryVerified("26.9999.1") && !VsCodeCompatibilityProfile.IsNewerThanEveryVerified("26.1007.21434") &&
+                        VsCodeRouterCompatibilityProfile.IsNewerThanEveryVerified("1.999.0") && !VsCodeRouterCompatibilityProfile.IsNewerThanEveryVerified("1.143.1"),
+                        "PinDocumentChecks.cs: each Codex profile compares with its own pins");
+                    break;
+                case "running-version":
+                {
+                    string root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".vscode", "extensions");
+                    var updated = new CodeOwnedEngine(Path.Combine(root, "openai.chatgpt-26.9999.1-win32-x64", "bin", "windows-x86_64", "codex.exe"), 10, "Code.exe", 5, true);
+                    var foreign = new CodeOwnedEngine("synthetic-unsupported-extension.exe", 10, "Code.exe", 5, true);
+                    RefusesWith("unsupported_running_vscode_profile", "26.9999.1", () => VsCodeCompatibilityProfile.ValidateRunningClients([updated]), check,
+                        "PinDocumentChecks.cs: an unpinned running engine's refusal names the version its extension folder declares");
+                    RefusesWith("unsupported_vscode_profile", "26.9999.1", () => VsCodeCompatibilityProfile.VerifyRunningClients([foreign, updated],
+                        () => throw new DesktopAdapterException("unsupported_vscode_profile")), check,
+                        "PinDocumentChecks.cs: with no reviewed folder installed, the refusal names the running engine's version");
+                    RefusesWith("unsupported_running_vscode_profile", null, () => VsCodeCompatibilityProfile.ValidateRunningClients([foreign]), check,
+                        "PinDocumentChecks.cs: WITNESS: an engine outside the OpenAI extension layout reports no version");
+                    break;
+                }
             }
         }
     }
@@ -188,6 +217,14 @@ internal static class PinDocumentChecks
         catch (Exception error) { check(false, label + " (the loader threw " + error.GetType().Name + ")"); return; }
         check(parsed.Error is not null && parsed.Error.Contains(expected, StringComparison.Ordinal) && Empty(parsed),
             label + " (error: " + (parsed.Error ?? "none") + ")");
+    }
+
+    private static void RefusesWith(string code, string? installed, Action action, Action<bool, string> check, string label)
+    {
+        try { action(); }
+        catch (DesktopAdapterException error)
+        { check(error.Code == code && error.InstalledVersion == installed, label + " (got " + error.Code + " " + error.InstalledVersion + ")"); return; }
+        check(false, label + " (no refusal)");
     }
 
     private static void RefusesCode(string code, Action action, Action<bool, string> check, string label)

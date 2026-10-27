@@ -16,6 +16,10 @@ public static class VsCodeRouterCompatibilityProfile
     /// <summary>The reviewed Code.exe versions, for status text. Empty when the pin document was refused.</summary>
     public static string VerifiedVersions => string.Join(", ", PinDocument.Current.VsCodeRouters.Select(pin => pin.ProductVersion));
 
+    /// <summary>Status text only: the Code.exe version is newer than every verified router. Grants no trust.</summary>
+    public static bool IsNewerThanEveryVerified(string? version)
+        => PinDocument.IsNewer(version, PinDocument.Current.VsCodeRouters.Select(pin => pin.ProductVersion));
+
     // A refused document is its own refusal (pin_document_invalid), never the exact-pin mismatch
     // unsupported_vscode_router, so publisher evidence cannot stand in for it.
     internal static IReadOnlyList<RouterPin> PinsOf(PinDocument pins) => pins.Error is not null

@@ -31,6 +31,10 @@ public static class DesktopCompatibilityProfile
     /// <summary>Why the embedded pin document was refused, or null when it validated.</summary>
     public static string? PinDocumentError => PinDocument.Current.Error;
 
+    /// <summary>Status text only: the package version is newer than every verified desktop package. Grants no trust.</summary>
+    public static bool IsNewerThanEveryVerified(string? version)
+        => PinDocument.IsNewer(version, PinDocument.Current.CodexDesktop.Select(pin => pin.ApplicationVersion));
+
     // A refused document is its own refusal, never an exact-pin mismatch: IsExactPinMismatch must stay false for it,
     // so publisher evidence cannot stand in and the router fails closed instead of being observed or woken.
     internal static IReadOnlyList<PackageProfile> PackagesOf(PinDocument pins) => pins.Error is not null
