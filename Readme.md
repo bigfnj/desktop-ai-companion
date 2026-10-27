@@ -466,6 +466,19 @@ says which, on a CLI with the model that answered and its effort, and a transcri
 transcription. It needs a local Whisper set up (a `whisper-cli.exe` plus a model), and it records only from the
 machine's own console session — a Remote Desktop session presents no real microphone or speakers.
 
+Since Remembrance 2.8.0 the built-in summary prompt asks for more: an overview, a part for each topic with its
+specifics and who said what, the decisions with their reasoning, a table of action items (owner, action, details, due
+date, whom to follow up with) and the open questions, finished rather than cut off mid-sentence. Under **Summary
+prompt** you can choose **Use my own prompt file** and point it at a `.txt` file of your own. It is read again for
+every summary, so an edit to it changes the next one with no Apply; a file that is missing, empty, unreadable or over
+16,000 characters is not used, and the summary goes out on the built-in prompt with the Status line saying why.
+**Save the built-in prompt to a file…** writes the built-in prompt out to start from. The **After the summary** card
+(off by default) passes each summary to a second CLI, Codex unless you pick Claude Code, with the text of a follow-up
+prompt file of yours, for whatever other work you ask of it there. The answer is saved beside the summary as
+`<name> - follow-up.md`, and a follow-up that fails leaves the summary as it was. It sends the summary, and the
+transcript only when **The follow-up reads** says so, to that CLI's vendor; **Run the follow-up on the latest
+summary** runs it by hand.
+
 Since Remembrance 2.6.0 a recording is named **date and time first**, to the minute, then the meeting, for example
 `2026-10-20 14-08 Design Review.summary.txt` (with a folder by date) or a folder `2026-10-20 14-08 Design Review`
 (with a folder per capture), so a folder lists the meetings in the order they happened. Two recordings

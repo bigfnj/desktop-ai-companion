@@ -232,14 +232,53 @@ namespace DesktopAICompanion.RemembranceModule
             return sb.ToString();
         }
 
+        // ---- what a summary is asked for (remembrance 2.8.0, lane feature/remembrance-next) ----------------------------------
+        //
+        // The owner, 2026-10-27: summaries are too brief and not verbose enough. Two causes, both here: the built-in asks were
+        // "Summary (3-6 bullets), Decisions, Action items (owner where named), Open questions", which a model answers in a
+        // dozen lines, and the CLI's system prompt said "in plain text" (SummaryRoute.SystemPrompt), which argues against the
+        // table an action-item list wants. Nothing else cut a summary short on the CLI path (the caps are listed at
+        // SummaryPrompt). So the built-in asks below are the owner's prompt's GENERIC shape, its meeting-specific part
+        // left out: an overview, a part per topic with its specifics, who said what, decisions with their reasoning and the
+        // alternatives weighed, concerns and how they were answered, an action-item table with an owner, details, a date and
+        // whom to follow up with, open questions, and an ending that is never cut mid-sentence. And a user may replace them
+        // with their own, from a prompt file (SummaryPrompt): what Remembrance adds around either is the meeting's name, the
+        // warning that the transcript is machine-made, and "add nothing that is not in it".
+
+        /// <summary>The first line of the built-in instructions. Kept as it was before 2.8.0: it names the job.</summary>
+        internal const string BuiltInOpening = "Summarize this meeting transcript.";
+
+        /// <summary>The built-in asks, after the opening (2.8.0). One sentence a line.</summary>
+        internal const string BuiltInAsks =
+            "Write these sections, in this order, and leave out any section that has nothing in it rather than padding it:\n" +
+            "Overview: what the meeting was for and what came of it, in three to five sentences.\n" +
+            "Topics: a part for each topic discussed, in the order they came up, giving what was said and its specifics (figures, " +
+            "dates, names of things and the terms used), who contributed what, each decision with its reasoning and the alternatives " +
+            "weighed, and each concern raised with how it was answered.\n" +
+            "Decisions: every decision made, one line each.\n" +
+            "Action items: a table with the columns Owner, Action, Details, Due and Follow up with; write \"not said\" where the " +
+            "meeting named no owner or no date.\n" +
+            "Open questions: what was asked and left unanswered.\n" +
+            "A longer meeting gets more topics, not shorter ones. Finish every section, and never stop in the middle of a sentence.";
+
+        /// <summary>The built-in prompt whole, as "Save the built-in prompt to a file…" writes it out to start from.</summary>
+        internal static string BuiltInInstructions { get { return BuiltInOpening + "\n" + BuiltInAsks; } }
+
         public static string BuildReducePrompt(string meetingName, string notes)
+        {
+            return BuildReducePrompt(meetingName, notes, null);
+        }
+
+        /// <param name="instructions">The text of the user's own prompt file (SummaryPrompt.Resolve), or null or blank for
+        /// the built-in asks.</param>
+        public static string BuildReducePrompt(string meetingName, string notes, string instructions)
         {
             var sb = new StringBuilder();
             sb.AppendLine("Below are notes taken from consecutive parts of one meeting transcript.");
             if (!string.IsNullOrWhiteSpace(meetingName)) sb.Append("Meeting: ").AppendLine(meetingName.Trim());
-            sb.AppendLine("Merge them into a single summary with these sections, omitting any section that has");
-            sb.AppendLine("no content rather than padding it: Summary (3-6 bullets), Decisions, Action items");
-            sb.AppendLine("(owner where named), Open questions. Remove duplicates. Add nothing new.");
+            sb.AppendLine("Merge them into one summary. Remove duplicates, and add nothing that is not in the notes.");
+            string own = SummaryPrompt.Usable(instructions);
+            AppendLines(sb, own ?? BuiltInAsks);
             sb.AppendLine();
             sb.AppendLine("NOTES:");
             sb.AppendLine(notes);
@@ -248,17 +287,34 @@ namespace DesktopAICompanion.RemembranceModule
 
         public static string BuildSingleShotPrompt(string meetingName, string transcript)
         {
+            return BuildSingleShotPrompt(meetingName, transcript, null);
+        }
+
+        /// <summary>The one-call prompt: the instructions, the user's own or the built-in ones, then what Remembrance adds
+        /// to either (the meeting's name, the warning about a machine-made transcript, "add nothing"), then the transcript.
+        /// Sent on stdin by the CLI path and as the user message by the cloud path; the local path sends it for a transcript
+        /// that fits one chunk.</summary>
+        /// <param name="instructions">The text of the user's own prompt file, or null or blank for the built-in prompt.</param>
+        public static string BuildSingleShotPrompt(string meetingName, string transcript, string instructions)
+        {
             var sb = new StringBuilder();
-            sb.AppendLine("Summarize this meeting transcript.");
+            string own = SummaryPrompt.Usable(instructions);
+            AppendLines(sb, own ?? BuiltInInstructions);
+            if (own != null) sb.AppendLine();
             if (!string.IsNullOrWhiteSpace(meetingName)) sb.Append("Meeting: ").AppendLine(meetingName.Trim());
             sb.AppendLine("The transcript is machine-generated, so expect mishearings; do not quote them as fact.");
-            sb.AppendLine("Use these sections and omit any that has no content rather than padding it:");
-            sb.AppendLine("Summary (3-6 bullets), Decisions, Action items (owner where named), Open questions.");
             sb.AppendLine("Add nothing that is not in the transcript.");
             sb.AppendLine();
             sb.AppendLine("TRANSCRIPT:");
             sb.AppendLine(transcript);
             return sb.ToString();
+        }
+
+        /// <summary>Appends <paramref name="text"/> line by line, so a \r\n the user typed and the \n of the built-in asks
+        /// reach the model alike.</summary>
+        private static void AppendLines(StringBuilder sb, string text)
+        {
+            foreach (string line in (text ?? "").Replace("\r\n", "\n").Replace('\r', '\n').Split('\n')) sb.AppendLine(line);
         }
 
         /// <summary>Trim a user-entered endpoint to the form the request paths are appended to.</summary>
@@ -510,6 +566,15 @@ namespace DesktopAICompanion.RemembranceModule
         public static async Task<SummaryResult> SummarizeAsync(string endpoint, string model, string meetingName,
             string transcript, Action<string> report, CancellationToken cancellationToken)
         {
+            return await SummarizeAsync(endpoint, model, meetingName, transcript, null, report, cancellationToken).ConfigureAwait(false);
+        }
+
+        /// <param name="instructions">The text of the user's own prompt file (2.8.0), or null or blank for the built-in prompt:
+        /// they shape the single-chunk prompt and the merge. The per-part notes stay terse, since the merge input is bounded
+        /// (MaxReduceCharacters) for a small local model's context.</param>
+        public static async Task<SummaryResult> SummarizeAsync(string endpoint, string model, string meetingName,
+            string transcript, string instructions, Action<string> report, CancellationToken cancellationToken)
+        {
             if (string.IsNullOrWhiteSpace(transcript))
                 return new SummaryResult { Ok = false, Message = "The transcript is empty." };
             if (string.IsNullOrWhiteSpace(model))
@@ -520,7 +585,7 @@ namespace DesktopAICompanion.RemembranceModule
                 HttpClient client = http;
                 return await SummarizeWithAsync(
                     prompt => GenerateAsync(client, endpoint, model, prompt, cancellationToken),
-                    meetingName, transcript, report, cancellationToken).ConfigureAwait(false);
+                    meetingName, transcript, instructions, report, cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -539,8 +604,14 @@ namespace DesktopAICompanion.RemembranceModule
         /// 16; a wordier model crosses it inside an ordinary hour. <see cref="CoverageNote"/> is appended to
         /// the text and returned as the message, which the caller logs.
         /// </summary>
-        internal static async Task<SummaryResult> SummarizeWithAsync(Func<string, Task<string>> generate,
+        internal static Task<SummaryResult> SummarizeWithAsync(Func<string, Task<string>> generate,
             string meetingName, string transcript, Action<string> report, CancellationToken cancellationToken)
+        {
+            return SummarizeWithAsync(generate, meetingName, transcript, null, report, cancellationToken);
+        }
+
+        internal static async Task<SummaryResult> SummarizeWithAsync(Func<string, Task<string>> generate,
+            string meetingName, string transcript, string instructions, Action<string> report, CancellationToken cancellationToken)
         {
             var result = new SummaryResult { Ok = false };
             Action<string> say = report ?? delegate { };
@@ -555,7 +626,7 @@ namespace DesktopAICompanion.RemembranceModule
                 if (chunks.Count == 1)
                 {
                     say("summarizing...");
-                    string only = await generate(BuildSingleShotPrompt(meetingName, chunks[0])).ConfigureAwait(false);
+                    string only = await generate(BuildSingleShotPrompt(meetingName, chunks[0], instructions)).ConfigureAwait(false);
                     if (string.IsNullOrWhiteSpace(only)) { result.Message = "The model returned nothing."; return result; }
                     result.Ok = true;
                     result.Text = only.Trim();
@@ -583,7 +654,7 @@ namespace DesktopAICompanion.RemembranceModule
                 if (notes.Length == 0) { result.Message = "The model returned nothing for any part."; return result; }
 
                 say("merging...");
-                string merged = await generate(BuildReducePrompt(meetingName, notes.ToString())).ConfigureAwait(false);
+                string merged = await generate(BuildReducePrompt(meetingName, notes.ToString(), instructions)).ConfigureAwait(false);
 
                 // If the merge fails, the per-part notes are still worth keeping.
                 string text = string.IsNullOrWhiteSpace(merged) ? notes.ToString().Trim() : merged.Trim();

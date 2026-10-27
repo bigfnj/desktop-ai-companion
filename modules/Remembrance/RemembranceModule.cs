@@ -983,6 +983,11 @@ namespace DesktopAICompanion.RemembranceModule
             // A cloud provider (2.2.0): its settings read now, at the stop, like everything else this capture uses.
             CloudCall summaryCloud = SummaryRoute.IsCloud(_settings.Get(SummaryRoute.SettingKey, SummaryRoute.LocalId))
                 ? CloudCallFrom(_settings) : null;
+            // The summary's prompt (2.8.0): the built-in one or the user's file, chosen now like everything else this capture
+            // uses, the file itself read only when the summary is sent; and the follow-up after the summary.
+            bool summaryUsesFile = SummaryPrompt.UsesFile(_settings);
+            string summaryPromptFile = SummaryPrompt.FileOf(_settings);
+            FollowUpCall followUp = FollowUpCallFrom(_settings);
 
             _recording = false;   // flips the tray indicator immediately
             _recorder = null;
@@ -1121,6 +1126,13 @@ namespace DesktopAICompanion.RemembranceModule
                     // provider, as for a CLI, and kept (moved to summarizing) for one on THIS computer, which runs a local
                     // model that AI Brain must not evict.
                     bool viaCloud = did && summaryOn && summaryCloud != null && fitsOneCall;
+                    bool summaryWritten = false;
+                    // The prompt file read NOW, as this summary is about to go (2.8.0), so an edit to it reaches this summary
+                    // with no Apply; unusable, the built-in prompt goes instead and the Status line says why (promptNote).
+                    SummaryPrompt.Resolved summaryPrompt = did && summaryOn
+                        ? ResolveSummaryPrompt(summaryUsesFile, summaryPromptFile) : new SummaryPrompt.Resolved();
+                    string summaryInstructions = summaryPrompt.Text;
+                    string promptNote = SummaryPrompt.StatusNote(summaryPrompt);
                     if (viaCloud)
                     {
                         if (RunsOnThisComputer(summaryCloud))
@@ -1130,21 +1142,25 @@ namespace DesktopAICompanion.RemembranceModule
                         }
                         else if (busy != null) busy.Dispose();
                         string cloudFailure = await WriteCloudSummaryAsync(summaryCloud,
-                            string.IsNullOrWhiteSpace(meetingName) ? paths.BaseName : meetingName, transcript, paths.Summary)
+                            string.IsNullOrWhiteSpace(meetingName) ? paths.BaseName : meetingName, transcript, paths.Summary,
+                            summaryInstructions)
                             .ConfigureAwait(false);
                         _lastStatus = (cloudFailure == null ? "Transcript + summary: " : "Transcript (summary failed: " + cloudFailure + "): ") +
                                       paths.BaseName;
                         if (cloudFailure == null) Announce("Summary ready.");
+                        summaryWritten = cloudFailure == null;
                     }
                     else if (viaCli)
                     {
                         if (busy != null) busy.Dispose();
                         string cliFailure = await WriteCliSummaryAsync(summaryCli, summaryCliModel, summaryCliEffort, summaryCliSettingsOut,
-                            string.IsNullOrWhiteSpace(meetingName) ? paths.BaseName : meetingName, transcript, paths.Summary)
+                            string.IsNullOrWhiteSpace(meetingName) ? paths.BaseName : meetingName, transcript, paths.Summary,
+                            summaryInstructions)
                             .ConfigureAwait(false);
                         _lastStatus = (cliFailure == null ? "Transcript + summary: " : "Transcript (summary failed: " + cliFailure + "): ") +
                                       paths.BaseName;
                         if (cliFailure == null) Announce("Summary ready.");
+                        summaryWritten = cliFailure == null;
                     }
                     else if (did && summaryOn && !string.IsNullOrWhiteSpace(summaryModel))
                     {
@@ -1152,9 +1168,10 @@ namespace DesktopAICompanion.RemembranceModule
                         else busy.Enter(BusySummarizing);
                         bool wrote = await WriteSummaryAsync(summaryEndpoint, summaryModel,
                             string.IsNullOrWhiteSpace(meetingName) ? paths.BaseName : meetingName,
-                            transcript, paths.Summary, busy).ConfigureAwait(false);
+                            transcript, paths.Summary, busy, summaryInstructions).ConfigureAwait(false);
                         _lastStatus = (wrote ? "Transcript + summary: " : "Transcript (summary failed): ") + paths.BaseName;
                         if (wrote) Announce("Summary ready.");
+                        summaryWritten = wrote;
                     }
                     else if (did && summaryOn && (summaryCli != CodingAgentKind.None || summaryCloud != null))
                     {
@@ -1162,6 +1179,19 @@ namespace DesktopAICompanion.RemembranceModule
                                       (summaryCloud != null ? SummaryRoute.CloudDisplay : CodingAgents.ChoiceLabel(summaryCli)) +
                                       " call, and no local summary model is set): " + paths.BaseName;
                         Log("summary skipped: the transcript is over the one-call limit and no local summary model is set");
+                    }
+                    if (summaryWritten) _lastStatus += promptNote;
+                    // The follow-up (2.8.0): after a summary that was WRITTEN, whichever engine wrote it, when the step is on.
+                    // remembrance.busy goes first: a follow-up runs on a CLI, and nothing of it runs on this machine's GPU.
+                    if (summaryWritten && followUp.On)
+                    {
+                        if (busy != null) { busy.Dispose(); busy = null; }
+                        string followUpFailure = await WriteFollowUpAsync(followUp,
+                            string.IsNullOrWhiteSpace(meetingName) ? paths.BaseName : meetingName, paths.Summary).ConfigureAwait(false);
+                        _lastStatus = (followUpFailure == null
+                                          ? "Transcript + summary + follow-up: "
+                                          : "Transcript + summary (" + FollowUp.Failed(followUpFailure) + "): ") + paths.BaseName + promptNote;
+                        if (followUpFailure == null) Announce("Follow-up ready.");
                     }
                 }
                 catch (Exception ex)
@@ -1264,8 +1294,9 @@ namespace DesktopAICompanion.RemembranceModule
 
         /// <summary>The summary request behind a delegate: the stop path's summary, "Summarize a transcript…" and the
         /// Ollama Validate all reach Ollama through it, so the self-test can hold one open and answer it with
-        /// no server. Defaults to the real map-reduce.</summary>
-        internal static Func<string, string, string, string, Action<string>, CancellationToken, Task<OllamaSummarizer.SummaryResult>>
+        /// no server. Defaults to the real map-reduce. Since 2.8.0 it takes the user's summary instructions after the
+        /// transcript, null or blank for the built-in ones (the Validate's test sends none).</summary>
+        internal static Func<string, string, string, string, string, Action<string>, CancellationToken, Task<OllamaSummarizer.SummaryResult>>
             Summarize = OllamaSummarizer.SummarizeAsync;
 
         /// <summary>The two-line meeting the Ollama Validate asks a summary of: the old "Test the summarizer"
@@ -1920,6 +1951,10 @@ namespace DesktopAICompanion.RemembranceModule
             MeetingEndMode.SettingKey, LongestRecordingKey, OfferToRecordKey,
             // Join & record (2.5.0).
             AcceptJoinRecordKey,
+            // The summary's prompt and the follow-up after the summary (2.8.0, lane feature/remembrance-next): each prompt a
+            // file the user keeps, named here by its path.
+            SummaryPrompt.ChoiceKey, SummaryPrompt.FileKey,
+            FollowUp.OnKey, FollowUp.CliKey, FollowUp.InputKey, FollowUp.PromptFileKey,
         };
 
         /// <summary>
@@ -1941,6 +1976,7 @@ namespace DesktopAICompanion.RemembranceModule
                 case OfferToRecordKey:
                 case AcceptJoinRecordKey:
                 case SummaryRoute.ClaudeSettingsOutKey:
+                case FollowUp.OnKey:
                     bool flag;
                     return bool.TryParse(value, out flag) ? (flag ? "true" : "false") : null;
                 // The Meetings card (2.4.0): the radio's text to its id, text that is no option storing nothing; and the
@@ -1980,6 +2016,14 @@ namespace DesktopAICompanion.RemembranceModule
                     return SummaryRoute.EffortForLabel(value);
                 case SummaryRoute.CodexModelKey:
                     return CodexModelForLabel(value);
+                // The prompt's radio and the follow-up's two (2.8.0): the option's text to its id, text that is no option
+                // storing nothing. The two prompt files are paths, stored as the host's path rows hand them back.
+                case SummaryPrompt.ChoiceKey:
+                    return SummaryPrompt.FromDisplay(value);
+                case FollowUp.CliKey:
+                    return FollowUp.CliFromDisplay(value);
+                case FollowUp.InputKey:
+                    return FollowUp.InputFromDisplay(value);
                 default:
                     return value;
             }
@@ -2304,6 +2348,15 @@ namespace DesktopAICompanion.RemembranceModule
                 // chose reads Local model. The radio never greys.
                 new SettingField { Id = SummaryRoute.SettingKey, Label = "Summary runs on", Kind = SettingKind.Radio,
                     Options = SummaryRoute.Displays(), Group = "Summary" },
+                // What a summary is asked for (2.8.0, lane feature/remembrance-next; the owner's design): the built-in prompt,
+                // or the user's own .txt file, its path row live only while that is chosen, and a row saying which prompt the
+                // next summary gets, the file's size and never its text. "Save the built-in prompt to a file…" below writes the
+                // built-in one out to start from (SummaryPrompt).
+                new SettingField { Id = SummaryPrompt.ChoiceKey, Label = SummaryPrompt.ChoiceLabel, Kind = SettingKind.Radio,
+                    Options = SummaryPrompt.Displays(), Group = "Summary" },
+                new SettingField { Id = SummaryPrompt.FileKey, Label = SummaryPrompt.FileLabel, Kind = SettingKind.FilePath,
+                    FileExtensions = new[] { "txt" }, EmptyHint = SummaryPrompt.FileEmptyHint, EnabledWhen = SummaryPrompt.OnFileOnly, Group = "Summary" },
+                new SettingField { Id = SummaryPromptRowId, Label = SummaryPrompt.RowLabel, Kind = SettingKind.Info, Group = "Summary" },
                 // The local engine's own card: the address and the model, greyed whole unless the local model is chosen.
                 new SettingField { Id = "ollamaEndpoint", Label = "Local Ollama address", Kind = SettingKind.Text, Group = "Local Ollama",
                     CardEnabledWhen = SummaryRoute.OnLocalOnly },
@@ -2367,6 +2420,24 @@ namespace DesktopAICompanion.RemembranceModule
                     EnabledWhen = SummaryRoute.OnClaudeCliOnly },
                 new SettingField { Id = "cliSendsCodex", Label = "Goes through Codex", Kind = SettingKind.Info, Group = SummaryRoute.CardGroup,
                     EnabledWhen = SummaryRoute.OnCodexCliOnly },
+
+                // After the summary (2.8.0, lane feature/remembrance-next; the owner: "yes, build the ability to chain please"):
+                // the follow-up that passes each summary to a second CLI (FollowUp.cs). A card of its own after the CLI card,
+                // never greyed: it runs after a summary from any engine, and its button works with the switch off. Its two
+                // "Goes through" rows are gated on its own radio, the CLI card's rule for a privacy row.
+                new SettingField { Id = FollowUp.OnKey, Label = "Run a follow-up after each summary", Kind = SettingKind.Bool, Group = FollowUp.CardGroup },
+                new SettingField { Id = FollowUp.CliKey, Label = "Follow-up runs on", Kind = SettingKind.Radio, Options = FollowUp.CliDisplays(),
+                    Group = FollowUp.CardGroup },
+                new SettingField { Id = FollowUp.InputKey, Label = "The follow-up reads", Kind = SettingKind.Radio,
+                    Options = new[] { FollowUp.InputSummaryDisplay, FollowUp.InputBothDisplay }, Group = FollowUp.CardGroup },
+                new SettingField { Id = FollowUp.PromptFileKey, Label = FollowUp.PromptFileLabel, Kind = SettingKind.FilePath,
+                    FileExtensions = new[] { "txt" }, EmptyHint = SummaryPrompt.FileEmptyHint, Group = FollowUp.CardGroup },
+                new SettingField { Id = FollowUpPromptRowId, Label = "Follow-up prompt", Kind = SettingKind.Info, Group = FollowUp.CardGroup },
+                new SettingField { Id = "followUpSendsClaude", Label = "Goes through Claude Code", Kind = SettingKind.Info, Group = FollowUp.CardGroup,
+                    EnabledWhen = FollowUp.CliKey + "=" + CodingAgents.ChoiceLabel(CodingAgentKind.Claude) },
+                new SettingField { Id = "followUpSendsCodex", Label = "Goes through Codex", Kind = SettingKind.Info, Group = FollowUp.CardGroup,
+                    EnabledWhen = FollowUp.CliKey + "=" + CodingAgents.ChoiceLabel(CodingAgentKind.Codex) },
+                new SettingField { Id = "followUpLast", Label = "Last follow-up", Kind = SettingKind.Info, Group = FollowUp.CardGroup },
 
                 // The three collapsible cards, last, as R2 orders them. The two setup cards start closed unless what they set up
                 // is missing (OpenSetupCardsThatAreNeeded, run by Load); "Try it on a file" always does.
@@ -2454,6 +2525,13 @@ namespace DesktopAICompanion.RemembranceModule
                     new PaneAction { Label = "Remove key", Group = SummaryRoute.CloudCardGroup, ReloadPaneAfter = true,
                         InvokeWithPendingAsync = RemoveCloudKeyAsync },
 
+                    // 2.8.0 (lane feature/remembrance-next): the built-in prompt written out to start a file of one's own from,
+                    // in the Summary card; and the follow-up by hand, in its card. Neither changes a setting.
+                    new PaneAction { Label = SummaryPrompt.SaveLabel, Group = "Summary", ReloadPaneAfter = false,
+                        InvokeWithPendingAsync = SaveBuiltInPromptAsync },
+                    new PaneAction { Label = FollowUp.RunLabel, Group = FollowUp.CardGroup, ReloadPaneAfter = false,
+                        InvokeWithPendingAsync = RunFollowUpOnLatestAsync },
+
                     // R2's "Try it on a file": Transcribe runs Whisper above, Summarize whichever engine Summary runs on.
                     new PaneAction { Label = "Transcribe a WAV file…", Group = TryItCard, ReloadPaneAfter = false,
                         InvokeWithPendingAsync = pending => Task.FromResult(TranscribeExisting(pending)) },
@@ -2527,6 +2605,18 @@ namespace DesktopAICompanion.RemembranceModule
                     ["cloudSends"] = SummaryRoute.CloudSendsLine(CloudProviders.HostOf(
                         CloudProviders.EffectiveUrl(SavedCloudProvider(), _settings.Get("cloudEndpoint", "")))),
                     ["tryItOnAFile"] = "Transcribe uses Whisper above; Summarize uses whichever engine Summary runs on.",
+                    // 2.8.0: what a summary is asked for, and the follow-up card.
+                    [SummaryPrompt.ChoiceKey] = SummaryPrompt.UsesFile(_settings) ? SummaryPrompt.FileDisplay : SummaryPrompt.BuiltInDisplay,
+                    [SummaryPrompt.FileKey] = SummaryPrompt.FileOf(_settings),
+                    [SummaryPromptRowId] = SummaryPrompt.InfoLine(_settings),
+                    [FollowUp.OnKey] = FollowUp.IsOn(_settings) ? "true" : "false",
+                    [FollowUp.CliKey] = CodingAgents.ChoiceLabel(FollowUp.AgentOf(_settings)),
+                    [FollowUp.InputKey] = FollowUp.ReadsTranscript(_settings) ? FollowUp.InputBothDisplay : FollowUp.InputSummaryDisplay,
+                    [FollowUp.PromptFileKey] = FollowUp.PromptFileOf(_settings),
+                    [FollowUpPromptRowId] = FollowUp.PromptLine(FollowUp.PromptFileOf(_settings)),
+                    ["followUpSendsClaude"] = FollowUp.SendsLine(CodingAgentKind.Claude, FollowUpChoicePhrase(CodingAgentKind.Claude)),
+                    ["followUpSendsCodex"] = FollowUp.SendsLine(CodingAgentKind.Codex, FollowUpChoicePhrase(CodingAgentKind.Codex)),
+                    ["followUpLast"] = _lastFollowUp ?? "None yet this session.",
                     };
                     // The baseline Save compares with, and the record of background writes, kept across the host's live
                     // refresh (RecordWhatLoadShowed; N-cli-model-effort-07).
@@ -2584,6 +2674,16 @@ namespace DesktopAICompanion.RemembranceModule
                     return ok;
                 },
             };
+        }
+
+        private const string SummaryPromptRowId = "summaryPromptShown";
+        private const string FollowUpPromptRowId = "followUpPromptShown";
+
+        /// <summary>"Codex CLI, its automatic pick at low effort": the model and effort the CLI card saves for
+        /// <paramref name="agent"/>, which a follow-up on it runs on.</summary>
+        private string FollowUpChoicePhrase(CodingAgentKind agent)
+        {
+            return CodingAgents.ChoiceLabel(agent) + ", " + CliChoicePhrase(agent, _cli == null ? null : _cli.KeptDetails(agent));
         }
 
         private string StatusLine()
@@ -3221,7 +3321,7 @@ namespace DesktopAICompanion.RemembranceModule
             // remembrance.busy for step 3 alone, republished before each request it sends (2.0.0).
             using (BusySpan busy = Busy(BusyValidating))
                 answer = await Summarize(endpoint, model, "Connection test",
-                    ValidationTranscript, delegate { busy.Refresh(); }, CancellationToken.None).ConfigureAwait(false);
+                    ValidationTranscript, null, delegate { busy.Refresh(); }, CancellationToken.None).ConfigureAwait(false);
             stopwatch.Stop();
             if (answer == null || !answer.Ok)
                 return "✗ Ollama answers and " + model + " is installed, but it did not answer the test: " +
@@ -3264,6 +3364,8 @@ namespace DesktopAICompanion.RemembranceModule
             bool manualCliSettingsOut = SummaryRoute.LeavesOutOwnClaudeSettings(shown);
             // Or a cloud provider (2.2.0), whose settings on screen the call runs on.
             CloudCall manualCloud = SummaryRoute.IsCloud(shown.Get(SummaryRoute.SettingKey, SummaryRoute.LocalId)) ? CloudCallFrom(shown) : null;
+            // The follow-up as the card shows it, applied or not, as every row a press reads (2.8.0).
+            FollowUpCall manualFollowUp = FollowUpCallFrom(shown);
             if (manualCli == CodingAgentKind.None && manualCloud == null && string.IsNullOrWhiteSpace(model))
                 return "✗ Pick a summary model first (\"Refresh local models\").";
             try
@@ -3275,6 +3377,10 @@ namespace DesktopAICompanion.RemembranceModule
                 if (name.EndsWith(".transcript", StringComparison.OrdinalIgnoreCase))
                     name = name.Substring(0, name.Length - ".transcript".Length);
                 string summaryPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(transcriptPath), name + ".summary.txt");
+                // The prompt as the card shows it (2.8.0), the file read now, for this summary.
+                SummaryPrompt.Resolved manualPrompt = ResolveSummaryPrompt(SummaryPrompt.UsesFile(shown), SummaryPrompt.FileOf(shown));
+                string manualInstructions = manualPrompt.Text;
+                string manualNote = SummaryPrompt.StatusNote(manualPrompt);
                 if (manualCloud != null)
                 {
                     long cloudBytes = new System.IO.FileInfo(transcriptPath).Length;
@@ -3287,8 +3393,9 @@ namespace DesktopAICompanion.RemembranceModule
                             try
                             {
                                 string text = System.IO.File.ReadAllText(transcriptPath);
-                                string failure = await WriteCloudSummaryAsync(manualCloud, name, text, summaryPath).ConfigureAwait(false);
-                                FinishTryIt(failure == null ? ("Summarized: " + name) : ("Summary failed (" + failure + "): " + name),
+                                string failure = await WriteCloudSummaryAsync(manualCloud, name, text, summaryPath, manualInstructions).ConfigureAwait(false);
+                                if (failure == null && await FollowUpAfterTryItAsync(manualFollowUp, name, summaryPath, manualNote).ConfigureAwait(false)) return;
+                                FinishTryIt(failure == null ? ("Summarized: " + name + manualNote) : ("Summary failed (" + failure + "): " + name),
                                     failure == null ? "Summary ready." : "Could not summarize that transcript.");
                             }
                             catch (Exception ex) { Log("manual summarize failed: " + ex.GetType().Name); }
@@ -3317,10 +3424,11 @@ namespace DesktopAICompanion.RemembranceModule
                             {
                                 string text = System.IO.File.ReadAllText(transcriptPath);
                                 string failure = await WriteCliSummaryAsync(manualCli, manualCliModel, manualCliEffort, manualCliSettingsOut,
-                                    name, text, summaryPath)
+                                    name, text, summaryPath, manualInstructions)
                                     .ConfigureAwait(false);
+                                if (failure == null && await FollowUpAfterTryItAsync(manualFollowUp, name, summaryPath, manualNote).ConfigureAwait(false)) return;
                                 // The CLI row's "last answered" changes with it.
-                                FinishTryIt(failure == null ? ("Summarized: " + name) : ("Summary failed (" + failure + "): " + name),
+                                FinishTryIt(failure == null ? ("Summarized: " + name + manualNote) : ("Summary failed (" + failure + "): " + name),
                                     failure == null ? "Summary ready." : "Could not summarize that transcript.");
                             }
                             catch (Exception ex) { Log("manual summarize failed: " + ex.GetType().Name); }
@@ -3344,8 +3452,13 @@ namespace DesktopAICompanion.RemembranceModule
                     try
                     {
                         string transcript = System.IO.File.ReadAllText(transcriptPath);
-                        bool wrote = await WriteSummaryAsync(endpoint, model, name, transcript, summaryPath, busy).ConfigureAwait(false);
-                        FinishTryIt(wrote ? ("Summarized: " + name) : ("Summary failed: " + name),
+                        bool wrote = await WriteSummaryAsync(endpoint, model, name, transcript, summaryPath, busy, manualInstructions).ConfigureAwait(false);
+                        if (wrote && manualFollowUp.On)
+                        {
+                            busy.Dispose();
+                            if (await FollowUpAfterTryItAsync(manualFollowUp, name, summaryPath, manualNote).ConfigureAwait(false)) return;
+                        }
+                        FinishTryIt(wrote ? ("Summarized: " + name + manualNote) : ("Summary failed: " + name),
                             wrote ? "Summary ready." : "Could not summarize that transcript.");
                     }
                     catch (Exception ex) { try { _host.Log(Id, "manual summarize failed: " + ex.Message); } catch { } }
@@ -3361,12 +3474,12 @@ namespace DesktopAICompanion.RemembranceModule
         /// is the caller's remembrance.busy span, republished with a fresh "at" each time the map-reduce reports, which
         /// it does before every request it sends.</summary>
         private async Task<bool> WriteSummaryAsync(string endpoint, string model, string meetingName,
-            string transcript, string summaryPath, BusySpan busy)
+            string transcript, string summaryPath, BusySpan busy, string instructions)
         {
             try
             {
                 OllamaSummarizer.SummaryResult result = await Summarize(
-                    endpoint, model, meetingName, transcript,
+                    endpoint, model, meetingName, transcript, instructions,
                     p => { _lastStatus = "Summary: " + p; if (busy != null) busy.Refresh(); },
                     CancellationToken.None).ConfigureAwait(false);
                 if (!result.Ok || string.IsNullOrWhiteSpace(result.Text))
@@ -3377,6 +3490,7 @@ namespace DesktopAICompanion.RemembranceModule
                 System.IO.File.WriteAllText(summaryPath,
                     OllamaSummarizer.FileHeader(meetingName, model) + result.Text,
                     new System.Text.UTF8Encoding(false));
+                NoteSummaryWritten(summaryPath);
                 // A successful result can still carry a message: the coverage note of a map-reduce that
                 // stopped folding before the last part (F173). The file has it appended; the log gets it too.
                 if (!string.IsNullOrWhiteSpace(result.Message))
@@ -3505,7 +3619,8 @@ namespace DesktopAICompanion.RemembranceModule
         /// system prompt, written beside the transcript under a header naming the provider, the model and the host. Null
         /// when it was written, else the failure in plain words for the Status line; the log carries only the category.
         /// </summary>
-        private async Task<string> WriteCloudSummaryAsync(CloudCall call, string meetingName, string transcript, string summaryPath)
+        private async Task<string> WriteCloudSummaryAsync(CloudCall call, string meetingName, string transcript, string summaryPath,
+            string instructions)
         {
             string key = null;
             CloudKeyStore keys = _cloudKeys;
@@ -3533,13 +3648,15 @@ namespace DesktopAICompanion.RemembranceModule
                 {
                     _lastStatus = "Summary: sending the transcript to " + cloud.Host + "…";
                     CloudResult result = await cloud.ChatAsync(call.Model, SummaryRoute.SystemPrompt,
-                        OllamaSummarizer.BuildSingleShotPrompt(meetingName, transcript), SummaryRoute.CallTimeout, token).ConfigureAwait(false);
+                        OllamaSummarizer.BuildSingleShotPrompt(meetingName, transcript, instructions), SummaryRoute.CallTimeout, token).ConfigureAwait(false);
                     Log("cloud: summary " + (result.Ok ? "ok" : result.Category) + " ms=" +
-                        result.ElapsedMilliseconds.ToString(CultureInfo.InvariantCulture) + " provider=" + call.Provider);
+                        result.ElapsedMilliseconds.ToString(CultureInfo.InvariantCulture) + " provider=" + call.Provider +
+                        (result.Ok && result.StoppedAtLimit ? " cut-at-output-limit" : ""));
                     if (!result.Ok) return result.Failure.TrimEnd('.');
                     System.IO.File.WriteAllText(summaryPath,
-                        SummaryRoute.CloudFileHeader(meetingName, call.Provider, call.Model, cloud.Host) + result.Text,
+                        SummaryRoute.CloudFileHeader(meetingName, call.Provider, call.Model, cloud.Host) + CloudSummarizer.TextAsSaved(result),
                         new System.Text.UTF8Encoding(false));
+                    NoteSummaryWritten(summaryPath);
                     return null;
                 }
                 catch (Exception ex)
@@ -3639,7 +3756,7 @@ namespace DesktopAICompanion.RemembranceModule
         /// Claude Code settings out of companion calls" read where the model and effort are (SummaryRoute.LeavesOutOwnClaudeSettings).
         /// </summary>
         private async Task<string> WriteCliSummaryAsync(CodingAgentKind agent, string model, string effort, bool leaveOutOwnClaudeSettings,
-            string meetingName, string transcript, string summaryPath)
+            string meetingName, string transcript, string summaryPath, string instructions)
         {
             CodingAgentCli cli = _cli;
             if (cli == null) return "the CLI runner is not available";
@@ -3657,7 +3774,7 @@ namespace DesktopAICompanion.RemembranceModule
                 {
                     Agent = agent,
                     SystemPrompt = SummaryRoute.SystemPrompt,
-                    Prompt = OllamaSummarizer.BuildSingleShotPrompt(meetingName, transcript),
+                    Prompt = OllamaSummarizer.BuildSingleShotPrompt(meetingName, transcript, instructions),
                     Timeout = SummaryRoute.CallTimeout,
                     Purpose = "summary",
                     Model = model,
@@ -3673,6 +3790,7 @@ namespace DesktopAICompanion.RemembranceModule
                 }
                 System.IO.File.WriteAllText(summaryPath, SummaryRoute.FileHeader(meetingName, agent, answer) + answer.Text,
                     new System.Text.UTF8Encoding(false));
+                NoteSummaryWritten(summaryPath);
                 return null;
             }
             catch (Exception ex)
@@ -4800,6 +4918,9 @@ namespace DesktopAICompanion.RemembranceModule
             // Lane feature/cli-followups (2.7.0): the settings switch in the CLI card and the details read's landing
             // (RemembranceModule.CliFollowups.cs).
             SelfCheckCliFollowups(check);
+            // Lane feature/remembrance-next (2.8.0): the summary's prompt, built in or the user's file, and the follow-up after
+            // the summary (RemembranceModule.FollowUpSelfCheck.cs).
+            SelfCheckRemembranceNext(check);
 
             detail = sb.ToString();
             return ok;
@@ -6133,7 +6254,7 @@ namespace DesktopAICompanion.RemembranceModule
 
             Func<string, CancellationToken, Task<bool>> savedReachable = IsReachable;
             Func<string, CancellationToken, Task<IReadOnlyList<string>>> savedLister = ListModels;
-            Func<string, string, string, string, Action<string>, CancellationToken, Task<OllamaSummarizer.SummaryResult>>
+            Func<string, string, string, string, string, Action<string>, CancellationToken, Task<OllamaSummarizer.SummaryResult>>
                 savedSummarize = Summarize;
             SynchronizationContext previous = SynchronizationContext.Current;
             var ui = new RecorderSelfCheck.QueueSynchronizationContext();
@@ -6159,7 +6280,7 @@ namespace DesktopAICompanion.RemembranceModule
                     return Task.FromResult((IReadOnlyList<string>)new List<string> { "alpha:1b", "beta:latest" });
                 };
                 Summarize = delegate(string endpoint, string model, string meetingName, string transcript,
-                    Action<string> report, CancellationToken token)
+                    string instructions, Action<string> report, CancellationToken token)
                 {
                     Interlocked.Increment(ref requests);
                     askedModel = model;
@@ -6878,7 +6999,7 @@ namespace DesktopAICompanion.RemembranceModule
             check("remembrance cli model: a CLI summary's header names the model that answered, says when it is not the one asked for, and names the effort",
                 otherHeader.Contains("Model: Claude Code CLI, claude-opus-selftest-1 (asked for haiku) at high effort (the transcript was sent to Anthropic"));
 
-            Func<string, string, string, string, Action<string>, CancellationToken, Task<OllamaSummarizer.SummaryResult>>
+            Func<string, string, string, string, string, Action<string>, CancellationToken, Task<OllamaSummarizer.SummaryResult>>
                 savedSummarize = Summarize;
             TranscribeFile savedTranscribe = TranscribeWav;
             Func<string, CancellationToken, Task<bool>> savedReachable = IsReachable;
@@ -6909,7 +7030,7 @@ namespace DesktopAICompanion.RemembranceModule
                     return transcriptToGive;
                 };
                 Summarize = delegate(string endpoint, string summaryModel, string meetingName, string transcript,
-                    Action<string> report, CancellationToken token)
+                    string instructions, Action<string> report, CancellationToken token)
                 {
                     Interlocked.Increment(ref localSummaries);
                     return Task.FromResult(new OllamaSummarizer.SummaryResult { Ok = true, Text = "LOCAL SUMMARY" });
@@ -6961,7 +7082,7 @@ namespace DesktopAICompanion.RemembranceModule
                     // Meetings after Hotkeys since 2.4.0, where the owner's approved plan of 2026-10-15 puts it (lane feature/meeting-end).
                     check("remembrance cli: the cards come in the approved mockup's order, the Status card first: " + string.Join(", ", groups),
                         string.Join("|", groups) == "Status|Sources|Hotkeys|Meetings|Storage|Transcription|Summary|Local Ollama|Cloud provider|" +
-                            "Coding-agent CLI|Set up and check Whisper|Set up and check Ollama|Try it on a file");
+                            "Coding-agent CLI|After the summary|Set up and check Whisper|Set up and check Ollama|Try it on a file");
                     SettingField status = FieldFor(pane, "status");
                     check("remembrance cli: the Status card is one Info line, full width and pinned first",
                         status != null && status.Kind == SettingKind.Info && status.FullWidth && status.PinTop);
@@ -7783,7 +7904,7 @@ namespace DesktopAICompanion.RemembranceModule
                         {
                             Task<string> written = module.WriteCliSummaryAsync(CodingAgentKind.Claude,
                                 SummaryRoute.ModelFor(s, CodingAgentKind.Claude), SummaryRoute.EffortFor(s, CodingAgentKind.Claude), false, "Standup",
-                                "Alice: we ship on Friday.\nBob: I will write the notes.", System.IO.Path.Combine(scratch, "standup.summary.txt"));
+                                "Alice: we ship on Friday.\nBob: I will write the notes.", System.IO.Path.Combine(scratch, "standup.summary.txt"), null);
                             var waited = Stopwatch.StartNew();
                             while (!written.IsCompleted && waited.Elapsed < TimeSpan.FromSeconds(10)) { ui.Drain(); Thread.Sleep(5); }
                             return written.IsCompleted ? (written.Result ?? "written") : "(no answer)";
@@ -7900,7 +8021,7 @@ namespace DesktopAICompanion.RemembranceModule
                             "check the Modules pane for an update to Remembrance, or choose another engine under Summary runs on meanwhile. " +
                             "(Codex said: Error: Unknown feature flag: view_image)";
                         Task<string> refusedWrite = module.WriteCliSummaryAsync(CodingAgentKind.Codex, "", "low", false, "Standup",
-                            "Alice: we ship on Friday.", System.IO.Path.Combine(scratch, "refused.summary.txt"));
+                            "Alice: we ship on Friday.", System.IO.Path.Combine(scratch, "refused.summary.txt"), null);
                         var refusedWait = Stopwatch.StartNew();
                         while (!refusedWrite.IsCompleted && refusedWait.Elapsed < TimeSpan.FromSeconds(10)) { ui.Drain(); Thread.Sleep(5); }
                         string refusedSummary = refusedWrite.IsCompleted ? (refusedWrite.Result ?? "written") : "(no answer)";
@@ -8044,6 +8165,8 @@ namespace DesktopAICompanion.RemembranceModule
             internal string Reply = "CLOUD SUMMARY: ship on Friday; Bob writes the notes.";
             internal string[] Models = { "gpt-test-small", "a-model-first" };
             internal volatile TaskCompletionSource<bool> Hold;
+            /// <summary>The chat answer's finish_reason, or null for none (2.8.0: "length" is a provider's output limit).</summary>
+            internal string FinishReason;
 
             internal int ChatCount
             {
@@ -8082,6 +8205,7 @@ namespace DesktopAICompanion.RemembranceModule
                     if (hold != null) await hold.Task.ConfigureAwait(false);
                     var message = new System.Text.Json.Nodes.JsonObject { ["role"] = "assistant", ["content"] = Reply };
                     var choice = new System.Text.Json.Nodes.JsonObject { ["index"] = 0, ["message"] = message };
+                    if (FinishReason != null) choice["finish_reason"] = FinishReason;
                     json = new System.Text.Json.Nodes.JsonObject { ["choices"] = new System.Text.Json.Nodes.JsonArray { choice } }.ToJsonString();
                 }
                 return new System.Net.Http.HttpResponseMessage(System.Net.HttpStatusCode.OK)
@@ -8167,7 +8291,7 @@ namespace DesktopAICompanion.RemembranceModule
             check("remembrance cloud: a call past its bound is said with the bound", category == "timed-out" && words == "cloud.example.invalid did not answer within 600 s");
 
             // ---- the module: the card, the key, both paths ----
-            Func<string, string, string, string, Action<string>, CancellationToken, Task<OllamaSummarizer.SummaryResult>>
+            Func<string, string, string, string, string, Action<string>, CancellationToken, Task<OllamaSummarizer.SummaryResult>>
                 savedSummarize = Summarize;
             TranscribeFile savedTranscribe = TranscribeWav;
             Func<string, CancellationToken, Task<IReadOnlyList<string>>> savedLister = ListModels;
@@ -8196,7 +8320,7 @@ namespace DesktopAICompanion.RemembranceModule
                     return transcriptToGive;
                 };
                 Summarize = delegate(string endpoint, string summaryModel, string meetingName, string transcript,
-                    Action<string> report, CancellationToken token)
+                    string instructions, Action<string> report, CancellationToken token)
                 {
                     Interlocked.Increment(ref localSummaries);
                     return Task.FromResult(new OllamaSummarizer.SummaryResult { Ok = true, Text = "LOCAL SUMMARY" });
@@ -8941,7 +9065,7 @@ namespace DesktopAICompanion.RemembranceModule
                 BusyValue(BusyTranscribing, fixedAt) == "{\"phase\":\"transcribing\",\"at\":\"2026-10-02T16:18:44.5930000Z\"}");
 
             TranscribeFile savedTranscribe = TranscribeWav;
-            Func<string, string, string, string, Action<string>, CancellationToken, Task<OllamaSummarizer.SummaryResult>>
+            Func<string, string, string, string, string, Action<string>, CancellationToken, Task<OllamaSummarizer.SummaryResult>>
                 savedSummarize = Summarize;
             Func<string, string, int, string> savedRun = CheckWhisperRun;
             Func<string, CancellationToken, Task<bool>> savedReachable = IsReachable;
@@ -8987,7 +9111,7 @@ namespace DesktopAICompanion.RemembranceModule
                     return "Alice: we ship on Friday.";
                 };
                 Summarize = delegate(string endpoint, string summaryModel, string meetingName, string transcript,
-                    Action<string> report, CancellationToken token)
+                    string instructions, Action<string> report, CancellationToken token)
                 {
                     bool validation = meetingName == "Connection test";
                     return Task.Run(delegate

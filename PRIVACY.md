@@ -112,6 +112,18 @@ DesktopAICompanion sends data only when a network feature is used:
   your Windows account (DPAPI) in Remembrance's own data folder, sent only to that base URL as its bearer
   credential, never written to a settings file or the log, and deleted by **Remove key**. The summary file's
   header names the provider, the model and the host the transcript went to.
+- **Since Remembrance 2.8.0 a summary can follow a prompt file of your own, and a follow-up can pass each summary to a
+  second CLI.** With **Use my own prompt file** chosen under **Summary prompt**, Remembrance reads the `.txt` file you
+  picked each time it makes a summary and sends its text with the transcript, to whichever engine **Summary runs on**
+  names, in place of the built-in prompt. The text stays in your file: the module's settings hold only its path, and
+  the log says only, in one word, when the file could not be used. The follow-up is off by default. With **Run a
+  follow-up after each summary** on, each summary's text goes once more after it is written to the follow-up's CLI
+  (Codex unless you pick Claude Code, so OpenAI or Anthropic), in one call with the text of your follow-up prompt
+  file, and so does the latest summary when you press **Run the follow-up on the latest summary**. The transcript
+  goes with it only when **The follow-up reads** is set to the summary and the transcript. The call is made the way a
+  summary's is, on the model, the effort and the **Keep my Claude Code settings out of companion calls** switch the
+  Coding-agent CLI card saves for that CLI. The answer is saved beside the summary as `<name> - follow-up.md`, whose
+  header says what was sent where; like transcripts and summaries, the 72-hour purge never deletes it.
 - **Since AI Brain 1.3.1 and Remembrance 2.1.1 either module can hold a Claude sign-in token** (one made
   with `claude setup-token`), so its Claude Code calls run on that token's account instead of the account
   Claude Code itself is signed into. It is optional and blank by default. The token is encrypted for your

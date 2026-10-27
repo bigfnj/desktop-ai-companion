@@ -536,6 +536,7 @@ namespace DesktopAICompanion
                 var literal = buttons.Count == 2 ? buttons[1].Content as System.Windows.Controls.TextBlock : null;
                 check("card: a label is drawn literally ('Snooze_1' keeps its underscore, no access key)", literal != null && literal.Text == "Snooze_1");
                 check("card: its buttons do not take focus until the user clicks the card", buttons.Count == 2 && !buttons[0].Focusable && !buttons[1].Focusable);
+                Fit(check, card, entry);
                 // The card is excluded from screen capture, so a screenshot shows nothing where it sits: render its
                 // visual tree to a file instead, for a person to look at (%TEMP%\dp-trayquestions-card.png).
                 string png = Path.Combine(Path.GetTempPath(), "dp-trayquestions-card.png");
@@ -563,6 +564,109 @@ namespace DesktopAICompanion
             }
             check("card: Hide closes the window", card.WindowForSelfTest == null);
         }
+
+        // ---- the card's height and place after layout (app 1.7.1, lane feature/remembrance-next) ----
+        //
+        // The owner, 2026-10-27: "the prompt is too low, a refresh puts it in the correct place". Reproduced here, on the
+        // owner's box: a question queued behind the card on screen brings in "+1 more waiting", and the window, whose height
+        // was fixed before it was shown, kept it while the content grew, so the row of buttons ran past the card's bottom
+        // edge. Measured in physical pixels on the real window against the real work area (TrayAnchor.Read), the way the
+        // card is placed; each label ends with the figures, the measured height before the show among them.
+
+        private static void Fit(Action<string, bool> check, DesktopAICompanion.Wpf.TrayQuestionCard card, QuestionEntry entry)
+        {
+            System.Windows.Window win = card.WindowForSelfTest;
+            IntPtr hwnd = card.HandleForSelfTest;
+            System.Windows.FrameworkElement row = card.ButtonRowForSelfTest;
+            if (win == null || hwnd == IntPtr.Zero || row == null)
+            {
+                check("card fit: the card has a window, a handle and a row of buttons to measure", false);
+                return;
+            }
+            Settle(win);
+            double shownAt = win.ActualHeight;
+            TaskbarInfo tb = TrayAnchor.Read();
+            Rectangle area = TrayAnchor.PlacementArea(tb);
+            int dpi = tb.Dpi >= 72 && tb.Dpi <= 480 ? tb.Dpi : 96;
+            int margin = (int)Math.Round(TrayAnchor.MarginLogical * dpi / 96.0, MidpointRounding.AwayFromZero);
+            // The card's bottom padding and border, below the buttons, in pixels.
+            double below = 13 * dpi / 96.0;
+            string figures = "measured before the show " + card.PreShowHeightForSelfTest + " DIP, laid out " + shownAt + " DIP, DPI " + dpi;
+
+            card.Update(entry, 1);
+            Settle(win);
+            CardRect grown = WindowRect(hwnd);
+            double buttonsEnd = ButtonsBottom(row);
+            check("card fit: a question queued behind it grows the card to hold \"+1 more waiting\", its buttons inside it: buttons end at " +
+                  buttonsEnd.ToString("0.#") + " px, the card at " + grown.Bottom + " px (" + figures + ", now " + win.ActualHeight + " DIP)",
+                buttonsEnd + below <= grown.Bottom + 1);
+            check("card fit: grown, its bottom stays inside the work area, a margin above the taskbar: card bottom " + grown.Bottom +
+                  " px, work area bottom " + area.Bottom + " px, margin " + margin + " px",
+                grown.Bottom <= area.Bottom - margin + 1 && grown.Bottom >= area.Bottom - margin - 1 && grown.Top >= area.Top);
+
+            card.Update(entry, 0);
+            Settle(win);
+            CardRect shrunk = WindowRect(hwnd);
+            double shrunkEnd = ButtonsBottom(row);
+            check("card fit: when the waiting line goes, the card shrinks back to its content and stays in the corner: buttons end at " +
+                  shrunkEnd.ToString("0.#") + " px, the card at " + shrunk.Bottom + " px (" + shrunk.Height + " px tall, " + win.ActualHeight + " DIP)",
+                Math.Abs(shrunkEnd + below - shrunk.Bottom) <= 2 && Math.Abs(shrunk.Bottom - (area.Bottom - margin)) <= 1);
+
+            // The work area moving under the card (a taskbar resized or set to hide): the card is moved away by hand, told the
+            // work area changed, and must come back to the corner. The message goes to the card's own window only.
+            SetWindowPos(hwnd, IntPtr.Zero, shrunk.Left, shrunk.Top - 200, 0, 0, 0x0001 | 0x0004 | 0x0010);   // NOSIZE | NOZORDER | NOACTIVATE
+            CardRect moved = WindowRect(hwnd);
+            SendMessage(hwnd, DesktopAICompanion.Wpf.TrayQuestionCard.WM_SETTINGCHANGE,
+                (IntPtr)DesktopAICompanion.Wpf.TrayQuestionCard.SPI_SETWORKAREA, IntPtr.Zero);
+            Settle(win);
+            CardRect back = WindowRect(hwnd);
+            check("card fit: a work-area change places it again in the tray's corner: moved to " + moved.Bottom + " px, then at " + back.Bottom +
+                  " px, the corner at " + (area.Bottom - margin) + " px",
+                moved.Bottom < area.Bottom - margin - 100 && Math.Abs(back.Bottom - (area.Bottom - margin)) <= 1);
+        }
+
+        /// <summary>Lets the card's layout, its SizeChanged handlers and anything they posted run.</summary>
+        private static void Settle(System.Windows.Window win)
+        {
+            for (int i = 0; i < 4; i++)
+            {
+                win.UpdateLayout();
+                win.Dispatcher.Invoke(System.Windows.Threading.DispatcherPriority.Background, new Action(delegate { }));
+            }
+        }
+
+        /// <summary>The bottom edge of the row of buttons, in screen pixels.</summary>
+        private static double ButtonsBottom(System.Windows.FrameworkElement row)
+        {
+            try { return row.PointToScreen(new System.Windows.Point(0, row.ActualHeight)).Y; }
+            catch { return double.MaxValue; }
+        }
+
+        private static CardRect WindowRect(IntPtr hwnd)
+        {
+            WINRECT r;
+            return GetWindowRect(hwnd, out r) ? CardRect.FromLTRB(r.Left, r.Top, r.Right, r.Bottom) : CardRect.Empty;
+        }
+
+        private struct CardRect
+        {
+            internal int Left, Top, Right, Bottom;
+            internal int Height { get { return Bottom - Top; } }
+            internal static CardRect FromLTRB(int l, int t, int r, int b) { return new CardRect { Left = l, Top = t, Right = r, Bottom = b }; }
+            internal static readonly CardRect Empty = new CardRect { Left = 0, Top = 0, Right = 0, Bottom = int.MaxValue };
+        }
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        private struct WINRECT { public int Left, Top, Right, Bottom; }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+        private static extern bool GetWindowRect(IntPtr hWnd, out WINRECT rect);
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+        private static extern bool SetWindowPos(IntPtr hWnd, IntPtr after, int x, int y, int cx, int cy, uint flags);
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
 
         // ---- the host's entry point ----
 

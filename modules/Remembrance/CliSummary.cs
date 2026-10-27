@@ -123,9 +123,12 @@ namespace DesktopAICompanion.RemembranceModule
 
         /// <summary>The CLI's whole system prompt, in place of the coding agent's own: the brief's measured lever (Claude
         /// Code's input fell from 18k to 6k tokens with a short one). The instructions themselves are the single-shot
-        /// prompt the local path sends, on stdin.</summary>
+        /// prompt the local path sends, on stdin. Since 2.8.0 it says nothing of the form: until then it asked for "plain
+        /// text", which argued against the table of action items the built-in asks and the user's own instructions want
+        /// (SummaryPrompt lists what kept summaries short).</summary>
         internal const string SystemPrompt =
-            "You write summaries of meeting transcripts. Answer with the summary itself, in plain text, with nothing before or after it.";
+            "You write summaries of meeting transcripts, as the instructions you are given ask. Answer with the summary itself, " +
+            "with nothing before or after it.";
 
         /// <summary>How long one summary call may take. The brief's measurements were 7 to 19 seconds for one and three
         /// hours; ten minutes is the bound for a slow day, not an estimate.</summary>
