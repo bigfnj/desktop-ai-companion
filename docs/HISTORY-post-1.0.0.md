@@ -1960,6 +1960,35 @@ Each module's `Version` line carries its changelog for the campaign, in the file
 self-tests, invariants or projects is repeated here: the gate asserts those against the documents that
 state them.
 
+## 🚢 Released: v1.7.0 and eight module publishes (2026-10-27)
+
+The 2026-10-26 campaign (the AgentBroker agent-to-agent bus plus a backlog burn-down in sixteen lanes) released as
+host v1.7.0 with AgentBroker 1.1.0, AI Brain 1.6.0, Remembrance 2.7.0, Fortunes 1.2.0, Companion Studio 1.1.19,
+AgentFlow 1.12.1, Reminder 1.2.1 and Blinking LED 1.0.8. The host is 1.7.0, not the 1.6.2 first planned, because lane
+abi added two ABI members that let a module do something new (`PaneAction.EnabledWhen`, `ICatalogListing`), which
+VERSIONING.md classes MINOR; AI Brain, Remembrance and Fortunes use them, so their MinHostVersion is 1.7.0 and they were
+published after the release workflow finished. Release testing was the owner's choice of the light tier plus the soaks:
+four full gates across the merge batches, each new or changed check's mutation case once, no whole harness.
+
+Verified before the push: the final isolated gate passed apart from the expected publish line (AgentBroker 1,681
+assertions, 529 source invariants); the built MSI upgraded the real 1.6.1 install with exit 0 and every module loaded at
+its new version; the installed broker answered on both local host names, served ten tools and woke a waiting inbox in
+17 ms; the options window, opened by a posted click, exposed 10 named nav entries and 45 controls with no unnamed one
+to UI Automation (opened through a UIA Invoke it reads as empty, which explains the earlier "no UIA tree" report);
+the resource soak settled at GDI 0, USER +1, handles -2; the module-window soak's slope was +0.8 MB a segment over five
+segments; fullscreen stand-down passed on one monitor. After the publish, GitHub's master catalog equalled the committed
+one, all eight zips matched the catalog's SHA-256, and the real app was switched to the published zips' exact files
+(the earlier build differed in six modules' DLL bytes only) and re-checked.
+
+What an estimate got wrong: the privacy eval was quoted to the owner as 5-7 hours of model calls and took about 40
+minutes for 1,251 calls; the soaks were quoted as about an hour and took under three minutes of run time. Two detached
+harness runs went BLIND under powershell.exe 5.1 because Add-Content fails while a `tail -f` holds the log; and the
+merge resolver's "keep both sides" broke a harness CASES tuple twice, so it now refuses a .py that does not parse.
+
+Still open: Codex under managed requirements cannot use a local MCP server without an administrator; waking sessions
+of the newest Codex VS Code extension, Codex desktop and Claude Code VS Code 2.1.310 waits for a reviewed re-pin; the
+manual SMOKETEST.md walk, multi-monitor fullscreen and two-workstation acceptance were not done for this release.
+
 ## Released: v1.6.1 and AgentBroker 1.0.4 (2026-10-23)
 
 The v1.6.1 host release workflow completed successfully. AgentBroker 1.0.4 was built and
