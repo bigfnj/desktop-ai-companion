@@ -1,7 +1,7 @@
 {
   "version": 1,
   "app": {
-    "version": "1.6.1",
+    "version": "1.7.0",
     "releases": "https://github.com/bigfnj/desktop-ai-companion/releases"
   },
   "packLicense": "NOASSERTION",
@@ -2292,32 +2292,32 @@
       "id": "fortunes",
       "name": "Fortunes",
       "desc": "Offline smart fortunes and speech bubbles, picked contextually by a bundled bge-small embedding model. Ships a built-in corpus of ~3,200 lines (Classic Fortunes plus Dad Jokes), so it has something to say before you download a single pack.",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/fortunes.zip",
-      "sha256": "401224cd7316c12d3ab33cec38edab7280dd17591d4c6ddc609d6ce33a51d370",
-      "bytes": 30501388,
+      "sha256": "717b952061c2122f0faf771d05a5f9e0a10b65e4bdb1912207aa59da2f6d2eb8",
+      "bytes": 30507948,
       "permissions": "Speech, ScreenContext, Storage",
-      "minHostVersion": "1.4.0"
+      "minHostVersion": "1.7.0"
     },
     {
       "id": "aibrain",
       "name": "AI Brain",
       "desc": "An optional, off-by-default screen-commentary AI brain. It runs on a local model (Ollama or llama.cpp), an optional cloud provider, or a coding-agent CLI you already use (Claude Code or Codex), with a model and effort you can choose for it, on that CLI's own sign-in or, for Claude Code, a sign-in token you give it. Reads the screen with Windows' built-in OCR, so it needs no separate Tesseract install. On a cloud provider or a CLI, what it sends (the screen's text or a screenshot, and the front window's title) goes to that vendor.",
-      "version": "1.5.6",
+      "version": "1.6.0",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/aibrain.zip",
-      "sha256": "0921d88af1c3e9e9016ad219fd1ac7a09c5f0d36d86394e0b5dcba1af7fd3a82",
-      "bytes": 6934373,
+      "sha256": "68c97180ec10d9af898da3b58e6a05b77d2bc630f0f14c7c21705ba2a7c283f2",
+      "bytes": 6950120,
       "permissions": "Speech, Animation, ScreenContext, Network, Hotkey, Storage, LaunchProcess",
-      "minHostVersion": "1.5.0"
+      "minHostVersion": "1.7.0"
     },
     {
       "id": "petstudio",
       "name": "Companion Studio",
       "desc": "Check a companion's animations.xml before you use it: what the host would reject, which animations can never play, and how it actually looks running on your desktop. Edit the XML in place, watch any animation's real sprite frames, preview the companion temporarily on your desktop, then install it.",
-      "version": "1.1.18",
+      "version": "1.1.19",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/petstudio.zip",
-      "sha256": "b7b932f4adf685389c98a5b4942c3730e9a3e791fa25d2ea688ad7a8d5e58f17",
-      "bytes": 424725,
+      "sha256": "fabbf60f82fe3c426dba0b2a73ef5751d509f1e829d207802e12e67d3ef46f2e",
+      "bytes": 426415,
       "permissions": "Speech, Animation, Companions, Storage, LaunchProcess",
       "minHostVersion": "1.0.0"
     },
@@ -2325,10 +2325,10 @@
       "id": "reminder",
       "name": "Reminder",
       "desc": "Your companion announces upcoming calendar events and reads your agenda. Watches up to five calendars (local file, ICS URL, or running Outlook), each with its own name, style, and chime; one-click Join for Teams/Zoom/Meet links; a daily morning briefing; typed personal reminders; skips declined and all-day events; lead times, quiet hours, and hush-while-presenting.",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/reminder.zip",
-      "sha256": "6a811eae87aa8d95b9540e9d3afe98a2223b04948b3a35752a07e4b7b80f15da",
-      "bytes": 451052,
+      "sha256": "b5df7ce1d0dcd3727dde268305d5647abec05b3b64f6d0d705f46f94cbd3b950",
+      "bytes": 451048,
       "permissions": "Speech, Storage, Network, Companions, Audio, Animation, MicrophoneUsage",
       "minHostVersion": "1.6.0"
     },
@@ -2336,21 +2336,21 @@
       "id": "remembrance",
       "name": "Remembrance",
       "desc": "Records a meeting (your microphone + the system output over WASAPI loopback), transcribes it offline with a local Whisper, names it from your calendar (via the Reminder module) or a timestamp, snapshots the screen on a hotkey, and purges the audio + snapshots after 72 hours while keeping the transcript. An AI summary can be written beside the transcript by a local model or, if you choose one, by a cloud provider (OpenAI, OpenRouter or any OpenAI-compatible server), Claude Code or Codex (with a model and effort you can choose for each), which sends the transcript's text (never the audio) to that provider. Needs a local Whisper (whisper-cli + a model) set up in options, and the machine's own console - a Remote Desktop session presents no real microphone.",
-      "version": "2.6.1",
+      "version": "2.7.0",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/remembrance.zip",
-      "sha256": "a9d06772898ff32d9a45af2ecef41e20d547f36409943662465d182dca1b5ddb",
-      "bytes": 7320795,
+      "sha256": "1ee25043f1f5cf97d8fcd16c7988c83fdd96cc6e4f3e58d38cb84a4a05c5b998",
+      "bytes": 7345593,
       "permissions": "Speech, Microphone, SystemAudio, ScreenContext, Hotkey, Storage, Network, LaunchProcess, MicrophoneUsage",
-      "minHostVersion": "1.6.0"
+      "minHostVersion": "1.7.0"
     },
     {
       "id": "blinkingled",
       "name": "Blinking LED",
       "desc": "Blinks your keyboard's Scroll Lock light so the machine reads as active. Six speeds from Glacial to Hyper, switchable from the tray, and your companion has an opinion about each one. It works by pressing Scroll Lock, a key no application acts on, so nothing is ever typed anywhere; Windows still counts it as activity, which is the whole point. Caps Lock stops it.",
-      "version": "1.0.7",
+      "version": "1.0.8",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/blinkingled.zip",
-      "sha256": "52f6b32af6ed4d928546b54994fb5ebbab43ca99c5a2aabd967201c8cfbd1c0f",
-      "bytes": 67359,
+      "sha256": "92d2b5adf35a080500b2f5397699005bacd1a20d5a9e1c380e53a8262e56b3c1",
+      "bytes": 68393,
       "permissions": "Speech, Storage, InputSynthesis",
       "minHostVersion": "1.0.0"
     },
@@ -2358,10 +2358,10 @@
       "id": "agentflow",
       "name": "AgentFlow",
       "desc": "Notices when a coding agent (Claude Code, Codex) is stuck on a permission prompt, and tells you which app is waiting: Claude desktop, Claude Code in VS Code or the CLI, Codex desktop, Codex in VS Code, or codex exec. It can also APPROVE the prompt for you in VS Code, if you switch that on. By default it presses only the option that approves THAT ONE CALL: never \"don't ask again\", never \"allow all edits this session\", never a permission-mode change. Two opt-ins let it press Claude's \"for all projects\" row (a saved permission rule) or Codex's \"Allow similar commands\" instead. If it cannot recognise even one option it touches nothing. Another pauses working VS Code sessions near your Claude session limit, to resume after the reset. It cannot act in the desktop apps or a terminal, and says so. READS YOUR CODING-AGENT TRANSCRIPTS AND PERMISSION SETTINGS: those files contain every command you ran and everything you typed to the agent. It never speaks or logs command text or a file path.",
-      "version": "1.12.0",
+      "version": "1.12.1",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/agentflow.zip",
-      "sha256": "580bcc7fb07bd8321145a6870ab4deff219ca1d143ba50b73c8ac31457b3133e",
-      "bytes": 211835,
+      "sha256": "3917ec8599cfeedbd11caf7507be7bebde9a952a1edc9344e590dc5785d2ffd3",
+      "bytes": 212973,
       "permissions": "Speech, Animation, Storage, AgentTranscripts, InputSynthesis, Network, Companions, Audio",
       "minHostVersion": "1.2.0"
     },
@@ -2369,10 +2369,10 @@
       "id": "agentbroker",
       "name": "AgentBroker",
       "desc": "Local MCP messaging with discovery, mutual LAN pairing, and opt-in native agent adapters.",
-      "version": "1.0.4",
+      "version": "1.1.0",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/agentbroker.zip",
-      "sha256": "7c852df787d8a397fbc5e90b32b6892506d6c8e64dd95ebe2048f76d5e04036a",
-      "bytes": 51225274,
+      "sha256": "c83771bd9db88d45a2250985ad43085cf1a9e3ab1287f96c007a96f5ccc1c5a1",
+      "bytes": 51306971,
       "permissions": "Network, Storage, LaunchProcess, AgentTranscripts",
       "minHostVersion": "1.6.1"
     }
