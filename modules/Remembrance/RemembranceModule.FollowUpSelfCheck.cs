@@ -12,9 +12,11 @@ namespace DesktopAICompanion.RemembranceModule
     /// thorough; the user's file read afresh for every summary, an unusable one falling back to the built-in prompt with the
     /// Status line and the log saying so; "Save the built-in prompt to a file…"; a recording's summary, "Summarize a
     /// transcript…", the cloud call and the local merge all following it; a cloud summary cut at the provider's limit saying
-    /// so). Every CLI call goes to the shared runner's fake and every cloud call to the fake provider: nothing is started and
-    /// no model is called. The transcript, the prompts and the answers are synthetic sentinels, and the log is checked for
-    /// none of them.
+    /// so) and the follow-up after the summary (off by default; on, after a recording's summary, through Codex by default
+    /// with the summary and not the transcript, saved beside the summary, the summary untouched; a failed one said and the
+    /// summary untouched; by hand on the card's CLI and reading; no prompt file, no call; the card's rows). Every CLI call goes
+    /// to the shared runner's fake and every cloud call to the fake provider: nothing is started and no model is called. The
+    /// transcript, the prompts and the answers are synthetic sentinels, and the log is checked for none of them.
     /// </summary>
     public sealed partial class RemembranceModule
     {
@@ -145,7 +147,7 @@ namespace DesktopAICompanion.RemembranceModule
             }
         }
 
-        // ---- inside the module: the card, a recording's summary, an edit, a file gone, a press, the cloud ----
+        // ---- inside the module: the card, a recording's summary and its follow-up, a failed one, a press ----
         private static void SelfCheckNextInModule(Action<string, bool> check)
         {
             Func<string, string, string, string, string, Action<string>, CancellationToken, Task<OllamaSummarizer.SummaryResult>> savedSummarize = Summarize;
@@ -171,7 +173,9 @@ namespace DesktopAICompanion.RemembranceModule
                 System.IO.File.WriteAllBytes(exe, new byte[16]);
                 System.IO.File.WriteAllBytes(whisperModel, new byte[16]);
                 string promptFile = System.IO.Path.Combine(scratch, "my summary prompt.txt");
+                string followUpFile = System.IO.Path.Combine(scratch, "my follow-up prompt.txt");
                 System.IO.File.WriteAllText(promptFile, NextOwnPrompt);
+                System.IO.File.WriteAllText(followUpFile, NextFollowUpPrompt);
                 TranscribeWav = delegate(string wav, string transcriptPath, string whisperExe, string modelPath,
                     string meetingName, IReadOnlyList<string> attendees, DateTimeOffset? recordedAt, out bool did)
                 {
@@ -222,6 +226,7 @@ namespace DesktopAICompanion.RemembranceModule
                     s.Set("whisperModel", whisperModel);
                     s.Set("summaryModelsCache", "alpha:1b");
                     s.Set(SummaryRoute.SettingKey, CodingAgents.ClaudeId);
+                    s.Set(FollowUp.PromptFileKey, followUpFile);   // a follow-up prompt saved, the switch never touched
                     var module = new RemembranceModule();
                     module.CliForDiagnostics = runner;
                     module.Init(host);
@@ -254,7 +259,42 @@ namespace DesktopAICompanion.RemembranceModule
                         check("remembrance 2.8.0 prompt: a fresh install uses the built-in prompt, and the row says so: " + fresh["summaryPromptShown"],
                             fresh[SummaryPrompt.ChoiceKey] == "Use the built-in prompt" && fresh[SummaryPrompt.FileKey] == "" &&
                             fresh["summaryPromptShown"].StartsWith("The built-in prompt:", StringComparison.Ordinal) && s.Get(SummaryPrompt.ChoiceKey, null) == null);
+                        SettingField onRow = FieldFor(pane, FollowUp.OnKey);
+                        SettingField cliRow = FieldFor(pane, FollowUp.CliKey);
+                        SettingField inputRow = FieldFor(pane, FollowUp.InputKey);
+                        SettingField followUpFileRow = FieldFor(pane, FollowUp.PromptFileKey);
+                        SettingField sendsClaude = FieldFor(pane, "followUpSendsClaude");
+                        SettingField sendsCodex = FieldFor(pane, "followUpSendsCodex");
+                        check("remembrance 2.8.0 follow-up: the After the summary card holds the switch, the CLI, what it reads, its prompt file, a Goes through row per CLI and the last follow-up, with its button: " +
+                              ActionLabelsOf(pane, FollowUp.CardGroup),
+                            onRow != null && onRow.Kind == SettingKind.Bool && ReferenceEquals(GroupLead(pane, FollowUp.CardGroup), onRow) &&
+                            string.IsNullOrEmpty(onRow.CardEnabledWhen) &&
+                            cliRow != null && cliRow.Kind == SettingKind.Radio && string.Join("|", cliRow.Options) == "Claude Code CLI|Codex CLI" &&
+                            inputRow != null && inputRow.Kind == SettingKind.Radio && string.Join("|", inputRow.Options) == "The summary|The summary and the transcript" &&
+                            followUpFileRow != null && followUpFileRow.Kind == SettingKind.FilePath && followUpFileRow.Group == FollowUp.CardGroup &&
+                            FieldFor(pane, "followUpPromptShown") != null && FieldFor(pane, "followUpLast") != null &&
+                            sendsClaude != null && sendsClaude.EnabledWhen == "followUpCli=Claude Code CLI" &&
+                            sendsCodex != null && sendsCodex.EnabledWhen == "followUpCli=Codex CLI" &&
+                            ActionLabelsOf(pane, FollowUp.CardGroup) == "Run the follow-up on the latest summary");
+                        check("remembrance 2.8.0 follow-up: a fresh install shows it off, on Codex CLI, reading the summary: " +
+                              fresh[FollowUp.OnKey] + ", " + fresh[FollowUp.CliKey] + ", " + fresh[FollowUp.InputKey],
+                            fresh[FollowUp.OnKey] == "false" && fresh[FollowUp.CliKey] == "Codex CLI" && fresh[FollowUp.InputKey] == "The summary" &&
+                            s.Get(FollowUp.OnKey, null) == null && s.Get(FollowUp.CliKey, null) == null);
+                        check("remembrance 2.8.0 follow-up: each CLI's Goes through row names its vendor and says the summary goes there once more: " + fresh["followUpSendsCodex"],
+                            fresh["followUpSendsCodex"].Contains("each summary's text goes to OpenAI once more") &&
+                            fresh["followUpSendsClaude"].Contains("each summary's text goes to Anthropic once more") &&
+                            fresh["followUpSendsCodex"].Contains("the transcript goes with it"));
 
+                        // ---- off by default: a recording's summary on the built-in prompt makes one call ----
+                        module.StartRecordingForSelfTest();
+                        Thread.Sleep(80);
+                        module.StopRecordingForSelfTest();
+                        bool summarized = pumpUntil(delegate { return module.StatusLine().StartsWith("Transcript + summary: ", StringComparison.Ordinal); });
+                        Thread.Sleep(150);
+                        ui.Drain();
+                        List<FakeCliCall> firstCalls = fake.Calls.FindAll(c => c.IsModelCall);
+                        check("remembrance 2.8.0 follow-up: off by default, a recording's summary makes no second call (" + firstCalls.Count + " model call)",
+                            summarized && firstCalls.Count == 1 && PromptOf(firstCalls[0]).StartsWith(OllamaSummarizer.BuiltInOpening, StringComparison.Ordinal));
 
                         // ---- Save the built-in prompt to a file… ----
                         string savedPromptPath = System.IO.Path.Combine(scratch, "saved prompt.txt");
@@ -271,10 +311,11 @@ namespace DesktopAICompanion.RemembranceModule
                             SummaryPrompt.Usable(savedText) == OllamaSummarizer.BuiltInInstructions.Replace("\n", "\r\n") &&
                             cancelAnswer == "Unchanged." && s.Get(SummaryPrompt.ChoiceKey, null) == null && s.Get(SummaryPrompt.FileKey, null) == null);
 
-                        // ---- an Apply of your own file ----
+                        // ---- an Apply of your own file and the follow-up on ----
                         Dictionary<string, string> apply = CopyOf(pane.Load());
                         apply[SummaryPrompt.ChoiceKey] = SummaryPrompt.FileDisplay;
                         apply[SummaryPrompt.FileKey] = promptFile;
+                        apply[FollowUp.OnKey] = "true";
                         bool applied = pane.Save(apply);
                         IReadOnlyDictionary<string, string> afterApply = pane.Load();
                         check("remembrance 2.8.0 prompt: an Apply of your own file stores the choice and the path, and the row names the file and its size, never its text: " +
@@ -283,33 +324,91 @@ namespace DesktopAICompanion.RemembranceModule
                             afterApply["summaryPromptShown"].StartsWith("Your file my summary prompt.txt, " + SummaryPrompt.SizeOf(NextOwnPrompt) + ".", StringComparison.Ordinal) &&
                             !afterApply["summaryPromptShown"].Contains("SENTINEL"));
 
-                        // ---- a recording's summary on your file ----
+                        // ---- on: a recording's summary on your file, then the follow-up through Codex ----
                         fake.Clear();
                         host.ClearLoggedLines();
                         recordOnce();
-                        pumpUntil(delegate { return module.StatusLine().StartsWith("Transcript + summary: ", StringComparison.Ordinal); });
+                        bool followed = pumpUntil(delegate { return module.StatusLine().StartsWith("Transcript + summary + follow-up: ", StringComparison.Ordinal); });
                         FakeCliCall summaryCall = findCall("SENTINEL-OWN-PROMPT");
+                        FakeCliCall followUpCall = findCall("SENTINEL-FOLLOWUP-PROMPT");
                         string summaryPrompt = PromptOf(summaryCall);
                         check("remembrance 2.8.0 prompt: a recording's summary sends your file's text on stdin, in place of the built-in prompt, never on the command line",
                             summaryCall != null && !summaryCall.IsCodex && summaryPrompt.Contains(NextTranscript.Split('\n')[0]) &&
                             !summaryPrompt.Contains(OllamaSummarizer.BuiltInOpening) && summaryCall.After("--system-prompt") == SummaryRoute.SystemPrompt &&
                             !summaryCall.Arguments.Exists(a => a.Contains("SENTINEL-OWN")));
+                        string followUpPrompt = PromptOf(followUpCall);
+                        List<FakeCliCall> modelCallsInOrder = fake.Calls.FindAll(c => c.IsModelCall);
+                        check("remembrance 2.8.0 follow-up: after a recording's summary, the follow-up goes through Codex by default with its prompt file's text and the summary, not the transcript",
+                            followed && followUpCall != null && followUpCall.IsCodex && modelCallsInOrder.IndexOf(followUpCall) > modelCallsInOrder.IndexOf(summaryCall) &&
+                            followUpPrompt.Contains("SUMMARY:") && followUpPrompt.Contains(NextSummaryAnswer) &&
+                            !followUpPrompt.Contains("Model: Claude Code CLI") && !followUpPrompt.Contains("orchard harvest moves") &&
+                            followUpCall.InstructionsAtCall == FollowUp.SystemPrompt);
+                        string summaryFile = null, followUpWritten = null;
+                        foreach (string f in System.IO.Directory.GetFiles(store, "*.summary.txt", System.IO.SearchOption.AllDirectories))
+                        {
+                            string followUpPath = FollowUp.PathFor(f);
+                            if (System.IO.File.Exists(followUpPath)) { summaryFile = f; followUpWritten = followUpPath; }
+                        }
+                        string followUpText = followUpWritten == null ? null : ReadWhenWritten(followUpWritten);
+                        string summaryText = summaryFile == null ? null : ReadWhenWritten(summaryFile);
+                        IReadOnlyDictionary<string, string> afterRun = pane.Load();
+                        check("remembrance 2.8.0 follow-up: the answer is saved beside the summary as \"<name> - follow-up.md\" under a header saying the summary went to OpenAI, and the Status line says so: " +
+                              (followUpWritten == null ? "(no file)" : System.IO.Path.GetFileName(followUpWritten)) + " | " + afterRun["followUpLast"],
+                            followUpText != null && followUpWritten.EndsWith(" - follow-up.md", StringComparison.Ordinal) && followUpText.Contains(NextFollowUpAnswer) &&
+                            followUpText.Contains("(the summary was sent to OpenAI with your follow-up prompt") &&
+                            afterRun["followUpLast"].StartsWith("✓ ", StringComparison.Ordinal) && afterRun["status"].StartsWith("Transcript + summary + follow-up: ", StringComparison.Ordinal));
+                        check("remembrance 2.8.0 follow-up: the summary's file stays the summary's alone, the follow-up written beside it",
+                            summaryText != null && summaryText.Contains(NextSummaryAnswer) && !summaryText.Contains(NextFollowUpAnswer));
 
-                        // ---- the file edited with no Apply: the next summary reads the new text ----
+                        // ---- the file edited with no Apply: the next summary reads the new text. And a failed follow-up ----
                         System.IO.File.WriteAllText(promptFile, "SENTINEL-EDITED-PROMPT-77ab the same, but shorter");
+                        codexFails = true;
                         fake.Clear();
+                        var before = new HashSet<string>(System.IO.Directory.GetFiles(store, "*.summary.txt", System.IO.SearchOption.AllDirectories),
+                            StringComparer.OrdinalIgnoreCase);
                         recordOnce();
-                        pumpUntil(delegate { return findCall("SENTINEL-EDITED-PROMPT-77ab") != null; });
+                        string failedLine = null;
+                        bool failedSaid = pumpUntil(delegate { failedLine = module.StatusLine(); return failedLine.StartsWith("Transcript + summary (follow-up failed: ", StringComparison.Ordinal); });
                         check("WITNESS remembrance 2.8.0 prompt file: an edit to the file reaches the next summary with no Apply",
                             findCall("SENTINEL-EDITED-PROMPT-77ab") != null && findCall("SENTINEL-OWN-PROMPT") == null);
+                        string failedSummary = null;
+                        bool failedFollowUpWritten = false;
+                        foreach (string f in System.IO.Directory.GetFiles(store, "*.summary.txt", System.IO.SearchOption.AllDirectories))
+                            if (!before.Contains(f))
+                            {
+                                failedSummary = ReadWhenWritten(f);
+                                failedFollowUpWritten |= System.IO.File.Exists(FollowUp.PathFor(f));
+                            }
+                        string failedPart = failedLine == null ? "(no Status line)" : failedLine.Split(new[] { "  |  " }, StringSplitOptions.None)[0];
+                        check("remembrance 2.8.0 follow-up: a failed follow-up writes no follow-up, leaves the summary as the CLI wrote it, and the Status line says so: " + failedPart,
+                            failedSaid && failedPart.Contains("; the summary is unchanged): ") && failedSummary != null && failedSummary.Contains(NextSummaryAnswer) &&
+                            !failedFollowUpWritten);
+                        codexFails = false;
 
-                        // ---- the file gone: the summary goes out on the built-in prompt, said ----
+                        // ---- by hand: the switch off, Claude Code and the transcript on screen, the latest summary ----
+                        Dictionary<string, string> onScreen = CopyOf(pane.Load());
+                        onScreen[FollowUp.OnKey] = "false";
+                        onScreen[FollowUp.CliKey] = "Claude Code CLI";
+                        onScreen[FollowUp.InputKey] = FollowUp.InputBothDisplay;
+                        fake.Clear();
+                        string pressed = Press(PaneActionFor(pane, FollowUp.CardGroup, FollowUp.RunLabel), onScreen, ui, TimeSpan.FromSeconds(5)) ?? "(no answer)";
+                        bool handRan = pumpUntil(delegate { return module.StatusLine().StartsWith("Follow-up: ", StringComparison.Ordinal); });
+                        FakeCliCall handCall = findCall("SENTINEL-FOLLOWUP-PROMPT");
+                        string handPrompt = PromptOf(handCall);
+                        check("remembrance 2.8.0 follow-up: Run the follow-up on the latest summary runs it by hand on the CLI the card shows, the switch off, on the newest summary: " + pressed,
+                            handRan && handCall != null && !handCall.IsCodex && pressed.StartsWith("Running the follow-up through Claude Code CLI on ", StringComparison.Ordinal) &&
+                            handPrompt.Contains(NextSummaryAnswer) && s.Get(FollowUp.CliKey, null) == null);
+                        check("remembrance 2.8.0 follow-up: with \"The follow-up reads\" on the summary and the transcript, the transcript goes too",
+                            handCall != null && handPrompt.Contains("TRANSCRIPT:") && handPrompt.Contains("orchard harvest moves to Thursday"));
+
+                        // ---- both prompt files gone: the summary goes out on the built-in prompt, said; no follow-up is sent ----
                         System.IO.File.Delete(promptFile);
+                        System.IO.File.Delete(followUpFile);
                         fake.Clear();
                         host.ClearLoggedLines();
                         recordOnce();
                         string noneLine = null;
-                        bool noneSaid = pumpUntil(delegate { noneLine = module.StatusLine(); return noneLine.Contains("(⚠ the built-in prompt was used"); });
+                        bool noneSaid = pumpUntil(delegate { noneLine = module.StatusLine(); return noneLine.StartsWith("Transcript + summary (follow-up failed: ", StringComparison.Ordinal); });
                         List<FakeCliCall> goneCalls = fake.Calls.FindAll(c => c.IsModelCall);
                         string nonePart = noneLine == null ? "(no Status line)" : noneLine.Split(new[] { "  |  " }, StringSplitOptions.None)[0];
                         check("remembrance 2.8.0 prompt file: a file gone at the summary sends the built-in prompt, and the Status line and the log say so, naming no path: " + nonePart,
@@ -317,8 +416,24 @@ namespace DesktopAICompanion.RemembranceModule
                             nonePart.EndsWith("(⚠ the built-in prompt was used: the prompt file is missing)", StringComparison.Ordinal) &&
                             host.LoggedLines.Exists(l => l.Contains("summary prompt: the user's prompt file was not used (missing), so the built-in prompt was sent")) &&
                             !host.LoggedLines.Exists(l => l.Contains("my summary prompt") || l.Contains("my follow-up prompt")));
+                        string refusedPress = Press(PaneActionFor(pane, FollowUp.CardGroup, FollowUp.RunLabel), onScreen, ui, TimeSpan.FromSeconds(5)) ?? "";
+                        check("remembrance 2.8.0 follow-up: with its prompt file gone, nothing is sent and both the stop and the button say so: " + refusedPress,
+                            noneSaid && goneCalls.Count == 1 && nonePart.Contains("follow-up failed: the follow-up prompt file is missing; the summary is unchanged") &&
+                            refusedPress == "✗ No follow-up runs without its prompt: the follow-up prompt file is missing.");
 
-                        // ---- Summarize a transcript…: the prompt file the card SHOWS ----
+                        // ...and with the follow-up off, the summary's own Status line says so.
+                        s.Set(FollowUp.OnKey, "false");
+                        fake.Clear();
+                        recordOnce();
+                        string offLine = null;
+                        bool offSaid = pumpUntil(delegate { offLine = module.StatusLine(); return offLine.StartsWith("Transcript + summary: ", StringComparison.Ordinal); });
+                        string offPart = offLine == null ? "(no Status line)" : offLine.Split(new[] { "  |  " }, StringSplitOptions.None)[0];
+                        check("remembrance 2.8.0 prompt file: ...and with no follow-up, the summary's Status line says the built-in prompt was used: " + offPart,
+                            offSaid && offPart.EndsWith("(⚠ the built-in prompt was used: the prompt file is missing)", StringComparison.Ordinal));
+                        s.Set(FollowUp.OnKey, "true");
+
+                        // ---- Summarize a transcript…: the prompt file the card SHOWS, then the follow-up ----
+                        System.IO.File.WriteAllText(followUpFile, NextFollowUpPrompt);
                         string screenPrompt = System.IO.Path.Combine(scratch, "on screen.txt");
                         System.IO.File.WriteAllText(screenPrompt, "SENTINEL-SCREEN-PROMPT-31cd");
                         string manual = System.IO.Path.Combine(scratch, "Orchard.transcript.txt");
@@ -328,9 +443,10 @@ namespace DesktopAICompanion.RemembranceModule
                         manualScreen[SummaryPrompt.FileKey] = screenPrompt;
                         fake.Clear();
                         Press(PaneActionFor(pane, "Try it on a file", "Summarize a transcript…"), manualScreen, ui, TimeSpan.FromSeconds(5));
-                        bool manualDone = pumpUntil(delegate { return module.StatusLine().StartsWith("Summarized: Orchard", StringComparison.Ordinal); });
-                        check("remembrance 2.8.0 prompt: Summarize a transcript sends the prompt file the card shows, applied or not",
-                            manualDone && findCall("SENTINEL-SCREEN-PROMPT-31cd") != null && s.Get(SummaryPrompt.FileKey, null) == promptFile);
+                        bool manualDone = pumpUntil(delegate { return module.StatusLine().StartsWith("Summarized + follow-up: Orchard", StringComparison.Ordinal); });
+                        check("remembrance 2.8.0 prompt: Summarize a transcript sends the prompt file the card shows, applied or not, and the follow-up runs after it",
+                            manualDone && findCall("SENTINEL-SCREEN-PROMPT-31cd") != null && findCall("SENTINEL-FOLLOWUP-PROMPT") != null &&
+                            System.IO.File.Exists(System.IO.Path.Combine(scratch, "Orchard - follow-up.md")) && s.Get(SummaryPrompt.FileKey, null) == promptFile);
 
                         // ---- a cloud summary sends it too, as its prompt ----
                         const string CloudKey = "sk-test-cloud-0123456789abcdef";
@@ -343,6 +459,7 @@ namespace DesktopAICompanion.RemembranceModule
                         cloudScreen["cloudProvider"] = "custom";
                         cloudScreen["cloudEndpoint"] = "https://cloud.example.invalid/v1";
                         cloudScreen["cloudModel"] = "gpt-test-small";
+                        cloudScreen[FollowUp.OnKey] = "false";
                         cloudScreen[SummaryPrompt.FileKey] = screenPrompt;
                         string barn = System.IO.Path.Combine(scratch, "Barn.transcript.txt");
                         System.IO.File.WriteAllText(barn, NextTranscript);
@@ -355,9 +472,9 @@ namespace DesktopAICompanion.RemembranceModule
                             keySaved && cloudDone && chat != null && chat[3].Contains("SENTINEL-SCREEN-PROMPT-31cd") && chat[3].Contains("orchard harvest moves") &&
                             !chat[3].Contains("Topics: a part"));
 
-                        check("remembrance 2.8.0 prompt: no log line carries the prompts, the transcript or the summary",
-                            !host.LoggedLines.Exists(l => l.Contains("SENTINEL-") || l.Contains("orchard harvest") || l.Contains("QZX-SUM")));
-                        check("remembrance 2.8.0 prompt: ...and the local summarizer was never asked", localSummaries == 0);
+                        check("remembrance 2.8.0 follow-up: no log line carries the prompts, the transcript, the summary or the follow-up's answer",
+                            !host.LoggedLines.Exists(l => l.Contains("SENTINEL-") || l.Contains("orchard harvest") || l.Contains("QZX-SUM") || l.Contains("QZX-FUP")));
+                        check("remembrance 2.8.0 follow-up: ...and the local summarizer was never asked", localSummaries == 0);
                     }
                     finally { try { module.Shutdown(); } catch { } }
                 }
