@@ -5498,14 +5498,20 @@ these is scheduled, and neither is an oversight.
 - 📌 **A module cannot draw on or near the companion.** No ABI for overlay/decoration. Nothing
   planned needs it yet; noted so it is not mistaken for an oversight if something does.
 
-- ⬜ **A module cannot push a live value into an open options pane or tray menu.** Found while
-  porting the standalone app's "Next blink" countdown, which refreshed every 250ms because that app
-  owned its own menu. A module ships DATA and the host renders it, so the best available is a
-  snapshot: `TrayItem.DynamicText` is re-evaluated when the menu opens, and `SettingKind.Info` is
-  read when the pane loads or a `PaneAction` with `ReloadPaneAfter` runs. Good enough for state that
-  changes slowly, useless for a countdown. The readouts were dropped rather than shipped stale. If a
-  live readout is ever wanted this needs an ABI addition (a push channel or a pane-refresh tick) and
-  therefore a host release, which was not worth it for one diagnostic.
+- ⬜ **A module cannot push a live value into an open tray menu.** Found while porting the standalone
+  app's "Next blink" countdown, which refreshed every 250ms because that app owned its own menu. This
+  entry said "an open options pane or tray menu" until 2026-10-26; the pane half has existed since host
+  1.6.1. `OptionsPane.NotifyInfoChanged()` and its `InfoChanged` event (`src/DesktopAICompanion.Contracts/PluginApi.cs`)
+  let a module say that a cached Info value changed: the host coalesces the notifications onto its UI
+  thread and reloads only the pane's existing `SettingKind.Info` rows, keeping the editable controls,
+  the unapplied edits and the layout. It is callable from any thread, inert while the pane is closed,
+  and nothing polls; a changed schema still needs a pane reload. AgentBroker (`MinHostVersion` 1.6.1)
+  is the module that uses it. The tray menu still has only a snapshot: `TrayItem.DynamicText`,
+  `Visible` and `BuildChildren` are evaluated when the menu opens, and nothing updates the text of a
+  menu that is already open. So a countdown can now live in a pane (a module timer calling
+  `NotifyInfoChanged`, with `MinHostVersion` 1.6.1), while one in the tray menu still needs an ABI
+  addition (a push channel for an open menu) and therefore a host release. Blinking LED's readouts
+  were dropped rather than shipped stale, and nothing has brought them back.
 
 **Before writing "needs a host change" about anything else, grep `PluginApi.cs` for the verb.** That
 sentence cost a planning cycle: a Reminder entry asserted the ABI could not drive a companion
@@ -5621,6 +5627,7 @@ today. **The next one filed is BUG-019**, and it is filed in [`../BACKLOG.md`](.
 | BUG-016 | the default companion ran a copy of its file saved in settings.json and never the file itself, so an Update, a Companion Studio install or an upgrade never reached it, from 1.0.0 to 1.5.0 | app 1.5.1 (feature/stale-pet-xml): the launch resolves the default from its companion file, the copy declares its source, and a 1.5.0 copy replaced on its header name is first kept in a side file |
 | BUG-015 | the CLI card said "Claude Code is not installed" on a machine where Claude Code was installed, because the runner looked only on the PATH the app started with, in npm's prefix and in Claude Code's own installer folder | aibrain 1.3.1 and remembrance 2.1.1 (feature/cli-token-and-locate): the PATH saved now, WinGet's package folders and VS Code's copy are searched too |
 | BUG-014 | one module description 25 characters over its bound made every installed app refuse the whole catalog, behind "Couldn't reach the catalog: Catalog contains an invalid module entry." | the catalog by 4d1e228 (2026-10-06); the host on feature/catalog-insight: an entry is refused alone and by name, the gate and the publish scripts run the app's own parser over catalog.json, and the panes word the failure by its case |
+| BUG-013 | Remembrance's "Download that model" pulled the model last applied rather than the one picked on screen, answered only "Downloading <id> in the background", and the next Apply put back a selection the pull had written; every pane action that reads a setting the pane edits read the saved value | remembrance 2.0.0 (feature/remembrance-2, 2026-10-02): the actions act on what is on screen (`InvokeWithPendingAsync`, so `MinHostVersion` 1.2.5), the download waits up to 15 s and answers in the pane, an Apply keeps a write that landed in the background, and the pull's start and success are logged |
 | BUG-012 | Companion Studio decoded and tiled the whole sprite sheet on the UI thread on every analyse, against a record that said it did not | petstudio 1.1.18, 2026-09-29 (F155): the analyser adopts the validator's parse and the analysis runs on a pool thread |
 | BUG-011 | the Scroll Lock blinker's belief about the LED drifted from the LED: a refused keypress still flipped the flag, and enabling zeroed it against a lit key | blinkingled 1.0.6, 2026-09-29 (F116, F115): the flag moves only with the key; since 2026-09-30 `Start()` adopts the key (N-blinkingled-01) |
 | BUG-010 | an unprompted remark was a vision turn while the label said vision was for explicit asks | aibrain 1.1.14, 2026-09-29 (F066): an owner decision, not a code change; the label and comments changed and the module self-test pins the drop's routing |

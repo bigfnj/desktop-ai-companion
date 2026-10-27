@@ -3433,11 +3433,16 @@ Assert-True ($burnToolsTemplateJson -cmatch '--module-selftest=<id>' -and
 
 # EVERY SETTINGS WRITE A REMEMBRANCE PANE ACTION MAKES REPORTS ITS RESULT. IModuleSettings.Save() reports
 # a failed write by returning false, never by throwing, and seven Save() calls in six user-triggered
-# Remembrance actions discarded that bool and answered with a tick (RA-157): a user who had waited out a
+# Remembrance actions once discarded that bool and answered with a tick (RA-157): a user who had waited out a
 # multi-hundred-megabyte Whisper download read "✓ Whisper is ready" over paths that were gone at the next
 # launch. The module now routes every such write through TrySaveSettings, whose false becomes the action's
-# answer and one log line. The module self-test drives two of the seven through AdoptWhisperPaths; the other
-# five open a dialog or reach the network, so this pins the SHAPE for them: no line of the comment-stripped
+# answer and one log line. In the pane as it is now (the dialog-opening Browse actions that count included
+# went with lane feature/layout-remembrance), AdoptWhisperPaths is the call the Whisper card's "Set up
+# Whisper for me…" and "Refresh local models" adopt a pair through, and the module self-test drives it over
+# a store whose Save fails (SelfCheckSaveReporting). Every other caller needs the machine's own install or a
+# server: the pane's first-open fills (AutoDetectWhisperOnce reads a Whisper already on disk,
+# AutoDiscoverModelsOnce asks Ollama), the Ollama card's "Refresh local models" and "Download that model",
+# and the cloud card's "Refresh cloud models". So this pins the SHAPE for them: no line of the comment-stripped
 # file is a bare `_settings.Save();` whose bool goes nowhere. The pane's own Save keeps `bool ok =
 # _settings.Save();`, and the self-test's `linkModule._settings.Save();` is another object's handle; neither
 # is a line-start `_settings.Save();`. The positive control is the helper's own definition, so a renamed or
