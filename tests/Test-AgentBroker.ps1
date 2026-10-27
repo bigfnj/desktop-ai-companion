@@ -41,6 +41,18 @@ if ($repinExit -ne 0 -or $repinSummary.Count -ne 1 -or @($repinOutput | Where-Ob
     throw "AgentBroker re-pin helper self-test failed: tools/agentbroker/Test-AgentBrokerRepin.ps1 -SelfTest (exit $repinExit)."
 }
 $repinChecks = [int]([regex]::Match([string]$repinSummary[0], '^PASS: ([0-9]+)').Groups[1].Value)
+# Lane broker-pins: the canonical manifest hash the helper ports from VsCodeManifestProfile needs System.Text.Json, so
+# its checks run only under PowerShell 7; the same self-test runs again in a pwsh child for them.
+Write-Host '=== AgentBroker re-pin helper self-test (PowerShell 7)'
+$repin7Output = @(& pwsh -NoProfile -File $repinHelper -SelfTest)
+$repin7Exit = $LASTEXITCODE
+foreach ($line in $repin7Output) { Write-Host $line }
+$repin7Summary = @($repin7Output | Where-Object { "$_" -match '^PASS: ([1-9][0-9]*) re-pin helper fixture checks$' })
+if ($repin7Exit -ne 0 -or $repin7Summary.Count -ne 1 -or @($repin7Output | Where-Object { "$_" -match '^(FAIL:|RESULT=FAIL)' }).Count -gt 0 -or
+    @($repin7Output | Where-Object { "$_" -ceq 'PASS: the ported canonical manifest hash reproduces the adapter test vector byte for byte' }).Count -ne 1) {
+    throw "AgentBroker re-pin helper self-test under PowerShell 7 failed: tools/agentbroker/Test-AgentBrokerRepin.ps1 -SelfTest (exit $repin7Exit)."
+}
+$repin7Checks = [int]([regex]::Match([string]$repin7Summary[0], '^PASS: ([0-9]+)').Groups[1].Value)
 $harnesses = @(
     @{ Name = 'Core'; Project = 'tests\AgentBroker.Core.Tests\AgentBroker.Core.Tests.csproj'
        Executable = "tests\AgentBroker.Core.Tests\bin\$Configuration\net10.0\AgentBroker.Core.Tests.exe"
@@ -89,4 +101,4 @@ foreach ($harness in $harnesses) {
     catch { $failures.Add($harness.Name + ': ' + $_.Exception.Message) }
 }
 if ($failures.Count -gt 0) { throw ('AgentBroker checks failed: ' + ($failures -join '; ')) }
-Write-Host ("AgentBroker deterministic harnesses PASS: $($harnesses.Count) harnesses, $assertions assertions; collaboration helper $collaborationChecks checks; re-pin helper $repinChecks checks.")
+Write-Host ("AgentBroker deterministic harnesses PASS: $($harnesses.Count) harnesses, $assertions assertions; collaboration helper $collaborationChecks checks; re-pin helper $repinChecks checks (PowerShell 7: $repin7Checks).")

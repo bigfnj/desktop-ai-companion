@@ -6417,6 +6417,27 @@ field naming the client it was reviewed in (the compatibility document says whic
 loader must validate and no check reads. The loader's own bindings (package name and VS Code folder derived from the
 version, uppercase hex, one Claude pin per image hash) refuse documents the adapters could load but never match.
 
+**UNPROVEN now means "a check could not run"; REVIEW and LIVE are their own states.** The helper used to mark the
+person-only facts (Claude peer-token admission, the Codex idle-check order, the renderer-bridge bundle) and every live
+acceptance check UNPROVEN. The brief's rule for the scheduled check, never a pull request for a build with any FAIL or
+UNPROVEN check, would then have refused every build forever. So a fact only a person can establish by re-reading the
+new build is REVIEW, and becomes the pull request's checklist; live acceptance is LIVE, after publish; UNPROVEN is kept
+for an offline check that did not run here (Node.js absent, PowerShell 5.1 for the manifest hash, no published
+integrity), and it does block the automated pull request. None of the three is ever PASS.
+
+**The drafted Codex bundle set is a superset of the reviewed one, on purpose.** Marker holders alone drafted three of
+the five bundles a person pinned for 26.1007.21434 (measured on its marketplace VSIX, 2026-10-27). Every marker holder
+plus every `app-main-*` and `app-initial-*` bundle drafts six, all five reviewed ones among them. Hashing more bundles
+can only refuse more builds; the REVIEW item still asks the reviewer which bundle owns the renderer bridge.
+
+**The manifest hash is ported, not re-implemented.** The helper computes `VsCodeManifestProfile.ComputeSha256` by calling
+the same System.Text.Json types under PowerShell 7 (the byte-span parse overload, the default writer, ordinal sort, the
+root `__metadata` exclusion and the whole-tree duplicate check). Checked against a real reviewed value, not only
+vectors: on 26.1007.21434's VSIX it reproduces the pinned hash. Refused alternative: a hidden adapter command-line flag
+that prints the hash, which would make the helper build and run the adapter.
+
+
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

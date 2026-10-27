@@ -145,10 +145,13 @@ every verified version, where it used to name only the first.
 
 `tools/agentbroker/Test-AgentBrokerRepin.ps1` is a read-only assistant for exact
 re-pinning. It finds the installed Codex desktop package, Codex VS Code
-extensions, the VS Code router and the Claude Code executables (standalone and
-VS Code). For each it verifies the expected-publisher Authenticode signature,
-compares the image with the pins in source, and runs the offline public checks
-this document relies on:
+extensions, the VS Code router and the Claude Code executables (standalone, npm
+CLI and VS Code), or checks ONE downloaded package given with `-Package`: an npm
+tarball of `@anthropic-ai/claude-code-win32-x64` (with `-ExpectedIntegrity`, the
+registry's `dist.integrity`) or that package extracted, or a win32-x64 VSIX of
+the Claude Code or Codex VS Code extension. For each it verifies the
+expected-publisher Authenticode signature, compares the image with the pin
+document, and runs the offline public checks this document relies on:
 
 - Codex desktop: the `OpenAI.Codex` package family and publisher ID under
   WindowsApps, SYSTEM or TrustedInstaller ownership with no foreign write grant
@@ -161,19 +164,42 @@ this document relies on:
 - Claude Code: the native inbox version floor and the messaging token and socket,
   `cc-msg-` pipe, peer record, start-time and inbound-policy markers.
 
-A build that passes every offline check gets the exact replacement pin text for
-the owner to review. The helper never applies it. It writes nothing, opens no
-pipe and reads no credential, session or configuration file. Every failed or
-unproven check is listed by name with its reason. Facts that depend on minified
-code stay UNPROVEN for a person to re-read: Claude peer-token admission, the
-Codex idle-check order, which extension bundle owns the renderer bridge, and the
-canonical manifest hash. Every check from "Required live acceptance" is always
-UNPROVEN. A signature and matching markers never authorize a build by themselves.
+- A package: the npm tarball's sha512 against the published integrity, the
+  package identity (npm name, os and cpu, or the VSIX manifest identity, target
+  platform and `package.json` agreeing), and, for Claude, the image's product
+  version equal to the package version. Only the members the checks read are
+  extracted, each refused unless it is a plain relative path inside the output
+  folder.
+
+A build that passes every offline check gets its exact entry for the pin
+document, in the document's own layout, for the owner to review. The helper never
+applies it: it executes no vendor file, opens no pipe, reads no credential,
+session or configuration file, and in package mode writes nothing outside
+`-OutputDirectory` (`result.json`, `entry.json`, `evidence.txt` and the extracted
+members). Each check is PASS, FAIL, UNPROVEN (an offline check that could not run
+here), REVIEW or LIVE. REVIEW names a fact that depends on minified code and needs
+a person to re-read the new build: Claude peer-token admission, the Codex
+idle-check order, and which hashed bundle owns the renderer bridge. LIVE is every
+check from "Required live acceptance", never inferred offline. A draft is
+eligible for an automated pull request only with no FAIL and no UNPROVEN. A
+signature and matching markers never authorize a build by themselves.
+
+The Codex VS Code entry carries the canonical manifest hash, computed by a port
+of `VsCodeManifestProfile.ComputeSha256` that calls the same System.Text.Json
+types, so it needs PowerShell 7 (under 5.1 it stays UNPROVEN). On the marketplace
+VSIX of the pinned 26.1007.21434 it reproduced the pinned
+`C5C2262E3E36E38E4BF00F885811190F8DFE18B98D8FCB898F22A8600DE96F13`, and the
+VSIX's five pinned bundles matched their pinned hashes. The entry hashes every
+bundle that holds a reviewed marker plus every `app-main-*` and `app-initial-*`
+bundle; on 26.1007.21434 that is six bundles, a superset of the five a person
+pinned, where marker holders alone were three.
 
 Run `pwsh -NoProfile -File tools/agentbroker/Test-AgentBrokerRepin.ps1`, with
-`-Json` or `-Vendor Codex|Claude` as needed. Exit code 1 means at least one
-installed build is NOT READY. `-SelfTest` runs its fixture checks under Windows
-PowerShell 5.1 or PowerShell 7 and touches only its own temporary directory.
+`-Json`, `-Vendor Codex|Claude`, `-Package <file> -OutputDirectory <new folder>`
+or `-PinDocument <file>` as needed. Exit code 1 means at least one build is NOT
+READY. `-SelfTest` runs its fixture checks under Windows PowerShell 5.1 or
+PowerShell 7 and touches only its own temporary directory; the manifest-hash
+checks run under PowerShell 7 only.
 
 On the development workstation on 2026-10-27 it reported the VS Code router
 1.143.1 as already pinned, and offered drafts for Codex desktop 26.1021.3705.0,
