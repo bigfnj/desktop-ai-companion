@@ -498,7 +498,7 @@ used to stop a track saving after about three hours without a word); a track tha
 shown with a ⚠ on the Status line, as is a storage folder inside OneDrive (recordings upload, and deleted audio
 stays in OneDrive's recycle bin). Since Remembrance 2.7.0 a fresh install whose Documents is inside OneDrive
 records to `Remembrance` in the application's data folder instead of `Documents\Remembrance`, and the Status line
-says so; an existing install keeps its folder. Requires the v1.6.0 (or newer) host, which draws the questions.
+says so; an existing install keeps its folder. Requires the v1.7.0 (or newer) host: 1.6.0 draws its questions and 1.7.0 greys its Remove token off Claude Code.
 
 ### 🚦 AgentFlow (optional module)
 <img align="right" width="66" src="docs/images/agentflow-icon.jpg" alt="AgentFlow">

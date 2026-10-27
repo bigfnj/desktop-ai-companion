@@ -1409,6 +1409,8 @@ namespace DesktopAICompanion.RemembranceModule
                     Version floor;
                     check("meeting end: the module asks for host 1.6.0 or newer, where ITrayQuestions arrived in Contracts; it declares " + module.Info.MinHostVersion,
                         Version.TryParse(module.Info.MinHostVersion, out floor) && floor >= new Version(1, 6, 0));
+                    check("remembrance: the module asks for host 1.7.0 or newer, where PaneAction.EnabledWhen greys Remove token off Claude Code; it declares " + module.Info.MinHostVersion,
+                        Version.TryParse(module.Info.MinHostVersion, out floor) && floor >= new Version(1, 7, 0));
                     check("meeting end: the module declares MicrophoneUsage, the reading of Teams' and Zoom's microphone times",
                         (module.Info.Permissions & ModulePermissions.MicrophoneUsage) == ModulePermissions.MicrophoneUsage);
                 }

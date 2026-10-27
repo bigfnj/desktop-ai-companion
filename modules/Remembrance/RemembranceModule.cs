@@ -84,7 +84,23 @@ namespace DesktopAICompanion.RemembranceModule
         {
             Id = Id,
             Name = "Remembrance",
-            Version = "2.6.1",   // 2.6.1: a failed audio save logs its stop failure before completing the save task,
+            Version = "2.7.0",   // 2.7.0: an open options pane shows a summary or a Validate that finished while it was
+                                 //        open (OptionsPane.NotifyInfoChanged), and Load keeps a background write's
+                                 //        record across that refresh; an Apply stores a field only when it changed. The
+                                 //        Coding-agent CLI card has one row per CLI, each live only while its CLI is
+                                 //        chosen on screen and filled in when its details read lands, and gains the
+                                 //        "Keep my Claude Code settings out of companion calls" switch, off by default;
+                                 //        Remove token greys with the token row while Codex CLI is chosen (host 1.7.0's
+                                 //        PaneAction.EnabledWhen, so MinHostVersion rises from 1.6.0 to 1.7.0). The
+                                 //        72-hour purge also covers up to 8 storage folders the user moved away from. A
+                                 //        fresh install whose Documents is inside OneDrive records to Remembrance in
+                                 //        the app's data folder, and the Status line says so; existing installs keep
+                                 //        their folder. The shared CLI runner's fixes apply to summaries:
+                                 //        --permission-mode default on every Claude Code call, Codex analytics off, an
+                                 //        ignored -c key fails closed, a stopped call logs no-exit, Codex's real effort
+                                 //        refusal and a model at capacity are read as such, Remove token retries a held
+                                 //        file.
+                                 // 2.6.1: a failed audio save logs its stop failure before completing the save task,
                                  //        so shutdown's flush cannot finish before that diagnostic is written.
                                  // 2.6.0: captures are named date and time first, to the minute, then the meeting
                                  //        ("2026-10-20 14-08 Design Review.summary.txt"), so a folder lists the
@@ -504,7 +520,7 @@ namespace DesktopAICompanion.RemembranceModule
             // ITrayQuestions` would have come back null (TypeLoadException at JIT), so there is no soft fallback, and the
             // load gate is what turns an older host into a refusal with a reason. Not shipped before host 1.6.0 is
             // released (docs/VERSIONING.md's sequencing rule). The self-test pins this floor beside the other two.
-            MinHostVersion = "1.6.0",
+            MinHostVersion = "1.7.0",
             // Network is for two user-initiated local/upstream calls: fetching whisper.cpp from its GitHub release +
             // Hugging Face, and talking to a LOOPBACK Ollama for the summary. There is deliberately no cloud
             // transcription path, because a recording can be privileged or consent-regulated audio. Since 2.1.0 the

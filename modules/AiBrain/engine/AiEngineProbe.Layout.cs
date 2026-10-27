@@ -64,8 +64,8 @@ namespace DesktopAICompanion.AiBrainModule
             using (var rig = new CliRig("aibrain-layout-cards", ""))
             {
                 OptionsPane pane = rig.Pane;
-                ok &= Check(sb, "aibrain layout: the module asks for host 1.5.0, whose ICompanionStandDown the stand-down asks (1.4.0 brought the CardEnabledWhen and path field its pane sets): " +
-                    rig.Module.Info.MinHostVersion, rig.Module.Info.MinHostVersion == "1.5.0");
+                ok &= Check(sb, "aibrain layout: the module asks for host 1.7.0, whose PaneAction.EnabledWhen greys Remove token off Claude Code (1.6.1 brought NotifyInfoChanged, 1.5.0 the ICompanionStandDown the stand-down asks, 1.4.0 the CardEnabledWhen and path field its pane sets): " +
+                    rig.Module.Info.MinHostVersion, rig.Module.Info.MinHostVersion == "1.7.0");
 
                 var misgated = new List<string>();
                 foreach (string[] card in GatedCards)

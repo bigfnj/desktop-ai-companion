@@ -169,7 +169,29 @@ namespace DesktopAICompanion.AiBrainModule
         {
             Id = "aibrain",
             Name = "AI Brain",
-            Version = "1.5.6",   // 1.5.6: what Codex itself adds to a call, apart from the user's own
+            Version = "1.6.0",   // 1.6.0: privacy and correctness in the shared CLI runner and the CLI card (campaign
+                                 //        2026-10-26). Every Claude Code model call names --permission-mode default, so
+                                 //        auto mode's classifier context (the module's work folder 13 more times, the
+                                 //        home folder and the Windows user name) no longer goes with it, and every
+                                 //        Codex model call turns Codex's own analytics off (-c
+                                 //        analytics.enabled=false). A -c key Codex says it ignored fails the call
+                                 //        closed and is said as ignored. New switch, off by default: "Keep my Claude
+                                 //        Code settings out of companion calls" (--setting-sources ""). One CLI row per
+                                 //        CLI, following the radio, filled in when its details read lands; an "About
+                                 //        Haiku" row warns that Haiku may repeat names it reads on the screen (14 of
+                                 //        112 remarks in a 2026-10-27 test). A CLI turn's persona carries a stronger
+                                 //        no-names rule (the same test: names read off the screen fell from 6 to 0 of
+                                 //        112 remarks on opus/medium). The pane reloads its Info rows after a remark,
+                                 //        an audition and a Validate. Remove token greys with the token row while Codex
+                                 //        CLI is chosen (host 1.7.0's PaneAction.EnabledWhen, so MinHostVersion rises
+                                 //        from 1.5.0 to 1.7.0). Smaller: a stopped call logs no-exit; a Validate across
+                                 //        an Apply of another choice records no tick; Codex's real effort refusal is
+                                 //        read as one; a model at capacity has its own answer; Remove token retries a
+                                 //        held file; a plain Codex failure drops Codex's leading WARNING lines; a
+                                 //        managed MCP refusal has its own sentence; the OCR row says what each engine
+                                 //        does; no cloud provider is stored that nobody chose; the recovery warning
+                                 //        names the delete failure's type.
+                                 // 1.5.6: what Codex itself adds to a call, apart from the user's own
                                  //        ~/.codex/AGENTS.md, names no folder or profile path, on Codex 0.160.1, and a
                                  //        Codex that refuses one of its settings says so in one sentence
                                  //        (lane feature/codex-config-refusal; BACKLOG N-codex-revert-levers-01 and
@@ -640,7 +662,7 @@ namespace DesktopAICompanion.AiBrainModule
             // shared assembly, so on an older host the interface type itself is missing and the method naming it fails
             // to compile at its first call; the floor makes that host refuse the module with a legible reason instead.
             // Publish only after app 1.5.0 has shipped.
-            MinHostVersion = "1.5.0",
+            MinHostVersion = "1.7.0",
             // LaunchProcess: this module starts `ollama serve` (engine\OllamaClient.TryStartServer) and runs
             // tesseract.exe as a child for OCR (engine\AiBrain.RunOcrAsync), and no flag had ever said so on
             // the consent screen (F226: the flag shipped in host 1.2.5 naming this module as a holder, and no
