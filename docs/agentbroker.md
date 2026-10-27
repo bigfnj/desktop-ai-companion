@@ -124,6 +124,28 @@ Handoff convention. Message text may be one JSON object:
 
 The broker neither parses nor enforces this shape; the instructions card describes it as a convention. Content larger than a few KiB belongs in files referenced by repository-relative path and SHA-256, never inline past the 16 KiB text limit. A receiver checks each artifact's hash before relying on it.
 
+## Claude channel bridge (opt-in)
+
+Claude Code's [channels](https://code.claude.com/docs/en/channels-reference) research preview lets an MCP server push messages into an open interactive session. `AgentBroker.Worker.exe --mcp-channel --data <broker data directory> [--label <text>] [--private]` is such a server, and it is opt-in only: nothing configures it, and the **Connect Claude MCP** button is unchanged.
+
+The bridge registers one generic inbox for its whole lifetime, with one `clientId` and incarnation and the given label (`Claude Code channel` by default), and registers again between waits once 20 seconds have passed, so a worker restart cannot strand it. It waits on the inbox and pushes each new message once as `notifications/claude/channel`. The message text is the tag body. `message_id`, `conversation_id`, `sender_broker`, `sender_session`, `sender_scope` (`local` or `paired`), `expires_at` and, for a reply, `in_reply_to` become tag attributes. Its two tools act on that inbox only:
+
+| Tool | Parameters | Effect |
+|---|---|---|
+| `acknowledge` | `message_id`, `outcome` (`Delivered` by default, `Held` or `Refused`) | Records the explicit recipient receipt through `acknowledge_message` |
+| `reply` | `message_id`, `text`, optional `reply_id` | Answers a message addressed to this inbox through `reply_to_message`; without `reply_id` the ID is derived from the message and the text, so an identical retry returns the same receipt |
+
+A push is not Delivered. Claude Code does not acknowledge a notification, and it drops one silently when the session did not opt the server in, so the receipt stays `Accepted` until the session acknowledges it. Pushes come from the oldest 16 unacknowledged messages, ordered by their creation time, so newer ones wait in the broker until older ones are acknowledged. Before each push the bridge re-reads the owner's choices over the management pipe. A muted inbox is pushed nothing, and its messages wait. A message from a broker that is no longer paired, or from a paired broker to a private inbox, is refused. The bridge never declares `claude/channel/permission`, so no agent that can message the inbox can answer the session's tool-approval prompts. It answers MCP revision 2026-07-28 with 2025-11-25, because Claude Code does not register a channel on the newer revision. Its broker calls appear under Other clients in **MCP client traffic**.
+
+To try it, the person who will watch the session adds the server and starts an interactive CLI session with the development-channel flag:
+
+```powershell
+claude mcp add --transport stdio --scope user agentbroker-channel -- "<module folder>\worker\AgentBroker.Worker.exe" --mcp-channel --data "<AgentBroker data directory>"
+claude --dangerously-load-development-channels server:agentbroker-channel
+```
+
+Accept the development-channel warning, then check that the startup notice names `server:agentbroker-channel`. Channels need claude.ai or Console authentication, and Team and Enterprise organizations must enable them (`channelsEnabled`). Claude Code ignores the development flag with `-p` and through the Agent SDK. The Claude VS Code extension passes `--channels` only, so until this server is on an approved channel allowlist it is a CLI route; see the [compatibility evidence](agentbroker-client-compatibility.md#claude-channels-2026-10-27).
+
 ## Delivery contract
 
 Accepted, submitted, delivered, held, refused, expired, and uncertain are different outcomes. The store persists admission before a delivery attempt. Repeated message IDs with an identical payload recover the existing receipt; conflicting reuse is rejected. `send` compares only caller-supplied fields, so a retry recovers its receipt even when the client regenerated its timestamps. A lapsed generic presence leaves its mailbox reachable (see Mailboxes and retention); a lapsed native session does not. Reply creation is atomic, so concurrent retries preserve the first reply's timestamps and receipt. Expiry bounds a message's delivery window; a retained message can receive a later reply with its own deadline and remaining reply budget. A broker restart invalidates session registrations. An interrupted native submission becomes uncertain rather than blindly replaying a prompt that might already have started a turn.
@@ -194,6 +216,8 @@ The current durable store is intended for low-volume workstation coordination. D
 | Refuse a wait on an unreachable mailbox | An empty result would look like silence forever after a restart; `session_unavailable` tells the agent to register again. |
 | Add `send` beside `send_message` | Clients regenerate timestamps on retry; comparing only caller-supplied fields keeps an honest retry from colliding, while `send_message` keeps its exact-record semantics. |
 | Publish the protocol as MCP server instructions | Every client receives the same short card in `initialize`, Codex included through the stdio bridge, instead of a per-client setup note. |
+| Offer the Claude channel bridge as a separate, hand-configured server | Custom channels are a research preview that needs an interactive per-session development flag and, in Team and Enterprise organizations, an organization switch; wiring it into **Connect Claude MCP** would present it as a supported route. |
+| Leave a pushed channel message Accepted until the session acknowledges it | Claude Code never acknowledges a notification and drops it silently when the channel is not registered; only the session's own call is a recipient receipt. |
 
 ## Audit and local delivery (2026-10-21)
 

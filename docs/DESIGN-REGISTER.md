@@ -6025,6 +6025,53 @@ nothing. The adapter refuses a binding whose trust differs from its connection (
 argument contract every existing worker accepts; an older worker given the opt-in fails to start visibly rather
 than ignoring it.
 
+#### feature/agentbroker-backlog-c
+
+The opt-in Claude Code channel bridge (`--mcp-channel`, `tools/AgentBroker.Worker/McpChannelBridge.cs`). It is
+a client of the existing broker surface (the stdio bridge's validated loopback connection plus the management
+pipe's status snapshot) and changes no store, tool, federation or persisted record.
+
+**A pushed message stays Accepted.** Claude Code never acknowledges `notifications/claude/channel` and drops it
+silently when the session did not opt the server in, so a push proves nothing about the recipient. Only the
+session's `acknowledge` call records a receipt. Refused alternative: letting the recipient record `Submitted`
+after a push, which would also stop waits returning pushed messages. It changes `acknowledge_message`'s outcome
+set and the store's receipt transitions, which this lane does not own.
+
+**Pushes come from the oldest 16 unacknowledged messages, with a 2-second poll while any are outstanding.**
+`wait_for_messages` returns at once while anything is Accepted and returns the oldest 16 by creation time, so the
+bridge remembers what it pushed, pauses between waits that bring nothing new, and sees no newer message until the
+session acknowledges older ones. That is backpressure, not a stall. The bound is 16 only while senders' clocks
+agree: a paired broker's message stamped earlier than the window can still enter it.
+
+**Mute defers; an unpaired sender and a paired sender to a private inbox are refused.** The broker already refuses
+both at admission and again in its delivery loop, but a wait blocked across a revocation or privacy change can
+return the message first, so the bridge re-reads the snapshot after each wait. Mute has no broker-side meaning for
+a generic inbox (a polling agent pulls), so for a pushed channel the bridge is the only place it can apply.
+
+**The bridge registers again between waits once 20 seconds have passed, instead of trusting waits to renew it.**
+A wait on a mailbox the broker no longer knows
+(worker restart) still returns its pending messages, renews nothing and never reports `session_unavailable` while
+anything is pending. A bridge holding one unacknowledged push would otherwise stay unreachable for good; the
+synthetic check that drops the registration found exactly that before the timer existed.
+
+**One clientId and incarnation per bridge process.** Claude Code starts one bridge per session, so each session
+gets its own inbox. Owner preferences are keyed by session ID and so do not survive a bridge restart. Refused
+alternative: a persisted clientId, which would let two concurrent sessions share one inbox and race its waits.
+
+**`reply` answers only messages addressed to the bridge's own inbox.** The broker authenticates brokers, not
+sessions, so `reply_to_message` alone would let the channel session answer as any local session that received a
+message. The reply ID is derived from the incarnation, the original ID and the exact text, so the model never
+invents an ID and an identical retry returns the original receipt.
+
+**Revision 2026-07-28 is answered with 2025-11-25, and `claude/channel/permission` is absent rather than false.**
+Claude Code's v2 runtime does not register a channel on the newer revision. Claude Code before 2.1.234 treated
+`false` as declared, and a declared permission relay would let any agent able to message the inbox answer the
+session's tool-approval prompts.
+
+**Not wired into Connect Claude MCP.** Custom channels are a research preview that needs an interactive
+development flag per session and, in Team and Enterprise organizations, an organization switch. A button would
+present that as a supported route.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of
