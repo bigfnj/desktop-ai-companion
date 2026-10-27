@@ -81,6 +81,9 @@ namespace DesktopAICompanion.RemembranceModule
         internal string Category = "";
         internal List<string> Models = new List<string>();
         internal long ElapsedMilliseconds;
+        /// <summary>The provider ended the answer at its output limit (finish_reason "length"), so the text stops where the
+        /// limit fell (2.8.0).</summary>
+        internal bool StoppedAtLimit;
     }
 
     /// <summary>One provider at one base URL with one key: a chat call and a model listing, never throwing.</summary>
@@ -142,6 +145,18 @@ namespace DesktopAICompanion.RemembranceModule
             return null;
         }
 
+        /// <summary>The line a summary carries when the provider stopped it at its output limit (2.8.0); appended by
+        /// <see cref="TextAsSaved"/>.</summary>
+        internal const string StoppedAtLimitNote =
+            "[The provider stopped this summary at its output limit, so it ends early. The transcript beside it is complete.]";
+
+        /// <summary>A summary's text as it is saved: the answer, and the note when the provider cut it.</summary>
+        internal static string TextAsSaved(CloudResult result)
+        {
+            if (result == null) return "";
+            return result.StoppedAtLimit ? result.Text + "\n\n" + StoppedAtLimitNote : result.Text;
+        }
+
         /// <summary>One chat call: the system prompt and the prompt, no stream, the answer's text. Never throws.</summary>
         internal async Task<CloudResult> ChatAsync(string model, string systemPrompt, string prompt, TimeSpan deadline,
             CancellationToken cancellationToken)
@@ -178,6 +193,13 @@ namespace DesktopAICompanion.RemembranceModule
                     }
                     result.Ok = true;
                     result.Text = text;
+                    // The call names no output limit, so the provider's own applies, and an answer it stopped there says so
+                    // only here (remembrance 2.8.0, lane feature/remembrance-next): until then a summary cut at a provider's
+                    // limit was saved as a whole one, its last section missing and nothing to say so. The owner's long
+                    // minutes are what reach such a limit. Kept, with a note (TextAsSaved), since what came back is real.
+                    JsonObject firstChoice = choices != null && choices.Count > 0 ? choices[0] as JsonObject : null;
+                    result.StoppedAtLimit = firstChoice != null &&
+                                            string.Equals(JsonRead.Str(firstChoice["finish_reason"]), "length", StringComparison.Ordinal);
                     return result;
                 }
             }
