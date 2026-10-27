@@ -107,7 +107,7 @@ internal static class CodexPinDiagnosticChecks
             if (failOwnerResolution && Volatile.Read(ref currentFailure) is { } error)
                 return Task.FromException<DesktopOwnerBinding?>(error);
             return Task.FromResult<DesktopOwnerBinding?>(conversationId == thread
-                ? new(thread, owner, connection, 12345, 134000000000000000, true) : null);
+                ? new(thread, owner, connection, 12345, 134000000000000000, true) { RouterTrust = DesktopRouterTrust.ExactPinned } : null);
         }
         public Task<DesktopSubmissionResult> SubmitAsync(DesktopOwnerBinding binding, Guid messageId, string text, CancellationToken token)
             => throw new InvalidOperationException("Read-only pin diagnostic tests cannot submit native input.");

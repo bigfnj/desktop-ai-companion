@@ -69,7 +69,7 @@ try
     }
 
     var owner = Guid.NewGuid();
-    var exhausted = new FakeCodexOwnerConnection(new(thread, owner, Guid.NewGuid(), 12345, 134000000000000000, true))
+    var exhausted = new FakeCodexOwnerConnection(new(thread, owner, Guid.NewGuid(), 12345, 134000000000000000, true) { RouterTrust = DesktopRouterTrust.ExactPinned })
         { Failure = "receipt_capacity" };
     var replacement = new FakeCodexOwnerConnection(exhausted.Binding with { Incarnation = Guid.NewGuid() });
     int connections = 0;
@@ -121,7 +121,7 @@ try
 
     int profileVerifications = 0;
     bool profileChanged = false;
-    var checkedOwner = new FakeCodexOwnerConnection(new(thread, Guid.NewGuid(), Guid.NewGuid(), 12345, 134000000000000000, true));
+    var checkedOwner = new FakeCodexOwnerConnection(new(thread, Guid.NewGuid(), Guid.NewGuid(), 12345, 134000000000000000, true) { RouterTrust = DesktopRouterTrust.ExactPinned });
     await using (var provider = new CodexNativeProvider(true, _ => Task.FromResult<ICodexOwnerConnection>(checkedOwner),
         () => { profileVerifications++; if (profileChanged) throw new DesktopAdapterException("running_vscode_image_mismatch"); },
         _ => Task.FromResult<IReadOnlyList<DesktopDirectorySession>>([new(thread, DesktopSessionActivity.Unknown, clock.GetUtcNow(), null)])))
@@ -200,7 +200,7 @@ sealed class FixedClock : TimeProvider
 }
 sealed class FakeCodex(Guid thread, TimeProvider clock) : ICodexNativeProvider
 {
-    internal DesktopOwnerBinding Binding = new(thread, Guid.NewGuid(), Guid.NewGuid(), 12345, 134000000000000000, true);
+    internal DesktopOwnerBinding Binding = new(thread, Guid.NewGuid(), Guid.NewGuid(), 12345, 134000000000000000, true) { RouterTrust = DesktopRouterTrust.ExactPinned };
     internal DesktopSubmissionResult Outcome = new(DesktopSubmissionOutcome.Accepted, TurnId: "synthetic-turn");
     internal bool Atomic = true, BoundToRecipient = true, FailSubmit, TooLarge, Disposed;
     internal int Submits;

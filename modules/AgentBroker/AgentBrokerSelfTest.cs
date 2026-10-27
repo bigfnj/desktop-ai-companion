@@ -61,6 +61,13 @@ public sealed partial class AgentBrokerModule
             WorkerSupervisor.AddArguments(start, launch);
             Check(start.ArgumentList.Contains("--parent-start") && start.ArgumentList.Contains("--codex-peer-messages") &&
                 !start.ArgumentList.Contains("--codex-mcp-app-source"), "worker args bounded typed values no fake app ID");
+            Check(defaults["codexUpdateTolerantDelivery"] == "false" && !start.ArgumentList.Contains("--codex-update-tolerant-delivery"),
+                "update-tolerant Codex delivery defaults off and stays out of the default worker launch");
+            var tolerantStart = new ProcessStartInfo("synthetic.exe");
+            WorkerSupervisor.AddArguments(tolerantStart, launch with { Settings = launch.Settings with { CodexUpdateTolerantDelivery = true } });
+            int tolerantFlag = tolerantStart.ArgumentList.IndexOf("--codex-update-tolerant-delivery");
+            Check(tolerantFlag >= 0 && tolerantStart.ArgumentList[tolerantFlag + 1] == "true",
+                "WITNESS: an explicit update-tolerant Codex opt-in reaches the worker launch");
 
             var peer = new PeerView(Guid.NewGuid(), "Peer&\nName" + new string('P', 70), "https://example.invalid:7433", new string('A', 64));
             var session = new SessionView("synthetic-session", Guid.NewGuid(), "Synthetic", "codex", "Unknown", false, false, false, false);

@@ -31,7 +31,37 @@ public static class DesktopConnectionProfileProbe
             throw new DesktopAdapterException("invalid_connection_profile");
         return new(profile);
     }
+
+    /// <summary>
+    /// The same connect-verify-close probe under the discovery observation policy, reporting how the router was
+    /// trusted: an exact pin, or Windows-verified publisher evidence after a named exact-pin refusal. It sends no
+    /// initialization, discovery or input, and its result carries only a fixed code and a numeric version.
+    /// </summary>
+    public static Task<DesktopConnectionTrustResult> ObserveTrustAsync(TimeSpan? timeout = null, CancellationToken token = default)
+        => ObserveTrustForTestAsync((limit, cancel) => WindowsDesktopConnection.ConnectAsync(limit, allowPublisherSigned: true, cancel),
+            timeout, token);
+
+    internal static async Task<DesktopConnectionTrustResult> ObserveTrustForTestAsync(
+        Func<TimeSpan, CancellationToken, Task<IVerifiedDesktopConnection>> connect,
+        TimeSpan? timeout = null, CancellationToken token = default)
+    {
+        var options = new DesktopAdapterOptions(RequestTimeout: timeout);
+        options.Validate();
+        token.ThrowIfCancellationRequested();
+        await using var connection = await connect(options.Timeout, token);
+        token.ThrowIfCancellationRequested();
+        connection.VerifyStillSameOwner();
+        var profile = connection.Profile;
+        if (profile is not (DesktopRouterProfile.Desktop or DesktopRouterProfile.VsCode) ||
+            connection.Trust is not (DesktopRouterTrust.ExactPinned or DesktopRouterTrust.PublisherSigned))
+            throw new DesktopAdapterException("invalid_connection_profile");
+        return new(profile, connection.Trust, connection.ExactPinRefusal?.Code, connection.ExactPinRefusal?.InstalledVersion);
+    }
 }
+
+/// <summary>Connection trust only; this result establishes no conversation owner or delivery route.</summary>
+public sealed record DesktopConnectionTrustResult(DesktopRouterProfile Profile, DesktopRouterTrust Trust,
+    string? ExactPinRefusalCode, string? InstalledVersion);
 
 internal interface IVerifiedDesktopConnection : IDesktopConnection
 {

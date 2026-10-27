@@ -5994,6 +5994,37 @@ minute reaches the bound after 410 minutes whatever the lifetime. By the same ar
 4,096 per lifetime plus a day: about 1.4 a minute at the default 24-hour lifetime. No limit was changed in this lane;
 filed as N-broker-a-02 for an owner decision.
 
+#### feature/agentbroker-backlog-b
+
+AgentBroker Codex discovery trust and the opt-in update-tolerant delivery policy. Strict exact pins stay the
+default; the per-vendor contract is in `docs/agentbroker-client-compatibility.md`.
+
+**An unpinned Codex router is listed, yet nothing can be sent to it.** That is observation, not a broken wake
+switch. A router that fails its exact pin but passes Windows-verified publisher trust yields bindings marked
+`PublisherSigned`; their rows have no capabilities, and both the worker adapter (`codex_observation_only`) and the
+adapter library (`router_observation_only`) refuse before any frame. Refused alternative: dropping such sessions,
+which is what strict discovery did, so a desktop package update hid every Codex session until the next re-pin.
+
+**Update-tolerant Codex rows advertise `NativeIdleGuard`, the same as exact rows.** The submission path and its
+runtime checks are the same code, and the owner's own `supportsUntrustedAppInput` is checked before each send.
+What an unreviewed build does not re-prove (settings inheritance, the double idle check, the busy error's meaning,
+unsigned extension JavaScript) is the gap the owner accepts by opting in, which is why the switch is off by
+default and status names the mode and the failed pin on every pass. Refused alternative: withholding the guard,
+which makes Unknown-activity sessions unreachable and the switch inert in practice.
+
+**Claude has no update-tolerant switch.** Its delivery boundary (`NativePeerAdapter`) checks `EngineProfile` for
+the target and the connected image, and no bounded runtime check can show how an unreviewed build classifies a
+peer token. An unpinned Claude build stays observation-only and is re-pinned exactly, with the read-only
+`tools/agentbroker/Test-AgentBrokerRepin.ps1` drafting the pin.
+
+**`IDesktopConnection.Trust` has no default member, and `DesktopOwnerBinding.RouterTrust` defaults to
+`Unverified`.** A test double or a new connection type must state its trust, and a binding nobody stamped grants
+nothing. The adapter refuses a binding whose trust differs from its connection (`stale_binding`).
+
+**The module sends `--codex-update-tolerant-delivery` only when the switch is on.** The default launch is the
+argument contract every existing worker accepts; an older worker given the opt-in fails to start visibly rather
+than ignoring it.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

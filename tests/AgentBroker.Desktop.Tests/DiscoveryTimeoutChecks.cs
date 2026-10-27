@@ -138,6 +138,7 @@ internal static class DiscoveryTimeoutChecks
     private sealed class DelayedConnection : IDesktopConnection
     {
         internal FakeConnection Inner { get; } = new();
+        public DesktopRouterTrust Trust => Inner.Trust;
         internal TimeSpan DiscoveryDelay { get; init; }
         internal TimeSpan SubmissionDelay { get; init; }
         internal TaskCompletionSource DiscoveryRequested { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);

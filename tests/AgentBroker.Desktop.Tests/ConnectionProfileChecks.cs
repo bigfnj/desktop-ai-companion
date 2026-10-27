@@ -201,6 +201,7 @@ internal static class ConnectionProfileChecks
         internal int StreamReads, IdentityReads, ProfileReads, OwnerChecks, Disposals;
         internal DesktopAdapterException? OwnerFailure;
         internal bool FailDisposal;
+        public DesktopRouterTrust Trust => DesktopRouterTrust.ExactPinned;
         public Stream Stream
         {
             get { StreamReads++; throw new InvalidOperationException("ConnectionProfileChecks.cs: native protocol stream must remain untouched."); }

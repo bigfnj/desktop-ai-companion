@@ -65,6 +65,18 @@ public static class DesktopCompatibilityProfile
             throw new DesktopAdapterException("desktop_image_mismatch", profile.ApplicationVersion);
     }
 
+    // Exact-pin refusals that Windows-verified publisher evidence may stand in for. A linked image, an
+    // unverifiable process snapshot or any identity/ACL failure is never one of them.
+    private static readonly HashSet<string> PinMismatchCodes = new(StringComparer.Ordinal)
+    {
+        "unsupported_desktop_version", "desktop_image_mismatch", "unsupported_vscode_router",
+        "unsupported_vscode_profile", "vscode_image_mismatch", "unsupported_running_vscode_profile",
+        "running_vscode_image_mismatch",
+    };
+
+    /// <summary>True only for a refusal that means "not an exactly reviewed build", never for an identity failure.</summary>
+    public static bool IsExactPinMismatch(string code) => PinMismatchCodes.Contains(code);
+
     internal static string? InstalledApplicationVersion(string image)
     {
         // Identify only the package-name version. This supplies diagnostics and grants no image trust.
@@ -107,12 +119,20 @@ internal sealed class WindowsDesktopConnection : IVerifiedDesktopConnection
     public Stream Stream => pipe;
     public OwnerProcessIdentity Identity { get; }
     public DesktopRouterProfile Profile { get; }
+    public DesktopRouterTrust Trust { get; }
+    public DesktopAdapterException? ExactPinRefusal { get; }
     private bool disposed;
 
-    private WindowsDesktopConnection(NamedPipeClientStream pipe, OwnerProcessIdentity identity, DesktopRouterProfile profile)
-    { this.pipe = pipe; Identity = identity; Profile = profile; }
+    private WindowsDesktopConnection(NamedPipeClientStream pipe, OwnerProcessIdentity identity, DesktopRouterVerification verification)
+    {
+        this.pipe = pipe; Identity = identity; Profile = verification.Profile; Trust = verification.Trust;
+        ExactPinRefusal = verification.ExactPinRefusal;
+    }
 
-    internal static async Task<IVerifiedDesktopConnection> ConnectAsync(TimeSpan timeout, CancellationToken token)
+    internal static Task<IVerifiedDesktopConnection> ConnectAsync(TimeSpan timeout, CancellationToken token)
+        => ConnectAsync(timeout, allowPublisherSigned: false, token);
+
+    internal static async Task<IVerifiedDesktopConnection> ConnectAsync(TimeSpan timeout, bool allowPublisherSigned, CancellationToken token)
     {
         if (!OperatingSystem.IsWindows()) throw new DesktopAdapterException("native_windows_required");
         // Fixed local endpoint only. Never create a router and never accept a remote/custom production endpoint.
@@ -123,15 +143,74 @@ internal sealed class WindowsDesktopConnection : IVerifiedDesktopConnection
             using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
             deadline.CancelAfter(timeout);
             await pipe.ConnectAsync(deadline.Token);
+            // Process, user, start time and pipe ACL are checked identically for exact and publisher trust.
             var identity = ReadConnectedIdentity(pipe.SafePipeHandle);
             VerifyPipeAcl(pipe.SafePipeHandle);
-            var profile = VerifyPublicProfile(identity.ImagePath,
-                VsCodeRouterCompatibilityProfile.VerifyPublicImage, DesktopCompatibilityProfile.VerifyPublicImages);
-            var connection = new WindowsDesktopConnection(pipe, identity, profile);
+            var verification = VerifyRouter(identity.ImagePath, allowPublisherSigned,
+                VsCodeRouterCompatibilityProfile.VerifyPublicImage, DesktopCompatibilityProfile.VerifyPublicImages,
+                VerifyPublisherSignedRouter);
+            var connection = new WindowsDesktopConnection(pipe, identity, verification);
             connection.VerifyStillSameOwner();
             return connection;
         }
         catch { await pipe.DisposeAsync(); throw; }
+    }
+
+    internal static DesktopRouterVerification VerifyRouter(string image, bool allowPublisherSigned,
+        Action<string> verifyVsCode, Action<string> verifyDesktop, Func<string, DesktopRouterProfile> verifyPublisher)
+    {
+        try { return new(VerifyPublicProfile(image, verifyVsCode, verifyDesktop), DesktopRouterTrust.ExactPinned); }
+        catch (DesktopAdapterException pinned) when (allowPublisherSigned && DesktopCompatibilityProfile.IsExactPinMismatch(pinned.Code))
+        {
+            try { return new(verifyPublisher(image), DesktopRouterTrust.PublisherSigned, pinned); }
+            catch (DesktopAdapterException publisher)
+            {
+                // Report the publisher refusal, keeping the installed version the exact-pin check identified.
+                throw new DesktopAdapterException(publisher.Code, publisher.InstalledVersion ?? pinned.InstalledVersion);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Publisher evidence for a router that is not an exactly reviewed build. The desktop package must sit in its
+    /// protected WindowsApps package directory with an OpenAI signature; a Code-hosted router needs a Microsoft
+    /// signature plus at least one running Code-owned engine with an OpenAI signature.
+    /// </summary>
+    internal static DesktopRouterProfile VerifyPublisherSignedRouter(string image)
+        => VerifyPublisherSignedRouter(image, WindowsPublisherImageTrust.Verify, WindowsPublisherImageTrust.IsProtectedFile,
+            VsCodeCompatibilityProfile.VerifyRunningClientsByPublisher);
+
+    internal static DesktopRouterProfile VerifyPublisherSignedRouter(string image,
+        Func<string, string, bool, PublisherImageTrust> verify, Func<string, bool> isProtectedFile, Func<int> verifyRunningEngines)
+    {
+        if (VsCodeRouterCompatibilityProfile.IsExpectedImage(image))
+        {
+            RequirePublisher(verify(image, WindowsPublisherImageTrust.MicrosoftPublisher, false), null);
+            if (verifyRunningEngines() == 0) throw new DesktopAdapterException("vscode_router_engine_unverified");
+            return DesktopRouterProfile.VsCode;
+        }
+        // The package-name parse also pins the OpenAI.Codex family and its publisher ID; it grants no trust alone.
+        string? version = DesktopCompatibilityProfile.InstalledApplicationVersion(image);
+        if (version is null) throw new DesktopAdapterException("unsupported_desktop_version");
+        RequirePublisher(verify(image, WindowsPublisherImageTrust.OpenAIPublisher, true), version);
+        // The archive is not Authenticode signed. Package installation verified it, and the protected location
+        // keeps it unchanged since; anything writable by another principal refuses.
+        string archive = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(image))!, "resources", "app.asar");
+        if (!isProtectedFile(archive)) throw new DesktopAdapterException("public_image_location_unprotected", version);
+        return DesktopRouterProfile.Desktop;
+    }
+
+    internal static void RequirePublisher(PublisherImageTrust trust, string? version)
+    {
+        string? code = trust switch
+        {
+            PublisherImageTrust.ExpectedPublisher => null,
+            PublisherImageTrust.UntrustedSignature => "public_image_signature_untrusted",
+            PublisherImageTrust.UnexpectedPublisher => "public_image_publisher_mismatch",
+            PublisherImageTrust.UnprotectedLocation => "public_image_location_unprotected",
+            _ => "public_image_trust_unavailable",
+        };
+        if (code is not null) throw new DesktopAdapterException(code, version);
     }
 
     internal static DesktopRouterProfile VerifyPublicProfile(string image, Action<string> verifyVsCode,

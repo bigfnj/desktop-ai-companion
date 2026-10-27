@@ -185,6 +185,7 @@ internal static class ExactThreadMetadataChecks
         private readonly PartialStream stream;
         internal TaskCompletionSource Requested { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal bool Disposed => inner.Disposed;
+        public DesktopRouterTrust Trust => inner.Trust;
         internal bool StreamClosed => stream.Closed;
         internal PartialConnection(Guid target) { inner = new() { DirectoryThread = target }; stream = new(inner.Stream, Requested); }
         public Stream Stream => stream;

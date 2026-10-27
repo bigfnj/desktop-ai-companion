@@ -74,4 +74,53 @@ public static class VsCodeCompatibilityProfile
         }
         return engines.Count;
     }
+
+    /// <summary>
+    /// Publisher counterpart of <see cref="VerifyRunningClients"/> for a build that is not exactly pinned: every direct
+    /// Code-owned native engine must be a same-user child of <c>Code.exe</c> at an installed OpenAI extension layout,
+    /// with a Windows-verified OpenAI signature. Extension JavaScript is unsigned, so this mode cannot verify it;
+    /// the compatibility document records that gap. It never stands in for the exact profile on its own.
+    /// </summary>
+    public static int VerifyRunningClientsByPublisher()
+    {
+        if (!OperatingSystem.IsWindows()) throw new DesktopAdapterException("native_windows_required");
+        return ValidateRunningClientsByPublisher(WindowsClientProcesses.ReadCodeOwnedEngines(),
+            image => WindowsPublisherImageTrust.Verify(image, WindowsPublisherImageTrust.OpenAIPublisher, false));
+    }
+
+    internal static int ValidateRunningClientsByPublisher(IReadOnlyList<CodeOwnedEngine> engines, Func<string, PublisherImageTrust> verify)
+    {
+        string root = Path.GetFullPath(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".vscode", "extensions"));
+        foreach (var engine in engines)
+        {
+            string? version = PublisherEngineVersion(engine.Image, root);
+            if (!engine.SameUser || engine.ParentCreationFileTime > engine.CreationFileTime
+                || !string.Equals(Path.GetFileName(engine.ParentImage), "Code.exe", StringComparison.OrdinalIgnoreCase)
+                || version is null)
+                throw new DesktopAdapterException("unsupported_running_vscode_profile");
+            WindowsDesktopConnection.RequirePublisher(verify(engine.Image), version);
+        }
+        return engines.Count;
+    }
+
+    /// <summary>The extension version of <c>&lt;root&gt;\openai.chatgpt-&lt;version&gt;-win32-x64\bin\windows-x86_64\codex.exe</c>, else null.</summary>
+    internal static string? PublisherEngineVersion(string image, string root)
+    {
+        const string prefix = "openai.chatgpt-", suffix = "-win32-x64";
+        string full = Path.GetFullPath(image);
+        string? platform = Path.GetDirectoryName(full);
+        string? bin = Path.GetDirectoryName(platform);
+        string? extension = Path.GetDirectoryName(bin);
+        if (platform is null || bin is null || extension is null ||
+            !string.Equals(Path.GetFileName(full), "codex.exe", StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(Path.GetFileName(platform), "windows-x86_64", StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(Path.GetFileName(bin), "bin", StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(Path.GetDirectoryName(extension), root, StringComparison.OrdinalIgnoreCase)) return null;
+        string name = Path.GetFileName(extension);
+        if (name.Length <= prefix.Length + suffix.Length || !name.StartsWith(prefix, StringComparison.Ordinal) ||
+            !name.EndsWith(suffix, StringComparison.Ordinal)) return null;
+        string version = name[prefix.Length..^suffix.Length];
+        return System.Version.TryParse(version, out var parsed) && parsed.Revision == -1 && parsed.Build >= 0 &&
+            parsed.ToString() == version ? version : null;
+    }
 }

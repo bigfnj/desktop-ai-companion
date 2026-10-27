@@ -123,7 +123,8 @@ public sealed class WorkerApplication : IAsyncDisposable
     private static IReadOnlyList<ILocalAgentAdapter> CreateNativeAdapters(WorkerOptions options)
     {
         var adapters = new List<ILocalAgentAdapter>();
-        if (options.EnableCodexNativeDiscovery) adapters.Add(new CodexNativeAdapter(options.EnableCodexPeerMessages));
+        if (options.EnableCodexNativeDiscovery) adapters.Add(new CodexNativeAdapter(options.EnableCodexPeerMessages,
+            options.EnableCodexUpdateTolerantDelivery));
         if (options.EnableClaudeNativeDiscovery) adapters.Add(new ClaudeNativeAdapter(options.EnableClaudePeerCredentials));
         return adapters;
     }

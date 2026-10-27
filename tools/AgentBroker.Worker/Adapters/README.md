@@ -10,11 +10,15 @@ the native adapter's ephemeral connection-binding UUID is never used as durable 
 busy admission alone yields `DeferredNotSubmitted`. Generic failures after entering model submission
 remain uncertain. Native acceptance remains `Submitted` until a separate exact recipient receipt.
 
-Production Codex delivery is currently observe-only: no shipped `ICodexNativeDeliveryAuthorization`
-implementation can attest both every running mixed-client profile and a genuine current MCP widget
-session binding. A configured server alias or source-ID string does not prove that binding. Native
-owner discovery exposes opaque client IDs rather than trusted Desktop/VS Code host-version labels.
-The source option defaults null. Installed profile verification alone must never silently enable wake.
+Codex delivery needs the `codexPeerMessages` opt-in. In strict mode, the default, `CodexNativeProvider.Authorize`
+admits a binding only when its router matched an exact reviewed image and every running Code-owned engine matched
+its exact extension profile. A router that fails its exact pin but passes Windows-verified publisher trust is
+observed read-only: its rows carry no capabilities, and submission refuses `codex_observation_only` before owner
+rediscovery. The separate `codexUpdateTolerantDelivery` opt-in lets such a build deliver only when every runtime
+check in the compatibility document passes; otherwise the refusal is `unsupported_capability`. The adapter also
+checks each binding's own router trust, so a provider verdict cannot lend the exact path to a publisher-signed
+router. Native owner discovery exposes opaque client IDs rather than trusted Desktop/VS Code host-version labels.
+Installed profile verification alone never enables wake.
 
 Claude production discovery examines at most 32 processes named `claude`, public executable identities,
 and exact default-home numeric registry JSON files. It never lists credentials or follows log paths.

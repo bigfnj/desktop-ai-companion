@@ -1,6 +1,6 @@
 # Codex desktop owner adapter
 
-This package-free adapter connects to the existing local desktop coordination pipe. It never starts or resumes an engine or conversation. The production endpoint is fixed to `\\.\pipe\codex-ipc`; custom in-memory transports are internal to synthetic tests. Exact public compatibility profiles cover application packages `26.1016.6573.0` and `26.1016.8622.0`.
+This package-free adapter connects to the existing local desktop coordination pipe. It never starts or resumes an engine or conversation. The production endpoint is fixed to `\\.\pipe\codex-ipc`; custom in-memory transports are internal to synthetic tests. Exact public compatibility profiles cover application packages `26.1016.6573.0` and `26.1016.8622.0`. Discovery can also observe a newer package read-only when Windows verifies its OpenAI signature in the protected WindowsApps location.
 
 It pins the supported Windows application package, public executable/archive hashes, connected server PID, creation FILETIME and same-user process identity. It rejects ACL write grants to principals other than this user, SYSTEM and Administrators. It pins a discovered existing thread owner client plus a new adapter incarnation and rediscovers that exact owner before each send. Unknown versions and capabilities fail closed. The executable's Electron version is checked separately from the package's application version.
 
@@ -9,6 +9,7 @@ Build and run the connection-only probe from the repository root:
 ```powershell
 dotnet build tools/AgentBroker.CodexDesktopAdapter/AgentBroker.CodexDesktopAdapter.csproj -c Release
 dotnet tools/AgentBroker.CodexDesktopAdapter/bin/Release/net10.0-windows/AgentBroker.CodexDesktopAdapter.dll --probe-connection-profile
+dotnet tools/AgentBroker.CodexDesktopAdapter/bin/Release/net10.0-windows/AgentBroker.CodexDesktopAdapter.dll --probe-connection-trust
 dotnet tools/AgentBroker.CodexDesktopAdapter/bin/Release/net10.0-windows/AgentBroker.CodexDesktopAdapter.dll --probe-thread <exact-thread-UUID>
 dotnet tools/AgentBroker.CodexDesktopAdapter/bin/Release/net10.0-windows/AgentBroker.CodexDesktopAdapter.dll --observe-directory
 dotnet tools/AgentBroker.CodexDesktopAdapter/bin/Release/net10.0-windows/AgentBroker.CodexDesktopAdapter.dll --probe-thread-metadata <authorized-test-UUID>
@@ -23,6 +24,13 @@ initialization, discovery or model input, reads no native protocol stream and
 reports no process, client or conversation identifiers. The five-second timeout
 bounds pipe connection; public-image hashing is outside that connection bound.
 A verified router does not establish a recipient owner or a working delivery route.
+
+`--probe-connection-trust` runs the same connect, verify and close sequence under
+the discovery observation policy and also reports `trust`: `ExactPinned`, or
+`PublisherSigned` with the failed exact-pin code and numeric installed version.
+It sends nothing on the pipe either. A publisher-signed router is observation
+evidence only: its sessions have no delivery capability unless update-tolerant
+delivery was explicitly enabled (see the compatibility document).
 
 The VS Code manifest check hashes all functional JSON content with object keys
 sorted ordinally and array order preserved. Only the root `__metadata` value,

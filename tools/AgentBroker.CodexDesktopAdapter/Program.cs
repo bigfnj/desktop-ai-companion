@@ -22,6 +22,28 @@ if (args.SequenceEqual(new[] { "--probe-connection-profile" }))
         return 1;
     }
 }
+// Read-only: the connection-profile probe under the discovery observation policy. Sends nothing on the pipe.
+if (args.SequenceEqual(new[] { "--probe-connection-trust" }))
+{
+    try
+    {
+        var result = await DesktopConnectionProfileProbe.ObserveTrustAsync();
+        Console.WriteLine(JsonSerializer.Serialize(new { probe = "codex-connection-trust", connected = true,
+            profile = result.Profile.ToString(), trust = result.Trust.ToString(), exactPinRefusal = result.ExactPinRefusalCode,
+            installedVersion = result.InstalledVersion, initialized = false, discoveryRequested = false,
+            inputSent = false, deliveryEnabled = false }));
+        return 0;
+    }
+    catch (Exception error) when (error is DesktopAdapterException or IOException or OperationCanceledException or UnauthorizedAccessException)
+    {
+        Console.WriteLine(JsonSerializer.Serialize(new { probe = "codex-connection-trust", connected = false,
+            errorCode = error is DesktopAdapterException known ? known.Code
+                : error is OperationCanceledException ? "timeout_or_cancelled" : "connection_rejected",
+            installedVersion = (error as DesktopAdapterException)?.InstalledVersion,
+            initialized = false, discoveryRequested = false, inputSent = false, deliveryEnabled = false }));
+        return 1;
+    }
+}
 if (args.Length == 1 && args[0] == "--find-ready-smoke-target")
 {
     try
