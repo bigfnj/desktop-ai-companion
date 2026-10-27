@@ -22,11 +22,23 @@ public enum McpClientFamily { Other = 0, Claude = 1, Codex = 2 }
 public sealed record McpClientActivityView(McpClientFamily Family, DateTimeOffset? LastInitializeUtc = null,
     DateTimeOffset? LastSuccessfulRequestUtc = null, DateTimeOffset? LastToolsListUtc = null,
     DateTimeOffset? LastSuccessfulToolUtc = null);
+// A generic inbox whose successful register_agent call itself carried a verified Claude or Codex
+// client identity. Registrations without one are never attributed, and a label never is.
+public sealed record McpInboxAttributionView(string SessionId, Guid Incarnation, McpClientFamily Family);
+// Optional trailing members are omitted while null, so a snapshot without them still reads in an older module.
 public sealed record McpStatusView(bool EndpointReady, DateTimeOffset? LastSuccessfulRequestUtc,
-    DateTimeOffset? LastToolsListUtc, McpClientActivityView[] Clients);
+    DateTimeOffset? LastToolsListUtc, McpClientActivityView[] Clients,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] McpInboxAttributionView[]? Inboxes = null);
+// Fixed codes only, never an address, interface name, network name or rule text. Category is the
+// Windows network category of the interface that carries the advertised LAN address; Rule is this
+// worker's own firewall rule as read without elevation; LastInboundUtc is the last HTTPS request that
+// reached the LAN listener from another private address since this worker started.
+public sealed record LanProfileView(string Category, string Rule, int RuleProfiles, DateTimeOffset? CheckedUtc,
+    DateTimeOffset? LastInboundUtc);
 public sealed record BrokerSnapshot(Guid BrokerId, string Name, string LoopbackEndpoint, string? LanEndpoint,
     PeerView[] Discovered, PeerView[] Paired, PairingView[] PairingOffers, SessionView[] Sessions,
-    IReadOnlyDictionary<string, string> AdapterErrors, string? CertificateSha256 = null, McpStatusView? Mcp = null);
+    IReadOnlyDictionary<string, string> AdapterErrors, string? CertificateSha256 = null, McpStatusView? Mcp = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] LanProfileView? Lan = null);
 public sealed record ControlRequest(string Operation, Guid Id = default, PeerView? Peer = null,
     string? SessionId = null, bool Value = false);
 public sealed record LocalConnection(string McpEndpoint, string? BearerToken);

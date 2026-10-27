@@ -1,4 +1,5 @@
 using AgentBroker.Firewall;
+using AgentBroker.Protocol;
 using DesktopAICompanion.Modules;
 
 namespace DesktopAICompanion.AgentBroker;
@@ -8,8 +9,65 @@ public sealed partial class AgentBrokerModule
     private string lanFirewallStatus = "";
     private bool lanFirewallActionOpen;
 
-    private string LanAccessText() => lanFirewallStatus.Length != 0 ? lanFirewallStatus :
-        "Allow LAN access can add this worker's inbound TCP rule for Private networks and the local subnet. Windows administrator approval is required. Run it on each workstation that needs to receive pairing requests.";
+    private string LanAccessText()
+    {
+        string action = lanFirewallStatus.Length != 0 ? lanFirewallStatus :
+            "Allow LAN access can add this worker's inbound TCP rule for Private networks and the local subnet. Windows administrator approval is required. Run it on each workstation that needs to receive pairing requests.";
+        string profile = LanProfileText(settings.Enabled && settings.EnableLan ? snapshot : null);
+        return profile.Length == 0 ? action : profile + "\n" + action;
+    }
+
+    /// <summary>
+    /// N-agentbroker-lan-profile-01: the network category Windows applies to the interface carrying the
+    /// broker's LAN address, beside the rule's profile, and separately whether a LAN request was actually
+    /// observed. Display only: nothing here changes a network profile or adds a rule, and a Public network
+    /// is never answered with a Public rule.
+    /// </summary>
+    private string LanProfileText(BrokerSnapshot? view)
+    {
+        if (view?.LanEndpoint is null) return "";
+        var lan = view.Lan;
+        if (lan is null) return "Network category: not reported by this worker.";
+        string category = lan.Category switch
+        {
+            "public" => "Public", "private" => "Private", "domain" => "Domain",
+            "pending" => "checking", "interface_not_found" => "not found (no interface carries the advertised address)",
+            "unavailable" => "unavailable (Windows did not answer)", _ => "unknown (Windows reports no category for that interface)"
+        };
+        string rule = lan.Rule switch
+        {
+            "configured" => "configured for the Private profile",
+            "absent" => "not configured; use Allow LAN access",
+            "conflicting" => "a different rule uses this broker's rule name (profiles: " + Profiles(lan.RuleProfiles) + "); review it in Windows Firewall",
+            "pending" => "checking",
+            _ => "could not be read"
+        };
+        var lines = new List<string>
+        {
+            "Network category: " + category + " on the interface carrying this broker's LAN address.",
+            "Firewall rule: " + rule + "."
+        };
+        if (lan.Rule == "configured" && lan.Category == "public")
+            lines.Add("\u26A0 Windows treats this network as Public and the AgentBroker rule covers Private networks only, so other PCs cannot reach this broker here until you mark the network Private in Windows Settings, which AgentBroker never does for you.");
+        else if (lan.Rule == "configured" && lan.Category == "domain")
+            lines.Add("\u26A0 Windows treats this network as a Domain network and the AgentBroker rule covers Private networks only, so the rule does not apply here; ask the network administrator about LAN access.");
+        lines.Add(lan.LastInboundUtc is { } inbound && inbound <= McpNow().AddSeconds(5)
+            ? "Observed: a LAN request from another PC reached this broker " + Age(inbound, McpNow()) + "."
+            : "Observed: no LAN request from another PC since the broker started. A configured rule does not prove reachability.");
+        return string.Join("\n", lines);
+    }
+
+    private static string Profiles(int profiles)
+    {
+        // NET_FW_PROFILE2: 1 Domain, 2 Private, 4 Public.
+        var names = new List<string>();
+        if ((profiles & 1) != 0) names.Add("Domain");
+        if ((profiles & 2) != 0) names.Add("Private");
+        if ((profiles & 4) != 0) names.Add("Public");
+        return names.Count == 0 ? "none" : string.Join(", ", names);
+    }
+
+    private bool LanProfileMismatch() => settings.Enabled && settings.EnableLan && snapshot?.Lan is { Rule: "configured", Category: "public" or "domain" };
 
     private string SetLanFirewallStatus(string value)
     {

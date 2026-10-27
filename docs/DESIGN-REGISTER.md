@@ -5736,6 +5736,45 @@ seven tools and a 1.1.0 package expects ten. The module DLL's FileVersion is 1.0
 manifest, so the only version the package declares is the `ldstr` that feeds `ModuleInfo.set_Version`. It is read
 with System.Reflection.Metadata, nothing is loaded, and anything other than exactly one such literal is refused.
 
+#### feature/agentbroker-backlog-a
+
+Per-client onboarding states (N-agentbroker-client-onboarding-01), the LAN network profile
+(N-agentbroker-lan-profile-01) and the coordination benchmark (O-agentbroker-02). No federation record, persisted
+state, tool, limit, `BrokerStore.cs` or `BrokerTools.cs` changed.
+
+**The client configuration check runs only when asked.** `claude mcp get` starts the vendor CLI and makes it connect to
+the configured entry, and Codex's get starts its CLI too. Running that on the two-second status poll, or at every
+companion start, would start a vendor process per poll. A client row therefore says "not checked" until the person
+chooses **Check client setup**, a Connect action or the tray item, and a settings restart clears it, because the check
+compared the entry with the previous port and paths.
+
+**Most inboxes show as carrying no client identity, and that is the evidence, not a defect.** An inbox counts for
+Claude Code or Codex only when its own successful `register_agent` request carried that client's identity: its
+initialize, or 2026 per-request metadata. Current clients mostly send stateless tool calls without either, so their
+inboxes are listed as unidentified. Refused alternatives: the session label (self-reported), the most recent
+initialize on the endpoint (another client's), and the existence of the client's MCP traffic (a connection is not an
+inbox). Clients that send per-request identity are attributed with no change here.
+
+**The companion never launches a script shim for a vendor CLI.** `Process.Start` with a bare name finds only an
+`.exe`, so a CLI installed as an npm `claude.cmd` or `codex.cmd` shows "CLI not found". Running a `.cmd` means cmd.exe
+parsing of the worker path and data directory; resolving the shim to the package's bundled executable would pin the
+package's internal layout. Left for an owner decision as N-broker-a-01.
+
+**A 1.0.4 module cannot read a 1.1.0 snapshot that carries the new members.** The control protocol disallows
+unmapped members. The new `BrokerSnapshot.Lan` and `McpStatusView.Inboxes` are omitted while null, but a LAN reading
+is present whenever LAN is enabled, so an older companion attached as standby to a newer worker reports its worker
+status unavailable until it is updated. That is the shape the 1.0.3 `Mcp` member already had. The module and worker
+ship in one package, so it takes two companions of different versions for one user.
+
+**Several networks on one adapter resolve to the most restrictive category** (Public, then Private, then Domain),
+because that is the profile Windows Firewall applies. The Network List Manager interfaces declare vtable slots only
+up to `INetwork.GetCategory`: `SetCategory` follows it and is not declared, so this code cannot call it.
+
+**Observed LAN reachability has no positive check on one workstation.** The worker records an HTTPS request on the
+LAN listener whose source is a private address other than loopback and other than the local address. Producing one
+needs a second PC, so the observation logic is checked with synthetic addresses and the one-line hook in the request
+pipeline is left to the physical LAN acceptance.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of
