@@ -133,6 +133,11 @@ namespace DesktopAICompanion.CodingAgent
         /// the -i value (lane feature/codex-config-refusal, aibrain 1.5.6). Nothing is started: Codex 0.160.1 answers such a
         /// call without the picture and exits 0, so it would be a remark about a screen nobody saw.</summary>
         ImageNotFound,
+        /// <summary>Claude Code would not start the call because the organisation deploys a managed MCP configuration
+        /// (managed-mcp.json), which keeps exclusive control over MCP servers, and the call passes --strict-mcp-config
+        /// (lane feature/cli-runner-aibrain, BACKLOG N-cli-home-files-06). Read by Claude Code's own words; nothing the
+        /// module can change, so the sentence names another engine.</summary>
+        McpPolicyRefused,
         Failed,
     }
 
@@ -176,6 +181,11 @@ namespace DesktopAICompanion.CodingAgent
         /// on-screen walk read "its automatic pick at low effort, last answered on gpt-5.6-luna" after an unapplied
         /// Validate of Luna, as if Luna were the automatic pick.</summary>
         internal bool Validation;
+        /// <summary>Claude Code reads none of the user's, the project's or the local settings files for this call
+        /// (--setting-sources ""): the module's opt-in "Keep my Claude Code settings out of companion calls", default off
+        /// (lane feature/cli-runner-aibrain, BACKLOG N-cli-home-files-01, the owner's decision). Claude Code model calls
+        /// only, never Codex and never a probe; BuildArguments says what it drops and what still applies.</summary>
+        internal bool LeaveOutOwnClaudeSettings;
     }
 
     /// <summary>What a call produced. <see cref="Said"/> is a bounded one-line excerpt of the CLI's own words on a
@@ -218,6 +228,10 @@ namespace DesktopAICompanion.CodingAgent
         /// Said on the pane; logged only when the call itself passed that setting, so the log never carries a word that
         /// came from anywhere else.</summary>
         internal string RefusedSetting = "";
+        /// <summary>A ConfigRefused call whose Codex did not stop on <see cref="RefusedSetting"/> but IGNORED it, as an
+        /// unrecognized key, and answered anyway (lane feature/cli-runner-aibrain, BACKLOG N-codex-config-refusal-04, the
+        /// owner's decision: fail closed). The answer was not used; the sentences say "ignored", not "refused".</summary>
+        internal bool SettingIgnored;
         internal bool Ok { get { return Outcome == CliOutcome.Ok; } }
 
         /// <summary>The model that answered, as far as the stream says: the one its assistant messages named (Model), else
@@ -644,8 +658,13 @@ namespace DesktopAICompanion.CodingAgent
         // on each of the eight models the catalog lists, the request loses exactly the image-file tool, the ###
         // `view_image` section of the code-mode exec tool (-174 tokens offline) or gpt-5.5's own view_image tool
         // (-108), with the -i screenshot still attached (analysis.json). Not every switch reads as off there:
-        // unified_exec stays "stable true" under --disable unified_exec on 0.160.1 for Windows, as it did in 1.5.4
-        // (BACKLOG N-codex-feature-switches-01).
+        // unified_exec stays "stable true" under --disable unified_exec, as it did in 1.5.4, and Codex's source says
+        // why (read by lane measure-offline, 2026-10-26; BACKLOG N-codex-feature-switches-01, closed by that reading):
+        // codex-rs managed_features.rs, normalize_candidate (:157-161), turns unified_exec back on unless a
+        // requirements.toml pins it, on every platform, so no --disable or features key turns it off. The shell the model
+        // could reach is governed by shell_tool (spec_plan.rs:1079-1088), which this list turns off, so the shell is off
+        // by shell_tool and not by unified_exec. The switch stays: it fails closed like the others and costs nothing, and
+        // a Codex that stopped re-enabling the feature would have it off.
         internal static readonly string[] CodexDisabledFeatures =
         {
             "apps", "plugins", "browser_use", "browser_use_external", "computer_use", "image_generation", "hooks",
@@ -838,6 +857,11 @@ namespace DesktopAICompanion.CodingAgent
             // catalog probes aside, and its log line says so in place of an exit code it never had: the coordinator's live
             // check read "choice-refused exit=0 ms=0" as a CLI that ran and exited cleanly (2026-10-09, F18).
             bool started = false;
+            // Whether the child came back with a result, so an exit code is a real one (lane feature/cli-runner-aibrain,
+            // BACKLOG N-cli-model-effort-04). A call that started and was then stopped, by its bound or by its caller, has
+            // none: RunBoundedAsync answers null for it and ExitCode keeps its default, so its log line read "timed-out
+            // exit=0", like a CLI that exited cleanly. It says "no-exit" now, as one never started says "not-started".
+            bool exited = false;
             // The command line, kept past the try for the log line, which names a refused setting only when this call
             // passed it (lane feature/codex-config-refusal).
             List<string> arguments = null;
@@ -994,6 +1018,7 @@ namespace DesktopAICompanion.CodingAgent
                 CliProcessResult result = await RunBoundedAsync(startInfo, input, timeout, cancellationToken, answer)
                     .ConfigureAwait(false);
                 if (result == null) return answer;   // TimedOut or Cancelled, set by RunBoundedAsync
+                exited = true;
                 Interpret(request.Agent, result, answer, arguments);
                 // A model the server refused is not picked again from a stale cache: the next call asks the catalog. Only
                 // the AUTOMATIC pick, and only Codex's: a model the user chose is theirs, so its refusal is said naming it
@@ -1030,7 +1055,7 @@ namespace DesktopAICompanion.CodingAgent
                 // on the pane (ChoiceProblem), and what the CLI said never comes here.
                 Log("cli: " + CodingAgents.IdOf(request.Agent) + " " + (request.Purpose ?? "call") + " " +
                     OutcomeWord(answer.Outcome) +
-                    (started ? " exit=" + answer.ExitCode.ToString(CultureInfo.InvariantCulture) : " not-started") +
+                    (!started ? " not-started" : exited ? " exit=" + answer.ExitCode.ToString(CultureInfo.InvariantCulture) : " no-exit") +
                     " ms=" + answer.ElapsedMilliseconds.ToString(CultureInfo.InvariantCulture) +
                     (answer.InputTokens >= 0 ? " inputTokens=" + answer.InputTokens.ToString(CultureInfo.InvariantCulture) : "") +
                     (answer.Effort.Length > 0 ? " effort=" + answer.Effort : "") +
@@ -1042,8 +1067,10 @@ namespace DesktopAICompanion.CodingAgent
                     // would quote its path, which names the Windows account. Until the review of 2026-10-13 this line checked
                     // CallPassesSetting itself and the classifier did not, so no check could see either half; the classifier
                     // now requires it of every family, where the self-check reads it.
+                    // An ignored one is logged as what it was (lane feature/cli-runner-aibrain): Codex answered, and the
+                    // answer was not used.
                     (answer.Outcome == CliOutcome.ConfigRefused && answer.RefusedSetting.Length > 0
-                        ? " refused=" + answer.RefusedSetting : ""));
+                        ? (answer.SettingIgnored ? " ignored=" : " refused=") + answer.RefusedSetting : ""));
             }
         }
 
@@ -1064,13 +1091,21 @@ namespace DesktopAICompanion.CodingAgent
         /// screen, applied or not, the way the typed token is, so Validate tests what the card shows; null or empty for
         /// none. They are not saved by Validate: they wait for Apply like every other row. Its answer names the model that
         /// answered and the effort (CodingAgentCliText.Describe), because the model asked for is not always the one that
-        /// runs.</summary>
+        /// runs.
+        ///
+        /// <paramref name="leaveOutOwnClaudeSettings"/> (lane feature/cli-runner-aibrain): the module's opt-in "Keep my
+        /// Claude Code settings out of companion calls" as the card shows it, applied or not, like the model and effort:
+        /// Validate tests the call a remark would make with what is on screen (CliRequest.LeaveOutOwnClaudeSettings).</summary>
         internal async Task<CliAnswer> ValidateAsync(CodingAgentKind agent, CancellationToken cancellationToken,
-            string unsavedClaudeToken = null, string model = null, string effort = null)
+            string unsavedClaudeToken = null, string model = null, string effort = null, bool leaveOutOwnClaudeSettings = false)
         {
             // The sign-in this Validate runs on, taken before its call reads the token (F6): a token Apply or Remove token
             // while it runs means its Status line describes a sign-in no longer saved, so it is not recorded.
             int signIn = ClaudeSignInGeneration();
+            // The saved choice this Validate began under (lane feature/cli-runner-aibrain, BACKLOG N-cli-model-effort-13):
+            // an Apply of another model or effort for this CLI while it runs means its tick would describe a choice no
+            // longer saved, so it is not recorded (RecordValidation, SameSavedChoice).
+            int choice = SavedChoiceGeneration(agent);
             CliAnswer answer = await AskAsync(new CliRequest
             {
                 Agent = agent,
@@ -1082,6 +1117,7 @@ namespace DesktopAICompanion.CodingAgent
                 Model = model,
                 Effort = effort,
                 Validation = true,
+                LeaveOutOwnClaudeSettings = leaveOutOwnClaudeSettings,
             }, cancellationToken).ConfigureAwait(false);
             // Saved BEFORE the Status line is recorded: saving forgets the last Validate, which ran on the old sign-in,
             // and this one ran on the token now saved. It forgets the model that last answered too, and this answer does
@@ -1114,7 +1150,7 @@ namespace DesktopAICompanion.CodingAgent
                 CliDetails details = await FreshDetailsAsync(agent, cancellationToken).ConfigureAwait(false);
                 if (answer.Version.Length == 0 && details != null) answer.Version = details.Version;
             }
-            if (agent != CodingAgentKind.None) RecordValidation(agent, answer, signIn, model, effort);
+            if (agent != CodingAgentKind.None) RecordValidation(agent, answer, signIn, choice, model, effort);
             return answer;
         }
 
@@ -1280,11 +1316,50 @@ namespace DesktopAICompanion.CodingAgent
                 args.Add("");
                 args.Add("--strict-mcp-config");
                 args.Add("--disable-slash-commands");
+                // The permission mode named, a PRIVACY control (lane feature/cli-runner-aibrain, BACKLOG
+                // N-codex-config-refusal-02). In auto mode every model call's request carries a safeguards
+                // classifier_context block for the auto-mode classifier, holding 13 more copies of the module's work folder
+                // (under %LOCALAPPDATA%, the Windows account's name in it) plus home_dir and user_identity, the Windows user
+                // name. Measured offline by lane measure-offline (2026-10-26; a throwaway Claude Code config folder, a
+                // loopback stub, no model call; evidence local, not committed): on 2.1.293 the block came with no setting at
+                // all (8,860 bytes) and on 2.1.310 with permissions.defaultMode "auto" in the settings (8,908); with this flag
+                // the request was 2,041 bytes on both, with or without that setting, the block gone. An unknown mode exits 1
+                // before any request ("error: option '--permission-mode <mode>' argument '...' is invalid. Allowed choices
+                // are ..."), so a Claude Code that dropped the value stops the call rather than quietly sending the block
+                // again: it fails closed, the trade the owner chose for the safety and privacy switches. "default" and not
+                // "manual": the docs give manual as an alias of default that needs 2.1.200 or later and default as the mode's
+                // own value. The flag outranks a settings file's defaultMode (the CLI reference); the call has no tools
+                // (--tools ""), so the mode changes nothing it could do. What remains of the folder: the env block's
+                // "Primary working directory" line, one copy, in the 2,041 bytes. Model calls only: no probe carries it.
+                args.Add("--permission-mode");
+                args.Add("default");
                 // Built for THIS call from the effort CheckChoice let through, so the effort lever in it is the call's own.
                 string settings = ClaudeModelCallSettings(effort);
                 if (settings == null) return null;
                 args.Add("--settings");
                 args.Add(settings);
+                // The opt-in, default OFF (lane feature/cli-runner-aibrain, BACKLOG N-cli-home-files-01, by the owner's
+                // decision to make it an opt-in): with "Keep my Claude Code settings out of companion calls" on,
+                // Claude Code reads none of the user's, the project's or the local settings files (--setting-sources with
+                // an empty list). Measured 2026-10-10 by the cli-home-files investigation (Claude Code 2.1.293, one-word
+                // calls from a D: folder): 830 input tokens with the user's settings files, 626 with none, so 204 tokens of
+                // the user's own ~/.claude/settings.json (its permission rules and the names of its additionalDirectories
+                // folders, N-cli-home-files-02) reach every call without it, and it also skips the synced-plugin sync
+                // round that writes under %USERPROFILE%\.claude\plugins (N-cli-home-files-03). Off by default because it
+                // drops everything else a user or an employer keeps in those files: a sign-in helper (apiKeyHelper),
+                // forceLoginMethod, and a proxy or any other variable in an env block, so a call that depends on one of them
+                // then fails; and it was never measured on the saved sign-in token path. What still applies: managed
+                // settings (the Agent SDK's setting-sources docs, read through Context7 on 2026-10-26: "Endpoint-managed
+                // policy is loaded in all cases"; not measured here, no machine here has one) and this call's own
+                // --settings above. Refused: making it the default, the coordinator's ruling for lane feature/cli-home-files
+                // ("it does not change where Claude Code reads its sign-in or settings"), which this opt-in leaves standing
+                // for every install that does not turn it on. Model calls only: no probe carries it, as none carries
+                // --settings. tests/runtime-hardening-selftest.ps1 allows the flag here alone, behind this condition.
+                if (request.LeaveOutOwnClaudeSettings)
+                {
+                    args.Add("--setting-sources");
+                    args.Add("");
+                }
                 if (model.Length > 0)
                 {
                     args.Add("--model");
@@ -1636,6 +1711,13 @@ namespace DesktopAICompanion.CodingAgent
 
         internal const string ClaudeTokenFileName = "claude-token.dpapi";
         internal const int MaximumClaudeTokenCharacters = 4096;
+        /// <summary>How many times Remove token tries the delete of a file held open, and how long it waits between tries
+        /// (RemoveClaudeToken says why).</summary>
+        internal const int TokenDeleteAttempts = 5;
+        internal static readonly TimeSpan TokenDeleteRetryDelay = TimeSpan.FromMilliseconds(100);
+        /// <summary>How many deletes of the token met an IOException and were tried again: the self-check's way to release a
+        /// file it holds only once the retry is under way.</summary>
+        internal int TokenDeleteRetriesForDiagnostics;
         // Internal so the self-check can seal a value the way an older version saved it; it separates this store from
         // other DPAPI data of the same user, and is not a secret.
         internal static readonly byte[] ClaudeTokenEntropy = Encoding.UTF8.GetBytes("DesktopAICompanion.CodingAgentCli.ClaudeToken");
@@ -1778,14 +1860,38 @@ namespace DesktopAICompanion.CodingAgent
             string path = ClaudeTokenPath;
             if (path == null || !File.Exists(path))
                 return "No sign-in token is saved here, so Claude Code uses its own sign-in.";
-            try
+            // A delete that meets a file held open is tried again for a moment before it is reported (lane
+            // feature/cli-runner-aibrain, BACKLOG N-codex-config-refusal-01): Remembrance's self-check saw File.Delete throw
+            // IOException on the token an Apply had just sealed, in 3 of 15 runs on 2026-10-13, with the holder never
+            // identified, and the user then had to press Remove token again. An IOException is a held file (a sharing
+            // violation) or a transient one; anything else (access denied, a bad path) is said at once. Bounded: at most
+            // TokenDeleteAttempts tries, TokenDeleteRetryDelay apart, about 0.4 s in all, on the pool thread both modules
+            // run this on. If the last try fails too, the answer is the one it always was.
+            Exception failure = null;
+            for (int attempt = 1; ; attempt++)
             {
-                File.Delete(path);
+                try
+                {
+                    File.Delete(path);
+                    failure = null;
+                    break;
+                }
+                catch (IOException ex) when (attempt < TokenDeleteAttempts)
+                {
+                    failure = ex;
+                    Interlocked.Increment(ref TokenDeleteRetriesForDiagnostics);
+                    Thread.Sleep(TokenDeleteRetryDelay);
+                }
+                catch (Exception ex)
+                {
+                    failure = ex;
+                    break;
+                }
             }
-            catch (Exception ex)
+            if (failure != null)
             {
-                Log("cli: claude sign-in token not removed: " + ex.GetType().Name);
-                return "✗ The saved sign-in token could not be removed (" + ex.GetType().Name + "). Press Remove token again in a moment.";
+                Log("cli: claude sign-in token not removed: " + failure.GetType().Name);
+                return "✗ The saved sign-in token could not be removed (" + failure.GetType().Name + "). Press Remove token again in a moment.";
             }
             ForgetClaudeReadings();
             Log("cli: claude sign-in token removed");
@@ -1864,6 +1970,19 @@ namespace DesktopAICompanion.CodingAgent
                 long tokens;
                 ParseCodexStream(result.StandardOutput, out text, out errors, out failed, out tokens);
                 answer.InputTokens = tokens;
+                // A setting of the call's that Codex IGNORED fails the call closed, whatever it answered (lane
+                // feature/cli-runner-aibrain, BACKLOG N-codex-config-refusal-04, the owner's decision: "fail closed").
+                // Read first, before an answer is taken: the answer came from a call that ran without that setting.
+                string ignoredWords;
+                string ignored = CodexIgnoredSetting(result.StandardOutput, arguments, out ignoredWords);
+                if (ignored != null)
+                {
+                    answer.Outcome = CliOutcome.ConfigRefused;
+                    answer.RefusedSetting = ignored;
+                    answer.SettingIgnored = true;
+                    answer.Said = OneLine(ignoredWords);
+                    return;
+                }
                 if (!failed && !string.IsNullOrWhiteSpace(text))
                 {
                     answer.Outcome = CliOutcome.Ok;
@@ -1872,8 +1991,28 @@ namespace DesktopAICompanion.CodingAgent
                 }
                 said = errors ?? "";
             }
-            string all = (said + " " + (result.StandardError ?? "")).Trim();
+            // A plain Codex failure quotes its stderr without the WARNING lines Codex writes ahead of anything else (lane
+            // feature/cli-runner-aibrain, BACKLOG N-codex-config-refusal-06, decision: fix): with its home under %TEMP%,
+            // Codex 0.160.1 opens every run's stderr with "WARNING: proceeding, even though we could not create PATH
+            // aliases: ..." naming that folder and the home's (CodexRefusalCaptures.TempOverHomeWarning, the real-codex
+            // re-check of 2026-10-13), and the pane quoted it whole. Leading lines only: a warning after the error is
+            // part of what Codex said about it. The refusal reader below reads the whole stderr, anchored on its own words.
+            string quotedError = agent == CodingAgentKind.Codex ? WithoutLeadingWarnings(result.StandardError) : (result.StandardError ?? "");
+            string all = (said + " " + quotedError).Trim();
             answer.Said = OneLine(all);
+            // Claude Code refused to start under an organisation's managed MCP configuration (lane feature/cli-runner-aibrain,
+            // BACKLOG N-cli-home-files-06): its own words, for the flag every model call passes. Claude Code's managed-MCP
+            // docs: "The --strict-mcp-config flag asks to replace the managed set. If a user passes it while such a file is
+            // deployed, Claude Code exits at startup on a workstation and in a cloud session alike"; the words are the ones
+            // the 2.1.293 binary refuses with (ClaudeMcpPolicyRefusal), read from the binary, not seen in a run: no machine
+            // here has a managed-mcp.json, and none is deployed to see it. Ahead of Classify, whose sign-in and model words
+            // it holds none of, so a plain failure is what it was until this lane.
+            if (agent == CodingAgentKind.Claude && arguments != null && arguments.Contains("--strict-mcp-config") &&
+                all.IndexOf(ClaudeMcpPolicyRefusal, StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                answer.Outcome = CliOutcome.McpPolicyRefused;
+                return;
+            }
             // A refusal of one of the call's own settings comes first: it happens at config load, before any request, so no
             // server's words can be beside it. Classify reads "model" anywhere beside a refusal word anywhere, and the name of
             // each model_* key the call sets brings the first half, so a refusal of one of those keys worded with "not
@@ -2211,6 +2350,100 @@ namespace DesktopAICompanion.CodingAgent
             return CallSetsKey(arguments, setting);
         }
 
+        // ---- a setting Codex ignored (lane feature/cli-runner-aibrain, BACKLOG N-codex-config-refusal-04) -------------
+        //
+        // The owner's decision: FAIL CLOSED, the trade chosen for the safety switches. A Codex that renamed one of the -c
+        // keys the call sets would not refuse it: Codex 0.160.1 ignores a key it does not know, and says so in the --json
+        // stream before the turn, then answers. For skills.include_instructions that would send the skills section, and its
+        // skill-roots table naming the user's profile folder, again with nothing failing; for project_doc_max_bytes every
+        // project AGENTS.md; for model_instructions_file the persona. So a call whose Codex says it ignored a key the call
+        // set is ConfigRefused naming that key, and its answer is not used.
+        //
+        // What Codex 0.160.1 writes, measured offline (no model call: a throwaway Codex home, every proxy on the closed port
+        // 127.0.0.1:9, a loopback stub answering "OK"): two item.completed items of type "error" ahead of turn.started, each
+        // "Codex is ignoring 1 unrecognized configuration setting. Check for typos or deprecated settings.\n  session-flags:
+        // `<key>` is ignored." (the image-path study's arm s-unk for skills.zz_not_a_key; this lane's arm ign-top for a
+        // top-level key, the same words), and for two keys "Codex is ignoring 2 unrecognized configuration settings. ..."
+        // with one "  session-flags: `<key>` is ignored." line per key (arm ign-two); exit 0 and the answer after them. The
+        // captures are the self-check's fixtures (CodexRefusalCaptures.Ignored*). That a Codex which renamed one of the
+        // call's own keys writes the same words around that key is inferred from them, not measured: 0.160.1 knows every
+        // key the call sets.
+        //
+        // Counted only for a key the call set (CallSetsKey) and only on a "session-flags:" line, the layer the call's -c
+        // overrides are, so a key a config file of the user's or an organisation's holds is never called the module's. Not
+        // for the five token-only features keys (CodexFeatureKeysOff): the owner chose for those, on purpose, the form whose
+        // rename "would cost tokens instead of failing calls" (lane feature/codex-feature-switches), and failing the call on
+        // their notice would undo that decision. Refused: the notice's count alone (a key of anyone's), and a key named
+        // anywhere in the message rather than on its own line where Codex ends it with "` is ignored.".
+
+        private const string IgnoringHead = "Codex is ignoring ";
+        private const string IgnoredLine = "session-flags: `";
+        private const string IgnoredEnd = "` is ignored.";
+
+        /// <summary>
+        /// The key a Codex --json stream says Codex IGNORED that this call set, or null (the section comment says which
+        /// count): the first such key in an item.completed item of type "error" whose message starts "Codex is ignoring "
+        /// and names "unrecognized configuration setting", read from one of its "session-flags: `&lt;key&gt;` is ignored."
+        /// lines. <paramref name="said"/> is the message's first line and that key's line, as Codex wrote them; "" when
+        /// there is none.
+        /// </summary>
+        internal static string CodexIgnoredSetting(string stdout, IList<string> arguments, out string said)
+        {
+            said = "";
+            if (arguments == null) return null;
+            foreach (JsonObject line in JsonLines(stdout))
+            {
+                if (!string.Equals(StringOf(line, "type"), "item.completed", StringComparison.Ordinal)) continue;
+                JsonObject item = line["item"] as JsonObject;
+                if (item == null || !string.Equals(StringOf(item, "type"), "error", StringComparison.Ordinal)) continue;
+                string message = (StringOf(item, "message") ?? "").Replace("\r\n", "\n");
+                string[] lines = message.Split('\n');
+                if (!lines[0].StartsWith(IgnoringHead, StringComparison.Ordinal) ||
+                    lines[0].IndexOf(" unrecognized configuration setting", StringComparison.Ordinal) < 0) continue;
+                for (int i = 1; i < lines.Length; i++)
+                {
+                    string entry = lines[i].TrimStart(' ');
+                    if (!entry.StartsWith(IgnoredLine, StringComparison.Ordinal)) continue;
+                    string key = SettingWord(entry, IgnoredLine.Length);
+                    if (key == null || !HasAt(entry, IgnoredLine.Length + key.Length, IgnoredEnd)) continue;
+                    if (!CallSetsKey(arguments, key) || IsTokenOnlyFeatureKey(key)) continue;
+                    said = lines[0] + "\n" + lines[i];
+                    return key;
+                }
+            }
+            return null;
+        }
+
+        /// <summary>One of the five features keys the call turns off in the form whose rename costs tokens, by the owner's
+        /// decision, rather than the call (CodexFeatureKeysOff).</summary>
+        private static bool IsTokenOnlyFeatureKey(string key)
+        {
+            foreach (string feature in CodexFeatureKeysOff)
+                if (string.Equals(key, "features." + feature, StringComparison.Ordinal)) return true;
+            return false;
+        }
+
+        /// <summary>A Codex stderr without the lines at its start that begin "WARNING: " (Interpret says why): the first
+        /// line that does not, and everything after it, as Codex wrote it; "" when every line is one.</summary>
+        internal static string WithoutLeadingWarnings(string standardError)
+        {
+            string text = standardError ?? "";
+            int at = 0;
+            while (HasAt(text, at, "WARNING: "))
+            {
+                int end = text.IndexOf('\n', at);
+                if (end < 0) return "";
+                at = end + 1;
+            }
+            return text.Substring(at);
+        }
+
+        /// <summary>What Claude Code 2.1.293 refuses a --strict-mcp-config call with while an enterprise MCP config
+        /// (managed-mcp.json) is present, as the binary holds it (lane feature/cli-runner-aibrain; read from the installed
+        /// binary's strings, beside the managed-MCP docs, not from a run). Matched without regard to case, so a prefix such
+        /// as "Error: " ahead of it changes nothing.</summary>
+        internal const string ClaudeMcpPolicyRefusal = "You cannot use --strict-mcp-config when an enterprise MCP config is present";
+
         /// <summary>-1, 0 or 1 as <paramref name="version"/> is older than, the same as or newer than
         /// <paramref name="than"/>, number by number ("0.160.1" against "0.161"); null when either is not dotted
         /// numbers, which says nothing either way.</summary>
@@ -2497,6 +2730,7 @@ namespace DesktopAICompanion.CodingAgent
                 case CliOutcome.ModelCannotSee: return "model-cannot-see";
                 case CliOutcome.ConfigRefused: return "config-refused";
                 case CliOutcome.ImageNotFound: return "image-not-found";
+                case CliOutcome.McpPolicyRefused: return "mcp-policy-refused";
                 default: return "failed";
             }
         }
@@ -2715,7 +2949,10 @@ namespace DesktopAICompanion.CodingAgent
                 return null;
             var offered = new List<string>();
             foreach (string level in Efforts) if (Array.IndexOf(entry.Efforts, level) >= 0) offered.Add(level);
-            string which = automatic ? "Codex's automatic pick, " + slug + "," : "the model " + slug;
+            // "the automatic pick (gpt-6.1-sol)", the words every row of both modules says it in since round 3 of lane
+            // feature/cli-model-effort (lane feature/cli-runner-aibrain, BACKLOG N-cli-model-effort-14): this sentence said
+            // "Codex's automatic pick, gpt-6.1-sol," the one second phrasing left.
+            string which = automatic ? "the automatic pick (" + slug + ")" : "the model " + slug;
             if (offered.Count == 0) return which + " takes none of low, medium or high in Codex's own catalog";
             string listed = offered.Count == 1
                 ? offered[0]
@@ -3370,6 +3607,14 @@ namespace DesktopAICompanion.CodingAgent
             TestedChoice(savedModel, savedEffort, out model, out effort);
             lock (_detailsSync)
             {
+                // The saved choice this Apply leaves, and a new generation of it, for a Validate still running
+                // (SameSavedChoice): before any record is looked at, so an Apply that finds nothing to forget still moves
+                // it on (lane feature/cli-runner-aibrain, BACKLOG N-cli-model-effort-13).
+                SavedChoice saved;
+                if (!_savedChoice.TryGetValue(agent, out saved)) _savedChoice[agent] = saved = new SavedChoice();
+                saved.Generation++;
+                saved.Model = model;
+                saved.Effort = effort;
                 ValidationRecord kept;
                 if (!_lastValidation.TryGetValue(agent, out kept)) return false;
                 if (string.Equals(kept.Model, model, StringComparison.Ordinal) && string.Equals(kept.Effort, effort, StringComparison.Ordinal))
@@ -3378,7 +3623,42 @@ namespace DesktopAICompanion.CodingAgent
             }
         }
 
-        private void RecordValidation(CodingAgentKind agent, CliAnswer answer, int signIn, string testedModel, string testedEffort)
+        // The choice each CLI's last Apply saved, as ForgetValidationUnlessTested saw it, and how many Applies there have
+        // been (lane feature/cli-runner-aibrain, BACKLOG N-cli-model-effort-13, the round 3 reviewer's fix). The pane greys
+        // only the button pressed, so Apply stays pressable while a Validate shows "working…": the Apply's forget then found
+        // no record to drop, or an older one, and the Validate ending afterwards stored its tick for the choice the Apply had
+        // just replaced, a green tick under a choice no longer saved. A Validate takes the generation before its call
+        // (SavedChoiceGeneration) and records only when it has not moved, or when what it tested is what is saved now (an
+        // Apply of the same choice), the way SameSignIn guards a sign-in change. Under _detailsSync.
+        private sealed class SavedChoice
+        {
+            internal int Generation;
+            internal string Model = "";
+            internal string Effort = "";
+        }
+
+        private readonly Dictionary<CodingAgentKind, SavedChoice> _savedChoice = new Dictionary<CodingAgentKind, SavedChoice>();
+
+        private int SavedChoiceGeneration(CodingAgentKind agent)
+        {
+            lock (_detailsSync)
+            {
+                SavedChoice saved;
+                return _savedChoice.TryGetValue(agent, out saved) ? saved.Generation : 0;
+            }
+        }
+
+        /// <summary>Whether a Validate of <paramref name="agent"/> begun at <paramref name="generation"/>, testing
+        /// <paramref name="model"/> at <paramref name="effort"/> (as TestedChoice reads them), may still record its line: no
+        /// Apply since, or the choice saved now is the one it tested. Call under _detailsSync.</summary>
+        private bool SameSavedChoice(CodingAgentKind agent, int generation, string model, string effort)
+        {
+            SavedChoice saved;
+            if (!_savedChoice.TryGetValue(agent, out saved) || saved.Generation == generation) return true;
+            return string.Equals(saved.Model, model, StringComparison.Ordinal) && string.Equals(saved.Effort, effort, StringComparison.Ordinal);
+        }
+
+        private void RecordValidation(CodingAgentKind agent, CliAnswer answer, int signIn, int choice, string testedModel, string testedEffort)
         {
             string marker = answer.Ok ? "✓" : (answer.Outcome == CliOutcome.Busy || answer.Outcome == CliOutcome.Cancelled ? "⚠" : "✗");
             string ran = answer.Ok ? CodingAgentCliText.RanOn(answer) : "";
@@ -3390,7 +3670,7 @@ namespace DesktopAICompanion.CodingAgent
             // at that hour (the pre-release review of 2026-10-13).
             string advice = answer.Ok ? "" : CodingAgentCliText.RefusalAdvice(answer);
             string line = marker + " " + CodingAgents.ProductName(agent) + ": " +
-                          (answer.Ok ? "answered" : advice.Length > 0 ? "refused " + answer.RefusedSetting : CodingAgentCliText.Brief(answer)) +
+                          (answer.Ok ? "answered" : advice.Length > 0 ? CodingAgentCliText.RefusalVerb(answer) + " " + answer.RefusedSetting : CodingAgentCliText.Brief(answer)) +
                           " at " + DateTime.Now.ToString("HH:mm:ss", CultureInfo.InvariantCulture) + ", in " +
                           (answer.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s" +
                           (advice.Length > 0 ? "; it is " + advice : "") +
@@ -3398,7 +3678,7 @@ namespace DesktopAICompanion.CodingAgent
             var record = new ValidationRecord { Line = line };
             TestedChoice(testedModel, testedEffort, out record.Model, out record.Effort);
             lock (_detailsSync)
-                if (SameSignIn(agent, signIn))
+                if (SameSignIn(agent, signIn) && SameSavedChoice(agent, choice, record.Model, record.Effort))
                 {
                     record.Order = ++_validationsRecorded;
                     _lastValidation[agent] = record;
@@ -3716,6 +3996,7 @@ namespace DesktopAICompanion.CodingAgent
                 case CliOutcome.ModelCannotSee: return "the chosen model takes no images";
                 case CliOutcome.ConfigRefused: return "refused one of the settings " + CodingAgentModuleWords.Module + " starts Codex with";
                 case CliOutcome.ImageNotFound: return "screenshot not where Codex reads it, not sent";
+                case CliOutcome.McpPolicyRefused: return "refused by your organisation's MCP policy";
                 default: return "failed";
             }
         }
@@ -3733,7 +4014,15 @@ namespace DesktopAICompanion.CodingAgent
             if (answer == null) return Brief(CliOutcome.Failed);
             string advice = RefusalAdvice(answer);
             if (advice.Length == 0) return Brief(answer.Outcome);
-            return "refused " + answer.RefusedSetting + ", " + advice;
+            return RefusalVerb(answer) + " " + answer.RefusedSetting + ", " + advice;
+        }
+
+        /// <summary>"ignored" for a setting Codex ignored and answered without (CliAnswer.SettingIgnored, lane
+        /// feature/cli-runner-aibrain), "refused" for one it stopped on: a reader who is told Codex refused a setting it
+        /// in fact ran without would look for a refusal that never happened.</summary>
+        internal static string RefusalVerb(CliAnswer answer)
+        {
+            return answer != null && answer.SettingIgnored ? "ignored" : "refused";
         }
 
         /// <summary>
@@ -3774,9 +4063,11 @@ namespace DesktopAICompanion.CodingAgent
             string product = CodingAgents.ProductName(agent);
             string module = CodingAgentModuleWords.Module;
             string version = CodingAgentCli.Displayable(a.Version);
-            string head = "✗ " + product + (version.Length > 0 ? " " + version : "") + " refused " +
+            // A setting Codex ignored says so, and that the answer was not used (lane feature/cli-runner-aibrain): the call
+            // ran and answered, without that setting.
+            string head = "✗ " + product + (version.Length > 0 ? " " + version : "") + " " + RefusalVerb(a) + " " +
                           (a.RefusedSetting.Length > 0 ? a.RefusedSetting : "a setting") + ", one of the settings " + module +
-                          " starts it with";
+                          " starts it with" + (a.SettingIgnored ? ", so its answer was not used" : "");
             string sentence = RefusedByOlderCodex(a)
                 ? head + ", and this " + product + " is older than " + CodingAgentCli.CodexSettingsMeasuredOn + ", the one this " +
                   module + " was made for: press Update CLI, then Validate again."
@@ -3897,6 +4188,28 @@ namespace DesktopAICompanion.CodingAgent
         internal const string ClaudeOwnSetupLeftOut =
             "Your own Claude Code hooks, CLAUDE.md and connectors are left out; your organisation's managed settings still apply.";
 
+        /// <summary>The label of each module's opt-in that adds --setting-sources "" to its Claude Code model calls (lane
+        /// feature/cli-runner-aibrain, BACKLOG N-cli-home-files-01): one copy, so the row and the sentence below cannot name
+        /// it two ways in either module.</summary>
+        internal const string LeaveOutOwnClaudeSettingsLabel = "Keep my Claude Code settings out of companion calls";
+
+        /// <summary>What a "Goes through Claude Code" row adds while that opt-in is saved on: the settings files are not read,
+        /// and what that drops. Managed settings are said in ClaudeOwnSetupLeftOut, which comes before it.</summary>
+        internal const string ClaudeOwnSettingsFilesLeftOut =
+            "With \"" + LeaveOutOwnClaudeSettingsLabel + "\" on, your own Claude Code settings files are not read either, so a sign-in helper, a forced login method or a proxy or other variable set in them does not apply to these calls.";
+
+        /// <summary>A Claude Code call refused under the organisation's managed MCP configuration (lane
+        /// feature/cli-runner-aibrain), naming the module and its engine row from CodingAgentModuleWords.</summary>
+        internal static string McpPolicyRefusedSentence
+        {
+            get
+            {
+                return "✗ Your organisation's MCP policy refused this Claude Code call: a managed MCP configuration on this machine keeps control of Claude Code's MCP servers, and " +
+                       CodingAgentModuleWords.Module + " starts Claude Code with none of them (--strict-mcp-config). Choose another engine under " +
+                       CodingAgentModuleWords.EngineRow + ".";
+            }
+        }
+
         /// <summary>The places the locator looks, as the not-installed sentences name them.</summary>
         private static string LookedIn(CodingAgentKind agent)
         {
@@ -4014,6 +4327,11 @@ namespace DesktopAICompanion.CodingAgent
                     return ConfigRefusedSentence(agent, a);
                 case CliOutcome.ImageNotFound:
                     return ImageNotFoundSentence;
+                case CliOutcome.McpPolicyRefused:
+                    // Lane feature/cli-runner-aibrain (BACKLOG N-cli-home-files-06): the organisation's policy, so no
+                    // setting of the module's and no step of the user's changes it; the sentence names the way round it and
+                    // keeps Claude Code's own words last, as the saved-token sentence does.
+                    return McpPolicyRefusedSentence + (string.IsNullOrEmpty(a.Said) ? "" : " (Claude Code said: " + a.Said + ")");
                 case CliOutcome.TimedOut:
                     TimeSpan bound = timeout ?? CodingAgentCli.DefaultCallTimeout;
                     return "✗ " + product + " did not answer within " +

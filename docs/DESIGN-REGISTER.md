@@ -5490,6 +5490,98 @@ and no other, rather than a new card changing the approved card order.
 **Measured on the owner's box, names only:** the storage folder (inside OneDrive) held 2 day folders with 3 recordings
 under the old names, 8 files (3 transcripts, 3 summaries, 2 recordings' audio; the third's audio already purged).
 
+#### feature/cli-runner-aibrain
+
+The shared coding-agent runner (`shared/CodingAgentCli`, compiled into AI Brain and Remembrance) and AI Brain's own
+items of the 2026-10-26 campaign; versions are the coordinator's, set at publish. This lane made no model call. The
+evidence is offline: Codex 0.160.1's ignored-key notice, captured by this lane against a loopback stub with a throwaway
+Codex home and every proxy on the closed port 127.0.0.1:9 (arms `ign-top`, `ign-two` under the lane's TEMP, beside the
+image-path study's arm `s-unk`); the strings of the installed Claude Code 2.1.293 binary, read and never run; and lane
+measure-offline's permission-mode measurement (a throwaway Claude Code config folder and a loopback stub, 2.1.293 and
+2.1.310). All of it local and not committed.
+
+**A setting Codex ignored fails the call closed (BACKLOG N-codex-config-refusal-04, the owner's decision: "fail
+closed").** Codex 0.160.1 does not refuse a `-c` key it does not know; it ignores it, says so in two `item.completed`
+items of type `error` ahead of the turn ("Codex is ignoring 1 unrecognized configuration setting. Check for typos or
+deprecated settings." then "  session-flags: `<key>` is ignored.", one such line per key, "settings" in the plural for
+two), and answers. So a Codex that renamed `skills.include_instructions` would send the skills section and its
+skill-roots table naming the profile folder again, and one that renamed `project_doc_max_bytes` every project `AGENTS.md`,
+with nothing failing. Now such a call is `ConfigRefused` with `SettingIgnored`, naming the key, and its answer is not
+used: "✗ Codex 0.160.1 ignored skills.include_instructions, one of the settings AI Brain starts it with, so its answer
+was not used: check the Modules pane for an update ...". What it buys is that the change cannot go unnoticed: each call
+still goes out with the setting ignored, and each one fails and says why. Counted only on a `session-flags:` line, the
+layer the call's `-c` overrides are, only for a key the call set (`CallSetsKey`), and only where Codex ends it with "`
+is ignored.". Not for the five token-only `features.<name>` keys (`CodexFeatureKeysOff`): the owner chose for those the
+form whose rename "would cost tokens instead of failing calls" (`#### feature/codex-feature-switches`), and failing the
+call on their notice would undo that decision. Refused: the notice's count alone (a key of anyone's), a key named anywhere
+in the message, an `agent_message` that happens to hold the words, and "refused" for a setting Codex in fact ran
+without, which would send a reader looking for a refusal that never happened. That a Codex which renamed one of the
+call's own keys writes the measured words around it is inferred from the captures, not measured: 0.160.1 knows every key
+the call sets.
+
+**A retyped `features.<name>` key stays a plain failure (BACKLOG N-codex-config-refusal-05, the owner's decision: keep
+the plain failure).** ACCEPTED-RECORDED. Codex 0.160.1 names the TABLE for one of the call's own feature keys given a
+value of another type (``in `features` ``), and the same words come from a layer that broke `[features]`, which an
+organisation can deploy beside the call's `-c` keys and where "check the Modules pane for an update" would be wrong. So
+the ruling of `#### feature/codex-config-refusal` stands as the owner's: a table Codex names is never one of the call's
+settings, and that failure shows Codex's own words. Not a defect; do not "fix" it without a new decision.
+
+**A plain Codex failure quotes its stderr without Codex's leading WARNING lines (BACKLOG N-codex-config-refusal-06,
+decision: fix).** With its home under `%TEMP%`, Codex 0.160.1 opens stderr with a WARNING line naming that folder and the
+home's; a refusal's brackets left it out since the third round of `#### feature/codex-config-refusal`, and now so does
+the plain "✗ Codex failed (exit N): ..." sentence. Leading lines only, and Codex only: a warning after Codex's error is
+part of what it said, and Claude Code's stderr is quoted as written. The refusal reader still reads the whole stderr,
+anchored on its own words.
+
+**Every Claude Code model call names the permission mode `default` (BACKLOG N-codex-config-refusal-02, a privacy
+control).** Lane measure-offline found that in auto mode, which a user's own settings can select, each request carries a
+`safeguards` `classifier_context` block for the auto-mode classifier with 13 more copies of the module's work folder, the
+home folder and `user_identity`, the Windows user name: 8,860 bytes on 2.1.293 with no setting at all, 8,908 on 2.1.310
+with `permissions.defaultMode` "auto", and 2,041 on both with `--permission-mode default`. An unknown mode exits 1
+before any request ("error: option '--permission-mode <mode>' argument '...' is invalid"), so a Claude Code that dropped
+the value stops the call rather than quietly sending the block: it fails closed, like the Codex privacy switches.
+`default` and not `manual`: the CLI reference gives `manual` as an alias of `default` that needs 2.1.200 or later, and
+`default` as the mode's own value; both versions measured take it. The call has no tools (`--tools ""`), so the mode
+changes nothing it can do. What remains, and is recorded so it is not taken for a slip: the env block's "Primary working
+directory" line, one copy of the work folder, in the 2,041 bytes; no flag removes it, and the work folder is the
+module's own. The probes carry no mode. The exact-argument pins in the self-check type it.
+
+**`unified_exec` stays on whatever the switch (BACKLOG N-codex-feature-switches-01, closed by a source reading).** Lane
+measure-offline read why `codex features list` shows it on under `--disable unified_exec`: `managed_features.rs`,
+`normalize_candidate` (:157-161), turns `unified_exec` back on unless a `requirements.toml` pins it, on every platform;
+and the shell the model could reach is governed by `shell_tool` (`spec_plan.rs:1079-1088`), which the call turns off. The
+comment at `CodexDisabledFeatures` says so; the switch stays, failing closed like the others and costing nothing.
+
+**An organisation's managed MCP configuration is its own outcome (BACKLOG N-cli-home-files-06).** Claude Code's
+managed-MCP docs say a `--strict-mcp-config` run exits at startup while a `managed-mcp.json` is deployed, and every
+companion model call passes that flag. The words are the 2.1.293 binary's, "You cannot use --strict-mcp-config when an
+enterprise MCP config is present", read from its strings and never seen in a run: no machine here has such a file, and
+none was deployed to see one. Matched without regard to case or a prefix, for a Claude Code call that passed the flag,
+as `CliOutcome.McpPolicyRefused`: "✗ Your organisation's MCP policy refused this Claude Code call: a managed MCP
+configuration on this machine keeps control of Claude Code's MCP servers, and AI Brain starts Claude Code with none of
+them (--strict-mcp-config). Choose another engine under Brain runs on." Refused: dropping `--strict-mcp-config` where such
+a file is found, which would load the user's own MCP servers into a companion call.
+
+**Keep my Claude Code settings out of companion calls: an opt-in, default off (BACKLOG N-cli-home-files-01, the owner's
+decision; -02 and -03 covered by the same switch).** With it on, each Claude Code model call carries `--setting-sources`
+with an empty list, so none of the user's, the project's or the local settings files is read (204 tokens of the user's
+own `settings.json` on the maintainer's machine, its permission rules and folder names, N-cli-home-files-02; and the
+synced-plugin sync round that writes under the profile, N-cli-home-files-03). Off by default because it also drops a
+sign-in helper (`apiKeyHelper`), `forceLoginMethod`, and a proxy or any other variable in an `env` block, which a call
+can depend on, and the saved-token path was never measured with it. Managed settings and the call's own `--settings`
+still apply. `tests/runtime-hardening-selftest.ps1` took `--setting-sources` off the `cli-home-files` refused list and
+allows it in BuildArguments' Claude Code branch alone, once, behind `CliRequest.LeaveOutOwnClaudeSettings`. Validate
+tests the switch as the card shows it, like the model and the effort. Remembrance compiles the same runner and gains
+the switch when its pane row is wired (another lane's boundary).
+
+**Smaller ones.** A call that started and was stopped logs `no-exit` in place of the `exit=0` it never had
+(N-cli-model-effort-04). A Validate still running when an Apply saves another choice for its CLI records no tick, by a
+per-CLI saved-choice generation that `ForgetValidationUnlessTested` moves on and `RecordValidation` checks, the way
+`SameSignIn` guards a sign-in change; an Apply of the very choice tested keeps it (N-cli-model-effort-13). The effort
+refusal says "the automatic pick (gpt-6.1-sol)", the words every row says it in (N-cli-model-effort-14). Remove token
+tries the delete again up to five times, 100 ms apart, when the file is held open, and reports the failure as before if
+the last try fails (N-codex-config-refusal-01; the holder Remembrance's self-check met was never identified).
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

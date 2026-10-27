@@ -54,7 +54,9 @@ DesktopAICompanion sends data only when a network feature is used:
   your own still goes as it is and can name your folders: the front window's title (File Explorer's is the folder it
   shows) and the title of the window the companion is standing on, the text read off the screen or the screenshot
   itself, and a summary's transcript. A later Codex that renamed the key the companion uses to turn the skills section
-  off would send that section again, with nothing failing. Your own `~/.codex/AGENTS.md` still goes, as above, with
+  off would ignore it and send that section again with the call; since the AI Brain and Remembrance versions after
+  1.5.6 and 2.3.6 such a call fails instead of answering, says Codex ignored one of the module's settings and leaves
+  its answer unused, so it cannot go on unnoticed. Your own `~/.codex/AGENTS.md` still goes, as above, with
   whatever it says.
 - **Since Remembrance 2.1.0 the meeting summary can run on a coding-agent CLI** too. It is off by default
   (**Summary runs on** starts at *Local model*, the local Ollama). When a CLI is chosen, the transcript's text goes to
@@ -73,6 +75,17 @@ DesktopAICompanion sends data only when a network feature is used:
   switches off none of the controls an organisation manages: managed settings, managed instructions (a managed
   `CLAUDE.md`) and managed hooks still apply, and a managed hook can see what a call sends and what comes back.
   The calls run on your Claude Code sign-in, or on a token saved in the module (below).
+- **Since the AI Brain and Remembrance versions after 1.5.6 and 2.3.6, a Claude Code call never runs in auto
+  mode.** In auto mode, which your own Claude Code settings can select, every request carried context for Claude
+  Code's auto-mode safety classifier that held the module's work folder 13 more times (on an installed copy it sits
+  under your user profile, so it names your Windows account), your home folder and your Windows user name; Claude
+  Code 2.1.293 sent it even with no setting at all. Each Claude Code model call now starts in the default permission
+  mode (the one Claude Code labels Manual), which leaves that context out: measured offline on Claude Code 2.1.293
+  and 2.1.310, with no model call, the request fell from about 8,900 bytes to 2,041. The call has no tools, so the mode
+  changes nothing it can do. One copy of the work folder still goes, in the line of Claude Code's own environment
+  description that names its primary working directory. A later Claude Code that no longer accepted the mode would
+  make the call fail rather than run in auto mode. The version checks, sign-in checks and updates the card runs
+  carry no mode.
 - **Claude Code reports to Anthropic with each call, and the companion does not turn that off.** It sends its
   own usage analytics and metrics, which carry a device identifier, your account's e-mail address and your
   organisation and account identifiers. Each call also starts a few helper processes of Claude Code's own: a

@@ -4773,9 +4773,10 @@ Assert-True ($aiBrainStandDownCode.Contains('_cli.LastAnswered(agent)')) (
 # Claude Code reads its sign-in and settings (a saved-token path the measurements never covered); syncClaudeAiPlugins is
 # the user's own switch; DISABLE_TELEMETRY, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC, CLAUDE_CODE_ENABLE_TELEMETRY and
 # OTEL_* are the CLI's own reporting, the user's and the organisation's to set; CLAUDE_CODE_DISABLE_CLAUDE_MDS drops an
-# organisation's managed instructions too; allowManagedHooksOnly is a managed-settings key; an enabledPlugins list and
-# --setting-sources (full isolation, an owner decision in BACKLOG) drop what a user or employer keeps in the settings
-# files. The self-tests see the command line and the child environment of the calls they drive; a refused lever on
+# organisation's managed instructions too; allowManagedHooksOnly is a managed-settings key; an enabledPlugins list drops
+# what a user or employer keeps in the settings files. --setting-sources left this list with lane feature/cli-runner-aibrain
+# (BACKLOG N-cli-home-files-01, the owner's decision: an opt-in, default off); the invariant under that lane's anchor below
+# allows it in BuildArguments alone, behind the opt-in's condition. The self-tests see the command line and the child environment of the calls they drive; a refused lever on
 # another path, or set by a module, is the shape they cannot see. Comment-stripped code of the runner and both modules, not
 # the self-check, which names --bare to assert it is absent; -cmatch. Positive controls first: the slices, and the pattern
 # matching a planted line.
@@ -4784,10 +4785,10 @@ $chfSettings = Get-MethodBody $cliRunnerCode 'internal static string ClaudeModel
 $chfBuild = Get-MethodBody $cliRunnerCode 'internal static List<string> BuildArguments(' $chfStops
 $chfRefused = @('--safe-mode', 'CLAUDE_CODE_SAFE_MODE', '--bare', 'CLAUDE_CONFIG_DIR', 'syncClaudeAiPlugins', 'DISABLE_TELEMETRY',
     'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC', 'CLAUDE_CODE_DISABLE_CLAUDE_MDS', 'CLAUDE_CODE_ENABLE_TELEMETRY', 'OTEL_',
-    'allowManagedHooksOnly', 'enabledPlugins', '--setting-sources')
+    'allowManagedHooksOnly', 'enabledPlugins')
 $chfPattern = '(' + (@($chfRefused | ForEach-Object { [regex]::Escape($_) }) -join '|') + ')'
 Assert-True ($chfSettings.Length -gt 0 -and $chfBuild.Length -gt 0 -and $cmeModules.Length -gt 0 -and
-    'args.Add("--setting-sources");' -cmatch $chfPattern -and 'environment["OTEL_METRICS_EXPORTER"] = "none";' -cmatch $chfPattern) (
+    'args.Add("--safe-mode");' -cmatch $chfPattern -and 'environment["OTEL_METRICS_EXPORTER"] = "none";' -cmatch $chfPattern) (
     'cli-home-files: ClaudeModelCallSettings, BuildArguments and both modules were sliced, and the refused pattern matches a planted line')
 Assert-True (
     $cliRunnerCode -cmatch 'ClaudeMdExcludes =\s*\{\s*"\*\*/\.claude/CLAUDE\.md", "\*\*/\.claude/rules/\*\*", "\*\*/CLAUDE\.md", "\*\*/CLAUDE\.local\.md", "\*\*/AGENTS\.md",\s*\};' -and
@@ -4797,7 +4798,7 @@ Assert-True (
     'WITNESS cli-home-files: a Claude Code model call''s --settings excludes all five instruction-file patterns and turns the user''s hooks and connectors off, beside --strict-mcp-config')
 $chfFound = @([regex]::Matches(($cliRunnerCode + "`n" + $cmeModules), $chfPattern) | ForEach-Object { $_.Value } | Sort-Object -Unique)
 Assert-True ($chfFound.Count -eq 0) (
-    "cli-home-files: no refused lever (safe mode, bare, a private config folder, a telemetry switch, the managed-instructions switch, a managed-only key, a plugin list or --setting-sources) is in the runner or a module (found: $($chfFound -join ', '))")
+    "cli-home-files: no refused lever (safe mode, bare, a private config folder, a telemetry switch, the managed-instructions switch, a managed-only key or a plugin list) is in the runner or a module (found: $($chfFound -join ', '))")
 
 # ---- lane feature/blinkingled-resume ----
 # (invariants added by lane feature/blinkingled-resume go directly below this line)
@@ -5035,6 +5036,26 @@ Assert-True ($tqIcon -cnotmatch 'PromoteOnce\(Application\.ExecutablePath, (ni|i
 # The heads-up preference is persisted: a field Save does not copy is silently dropped (the trap MergeChangedFields names).
 Assert-True ($tqSettings -cmatch 'target\.QuestionHeadsUp = current\.QuestionHeadsUp;' -and $tqSettings -cmatch 'QuestionHeadsUp = source\.QuestionHeadsUp,') (
     'tray-questions: QuestionHeadsUp is cloned and merged on save')
+
+# ---- lane feature/cli-runner-aibrain ----
+# (invariants added by lane feature/cli-runner-aibrain go directly below this line)
+
+# THE USER'S OWN CLAUDE CODE SETTINGS FILES LEAVE A COMPANION CALL ONLY BY THE OPT-IN (aibrain, BACKLOG N-cli-home-files-01,
+# the owner's decision: "an opt-in", default off). --setting-sources with an empty list reads none of the user's, the
+# project's or the local settings files, which also drops a sign-in helper, forceLoginMethod and an env block's proxy, so it
+# is allowed in exactly one place, BuildArguments' Claude Code branch, behind CliRequest.LeaveOutOwnClaudeSettings. The
+# self-checks see the command lines of the calls they drive, with the switch on and off; a second site, an unconditional
+# add or one in a module is the shape they cannot see. Comment-stripped runner and both modules ($cmeModules), -cmatch; the
+# condition and the arguments it guards are asserted together, so a guard removed with the add left standing fails.
+$crBuildAt = $chfBuild.IndexOf('if (request.Agent == CodingAgentKind.Claude)')
+$crCodexAt = $chfBuild.IndexOf('if (request.Agent == CodingAgentKind.Codex)')
+$crClaude = if ($crBuildAt -ge 0 -and $crCodexAt -gt $crBuildAt) { $chfBuild.Substring($crBuildAt, $crCodexAt - $crBuildAt) } else { '' }
+$crSettingSources = [regex]::Matches(($cliRunnerCode + "`n" + $cmeModules), [regex]::Escape('--setting-sources')).Count
+Assert-True ($chfBuild.Length -gt 0 -and $crClaude.Length -gt 0 -and $cmeModules.Length -gt 0) (
+    'cli-runner-aibrain: BuildArguments and its Claude Code branch were sliced, and both modules read')
+Assert-True ($crSettingSources -eq 1 -and
+    $crClaude -cmatch 'if \(request\.LeaveOutOwnClaudeSettings\)\s*\{\s*args\.Add\("--setting-sources"\);\s*args\.Add\(""\);\s*\}') (
+    "cli-runner-aibrain: --setting-sources is in BuildArguments' Claude Code branch alone, once, behind the opt-in's condition (found $crSettingSources)")
 
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
