@@ -24,7 +24,7 @@ internal sealed class AgentClientSetup(IAgentClientCommand command)
     public async Task<string> ConfigureAsync(string client, string worker, string directory, CancellationToken token,
         string? loopbackMcpEndpoint = null)
     {
-        if (loopbackMcpEndpoint is not null && (client != "claude" || !IsCanonicalLoopbackEndpoint(loopbackMcpEndpoint)))
+        if (loopbackMcpEndpoint is not null && (client != "claude" || !IsLiteralLoopbackEndpoint(loopbackMcpEndpoint)))
             return "The broker returned an invalid local MCP endpoint. Refresh its status before connecting Claude Code.";
         if (client is not ("codex" or "claude") || !Path.IsPathFullyQualified(worker) || !File.Exists(worker) ||
             !Path.IsPathFullyQualified(directory)) return "The packaged worker and module storage must be available first.";
@@ -57,11 +57,25 @@ internal sealed class AgentClientSetup(IAgentClientCommand command)
                 arguments.Add(worker); arguments.AddRange(bridgeArguments);
             }
             var added = await command.RunAsync(client, arguments, token);
+            // N-bus-04 (owner decision 2026-10-27): a managed allowlist can admit local MCP only as http://localhost*,
+            // so an allowlist miss on the literal URL gets exactly one more add, with the localhost spelling of the
+            // same endpoint, which the worker also answers. No other failure is retried, an explicit deny included,
+            // and the stdio transport is never tried instead: a refusal stays the policy owner's decision.
+            string? retriedEndpoint = null;
+            if (added.ExitCode != 0 && loopbackMcpEndpoint is not null && IsAllowlistMiss(added))
+            {
+                token.ThrowIfCancellationRequested();
+                retriedEndpoint = LocalhostEndpoint(loopbackMcpEndpoint);
+                arguments[^1] = retriedEndpoint;
+                added = await command.RunAsync(client, arguments, token);
+            }
             return added.ExitCode == 0
                 ? client == "claude"
-                    ? "AgentBroker MCP was added for this user in Claude Code. In VS Code, start a new Claude conversation and check /mcp."
+                    ? "AgentBroker MCP was added for this user in Claude Code" +
+                      (retriedEndpoint is null ? "" : " at " + retriedEndpoint + ", the local address its policy allows") +
+                      ". In VS Code, start a new Claude conversation and check /mcp."
                     : "AgentBroker MCP was added for this user. Reconnect MCP or restart the client to load its reply tools."
-                : Failure(client, added, verification: false, loopbackMcpEndpoint);
+                : Failure(client, added, verification: false, loopbackMcpEndpoint, retriedEndpoint);
         }
         catch (OperationCanceledException) { return "Setup was cancelled or timed out. Check the client's MCP settings before retrying."; }
         catch (Exception) { return "The client CLI could not complete setup. Install or repair that client's supported CLI, then try again."; }
@@ -141,7 +155,7 @@ internal sealed class AgentClientSetup(IAgentClientCommand command)
             : status.StartsWith("\u2298 Disabled", StringComparison.Ordinal) ? "disabled"
             : "unknown";
         if (type is null) return new(ClientConfiguration.Unrecognized, scope, "", health, CheckedUtc: now);
-        bool exact = type == "http" ? One("URL") == endpoint
+        bool exact = type == "http" ? IsThisBrokersEndpoint(One("URL"), endpoint)
             : type == "stdio" && string.Equals(One("Command"), worker, StringComparison.OrdinalIgnoreCase) &&
                 One("Args") == "--mcp-stdio --data " + directory;
         string transport = type is "http" or "stdio" ? type : "other";
@@ -161,7 +175,7 @@ internal sealed class AgentClientSetup(IAgentClientCommand command)
             string? type = transport.GetProperty("type").GetString();
             bool exact = type == "stdio"
                 ? MatchesCodex(json, worker, ["--mcp-stdio", "--data", directory])
-                : type == "streamable_http" && transport.TryGetProperty("url", out var url) && url.GetString() == endpoint;
+                : type == "streamable_http" && transport.TryGetProperty("url", out var url) && IsThisBrokersEndpoint(url.GetString(), endpoint);
             string kind = type == "stdio" ? "stdio" : type == "streamable_http" ? "http" : "other";
             bool disabled = root.TryGetProperty("enabled", out var enabled) && enabled.ValueKind == JsonValueKind.False;
             var state = !exact ? ClientConfiguration.DifferentEntry : disabled ? ClientConfiguration.Disabled : ClientConfiguration.Configured;
@@ -174,19 +188,47 @@ internal sealed class AgentClientSetup(IAgentClientCommand command)
     internal static string? EndpointFromConnection(ControlResponse? response) =>
         response is { Success: true, Connection: { BearerToken: null } connection } ? connection.McpEndpoint ?? "" : null;
 
+    // The worker reports the literal form only, so a connection naming anything else is not this worker's report.
     internal static bool HasVerifiedConnection(ControlResponse? response) =>
         response is { Success: true, Connection: { } connection } && connection.McpEndpoint is { } endpoint &&
-        IsCanonicalLoopbackEndpoint(endpoint);
+        IsLiteralLoopbackEndpoint(endpoint);
 
-    private static bool IsCanonicalLoopbackEndpoint(string value)
+    // The two canonical spellings of a loopback MCP endpoint, exact strings only: http://127.0.0.1:<port>/mcp, which the
+    // worker reports and setup writes first, and http://localhost:<port>/mcp, which setup writes after a Claude allowlist
+    // miss (N-bus-04) and the worker answers too. Either one naming the worker's port is the exact entry for this broker.
+    internal static bool IsCanonicalLoopbackEndpoint(string value) => CanonicalLoopbackPort(value) is not null;
+
+    private static bool IsLiteralLoopbackEndpoint(string value) =>
+        CanonicalLoopbackPort(value) is not null && value.StartsWith("http://127.0.0.1:", StringComparison.Ordinal);
+
+    private static int? CanonicalLoopbackPort(string value)
     {
         if (value.Length > 64 || !Uri.TryCreate(value, UriKind.Absolute, out var endpoint) || endpoint.Scheme != "http" ||
-            endpoint.Host != "127.0.0.1" || endpoint.Port is < 1 or > 65535 || endpoint.AbsolutePath != "/mcp" ||
-            endpoint.UserInfo.Length != 0 || endpoint.Query.Length != 0 || endpoint.Fragment.Length != 0) return false;
-        return value == "http://127.0.0.1:" + endpoint.Port.ToString(System.Globalization.CultureInfo.InvariantCulture) + "/mcp";
+            endpoint.Host is not ("127.0.0.1" or "localhost") || endpoint.Port is < 1 or > 65535 || endpoint.AbsolutePath != "/mcp" ||
+            endpoint.UserInfo.Length != 0 || endpoint.Query.Length != 0 || endpoint.Fragment.Length != 0) return null;
+        string canonical = "http://" + endpoint.Host + ":" + endpoint.Port.ToString(System.Globalization.CultureInfo.InvariantCulture) + "/mcp";
+        return value == canonical ? endpoint.Port : null;
     }
 
-    private static string Failure(string client, ClientCommandResult result, bool verification, string? loopbackMcpEndpoint)
+    private static string LocalhostEndpoint(string literalEndpoint) => "http://localhost:" +
+        (CanonicalLoopbackPort(literalEndpoint) ?? throw new ArgumentException("Not a canonical loopback endpoint.", nameof(literalEndpoint)))
+            .ToString(System.Globalization.CultureInfo.InvariantCulture) + "/mcp";
+
+    // An entry's URL is this broker's when it is the endpoint itself or, for the worker's literal endpoint, its
+    // localhost spelling on the same port. Any other URL under AgentBroker's name points elsewhere.
+    internal static bool IsThisBrokersEndpoint(string? url, string endpoint) => url is not null && (url == endpoint ||
+        IsLiteralLoopbackEndpoint(endpoint) && url == LocalhostEndpoint(endpoint));
+
+    // Claude Code's allowlist miss, the one refusal a localhost retry can answer. Its add handler (public claude.exe, the
+    // npm build on this box, read 2026-10-27) throws "Cannot add MCP server: not allowed by enterprise policy" when the
+    // allowlist lacks the URL, and "server is explicitly blocked by enterprise policy" for a deny, which no retry may try.
+    private static bool IsAllowlistMiss(ClientCommandResult result) =>
+        AllowlistMissIn(result.Output) || AllowlistMissIn(result.Error);
+
+    private static bool AllowlistMissIn(string text) => text.Contains("not allowed by enterprise policy", StringComparison.OrdinalIgnoreCase);
+
+    private static string Failure(string client, ClientCommandResult result, bool verification, string? loopbackMcpEndpoint,
+        string? retriedEndpoint = null)
     {
         // Vendor diagnostics can echo environment/config values. Match known reasons in memory
         // and return fixed guidance only, never show or log the raw output.
@@ -195,7 +237,9 @@ internal sealed class AgentClientSetup(IAgentClientCommand command)
         string name = client == "claude" ? "Claude Code" : "Codex";
         string code = result.ExitCode.ToString(System.Globalization.CultureInfo.InvariantCulture);
         if (loopbackMcpEndpoint is not null && Has("not allowed by enterprise policy"))
-            return $"Claude Code policy does not allow this local MCP server URL (exit {code}). Ask the administrator to allowlist {loopbackMcpEndpoint} for AgentBroker.";
+            return retriedEndpoint is null
+                ? $"Claude Code policy does not allow this local MCP server URL (exit {code}). Ask the administrator to allowlist {loopbackMcpEndpoint} for AgentBroker."
+                : $"Claude Code policy allows neither local MCP server URL (exit {code}). Ask the administrator to allowlist {retriedEndpoint} or {loopbackMcpEndpoint} for AgentBroker.";
         if (Has("enterprise policy") || Has("enterprise MCP configuration") || Has("managed settings") || Has("managed MCP"))
             return $"{name} refused MCP setup because of managed policy (exit {code}). Ask the administrator whether this server is permitted.";
         if (Has("already exists"))
@@ -227,22 +271,32 @@ internal sealed class AgentClientSetup(IAgentClientCommand command)
     }
 }
 
-internal sealed class AgentClientCommand : IAgentClientCommand
+// The client is "claude" or "codex". It is located before anything starts (AgentCliLocator, the model calls' rules), and
+// the located binary is started once: no shell, no script shim, and never a second candidate after a child's failure,
+// timeout or policy refusal. Not located is FileNotFoundException, which a check reports as CLI not found.
+internal sealed class AgentClientCommand(Func<AgentCliEnvironment>? environment = null) : IAgentClientCommand
 {
-    internal static bool CanUseClaudeFallback(string executable, int nativeErrorCode) =>
-        OperatingSystem.IsWindows() && executable.Equals("claude", StringComparison.OrdinalIgnoreCase) && nativeErrorCode is 2 or 3;
+    internal AgentCliInstall Locate(string client) =>
+        AgentCliLocator.Locate(client, (environment ?? AgentCliEnvironment.Current)())
+            ?? throw new FileNotFoundException("The client's CLI is not installed where the companion looks for it.");
 
-    private static string CanonicalClaudeExecutable()
+    internal static ProcessStartInfo StartInfo(AgentCliInstall install, IReadOnlyList<string> arguments)
     {
-        string profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        if (!Path.IsPathFullyQualified(profile) || profile.StartsWith("\\\\", StringComparison.Ordinal))
-            throw new IOException("The current user's local Claude CLI profile is unavailable.");
-        string executable = Path.Combine(profile, ".local", "bin", "claude.exe");
-        if (!File.Exists(executable)) throw new FileNotFoundException("The current user's Claude CLI is unavailable.");
-        for (string? path = executable; path is not null; path = Path.GetDirectoryName(path))
-            if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
-                throw new IOException("The current user's Claude CLI path contains a reparse component.");
-        return executable;
+        var start = new ProcessStartInfo(install.Executable)
+        { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true,
+          StandardOutputEncoding = new UTF8Encoding(false), StandardErrorEncoding = new UTF8Encoding(false) };
+        foreach (var argument in arguments) start.ArgumentList.Add(argument);
+        if (install.NpmCodexPackageRoot is { } root)
+        {
+            // What codex.js sets before it spawns this binary (the shared runner does the same), so a directly started
+            // npm codex.exe knows npm manages it, exactly as the shim's child would.
+            start.Environment.Remove("CODEX_MANAGED_BY_BUN");
+            start.Environment.Remove("CODEX_MANAGED_BY_PNPM");
+            start.Environment.Remove("CODEX_MANAGED_BY_VITE_PLUS");
+            start.Environment["CODEX_MANAGED_BY_NPM"] = "1";
+            start.Environment["CODEX_MANAGED_PACKAGE_ROOT"] = root;
+        }
+        return start;
     }
 
     public async Task<ClientCommandResult> RunAsync(string executable, IReadOnlyList<string> arguments, CancellationToken token)
@@ -250,21 +304,8 @@ internal sealed class AgentClientCommand : IAgentClientCommand
         token.ThrowIfCancellationRequested();
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
         deadline.CancelAfter(TimeSpan.FromSeconds(20));
-        var start = new ProcessStartInfo(executable)
-        { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true,
-          StandardOutputEncoding = new UTF8Encoding(false), StandardErrorEncoding = new UTF8Encoding(false) };
-        foreach (var argument in arguments) start.ArgumentList.Add(argument);
-        Process? started;
-        try { started = Process.Start(start); }
-        catch (Win32Exception error) when (CanUseClaudeFallback(executable, error.NativeErrorCode))
-        {
-            // Only a failed bare-name launch gets one canonical user-install fallback. A child
-            // exit code, policy refusal, timeout, or other launch error never reaches this path.
-            token.ThrowIfCancellationRequested();
-            start.FileName = CanonicalClaudeExecutable();
-            started = Process.Start(start);
-        }
-        using var process = started ?? throw new IOException("Client did not start.");
+        var start = StartInfo(Locate(executable), arguments);
+        using var process = Process.Start(start) ?? throw new IOException("Client did not start.");
         try
         {
             Task<string> output = ReadBoundedAsync(process.StandardOutput, deadline.Token);

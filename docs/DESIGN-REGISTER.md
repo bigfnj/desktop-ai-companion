@@ -6084,6 +6084,29 @@ can be pointed at 127.0.0.1 by whoever controls it, and still gets 403. The port
 another port's authority is not this listener; a Host without a port means port 80. Refused alternative: ASP.NET
 Core's HostFiltering, whose `AllowedHosts` excludes ports.
 
+**No `[::1]` listener: measured unnecessary.** On 2026-10-27 two fresh `claude -p` sessions (Claude Code 2.1.293, the
+npm build), given `http://localhost:<port>/mcp` through `--mcp-config` with `--strict-mcp-config`, registered, sent,
+waited, acknowledged and replied through a worker listening on 127.0.0.1 alone (`Get-NetTCPConnection`: 127.0.0.1
+only), on a workstation whose resolver returns `::1` before 127.0.0.1 for localhost. The client falls back to IPv4 by
+itself, so binding `[::1]` would add a second socket for no measured client.
+
+**Client setup writes the literal URL first and tries localhost once, after an allowlist miss only.** Claude Code's add
+handler refuses an allowlist miss with "not allowed by enterprise policy" and an explicit deny with "server is
+explicitly blocked by enterprise policy" (read in the npm build's public `claude.exe`, 2026-10-27), before it writes
+anything. Only the first gets the one `http://localhost:<port>/mcp` add; a deny, exclusive or plugin-only control and
+every other failure are final, and stdio is never tried instead. Writing localhost first was refused: the literal URL
+keeps working where no policy applies and is what the worker reports. Either spelling for the worker's port is the
+exact entry when setup is checked; another port, or a non-canonical spelling such as `LOCALHOST`, is a different entry.
+
+**Client setup finds the CLIs by a copy of the model calls' locator, not a link to it.** The rules are
+`CodingAgentLocator.Locate` in `shared/CodingAgentCli/CodingAgentCli.cs` and `AiExecutablePolicy.ResolveConfigured`,
+rung for rung, in `modules/AgentBroker/AgentCliLocator.cs`. Linking the shared file would compile the whole
+nullable-oblivious model-call runner into the one module built with nullable warnings as errors, and make every runner
+change stale this payload. So a change to the shared locator's rules has to be made in both places. This reverses
+broker-a's "never resolve a shim to the package's binary": that pins npm's package layout, but the model calls already
+depend on the same layout, so a layout change now breaks both together and visibly instead of setup alone. A shim is
+still never run, and the located binary starts once.
+
 **A wait checks addressability before it returns anything.** A wait on a mailbox the broker no longer knows (worker
 restart) returned its pending messages and said `session_unavailable` only when there were none, while
 `acknowledge_message` refused those same messages as `recipient_unavailable`. An agent then saw messages it could not
