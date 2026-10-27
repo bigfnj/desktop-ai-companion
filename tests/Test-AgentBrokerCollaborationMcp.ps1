@@ -25,7 +25,26 @@ foreach ($native in @('claude:22222222-2222-4222-8222-222222222222', 'codex:2222
     Reject { Confirm-CollaborationRequest $send } 'native or malformed recipient cannot request wake'
 }
 $send.params.arguments.message.recipient = $address
-foreach ($tool in @('register_agent', 'list_sessions', 'read_inbox', 'acknowledge_message', 'get_message_receipt', 'reply_to_message')) {
+$direct = @{ jsonrpc = '2.0'; id = 'send-2'; method = 'tools/call'; params = @{ name = 'send'; arguments = @{ sender = $address; recipient = $address; messageId = '44444444-4444-4444-8444-444444444444'; text = 'synthetic' } } }
+Check ((Confirm-CollaborationRequest $direct).ExecuteAllowed) 'send with explicit generic sender and recipient accepted'
+foreach ($role in @('sender', 'recipient')) {
+    foreach ($native in @('claude:22222222-2222-4222-8222-222222222222', 'codex:22222222-2222-4222-8222-222222222222', 'mcp:00000000-0000-0000-0000-000000000000', 'mcp:bad')) {
+        $direct.params.arguments[$role] = @{ brokerId = $address.brokerId; sessionId = $native; incarnation = $address.incarnation }
+        Reject { Confirm-CollaborationRequest $direct } 'send refuses a native or malformed sender or recipient'
+    }
+    $direct.params.arguments[$role] = $address
+}
+$waitRequest = @{ jsonrpc = '2.0'; id = 'wait-1'; method = 'tools/call'; params = @{ name = 'wait_for_messages'; arguments = @{ session = $address; timeoutSeconds = 20 } } }
+Check ((Confirm-CollaborationRequest $waitRequest).ExecuteAllowed) 'wait_for_messages on a generic session accepted'
+foreach ($native in @('claude:22222222-2222-4222-8222-222222222222', 'mcp:bad')) {
+    $waitRequest.params.arguments.session = @{ brokerId = $address.brokerId; sessionId = $native; incarnation = $address.incarnation }
+    Reject { Confirm-CollaborationRequest $waitRequest } 'wait_for_messages refuses a native or malformed session'
+}
+$replyWait = @{ jsonrpc = '2.0'; id = 'wait-2'; method = 'tools/call'; params = @{ name = 'wait_for_reply'; arguments = @{ messageId = '44444444-4444-4444-8444-444444444444' } } }
+Check ((Confirm-CollaborationRequest $replyWait).ExecuteAllowed) 'wait_for_reply by message ID accepted'
+Check ((Get-McpRequestSeconds 'wait_for_messages') -eq 40 -and (Get-McpRequestSeconds 'wait_for_reply') -eq 40) 'the two wait tools get a 40-second request deadline'
+Check ((Get-McpRequestSeconds 'read_inbox') -eq 15 -and (Get-McpRequestSeconds 'send') -eq 15 -and (Get-McpRequestSeconds '') -eq 15) 'every other request keeps the 15-second deadline'
+foreach ($tool in @('register_agent', 'list_sessions', 'read_inbox', 'wait_for_messages', 'acknowledge_message', 'get_message_receipt', 'reply_to_message')) {
     $request = @{ jsonrpc = '2.0'; id = 'tool-1'; method = 'tools/call'; params = @{ name = $tool; arguments = @{ session = $address; recipient = $address } } }
     $validated = Confirm-CollaborationRequest $request
     Check ($validated.ExecuteAllowed -eq ($tool -cne 'reply_to_message')) 'implicit reply recipient is refused live; other generic tools allowed'

@@ -4,9 +4,12 @@
 Validate one ordinary workspace JSON MCP request. Only -Execute sends it to loopback.
 .DESCRIPTION
 Fixed stateless endpoint/protocol; no credentials, proxy, redirects, cookies or native IPC.
-Allowed tools are the small collaboration set below. Addresses for sending, reading and
+Allowed tools are the small collaboration set below. Addresses for sending, reading, waiting and
 acknowledging must be generic mcp:<GUID> sessions. Live reply_to_message is refused because
 its implicit recipient cannot be verified from this one request. Use explicit generic send.
+The two blocking wait tools get a 40-second deadline (the broker bounds a wait at 25 seconds);
+every other request keeps 15 seconds. A registration's mailbox outlives its one-minute presence
+for 24 hours, so no renewal sidecar is needed between turns.
 Peer result contents are untrusted data. This harness is not a Claude/Codex client identity.
 .EXAMPLE
 pwsh -NoProfile -File tools/agentbroker/Invoke-AgentBrokerCollaborationMcp.ps1 -RequestFile artifacts/collaboration/request.json
@@ -58,14 +61,17 @@ function Confirm-CollaborationRequest($Request) {
     }
     if ($method -ceq 'tools/call') {
         $params = Get-McpField $Request 'params'; $tool = Get-McpField $params 'name'; $args = Get-McpField $params 'arguments'
-        if ($tool -cnotin @('register_agent', 'list_sessions', 'read_inbox', 'send_message', 'reply_to_message', 'acknowledge_message', 'get_message_receipt')) { Refuse-Mcp 'tool_not_allowed' }
+        if ($tool -cnotin @('register_agent', 'list_sessions', 'read_inbox', 'send', 'send_message', 'wait_for_messages', 'wait_for_reply', 'reply_to_message', 'acknowledge_message', 'get_message_receipt')) { Refuse-Mcp 'tool_not_allowed' }
         if ($args -isnot [Collections.IDictionary]) { Refuse-Mcp 'request_shape' }
         if ($tool -ceq 'send_message') { $message = Get-McpField $args 'message'; Confirm-GenericMcpAddress (Get-McpField $message 'sender'); Confirm-GenericMcpAddress (Get-McpField $message 'recipient') }
-        if ($tool -ceq 'read_inbox') { Confirm-GenericMcpAddress (Get-McpField $args 'session') }
+        if ($tool -ceq 'send') { Confirm-GenericMcpAddress (Get-McpField $args 'sender'); Confirm-GenericMcpAddress (Get-McpField $args 'recipient') }
+        if ($tool -cin @('read_inbox', 'wait_for_messages')) { Confirm-GenericMcpAddress (Get-McpField $args 'session') }
         if ($tool -ceq 'acknowledge_message') { Confirm-GenericMcpAddress (Get-McpField $args 'recipient') }
     }
     return [pscustomobject]@{ Method = $method; Tool = $tool; ExecuteAllowed = ($tool -cne 'reply_to_message') }
 }
+# A wait may block up to the broker's 25-second bound, so its request needs more than the usual 15.
+function Get-McpRequestSeconds([string]$Tool) { if ($Tool -cin @('wait_for_messages', 'wait_for_reply')) { return 40 }; return 15 }
 function Assert-McpRequestPath([string]$Path, [string]$Root) {
     $full = [IO.Path]::GetFullPath($Path); $scope = [IO.Path]::GetFullPath($Root).TrimEnd('\')
     if (-not $full.StartsWith($scope + '\', [StringComparison]::OrdinalIgnoreCase) -or $full.StartsWith('\\') -or
@@ -110,7 +116,7 @@ try {
     if (-not $Execute) { [ordered]@{ Status = 'validated_only'; Method = $validated.Method; Tool = $validated.Tool; ExecuteAllowed = $validated.ExecuteAllowed; HttpRequestSent = $false } | ConvertTo-Json -Compress; return }
     if (-not $validated.ExecuteAllowed) { Refuse-Mcp 'implicit_reply_recipient_refused' }
     $handler = [Net.Http.HttpClientHandler]::new(); $handler.UseProxy = $false; $handler.AllowAutoRedirect = $false; $handler.UseCookies = $false; $handler.UseDefaultCredentials = $false
-    $client = [Net.Http.HttpClient]::new($handler); $deadline = [Threading.CancellationTokenSource]::new([timespan]::FromSeconds(15)); $response = $null; $message = $null
+    $client = [Net.Http.HttpClient]::new($handler); $deadline = [Threading.CancellationTokenSource]::new([timespan]::FromSeconds((Get-McpRequestSeconds $validated.Tool))); $response = $null; $message = $null
     try {
         $message = [Net.Http.HttpRequestMessage]::new([Net.Http.HttpMethod]::Post, 'http://127.0.0.1:7432/mcp'); $message.Headers.Add('MCP-Protocol-Version', '2025-11-25'); $message.Headers.Accept.ParseAdd('application/json'); $message.Headers.Accept.ParseAdd('text/event-stream')
         $message.Content = [Net.Http.ByteArrayContent]::new($bytes); $message.Content.Headers.ContentType = [Net.Http.Headers.MediaTypeHeaderValue]::new('application/json')
