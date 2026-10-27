@@ -84,7 +84,18 @@ namespace DesktopAICompanion.RemembranceModule
         {
             Id = Id,
             Name = "Remembrance",
-            Version = "2.7.0",   // 2.7.0: an open options pane shows a summary or a Validate that finished while it was
+            Version = "2.8.0",   // 2.8.0: the summary's prompt is the built-in one, now asking for an overview, a part
+                                 //        per topic, decisions with their reasoning, a table of action items and open
+                                 //        questions, or the user's own .txt file ("Summary prompt"), read again for
+                                 //        every summary; an unusable file falls back to the built-in prompt and the
+                                 //        Status line says why; "Save the built-in prompt to a file..." writes it out.
+                                 //        The CLI's system prompt no longer asks for plain text, and a cloud summary
+                                 //        cut at the provider's output limit says so. The After the summary card (off
+                                 //        by default) passes each written summary, with the text of a follow-up prompt
+                                 //        file, to a second CLI (Codex by default) and saves the answer beside it as
+                                 //        "<name> - follow-up.md"; "Run the follow-up on the latest summary" runs it by
+                                 //        hand. MinHostVersion stays 1.7.0 (owner requests, 2026-10-27).
+                                 // 2.7.0: an open options pane shows a summary or a Validate that finished while it was
                                  //        open (OptionsPane.NotifyInfoChanged), and Load keeps a background write's
                                  //        record across that refresh; an Apply stores a field only when it changed. The
                                  //        Coding-agent CLI card has one row per CLI, each live only while its CLI is
