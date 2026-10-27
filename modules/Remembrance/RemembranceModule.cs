@@ -39,6 +39,9 @@ namespace DesktopAICompanion.RemembranceModule
         // keep, and an event this module stays subscribed to outlives Shutdown. See Shutdown for what that
         // costs.
         private Action _hostShutdownHandler;
+        // The pane this module gave the host, held so that a summary or a Validate finishing while it is open can say its
+        // Info rows changed (N-cli-model-effort-07, OptionsPane.NotifyInfoChanged: see NotifyInfoChanged).
+        private OptionsPane _pane;
         private readonly List<IDisposable> _hotkeys = new List<IDisposable>();
 
         private AudioRecorder _recorder;
@@ -548,7 +551,8 @@ namespace DesktopAICompanion.RemembranceModule
             _ui = SynchronizationContext.Current;
             _uiThreadId = Environment.CurrentManagedThreadId;   // remembrance.busy publishes synchronously from here
 
-            host.AddOptionsPane(BuildOptionsPane());
+            _pane = BuildOptionsPane();
+            host.AddOptionsPane(_pane);
             host.AddTrayItems(new[] { BuildRecordTrayItem(), BuildSnapshotTrayItem() });
             RegisterHotkeys();
 
@@ -618,6 +622,7 @@ namespace DesktopAICompanion.RemembranceModule
                 try { _host.HostShutdown -= _hostShutdownHandler; } catch { }
             }
             _hostShutdownHandler = null;
+            _pane = null;
             _host = null;
         }
 
@@ -1077,6 +1082,7 @@ namespace DesktopAICompanion.RemembranceModule
                     }
                     _lastStatus = (did ? "Transcribed: " : "Saved (Whisper not set up): ") + paths.BaseName;
                     Announce(did ? "Transcript ready." : "Recording saved. Set up Whisper to transcribe it.");
+                    NotifyInfoChanged();   // the Status line says it is transcribed while the summary runs (N-cli-model-effort-07)
 
                     // Only worth summarizing a transcript Whisper actually produced: the stub text is setup
                     // instructions, and summarizing those would be nonsense dressed up as a meeting summary.
@@ -1148,6 +1154,8 @@ namespace DesktopAICompanion.RemembranceModule
                 {
                     if (busy != null) busy.Dispose();
                     Interlocked.Decrement(ref _stopsInFlight);
+                    // The summary's outcome and what answered it, in the Status line and the CLI row (N-cli-model-effort-07).
+                    NotifyInfoChanged();
                 }
             });
         }
@@ -1951,10 +1959,15 @@ namespace DesktopAICompanion.RemembranceModule
         /// The one place pane values become stored values, in AI Brain's ApplyPaneValues shape: Save applies them to
         /// the live settings, and every action that reads a setting the pane edits applies them to a detached copy
         /// (<see cref="OnScreenSettings"/>). Each field the pane handed over is set in its stored form, except a field
-        /// named in <paramref name="keep"/>.
+        /// named in <paramref name="keep"/>, and, given <paramref name="shownAtLoad"/> (Save's call), a field whose value is
+        /// still what Load showed (N-cli-model-effort-11). An Apply wrote every field it was handed, so a pane nobody touched
+        /// stored "cloudProvider": "openai" and "recommendedModel": "gemma4:12b", defaults nobody chose (the third on-screen
+        /// walk's settings.json), and a later change of either default would never reach that install. Compared in stored
+        /// form, so a label and the id behind it are one value; <see cref="StoredEvenWhenUntouched"/> is the exception. The
+        /// detached copy takes every field, because an action reads the screen whole, a derived pick included.
         /// </summary>
         private void ApplyPaneValues(IModuleSettings target, IReadOnlyDictionary<string, string> values,
-            ICollection<string> keep)
+            ICollection<string> keep, IReadOnlyDictionary<string, string> shownAtLoad)
         {
             if (target == null || values == null) return;
             foreach (string id in PaneFieldIds)
@@ -1963,8 +1976,29 @@ namespace DesktopAICompanion.RemembranceModule
                 if (!values.TryGetValue(id, out shown)) continue;
                 if (keep != null && keep.Contains(id)) continue;
                 string stored = StoredFormOf(id, shown);
-                if (stored != null) target.Set(id, stored);
+                if (stored == null) continue;
+                if (shownAtLoad != null && UnchangedSinceLoad(id, stored, shownAtLoad)) continue;
+                target.Set(id, stored);
             }
+        }
+
+        /// <summary>
+        /// The pane fields an untouched Apply still stores (N-cli-model-effort-11): summaryModel alone. Its Load value is a
+        /// PICK the pane makes when none is saved (SummaryModelValue, 1.0.5), the stop path reads only the saved one, and a
+        /// pane naming a model no summary uses is BUG-013's saved-not-shown defect: the reason the register's
+        /// feature/remembrance-2 entry refused this diff for every field, and what its WITNESS keeps out. Every other field's
+        /// Load value is what its readers already use when nothing is saved, so leaving it unstored changes nothing but the
+        /// file.
+        /// </summary>
+        private static readonly string[] StoredEvenWhenUntouched = { "summaryModel" };
+
+        /// <summary>Whether Save leaves <paramref name="id"/> as it is: the stored form on screen is the stored form of what
+        /// Load showed, and the field is not one of <see cref="StoredEvenWhenUntouched"/>.</summary>
+        private bool UnchangedSinceLoad(string id, string stored, IReadOnlyDictionary<string, string> shownAtLoad)
+        {
+            if (Array.IndexOf(StoredEvenWhenUntouched, id) >= 0) return false;
+            string loaded;
+            return shownAtLoad.TryGetValue(id, out loaded) && string.Equals(StoredFormOf(id, loaded), stored, StringComparison.Ordinal);
         }
 
         /// <summary>
@@ -1988,7 +2022,7 @@ namespace DesktopAICompanion.RemembranceModule
                 string saved = _settings.Get(id, null);
                 if (saved != null) copy.Set(id, saved);
             }
-            ApplyPaneValues(copy, pending, null);
+            ApplyPaneValues(copy, pending, null, null);
             return copy;
         }
 
@@ -2031,6 +2065,96 @@ namespace DesktopAICompanion.RemembranceModule
                 }
             }
             return keep;
+        }
+
+        /// <summary>
+        /// Load's bookkeeping for Save, after a Load: what it showed becomes the baseline Save compares the screen with
+        /// (BUG-013, N-cli-model-effort-11), and the record of background writes starts again, EXCEPT a field written in the
+        /// background that this Load shows otherwise than the baseline before it. That field keeps its record and its old
+        /// baseline.
+        ///
+        /// THE GUARD (N-cli-model-effort-07). Load runs on every build, and since host 1.6.1 also on the host's live refresh
+        /// (OptionsPane.NotifyInfoChanged), which reloads the Info rows alone and leaves every editor as it was. Until now
+        /// Load cleared the record outright: then a model the pull selected while the pane was open, followed by a summary
+        /// finishing and refreshing the Status line, lost its record, the refresh's baseline already named the new model,
+        /// and an Apply of the untouched screen wrote the old model the editor still showed back over the download, the
+        /// defect BUG-013 fixed. Load cannot tell that refresh from a rebuild, whose editor does show the new value; there
+        /// the record kept here costs nothing, since writing back the value on screen is writing what is saved. The one
+        /// thing it changes is a user who, after such a rebuild and before any Apply, deliberately picks the old value
+        /// again: that Apply keeps the background write, and the pane the Apply rebuilds shows it. A successful Apply
+        /// settles every record (AppliedAsShown).
+        /// </summary>
+        private void RecordWhatLoadShowed(Dictionary<string, string> shown)
+        {
+            lock (_writtenSinceLoad)
+            {
+                IReadOnlyDictionary<string, string> before = _loadedValues;
+                var baseline = new Dictionary<string, string>(shown, StringComparer.Ordinal);
+                var stillPending = new Dictionary<string, string>(StringComparer.Ordinal);
+                if (before != null)
+                    foreach (KeyValuePair<string, string> write in _writtenSinceLoad)
+                    {
+                        string was, now;
+                        if (!before.TryGetValue(write.Key, out was) || !shown.TryGetValue(write.Key, out now)) continue;
+                        if (string.Equals(StoredFormOf(write.Key, was), StoredFormOf(write.Key, now), StringComparison.Ordinal)) continue;
+                        baseline[write.Key] = was;
+                        stillPending[write.Key] = write.Value;
+                    }
+                _writtenSinceLoad.Clear();
+                foreach (KeyValuePair<string, string> kept in stillPending) _writtenSinceLoad[kept.Key] = kept.Value;
+                _loadedValues = baseline;
+            }
+        }
+
+        /// <summary>
+        /// After an Apply that saved: the screen is what is saved now, so it becomes the baseline the next Apply compares
+        /// with, and every background write is settled, kept or written over by the user's edit. The host rebuilds the pane
+        /// after a successful Apply (RefreshAfterApply: this pane has Info rows), and that Load sets both again; doing it
+        /// here too means a background write landing before that rebuild is measured against the screen. Only the fields
+        /// Save stores: never a typed key or token.
+        /// </summary>
+        private void AppliedAsShown(IReadOnlyDictionary<string, string> values)
+        {
+            lock (_writtenSinceLoad)
+            {
+                var baseline = new Dictionary<string, string>(StringComparer.Ordinal);
+                IReadOnlyDictionary<string, string> before = _loadedValues;
+                if (before != null) foreach (KeyValuePair<string, string> kv in before) baseline[kv.Key] = kv.Value;
+                string onScreen;
+                if (values != null)
+                    foreach (string id in PaneFieldIds)
+                        if (values.TryGetValue(id, out onScreen)) baseline[id] = onScreen ?? "";
+                _writtenSinceLoad.Clear();
+                _loadedValues = baseline;
+            }
+        }
+
+        /// <summary>
+        /// Tell the host the pane's Info rows changed, so the Status line and the CLI card show a summary or a Validate that
+        /// finished while the pane is open (N-cli-model-effort-07: on the second on-screen walk the Status line and the CLI
+        /// row kept "summary: on (Claude Code CLI, sonnet at medium effort)" after a summary until a rebuild showed what had
+        /// answered). The host coalesces notifications onto its UI thread and calls Load again for the Info rows alone,
+        /// leaving the editors as they are: the reason Load's bookkeeping survives such a Load (RecordWhatLoadShowed).
+        /// Inert while the pane is closed; callable from any thread. OptionsPane.NotifyInfoChanged is host 1.6.1's, so this
+        /// module's floor is 1.6.1 from here: on an older Contracts the member is missing and the method that calls it fails
+        /// to compile at run time.
+        /// </summary>
+        /// <summary>The end of a "Try it on a file" press's background work (Transcribe a WAV file, Summarize a transcript):
+        /// the Status line's words, the spoken cue, and the open pane told its Info rows changed, in one place for the four
+        /// ways those presses end (N-cli-model-effort-07).</summary>
+        private void FinishTryIt(string status, string spoken)
+        {
+            _lastStatus = status;
+            Announce(spoken);
+            NotifyInfoChanged();
+        }
+
+        private void NotifyInfoChanged()
+        {
+            OptionsPane pane = _pane;
+            if (pane == null || _host == null) return;
+            try { pane.NotifyInfoChanged(); }
+            catch (Exception ex) { Log("options pane refresh failed: " + ex.GetType().Name); }
         }
 
         private SettingField[] BuildOptionsPane_Schema()
@@ -2305,8 +2429,6 @@ namespace DesktopAICompanion.RemembranceModule
                 // only thing the host promises to call before it reads Schema on every build.
                 Load = () =>
                 {
-                    // What this build shows already includes every background write so far (BUG-013).
-                    lock (_writtenSinceLoad) _writtenSinceLoad.Clear();
                     AutoDetectWhisperOnce();
                     AutoDiscoverModelsOnce();
                     RefreshDynamicOptions();
@@ -2362,19 +2484,22 @@ namespace DesktopAICompanion.RemembranceModule
                         CloudProviders.EffectiveUrl(SavedCloudProvider(), _settings.Get("cloudEndpoint", "")))),
                     ["tryItOnAFile"] = "Transcribe uses Whisper above; Summarize uses whichever engine Summary runs on.",
                     };
-                    _loadedValues = shown;
+                    // The baseline Save compares with, and the record of background writes, kept across the host's live
+                    // refresh (RecordWhatLoadShowed; N-cli-model-effort-07).
+                    RecordWhatLoadShowed(shown);
                     return shown;
                 },
                 Save = values =>
                 {
-                    // Every field is written as it always was, through the one mapping the actions share, except a
-                    // field this module wrote in the background since the pane loaded that the user left alone
-                    // (BUG-013; BackgroundWritesToKeep says which and why). NOT a diff of every field against what
-                    // Load showed, deliberately: the pane shows DERIVED values -- the summary dropdown preselects a
-                    // model when none is saved (1.0.5), the device rows show the default entry -- an untouched Apply
-                    // has always persisted them, and the stop path reads only the saved summaryModel, so skipping
-                    // every untouched field would leave the pane naming a model no summary uses. The register's
-                    // feature/remembrance-2 entry records the choice.
+                    // A field is written, through the one mapping the actions share, only when its value on screen
+                    // differs from what Load showed (N-cli-model-effort-11: an untouched Apply wrote "cloudProvider":
+                    // "openai" and "recommendedModel": "gemma4:12b", defaults nobody chose), and never a field this
+                    // module wrote in the background since the pane loaded that the user left alone (BUG-013;
+                    // BackgroundWritesToKeep says which and why). The summary model is the exception
+                    // (StoredEvenWhenUntouched): the dropdown preselects a model when none is saved (1.0.5) and the stop
+                    // path reads only the saved one, so an untouched Apply stores it, as it always has. The register's
+                    // feature/remembrance-2 entry refused the diff for every field for that reason; the
+                    // feature/remembrance-backlog entry records this narrower form.
                     //
                     // The Claude sign-in token FIRST, before any setting is written (2.1.1): one that is not a token, or
                     // cannot be sealed, refuses the whole Apply, the reason in the log, which never carries the token. It is
@@ -2404,9 +2529,10 @@ namespace DesktopAICompanion.RemembranceModule
                         }
                         Log("cloud: api key saved");
                     }
-                    ApplyPaneValues(_settings, values, BackgroundWritesToKeep(values));
+                    ApplyPaneValues(_settings, values, BackgroundWritesToKeep(values), _loadedValues);
                     ForgetValidationsOfReplacedChoices();
                     bool ok = _settings.Save();
+                    if (ok) AppliedAsShown(values);
                     RegisterHotkeys();   // a changed combo takes effect without a restart
                     PublishRecorderReady(_recording);   // the Join & record switch reaches Reminder now (2.5.0)
                     return ok;
@@ -2524,8 +2650,8 @@ namespace DesktopAICompanion.RemembranceModule
                             // No start time: this is a file the user picked, and its own start is not in it
                             // (RA-166); the header says so rather than printing the clock.
                             TranscribeWav(wav, transcript, whisperExe, model, name, null, null, out did);
-                            _lastStatus = did ? "Transcribed: " + name : "Transcription failed: " + name;
-                            Announce(did ? "Transcript ready." : "Transcription failed.");
+                            FinishTryIt(did ? "Transcribed: " + name : "Transcription failed: " + name,
+                                did ? "Transcript ready." : "Transcription failed.");
                         }
                         catch (Exception ex) { try { _host.Log(Id, "manual transcribe failed: " + ex.Message); } catch { } }
                         finally { busy.Dispose(); }
@@ -3115,8 +3241,8 @@ namespace DesktopAICompanion.RemembranceModule
                             {
                                 string text = System.IO.File.ReadAllText(transcriptPath);
                                 string failure = await WriteCloudSummaryAsync(manualCloud, name, text, summaryPath).ConfigureAwait(false);
-                                _lastStatus = failure == null ? ("Summarized: " + name) : ("Summary failed (" + failure + "): " + name);
-                                Announce(failure == null ? "Summary ready." : "Could not summarize that transcript.");
+                                FinishTryIt(failure == null ? ("Summarized: " + name) : ("Summary failed (" + failure + "): " + name),
+                                    failure == null ? "Summary ready." : "Could not summarize that transcript.");
                             }
                             catch (Exception ex) { Log("manual summarize failed: " + ex.GetType().Name); }
                             finally { if (cloudBusy != null) cloudBusy.Dispose(); }
@@ -3145,8 +3271,9 @@ namespace DesktopAICompanion.RemembranceModule
                                 string text = System.IO.File.ReadAllText(transcriptPath);
                                 string failure = await WriteCliSummaryAsync(manualCli, manualCliModel, manualCliEffort, name, text, summaryPath)
                                     .ConfigureAwait(false);
-                                _lastStatus = failure == null ? ("Summarized: " + name) : ("Summary failed (" + failure + "): " + name);
-                                Announce(failure == null ? "Summary ready." : "Could not summarize that transcript.");
+                                // The CLI row's "last answered" changes with it.
+                                FinishTryIt(failure == null ? ("Summarized: " + name) : ("Summary failed (" + failure + "): " + name),
+                                    failure == null ? "Summary ready." : "Could not summarize that transcript.");
                             }
                             catch (Exception ex) { Log("manual summarize failed: " + ex.GetType().Name); }
                         });
@@ -3170,8 +3297,8 @@ namespace DesktopAICompanion.RemembranceModule
                     {
                         string transcript = System.IO.File.ReadAllText(transcriptPath);
                         bool wrote = await WriteSummaryAsync(endpoint, model, name, transcript, summaryPath, busy).ConfigureAwait(false);
-                        _lastStatus = wrote ? ("Summarized: " + name) : ("Summary failed: " + name);
-                        Announce(wrote ? "Summary ready." : "Could not summarize that transcript.");
+                        FinishTryIt(wrote ? ("Summarized: " + name) : ("Summary failed: " + name),
+                            wrote ? "Summary ready." : "Could not summarize that transcript.");
                     }
                     catch (Exception ex) { try { _host.Log(Id, "manual summarize failed: " + ex.Message); } catch { } }
                     finally { busy.Dispose(); }
@@ -3427,6 +3554,7 @@ namespace DesktopAICompanion.RemembranceModule
                 string seconds = (answered.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture);
                 _lastCloudValidation = (answered.Ok ? "✓ answered" : "✗ " + answered.Category.Replace('-', ' ')) + " at " +
                                        DateTime.Now.ToString("HH:mm:ss", CultureInfo.InvariantCulture) + ", in " + seconds + " s";
+                NotifyInfoChanged();   // the cloud card's Status row (N-cli-model-effort-07)
                 if (!answered.Ok) return "✗ " + answered.Failure + ".";
                 return "✓ " + cloud.Host + " answered in " + seconds + " s on " + call.Model + "." + (typed ? KeepProvenKey(key) : "");
             }
@@ -3539,6 +3667,7 @@ namespace DesktopAICompanion.RemembranceModule
             return Task.Run(async delegate
             {
                 CliAnswer answer = await cli.ValidateAsync(agent, token, typedToken, model, effort).ConfigureAwait(false);
+                NotifyInfoChanged();   // the card's Status row and the CLI rows (N-cli-model-effort-07)
                 // A refusal of this module's own default says so (review finding F14).
                 return CodingAgentCliText.Describe(agent, answer, CodingAgentCli.ValidateTimeout, SummaryRoute.DefaultModelFor(agent));
             });
@@ -5846,6 +5975,17 @@ namespace DesktopAICompanion.RemembranceModule
                       + " old one (BUG-013); stored " + settings.Get("summaryModel", ""),
                     landed && applied && settings.Get("summaryModel", "") == "beta:7b");
 
+                // 1b. The guard (N-cli-model-effort-07, lane feature/remembrance-backlog): the host's live refresh
+                // (OptionsPane.NotifyInfoChanged) calls Load again between the pull's write and the Apply, and leaves the
+                // editors showing the model from before the pull.
+                loaded = pane.Load();
+                bool refreshLanded = pullLands("delta:2b");
+                pane.Load();
+                bool refreshApplied = pane.Save(CopyOf(loaded));
+                check("a model the pull selected survives an Apply after the pane's live refresh reloaded it, the editors still"
+                      + " showing the old one (N-cli-model-effort-07); stored " + settings.Get("summaryModel", ""),
+                    refreshLanded && refreshApplied && settings.Get("summaryModel", "") == "delta:2b");
+
                 // 2. WITNESS: the user's own pick wins over the pull's background selection.
                 loaded = pane.Load();
                 pullLands("alpha:1b");
@@ -5868,6 +6008,41 @@ namespace DesktopAICompanion.RemembranceModule
                     !string.IsNullOrEmpty(preselected) && preselected != NoModelsPlaceholder
                     && settings.Get("summaryModel", "") == preselected);
                 module.Shutdown();
+
+                // 4. N-cli-model-effort-11 (lane feature/remembrance-backlog): an untouched Apply on a fresh install stores
+                // no default nobody chose. The third on-screen walk's settings.json held "cloudProvider": "openai" and
+                // "recommendedModel": "gemma4:12b" after an Apply, from a seed that set neither. Seeded with a whisper-cli
+                // path, so the pane's one-time detection of an installed Whisper adds nothing of this machine's.
+                var freshHost = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings fresh = freshHost.SettingsFor(Id);
+                fresh.Set("storageLocation", scratch);
+                fresh.Set("summaryModelsCache", "alpha:1b|beta:7b");
+                fresh.Set("whisperExe", @"c:\seeded\whisper-cli.exe");
+                var seeded = new HashSet<string>(fresh.Values.Keys, StringComparer.Ordinal);
+                var freshModule = new RemembranceModule();
+                freshModule.Init(freshHost);
+                try
+                {
+                    OptionsPane freshPane = freshHost.OptionsPanes[0];
+                    bool freshApplied = freshPane.Save(CopyOf(freshPane.Load()));
+                    List<string> added = fresh.Values.Keys.Where(k => !seeded.Contains(k)).OrderBy(k => k, StringComparer.Ordinal).ToList();
+                    check("an untouched Apply on a fresh install stores no default nobody chose, only the summary model the pane picked; added: " +
+                          (added.Count == 0 ? "nothing" : string.Join(", ", added)),
+                        freshApplied && added.Count == 1 && added[0] == "summaryModel" &&
+                        fresh.Get("cloudProvider", null) == null && fresh.Get("recommendedModel", null) == null);
+                    // WITNESS: a field the user changes is stored, its default included once something else was saved.
+                    Dictionary<string, string> chosen = CopyOf(freshPane.Load());
+                    chosen["cloudProvider"] = "openrouter";
+                    freshPane.Save(chosen);
+                    string afterChoice = fresh.Get("cloudProvider", "(unset)");
+                    Dictionary<string, string> back = CopyOf(freshPane.Load());
+                    back["cloudProvider"] = CloudProviders.Default;
+                    freshPane.Save(back);
+                    check("WITNESS a field the user changes is stored, the default too once another value was saved: " + afterChoice +
+                          " then " + fresh.Get("cloudProvider", "(unset)"),
+                        afterChoice == "openrouter" && fresh.Get("cloudProvider", null) == CloudProviders.Default);
+                }
+                finally { freshModule.Shutdown(); }
             }
             catch (Exception ex) { check("apply keeps background writes: " + ex.Message, false); }
             finally
@@ -6508,10 +6683,15 @@ namespace DesktopAICompanion.RemembranceModule
                         && System.IO.File.Exists(paths.Audio)
                         && System.IO.Path.GetFileName(paths.Audio) == paths.BaseName + ".wav");
 
-                    pane.Save(CopyOf(pane.Load()));
-                    check("an untouched Apply stores the new key's id and leaves the old checkbox's key as it was",
-                        settings.Get(FolderLayout.SettingKey, "") == FolderLayout.ByDate
-                        && settings.Get(FolderLayout.LegacySettingKey, "MISSING") == "false");
+                    // Since N-cli-model-effort-11 an untouched Apply stores nothing it was not given to change: the layout
+                    // shown is the old checkbox's meaning, read at use (FolderLayout.Migrate), so leaving folderLayout unset
+                    // changes nothing, and settings.json keeps what was there, as 2.0.0 meant it to.
+                    bool untouchedApplied = pane.Save(CopyOf(pane.Load()));
+                    string stillShown;
+                    pane.Load().TryGetValue(FolderLayout.SettingKey, out stillShown);
+                    check("an untouched Apply leaves the old checkbox's key as it was, and the layout it means still shows: " + (stillShown ?? "nothing"),
+                        untouchedApplied && settings.Get(FolderLayout.SettingKey, null) == null
+                        && settings.Get(FolderLayout.LegacySettingKey, "MISSING") == "false" && stillShown == "Create a folder by date");
                     module.Shutdown();
                 }
 
@@ -6937,7 +7117,17 @@ namespace DesktopAICompanion.RemembranceModule
                         CliAccountNotReadYet(CodingAgentKind.Claude) == "Not checked yet. Choose Claude Code CLI under \"Summary runs on\", then press Validate.");
                     Dictionary<string, string> onCodex = CopyOf(shown);
                     onCodex[SummaryRoute.SettingKey] = "Codex CLI";
+                    // N-cli-model-effort-07: each notification records the card's Status row as the host's refresh would read it.
+                    var validateNotes = new List<string>();
+                    Action noteValidate = delegate { string last = runner.LatestValidation() ?? ""; lock (validateNotes) validateNotes.Add(last); };
+                    pane.InfoChanged += noteValidate;
                     string validated = Press(PaneActionFor(pane, SummaryRoute.CardGroup, "Validate"), onCodex, ui, TimeSpan.FromSeconds(15));
+                    pane.InfoChanged -= noteValidate;
+                    List<string> validateSeen;
+                    lock (validateNotes) validateSeen = new List<string>(validateNotes);
+                    check("remembrance live info: a CLI Validate tells the open pane once its answer is kept for the card's Status row: " +
+                          string.Join(" | ", validateSeen),
+                        validateSeen.Exists(n => n.StartsWith("\u2713 Codex: answered at ", StringComparison.Ordinal)));
                     // On the module's Codex defaults (2.3.0): the automatic pick, text-only-low, unless a default slug is chosen.
                     string codexRanOn = " on " + (SummaryRoute.DefaultCodexModel.Length > 0 ? SummaryRoute.DefaultCodexModel : "text-only-low") +
                                         " at " + SummaryRoute.DefaultCodexEffort + " effort.";
@@ -6973,6 +7163,12 @@ namespace DesktopAICompanion.RemembranceModule
                     string savedAnswered = FakeCliProcess.AnsweredModelFor(savedModel);
                     fake.Clear();
                     holding = true;
+                    // N-cli-model-effort-07 (lane feature/remembrance-backlog): the stop tells the open pane its Info rows
+                    // changed, after the transcription and again once the summary is done. Each notification records the
+                    // Status line at that moment, which is what the host's refresh reads through Load.
+                    var infoNotes = new List<string>();
+                    Action noteInfo = delegate { string line = module.StatusLine(); lock (infoNotes) infoNotes.Add(line); };
+                    pane.InfoChanged += noteInfo;
                     module.StartRecordingForSelfTest();
                     Thread.Sleep(80);
                     module.StopRecordingForSelfTest();
@@ -7021,6 +7217,19 @@ namespace DesktopAICompanion.RemembranceModule
                     check("remembrance cli model: the Status line names the model and effort saved and the model that answered the summary: " +
                           SummaryPartOf(afterSummary),
                         SummaryPartOf(afterSummary) == "on Claude Code CLI, " + savedModel + " at " + savedEffort + " effort, last answered on " + savedAnswered);
+                    bool notifiedDone = pumpUntil(delegate
+                    {
+                        lock (infoNotes) return infoNotes.Exists(n => n.StartsWith("Transcript + summary: ", StringComparison.Ordinal));
+                    });
+                    pane.InfoChanged -= noteInfo;
+                    List<string> notes;
+                    lock (infoNotes) notes = new List<string>(infoNotes);
+                    string noteHeads = string.Join(" | ", notes.Select(n => n.Split('|')[0].Trim()));
+                    check("remembrance live info: a recording's transcription tells the open pane its Status line changed, while the summary runs: " + noteHeads,
+                        notes.Exists(n => n.StartsWith("Transcribed: ", StringComparison.Ordinal)));
+                    check("remembrance live info: a recording's summary tells the open pane once it is done, the Status line then naming what answered: " + noteHeads,
+                        notifiedDone && notes.Exists(n => n.StartsWith("Transcript + summary: ", StringComparison.Ordinal) &&
+                                                         n.Contains("last answered on " + savedAnswered)));
                     check("remembrance cli: ...and the local summarizer was never asked", localSummaries == 0);
 
                     // ---- over the one-call limit: the local map-reduce, as before ----
@@ -7077,6 +7286,10 @@ namespace DesktopAICompanion.RemembranceModule
                     Dictionary<string, string> onCliChoice = CopyOf(onCli);
                     onCliChoice[SummaryRoute.ClaudeModelKey] = SummaryRoute.ClaudeModelLabel(screenModel);
                     onCliChoice[SummaryRoute.ClaudeEffortKey] = SummaryRoute.EffortLabel(screenEffort);
+                    // N-cli-model-effort-07: each notification records the Status line, as the host's refresh would read it.
+                    var manualNotes = new List<string>();
+                    Action noteManual = delegate { string line = module.StatusLine(); lock (manualNotes) manualNotes.Add(line); };
+                    pane.InfoChanged += noteManual;
                     string started = Press(PaneActionFor(pane, "Try it on a file", "Summarize a transcript…"), onCliChoice, ui, TimeSpan.FromSeconds(10));
                     bool manualAsked = pumpUntil(delegate { return fake.Calls.Exists(delegate(FakeCliCall c) { return c.IsModelCall; }); });
                     ui.Drain();
@@ -7088,6 +7301,13 @@ namespace DesktopAICompanion.RemembranceModule
                     string manualSummary = System.IO.Path.Combine(scratch, "Planning.summary.txt");
                     string manualText = null;
                     bool manualWritten = pumpUntil(delegate { manualText = ReadWhenWritten(manualSummary); return manualText != null; });
+                    bool manualNotified = pumpUntil(delegate
+                    {
+                        lock (manualNotes) return manualNotes.Exists(n => n.StartsWith("Summarized: Planning", StringComparison.Ordinal));
+                    });
+                    pane.InfoChanged -= noteManual;
+                    check("remembrance live info: Summarize a transcript tells the open pane once the summary is written, the Status line naming it",
+                        manualNotified);
                     check("remembrance cli: Summarize a transcript goes through the CLI on screen, raises no busy flag, and writes beside the file: " + started,
                         started != null && started.Contains("through Claude Code CLI") && manualAsked && busyManual == "" && manualWritten &&
                         manualText.Contains("MANUAL CLI SUMMARY") && localSummaries == localBefore);
@@ -7698,7 +7918,9 @@ namespace DesktopAICompanion.RemembranceModule
                         bool appliedCodex = pane.Save(onCodexSaved);
                         string pickUnknown = SummaryPartOf(pane.Load()["status"]);
                         check("remembrance cli model: with Codex's pick not known the Status line says the automatic pick and no slug: " + pickUnknown,
-                            appliedCodex && s.Get(SummaryRoute.CodexModelKey, null) == "" &&
+                            // Unset or "", the automatic pick either way: Automatic was what Load showed for a Codex model
+                            // never saved, so since N-cli-model-effort-11 the Apply leaves the key unset.
+                            appliedCodex && string.IsNullOrEmpty(s.Get(SummaryRoute.CodexModelKey, null)) &&
                             pickUnknown == "on Codex CLI, automatic pick at " + SummaryRoute.EffortFor(s, CodingAgentKind.Codex) + " effort");
 
                         // ---- with no CLI saved, after one was in use (the second on-screen walk: "No CLI in use yet") ----
@@ -7963,7 +8185,17 @@ namespace DesktopAICompanion.RemembranceModule
                             .StartsWith("✗ Pick a model first", StringComparison.Ordinal) && provider.ChatCount == 0);
                     Dictionary<string, string> picked = CopyOf(shown);
                     picked["cloudModel"] = "gpt-test-small";
+                    // N-cli-model-effort-07: the cloud card's Status row, recorded at each notification.
+                    var cloudNotes = new List<string>();
+                    Action noteCloud = delegate { lock (cloudNotes) cloudNotes.Add(module._lastCloudValidation ?? ""); };
+                    pane.InfoChanged += noteCloud;
                     string validated = Press(PaneActionFor(pane, SummaryRoute.CloudCardGroup, "Validate"), picked, ui, TimeSpan.FromSeconds(10));
+                    pane.InfoChanged -= noteCloud;
+                    List<string> cloudSeen;
+                    lock (cloudNotes) cloudSeen = new List<string>(cloudNotes);
+                    check("remembrance live info: a cloud Validate tells the open pane once its answer is kept for the card's Status row: " +
+                          string.Join(" | ", cloudSeen),
+                        cloudSeen.Exists(n => n.StartsWith("\u2713 answered at ", StringComparison.Ordinal)));
                     check("remembrance cloud: Validate makes one tiny call on the model on screen with the saved key: " + validated,
                         validated != null && validated.StartsWith("✓ cloud.example.invalid answered in", StringComparison.Ordinal) &&
                         validated.EndsWith("on gpt-test-small.", StringComparison.Ordinal) && provider.ChatCount == 1 &&

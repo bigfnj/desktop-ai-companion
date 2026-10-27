@@ -3638,10 +3638,11 @@ CASES = (
     # BUG-013 (c): Apply writes the pull's selection over again, the pull's write goes unrecorded, the record beats
     # the user's own pick, or every untouched field is kept (the diff-every-field rule addendum 1 refused, which
     # leaves the derived summary model unsaved).
+    # Re-pointed by lane feature/remembrance-backlog: Save also hands over what Load showed (N-cli-model-effort-11).
     ("feature/remembrance-2: Apply writes over a background write again (BUG-013)",
      REMEMBRANCE_MODULE,
-     b"                    ApplyPaneValues(_settings, values, BackgroundWritesToKeep(values));\n",
-     b"                    ApplyPaneValues(_settings, values, null);\n",
+     b"                    ApplyPaneValues(_settings, values, BackgroundWritesToKeep(values), _loadedValues);\n",
+     b"                    ApplyPaneValues(_settings, values, null, _loadedValues);\n",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "a model the pull selected while the pane was open survives an Apply"),
@@ -4171,16 +4172,18 @@ CASES = (
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "an install whose old checkbox was OFF shows Create a folder by date"),
 
+    # Re-pointed by lane feature/remembrance-backlog: Save settles its bookkeeping after a write that worked
+    # (AppliedAsShown), and an untouched Apply stores no layout at all since N-cli-model-effort-11 (the check's words).
     ("feature/remembrance-2: Apply writes the old checkbox's key",
      REMEMBRANCE_MODULE,
      b"                    bool ok = _settings.Save();\n"
-     b"                    RegisterHotkeys();",
+     b"                    if (ok) AppliedAsShown(values);\n",
      b"                    _settings.Set(FolderLayout.LegacySettingKey, \"true\");\n"
      b"                    bool ok = _settings.Save();\n"
-     b"                    RegisterHotkeys();",
+     b"                    if (ok) AppliedAsShown(values);\n",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
-     "an untouched Apply stores the new key's id and leaves the old checkbox's key as it was"),
+     "an untouched Apply leaves the old checkbox's key as it was"),
 
     ("feature/remembrance-2: Apply drops a writable field",
      REMEMBRANCE_MODULE,
@@ -12749,6 +12752,79 @@ CASES = (
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      'the CLI rows are one per CLI, first in the card, each live only while its CLI is chosen on screen'),
+
+    # N-cli-model-effort-07: each place the module tells the open pane its Info rows changed loses that call, so the Status
+    # line and the CLI card keep what they showed until a rebuild, as the second on-screen walk saw.
+    ('remembrance-backlog: live info: a recording\'s summary no longer tells the open pane',
+     REMEMBRANCE_MODULE,
+     b'                    // The summary\'s outcome and what answered it, in the Status line and the CLI row (N-cli-model-effort-07).\n'
+     b'                    NotifyInfoChanged();\n',
+     b'',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a recording's summary tells the open pane once it is done"),
+    ('remembrance-backlog: live info: a recording\'s transcription no longer tells the open pane',
+     REMEMBRANCE_MODULE,
+     b'                    NotifyInfoChanged();   // the Status line says it is transcribed while the summary runs (N-cli-model-effort-07)\n',
+     b'',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a recording's transcription tells the open pane its Status line changed"),
+    ('remembrance-backlog: live info: a CLI Validate no longer tells the open pane',
+     REMEMBRANCE_MODULE,
+     b'                NotifyInfoChanged();   // the card\'s Status row and the CLI rows (N-cli-model-effort-07)\n',
+     b'',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a CLI Validate tells the open pane once its answer is kept"),
+    ('remembrance-backlog: live info: a cloud Validate no longer tells the open pane',
+     REMEMBRANCE_MODULE,
+     b'                NotifyInfoChanged();   // the cloud card\'s Status row (N-cli-model-effort-07)\n',
+     b'',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a cloud Validate tells the open pane once its answer is kept"),
+    ('remembrance-backlog: live info: a Try it on a file press no longer tells the open pane',
+     REMEMBRANCE_MODULE,
+     b'            Announce(spoken);\n            NotifyInfoChanged();\n',
+     b'            Announce(spoken);\n',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Summarize a transcript tells the open pane once the summary is written"),
+    # ...and the guard: Load drops a background write's record whatever it shows, the shape Load had before host 1.6.1's
+    # live refresh, so a refresh between the pull's write and an Apply lets the untouched screen write the old model back.
+    ('remembrance-backlog: live info: a Load drops a background write\'s record again (the guard)',
+     REMEMBRANCE_MODULE,
+     b'                        if (string.Equals(StoredFormOf(write.Key, was), StoredFormOf(write.Key, now), StringComparison.Ordinal)) continue;\n',
+     b'                        if (write.Key != null) continue;\n',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a model the pull selected survives an Apply after the pane's live refresh reloaded it"),
+
+    # N-cli-model-effort-11: Apply stores every field it is handed again, the defaults nobody chose included; or the derived
+    # summary model loses its exception, the diff for every field the feature/remembrance-2 entry refused; or the diff
+    # treats every field as untouched, so an edit is lost.
+    ('remembrance-backlog: apply: an untouched field is stored again',
+     REMEMBRANCE_MODULE,
+     b'                if (shownAtLoad != null && UnchangedSinceLoad(id, stored, shownAtLoad)) continue;\n',
+     b'',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "an untouched Apply on a fresh install stores no default nobody chose"),
+    ('remembrance-backlog: apply: the derived summary model is left unsaved by an untouched Apply',
+     REMEMBRANCE_MODULE,
+     b'            if (Array.IndexOf(StoredEvenWhenUntouched, id) >= 0) return false;\n',
+     b'',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "WITNESS an untouched Apply still persists the derived preselection"),
+    ('remembrance-backlog: apply: every field reads as untouched, so an edit is not stored',
+     REMEMBRANCE_MODULE,
+     b'            return shownAtLoad.TryGetValue(id, out loaded) && string.Equals(StoredFormOf(id, loaded), stored, StringComparison.Ordinal);\n',
+     b'            return shownAtLoad.TryGetValue(id, out loaded);\n',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "WITNESS a field the user changes is stored"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
