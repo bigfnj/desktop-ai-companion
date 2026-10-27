@@ -71,8 +71,11 @@ closed** — and four record defects were repaired, including a closed entry tha
 been done" four minutes after it was done.
 
 Highest value open items, in the order I would take them:
-1. Four more `pink_sheep` states that cannot answer a border at `where=130`/`where=18` (66 of the
-   335 occurrences; same analysis as the taskbar pair, not yet done).
+1. CLOSED BY DESIGN on 2026-09-26, so do not add edges for it: the four `pink_sheep` states that
+   log at `where=130`/`where=18` (66 of the 335 occurrences). The host answers a -1 there on purpose,
+   letting the companion carry on rising past a window's underside or let go of a window's edge, so an
+   edge would make it hang where it now passes through. What was wrong was the log level, which is
+   `info` there since that day (`docs/BACKLOG-CLOSED.md`, the entry marked CLOSED 2026-09-26).
 2. `PendingModuleUpdates` / module install robustness residue.
 3. The resource-soak bound (item 1 above).
 4. `AgentFlow`'s `CdpApprover` decoding WebSocket frames one chunk at a time, so a multi-byte

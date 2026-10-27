@@ -27,11 +27,14 @@ namespace DesktopAICompanion.WindowSoak
     ///   1. every window is UNREACHABLE after an LOH-compacting GC (a rooted Window is the leak that matters,
     ///      and it is the only signal here that is not a heuristic);
     ///   2. OS handles / GDI / USER are flat across the LAST segment;
-    ///   3. the last segment's private bytes barely move.
-    /// Segment 1 is deliberately excluded from 2 and 3: the first pass legitimately sets a high watermark
-    /// because the pet's sprite sheet is large and caches fill. Comparing segment N against segment N-1 rather
-    /// than against a cold start is what makes this signal usable -- and it is precisely what surfaced the
-    /// re-decode bug, where a debounced re-analyze decoded a ~15 MB sheet on every keystroke-settle.
+    ///   3. private bytes show no upward TREND: the least-squares slope of the sample taken after each
+    ///      segment, over every segment, stays under a bound (PrivateBytesJudge, at least four segments).
+    /// Segment 1's own growth from the cold start is deliberately excluded from 2 and 3: the first pass
+    /// legitimately sets a high watermark because the pet's sprite sheet is large and caches fill. Comparing
+    /// segments with each other rather than with a cold start is what makes the signal usable -- and it is
+    /// precisely what surfaced the re-decode bug, where a debounced re-analyze decoded a ~15 MB sheet on every
+    /// keystroke-settle. Private bytes used to be judged like 2, the last segment against the one before, and
+    /// that sat inside its own noise (N-release-150-01): see PrivateBytesJudge for the numbers.
     ///
     /// Everything about the module is reached by reflection: PetStudioWindow is `internal sealed`, so there is
     /// nothing to reference at compile time. A missing member is a hard FAIL, never a skip -- a soak that
@@ -65,6 +68,15 @@ namespace DesktopAICompanion.WindowSoak
                 {
                     Console.Error.WriteLine(options.Error);
                     return 2;
+                }
+
+                // The judge on its own, over recorded and synthetic series: no module, no pet, no window, so it
+                // runs anywhere this exe builds (the mutation harness grades it; see PrivateBytesJudge.SelfTest).
+                if (options.JudgeSelfTestOnly)
+                {
+                    bool judged = PrivateBytesJudge.SelfTest(sb);
+                    sb.AppendLine("RESULT=" + (judged ? "PASS" : "FAIL"));
+                    return judged ? 0 : 1;
                 }
 
                 Console.WriteLine("module   : " + options.ModulePath);
@@ -142,8 +154,12 @@ namespace DesktopAICompanion.WindowSoak
             // as the one shape a reader is told to wave through.
             IHost host = new RecordingHost();
 
-            bool ok = true;
+            // The judge proves itself first, on every soak, over the series it was calibrated on: nothing in the
+            // gate runs the soak, so this is the one place a run of it is guaranteed to exercise the judge whose
+            // verdict it prints. A judge that misjudges them leaves this run with no private-bytes verdict to give.
+            bool ok = PrivateBytesJudge.SelfTest(sb);
             Sample previous = null;
+            var privateAfter = new List<long>();
 
             for (int segment = 1; segment <= options.Segments; segment++)
             {
@@ -185,7 +201,7 @@ namespace DesktopAICompanion.WindowSoak
                     (rootedAt.Count > 0 ? " at cycle " + string.Join(",", rootedAt.ConvertAll(n => n.ToString(CultureInfo.InvariantCulture)).ToArray()) : "") +
                     ")", rootedAt.Count == 0);
 
-                // Growth bounds apply to the LAST segment only: an earlier one legitimately warms caches.
+                // The count bounds apply to the LAST segment only: an earlier one legitimately warms caches.
                 if (previous != null && segment == options.Segments)
                 {
                     ok &= Check(sb, "handles flat across the last segment (" +
@@ -197,16 +213,19 @@ namespace DesktopAICompanion.WindowSoak
                     ok &= Check(sb, "USER objects flat across the last segment (" +
                         Delta(previous.User, after.User) + ")",
                         after.User - previous.User <= options.MaximumUserGrowth);
-                    ok &= Check(sb, "private bytes settled across the last segment (" +
-                        Megabytes(after.PrivateBytes - previous.PrivateBytes) + ")",
-                        after.PrivateBytes - previous.PrivateBytes <= options.MaximumPrivateByteGrowth);
                 }
 
+                privateAfter.Add(after.PrivateBytes);
                 previous = after;
             }
 
             if (options.Segments < 2)
                 ok &= Check(sb, "at least two segments ran (growth needs a previous segment to compare against)", false);
+
+            // Private bytes are judged once, over every segment, AFTER the loop: a trend needs the whole series,
+            // and a run with too few segments for one is refused by the judge rather than judged on one step.
+            PrivateBytesJudge.Verdict privateVerdict = PrivateBytesJudge.Judge(privateAfter, options.MaximumPrivateByteSlope);
+            ok &= Check(sb, privateVerdict.Text, privateVerdict.Passed);
 
             sb.AppendLine("RESULT=" + (ok ? "PASS" : "FAIL"));
             return ok;
@@ -227,8 +246,167 @@ namespace DesktopAICompanion.WindowSoak
 
         private static string Megabytes(long bytes)
         {
+            return Megabytes((double)bytes);
+        }
+
+        private static string Megabytes(double bytes)
+        {
             double mb = bytes / (1024.0 * 1024.0);
             return (mb >= 0 ? "+" : "") + mb.ToString("0.0", CultureInfo.InvariantCulture) + " MB";
+        }
+
+        /// <summary>
+        /// The private-bytes verdict: the least-squares slope of the sample taken after each segment's Collect(),
+        /// over every segment, against a bound per segment.
+        ///
+        /// WHY A SLOPE (N-release-150-01). This judged the last segment against the one before under a 24 MiB
+        /// bound, and that sat inside its own noise. Cutting v1.5.0 on 2026-10-08 it failed once at +38.7 MB with
+        /// handles, GDI and USER flat and every window collected, on a Companion Studio byte-identical to 1.4.0's;
+        /// four 4-segment reruns alternating master's 1.4.0 build and the release build all passed, with private
+        /// bytes moving by up to 37 MB a segment on BOTH builds and never growing every segment. That is the GC
+        /// keeping or returning heap after a compacting collection: a watermark, a LEVEL that swings, and one step
+        /// of a level is as likely to read +38 as -37. A leak is the other shape. It adds about the same amount
+        /// every segment, so the series climbs, and the slope through it is the leak's rate.
+        ///
+        /// THE NUMBERS. A level that swings within a range R moves the least-squares slope through n equally spaced
+        /// points by at most (R / 2) * sum|x - mean| / sum (x - mean)^2: 0.4 R over four segments, 0.3 R over five,
+        /// 0.26 R over six. The largest recorded swing is the failing step, 38.7 MB (the four reruns' levels spanned
+        /// 27.0 to 37.1 MB), so a watermark alone moves the slope by at most 15.5 MB a segment over four segments
+        /// and 11.6 over five. The recorded negative test, every window rooted, grew 31.4 MB in one segment, so a
+        /// leak at that rate under the worst swing still judges at least 15.9 over four segments and 19.8 over
+        /// five. The bound sits between the two at 16 MiB a segment. At four segments the two worst cases meet
+        /// (15.5 against 15.9), which is why the soak's default is five segments and four is the floor. Left at the
+        /// old 24 MiB, the slope would pass that leak under master's recorded swings (+22.6), which is what the
+        /// "under master 1.4.0's recorded swings" check below pins.
+        ///
+        /// Refused: the median of the per-segment steps (with three steps, a level alternating +37, -37, +37 has a
+        /// median of +37 and fails, a watermark read as a leak); also requiring growth in EVERY segment (a real
+        /// leak under one -37 MB swing would then pass); the median of several runs, the entry's other suggestion,
+        /// because a run here is one process and nothing re-runs it. The handle, GDI and USER bounds are not
+        /// touched: they are counts that do not swing, and they still judge the last segment against the one
+        /// before.
+        /// </summary>
+        internal static class PrivateBytesJudge
+        {
+            /// <summary>Segment 1's sample as the base and three segments of change after it.</summary>
+            internal const int MinimumSegments = 4;
+
+            internal const long MaximumSlopePerSegment = 16L * 1024 * 1024;
+
+            internal struct Verdict
+            {
+                internal bool Passed;
+                internal bool Refused;
+                internal double Slope;
+                internal string Text;
+            }
+
+            /// <param name="afterSegment">private bytes after each segment's Collect(), segment 1 first</param>
+            internal static Verdict Judge(IList<long> afterSegment, long maximumSlopePerSegment)
+            {
+                const string label = "private bytes show no upward trend across the segments";
+                int n = afterSegment == null ? 0 : afterSegment.Count;
+                if (n < MinimumSegments)
+                {
+                    return new Verdict
+                    {
+                        Passed = false,
+                        Refused = true,
+                        Slope = double.NaN,
+                        Text = label + ": NOT JUDGED, a slope needs at least " + MinimumSegments.ToString(CultureInfo.InvariantCulture) +
+                               " segments and " + n.ToString(CultureInfo.InvariantCulture) + " ran",
+                    };
+                }
+
+                double slope = Slope(afterSegment);
+                int grew = 0;
+                var relative = new List<string>();
+                for (int i = 0; i < n; i++)
+                {
+                    if (i > 0 && afterSegment[i] > afterSegment[i - 1]) grew++;
+                    relative.Add(Megabytes(afterSegment[i] - afterSegment[0]));
+                }
+                return new Verdict
+                {
+                    Passed = slope <= maximumSlopePerSegment,
+                    Refused = false,
+                    Slope = slope,
+                    Text = label + " (slope " + Megabytes(slope) + " a segment over " + n.ToString(CultureInfo.InvariantCulture) +
+                           " segments, bound " + Megabytes(maximumSlopePerSegment) + "; after each segment against segment 1: " +
+                           string.Join(", ", relative.ToArray()) + "; grew in " + grew.ToString(CultureInfo.InvariantCulture) +
+                           " of " + (n - 1).ToString(CultureInfo.InvariantCulture) + ")",
+                };
+            }
+
+            /// <summary>Ordinary least squares over x = 1..n, in bytes per segment.</summary>
+            internal static double Slope(IList<long> y)
+            {
+                int n = y.Count;
+                double meanX = (n + 1) / 2.0;
+                double meanY = 0;
+                for (int i = 0; i < n; i++) meanY += y[i];
+                meanY /= n;
+                double sxy = 0, sxx = 0;
+                for (int i = 0; i < n; i++)
+                {
+                    double dx = (i + 1) - meanX;
+                    sxy += dx * (y[i] - meanY);
+                    sxx += dx * dx;
+                }
+                return sxy / sxx;
+            }
+
+            /// <summary>
+            /// The judge over the entry's recorded series and synthetic ones, with no module and no window. Each step
+            /// is in MB as this harness prints them (MiB), the change after segments 2, 3, ... from a base of 400 MiB.
+            /// A verdict that is right for the wrong reason (a refusal read as a fail) does not count: every judged
+            /// series must also be judged, not refused.
+            /// </summary>
+            internal static bool SelfTest(StringBuilder sb)
+            {
+                bool ok = true;
+                // N-release-150-01's four reruns, 4 segments each, alternating the two builds: all passed in life.
+                ok &= Expect(sb, "judge: master 1.4.0's recorded run A passes", Steps(4.2, -37.1, 15.8), true);
+                ok &= Expect(sb, "judge: master 1.4.0's recorded run B passes", Steps(15.2, -0.4, -30.5), true);
+                ok &= Expect(sb, "judge: the v1.5.0 release build's recorded run A passes", Steps(-27.0, 16.8, -5.4), true);
+                ok &= Expect(sb, "judge: the v1.5.0 release build's recorded run B passes", Steps(-24.9, -5.6, 14.0), true);
+                // The one step that failed the v1.5.0 cut, as the last of three after two recorded swings. The
+                // last-segment rule failed exactly this (+38.7 over its 24 MiB); its slope is +6.8.
+                ok &= Expect(sb, "judge: the +38.7 MB step that failed the v1.5.0 cut passes as the last of three after two recorded swings",
+                    Steps(-37.1, 15.8, 38.7), true);
+                // A leak at the recorded rooted-window rate, steady, and under master run A's swings laid over it.
+                ok &= Expect(sb, "judge: a steady leak at the rooted-window rate (+31.4 MB every segment) fails",
+                    Steps(31.4, 31.4, 31.4), false);
+                ok &= Expect(sb, "judge: the same leak under master 1.4.0's recorded swings still fails",
+                    Steps(31.4 + 4.2, 31.4 - 37.1, 31.4 + 15.8), false);
+                // The bound itself, from both sides.
+                ok &= Expect(sb, "judge: steady growth at the bound (+16.0 MB every segment) passes", Steps(16.0, 16.0, 16.0), true);
+                ok &= Expect(sb, "judge: steady growth over the bound (+16.5 MB every segment) fails", Steps(16.5, 16.5, 16.5), false);
+                // Too few segments for a slope: refused, so a two-segment run can neither pass nor fail on one step.
+                Verdict two = Judge(Steps(38.7), MaximumSlopePerSegment);
+                ok &= Check(sb, "judge: a two-segment run (the v1.5.0 cut's one +38.7 MB step) is refused, not judged (" + two.Text + ")",
+                    two.Refused && !two.Passed);
+                Verdict three = Judge(Steps(-1.0, 1.0), MaximumSlopePerSegment);
+                ok &= Check(sb, "judge: a three-segment run is refused too (" + three.Text + ")", three.Refused && !three.Passed);
+                return ok;
+            }
+
+            private static bool Expect(StringBuilder sb, string label, List<long> series, bool shouldPass)
+            {
+                Verdict verdict = Judge(series, MaximumSlopePerSegment);
+                return Check(sb, label + " (" + (verdict.Refused ? "refused: " : "slope ") +
+                    (verdict.Refused ? verdict.Text : Megabytes(verdict.Slope) + " a segment") + ")",
+                    !verdict.Refused && verdict.Passed == shouldPass);
+            }
+
+            private static List<long> Steps(params double[] steps)
+            {
+                const double mib = 1024.0 * 1024.0;
+                var series = new List<long> { 400L * 1024 * 1024 };
+                foreach (double step in steps)
+                    series.Add(series[series.Count - 1] + (long)Math.Round(step * mib));
+                return series;
+            }
         }
 
         /// <summary>Compacting the LOH matters here: the decoded sprite sheet is a large-object allocation, so
@@ -463,20 +641,25 @@ namespace DesktopAICompanion.WindowSoak
             internal string PetPath;
             internal string TypeName = DefaultTypeName;
             internal int Cycles = 20;
-            internal int Segments = 2;
+            // Five, not the two this was: the private-byte judge needs PrivateBytesJudge.MinimumSegments (four) for a
+            // slope at all, and a fifth narrows what a GC watermark can do to it (from 0.4 to 0.3 of the swing's range;
+            // the arithmetic is on PrivateBytesJudge). tests\module-window-soak.ps1 passes its own -Segments.
+            internal int Segments = 5;
+            internal bool JudgeSelfTestOnly;
             internal string Error;
 
             // The three COUNT bounds are numerically the ones runtime-resource-soak.ps1 uses; the two harnesses do
             // NOT report on one scale, which is what this comment used to claim (F389). That script judges GDI,
             // USER and handles as a RATE per settled interval of 40 churn cycles and private bytes on raw
             // first-vs-last samples over the whole run under 64 MB; this one judges last-segment TOTALS over 20
-            // window cycles, and its private-byte bound is 24 MiB on purpose: one window's sprite cache is the
-            // subject, and the recorded negative test (every window rooted, +31.4 MB in segment 2) would PASS
-            // at 64 MB. Read the two harnesses' numbers as two measurements, not one.
+            // window cycles, and private bytes by their SLOPE per segment across the run, bounded at 16 MiB a
+            // segment (PrivateBytesJudge says why that number): one window's sprite cache is the subject, and the
+            // recorded negative test (every window rooted, +31.4 MB in segment 2) would PASS at 64 MB. Read the
+            // two harnesses' numbers as two measurements, not one.
             internal long MaximumHandleGrowth = 16;
             internal long MaximumGdiGrowth = 16;
             internal long MaximumUserGrowth = 16;
-            internal long MaximumPrivateByteGrowth = 24L * 1024 * 1024;
+            internal long MaximumPrivateByteSlope = PrivateBytesJudge.MaximumSlopePerSegment;
 
             internal static Options Parse(string[] args)
             {
@@ -503,14 +686,17 @@ namespace DesktopAICompanion.WindowSoak
                         case "--segments":
                             if (!TryParseCount(value, out options.Segments)) { options.Error = InvalidCount(name, value); return options; }
                             i++; break;
+                        case "--judge-selftest": options.JudgeSelfTestOnly = true; break;
                         default:
                             options.Error = "unknown argument '" + name +
-                                "' (expected --module/--pet/--type/--cycles/--segments)";
+                                "' (expected --module/--pet/--type/--cycles/--segments/--judge-selftest)";
                             return options;
                     }
                 }
 
-                if (string.IsNullOrEmpty(options.ModulePath) || string.IsNullOrEmpty(options.PetPath))
+                // The judge's self-test reads neither file, so it needs no repository root to find them.
+                if (!options.JudgeSelfTestOnly &&
+                    (string.IsNullOrEmpty(options.ModulePath) || string.IsNullOrEmpty(options.PetPath)))
                     options.Error = "could not locate the repository root; pass --module and --pet explicitly.";
                 return options;
             }

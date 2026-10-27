@@ -3370,6 +3370,84 @@ CASES = (
         b"",
         "host-runtime: the default speaker and the drop subject choose",
     ),
+
+    # ---- lane feature/test-infra ----
+    # The module-window soak's wiring (BACKLOG N-release-150-01) and the module self-test runner's per-module limit
+    # (N-release-150-02), each broken the way it would break. Source only, like every case here; the judge's own
+    # arithmetic is graded by tests/mutate-selftest-guards.py's WINDOWSOAK-JUDGE cases. "test-infra:" for one --only.
+    (
+        "test-infra: the window soak's GDI bound moves",
+        os.path.join(REPO, "tests", "DesktopAICompanion.WindowSoak", "Program.cs"),
+        b"            internal long MaximumGdiGrowth = 16;\n",
+        b"            internal long MaximumGdiGrowth = 24;\n",
+        "WITNESS test-infra: the window soak still judges handles, GDI and USER",
+    ),
+    (
+        "test-infra: the window soak judges the last segment's private bytes again, beside the judge",
+        os.path.join(REPO, "tests", "DesktopAICompanion.WindowSoak", "Program.cs"),
+        b"                        after.User - previous.User <= options.MaximumUserGrowth);\n                }\n",
+        b"                        after.User - previous.User <= options.MaximumUserGrowth);\n"
+        b"                    ok &= Check(sb, \"private bytes settled across the last segment\",\n"
+        b"                        after.PrivateBytes - previous.PrivateBytes <= options.MaximumPrivateByteSlope);\n"
+        b"                }\n",
+        "test-infra: the window soak judges private bytes once",
+    ),
+    (
+        "test-infra: the window soak's private-bytes verdict is not folded into its result",
+        os.path.join(REPO, "tests", "DesktopAICompanion.WindowSoak", "Program.cs"),
+        b"            ok &= Check(sb, privateVerdict.Text, privateVerdict.Passed);\n",
+        b"            Check(sb, privateVerdict.Text, privateVerdict.Passed);\n",
+        "test-infra: the window soak judges private bytes once",
+    ),
+    (
+        "test-infra: the window soak no longer proves its judge before the first window",
+        os.path.join(REPO, "tests", "DesktopAICompanion.WindowSoak", "Program.cs"),
+        b"            bool ok = PrivateBytesJudge.SelfTest(sb);\n",
+        b"            bool ok = true;\n",
+        "test-infra: the window soak judges private bytes once",
+    ),
+    (
+        "test-infra: the shared module self-test limit moves",
+        os.path.join(REPO, "tests", "Test-ModuleSelfTests.ps1"),
+        b"    [int]$TimeoutSeconds = 180\n",
+        b"    [int]$TimeoutSeconds = 240\n",
+        "WITNESS test-infra: the module self-test runner was read",
+    ),
+    (
+        "test-infra: fortunes is back on the shared module self-test limit",
+        os.path.join(REPO, "tests", "Test-ModuleSelfTests.ps1"),
+        b"$ModuleTimeoutSeconds = @{ 'fortunes' = 300 }\n",
+        b"$ModuleTimeoutSeconds = @{}\n",
+        "test-infra: Test-ModuleSelfTests.ps1 gives fortunes",
+    ),
+    (
+        "test-infra: a second module gets its own self-test limit",
+        os.path.join(REPO, "tests", "Test-ModuleSelfTests.ps1"),
+        b"$ModuleTimeoutSeconds = @{ 'fortunes' = 300 }\n",
+        b"$ModuleTimeoutSeconds = @{ 'fortunes' = 300; 'agentflow' = 300 }\n",
+        "test-infra: Test-ModuleSelfTests.ps1 gives fortunes",
+    ),
+    (
+        "test-infra: a module self-test waits for the shared limit again",
+        os.path.join(REPO, "tests", "Test-ModuleSelfTests.ps1"),
+        b"    $exited = $process.WaitForExit($limit * 1000)\n",
+        b"    $exited = $process.WaitForExit($TimeoutSeconds * 1000)\n",
+        "test-infra: Test-ModuleSelfTests.ps1 gives fortunes",
+    ),
+    (
+        "test-infra: a module's own self-test limit can undercut the caller's",
+        os.path.join(REPO, "tests", "Test-ModuleSelfTests.ps1"),
+        b"    if ($ModuleTimeoutSeconds.ContainsKey($Id)) { return [Math]::Max([int]$ModuleTimeoutSeconds[$Id], $TimeoutSeconds) }\n",
+        b"    if ($ModuleTimeoutSeconds.ContainsKey($Id)) { return [int]$ModuleTimeoutSeconds[$Id] }\n",
+        "test-infra: Test-ModuleSelfTests.ps1 gives fortunes",
+    ),
+    (
+        "test-infra: a module self-test TIMEOUT stops naming the module and its limit",
+        os.path.join(REPO, "tests", "Test-ModuleSelfTests.ps1"),
+        b"                                  Reasons = @(\"$Id did not exit within its ${limit}s limit ($whose)\") }\n",
+        b"                                  Reasons = @(\"did not exit in ${TimeoutSeconds}s\") }\n",
+        "test-infra: a module self-test TIMEOUT names",
+    ),
 )
 
 

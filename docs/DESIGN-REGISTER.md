@@ -5642,6 +5642,62 @@ after setup or a feature update, and the comments now say so. The pane's label "
 Disturb" is left as it is until the live check is read (Do Not Disturb on, a test question from the debug window, the
 host's `[question] held` line), which is a GUI action this lane did not take.
 
+#### feature/test-infra
+
+Test infrastructure and records (campaign of 2026-10-26). No module, host or published payload changes, so no version
+moves. Each paragraph is a choice that could read as a defect, or as work left half done.
+
+**The module-window soak judges private bytes by their slope, not by one step (N-release-150-01).** It judged the last
+segment against the one before under 24 MiB, and that sat inside its own noise: the v1.5.0 cut failed once at +38.7 MB
+on a Companion Studio byte-identical to 1.4.0's, and four 4-segment reruns on both builds swung by up to 37 MB a segment
+without ever growing every segment. That is a GC watermark, a level that swings; a leak adds about the same amount every
+segment. `PrivateBytesJudge` in `tests/DesktopAICompanion.WindowSoak/Program.cs` fits a least-squares line through the
+sample taken after each segment and bounds its slope at 16 MiB a segment, needing at least four segments. The bound
+comes from the recorded numbers, worked through in the class's comment: a swing of the recorded size moves the slope by
+at most 15.5 MB a segment over four segments and 11.6 over five, while the recorded every-window-rooted leak (+31.4 MB a
+segment) still judges at least 15.9 and 19.8. Four segments is the floor, where the two worst cases nearly meet, and
+five is the default. Refused: the median of the steps (a level alternating +37, -37, +37 has a median of +37, a watermark
+judged as a leak), also requiring growth in every segment (a real leak under one -37 MB swing would pass), and the median
+of several runs (one run is one process, and nothing re-runs it). Handles, GDI and USER are counts that do not swing and
+are judged as before. The judge runs on its own as `--judge-selftest` (no window, no module), which
+`tests/mutate-selftest-guards.py` grades as WINDOWSOAK-JUDGE, and every soak runs it before its first window. **Until
+`tests/module-window-soak.ps1` changes (outside this lane), its default `-Segments 2` makes the soak FAIL with "NOT
+JUDGED, a slope needs at least 4 segments and 2 ran"**: run it with `-Segments 5`.
+
+**Fortunes has its own module self-test limit of 300 s (N-release-150-02).** Its self-test took 187 s and 174 s under load
+on 2026-10-07 against `tests/Test-ModuleSelfTests.ps1`'s shared 180 s, and 32.4 to 34.5 s in three fresh runs on
+2026-10-26 on a busy box. 300 s is 1.6 times the slowest recorded run. The other modules keep 180 s although agentflow,
+aibrain and remembrance measured 37 to 43 s in the same day's run, because only Fortunes has been recorded near the limit;
+every OK line now prints the module's wall time against its limit, so the next one to approach it is visible first. A
+TIMEOUT names the module, its limit and whose limit that was. A run that fails keeps `environment.txt` beside its markers.
+
+**The template cleanup names what holds a folder it cannot delete, through an open-handle query rather than the Restart
+Manager alone (N-template-cleanup-01).** The release failures were an EMPTY scratch folder refusing deletion, and the
+holder had gone by the time anyone looked. Measured on this box: the Restart Manager named a file's holder and refused a
+folder with error 5, while `NtQueryInformationFile` class 47 named a process whose current directory was the empty
+folder, which reproduces the refusal exactly. So `packaging/Test-ModuleTemplate.ps1` asks the open-handle query about
+every folder and file left and keeps the Restart Manager over the files as a second opinion. Its fixtures, a file this
+process holds and a folder a `ping.exe` child sits in, now run on every template check, because nothing had run
+`-CleanupSelfTest` since it was written. This is instrumentation: the earlier lock's cause is still unknown, and the next
+occurrence will carry it.
+
+**The Fortunes import probe did not fail again (N-fortunes-import-probe-01, DECLINED-MEASURED).** Ten fresh
+`--fortunes-engine-selftest` processes, each with its own short TEMP and data root and real input withheld, all passed
+with `custom_import=PASS` (30.3 to 69.9 s), and so did the three `--module-selftest=fortunes` runs that contain the same
+probe: 0 of 10 plus the 3 earlier. The assertion is unchanged. If it recurs under `tests/Test-ModuleSelfTests.ps1`, the
+kept run now holds the children's TEMP, its length and whether it is an 8.3 alias, the data root, the host's build,
+every module's time and what the children left. Not kept, because keeping it is a Fortunes change:
+`FortuneFileImporter.RunSelfTest` deletes its own scratch even on a failure, and `TestPortableReplacementFallback`
+reports its five conditions as one line.
+
+**A `\\.\pipe\LOCAL\cc-msg-<id>` pipe in a trace of a companion call is Claude Code's own (N-cli-home-files-04,
+ACCEPTED-RECORDED).** Each Claude Code call AI Brain or Remembrance makes through `shared/CodingAgentCli` starts a
+Claude Code process, and that process opens a messaging pipe per session and names it in its stream's init line as
+`messaging_socket_path` (lane feature/cli-home-files' census, 2026-10-10, Claude Code 2.1.293). The companion neither
+creates, reads nor passes it: `ReadClaudeStream` skips the init line whole. The census saw it local to the session and
+gone with the process. It is accepted as the CLI's behaviour, with no lever sought, so a reader who finds one in a handle
+or process trace knows it belongs to that call's Claude Code child, one per call.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of
@@ -5650,14 +5706,20 @@ these is scheduled, and neither is an oversight.
 - 📌 **A module cannot draw on or near the companion.** No ABI for overlay/decoration. Nothing
   planned needs it yet; noted so it is not mistaken for an oversight if something does.
 
-- ⬜ **A module cannot push a live value into an open options pane or tray menu.** Found while
-  porting the standalone app's "Next blink" countdown, which refreshed every 250ms because that app
-  owned its own menu. A module ships DATA and the host renders it, so the best available is a
-  snapshot: `TrayItem.DynamicText` is re-evaluated when the menu opens, and `SettingKind.Info` is
-  read when the pane loads or a `PaneAction` with `ReloadPaneAfter` runs. Good enough for state that
-  changes slowly, useless for a countdown. The readouts were dropped rather than shipped stale. If a
-  live readout is ever wanted this needs an ABI addition (a push channel or a pane-refresh tick) and
-  therefore a host release, which was not worth it for one diagnostic.
+- ⬜ **A module cannot push a live value into an open tray menu.** Found while porting the standalone
+  app's "Next blink" countdown, which refreshed every 250ms because that app owned its own menu. This
+  entry said "an open options pane or tray menu" until 2026-10-26; the pane half has existed since host
+  1.6.1. `OptionsPane.NotifyInfoChanged()` and its `InfoChanged` event (`src/DesktopAICompanion.Contracts/PluginApi.cs`)
+  let a module say that a cached Info value changed: the host coalesces the notifications onto its UI
+  thread and reloads only the pane's existing `SettingKind.Info` rows, keeping the editable controls,
+  the unapplied edits and the layout. It is callable from any thread, inert while the pane is closed,
+  and nothing polls; a changed schema still needs a pane reload. AgentBroker (`MinHostVersion` 1.6.1)
+  is the module that uses it. The tray menu still has only a snapshot: `TrayItem.DynamicText`,
+  `Visible` and `BuildChildren` are evaluated when the menu opens, and nothing updates the text of a
+  menu that is already open. So a countdown can now live in a pane (a module timer calling
+  `NotifyInfoChanged`, with `MinHostVersion` 1.6.1), while one in the tray menu still needs an ABI
+  addition (a push channel for an open menu) and therefore a host release. Blinking LED's readouts
+  were dropped rather than shipped stale, and nothing has brought them back.
 
 **Before writing "needs a host change" about anything else, grep `PluginApi.cs` for the verb.** That
 sentence cost a planning cycle: a Reminder entry asserted the ABI could not drive a companion
@@ -5773,6 +5835,7 @@ today. **The next one filed is BUG-019**, and it is filed in [`../BACKLOG.md`](.
 | BUG-016 | the default companion ran a copy of its file saved in settings.json and never the file itself, so an Update, a Companion Studio install or an upgrade never reached it, from 1.0.0 to 1.5.0 | app 1.5.1 (feature/stale-pet-xml): the launch resolves the default from its companion file, the copy declares its source, and a 1.5.0 copy replaced on its header name is first kept in a side file |
 | BUG-015 | the CLI card said "Claude Code is not installed" on a machine where Claude Code was installed, because the runner looked only on the PATH the app started with, in npm's prefix and in Claude Code's own installer folder | aibrain 1.3.1 and remembrance 2.1.1 (feature/cli-token-and-locate): the PATH saved now, WinGet's package folders and VS Code's copy are searched too |
 | BUG-014 | one module description 25 characters over its bound made every installed app refuse the whole catalog, behind "Couldn't reach the catalog: Catalog contains an invalid module entry." | the catalog by 4d1e228 (2026-10-06); the host on feature/catalog-insight: an entry is refused alone and by name, the gate and the publish scripts run the app's own parser over catalog.json, and the panes word the failure by its case |
+| BUG-013 | Remembrance's "Download that model" pulled the model last applied rather than the one picked on screen, answered only "Downloading <id> in the background", and the next Apply put back a selection the pull had written; every pane action that reads a setting the pane edits read the saved value | remembrance 2.0.0 (feature/remembrance-2, 2026-10-02): the actions act on what is on screen (`InvokeWithPendingAsync`, so `MinHostVersion` 1.2.5), the download waits up to 15 s and answers in the pane, an Apply keeps a write that landed in the background, and the pull's start and success are logged |
 | BUG-012 | Companion Studio decoded and tiled the whole sprite sheet on the UI thread on every analyse, against a record that said it did not | petstudio 1.1.18, 2026-09-29 (F155): the analyser adopts the validator's parse and the analysis runs on a pool thread |
 | BUG-011 | the Scroll Lock blinker's belief about the LED drifted from the LED: a refused keypress still flipped the flag, and enabling zeroed it against a lit key | blinkingled 1.0.6, 2026-09-29 (F116, F115): the flag moves only with the key; since 2026-09-30 `Start()` adopts the key (N-blinkingled-01) |
 | BUG-010 | an unprompted remark was a vision turn while the label said vision was for explicit asks | aibrain 1.1.14, 2026-09-29 (F066): an owner decision, not a code change; the label and comments changed and the module self-test pins the drop's routing |
