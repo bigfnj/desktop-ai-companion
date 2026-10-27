@@ -567,6 +567,8 @@ namespace DesktopAICompanion.Wpf
                 _status.Text = displayName + " size " + pct + "%. Add " + displayName + " (or restart) to see it.";
             };
 
+            // The "size" beside it is a separate TextBlock, so UI Automation read a nameless slider (N-settings-accessibility-01).
+            System.Windows.Automation.AutomationProperties.SetName(slider, "Size of " + displayName);
             row.Children.Add(slider);
             row.Children.Add(readout);
             return row;
@@ -595,6 +597,8 @@ namespace DesktopAICompanion.Wpf
             });
 
             var box = new ComboBox { Width = 168, FontSize = 11, VerticalAlignment = VerticalAlignment.Center };
+            // Named for UI Automation, as the size slider above is (N-settings-accessibility-01).
+            System.Windows.Automation.AutomationProperties.SetName(box, "Screen for " + displayName);
             box.Items.Add("Any screen");
             for (int i = 0; i < screens.Length; i++)
                 box.Items.Add(string.Format(
