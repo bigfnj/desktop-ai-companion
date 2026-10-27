@@ -5519,6 +5519,16 @@ aibrain and remembrance measured 37 to 43 s in the same day's run, because only 
 every OK line now prints the module's wall time against its limit, so the next one to approach it is visible first. A
 TIMEOUT names the module, its limit and whose limit that was. A run that fails keeps `environment.txt` beside its markers.
 
+**The template cleanup names what holds a folder it cannot delete, through an open-handle query rather than the Restart
+Manager alone (N-template-cleanup-01).** The release failures were an EMPTY scratch folder refusing deletion, and the
+holder had gone by the time anyone looked. Measured on this box: the Restart Manager named a file's holder and refused a
+folder with error 5, while `NtQueryInformationFile` class 47 named a process whose current directory was the empty
+folder, which reproduces the refusal exactly. So `packaging/Test-ModuleTemplate.ps1` asks the open-handle query about
+every folder and file left and keeps the Restart Manager over the files as a second opinion. Its fixtures, a file this
+process holds and a folder a `ping.exe` child sits in, now run on every template check, because nothing had run
+`-CleanupSelfTest` since it was written. This is instrumentation: the earlier lock's cause is still unknown, and the next
+occurrence will carry it.
+
 **The Fortunes import probe did not fail again (N-fortunes-import-probe-01, DECLINED-MEASURED).** Ten fresh
 `--fortunes-engine-selftest` processes, each with its own short TEMP and data root and real input withheld, all passed
 with `custom_import=PASS` (30.3 to 69.9 s), and so did the three `--module-selftest=fortunes` runs that contain the same

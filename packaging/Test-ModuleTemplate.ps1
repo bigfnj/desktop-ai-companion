@@ -48,6 +48,238 @@ $loaderRoot = Join-Path $sampleRoot 'loader'
 $outputDir = Join-Path $loaderRoot ("modules\" + $sampleId)
 . (Join-Path $PSScriptRoot 'StagingPathSafety.ps1')
 
+# THE HOLDER, NAMED WHILE IT STILL HOLDS (N-template-cleanup-01). Release validation twice reached a working scaffold,
+# build and load and then failed to delete an EMPTY scratch folder with a sharing violation; by the time anyone looked,
+# a handle query found no holder, so the cause was never established. The final failed attempt below now asks Windows
+# who holds the folder and puts each process's name and PID in the message it throws, so the next occurrence carries
+# its own cause.
+#
+# NOT THE RESTART MANAGER ALONE, which was the first design, because of what it was measured to do here (2026-10-26,
+# Windows 11 26200, under Windows PowerShell 5.1): RmGetList named a FILE's holder correctly (this very process, as
+# "Windows PowerShell", for a file it held open), and for a FOLDER it refused the whole query with error 5, access
+# denied. The failure being chased is a folder with nothing in it, so the Restart Manager could not have answered it.
+# What answers it is the open-handle query the kernel keeps per file object, NtQueryInformationFile with
+# FileProcessIdsUsingFileInformation (class 47) on a handle opened for attributes only with backup semantics: on the
+# same box it named a process whose CURRENT DIRECTORY was an empty folder, which is exactly how such a folder refuses
+# deletion ("being used by another process", reproduced with a ping.exe started in it), and it does not list the
+# querying handle itself. So every folder and file left under the path is asked that way, and each holder is named
+# with what it holds; the Restart Manager still runs over the files as a second opinion and adds any process the first
+# query did not see. Bounded (512 entries, 8 holders named), reparse points are listed but never descended, and it
+# never throws: it decorates a failure already being reported, and a lookup that fails says so in place.
+$templateScratchHoldersSource = @'
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Text;
+
+namespace DesktopAICompanion.TemplateCheck
+{
+    public static class ScratchHolders
+    {
+        [StructLayout(LayoutKind.Sequential)]
+        private struct IO_STATUS_BLOCK { public IntPtr Status; public UIntPtr Information; }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct RM_UNIQUE_PROCESS
+        {
+            public int dwProcessId;
+            public System.Runtime.InteropServices.ComTypes.FILETIME ProcessStartTime;
+        }
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        private struct RM_PROCESS_INFO
+        {
+            public RM_UNIQUE_PROCESS Process;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)] public string strAppName;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 64)] public string strServiceShortName;
+            public int ApplicationType;
+            public uint AppStatus;
+            public uint TSSessionId;
+            [MarshalAs(UnmanagedType.Bool)] public bool bRestartable;
+        }
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern IntPtr CreateFile(string name, uint access, uint share, IntPtr security, uint disposition,
+            uint flags, IntPtr template);
+        [DllImport("kernel32.dll")]
+        private static extern bool CloseHandle(IntPtr handle);
+        [DllImport("ntdll.dll")]
+        private static extern int NtQueryInformationFile(IntPtr handle, out IO_STATUS_BLOCK status, IntPtr buffer,
+            uint length, int informationClass);
+        [DllImport("rstrtmgr.dll", CharSet = CharSet.Unicode)]
+        private static extern int RmStartSession(out uint session, int flags, StringBuilder key);
+        [DllImport("rstrtmgr.dll")]
+        private static extern int RmEndSession(uint session);
+        [DllImport("rstrtmgr.dll", CharSet = CharSet.Unicode)]
+        private static extern int RmRegisterResources(uint session, uint fileCount, string[] files, uint applicationCount,
+            RM_UNIQUE_PROCESS[] applications, uint serviceCount, string[] services);
+        [DllImport("rstrtmgr.dll")]
+        private static extern int RmGetList(uint session, out uint needed, ref uint count, [In, Out] RM_PROCESS_INFO[] processes,
+            ref uint rebootReasons);
+
+        private const int MaximumEntries = 512;
+        private const int MaximumNamed = 8;
+
+        public static string Describe(string path)
+        {
+            string root = Path.GetFullPath(path).TrimEnd('\\');
+            var folders = new List<string>();
+            var files = new List<string>();
+            Collect(root, folders, files);
+            var holders = new SortedDictionary<int, List<string>>();
+            var notes = new List<string>();
+            var entries = new List<string>(folders);
+            entries.AddRange(files);
+            foreach (string entry in entries)
+            {
+                string what = entry.Length == root.Length ? "the directory itself" : entry.Substring(root.Length).TrimStart('\\');
+                string error;
+                long[] ids = OpenHandleHolders(entry, out error);
+                if (ids == null) { if (notes.Count < 3) notes.Add("the open-handle query of " + what + " failed: " + error); continue; }
+                foreach (long id in ids) Hold(holders, (int)id, what);
+            }
+            string restartManager = "no files for the Restart Manager";
+            if (files.Count > 0)
+            {
+                string error;
+                int[] ids = RestartManagerHolders(files.ToArray(), out error);
+                if (ids == null) restartManager = "the Restart Manager failed: " + error;
+                else
+                {
+                    restartManager = "the Restart Manager over the files found " + ids.Length;
+                    foreach (int id in ids)
+                        if (!holders.ContainsKey(id)) Hold(holders, id, "a file in it (seen only by the Restart Manager)");
+                }
+            }
+            if (!Directory.Exists(root) && !File.Exists(root)) notes.Add("the path no longer exists");
+
+            var named = new List<string>();
+            foreach (KeyValuePair<int, List<string>> holder in holders)
+            {
+                if (named.Count == MaximumNamed) { named.Add("and " + (holders.Count - MaximumNamed) + " more"); break; }
+                named.Add(NameOf(holder.Key) + " (PID " + holder.Key + ") on " + string.Join(", ", holder.Value.ToArray()));
+            }
+            return (named.Count > 0 ? string.Join("; ", named.ToArray()) : "none found") +
+                   " (open-handle query over " + folders.Count + " folder(s) and " + files.Count + " file(s); " + restartManager +
+                   (notes.Count > 0 ? "; " + string.Join("; ", notes.ToArray()) : "") + ")";
+        }
+
+        private static void Hold(SortedDictionary<int, List<string>> holders, int id, string what)
+        {
+            List<string> held;
+            if (!holders.TryGetValue(id, out held)) { held = new List<string>(); holders[id] = held; }
+            if (held.Count < 4 && !held.Contains(what)) held.Add(what);
+        }
+
+        private static string NameOf(int id)
+        {
+            try { using (Process process = Process.GetProcessById(id)) return process.ProcessName; }
+            catch (Exception) { return "a process that has since exited"; }
+        }
+
+        private static void Collect(string root, List<string> folders, List<string> files)
+        {
+            if (File.Exists(root)) { files.Add(root); return; }
+            if (!Directory.Exists(root)) return;
+            folders.Add(root);
+            var pending = new Queue<string>();
+            pending.Enqueue(root);
+            while (pending.Count > 0 && folders.Count + files.Count < MaximumEntries)
+            {
+                string[] children;
+                try { children = Directory.GetFileSystemEntries(pending.Dequeue()); }
+                catch (Exception) { continue; }
+                foreach (string child in children)
+                {
+                    if (folders.Count + files.Count >= MaximumEntries) break;
+                    FileAttributes attributes;
+                    try { attributes = File.GetAttributes(child); }
+                    catch (Exception) { continue; }
+                    if ((attributes & FileAttributes.Directory) == 0) { files.Add(child); continue; }
+                    folders.Add(child);
+                    if ((attributes & FileAttributes.ReparsePoint) == 0) pending.Enqueue(child);
+                }
+            }
+        }
+
+        // FILE_READ_ATTRIBUTES, share read|write|delete, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS (a folder opens only so).
+        private static long[] OpenHandleHolders(string path, out string error)
+        {
+            error = null;
+            IntPtr handle = CreateFile(path, 0x80, 7, IntPtr.Zero, 3, 0x02000000, IntPtr.Zero);
+            if (handle == new IntPtr(-1)) { error = "CreateFile error " + Marshal.GetLastWin32Error(); return null; }
+            try
+            {
+                int size = 4096;
+                for (int attempt = 0; attempt < 6; attempt++, size *= 4)
+                {
+                    IntPtr buffer = Marshal.AllocHGlobal(size);
+                    try
+                    {
+                        IO_STATUS_BLOCK status;
+                        int result = NtQueryInformationFile(handle, out status, buffer, (uint)size, 47);
+                        if (result == unchecked((int)0xC0000004)) continue;   // STATUS_INFO_LENGTH_MISMATCH
+                        if (result != 0) { error = "NtQueryInformationFile status 0x" + result.ToString("X8"); return null; }
+                        int count = Marshal.ReadInt32(buffer);
+                        var ids = new List<long>();
+                        for (int i = 0; i < count; i++) ids.Add(Marshal.ReadIntPtr(buffer, IntPtr.Size * (i + 1)).ToInt64());
+                        return ids.ToArray();
+                    }
+                    finally { Marshal.FreeHGlobal(buffer); }
+                }
+                error = "the holder list did not fit";
+                return null;
+            }
+            finally { CloseHandle(handle); }
+        }
+
+        private static int[] RestartManagerHolders(string[] files, out string error)
+        {
+            error = null;
+            uint session;
+            int result = RmStartSession(out session, 0, new StringBuilder(64));
+            if (result != 0) { error = "RmStartSession error " + result; return null; }
+            try
+            {
+                result = RmRegisterResources(session, (uint)files.Length, files, 0, null, 0, null);
+                if (result != 0) { error = "RmRegisterResources error " + result; return null; }
+                var processes = new RM_PROCESS_INFO[0];
+                for (int attempt = 0; attempt < 4; attempt++)
+                {
+                    uint needed;
+                    uint count = (uint)processes.Length;
+                    uint reasons = 0;
+                    result = RmGetList(session, out needed, ref count, processes.Length == 0 ? null : processes, ref reasons);
+                    if (result == 0)
+                    {
+                        var ids = new int[count];
+                        for (int i = 0; i < count; i++) ids[i] = processes[i].Process.dwProcessId;
+                        return ids;
+                    }
+                    if (result != 234) { error = "RmGetList error " + result; return null; }   // 234: ERROR_MORE_DATA
+                    processes = new RM_PROCESS_INFO[needed + 4];
+                }
+                error = "RmGetList kept asking for more room";
+                return null;
+            }
+            finally { RmEndSession(session); }
+        }
+    }
+}
+'@
+
+function Get-TemplateScratchHolders([string]$Path) {
+    try {
+        if (-not ('DesktopAICompanion.TemplateCheck.ScratchHolders' -as [type])) {
+            Add-Type -TypeDefinition $templateScratchHoldersSource
+        }
+        return ' Holders: ' + [DesktopAICompanion.TemplateCheck.ScratchHolders]::Describe($Path)
+    }
+    catch { return " Holders: not captured ($($_.Exception.Message))" }
+}
+
 function Remove-TemplateScratch([string]$Path, [string]$AllowedRoot, [string]$TrustedRoot) {
     # A transient loader/indexer handle may delay removal. Never report a successful template
     # check while leaving its folder for the next incremental gate to mistake for a broken module.
@@ -58,38 +290,87 @@ function Remove-TemplateScratch([string]$Path, [string]$AllowedRoot, [string]$Tr
             if (-not (Test-Path -LiteralPath $Path)) { return }
         }
         catch {
-            if ($attempt -eq 4) { throw "Template cleanup could not remove '$Path': $($_.Exception.Message)" }
+            # The holders are asked HERE, on the final attempt and before the throw, while the handle is still held.
+            if ($attempt -eq 4) { throw "Template cleanup could not remove '$Path': $($_.Exception.Message)$(Get-TemplateScratchHolders $Path)" }
         }
         if ($attempt -lt 4) { Start-Sleep -Milliseconds 200 }
     }
-    throw "Template cleanup left its directory behind: $Path"
+    throw "Template cleanup left its directory behind: $Path$(Get-TemplateScratchHolders $Path)"
+}
+
+function Write-CleanupCheck([string]$Label, [bool]$Passed) {
+    # The '[id] ' prefix tests\mutate-selftest-guards.py's TEMPLATE runner strips, so a case can name a label.
+    Write-Host ('  [template-cleanup] ' + $(if ($Passed) { 'PASS: ' } else { 'FAIL: ' }) + $Label)
+    return $Passed
+}
+
+# The cleanup's own fixtures, held past the bound and then released. Run on EVERY run of this script, not only under
+# -CleanupSelfTest: until 2026-10-26 nothing ran that switch, so the locked-then-released proof had not run since it was
+# written. Two holds, because a held file and a held folder are answered by different queries (see the block above
+# Get-TemplateScratchHolders): a file this process holds open, and an empty folder that a child process has as its current
+# directory, the shape of the unexplained release failure. ping.exe is the child because it ships with Windows, opens
+# nothing in the folder and exits by itself after 30 seconds if the kill below never ran.
+function Invoke-TemplateCleanupSelfTest {
+    $tempRoot = [IO.Path]::GetFullPath($env:TEMP)
+    $self = [Diagnostics.Process]::GetCurrentProcess().ProcessName
+    $fileFixture = Join-Path $tempRoot ('dp-template-cleanup-' + [guid]::NewGuid().ToString('N'))
+    $folderFixture = Join-Path $tempRoot ('dp-template-cleanup-' + [guid]::NewGuid().ToString('N'))
+    $child = $null
+    $ok = $true
+    try {
+        [void][IO.Directory]::CreateDirectory($fileFixture)
+        $payload = Join-Path $fileFixture 'payload.bin'
+        [IO.File]::WriteAllText($payload, 'Synthetic cleanup fixture.')
+        $message = ''
+        $held = [IO.File]::Open($payload, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+        try {
+            try { Remove-TemplateScratch $fileFixture $tempRoot $tempRoot } catch { $message = $_.Exception.Message }
+        }
+        finally { $held.Dispose() }
+        $ok = (Write-CleanupCheck 'a file held open past the bound makes the cleanup fail visibly' (
+            $message.StartsWith('Template cleanup could not remove', [StringComparison]::Ordinal) -and [IO.File]::Exists($payload))) -and $ok
+        $ok = (Write-CleanupCheck ("the final failure names the process holding the file, '$self (PID $PID)', in: " + $message) (
+            $message.Contains("$self (PID $PID)"))) -and $ok
+
+        [void][IO.Directory]::CreateDirectory($folderFixture)
+        $child = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\PING.EXE') -ArgumentList '-n', '30', '127.0.0.1' `
+            -WorkingDirectory $folderFixture -WindowStyle Hidden -PassThru
+        $message = ''
+        try { Remove-TemplateScratch $folderFixture $tempRoot $tempRoot } catch { $message = $_.Exception.Message }
+        $ok = (Write-CleanupCheck 'an empty folder that another process has as its current directory makes the cleanup fail visibly' (
+            $message.StartsWith('Template cleanup could not remove', [StringComparison]::Ordinal) -and [IO.Directory]::Exists($folderFixture))) -and $ok
+        $expected = "ping (PID $($child.Id)) on the directory itself"
+        $ok = (Write-CleanupCheck ("the final failure names the process whose current directory the folder is, '$expected', in: " + $message) (
+            $message.IndexOf($expected, [StringComparison]::OrdinalIgnoreCase) -ge 0)) -and $ok
+
+        try { $child.Kill() } catch { }
+        [void]$child.WaitForExit(10000)
+        $released = ''
+        try {
+            Remove-TemplateScratch $fileFixture $tempRoot $tempRoot
+            Remove-TemplateScratch $folderFixture $tempRoot $tempRoot
+        }
+        catch { $released = $_.Exception.Message }
+        $ok = (Write-CleanupCheck ('WITNESS once both holds are released, the cleanup removes both fixtures completely' + $(if ($released) { ': ' + $released } else { '' })) (
+            -not $released -and -not (Test-Path -LiteralPath $fileFixture) -and -not (Test-Path -LiteralPath $folderFixture))) -and $ok
+    }
+    finally {
+        if ($null -ne $child -and -not $child.HasExited) { try { $child.Kill() } catch { } }
+        foreach ($fixture in @($fileFixture, $folderFixture)) {
+            if (Test-Path -LiteralPath $fixture) { try { Remove-TemplateScratch $fixture $tempRoot $tempRoot } catch { } }
+        }
+    }
+    return $ok
 }
 
 if ($CleanupSelfTest) {
-    $fixture = Join-Path ([IO.Path]::GetFullPath($env:TEMP)) ('dp-template-cleanup-' + [guid]::NewGuid().ToString('N'))
-    [void][IO.Directory]::CreateDirectory($fixture)
-    $payload = Join-Path $fixture 'payload.bin'
-    [IO.File]::WriteAllText($payload, 'Synthetic cleanup fixture.')
-    try {
-        $held = [IO.File]::Open($payload, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
-        try {
-            $refused = $false
-            try { Remove-TemplateScratch $fixture $env:TEMP $env:TEMP }
-            catch { $refused = $_.Exception.Message.StartsWith('Template cleanup could not remove', [StringComparison]::Ordinal) }
-            if (-not $refused -or -not [IO.File]::Exists($payload)) {
-                throw 'Template cleanup did not visibly refuse its locked fixture.'
-            }
-        }
-        finally { $held.Dispose() }
-        Remove-TemplateScratch $fixture $env:TEMP $env:TEMP
-        if (Test-Path -LiteralPath $fixture) { throw 'Template cleanup left its released fixture behind.' }
-    }
-    finally {
-        if (Test-Path -LiteralPath $fixture) { Remove-TemplateScratch $fixture $env:TEMP $env:TEMP }
-    }
-    Write-Host 'TEMPLATE CLEANUP OK (locked output fails visibly; released output is completely removed).'
+    if (-not (Invoke-TemplateCleanupSelfTest)) { throw 'Template cleanup self-test failed (the FAIL lines above).' }
+    Write-Host 'TEMPLATE CLEANUP OK (a held file or folder fails visibly and names its holder; released output is completely removed).'
     return
 }
+
+Write-Host '=== the scratch cleanup refuses a held file or folder and names the holder' -ForegroundColor Cyan
+if (-not (Invoke-TemplateCleanupSelfTest)) { throw 'Template cleanup self-test failed (the FAIL lines above).' }
 
 function Remove-Sample {
     # Both roots are fixed above, never derived from scaffolded project content. Verify containment

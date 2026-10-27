@@ -12761,6 +12761,24 @@ CASES = (
      b"                    Passed = slope < maximumSlopePerSegment,\n",
      WINDOWSOAK_CSPROJ, WINDOWSOAK_DLL,
      WINDOWSOAK_JUDGE, None, "judge: steady growth at the bound"),
+
+    # The template cleanup's holder capture (BACKLOG N-template-cleanup-01), through TEMPLATE, whose run now starts with
+    # the cleanup's own fixtures: a file this process holds and an empty folder a child has as its current directory, both
+    # held past the bound. The first case drops the holders from the throw; the second leaves the Restart Manager alone,
+    # which names the file's holder and cannot name a folder's (it refuses a folder with error 5), so it is the folder's
+    # check that fails, the reason the open-handle query is there.
+    ("test-infra: the template cleanup's final failure names no holder",
+     TEMPLATE_PS1,
+     b"            if ($attempt -eq 4) { throw \"Template cleanup could not remove '$Path': $($_.Exception.Message)$(Get-TemplateScratchHolders $Path)\" }\n",
+     b"            if ($attempt -eq 4) { throw \"Template cleanup could not remove '$Path': $($_.Exception.Message)\" }\n",
+     None, None,
+     TEMPLATE, None, "the final failure names the process holding the file"),
+    ("test-infra: the template cleanup asks the Restart Manager alone",
+     TEMPLATE_PS1,
+     b"            foreach (string entry in entries)\n            {\n",
+     b"            foreach (string entry in new string[0])\n            {\n",
+     None, None,
+     TEMPLATE, None, "the final failure names the process whose current directory the folder is"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
