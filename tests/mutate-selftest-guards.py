@@ -13969,7 +13969,7 @@ CASES = (
      "lan profile: a configured rule is not presented as observed reachability"),
     # ---- lane feature/agentbroker-backlog-d ----
     # Claude Code's localhost route under a managed allowlist (N-bus-04), the CLI locator client setup shares with the model
-    # calls (N-broker-a-01), graded through --module-selftest=agentbroker
+    # calls (N-broker-a-01) and broker-b's update-tolerant default, graded through --module-selftest=agentbroker
     # (AgentBrokerClientRouteChecks.cs, AgentBrokerSelfTest.cs). Named "broker-d: ..." for one --only=broker run, which
     # also selects the one backlog-a case this lane re-pointed.
     ("broker-d: an allowlist miss is never retried with localhost",
@@ -14015,6 +14015,13 @@ CASES = (
      AGENTBROKER_CSPROJ, AGENTBROKER_DLL,
      "--module-selftest=agentbroker", "dp-module-agentbroker-selftest.txt",
      "cli locator: a PATH entry that is not a drive-qualified local path is never trusted, even naming a real install"),
+    ("broker-d: update-tolerant Codex delivery defaults on",
+     os.path.join(REPO, "modules", "AgentBroker", "BrokerSettings.cs"),
+     b"        settings.GetBool(\"codexUpdateTolerantDelivery\", false));\n",
+     b"        settings.GetBool(\"codexUpdateTolerantDelivery\", true));\n",
+     AGENTBROKER_CSPROJ, AGENTBROKER_DLL,
+     "--module-selftest=agentbroker", "dp-module-agentbroker-selftest.txt",
+     "update-tolerant Codex delivery defaults off"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
