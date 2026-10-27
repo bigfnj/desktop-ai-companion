@@ -2405,9 +2405,12 @@ namespace DesktopAICompanion.RemembranceModule
                         InvokeWithPendingAsync = ValidateCliAsync },
                     new PaneAction { Label = "Update CLI", Group = SummaryRoute.CardGroup, ReloadPaneAfter = true,
                         InvokeWithPendingAsync = UpdateCliAsync },
-                    // Deletes the saved sign-in token at once; the pane rebuilds so Signed in as says so.
+                    // Deletes the saved sign-in token at once; the pane rebuilds so Signed in as says so. Live only while
+                    // Claude Code is the CLI on screen, like the token row it clears (PaneAction.EnabledWhen, host 1.6.2;
+                    // BACKLOG N-cli-model-effort-05, AI Brain's button the same): with Codex chosen it stayed pressable
+                    // under a greyed token row. A press that reaches it anyway still deletes only the Claude Code token.
                     new PaneAction { Label = "Remove token", Group = SummaryRoute.CardGroup, ReloadPaneAfter = true,
-                        InvokeWithPendingAsync = RemoveCliTokenAsync },
+                        EnabledWhen = SummaryRoute.OnClaudeCliOnly, InvokeWithPendingAsync = RemoveCliTokenAsync },
 
                     // The cloud card's three (2.2.0), all on the provider, base URL, key and model ON SCREEN, greyed with their
                     // card off the cloud and refusing in words if a press reaches them anyway. Each rebuilds the pane, which
@@ -7005,6 +7008,18 @@ namespace DesktopAICompanion.RemembranceModule
                     check("remembrance token: the CLI card has a Secret token row, live only while Claude Code is the CLI on screen, and a Remove token button that rebuilds the pane",
                         tokenRow != null && tokenRow.Kind == SettingKind.Secret && tokenRow.Group == SummaryRoute.CardGroup &&
                         tokenRow.EnabledWhen == "summaryRunsOn=Claude Code CLI" && removeToken != null && removeToken.ReloadPaneAfter);
+                    // Lane feature/abi-pane-actions (BACKLOG N-cli-model-effort-05, PaneAction.EnabledWhen, host 1.6.2): the button
+                    // greys with the token row it clears, on the very same condition; Validate and Update CLI serve either CLI
+                    // and carry none. The grey-out and the refusal themselves are --wpf-options-selftest's.
+                    PaneAction cliValidate = PaneActionFor(pane, SummaryRoute.CardGroup, "Validate");
+                    PaneAction cliUpdate = PaneActionFor(pane, SummaryRoute.CardGroup, "Update CLI");
+                    check("remembrance token: Remove token is live only while Claude Code is the CLI on screen, on the token row's own condition (" +
+                          (removeToken != null ? removeToken.EnabledWhen ?? "(none)" : "(no button)") + ")",
+                        removeToken != null && tokenRow != null && removeToken.EnabledWhen == tokenRow.EnabledWhen &&
+                        removeToken.EnabledWhen == "summaryRunsOn=Claude Code CLI");
+                    check("WITNESS remembrance token: Validate and Update CLI serve either CLI and carry no EnabledWhen of their own",
+                        cliValidate != null && cliUpdate != null && string.IsNullOrEmpty(cliValidate.EnabledWhen) &&
+                        string.IsNullOrEmpty(cliUpdate.EnabledWhen));
                     {
                         const string Token = "sk-ant-oat01-REMEMBRANCE-SELFTEST-not-a-real-token-0123";
                         string read;

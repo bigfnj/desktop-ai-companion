@@ -1692,6 +1692,8 @@ namespace DesktopAICompanion
                 ok &= PaneRebuildKeepsPlace(sb);
                 // ---- lane feature/host-options ----
                 ok &= HostOptions(sb);
+                // ---- lane feature/abi-pane-actions ----
+                ok &= AbiPaneActions(sb);
             }
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message); }
 
@@ -5242,6 +5244,201 @@ namespace DesktopAICompanion
                     firstCard != null && caught.Count == 2 && caught.Contains("CheckBox CheckBox") && caught.Contains("Edit TextBox"));
             }
             finally { probe.Window.Close(); }
+            return ok;
+        }
+
+        // ================= lane feature/abi-pane-actions: PaneAction.EnabledWhen (host 1.6.2) =================
+
+        private const string AbiCliCard = "Coding-agent CLI";
+
+        /// <summary>
+        /// AI Brain's Coding-agent CLI card in miniature (BACKLOG N-cli-model-effort-05): a card live on either CLI, a token
+        /// row live on Claude Code alone, an ungated Validate and a Remove token gated like the token row. Beside it, one
+        /// action per way EnabledWhen's syntax can be read wrongly (spaces and a '|' set in another case, a field declared
+        /// in a LATER card, a display-only field), an ungated one, and a list card's action. <paramref name="ran"/> counts
+        /// Remove token's runs.
+        /// </summary>
+        private static OptionsPane AbiActionGatePane(string runsOn, int[] ran)
+        {
+            Func<string, PaneAction> plain = delegate (string label)
+            {
+                return new PaneAction { Label = label, Group = "Engine", InvokeAsync = delegate { return Task.FromResult("✓ " + label); } };
+            };
+            PaneAction spaced = plain("Spaced");
+            spaced.EnabledWhen = " runsOn = codex cli | Claude Code CLI ";
+            PaneAction early = plain("Early");
+            early.EnabledWhen = "late=yes";
+            PaneAction onNote = plain("On a note");
+            onNote.EnabledWhen = "note=ready";
+            return new OptionsPane
+            {
+                Title = "ActionGate",
+                Schema = new[]
+                {
+                    new SettingField { Id = "runsOn", Label = "Brain runs on", Kind = SettingKind.Radio, Options = new[] { "Local model", "Claude Code CLI", "Codex CLI" }, Group = "Engine" },
+                    new SettingField { Id = "note", Label = "Note", Kind = SettingKind.Info, Group = "Engine" },
+                    new SettingField { Id = "cliName", Label = "CLI", Kind = SettingKind.Info, Group = AbiCliCard, CardEnabledWhen = "runsOn=Claude Code CLI|Codex CLI" },
+                    new SettingField { Id = "token", Label = "Claude sign-in token (optional)", Kind = SettingKind.Secret, Group = AbiCliCard, EnabledWhen = "runsOn=Claude Code CLI" },
+                    new SettingField { Id = "late", Label = "Late", Kind = SettingKind.Enum, Options = new[] { "yes", "no" }, Group = "Zed" },
+                },
+                Load = delegate
+                {
+                    return new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        { "runsOn", runsOn }, { "note", "ready" }, { "cliName", "Claude Code 2.1" }, { "late", "yes" },
+                    };
+                },
+                Save = delegate { return true; },
+                Actions = new[]
+                {
+                    new PaneAction { Label = "Validate", Group = AbiCliCard, InvokeAsync = delegate { return Task.FromResult("✓ validated"); } },
+                    new PaneAction { Label = "Remove token", Group = AbiCliCard, EnabledWhen = "runsOn=Claude Code CLI",
+                        InvokeAsync = delegate { ran[0]++; return Task.FromResult("✓ Removed."); } },
+                    spaced, early, onNote, plain("Free"),
+                },
+                Lists = new[]
+                {
+                    new ListCard
+                    {
+                        Title = "Listed",
+                        LoadItems = delegate { return new List<ListItem> { new ListItem { Id = "a", Label = "A" } }; },
+                        SetChecked = delegate { },
+                        Actions = new[]
+                        {
+                            new PaneAction { Label = "List action", EnabledWhen = "runsOn=Claude Code CLI", InvokeAsync = delegate { return Task.FromResult("✓ listed"); } },
+                        },
+                    },
+                },
+            };
+        }
+
+        private static System.Windows.Controls.Button ButtonLabelled(List<System.Windows.Controls.Button> buttons, string label)
+        {
+            return buttons.Find(delegate (System.Windows.Controls.Button b) { return (b.Content as string) == label; });
+        }
+
+        private static System.Windows.Controls.RadioButton RadioFor(System.Windows.DependencyObject root, string option)
+        {
+            var radios = new List<System.Windows.Controls.RadioButton>();
+            CollectAll(root, radios);
+            return radios.Find(delegate (System.Windows.Controls.RadioButton r) { return (r.Tag as string) == option; });
+        }
+
+        /// <summary>
+        /// Lane feature/abi-pane-actions, BACKLOG N-cli-model-effort-05: PaneAction.EnabledWhen greys its row and the button
+        /// refuses, read by SettingField.EnabledWhen's own parser (trimmed, '|' sets, any case, a later field, a display-only
+        /// one), live both ways, in a list card too; a greyed result line LOOKS greyed; inside a greyed card it is dimmed once;
+        /// an action without it is untouched.
+        /// </summary>
+        private static bool AbiPaneActions(StringBuilder sb)
+        {
+            bool ok = true;
+            try
+            {
+                var ran = new int[1];
+                var view = new DesktopAICompanion.Wpf.PaneView(AbiActionGatePane("Codex CLI", ran));
+                var root = view.Build();
+                var buttons = new List<System.Windows.Controls.Button>();
+                CollectAll(root, buttons);
+                System.Windows.Controls.Button remove = ButtonLabelled(buttons, "Remove token"), validate = ButtonLabelled(buttons, "Validate"),
+                    spaced = ButtonLabelled(buttons, "Spaced"), early = ButtonLabelled(buttons, "Early"),
+                    onNote = ButtonLabelled(buttons, "On a note"), free = ButtonLabelled(buttons, "Free"),
+                    listed = ButtonLabelled(buttons, "List action");
+                bool found = remove != null && validate != null && spaced != null && early != null && onNote != null && free != null &&
+                             listed != null && remove.Parent is System.Windows.FrameworkElement;
+                ok &= Check(sb, "abi: the action-gate probe rendered all seven of its buttons", found);
+                if (!found) return ok;
+                var removeRow = (System.Windows.FrameworkElement)remove.Parent;
+
+                ok &= Check(sb, "abi: an unmet PaneAction.EnabledWhen greys its action's whole row inside a live card, the button with it",
+                    !removeRow.IsEnabled && !remove.IsEnabled && view.CardReasonFor(AbiCliCard) != null &&
+                    view.CardReasonFor(AbiCliCard).Visibility == System.Windows.Visibility.Collapsed);
+                ok &= Check(sb, "abi: WITNESS an action in the same live card with no EnabledWhen stays live", validate.IsEnabled);
+                remove.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                ok &= Check(sb, "abi: a button greyed by its own EnabledWhen refuses a raised click, so its action never runs (ran " + ran[0] + ")",
+                    ran[0] == 0 && StatusOf(remove) != null && StatusOf(remove).Text == "");
+                ok &= Check(sb, "abi: PaneAction.EnabledWhen is read by the fields' parser: both sides trimmed, a '|' set, any case",
+                    spaced.IsEnabled);
+                ok &= Check(sb, "abi: PaneAction.EnabledWhen naming a field declared in a LATER card is still evaluated", early.IsEnabled);
+                ok &= Check(sb, "abi: PaneAction.EnabledWhen can name a display-only field, which has no reader of its own", onNote.IsEnabled);
+                ok &= Check(sb, "abi: an action in a list card greys by its EnabledWhen too", !listed.IsEnabled);
+                ok &= Check(sb, "abi: WITNESS an action with no EnabledWhen is left live, the inert default", free.IsEnabled);
+
+                // LIVE, both ways, as the radio moves.
+                System.Windows.Controls.RadioButton claude = RadioFor(root, "Claude Code CLI"), codex = RadioFor(root, "Codex CLI");
+                if (claude != null && codex != null)
+                {
+                    claude.IsChecked = true;
+                    bool lifted = remove.IsEnabled && removeRow.IsEnabled && listed.IsEnabled;
+                    remove.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                    ok &= Check(sb, "abi: the grey-out lifts LIVE when the field it names changes, and the button then runs its action (ran " + ran[0] + ")",
+                        lifted && ran[0] == 1 && StatusOf(remove).Text == "✓ Removed.");
+                    codex.IsChecked = true;
+                    // A TRANSITION, not a final state: "greyed" is also what a pane with no live refresh would show.
+                    ok &= Check(sb, "abi: ...and it greys again when the field moves away, keeping the message the action wrote (" + StatusOf(remove).Text + ")",
+                        !remove.IsEnabled && !removeRow.IsEnabled && StatusOf(remove).Text == "✓ Removed.");
+                }
+                else ok &= Check(sb, "abi: the action-gate probe rendered its radio buttons", false);
+                var combos = new List<System.Windows.Controls.ComboBox>();
+                CollectAll(root, combos);
+                if (combos.Count == 1)
+                {
+                    combos[0].SelectedItem = "no";
+                    ok &= Check(sb, "abi: an action gated on a field in a later card updates live as that field changes", !early.IsEnabled);
+                }
+                else ok &= Check(sb, "abi: the action-gate probe rendered its one dropdown (found " + combos.Count + ")", false);
+
+                // THE LOOK. The result line is a TextBlock with its own ✓ colour, which no disabled template greys: only the
+                // row's dim can, so it is what is read. One view, live then greyed, rendered twice (the second frame takes
+                // the root once the first lets it go).
+                var lookRan = new int[1];
+                var lookView = new DesktopAICompanion.Wpf.PaneView(AbiActionGatePane("Claude Code CLI", lookRan));
+                var lookRoot = lookView.Build();
+                var lookButtons = new List<System.Windows.Controls.Button>();
+                CollectAll(lookRoot, lookButtons);
+                System.Windows.Controls.Button lookRemove = ButtonLabelled(lookButtons, "Remove token");
+                System.Windows.Controls.RadioButton lookCodex = RadioFor(lookRoot, "Codex CLI");
+                if (lookRemove != null && lookCodex != null)
+                {
+                    lookRemove.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                    var liveRender = new PaneRender(lookRoot, true);
+                    double liveInk = liveRender.Ink(StatusOf(lookRemove));
+                    liveRender.Save("dp-abi-action-live.png");
+                    liveRender.Frame.Child = null;
+                    lookCodex.IsChecked = true;
+                    var greyRender = new PaneRender(lookRoot, true);
+                    double greyInk = greyRender.Ink(StatusOf(lookRemove));
+                    greyRender.Save("dp-abi-action-greyed.png");
+                    ok &= PixelCheck(sb, "abi: a greyed action's result line renders dimmer than while it was live (ink " + greyInk.ToString("0.00") +
+                        " against " + liveInk.ToString("0.00") + ")", lookRan[0] == 1 && liveInk >= 0.3 && greyInk <= 0.8 * liveInk, liveRender, greyRender);
+                    greyRender.Frame.Child = null;
+                }
+                else ok &= Check(sb, "abi: the look probe rendered its button and radio", false);
+
+                // DIMMED ONCE inside a greyed card: on the local model the whole CLI card greys, and Remove token's own
+                // EnabledWhen is unmet as well, so it is greyed twice and must render like Validate beside it.
+                var cardView = new DesktopAICompanion.Wpf.PaneView(AbiActionGatePane("Local model", new int[1]));
+                var cardRoot = cardView.Build();
+                var cardButtons = new List<System.Windows.Controls.Button>();
+                CollectAll(cardRoot, cardButtons);
+                System.Windows.Controls.Button twice = ButtonLabelled(cardButtons, "Remove token"), once = ButtonLabelled(cardButtons, "Validate");
+                if (twice != null && once != null)
+                {
+                    var cardRender = new PaneRender(cardRoot, true);
+                    cardRender.Save("dp-abi-action-greyed-card.png");
+                    double twiceInk = cardRender.Ink((System.Windows.FrameworkElement)twice.Parent), onceInk = cardRender.Ink((System.Windows.FrameworkElement)once.Parent);
+                    ok &= PixelCheck(sb, "abi: an action greyed by its own EnabledWhen inside a greyed card is dimmed once, like its sibling (ink " +
+                        twiceInk.ToString("0.00") + " against " + onceInk.ToString("0.00") + ")",
+                        !twice.IsEnabled && !once.IsEnabled && onceInk > 0 && twiceInk >= 0.8 * onceInk, cardRender);
+                    cardRender.Frame.Child = null;
+                }
+                else ok &= Check(sb, "abi: the greyed-card probe rendered both of its buttons", false);
+            }
+            catch (Exception ex)
+            {
+                ok = false;
+                sb.AppendLine("FAIL: the abi-pane-actions probe threw " + ex.GetType().Name + ": " + ex.Message);
+            }
             return ok;
         }
     }

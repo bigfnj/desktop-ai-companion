@@ -13965,6 +13965,25 @@ CASES = (
      AGENTBROKER_CSPROJ, AGENTBROKER_DLL,
      "--module-selftest=agentbroker", "dp-module-agentbroker-selftest.txt",
      "lan profile: a configured rule is not presented as observed reachability"),
+    # ---- lane feature/abi-pane-actions ----
+    # Host 1.6.2's two additive members, each case putting back a shortcut the design refuses. Named "abi-pane-actions:"
+    # for one --only. First, PaneAction.EnabledWhen's adopters (BACKLOG N-cli-model-effort-05): Remove token ungated
+    # again in AI Brain and in Remembrance, each graded by its own module self-test; the host half is
+    # --wpf-options-selftest's, in tests/mutate-diagnostics.py.
+    ("abi-pane-actions: AI Brain's Remove token is pressable on every CLI again",
+     AIBRAIN_MODULE,
+     b"ReloadPaneAfter = true, EnabledWhen = OnClaudeCliOnly },\n",
+     b"ReloadPaneAfter = true },\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "aibrain token: Remove token is live only while Claude Code is the CLI on screen"),
+    ("abi-pane-actions: Remembrance's Remove token is pressable on every CLI again",
+     REMEMBRANCE_MODULE,
+     b"                        EnabledWhen = SummaryRoute.OnClaudeCliOnly, InvokeWithPendingAsync = RemoveCliTokenAsync },\n",
+     b"                        InvokeWithPendingAsync = RemoveCliTokenAsync },\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "remembrance token: Remove token is live only while Claude Code is the CLI on screen"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

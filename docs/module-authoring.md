@@ -286,6 +286,7 @@ You declare data; the host renders it. That is why a module needs no UI framewor
   | `Collapsible`, `StartCollapsed` | **1.4.0** | card-level, first field: the title becomes an expander with a count ("1 setting, 4 buttons"); `StartCollapsed` closes it on open. The card keeps the state it shows across every rebuild while the pane stays up. A card of buttons only carries the flag on a `Header` |
   | `SettingKind.FilePath`, `FolderPath` | **1.4.0** | the name in the box, the folder muted under it, the full path on hover, and a host-owned Browse (filtered by `FileExtensions`) whose choice is an unsaved edit. Stores the full path, exactly what `Text` stores; `EmptyHint` says what blank means |
   | `ListCard.MasterToggle` | **1.4.0** | an "All" row (`"All packs"`): tri-state, "N of M", and a click goes through each item's own box, so `SetChecked` and `DeferChanges` behave as for single ticks |
+  | `PaneAction.EnabledWhen` | **1.6.2** | a button's own condition, in `EnabledWhen`'s syntax and read by the same parser: greys the action's row, its result line included, and the button refuses a click. For a button that serves one state of a card that is live; a card greyed whole still uses `CardEnabledWhen` |
 
   Rendering only, nothing to set (1.4.0): a field greyed by either `EnabledWhen` LOOKS greyed in the dark theme
   too, a list item's `Detail` is a muted column on the right, a grouped list's headers count "12 of 18", and an

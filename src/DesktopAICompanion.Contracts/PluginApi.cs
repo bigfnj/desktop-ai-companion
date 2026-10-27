@@ -391,7 +391,8 @@ namespace DesktopAICompanion.Modules
         //
         // One string per card rather than an EnabledWhen per PaneAction: every greyed card the approved
         // layouts draw greys all of its buttons together, and one condition cannot drift out of step with
-        // itself the way a copy on each button can.
+        // itself the way a copy on each button can. A button that serves only ONE state of a card that is
+        // live has its own PaneAction.EnabledWhen since host 1.6.2; a card greyed whole still uses this.
         public string CardEnabledWhen { get; set; }
 
         // Card-level, read from the group's FIRST field. The card's title row becomes an expander (click it,
@@ -476,6 +477,24 @@ namespace DesktopAICompanion.Modules
         //
         // Setting this ALONE is enough: the host renders the button when either delegate is set.
         public Func<IReadOnlyDictionary<string, string>, System.Threading.Tasks.Task<string>> InvokeWithPendingAsync { get; set; }
+
+        // "otherFieldId=value", read exactly as SettingField.EnabledWhen is, by the same parser: '|' for several
+        // values, both sides trimmed, case-insensitive, against the value ON SCREEN, re-evaluated live as that
+        // field changes, and able to name a field declared later or a display-only one. Null or empty => always
+        // enabled, which is every action before host 1.6.2. Added in host 1.6.2.
+        //
+        // While it is not met the host greys the action's whole row, the button and the result line beside it,
+        // and the button REFUSES a click as well as looking disabled, the way a button in a card greyed by
+        // SettingField.CardEnabledWhen does. It greys and never hides. Inside a card that is itself greyed the
+        // row is dimmed once, like a field row with its own EnabledWhen. A message the action wrote stays on
+        // the row while it is greyed.
+        //
+        // For the button CardEnabledWhen cannot express: one that serves only one state of a card that is live.
+        // AI Brain's and Remembrance's "Remove token" deletes the Claude Code sign-in token and stayed pressable
+        // with Codex CLI chosen while the token row above it greyed (BACKLOG N-cli-model-effort-05). A module
+        // that sets it raises its MinHostVersion to 1.6.2: an older Contracts.dll has no such property, so the
+        // method that builds the pane fails to bind its setter on an older host.
+        public string EnabledWhen { get; set; }
     }
 
     /// <summary>One checkable row in a <see cref="ListCard"/>: a stable <see cref="Id"/> (passed back to the
