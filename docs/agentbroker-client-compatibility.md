@@ -219,6 +219,13 @@ four are identical in all of these builds. The admission policy of 2.1.310 is
 2.1.306's and that of 2.1.293 is 2.1.292's. This is evidence for the reviewer, not
 a substitute for live acceptance.
 
+Also pinned, in a separate change: Claude Code 2.1.311, the VS Code runtime the
+workstation's sessions were running that day
+(`966F4B2CE962298F5DEE6A942E8C47C8F97392E69E728E622319A98B259C0680`), and 2.1.312,
+the newest published, one image for the npm CLI and the VS Code extension
+(`6099672EBE5DCB518B67D1D32DDE1E3360BC6BEE1DAE7F8D28A69C49ACC7C865`). The same
+checks passed, and at the same five sites both match the reviewed 2.1.306.
+
 Not pinned: Codex VS Code 26.1021.22027 and Codex desktop 26.1021.3705.0. Every
 offline check passes, but the code around the reviewed markers changed from the
 pinned 26.1007.21434: one of two windows around the busy-guard error is identical,
