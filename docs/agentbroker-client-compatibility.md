@@ -51,6 +51,27 @@ before delivery. A fresh read-only positive control found an existing loaded
 Code owner without input; it does not prove native wake or the cause of every
 historical `no-client-found` response.
 
+## Claude channels, 2026-10-27
+
+The opt-in channel bridge (`tools/AgentBroker.Worker/McpChannelBridge.cs`) follows the vendor's [channels reference](https://code.claude.com/docs/en/channels-reference). The public image of the installed Claude Code CLI 2.1.293 (npm package) was read with `rg -a -o` and bounded context, without running it:
+
+- `M9e` registers a channel only when `capabilities.experimental["claude/channel"]` is present.
+- `Aft` then skips registration, in this order, for a connection that negotiated a "modern protocol revision with no unsolicited notification path", a provider other than first-party, the feature being unavailable, `channelsEnabled` not set by organization policy, a server missing from the session's `--channels` or development list, and a server not on the allowlist without the development flag. The bridge therefore answers revision 2026-07-28 with 2025-11-25.
+- `Rft` builds the tag: it drops meta keys that do not match `^[a-zA-Z_][a-zA-Z0-9_]*$`, escapes quotes in meta values with `ks`, and passes the content through `p4e`, which rewrites a closing `channel` tag (`uD="channel"`). The bridge passes message text verbatim.
+
+The installed Claude VS Code extension 2.1.310 `extension.js` passes `--channels` from its SDK options and contains no `--dangerously-load-development-channels`, so a custom channel's development consent was not found in that host. These are source observations. The bridge's behaviour is proven by synthetic MCP clients and a real-process smoke of the built worker, not by a live Claude session.
+
+## Code owner provenance, 2026-10-27
+
+A read-only source review of the installed Codex VS Code extension `26.1021.22027` and desktop `26.1021.3705.0` found no authenticated binding from a Code view to its owning engine. No pipe was opened and no model input, engine stop, window reload or conversation was used. Offsets are `out/extension.js` byte offsets and `app.asar` member character offsets.
+
+- The router registers a client as `{id:randomUUID(),type:n.clientType,socket:e}` (`extension.js:2016489`); `initialize` carries only `clientType` (`:2022184`). The desktop router is the same (`src-Dl21kCYQ.js:741364`). `extension.js` contains no `GetNamedPipeClientProcessId`, `ImpersonateNamedPipeClient` or `timingSafeEqual`.
+- Only broadcasts get a router-stamped `sourceClientId` (`extension.js:2014231`). Forwarded requests keep the sender's own value (`:2018210`), and a response is forwarded without checking which socket sent it (`:2013789`, `:2014782`), with `handledByClientId` written by the responder (`:2025486`).
+- Owner discovery answers a boolean plus `{supportsUntrustedAppInput:true}` (`extension.js:2027331`); `getThreadRole` reports the view's in-memory stream role (`initialize-app-host-services.extension-f722db488e05.js:284833`). The vendor's own `findThreadOwner` trusts `handledByClientId` (`src-Dl21kCYQ.js:753725`).
+- The VS Code engine is spawned over private stdio pipes with no `--listen` (`extension.js:2230360`, `:2226090`), so an adapter cannot reach that engine to ask which connection owns a loaded thread.
+
+Owning the router would allow a client-process lookup per connection, but that replaces the vendor router, which these adapters never do. The item stays blocked until the vendor attests client processes, issues a verifiable per-view credential, or exposes an authenticated owner query. Both installed versions are newer than the exact pins (extension `26.1007.21434` in `VsCodeCompatibilityProfile.cs`; desktop `26.1016.6573.0` and `26.1016.8622.0` in `WindowsDesktopConnection.cs`), so those pins do not match the current installation.
+
 ## Latest live verification
 
 - A read-only public-image audit on 2026-10-22 found no replacement pin to apply. Installed Claude Code 2.1.292 and running VS Code Claude Code 2.1.306 retain their exact verified hashes and valid Anthropic signatures. Codex desktop 26.1016.6573.0, extension 26.1007.21434 and VS Code router 1.143.0 retain their existing image/source pins; the public Codex binaries have valid OpenAI signatures, and the router has a valid Microsoft signature. The fresh built `--verify-vscode-profile` check passed. These checks preserve the earlier source evidence for those exact images; they do not rerun the outstanding live acceptance matrix.

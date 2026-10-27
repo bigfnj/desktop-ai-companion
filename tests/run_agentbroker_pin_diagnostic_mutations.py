@@ -45,6 +45,7 @@ SOURCES = {
     "store": "src/AgentBroker.Core/BrokerStore.cs",
     "tools": "tools/AgentBroker.Worker/BrokerTools.cs",
     "workerapp": "tools/AgentBroker.Worker/WorkerApplication.cs",
+    "channel": "tools/AgentBroker.Worker/McpChannelBridge.cs",
 }
 PROJECTS = {
     "worker": "tests/AgentBroker.Worker.Tests/AgentBroker.Worker.Tests.csproj",
@@ -155,6 +156,49 @@ WITNESSES = (
         ('private bool Retained(BrokerSession s) => s.Adapter == "mcp" && s.Activity',
          "private bool Retained(BrokerSession s) => s.Activity"),
     )),
+    # ---- lane feature/agentbroker-backlog-c ----
+    Witness("broker-c-channel-permission-declared", "channel", "worker", ("--channel-only",), "ChannelBridgeChecks.cs", ((
+        '["experimental"] = new JsonObject { ["claude/channel"] = new JsonObject() },',
+        '["experimental"] = new JsonObject { ["claude/channel"] = new JsonObject(), ["claude/channel/permission"] = new JsonObject() },',
+    ),)),
+    Witness("broker-c-channel-newer-revision", "channel", "worker", ("--channel-only",), "ChannelBridgeChecks.cs", ((
+        "requested is not null && SupportedProtocolVersions.Contains(requested, StringComparer.Ordinal) ? requested : SupportedProtocolVersions[0];",
+        "requested ?? SupportedProtocolVersions[0];",
+    ),)),
+    Witness("broker-c-channel-mute-ignored", "channel", "worker", ("--channel-only",), "ChannelBridgeChecks.cs", ((
+        'if (own.IsMuted) return (ChannelDecision.Defer, "muted");', "",
+    ),)),
+    Witness("broker-c-channel-unpaired-pushed", "channel", "worker", ("--channel-only",), "ChannelBridgeChecks.cs", ((
+        'if (!local && !snapshot.Paired.Any(peer => peer.BrokerId == message.Sender.BrokerId)) return (ChannelDecision.Refuse, "unpaired_sender");', "",
+    ),)),
+    Witness("broker-c-channel-private-pushed", "channel", "worker", ("--channel-only",), "ChannelBridgeChecks.cs", ((
+        'if (!local && own.IsPrivate) return (ChannelDecision.Refuse, "private_session");', "",
+    ),)),
+    Witness("broker-c-channel-stale-snapshot", "channel", "worker", ("--channel-only",), "ChannelBridgeChecks.cs", (
+        ("private string? reported;", "private string? reported;\n        private BrokerSnapshot? cached;"),
+        ("try { snapshot = await broker.SnapshotAsync(token); }", "try { snapshot = cached ??= await broker.SnapshotAsync(token); }"),
+    )),
+    Witness("broker-c-channel-repush", "channel", "worker", ("--channel-only",), "ChannelBridgeChecks.cs", ((
+        "fresh = receipts.Where(receipt => !pushed.ContainsKey(receipt.Message.Id)).ToList();", "fresh = receipts.ToList();",
+    ),)),
+    Witness("broker-c-channel-push-delivers", "channel", "worker", ("--channel-only",), "ChannelBridgeChecks.cs", ((
+        "await WriteAsync(Notification(receipt.Message, session));",
+        "await WriteAsync(Notification(receipt.Message, session)); "
+        "await broker.AcknowledgeAsync(receipt.Message.Id, session, MessageStatus.Delivered, token);",
+    ),)),
+    Witness("broker-c-channel-reply-any-session", "channel", "worker", ("--channel-only",), "ChannelBridgeChecks.cs", ((
+        'if (parent.Message.Recipient != session) throw new ChannelBrokerException("not_addressed_to_this_channel");', "",
+    ),)),
+    Witness("broker-c-channel-renew-only-by-wait", "channel", "worker", ("--channel-only",), "ChannelBridgeChecks.cs", ((
+        "if (session is null || Environment.TickCount64 - registeredAt >= tuning.RenewMilliseconds)",
+        "if (session is null || Environment.TickCount64 - registeredAt >= long.MaxValue)",
+    ),)),
+    Witness("broker-c-channel-error-code-wrapped", "channel", "worker", ("--channel-only",), "ChannelBridgeChecks.cs", ((
+        "if (wrapped >= 0) candidate = candidate[(wrapped + 3)..].Trim();", "_ = wrapped;",
+    ),)),
+    Witness("broker-c-channel-options-repeat", "channel", "worker", ("--channel-only",), "ChannelBridgeChecks.cs", ((
+        'else if (args[index] == "--private" && !isPrivate) isPrivate = true;', 'else if (args[index] == "--private") isPrivate = true;',
+    ),)),
 )
 
 

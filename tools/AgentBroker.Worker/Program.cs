@@ -8,12 +8,17 @@ if (args.Length == 1 && args[0] == "--help")
 {
     Console.WriteLine("AgentBroker.Worker --data <absolute directory> [--name <label>] [--loopback-port 7432] [--lan-port 7433] [--lan true|false] [--allow-unauthenticated-loopback true|false] [--parent-pid <PID> --parent-start <FILETIME>]");
     Console.WriteLine("AgentBroker.Worker --allow-lan-access --port <1..65535> (explicit elevated Private/local-subnet firewall setup)");
+    Console.WriteLine("AgentBroker.Worker --mcp-channel --data <absolute directory> [--label <text>] [--private] (opt-in Claude Code channel over stdio)");
     return 0;
 }
 try
 {
     if (args.Length == 3 && args[0] == "--mcp-stdio" && args[1] == "--data")
         return await McpStdioBridge.RunAsync(args[2], Console.OpenStandardInput(), Console.OpenStandardOutput());
+    // Opt-in only: nothing configures this mode. Claude Code starts it when the owner adds it as an MCP server
+    // and names it in --dangerously-load-development-channels for an interactive session.
+    if (args.Length > 0 && args[0] == ChannelBridgeOptions.Command)
+        return await McpChannelBridge.RunAsync(ChannelBridgeOptions.Parse(args), Console.OpenStandardInput(), Console.OpenStandardOutput());
     var options = WorkerOptions.Parse(args);
     await using var worker = await WorkerApplication.CreateAsync(options);
     await worker.StartAsync();

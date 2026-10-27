@@ -125,7 +125,8 @@ public static class McpStdioBridge
         }
     }
 
-    private static async Task<LocalConnection> GetConnectionAsync(string directory, CancellationToken token)
+    // Shared with McpChannelBridge, which reaches the broker through the same validated connection.
+    internal static async Task<LocalConnection> GetConnectionAsync(string directory, CancellationToken token)
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
         deadline.CancelAfter(TimeSpan.FromSeconds(5));
@@ -144,7 +145,7 @@ public static class McpStdioBridge
         return connection;
     }
 
-    private static async Task<byte[]?> ReadFrameAsync(Stream input, CancellationToken token)
+    internal static async Task<byte[]?> ReadFrameAsync(Stream input, CancellationToken token)
     {
         using var body = new MemoryStream(); var one = new byte[1];
         while (await input.ReadAsync(one, token) == 1)
@@ -157,7 +158,7 @@ public static class McpStdioBridge
         if (body.Length != 0) throw new InvalidDataException("Incomplete MCP stdio frame.");
         return null;
     }
-    private static async Task<byte[]> ReadBoundedAsync(Stream input, int maximum, CancellationToken token)
+    internal static async Task<byte[]> ReadBoundedAsync(Stream input, int maximum, CancellationToken token)
     {
         using var result = new MemoryStream(); byte[] buffer = new byte[8192]; int read;
         while ((read = await input.ReadAsync(buffer, token)) != 0)

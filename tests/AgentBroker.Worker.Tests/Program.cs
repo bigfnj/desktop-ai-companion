@@ -58,6 +58,16 @@ if (args.Length == 1 && args[0] is "--mailbox-only" or "--wait-tools-only" or "-
     }
     catch (Exception ex) { Console.Error.WriteLine(ex); Console.WriteLine("RESULT=FAIL"); return 1; }
 }
+if (args.Length == 1 && args[0] == "--channel-only")
+{
+    try
+    {
+        await ChannelBridgeChecks.RunAsync(Check);
+        Console.WriteLine($"RESULT=PASS assertions={assertions}");
+        return 0;
+    }
+    catch (Exception ex) { Console.Error.WriteLine(ex); Console.WriteLine("RESULT=FAIL"); return 1; }
+}
 if (args.Length == 1 && args[0] == "--message-lifetime-only")
 {
     try
@@ -219,6 +229,8 @@ try
         await WaitToolChecks.RunAsync(Check);
         await SendToolChecks.RunAsync(Check);
         await InstructionsChecks.RunAsync(Check);
+        // Opt-in Claude Code channel bridge: push, explicit receipts, reply, mute and pairing gates.
+        await ChannelBridgeChecks.RunAsync(Check);
     }
     try { WorkerOptions.Parse(["--data", scratch, "--lan", "false", "--lan", "true"]); throw new Exception("Accepted duplicate option."); }
     catch (ArgumentException) { Check(true, "duplicate worker options fail before startup"); }
