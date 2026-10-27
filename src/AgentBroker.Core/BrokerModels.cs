@@ -39,9 +39,12 @@ public sealed class BrokerException(string code, string message) : Exception(mes
     public string Code { get; } = code;
 }
 
+// MaximumMessages bounds the messages that still carry their text. An acknowledged message this broker sent keeps
+// only a tombstone (BrokerStore), and MaximumTombstones bounds tombstones and full messages together, so every
+// acknowledgement has room for its tombstone. Neither value is persisted or sent to a peer.
 public sealed record BrokerLimits(int MaximumMessages = 4096, int MaximumTextBytes = 16 * 1024,
     int MaximumSessions = 256, int MaximumPeers = 32, int MaximumPendingPerSession = 64,
-    int MaximumReplies = 8, int DefaultMessageLifetimeMinutes = 1440)
+    int MaximumReplies = 8, int DefaultMessageLifetimeMinutes = 1440, int MaximumTombstones = 65536)
 {
     public static readonly TimeSpan MaximumLifetime = TimeSpan.FromHours(24);
     public static readonly TimeSpan MaximumSessionLease = TimeSpan.FromMinutes(2);

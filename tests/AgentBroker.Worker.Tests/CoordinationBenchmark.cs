@@ -22,6 +22,8 @@ internal static class CoordinationBenchmark
             string json = args.Length > 0 ? args[0] switch
             {
                 "commit" when args.Length == 5 => Commit(int.Parse(args[1]), int.Parse(args[2]), args[3], args[4]),
+                "tombstone" when args.Length == 7 => Tombstone(int.Parse(args[1]), int.Parse(args[2]), int.Parse(args[3]),
+                    int.Parse(args[4]), int.Parse(args[5]), args[6]),
                 "wake" when args.Length == 3 => await WakeAsync(args[1], int.Parse(args[2])),
                 "directory" when args.Length == 5 => await DirectoryAsync(int.Parse(args[1]), int.Parse(args[2]), args[3], int.Parse(args[4])),
                 _ => throw new ArgumentException("Unknown benchmark arguments.")
@@ -81,6 +83,102 @@ internal static class CoordinationBenchmark
             return JsonSerializer.Serialize(new { scenario = "commit", retained, textBytes, kind, stateBytes, loadMs, sendMs = sends });
         }
         finally { DeleteTree(root); }
+    }
+
+    // Lane broker-e (N-broker-a-02, tombstone on acknowledgement). Run by BOTH builds from the same arguments: this
+    // file compiles against the current store too, which is the control. The snapshot is seeded with `acknowledged`
+    // Delivered records, the shape the current store keeps; this lane's store moves them to tombstones as it opens, so
+    // its loadMs includes that move. The journal is seeded with `tombstones` live and `dead` expired lines in this
+    // lane's private format, which the current store never reads (it cannot hold a tombstone at all). `cap` above zero
+    // sets BrokerLimits.MaximumTombstones by reflection where that property exists. Each of six rounds times one
+    // store.Send (sendMs) and then the recipient's acknowledgement (ackMs); messagesMs times store.Messages for the
+    // session every seeded record involves, which is what each read_inbox page and wait pass builds. With dead lines,
+    // the first acknowledgement compacts the journal, so a scratch store warms the code paths first (warmed = true).
+    private static string Tombstone(int acknowledged, int tombstones, int dead, int textBytes, int cap, string root)
+    {
+        if (acknowledged is < 0 or > 4096 - CommitSamples || tombstones is < 0 or > 1_000_000 || dead is < 0 or > 1_000_000 ||
+            textBytes is < 1 or > 16 * 1024 || cap < 0)
+            throw new ArgumentOutOfRangeException(nameof(acknowledged));
+        string storeDirectory = NewDirectory(root, "store");
+        try
+        {
+            bool warmed = dead > 0;
+            if (warmed) WarmUp(Path.Combine(root, "warm-up"));
+            var brokerId = Guid.NewGuid();
+            SessionAddress Address() => new(brokerId, "mcp:" + Guid.NewGuid().ToString("D"), Guid.NewGuid());
+            SessionAddress sender = Address(), recipient = Address();
+            var others = Enumerable.Range(0, 64).Select(_ => Address()).ToArray();
+            string text = new('x', textBytes);
+            string hash = Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(text)));
+            var now = DateTimeOffset.UtcNow;
+            var seeds = Enumerable.Range(0, acknowledged).Select(index => new MessageReceipt(
+                new BrokerMessage(Guid.NewGuid(), Guid.NewGuid(), null, sender, others[index % others.Length], text, now, now.AddHours(20)),
+                MessageStatus.Delivered, now, "recipient_receipt", 1)).ToList();
+            using (var seed = File.Create(Path.Combine(storeDirectory, "broker-state.json")))
+                JsonSerializer.Serialize(seed, new { Version = 1, BrokerId = brokerId, Peers = Array.Empty<PeerTrust>(), Messages = seeds });
+            seeds.Clear();
+            if (tombstones + dead > 0)
+                using (var journal = new BufferedStream(File.Create(Path.Combine(storeDirectory, "broker-tombstones.jsonl")), 1 << 20))
+                {
+                    void Line(object value) { JsonSerializer.Serialize(journal, value); journal.WriteByte((byte)'\n'); }
+                    Line(new { Version = 1, BrokerId = brokerId });
+                    for (int index = 0; index < tombstones + dead; index++)
+                    {
+                        var created = index < tombstones ? now : now.AddDays(-3);
+                        Line(new { Id = Guid.NewGuid(), ConversationId = Guid.NewGuid(), ReplyTo = (Guid?)null, Sender = sender,
+                            Recipient = others[index % others.Length], TextSha256 = hash, CreatedAt = created, ExpiresAt = created.AddHours(20),
+                            RemainingReplies = 8, Status = (int)MessageStatus.Delivered, UpdatedAt = created, Reason = "recipient_receipt", Attempts = 1 });
+                    }
+                }
+            var limits = new BrokerLimits();
+            var capProperty = typeof(BrokerLimits).GetProperty("MaximumTombstones");
+            if (cap > 0 && capProperty is not null) capProperty.SetValue(limits, cap);
+            long heapBefore = GC.GetTotalMemory(forceFullCollection: true);
+            var load = Stopwatch.StartNew();
+            using var store = new BrokerStore(storeDirectory, limits);
+            double loadMs = load.Elapsed.TotalMilliseconds;
+            // What the open store keeps in memory, after a full collection and outside every timed section.
+            long storeHeapBytes = GC.GetTotalMemory(forceFullCollection: true) - heapBefore;
+            foreach (var address in new[] { sender, recipient })
+                store.Register(new BrokerSession(address, "Benchmark session", "mcp", SessionCapabilities.Receive | SessionCapabilities.Reply,
+                    SessionActivity.Idle, DateTimeOffset.UtcNow.AddMinutes(1)));
+            List<double> sends = [], acks = [];
+            for (int index = 0; index < CommitSamples; index++)
+            {
+                var watch = Stopwatch.StartNew();
+                var receipt = store.Send(sender, recipient, Guid.NewGuid(), text, null, 0, brokerId);
+                sends.Add(watch.Elapsed.TotalMilliseconds);
+                if (receipt.Status != MessageStatus.Accepted) throw new InvalidDataException("A benchmark send was not accepted.");
+                watch.Restart();
+                var acknowledgement = store.RecordRecipientReceipt(receipt.Message.Id, recipient, brokerId, MessageStatus.Delivered);
+                acks.Add(watch.Elapsed.TotalMilliseconds);
+                if (acknowledgement.Status != MessageStatus.Delivered) throw new InvalidDataException("A benchmark acknowledgement was not recorded.");
+            }
+            var scan = Stopwatch.StartNew();
+            int listed = store.Messages(sender).Count;
+            double messagesMs = scan.Elapsed.TotalMilliseconds;
+            // The control keeps every seeded record; the tombstone build keeps the journal's live lines as well.
+            if (listed != acknowledged + CommitSamples && listed != acknowledged + tombstones + CommitSamples)
+                throw new InvalidDataException("The store did not list the expected history.");
+            long Bytes(string name) => File.Exists(Path.Combine(storeDirectory, name)) ? new FileInfo(Path.Combine(storeDirectory, name)).Length : 0;
+            return JsonSerializer.Serialize(new { scenario = "tombstone", acknowledged, tombstones, dead, textBytes, cap, warmed,
+                tombstoneStore = capProperty is not null, listed, stateBytes = Bytes("broker-state.json"),
+                journalBytes = Bytes("broker-tombstones.jsonl"), storeHeapBytes, loadMs, sendMs = sends, ackMs = acks, messagesMs });
+        }
+        finally { DeleteTree(root); }
+    }
+
+    // One send and acknowledgement on a throwaway store, so a later first operation measures the store, not the JIT.
+    private static void WarmUp(string directory)
+    {
+        using var store = new BrokerStore(directory);
+        SessionAddress from = new(store.BrokerId, "mcp:warm-from", Guid.NewGuid()), to = new(store.BrokerId, "mcp:warm-to", Guid.NewGuid());
+        foreach (var address in new[] { from, to })
+            store.Register(new BrokerSession(address, "Benchmark warm-up", "mcp", SessionCapabilities.Receive | SessionCapabilities.Reply,
+                SessionActivity.Idle, DateTimeOffset.UtcNow.AddMinutes(1)));
+        var receipt = store.Send(from, to, Guid.NewGuid(), "Benchmark warm-up message.", null, 0, store.BrokerId);
+        store.RecordRecipientReceipt(receipt.Message.Id, to, store.BrokerId, MessageStatus.Delivered);
+        store.Messages(from);
     }
 
     // wait_for_messages wake latency over the real HTTP MCP endpoint: a recipient's wait is in flight, then a second

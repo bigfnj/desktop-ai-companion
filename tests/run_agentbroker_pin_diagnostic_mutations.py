@@ -53,6 +53,8 @@ SOURCES = {
     "vscode": "tools/AgentBroker.CodexDesktopAdapter/VsCodeCompatibilityProfile.cs",
     "probe": "tools/AgentBroker.CodexDesktopAdapter/DesktopConnectionProfileProbe.cs",
     "channel": "tools/AgentBroker.Worker/McpChannelBridge.cs",
+    "federation": "tools/AgentBroker.Worker/Federation/PeerFederation.cs",
+    "models": "src/AgentBroker.Core/BrokerModels.cs",
 }
 PROJECTS = {
     "worker": "tests/AgentBroker.Worker.Tests/AgentBroker.Worker.Tests.csproj",
@@ -347,6 +349,106 @@ WITNESSES = (
         "            var result = pending();\n",
         "            var result = pending();\n"
         '            if (result.Length == 0 && !runtime.Store.IsAddressable(session)) throw new McpException("session_unavailable");\n',
+    ),)),
+    # ---- lane feature/agentbroker-backlog-e ----
+    # Tombstone on acknowledgement (N-broker-a-02, owner decision 2026-10-27), the rollback to 1.0.4 and the unchanged
+    # federation wire. Each witness runs one TombstoneChecks group; the checks run after the --existing-tests-only
+    # cut-off, so the existing pin stays 196.
+    Witness("broker-e-ack-keeps-text", "store", "worker", ("--tombstone-case", "disk"), "TombstoneChecks.cs", ((
+        "        var added = next.Messages.Where(Tombstoned).Select(ToTombstone).ToList();",
+        "        var added = new List<Tombstone>();",
+    ),)),
+    Witness("broker-e-upgrade-not-converted", "store", "worker", ("--tombstone-case", "upgrade"), "TombstoneChecks.cs", ((
+        "            bool upgraded = recovered.Any(Tombstoned);",
+        "            bool upgraded = false;",
+    ),)),
+    Witness("broker-e-retry-hash-ignored", "store", "worker", ("--tombstone-case", "retry"), "TombstoneChecks.cs", ((
+        "        sameText = candidateText is not null && HashText(candidateText) == tombstone.TextSha256;",
+        "        sameText = candidateText is not null;",
+    ),)),
+    Witness("broker-e-retry-text-not-restored", "store", "worker", ("--tombstone-case", "retry"), "TombstoneChecks.cs", ((
+        '        return Render(tombstone, sameText ? candidateText! : "");',
+        '        return Render(tombstone, "");',
+    ),)),
+    # Hiding tombstones from the store's own lookups (FindReceipt, a reply's parent) also fails the EXISTING check
+    # "actual HTTP reply tool permits finishing a delivered task after its original delivery deadline" (its parent is now
+    # a tombstone), which a reporting witness may not; measured 2026-10-27. So these two target what only the new checks see.
+    Witness("broker-e-receipt-skips-tombstone", "tools", "worker", ("--tombstone-case", "receipt"), "TombstoneChecks.cs", ((
+        "        var receipt = runtime.Store.FindReceipt(messageId);",
+        "        var receipt = runtime.Store.FindReceiptWithText(messageId);",
+    ),)),
+    Witness("broker-e-reply-conversation-lost", "store", "worker", ("--tombstone-case", "reply"), "TombstoneChecks.cs", ((
+        "    private static MessageReceipt Render(Tombstone tombstone, string text) => new(new(tombstone.Id, tombstone.ConversationId,",
+        "    private static MessageReceipt Render(Tombstone tombstone, string text) => new(new(tombstone.Id, tombstone.Id,",
+    ),)),
+    Witness("broker-e-wait-reply-skips-tombstone", "tools", "worker", ("--tombstone-case", "wait-reply"), "TombstoneChecks.cs", ((
+        "        var original = runtime.Store.FindReceipt(messageId)?.Message",
+        "        var original = runtime.Store.FindReceiptWithText(messageId)?.Message",
+    ),)),
+    Witness("broker-e-inbox-omits-acknowledged", "store", "worker", ("--tombstone-case", "inbox"), "TombstoneChecks.cs", ((
+        '                history.AddRange(acknowledged.Select(id => Render(tombstones[id], "")));',
+        "                _ = acknowledged;",
+    ),)),
+    Witness("broker-e-held-tombstoned", "store", "worker", ("--tombstone-case", "held"), "TombstoneChecks.cs", ((
+        "    private bool Tombstoned(MessageReceipt receipt) => receipt.Status is MessageStatus.Delivered or MessageStatus.Refused &&",
+        "    private bool Tombstoned(MessageReceipt receipt) => receipt.Status is MessageStatus.Delivered or MessageStatus.Refused or MessageStatus.Held &&",
+    ),)),
+    Witness("broker-e-acknowledged-count-toward-limit", "store", "worker", ("--tombstone-case", "capacity"), "TombstoneChecks.cs", ((
+        '            if (retained.Count >= limits.MaximumMessages) Fail("message_limit");',
+        '            if (retained.Count + tombstones.Count >= limits.MaximumMessages) Fail("message_limit");',
+    ),)),
+    Witness("broker-e-tombstone-cap-unbounded", "store", "worker", ("--tombstone-case", "capacity"), "TombstoneChecks.cs", ((
+        '            if (retained.Count + tombstones.Count >= limits.MaximumTombstones) Fail("message_limit");',
+        "            _ = limits.MaximumTombstones;",
+    ),)),
+    # A shorter grace, not none: with none, the EXISTING late-reply check fails too (its parent is a tombstone now).
+    Witness("broker-e-grace-shortened", "store", "worker", ("--tombstone-case", "grace"), "TombstoneChecks.cs", ((
+        "        var retainedAfter = Now - RecordGrace;",
+        "        var retainedAfter = Now - TimeSpan.FromHours(12);",
+    ),)),
+    Witness("broker-e-journal-not-loaded", "store", "worker", ("--tombstone-case", "restart"), "TombstoneChecks.cs", ((
+        """            ValidateState();
+            LoadTombstones();
+""",
+        """            ValidateState();
+""",
+    ),)),
+    Witness("broker-e-torn-tail-refused", "store", "worker", ("--tombstone-case", "restart"), "TombstoneChecks.cs", ((
+        """        if (!header) return;
+        journalLength = complete;""",
+        """        if (used > 0) throw MalformedTombstones();
+        if (!header) return;
+        journalLength = complete;""",
+    ),)),
+    Witness("broker-e-journal-wins-over-snapshot", "store", "worker", ("--tombstone-case", "restart"), "TombstoneChecks.cs", ((
+        "                if (!full.Contains(tombstone.Id)) AddTombstone(tombstone);",
+        "                AddTombstone(tombstone);",
+    ),)),
+    # Tombstone bookkeeping in the snapshot: this build reads the new member, a 1.0.4 worker refuses it. (Leaving
+    # empty-text records in the snapshot instead makes this build refuse its own state on the existing restart check.)
+    Witness("broker-e-rollback-snapshot-member-added", "store", "worker", ("--tombstone-case", "rollback"), "TombstoneChecks.cs", ((
+        "    private sealed record State(int Version, Guid BrokerId, List<PeerTrust> Peers, List<MessageReceipt> Messages);",
+        "    private sealed record State(int Version, Guid BrokerId, List<PeerTrust> Peers, List<MessageReceipt> Messages, int Tombstones = 0);",
+    ),)),
+    # The commit path only: changing Tombstoned itself would also convert PaginationChecks' seeded paired-broker history
+    # as the store opens, failing an EXISTING check. An acknowledgement on the wire is a commit.
+    Witness("broker-e-peer-inbound-tombstoned", "store", "worker", ("--tombstone-case", "wire"), "TombstoneChecks.cs", (
+        ("        var added = next.Messages.Where(Tombstoned).Select(ToTombstone).ToList();",
+         "        var added = next.Messages.Where(receipt => receipt.Status is MessageStatus.Delivered or MessageStatus.Refused)"
+         ".Select(ToTombstone).ToList();"),
+        ("            next = next with { Messages = next.Messages.Where(receipt => !Tombstoned(receipt)).ToList() };",
+         "            next = next with { Messages = next.Messages.Where(receipt => receipt.Status is not (MessageStatus.Delivered or "
+         "MessageStatus.Refused)).ToList() };"),
+    )),
+    Witness("broker-e-receipts-route-sends-tombstone", "federation", "worker", ("--tombstone-case", "wire"), "TombstoneChecks.cs", ((
+        "            Guid caller = RequirePeer(c); var receipt = store.FindReceiptWithText(id);",
+        "            Guid caller = RequirePeer(c); var receipt = store.FindReceipt(id);",
+    ),)),
+    Witness("broker-e-wire-record-member-added", "models", "worker", ("--tombstone-case", "wire"), "TombstoneChecks.cs", ((
+        """public sealed record MessageReceipt(BrokerMessage Message, MessageStatus Status,
+    DateTimeOffset UpdatedAt, string? Reason = null, int Attempts = 0);""",
+        """public sealed record MessageReceipt(BrokerMessage Message, MessageStatus Status,
+    DateTimeOffset UpdatedAt, string? Reason = null, int Attempts = 0, bool Tombstone = false);""",
     ),)),
 )
 
