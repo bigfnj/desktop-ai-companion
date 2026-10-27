@@ -228,7 +228,7 @@ Two consequences of the watch to know about:
   (Documents often is), OneDrive uploads every recording, and a recording deleted here, by the 72-hour purge or by
   the cut above, stays in OneDrive's recycle bin for as long as OneDrive keeps it. The Status line warns when this
   is so; Remembrance moves nothing on its own. Since Remembrance 2.7.0 a fresh install (no storage folder ever
-  saved, and nothing in `Documents\Remembrance` yet) whose Documents is inside OneDrive records to `Remembrance` in
+  saved, and no `Documents\Remembrance` folder yet) whose Documents is inside OneDrive records to `Remembrance` in
   the application's data folder instead (`%LOCALAPPDATA%\DesktopAICompanion\Remembrance` for an installed copy),
   which OneDrive does not upload; the Status line says so. That folder sits beside the modules folder, not inside
   Remembrance's own data folder, because uninstalling a module deletes its data folder and with it every
