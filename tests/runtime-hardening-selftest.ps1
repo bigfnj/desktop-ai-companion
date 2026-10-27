@@ -5041,6 +5041,38 @@ Assert-True ($tqIcon -cnotmatch 'PromoteOnce\(Application\.ExecutablePath, (ni|i
 Assert-True ($tqSettings -cmatch 'target\.QuestionHeadsUp = current\.QuestionHeadsUp;' -and $tqSettings -cmatch 'QuestionHeadsUp = source\.QuestionHeadsUp,') (
     'tray-questions: QuestionHeadsUp is cloned and merged on save')
 
+# ---- lane feature/test-infra ----
+# (invariants added by lane feature/test-infra go directly below this line)
+
+# THE WINDOW SOAK JUDGES PRIVATE BYTES BY THEIR SLOPE, AND NOTHING ELSE MOVED (N-release-150-01). The judge itself is graded
+# by the soak exe's --judge-selftest, over the entry's recorded series and synthetic leaks (tests\mutate-selftest-guards.py,
+# flag WINDOWSOAK-JUDGE); what no headless run can reach is the WIRING inside Run(), because the soak opens real windows and
+# is the coordinator's to run. So it is pinned here on comment-stripped source: every segment's post-Collect sample is kept,
+# the judge is handed the whole series once after the loop and its verdict is folded into the result, the judge proves
+# itself before the first window, and the old shape (the last segment's private bytes against the one before) is gone.
+# Positive control first, and a WITNESS that the handle, GDI and USER counts are still judged exactly as before: last
+# segment against the previous one, each bounded at 16.
+$tiSoak = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'tests\DesktopAICompanion.WindowSoak\Program.cs') -Raw)
+$tiSoakRun = Get-MethodBody $tiSoak 'private static bool Run(WindowDriver driver, string petXml, Options options, StringBuilder sb)'
+Assert-True ($tiSoakRun.Length -gt 0 -and
+    $tiSoakRun.Contains('after.Handles - previous.Handles <= options.MaximumHandleGrowth);') -and
+    $tiSoakRun.Contains('after.Gdi - previous.Gdi <= options.MaximumGdiGrowth);') -and
+    $tiSoakRun.Contains('after.User - previous.User <= options.MaximumUserGrowth);') -and
+    $tiSoakRun.Contains('if (previous != null && segment == options.Segments)') -and
+    $tiSoak -cmatch 'internal long MaximumHandleGrowth = 16;\s+internal long MaximumGdiGrowth = 16;\s+internal long MaximumUserGrowth = 16;') (
+    'WITNESS test-infra: the window soak still judges handles, GDI and USER on the last segment against the one before, each bounded at 16')
+$tiSelfTestAt = $tiSoakRun.IndexOf('bool ok = PrivateBytesJudge.SelfTest(sb);', [StringComparison]::Ordinal)
+$tiLoopAt = $tiSoakRun.IndexOf('for (int segment = 1; segment <= options.Segments; segment++)', [StringComparison]::Ordinal)
+$tiKeepAt = $tiSoakRun.IndexOf('privateAfter.Add(after.PrivateBytes);', [StringComparison]::Ordinal)
+$tiJudgeAt = $tiSoakRun.IndexOf('PrivateBytesJudge.Verdict privateVerdict = PrivateBytesJudge.Judge(privateAfter, options.MaximumPrivateByteSlope);', [StringComparison]::Ordinal)
+$tiFoldAt = $tiSoakRun.IndexOf('ok &= Check(sb, privateVerdict.Text, privateVerdict.Passed);', [StringComparison]::Ordinal)
+$tiResultAt = $tiSoakRun.IndexOf('sb.AppendLine("RESULT=" + (ok ? "PASS" : "FAIL"));', [StringComparison]::Ordinal)
+Assert-True ($tiSelfTestAt -ge 0 -and $tiLoopAt -gt $tiSelfTestAt -and $tiKeepAt -gt $tiLoopAt -and $tiJudgeAt -gt $tiKeepAt -and
+    $tiFoldAt -gt $tiJudgeAt -and $tiResultAt -gt $tiFoldAt -and
+    [regex]::Matches($tiSoakRun, 'PrivateBytesJudge\.Judge\(').Count -eq 1 -and
+    $tiSoak -cnotmatch 'PrivateBytes - previous\.PrivateBytes') (
+    "test-infra: the window soak judges private bytes once, by their slope over every segment after the loop, and never the last segment against the one before (found at $tiSelfTestAt, $tiLoopAt, $tiKeepAt, $tiJudgeAt, $tiFoldAt, $tiResultAt)")
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever

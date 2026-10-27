@@ -220,6 +220,17 @@ SECURE_DOWNLOAD_CS = os.path.join(REPO, "src", "dotNet", "SecureDownload.cs")
 TYPE_REGISTRY = os.path.join(REPO, "src", "dotNet", "CompanionTypeRegistry.cs")
 REMOTE_CATALOG = os.path.join(REPO, "src", "dotNet", "RemoteCatalog.cs")
 
+# Lane feature/test-infra. The pseudo-flag a case names to run the module-window soak's private-bytes judge on its own,
+# `DesktopAICompanion.WindowSoak.exe --judge-selftest`, which opens no window and loads no module: it judges the recorded
+# series of BACKLOG N-release-150-01 and synthetic leaks, prints PASS:/FAIL: lines and its own column-0 RESULT= line, and
+# exits 0 or 1. The soak itself is the coordinator's to run; the judge is what can be graded here. The artefact is the
+# harness's DLL, which the build recompiles from the mutated Program.cs (its apphost .exe need not move).
+WINDOWSOAK_JUDGE = "WINDOWSOAK-JUDGE"
+WINDOWSOAK_PROGRAM = os.path.join(REPO, "tests", "DesktopAICompanion.WindowSoak", "Program.cs")
+WINDOWSOAK_CSPROJ = os.path.join(REPO, "tests", "DesktopAICompanion.WindowSoak", "DesktopAICompanion.WindowSoak.csproj")
+WINDOWSOAK_DLL = os.path.join(REPO, "tests", "DesktopAICompanion.WindowSoak", "bin", "Release", "DesktopAICompanion.WindowSoak.dll")
+WINDOWSOAK_EXE = os.path.join(REPO, "tests", "DesktopAICompanion.WindowSoak", "bin", "Release", "DesktopAICompanion.WindowSoak.exe")
+
 TEMP = os.environ.get("TEMP", ".")
 # One private TEMP per harness run, created in main() and handed to every child through its environment
 # (Path.GetTempPath() reads TMP, then TEMP). Deleted at the end: the SelfTestScratch sweep inside the child
@@ -12721,6 +12732,35 @@ CASES = (
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      'with another storage folder on screen, unapplied, it refuses'),
+
+    # ---- lane feature/test-infra ----
+    # The module-window soak's private-bytes judge (BACKLOG N-release-150-01), through WINDOWSOAK-JUDGE: each case puts
+    # back a shape the judge replaced or loosens what it holds, and the check over the recorded or synthetic series that
+    # sees it must fail. Named "test-infra: ..." so one --only=test-infra: run covers the lane.
+    ("test-infra: the soak's private-bytes slope bound is back at the one-step 24 MiB",
+     WINDOWSOAK_PROGRAM,
+     b"            internal const long MaximumSlopePerSegment = 16L * 1024 * 1024;\n",
+     b"            internal const long MaximumSlopePerSegment = 24L * 1024 * 1024;\n",
+     WINDOWSOAK_CSPROJ, WINDOWSOAK_DLL,
+     WINDOWSOAK_JUDGE, None, "judge: the same leak under master 1.4.0's recorded swings still fails"),
+    ("test-infra: the soak judges private bytes on the last step against the one before again",
+     WINDOWSOAK_PROGRAM,
+     b"                double slope = Slope(afterSegment);\n",
+     b"                double slope = afterSegment[n - 1] - afterSegment[n - 2];\n",
+     WINDOWSOAK_CSPROJ, WINDOWSOAK_DLL,
+     WINDOWSOAK_JUDGE, None, "judge: the +38.7 MB step that failed the v1.5.0 cut passes"),
+    ("test-infra: the soak judges a run too short for a slope",
+     WINDOWSOAK_PROGRAM,
+     b"                if (n < MinimumSegments)\n",
+     b"                if (n < 2)\n",
+     WINDOWSOAK_CSPROJ, WINDOWSOAK_DLL,
+     WINDOWSOAK_JUDGE, None, "judge: a two-segment run"),
+    ("test-infra: the soak fails a series exactly at its slope bound",
+     WINDOWSOAK_PROGRAM,
+     b"                    Passed = slope <= maximumSlopePerSegment,\n",
+     b"                    Passed = slope < maximumSlopePerSegment,\n",
+     WINDOWSOAK_CSPROJ, WINDOWSOAK_DLL,
+     WINDOWSOAK_JUDGE, None, "judge: steady growth at the bound"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
@@ -12845,6 +12885,8 @@ def selftest(flag, marker):
         return template_selftest()
     if flag == MODULE_SELFTESTS:
         return module_selftests_runner()
+    if flag == WINDOWSOAK_JUDGE:
+        return windowsoak_judge()
     path = os.path.join(RUN_TEMP, marker)
     try:
         os.remove(path)
@@ -12993,6 +13035,24 @@ def module_selftests_runner():
         lines.append("FAIL: " + stripped[len("PROBLEM: "):] if stripped.startswith("PROBLEM: ") else line)
     lines.append("RESULT=PASS" if proc.returncode == 0 else "RESULT=FAIL")
     return "\n".join(lines) + "\n", proc.returncode
+
+
+def windowsoak_judge():
+    """The module-window soak's `--judge-selftest` (WINDOWSOAK_JUDGE), lane feature/test-infra.
+
+    The exe already speaks the ladder's vocabulary: one PASS:/FAIL: line per check and its own column-0 RESULT= line,
+    with exit 0 or 1, so stdout and stderr are taken as they are and no RESULT= line is added here (a second one could
+    disagree with the exe's). An exe that dies before printing leaves no RESULT=PASS and a non-zero exit, which the
+    ladder reads as BROKEN, never as a firing. Opens no window and loads no module; bounded at 300 s like a hang detector,
+    since an unmutated run takes well under a second.
+    """
+    if not os.path.isfile(WINDOWSOAK_EXE):
+        return None, "the window soak exe is missing: " + WINDOWSOAK_EXE
+    try:
+        proc = run_text([WINDOWSOAK_EXE, "--judge-selftest"], capture_output=True, timeout=300, env=CHILD_ENV)
+    except subprocess.TimeoutExpired:
+        return None, "the window soak's --judge-selftest did not exit in 300s"
+    return (proc.stdout or "") + (proc.stderr or ""), proc.returncode
 
 
 def security():

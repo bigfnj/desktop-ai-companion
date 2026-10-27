@@ -5490,6 +5490,28 @@ and no other, rather than a new card changing the approved card order.
 **Measured on the owner's box, names only:** the storage folder (inside OneDrive) held 2 day folders with 3 recordings
 under the old names, 8 files (3 transcripts, 3 summaries, 2 recordings' audio; the third's audio already purged).
 
+#### feature/test-infra
+
+Test infrastructure and records (campaign of 2026-10-26). No module, host or published payload changes, so no version
+moves. Each paragraph is a choice that could read as a defect, or as work left half done.
+
+**The module-window soak judges private bytes by their slope, not by one step (N-release-150-01).** It judged the last
+segment against the one before under 24 MiB, and that sat inside its own noise: the v1.5.0 cut failed once at +38.7 MB
+on a Companion Studio byte-identical to 1.4.0's, and four 4-segment reruns on both builds swung by up to 37 MB a segment
+without ever growing every segment. That is a GC watermark, a level that swings; a leak adds about the same amount every
+segment. `PrivateBytesJudge` in `tests/DesktopAICompanion.WindowSoak/Program.cs` fits a least-squares line through the
+sample taken after each segment and bounds its slope at 16 MiB a segment, needing at least four segments. The bound
+comes from the recorded numbers, worked through in the class's comment: a swing of the recorded size moves the slope by
+at most 15.5 MB a segment over four segments and 11.6 over five, while the recorded every-window-rooted leak (+31.4 MB a
+segment) still judges at least 15.9 and 19.8. Four segments is the floor, where the two worst cases nearly meet, and
+five is the default. Refused: the median of the steps (a level alternating +37, -37, +37 has a median of +37, a watermark
+judged as a leak), also requiring growth in every segment (a real leak under one -37 MB swing would pass), and the median
+of several runs (one run is one process, and nothing re-runs it). Handles, GDI and USER are counts that do not swing and
+are judged as before. The judge runs on its own as `--judge-selftest` (no window, no module), which
+`tests/mutate-selftest-guards.py` grades as WINDOWSOAK-JUDGE, and every soak runs it before its first window. **Until
+`tests/module-window-soak.ps1` changes (outside this lane), its default `-Segments 2` makes the soak FAIL with "NOT
+JUDGED, a slope needs at least 4 segments and 2 ran"**: run it with `-Segments 5`.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

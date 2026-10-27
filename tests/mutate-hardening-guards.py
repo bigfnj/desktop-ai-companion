@@ -3339,6 +3339,42 @@ CASES = (
         b"",
         "tray-questions: QuestionHeadsUp is cloned and merged",
     ),
+
+    # ---- lane feature/test-infra ----
+    # The module-window soak's wiring (BACKLOG N-release-150-01) and the module self-test runner's per-module limit
+    # (N-release-150-02), each broken the way it would break. Source only, like every case here; the judge's own
+    # arithmetic is graded by tests/mutate-selftest-guards.py's WINDOWSOAK-JUDGE cases. "test-infra:" for one --only.
+    (
+        "test-infra: the window soak's GDI bound moves",
+        os.path.join(REPO, "tests", "DesktopAICompanion.WindowSoak", "Program.cs"),
+        b"            internal long MaximumGdiGrowth = 16;\n",
+        b"            internal long MaximumGdiGrowth = 24;\n",
+        "WITNESS test-infra: the window soak still judges handles, GDI and USER",
+    ),
+    (
+        "test-infra: the window soak judges the last segment's private bytes again, beside the judge",
+        os.path.join(REPO, "tests", "DesktopAICompanion.WindowSoak", "Program.cs"),
+        b"                        after.User - previous.User <= options.MaximumUserGrowth);\n                }\n",
+        b"                        after.User - previous.User <= options.MaximumUserGrowth);\n"
+        b"                    ok &= Check(sb, \"private bytes settled across the last segment\",\n"
+        b"                        after.PrivateBytes - previous.PrivateBytes <= options.MaximumPrivateByteSlope);\n"
+        b"                }\n",
+        "test-infra: the window soak judges private bytes once",
+    ),
+    (
+        "test-infra: the window soak's private-bytes verdict is not folded into its result",
+        os.path.join(REPO, "tests", "DesktopAICompanion.WindowSoak", "Program.cs"),
+        b"            ok &= Check(sb, privateVerdict.Text, privateVerdict.Passed);\n",
+        b"            Check(sb, privateVerdict.Text, privateVerdict.Passed);\n",
+        "test-infra: the window soak judges private bytes once",
+    ),
+    (
+        "test-infra: the window soak no longer proves its judge before the first window",
+        os.path.join(REPO, "tests", "DesktopAICompanion.WindowSoak", "Program.cs"),
+        b"            bool ok = PrivateBytesJudge.SelfTest(sb);\n",
+        b"            bool ok = true;\n",
+        "test-infra: the window soak judges private bytes once",
+    ),
 )
 
 
