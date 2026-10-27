@@ -187,14 +187,38 @@ namespace DesktopAICompanion.RemembranceModule
         /// plain account. One row per CLI since 2.3.0's round 2, each live while its CLI is chosen on screen: the privacy
         /// row must never name the saved CLI's vendor under a radio that shows the other (the first on-screen walk: "The
         /// transcript's text goes to Anthropic" with Codex chosen and not applied).</summary>
-        internal static string SendsLine(CodingAgentKind agent)
+        /// <param name="ownSettingsLeftOut">"Keep my Claude Code settings out of companion calls" is SAVED on (lane
+        /// feature/cli-followups): the Claude Code row then adds what that leaves out too, as AI Brain's does.</param>
+        internal static string SendsLine(CodingAgentKind agent, bool ownSettingsLeftOut)
         {
             string to = agent == CodingAgentKind.None ? "Anthropic (Claude Code) or OpenAI (Codex)" : CodingAgents.Vendor(agent);
             return "The transcript's text goes to " + to + " once per recording, in one call with the summary prompt, and so does a " +
                    "transcript you summarize with \"Summarize a transcript…\". The audio never leaves this machine: transcription " +
                    "stays on local Whisper. A transcript over 360 KB (more than six hours of talk) is summarized by the local model instead." +
                    // remembrance 2.3.1 (lane feature/cli-home-files): what a Claude Code call leaves out of the user's own setup.
-                   (agent == CodingAgentKind.Claude ? " " + CodingAgentCliText.ClaudeOwnSetupLeftOut : "");
+                   (agent == CodingAgentKind.Claude ? " " + CodingAgentCliText.ClaudeOwnSetupLeftOut : "") +
+                   // And, with the opt-in saved on, the settings files too and what that drops (lane feature/cli-followups).
+                   (agent == CodingAgentKind.Claude && ownSettingsLeftOut ? " " + CodingAgentCliText.ClaudeOwnSettingsFilesLeftOut : "");
+        }
+
+        // ---- "Keep my Claude Code settings out of companion calls" (lane feature/cli-followups, remembrance 2.7.0) ----------
+        //
+        // The shared runner's opt-in (CliRequest.LeaveOutOwnClaudeSettings; BACKLOG N-cli-home-files-01, the owner's decision:
+        // an opt-in, default off), which AI Brain's card has offered since lane feature/cli-runner-aibrain and this module's
+        // card offers now, as that lane's hand-off specified: a Bool row after the Claude Code effort row, live only while
+        // Claude Code is the CLI on screen. With it on, a summary's Claude Code call reads none of the user's, the project's or
+        // the local settings files; what that drops and what still applies are at the runner's site (BuildArguments). Read
+        // from the SAVED settings at a recording's stop, and from the screen by Validate and "Summarize a transcript...", as
+        // the model and the effort are. The runner alone names the flag on a command line (tests/runtime-hardening-selftest.ps1
+        // counts it, N-cli-runner-03).
+
+        internal const string ClaudeSettingsOutKey = "cliClaudeSettingsOut";
+
+        /// <summary>Whether <paramref name="settings"/> (the saved settings, or the on-screen copy) has the opt-in on; false
+        /// when the key is absent, an install from before 2.7.0 included, and for text that is no Boolean.</summary>
+        internal static bool LeavesOutOwnClaudeSettings(DesktopAICompanion.Modules.IModuleSettings settings)
+        {
+            return settings != null && settings.GetBool(ClaudeSettingsOutKey, false);
         }
 
         // ---- the CLI's model and effort (lane feature/cli-model-effort, remembrance 2.3.0) ----------------------------------
