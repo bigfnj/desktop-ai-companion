@@ -1690,6 +1690,8 @@ namespace DesktopAICompanion
                 ok &= SettingsPrimitives(sb);
                 // ---- lane feature/pane-rebuild ----
                 ok &= PaneRebuildKeepsPlace(sb);
+                // ---- lane feature/host-options ----
+                ok &= HostOptions(sb);
             }
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message); }
 
@@ -1723,6 +1725,26 @@ namespace DesktopAICompanion
         }
 
         private static bool Check(StringBuilder sb, string name, bool cond) { sb.AppendLine((cond ? "PASS: " : "FAIL: ") + name); return cond; }
+
+        /// <summary>What a failing pixel check adds to its line when a render it read came back blank: it names the state,
+        /// so a gate run from a disconnected or minimized session reads as that and not as a host regression.</summary>
+        internal const string BlankRenderNote = "[render blank: is the Windows session disconnected, or its Remote Desktop window minimized?]";
+
+        /// <summary>A pixel check's line: <paramref name="name"/>, and the blank-render note after it when the check fails
+        /// and any render it read is <see cref="PaneRender.Blank"/>. At the END, so a mutation case still matches the name.</summary>
+        private static string PixelLabel(string name, bool cond, params PaneRender[] renders)
+        {
+            if (cond || renders == null) return name;
+            foreach (PaneRender render in renders)
+                if (render != null && render.Blank) return name + " " + BlankRenderNote;
+            return name;
+        }
+
+        /// <summary><see cref="Check"/> for an assertion that reads pixels from <paramref name="renders"/>.</summary>
+        private static bool PixelCheck(StringBuilder sb, string name, bool cond, params PaneRender[] renders)
+        {
+            return Check(sb, PixelLabel(name, cond, renders), cond);
+        }
 
         /// <summary>A custom pane control whose busy state the test sets by hand, standing in for the
         /// Companions and Modules panes' download counters (RA-328).</summary>
@@ -2421,10 +2443,10 @@ namespace DesktopAICompanion
                     ratios.Append(kind).Append(' ').Append(rowRatio.ToString("0.00")).Append('/').Append(edRatio.ToString("0.00")).Append(", ");
                     inks.Append(kind).Append(' ').Append(liveRowInk.ToString("0.00")).Append('/').Append(liveEdInk.ToString("0.00")).Append(", ");
                 }
-                ok &= Check(sb, "P0: in the " + theme + " theme a greyed row of every control kind renders dimmer than its live twin, label and editor (greyed/live ink, row/editor: " +
-                    ratios.ToString().TrimEnd(',', ' ') + ")", allDimmer);
-                ok &= Check(sb, "P0: WITNESS in the " + theme + " theme every live row draws ink to compare against (row/editor: " +
-                    inks.ToString().TrimEnd(',', ' ') + ")", allInked);
+                ok &= PixelCheck(sb, "P0: in the " + theme + " theme a greyed row of every control kind renders dimmer than its live twin, label and editor (greyed/live ink, row/editor: " +
+                    ratios.ToString().TrimEnd(',', ' ') + ")", allDimmer, liveRender, greyRender);
+                ok &= PixelCheck(sb, "P0: WITNESS in the " + theme + " theme every live row draws ink to compare against (row/editor: " +
+                    inks.ToString().TrimEnd(',', ' ') + ")", allInked, liveRender);
             }
 
             // A DISABLED BUTTON on the dark card. Every action button is disabled while it runs, so one whose
@@ -2453,13 +2475,13 @@ namespace DesktopAICompanion
                 // brightest pixel is the box, and a page-relative reading measured that instead of the text.
                 double heldCaption = buttonRender.Contrast(paneButtons[0]), idleCaption = buttonRender.Contrast(paneButtons[1]);
                 ok &= Check(sb, "P0: WITNESS the held button is disabled while its action runs", !paneButtons[0].IsEnabled);
-                ok &= Check(sb, "P0: a disabled button keeps the dark surface instead of the stock pale box (median luminance " +
-                    heldMedian.ToString("0.00") + ")", heldMedian <= 0.3);
-                ok &= Check(sb, "P0: a disabled button's caption is dimmer against its surface than an enabled one's (contrast " +
-                    heldCaption.ToString("0.00") + " against " + idleCaption.ToString("0.00") + ")", heldCaption <= 0.7 * idleCaption);
-                ok &= Check(sb, "P0: WITNESS an enabled button renders dark with a bright caption (median " +
+                ok &= PixelCheck(sb, "P0: a disabled button keeps the dark surface instead of the stock pale box (median luminance " +
+                    heldMedian.ToString("0.00") + ")", heldMedian <= 0.3, buttonRender);
+                ok &= PixelCheck(sb, "P0: a disabled button's caption is dimmer against its surface than an enabled one's (contrast " +
+                    heldCaption.ToString("0.00") + " against " + idleCaption.ToString("0.00") + ")", heldCaption <= 0.7 * idleCaption, buttonRender);
+                ok &= PixelCheck(sb, "P0: WITNESS an enabled button renders dark with a bright caption (median " +
                     idleMedian.ToString("0.00") + ", caption contrast " + idleCaption.ToString("0.00") + ")",
-                    idleMedian <= 0.3 && idleCaption >= 0.5);
+                    idleMedian <= 0.3 && idleCaption >= 0.5, buttonRender);
             }
             else ok &= Check(sb, "P0: the button probe rendered both of its buttons", false);
             hold.TrySetResult("✓ released");
@@ -2623,16 +2645,16 @@ namespace DesktopAICompanion
             greyRender.Save("dp-p2-greyed-card.png");
             liveRender.Save("dp-p2-live-card.png");
             double greyPlain = greyRender.Ink(view.RowFor("plain")), livePlain = liveRender.Ink(liveView.RowFor("plain"));
-            ok &= Check(sb, "P2: a greyed card's rows render dimmer than in the live card (ink " + greyPlain.ToString("0.00") +
-                " against " + livePlain.ToString("0.00") + ")", livePlain >= 0.3 && greyPlain <= 0.8 * livePlain);
+            ok &= PixelCheck(sb, "P2: a greyed card's rows render dimmer than in the live card (ink " + greyPlain.ToString("0.00") +
+                " against " + livePlain.ToString("0.00") + ")", livePlain >= 0.3 && greyPlain <= 0.8 * livePlain, greyRender, liveRender);
             double greyButton = greyRender.Median(refresh);
-            ok &= Check(sb, "P2: a greyed card's button keeps the dark surface (median luminance " + greyButton.ToString("0.00") + ")",
-                greyButton >= 0 && greyButton <= 0.3);
+            ok &= PixelCheck(sb, "P2: a greyed card's button keeps the dark surface (median luminance " + greyButton.ToString("0.00") + ")",
+                greyButton >= 0 && greyButton <= 0.3, greyRender);
             // A row greyed by its own EnabledWhen AND by its card is dimmed once: it renders like its sibling.
             double greyTwice = greyRender.Ink(view.RowFor("twice"));
-            ok &= Check(sb, "P2: a row greyed by its own EnabledWhen inside a greyed card is dimmed once, like its siblings (ink " +
+            ok &= PixelCheck(sb, "P2: a row greyed by its own EnabledWhen inside a greyed card is dimmed once, like its siblings (ink " +
                 greyTwice.ToString("0.00") + " against " + greyPlain.ToString("0.00") + ")",
-                greyPlain > 0 && greyTwice >= 0.8 * greyPlain);
+                greyPlain > 0 && greyTwice >= 0.8 * greyPlain, greyRender);
 
             // LIVE: the radio moves to Local model on the greyed view, and the card lifts.
             var radios = new List<System.Windows.Controls.RadioButton>();
@@ -3293,7 +3315,17 @@ namespace DesktopAICompanion
             private readonly int _width, _height;
             private readonly double _background;
 
-            internal PaneRender(System.Windows.FrameworkElement content, bool dark, double width = DefaultPaneWidth)
+            /// <summary>
+            /// True when no pixel of this render shows the frame's own background, which fills the whole frame: the
+            /// RenderTargetBitmap came back blank, as it does while the Windows session is disconnected (N-codex-project-docs-02)
+            /// and, it appears, while its Remote Desktop window is minimized. Every row then measures the same ink, live and
+            /// greyed alike, so the pixel checks fail without anything having regressed; <see cref="PixelCheck"/> says so.
+            /// </summary>
+            internal readonly bool Blank;
+
+            /// <param name="draw">False only for the self-test's own blank render: the bitmap is never drawn into, which is
+            /// what a blank session hands back.</param>
+            internal PaneRender(System.Windows.FrameworkElement content, bool dark, double width = DefaultPaneWidth, bool draw = true)
             {
                 Frame = new System.Windows.Controls.Border
                 {
@@ -3308,11 +3340,15 @@ namespace DesktopAICompanion
                 _width = (int)Math.Ceiling(width);
                 _height = (int)Math.Max(1, Math.Ceiling(Frame.DesiredSize.Height));
                 _bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap(_width, _height, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
-                _bitmap.Render(Frame);
+                if (draw) _bitmap.Render(Frame);
                 _pixels = new byte[_width * _height * 4];
                 _bitmap.CopyPixels(_pixels, _width * 4, 0);
                 var bg = ((System.Windows.Media.SolidColorBrush)Frame.Background).Color;
                 _background = Luminance(bg.R, bg.G, bg.B);
+                bool sawBackground = false;
+                for (int i = 0; i + 3 < _pixels.Length && !sawBackground; i += 4)
+                    sawBackground = _pixels[i] == bg.B && _pixels[i + 1] == bg.G && _pixels[i + 2] == bg.R && _pixels[i + 3] == bg.A;
+                Blank = !sawBackground;
             }
 
             private static double Luminance(byte r, byte g, byte b) { return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255.0; }
@@ -3943,14 +3979,25 @@ namespace DesktopAICompanion
             internal readonly DesktopAICompanion.Wpf.OptionsWindow Window;
             private readonly System.Windows.FrameworkElement _grid;
 
-            internal LaidOutWindow(params OptionsPane[] panes)
+            internal LaidOutWindow(params OptionsPane[] panes) : this(SchemaPanes(panes)) { }
+
+            /// <summary>A window over any shell panes, the host's own custom ones included (lane feature/host-options).</summary>
+            internal LaidOutWindow(List<DesktopAICompanion.Wpf.ShellPane> shell)
             {
-                var shell = new List<DesktopAICompanion.Wpf.ShellPane>();
-                foreach (OptionsPane p in panes) shell.Add(new DesktopAICompanion.Wpf.SchemaShellPane(p));
                 Window = new DesktopAICompanion.Wpf.OptionsWindow(shell);
                 _grid = Window.Content as System.Windows.FrameworkElement;
                 Layout();
             }
+
+            private static List<DesktopAICompanion.Wpf.ShellPane> SchemaPanes(OptionsPane[] panes)
+            {
+                var shell = new List<DesktopAICompanion.Wpf.ShellPane>();
+                foreach (OptionsPane p in panes) shell.Add(new DesktopAICompanion.Wpf.SchemaShellPane(p));
+                return shell;
+            }
+
+            /// <summary>The window's content grid: the nav, the pane on screen and the footer, laid out as a root.</summary>
+            internal System.Windows.FrameworkElement Root { get { return _grid; } }
 
             internal void Layout()
             {
@@ -3974,7 +4021,7 @@ namespace DesktopAICompanion
                 Layout();
             }
 
-            private List<T> InPane<T>() where T : class
+            internal List<T> InPane<T>() where T : class
             {
                 var found = new List<T>();
                 CollectAll(Window.CurrentContent as System.Windows.DependencyObject, found);
@@ -4198,11 +4245,14 @@ namespace DesktopAICompanion
             return ok;
         }
 
+        /// <summary>The Info row showing the module text <paramref name="text"/>: drawn in its display form, a hyphen
+        /// inside a word as U+2011 (N-cli-model-effort-08).</summary>
         private static System.Windows.Controls.TextBlock FindInfo(System.Windows.DependencyObject root, string text)
         {
             var blocks = new List<System.Windows.Controls.TextBlock>();
             CollectAll(root, blocks);
-            return blocks.Find(delegate(System.Windows.Controls.TextBlock block) { return block.Text == text; });
+            string shown = DesktopAICompanion.Wpf.PaneView.InfoDisplayText(text);
+            return blocks.Find(delegate(System.Windows.Controls.TextBlock block) { return block.Text == shown; });
         }
 
         /// <summary>The actual settings window updates an existing Info row without rebuilding editors or
@@ -4414,6 +4464,784 @@ namespace DesktopAICompanion
             GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
             ok &= Check(sb, "live Info: a retained pane does not retain a disposed view or its queued dispatcher callback", !released.IsAlive);
             GC.KeepAlive(pane);
+            return ok;
+        }
+
+        // ================= lane feature/host-options: the options window's backlog =================
+
+        /// <summary>
+        /// Lane feature/host-options: the LoadPending stored baseline, the Secret baselines, Apply re-tested after every
+        /// edit, the label gap and the chosen option's tooltip, model ids kept whole in Info rows, the Browse dialog's
+        /// title, the blank-render note on the pixel checks, and the automation names of every control in the window.
+        /// Through a real settings window, never shown and laid out by hand, wherever the window is part of the answer.
+        /// </summary>
+        private static bool HostOptions(StringBuilder sb)
+        {
+            bool ok = true;
+            try
+            {
+                ok &= LoadPendingBaseline(sb);
+                ok &= SecretBaselineWhenOmitted(sb);
+                ok &= ApplyGreysWhenNothingDiffers(sb);
+                ok &= LabelGapAndChoiceTooltip(sb);
+                ok &= InfoRowsKeepIdsWhole(sb);
+                ok &= BrowseDialogTitle(sb);
+                ok &= BlankRenderIsNamed(sb);
+                ok &= SettingsWindowNamesEveryControl(sb);
+            }
+            catch (Exception ex)
+            {
+                ok = false;
+                sb.AppendLine("FAIL: the host-options probe threw " + ex.GetType().Name + ": " + ex.Message);
+            }
+            return ok;
+        }
+
+        private const string PauseNow = "Pause now";
+        private const string ChooseTheOwl = "Choose the owl for me";
+
+        /// <summary>What the module behind <see cref="PendingPane"/> has stored, and what its last Save was handed.</summary>
+        private sealed class PendingPaneModule
+        {
+            public string Pet = "cat", Anim = "purr", Note = "stored";
+            public bool KeySaved = false, TokenSaved = true;
+            public Dictionary<string, string> LastSave;
+        }
+
+        private static readonly string[] PendingPets = { "cat", "dog", "owl" };
+
+        private static string[] AnimationsOf(string pet)
+        {
+            if (pet == "dog") return new[] { "fetch", "bark" };
+            if (pet == "owl") return new[] { "hoot", "blink" };
+            return new[] { "purr", "nap" };
+        }
+
+        /// <summary>
+        /// A LoadPending pane in AgentFlow's shape: LoadPending builds the schema itself, the second dropdown's options
+        /// from the pet it is asked about, and answers every other field from what is stored; a secret answers its
+        /// presence hint. Two ReloadPaneAfter actions, one that writes nothing and one that writes the pet and its
+        /// animation itself.
+        /// </summary>
+        private static OptionsPane PendingPane(PendingPaneModule module)
+        {
+            var pane = new OptionsPane { Title = "Pending" };
+            pane.LoadPending = delegate(IReadOnlyDictionary<string, string> pending)
+            {
+                string pet = module.Pet, anim = null, chosen;
+                if (pending != null && pending.TryGetValue("pet", out chosen) && Array.IndexOf(PendingPets, chosen) >= 0) pet = chosen;
+                string[] anims = AnimationsOf(pet);
+                if (pending != null && pending.TryGetValue("anim", out chosen) && Array.IndexOf(anims, chosen) >= 0) anim = chosen;
+                if (anim == null) anim = pet == module.Pet ? module.Anim : anims[0];
+                pane.Schema = new[]
+                {
+                    new SettingField { Id = "pet", Label = "Pet", Kind = SettingKind.Enum, Options = PendingPets, ReloadOnChange = true, Group = "Animation" },
+                    new SettingField { Id = "anim", Label = "Animation", Kind = SettingKind.Enum, Options = anims, Group = "Animation" },
+                    new SettingField { Id = "note", Label = "Note", Kind = SettingKind.Text, Group = "Animation" },
+                    new SettingField { Id = "key", Label = "API key", Kind = SettingKind.Secret, Group = "Keys" },
+                    new SettingField { Id = "token", Label = "Sign-in token", Kind = SettingKind.Secret, Group = "Keys" },
+                };
+                return new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    { "pet", pet }, { "anim", anim }, { "note", module.Note },
+                    { "key", module.KeySaved ? "set" : "" }, { "token", module.TokenSaved ? "set" : "" },
+                };
+            };
+            pane.Save = delegate(IReadOnlyDictionary<string, string> v)
+            {
+                module.LastSave = new Dictionary<string, string>(StringComparer.Ordinal);
+                foreach (KeyValuePair<string, string> kv in v) module.LastSave[kv.Key] = kv.Value;
+                return true;
+            };
+            pane.Actions = new[]
+            {
+                new PaneAction { Label = PauseNow, Group = "Animation", ReloadPaneAfter = true,
+                    InvokeAsync = delegate { return Task.FromResult("✓ paused"); } },
+                new PaneAction { Label = ChooseTheOwl, Group = "Animation", ReloadPaneAfter = true,
+                    InvokeAsync = delegate { module.Pet = "owl"; module.Anim = "blink"; return Task.FromResult("✓ the owl is chosen"); } },
+            };
+            return pane;
+        }
+
+        /// <summary>Pick <paramref name="item"/> in the pane's <paramref name="index"/>th dropdown, then lay out.</summary>
+        private static void ChooseIn(LaidOutWindow probe, int index, string item)
+        {
+            List<System.Windows.Controls.ComboBox> combos = probe.InPane<System.Windows.Controls.ComboBox>();
+            if (index < combos.Count) combos[index].SelectedItem = item;
+            probe.Layout();
+        }
+
+        private static string SelectedIn(LaidOutWindow probe, int index)
+        {
+            List<System.Windows.Controls.ComboBox> combos = probe.InPane<System.Windows.Controls.ComboBox>();
+            return index < combos.Count ? (combos[index].SelectedItem as string ?? "") : "<no dropdown>";
+        }
+
+        /// <summary>
+        /// N-modules-update-all-02 and N-pane-rebuild-02: on a LoadPending pane the stored baseline is its own read, so a
+        /// cascade's edits count as edits (Apply lit), a ReloadPaneAfter action after the cascade carries them and builds
+        /// the dependent dropdown from them, an action's own write still wins, and a typed secret survives the cascade.
+        /// </summary>
+        private static bool LoadPendingBaseline(StringBuilder sb)
+        {
+            bool ok = true;
+            var module = new PendingPaneModule();
+            var probe = new LaidOutWindow(PendingPane(module), ElsewherePane());
+            ChooseIn(probe, 0, "dog");   // the cascade
+            ok &= Check(sb, "host-options: Apply stays lit after a LoadPending pane's cascade, the picked pet measured against the stored one",
+                SelectedIn(probe, 0) == "dog" && probe.Window.IsDirty);
+            System.Windows.Controls.TextBox note = probe.TextRow(0);
+            if (note != null) note.Text = "typed";
+            probe.Press(PauseNow);
+            System.Windows.Controls.TextBox noteAfter = probe.TextRow(0);
+            string seen = SelectedIn(probe, 0) + ", " + SelectedIn(probe, 1) + ", " + (noteAfter != null ? noteAfter.Text : "<no note>");
+            ok &= Check(sb, "host-options: on a LoadPending pane a ReloadPaneAfter action after a ReloadOnChange cascade keeps the cascade's edits and Apply lit (" + seen + ")",
+                SelectedIn(probe, 0) == "dog" && SelectedIn(probe, 1) == "fetch" && noteAfter != null && noteAfter.Text == "typed" &&
+                probe.StatusOf(PauseNow) == "✓ paused" && probe.Window.IsDirty);
+            List<System.Windows.Controls.ComboBox> combos = probe.InPane<System.Windows.Controls.ComboBox>();
+            var offered = new List<string>();
+            if (combos.Count > 1) foreach (object o in combos[1].Items) offered.Add(o as string);
+            ok &= Check(sb, "host-options: ...its dependent dropdown is built from the pet the cascade picked, not the stored one (offers " +
+                string.Join("/", offered.ToArray()) + ")", string.Join("/", offered.ToArray()) == "fetch/bark");
+
+            // An action that writes the pet itself: its write wins over the pet picked before the press.
+            var owlModule = new PendingPaneModule();
+            var owl = new LaidOutWindow(PendingPane(owlModule), ElsewherePane());
+            ChooseIn(owl, 0, "dog");
+            owl.Press(ChooseTheOwl);
+            ok &= Check(sb, "host-options: on a LoadPending pane an action's own write wins over the edit it replaced (" +
+                SelectedIn(owl, 0) + ", " + SelectedIn(owl, 1) + ")",
+                SelectedIn(owl, 0) == "owl" && SelectedIn(owl, 1) == "blink" && owl.StatusOf(ChooseTheOwl).StartsWith("✓"));
+
+            // N-pane-rebuild-02: a typed secret through the cascade.
+            var keyModule = new PendingPaneModule();
+            var keyed = new LaidOutWindow(PendingPane(keyModule), ElsewherePane());
+            if (keyed.Secret(0) != null) keyed.Secret(0).Password = TypedKey;
+            ChooseIn(keyed, 0, "dog");
+            bool backInBox = keyed.Secret(0) != null && keyed.Secret(0).Password == TypedKey && keyed.Window.IsDirty;
+            bool untypedEmpty = keyed.Secret(1) != null && keyed.Secret(1).Password == "" && (keyed.Secret(1).ToolTip as string) == SavedSecretHint;
+            keyed.Apply();
+            string savedKey;
+            ok &= Check(sb, "host-options: a secret typed and not applied is back in its box after a LoadPending pane's ReloadOnChange cascade, and Apply saves it",
+                backInBox && keyModule.LastSave != null && keyModule.LastSave.TryGetValue("key", out savedKey) && savedKey == TypedKey &&
+                !keyModule.LastSave.ContainsKey("token"));
+            ok &= Check(sb, "host-options: WITNESS a secret nobody typed is still an empty box under its hint after the same cascade", untypedEmpty);
+            return ok;
+        }
+
+        /// <summary>A Load-only pane whose Load leaves both of its secrets' keys out, which the ABI allows.</summary>
+        private static OptionsPane OmittingPane(TallPaneModule module)
+        {
+            var pane = new OptionsPane
+            {
+                Title = "Omits",
+                Schema = new[]
+                {
+                    new SettingField { Id = "note", Label = "Note", Kind = SettingKind.Text, Group = "Keys" },
+                    new SettingField { Id = "key", Label = "API key", Kind = SettingKind.Secret, Group = "Keys" },
+                    new SettingField { Id = "token", Label = "Sign-in token", Kind = SettingKind.Secret, Group = "Keys" },
+                },
+                Load = delegate { return new Dictionary<string, string>(StringComparer.Ordinal) { { "note", "stored" } }; },
+            };
+            pane.Save = delegate(IReadOnlyDictionary<string, string> v)
+            {
+                module.LastSave = new Dictionary<string, string>(StringComparer.Ordinal);
+                foreach (KeyValuePair<string, string> kv in v) module.LastSave[kv.Key] = kv.Value;
+                return true;
+            };
+            pane.Actions = new[]
+            {
+                new PaneAction { Label = RefreshCloudModels, Group = "Keys", ReloadPaneAfter = true,
+                    InvokeAsync = delegate { return Task.FromResult("✓ lists 2 models"); } },
+            };
+            return pane;
+        }
+
+        /// <summary>N-pane-rebuild-01: a secret typed on a pane whose Load omits its key is an unsaved edit and survives a
+        /// ReloadPaneAfter rebuild.</summary>
+        private static bool SecretBaselineWhenOmitted(StringBuilder sb)
+        {
+            bool ok = true;
+            var module = new TallPaneModule();
+            var probe = new LaidOutWindow(OmittingPane(module), ElsewherePane());
+            if (probe.Secret(0) == null || probe.Secret(1) == null) return Check(sb, "host-options: the omitting pane rendered both secrets", false);
+            probe.Secret(0).Password = TypedKey;
+            bool litTyped = probe.Window.IsDirty;
+            probe.Press(RefreshCloudModels);
+            ok &= Check(sb, "host-options: a secret typed on a pane whose Load omits its key is back in its box after a ReloadPaneAfter rebuild, and Apply stays lit for it",
+                litTyped && probe.Secret(0) != null && probe.Secret(0).Password == TypedKey && probe.Window.IsDirty);
+            ok &= Check(sb, "host-options: WITNESS a secret nobody typed on that pane is still an empty box after the same rebuild",
+                probe.Secret(1) != null && probe.Secret(1).Password == "");
+            probe.Apply();
+            string savedKey;
+            ok &= Check(sb, "host-options: Apply saves the typed secret of a pane whose Load omits it, and not the one nobody typed",
+                module.LastSave != null && module.LastSave.TryGetValue("key", out savedKey) && savedKey == TypedKey && !module.LastSave.ContainsKey("token"));
+            return ok;
+        }
+
+        /// <summary>The re-test pane: a radio, a text row, a ReloadOnChange dropdown, a Bool the module answers as
+        /// "True", a text row whose key Load leaves out, a saved secret, a deferred list card and a ReloadPaneAfter action.</summary>
+        private static OptionsPane RetestPane()
+        {
+            return new OptionsPane
+            {
+                Title = "Retest",
+                Schema = new[]
+                {
+                    new SettingField { Id = "runsOn", Label = "Brain runs on", Kind = SettingKind.Radio, Options = new[] { "Local model", "Codex CLI" }, Group = "Retest" },
+                    new SettingField { Id = "note", Label = "Note", Kind = SettingKind.Text, Group = "Retest" },
+                    new SettingField { Id = "pet", Label = "Pet", Kind = SettingKind.Enum, Options = new[] { "cat", "dog" }, ReloadOnChange = true, Group = "Retest" },
+                    new SettingField { Id = "flag", Label = "Flag", Kind = SettingKind.Bool, Group = "Retest" },
+                    new SettingField { Id = "free", Label = "Unanswered", Kind = SettingKind.Text, Group = "Retest" },
+                    new SettingField { Id = "token", Label = "Sign-in token", Kind = SettingKind.Secret, Group = "Retest" },
+                },
+                Load = delegate
+                {
+                    return new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        { "runsOn", "Local model" }, { "note", "stored" }, { "pet", "cat" }, { "flag", true.ToString() }, { "token", "set" },
+                    };
+                },
+                Save = delegate { return true; },
+                Actions = new[]
+                {
+                    new PaneAction { Label = RefreshCloudModels, Group = "Retest", ReloadPaneAfter = true,
+                        InvokeAsync = delegate { return Task.FromResult("✓ lists 2 models"); } },
+                },
+                Lists = new[]
+                {
+                    new ListCard
+                    {
+                        Title = "Deferred",
+                        DeferChanges = true,
+                        SetChecked = delegate { },
+                        LoadItems = delegate { return new[] { new ListItem { Id = "a", Label = "Item a", Checked = false } }; },
+                    },
+                },
+            };
+        }
+
+        private static System.Windows.Controls.RadioButton RadioIn(LaidOutWindow probe, string option)
+        {
+            return probe.InPane<System.Windows.Controls.RadioButton>().Find(delegate(System.Windows.Controls.RadioButton r) { return (r.Tag as string) == option; });
+        }
+
+        private static System.Windows.Controls.CheckBox BoxTagged(LaidOutWindow probe, string tag)
+        {
+            return probe.InPane<System.Windows.Controls.CheckBox>().Find(delegate(System.Windows.Controls.CheckBox c) { return (c.Tag as string) == tag; });
+        }
+
+        /// <summary>
+        /// N-cli-model-effort-06: the window asks the view on screen after every edit, so Apply greys when an edit is put
+        /// back the way it was (a radio, a text row, a ReloadOnChange dropdown, a Bool answered "True", a key Load left out)
+        /// and stays lit while anything is left to write: a staged tick, a secret typed to its hint's text, an edit a
+        /// rebuild carried.
+        /// </summary>
+        private static bool ApplyGreysWhenNothingDiffers(StringBuilder sb)
+        {
+            bool ok = true;
+            var probe = new LaidOutWindow(RetestPane(), ElsewherePane());
+            System.Windows.Controls.RadioButton codex = RadioIn(probe, "Codex CLI"), local = RadioIn(probe, "Local model");
+            if (codex == null || local == null) return Check(sb, "host-options: the re-test pane rendered its radio", false);
+            codex.IsChecked = true;
+            bool litAway = probe.Window.IsDirty;
+            local.IsChecked = true;
+            ok &= Check(sb, "host-options: WITNESS a radio flipped away lights Apply", litAway);
+            ok &= Check(sb, "host-options: a radio flipped away and back greys Apply again, with nothing left to save", !probe.Window.IsDirty);
+
+            System.Windows.Controls.TextBox note = probe.TextRow(0);
+            bool noteLit = false, noteGrey = false;
+            if (note != null) { note.Text = "edited"; noteLit = probe.Window.IsDirty; note.Text = "stored"; noteGrey = !probe.Window.IsDirty; }
+            ok &= Check(sb, "host-options: a text edit typed back to its stored value greys Apply again", noteLit && noteGrey);
+
+            ChooseIn(probe, 0, "dog");
+            bool petLit = probe.Window.IsDirty && SelectedIn(probe, 0) == "dog";
+            ChooseIn(probe, 0, "cat");
+            ok &= Check(sb, "host-options: a ReloadOnChange dropdown picked away and back greys Apply again",
+                petLit && SelectedIn(probe, 0) == "cat" && !probe.Window.IsDirty);
+
+            System.Windows.Controls.CheckBox flag = BoxTagged(probe, null);
+            bool flagLit = false, flagGrey = false;
+            if (flag != null && flag.IsChecked == true) { flag.IsChecked = false; flagLit = probe.Window.IsDirty; flag.IsChecked = true; flagGrey = !probe.Window.IsDirty; }
+            ok &= Check(sb, "host-options: a Bool the module answers as \"True\" ticked away and back greys Apply again", flagLit && flagGrey);
+
+            System.Windows.Controls.TextBox free = probe.TextRow(1);
+            bool freeLit = false, freeGrey = false;
+            if (free != null) { free.Text = "typed"; freeLit = probe.Window.IsDirty; free.Text = ""; freeGrey = !probe.Window.IsDirty; }
+            ok &= Check(sb, "host-options: an edit to a field whose key Load left out lights Apply, and typed back greys it", freeLit && freeGrey);
+
+            System.Windows.Controls.PasswordBox token = probe.Secret(0);
+            bool tokenLit = false, tokenGrey = false;
+            if (token != null) { token.Password = "set"; tokenLit = probe.Window.IsDirty; token.Password = ""; tokenGrey = !probe.Window.IsDirty; }
+            ok &= Check(sb, "host-options: a secret typed to the same text as its saved-value hint still lights Apply, and emptied greys it", tokenLit && tokenGrey);
+
+            System.Windows.Controls.CheckBox item = BoxTagged(probe, "a");
+            note = probe.TextRow(0);
+            bool tickLit = false, tickHeld = false, tickGrey = false;
+            if (item != null && note != null)
+            {
+                item.IsChecked = true;
+                tickLit = probe.Window.IsDirty;
+                note.Text = "edited"; note.Text = "stored";
+                tickHeld = probe.Window.IsDirty;
+                item.IsChecked = false;
+                tickGrey = !probe.Window.IsDirty;
+            }
+            ok &= Check(sb, "host-options: a staged tick on a deferred list card keeps Apply lit while a field edit is undone, and unticked greys it",
+                tickLit && tickHeld && tickGrey);
+
+            // An edit a ReloadPaneAfter rebuild carried stays counted against Load's own answer.
+            var carried = new LaidOutWindow(RetestPane(), ElsewherePane());
+            if (carried.TextRow(0) != null) carried.TextRow(0).Text = "typed";
+            carried.Press(RefreshCloudModels);
+            bool held = false;
+            System.Windows.Controls.RadioButton away = RadioIn(carried, "Codex CLI"), back = RadioIn(carried, "Local model");
+            if (away != null && back != null) { away.IsChecked = true; back.IsChecked = true; held = carried.Window.IsDirty; }
+            ok &= Check(sb, "host-options: an edit a ReloadPaneAfter rebuild carried stays counted, so Apply stays lit through another edit undone",
+                carried.TextRow(0) != null && carried.TextRow(0).Text == "typed" && held);
+            return ok;
+        }
+
+        /// <summary>N-cli-model-effort-10: a label that fills its column keeps a gap before its editor, and an Enum
+        /// dropdown's tooltip is its chosen option in full.</summary>
+        private static bool LabelGapAndChoiceTooltip(StringBuilder sb)
+        {
+            bool ok = true;
+            const string longChoice = "Unload after each remark (frees the GPU between remarks)";
+            var pane = new OptionsPane
+            {
+                Title = "Clipped",
+                Schema = new[]
+                {
+                    new SettingField { Id = "long", Label = "Claude sign-in token (optional), a label long enough to fill its column", Kind = SettingKind.Text },
+                    new SettingField { Id = "residency", Label = "Model residency", Kind = SettingKind.Enum, Options = new[] { longChoice, "Keep loaded" } },
+                    new SettingField { Id = "none", Label = "Nothing chosen", Kind = SettingKind.Enum, Options = new[] { "a", "b" } },
+                },
+                Load = delegate
+                {
+                    return new Dictionary<string, string>(StringComparer.Ordinal) { { "long", "x" }, { "residency", longChoice }, { "none", "" } };
+                },
+            };
+            var view = new DesktopAICompanion.Wpf.PaneView(pane);
+            System.Windows.FrameworkElement root = view.Build();
+            var render = new PaneRender(root, true);   // laid out; only its bounds are read here, never its pixels
+            var row = view.RowFor("long") as System.Windows.Controls.Panel;
+            System.Windows.FrameworkElement label = row != null && row.Children.Count > 0 ? row.Children[0] as System.Windows.FrameworkElement : null;
+            System.Windows.FrameworkElement editor = EditorOf(view.RowFor("long"));
+            double gap = label != null && editor != null ? render.BoundsOf(editor).Left - render.BoundsOf(label).Right : -1;
+            ok &= Check(sb, "host-options: a label that fills its column keeps a gap before its editor (gap " + Dips(gap) + " DIPs)",
+                label != null && editor != null && !ReferenceEquals(label, editor) && gap >= DesktopAICompanion.Wpf.PaneView.LabelGap - 0.5);
+
+            var combo = EditorOf(view.RowFor("residency")) as System.Windows.Controls.ComboBox;
+            string first = combo != null ? combo.ToolTip as string : null;
+            if (combo != null) combo.SelectedItem = "Keep loaded";
+            string after = combo != null ? combo.ToolTip as string : null;
+            ok &= Check(sb, "host-options: an Enum dropdown's tooltip is its chosen option in full, and follows a new choice (" + first + " / " + after + ")",
+                first == longChoice && after == "Keep loaded");
+            var none = EditorOf(view.RowFor("none")) as System.Windows.Controls.ComboBox;
+            ok &= Check(sb, "host-options: WITNESS a dropdown with nothing chosen has no tooltip", none != null && none.SelectedItem == null && none.ToolTip == null);
+            return ok;
+        }
+
+        /// <summary>Whether two characters of a laid-out TextBlock's text sit on the same line, by their character
+        /// rectangles.</summary>
+        private static bool SameLine(System.Windows.Controls.TextBlock block, int first, int second)
+        {
+            System.Windows.Documents.TextPointer start = block.ContentStart.GetInsertionPosition(System.Windows.Documents.LogicalDirection.Forward);
+            System.Windows.Documents.TextPointer a = start.GetPositionAtOffset(first, System.Windows.Documents.LogicalDirection.Forward);
+            System.Windows.Documents.TextPointer b = start.GetPositionAtOffset(second, System.Windows.Documents.LogicalDirection.Forward);
+            if (a == null || b == null) return false;
+            return Math.Abs(a.GetCharacterRect(System.Windows.Documents.LogicalDirection.Forward).Top -
+                            b.GetCharacterRect(System.Windows.Documents.LogicalDirection.Forward).Top) < 1;
+        }
+
+        private static System.Windows.Controls.TextBlock LaidOutText(string text, System.Windows.Controls.TextBlock like, double width)
+        {
+            var block = new System.Windows.Controls.TextBlock
+            {
+                Text = text, TextWrapping = System.Windows.TextWrapping.Wrap,
+                FontFamily = like.FontFamily, FontSize = like.FontSize, FontWeight = like.FontWeight, FontStyle = like.FontStyle,
+            };
+            block.Measure(new System.Windows.Size(width, double.PositiveInfinity));
+            double arranged = double.IsInfinity(width) ? block.DesiredSize.Width : width;
+            block.Arrange(new System.Windows.Rect(0, 0, arranged, block.DesiredSize.Height));
+            block.UpdateLayout();
+            return block;
+        }
+
+        /// <summary>
+        /// N-cli-model-effort-08: an Info row is a TextBlock, which offers no selection and no copy, so it draws a hyphen
+        /// inside a word as U+2011 and a model id is never split at its hyphens, while the row still wraps at its spaces;
+        /// the module's own text is what UI Automation reads.
+        /// </summary>
+        private static bool InfoRowsKeepIdsWhole(StringBuilder sb)
+        {
+            bool ok = true;
+            const string sentence = "last answered on gpt-6.1-sol at low effort";
+            var pane = new OptionsPane
+            {
+                Title = "Ids",
+                Schema = new[] { new SettingField { Id = "cli", Label = "CLI", Kind = SettingKind.Info } },
+                Load = delegate { return new Dictionary<string, string>(StringComparer.Ordinal) { { "cli", sentence } }; },
+            };
+            var view = new DesktopAICompanion.Wpf.PaneView(pane);
+            view.Build();
+            var info = EditorOf(view.RowFor("cli")) as System.Windows.Controls.TextBlock;
+            if (info == null) return Check(sb, "host-options: the Info row rendered as a TextBlock", false);
+            ok &= Check(sb, "host-options: an Info row is a TextBlock, which offers no selection and no copy, so its display text may differ from the module's",
+                !info.Focusable && info.ContextMenu == null);
+            char nbh = DesktopAICompanion.Wpf.PaneView.NonBreakingHyphen;
+            string expected = sentence.Replace("gpt-6.1-sol", "gpt" + nbh + "6.1" + nbh + "sol");
+            ok &= Check(sb, "host-options: an Info row draws a model id's hyphens as non-breaking ones (" + info.Text.Replace(nbh.ToString(), "{U+2011}") + ")",
+                info.Text == expected);
+
+            // The narrowest width at which the ordinary text still keeps the whole id on one line, less a little: there it
+            // splits the id at a hyphen, the defect, and the row's own text must not.
+            int g = sentence.IndexOf("gpt", StringComparison.Ordinal), s = sentence.IndexOf("sol", StringComparison.Ordinal) + 2;
+            double full = LaidOutText(sentence, info, double.PositiveInfinity).DesiredSize.Width;
+            double width = 0;
+            for (double w = full; w > 40; w -= 1)
+                if (!SameLine(LaidOutText(sentence, info, w), g, s)) { width = w; break; }
+            bool splitAscii = width > 0;
+            bool keptWhole = width > 0 && SameLine(LaidOutText(info.Text, info, width), g, s);
+            bool stillWraps = width > 0 && !SameLine(LaidOutText(info.Text, info, width), 0, sentence.Length - 1);
+            ok &= Check(sb, "host-options: WITNESS the same sentence with ordinary hyphens splits the id at a hyphen at some width (" + Dips(width) + " DIPs)", splitAscii);
+            ok &= Check(sb, "host-options: an Info row keeps a model id whole at that width, wrapping at a space instead", keptWhole && stillWraps);
+
+            GlyphTypefaceProbe(sb, info, ref ok);
+            string name = System.Windows.Automation.AutomationProperties.GetName(info);
+            ok &= Check(sb, "host-options: an Info row's automation name is the module's own text, ordinary hyphens and all (" + name + ")",
+                name == "CLI: " + sentence);
+            return ok;
+        }
+
+        /// <summary>The row's font draws U+2011 itself, so the substitution never shows as a missing-glyph box.</summary>
+        private static void GlyphTypefaceProbe(StringBuilder sb, System.Windows.Controls.TextBlock info, ref bool ok)
+        {
+            var typeface = new System.Windows.Media.Typeface(info.FontFamily, info.FontStyle, info.FontWeight, info.FontStretch);
+            System.Windows.Media.GlyphTypeface glyphs;
+            bool has = typeface.TryGetGlyphTypeface(out glyphs) && glyphs.CharacterToGlyphMap.ContainsKey(DesktopAICompanion.Wpf.PaneView.NonBreakingHyphen);
+            ok &= Check(sb, "host-options: the Info row's font has a glyph for the non-breaking hyphen (" + info.FontFamily + ")", has);
+        }
+
+        /// <summary>N-layout-remembrance-01: the real dialog behind Browse, configured and never shown, is titled "Choose "
+        /// and the label cut at its first " (".</summary>
+        private static bool BrowseDialogTitle(StringBuilder sb)
+        {
+            bool ok = true;
+            var whisper = new SettingField { Id = "exe", Label = "whisper-cli path (filled in for you if one is found)", Kind = SettingKind.FilePath, FileExtensions = new[] { "exe" } };
+            var storage = new SettingField { Id = "dir", Label = "Storage folder", Kind = SettingKind.FolderPath };
+            string whisperTitle = DesktopAICompanion.Wpf.PaneView.PathDialogFor(whisper, "").Title;
+            ok &= Check(sb, "host-options: a path field's Browse dialog is titled Choose and the label cut at its first parenthesis (" + whisperTitle + ")",
+                whisperTitle == "Choose whisper-cli path");
+            string storageTitle = DesktopAICompanion.Wpf.PaneView.PathDialogFor(storage, "").Title;
+            string blankFile = DesktopAICompanion.Wpf.PaneView.PathDialogFor(new SettingField { Id = "f", Kind = SettingKind.FilePath }, "").Title;
+            string blankFolder = DesktopAICompanion.Wpf.PaneView.PathDialogFor(new SettingField { Id = "d", Label = "", Kind = SettingKind.FolderPath }, "").Title;
+            ok &= Check(sb, "host-options: WITNESS a label with no parenthesis is used whole, and a field with no label keeps the generic titles (" +
+                storageTitle + "; " + blankFile + "; " + blankFolder + ")",
+                storageTitle == "Choose Storage folder" && blankFile == "Choose a file" && blankFolder == "Choose a folder");
+            return ok;
+        }
+
+        /// <summary>N-codex-project-docs-02: a blank render is recognised and named on a failing pixel check, and a normal
+        /// render is not mistaken for one, so its pixel checks still judge its ink.</summary>
+        private static bool BlankRenderIsNamed(StringBuilder sb)
+        {
+            bool ok = true;
+            var pane = new OptionsPane
+            {
+                Title = "Ink",
+                Schema = new[] { new SettingField { Id = "t", Label = "Text", Kind = SettingKind.Text } },
+                Load = delegate { return new Dictionary<string, string>(StringComparer.Ordinal) { { "t", "ink" } }; },
+            };
+            var drawn = new PaneRender(new DesktopAICompanion.Wpf.PaneView(pane).Build(), true);
+            var never = new PaneRender(new DesktopAICompanion.Wpf.PaneView(pane).Build(), true, PaneRender.DefaultPaneWidth, false);
+            ok &= PixelCheck(sb, "host-options: render blank: WITNESS a normal render is not read as blank, so its pixel checks judge its ink", !drawn.Blank, drawn);
+            string onBlank = PixelLabel("a failing pixel check", false, never);
+            string onDrawn = PixelLabel("a failing pixel check", false, drawn);
+            string passing = PixelLabel("a passing pixel check", true, never);
+            ok &= Check(sb, "host-options: render blank: a render that never drew reads as blank, and only a failing check on it names the state",
+                never.Blank && onBlank == "a failing pixel check " + BlankRenderNote && onDrawn == "a failing pixel check" && passing == "a passing pixel check");
+            return ok;
+        }
+
+        /// <summary>One automation element the walk found: its peer, the element or item behind it, and whether it is on
+        /// screen and the host's own control rather than a part of some control's template.</summary>
+        private sealed class AutomationEntry
+        {
+            public System.Windows.Automation.Peers.AutomationPeer Peer;
+            public object Owner;
+            public string Name;
+            public System.Windows.Automation.Peers.AutomationControlType Type;
+            public bool TemplatePart;
+        }
+
+        /// <summary>
+        /// The UI Automation tree under <paramref name="node"/>, walked the way UIElementAutomationPeer walks it: an element
+        /// with a peer is reported and its peer's own children walked; one without is passed through to its visual
+        /// children. Whatever is collapsed, itself or through an ancestor, is not on screen and is left out.
+        /// </summary>
+        private static void CollectAutomation(System.Windows.DependencyObject node, List<AutomationEntry> found)
+        {
+            if (node == null) return;
+            var ui = node as System.Windows.UIElement;
+            if (ui != null && ui.Visibility != System.Windows.Visibility.Visible) return;
+            System.Windows.Automation.Peers.AutomationPeer peer = ui != null ? System.Windows.Automation.Peers.UIElementAutomationPeer.CreatePeerForElement(ui) : null;
+            if (peer != null) { CollectPeer(peer, found, 0); return; }
+            int n = System.Windows.Media.VisualTreeHelper.GetChildrenCount(node);
+            for (int i = 0; i < n; i++) CollectAutomation(System.Windows.Media.VisualTreeHelper.GetChild(node, i), found);
+        }
+
+        private static bool OnScreen(System.Windows.DependencyObject node)
+        {
+            for (System.Windows.DependencyObject d = node; d != null; d = System.Windows.Media.VisualTreeHelper.GetParent(d))
+            {
+                var ui = d as System.Windows.UIElement;
+                if (ui != null && ui.Visibility != System.Windows.Visibility.Visible) return false;
+                if (!(d is System.Windows.Media.Visual)) break;
+            }
+            return true;
+        }
+
+        private static void CollectPeer(System.Windows.Automation.Peers.AutomationPeer peer, List<AutomationEntry> found, int depth)
+        {
+            if (peer == null || depth > 80 || found.Count > 20000) return;
+            var elementPeer = peer as System.Windows.Automation.Peers.UIElementAutomationPeer;
+            var itemPeer = peer as System.Windows.Automation.Peers.ItemAutomationPeer;
+            object owner = elementPeer != null ? (object)elementPeer.Owner : (itemPeer != null ? itemPeer.Item : null);
+            var element = owner as System.Windows.FrameworkElement;
+            if (element != null && !OnScreen(element)) return;
+            string name;
+            try { name = peer.GetName() ?? ""; } catch (Exception) { name = ""; }
+            found.Add(new AutomationEntry
+            {
+                Peer = peer, Owner = owner, Name = name, Type = peer.GetAutomationControlType(),
+                TemplatePart = element != null && element.TemplatedParent != null,
+            });
+            // A peer keeps the children it found the last time it was asked, and only a listening UI Automation client
+            // makes WPF refresh them as the tree changes: asked afresh, so a pane switched to, or a control added, is seen.
+            try { peer.ResetChildrenCache(); } catch (Exception) { }
+            List<System.Windows.Automation.Peers.AutomationPeer> children = peer.GetChildren();
+            if (children != null) foreach (System.Windows.Automation.Peers.AutomationPeer child in children) CollectPeer(child, found, depth + 1);
+        }
+
+        /// <summary>The control types a user acts on, and Group, which is what an Expander and a settings card are.</summary>
+        private static readonly System.Windows.Automation.Peers.AutomationControlType[] NamedTypes =
+        {
+            System.Windows.Automation.Peers.AutomationControlType.Button, System.Windows.Automation.Peers.AutomationControlType.CheckBox,
+            System.Windows.Automation.Peers.AutomationControlType.RadioButton, System.Windows.Automation.Peers.AutomationControlType.Edit,
+            System.Windows.Automation.Peers.AutomationControlType.ComboBox, System.Windows.Automation.Peers.AutomationControlType.List,
+            System.Windows.Automation.Peers.AutomationControlType.ListItem, System.Windows.Automation.Peers.AutomationControlType.Slider,
+            System.Windows.Automation.Peers.AutomationControlType.Hyperlink, System.Windows.Automation.Peers.AutomationControlType.MenuItem,
+            System.Windows.Automation.Peers.AutomationControlType.Spinner, System.Windows.Automation.Peers.AutomationControlType.SplitButton,
+            System.Windows.Automation.Peers.AutomationControlType.Tab, System.Windows.Automation.Peers.AutomationControlType.TabItem,
+            System.Windows.Automation.Peers.AutomationControlType.Tree, System.Windows.Automation.Peers.AutomationControlType.TreeItem,
+            System.Windows.Automation.Peers.AutomationControlType.Group,
+        };
+
+        /// <summary>Every on-screen control under <paramref name="root"/> that must carry a name and has none; the count
+        /// of those that must, in <paramref name="checkedCount"/>.</summary>
+        private static List<string> UnnamedControls(System.Windows.DependencyObject root, out int checkedCount)
+        {
+            var found = new List<AutomationEntry>();
+            CollectAutomation(root, found);
+            var unnamed = new List<string>();
+            checkedCount = 0;
+            foreach (AutomationEntry e in found)
+            {
+                if (e.TemplatePart || Array.IndexOf(NamedTypes, e.Type) < 0) continue;
+                checkedCount++;
+                if (e.Name.Trim().Length == 0) unnamed.Add(e.Type + " " + (e.Owner != null ? e.Owner.GetType().Name : "?"));
+            }
+            return unnamed;
+        }
+
+        /// <summary>One row of every kind, a path of each kind, a collapsible card, the untitled card, an action and a
+        /// grouped, filterable, deferred list card with a master toggle.</summary>
+        private static OptionsPane EveryKindPane()
+        {
+            return new OptionsPane
+            {
+                Title = "Every kind",
+                Schema = new[]
+                {
+                    new SettingField { Id = "b", Label = "Run at startup", Kind = SettingKind.Bool, Group = "Rows" },
+                    new SettingField { Id = "i", Label = "Volume", Kind = SettingKind.Int, Min = 0, Max = 10, Group = "Rows" },
+                    new SettingField { Id = "t", Label = "Note", Kind = SettingKind.Text, Group = "Rows" },
+                    new SettingField { Id = "e", Label = "Model", Kind = SettingKind.Enum, Options = new[] { "small", "large" }, Group = "Rows" },
+                    new SettingField { Id = "r", Label = "Brain runs on", Kind = SettingKind.Radio, Options = new[] { "Local model", "Codex CLI" }, Group = "Rows" },
+                    new SettingField { Id = "s", Label = "API key", Kind = SettingKind.Secret, Group = "Rows" },
+                    new SettingField { Id = "info", Label = "Status", Kind = SettingKind.Info, Group = "Rows" },
+                    new SettingField { Id = "h", Label = "About this card", Kind = SettingKind.Header, Group = "Rows" },
+                    new SettingField { Id = "exe", Label = "whisper-cli path (filled in for you if one is found)", Kind = SettingKind.FilePath, Group = "Paths" },
+                    new SettingField { Id = "dir", Label = "Storage folder", Kind = SettingKind.FolderPath, Group = "Paths", EmptyHint = "Documents (the default)" },
+                    new SettingField { Id = "anon", Label = "", Kind = SettingKind.FilePath, Group = "Paths" },
+                    new SettingField { Id = "c1", Label = "Inside a collapsible card", Kind = SettingKind.Text, Group = "Collapsible card", Collapsible = true },
+                    new SettingField { Id = "u", Label = "On the untitled card", Kind = SettingKind.Text },
+                },
+                Load = delegate
+                {
+                    return new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        { "b", "true" }, { "i", "5" }, { "t", "hello" }, { "e", "small" }, { "r", "Local model" }, { "s", "set" },
+                        { "info", "✓ Running" }, { "h", "A paragraph." }, { "exe", WhisperExe }, { "dir", "" }, { "anon", WhisperExe },
+                        { "c1", "x" }, { "u", "y" },
+                    };
+                },
+                Save = delegate { return true; },
+                Actions = new[]
+                {
+                    new PaneAction { Label = "Validate", Group = "Rows", InvokeAsync = delegate { return Task.FromResult("✓ valid"); } },
+                },
+                Lists = new[]
+                {
+                    new ListCard
+                    {
+                        Title = "Packs", Filterable = true, MasterToggle = "All packs", DeferChanges = true, SetChecked = delegate { },
+                        LoadItems = delegate
+                        {
+                            return new[]
+                            {
+                                new ListItem { Id = "p1", Label = "Pack one", Group = "Clean", Detail = "7 lines" },
+                                new ListItem { Id = "p2", Label = "Pack two", Group = "Spicy", Checked = true },
+                            };
+                        },
+                    },
+                },
+            };
+        }
+
+        private static System.Windows.Automation.Peers.AutomationPeer PeerOf(System.Windows.UIElement element)
+        {
+            return element != null ? System.Windows.Automation.Peers.UIElementAutomationPeer.CreatePeerForElement(element) : null;
+        }
+
+        /// <summary>The name and the LabeledBy text of an element's peer, as "name | labelled by".</summary>
+        private static string NameAndLabel(System.Windows.UIElement element)
+        {
+            System.Windows.Automation.Peers.AutomationPeer peer = PeerOf(element);
+            if (peer == null) return "<no peer>";
+            System.Windows.Automation.Peers.AutomationPeer by = peer.GetLabeledBy();
+            return peer.GetName() + " | " + (by != null ? by.GetName() : "-");
+        }
+
+        /// <summary>
+        /// N-settings-accessibility-01, in process: a real settings window over the host's own panes (Preferences, Modules,
+        /// Companions) and a pane of every kind, never shown and laid out by hand. Every pane's on-screen controls, walked
+        /// the way UI Automation walks them, each have a name; the editors carry their labels and are labelled by them;
+        /// the cards are named Groups; the nav entries name their panes. WITNESS a control built without a name is caught.
+        /// What this cannot see is the shown window's control view (IsControlElement follows IsVisible, false for a window
+        /// never shown), which is the coordinator's outside check.
+        /// </summary>
+        private static bool SettingsWindowNamesEveryControl(StringBuilder sb)
+        {
+            bool ok = true;
+            var shell = new List<DesktopAICompanion.Wpf.ShellPane>(DesktopAICompanion.Wpf.OptionsShell.CollectPanes());
+            shell.Add(new DesktopAICompanion.Wpf.SchemaShellPane(EveryKindPane()));
+            var probe = new LaidOutWindow(shell);
+            try
+            {
+                foreach (DesktopAICompanion.Wpf.ShellPane pane in shell)
+                {
+                    probe.Window.ShowPane(pane.Title, true);
+                    probe.Layout();
+                    int count;
+                    List<string> unnamed = UnnamedControls(probe.Root, out count);
+                    ok &= Check(sb, "host-options: UIA: every interactive control has an automation name, pane " + pane.Title + " (" + count +
+                        " controls, unnamed: " + (unnamed.Count == 0 ? "none" : string.Join(", ", unnamed.ToArray())) + ")",
+                        probe.Window.CurrentPaneTitle == pane.Title && count > 0 && unnamed.Count == 0);
+                }
+
+                // The pane of every kind, on screen last.
+                var details = new List<string>();
+                bool editorsOk = true;
+                Action<System.Windows.UIElement, string> expect = delegate(System.Windows.UIElement editor, string label)
+                {
+                    string seen = NameAndLabel(editor);
+                    details.Add(seen);
+                    if (seen != label + " | " + label) editorsOk = false;
+                };
+                List<System.Windows.Controls.TextBox> boxes = probe.InPane<System.Windows.Controls.TextBox>();
+                expect(probe.InPane<System.Windows.Controls.CheckBox>().Find(delegate(System.Windows.Controls.CheckBox c) { return c.Content == null && c.Tag == null; }), "Run at startup");
+                expect(boxes.Find(delegate(System.Windows.Controls.TextBox t) { return t.Text == "5"; }), "Volume");
+                expect(boxes.Find(delegate(System.Windows.Controls.TextBox t) { return t.Text == "hello"; }), "Note");
+                expect(probe.InPane<System.Windows.Controls.ComboBox>().Find(delegate(System.Windows.Controls.ComboBox c) { return (c.SelectedItem as string) == "small"; }), "Model");
+                System.Windows.Controls.PasswordBox secret = probe.Secret(0);
+                expect(secret, "API key");
+                ok &= Check(sb, "host-options: UIA: each editor is named after its row's label and labelled by it (" + string.Join("; ", details.ToArray()) + ")", editorsOk);
+                System.Windows.Automation.Peers.AutomationPeer secretPeer = PeerOf(secret);
+                ok &= Check(sb, "host-options: UIA: a saved secret's hint is its help text (" + (secretPeer != null ? secretPeer.GetHelpText() : "<no peer>") + ")",
+                    secretPeer != null && secretPeer.GetHelpText() == SavedSecretHint);
+
+                var radios = new List<string>();
+                bool radiosOk = true;
+                foreach (System.Windows.Controls.RadioButton rb in probe.InPane<System.Windows.Controls.RadioButton>())
+                {
+                    string seen = NameAndLabel(rb);
+                    radios.Add(seen);
+                    if (seen != (rb.Tag as string) + " | Brain runs on") radiosOk = false;
+                }
+                ok &= Check(sb, "host-options: UIA: each radio option is named by its own text and labelled by its row (" + string.Join("; ", radios.ToArray()) + ")",
+                    radiosOk && radios.Count == 2);
+
+                List<System.Windows.Controls.Button> buttons = probe.InPane<System.Windows.Controls.Button>();
+                var pathNames = new List<string>();
+                foreach (System.Windows.Controls.Button b in buttons)
+                    if (b.IsVisible || b.Visibility == System.Windows.Visibility.Visible)
+                        if ((b.Content as string) == "…" || (b.Content as string) == "✕") pathNames.Add(PeerOf(b) != null ? PeerOf(b).GetName() : "<no peer>");
+                var exeField = new SettingField { Id = "exe", Label = "whisper-cli path (filled in for you if one is found)", Kind = SettingKind.FilePath };
+                string joined = string.Join("; ", pathNames.ToArray());
+                ok &= Check(sb, "host-options: UIA: a path field's buttons are named for what they do, Browse with its dialog's title (" + joined + ")",
+                    pathNames.Contains(DesktopAICompanion.Wpf.PaneView.PathDialogFor(exeField, "").Title) && pathNames.Contains("Clear whisper-cli path") &&
+                    pathNames.Contains("Choose Storage folder"));
+                ok &= Check(sb, "host-options: UIA: a path field with no label has buttons named Choose a file and Clear, with nothing dangling (" + joined + ")",
+                    pathNames.Contains("Choose a file") && pathNames.Contains("Clear") &&
+                    pathNames.TrueForAll(delegate(string n) { return n == n.Trim(); }));
+
+                System.Windows.Controls.TextBlock status = FindInfo(probe.Window.CurrentContent as System.Windows.DependencyObject, "✓ Running");
+                string statusName = status != null && PeerOf(status) != null ? PeerOf(status).GetName() : "<no row>";
+                ok &= Check(sb, "host-options: UIA: an Info row is named by its label and its value (" + statusName + ")", statusName == "Status: ✓ Running");
+
+                var cards = new List<DesktopAICompanion.Wpf.SettingsCard>();
+                CollectAll(probe.Window.CurrentContent as System.Windows.DependencyObject, cards);
+                var cardNames = new List<string>();
+                bool groups = cards.Count > 0;
+                foreach (DesktopAICompanion.Wpf.SettingsCard card in cards)
+                {
+                    System.Windows.Automation.Peers.AutomationPeer peer = PeerOf(card);
+                    cardNames.Add(peer != null ? peer.GetName() : "<no peer>");
+                    if (peer == null || peer.GetAutomationControlType() != System.Windows.Automation.Peers.AutomationControlType.Group) groups = false;
+                }
+                ok &= Check(sb, "host-options: UIA: every card is a Group named after its title, the untitled one after its pane (" + string.Join("; ", cardNames.ToArray()) + ")",
+                    groups && string.Join("; ", cardNames.ToArray()) == "Rows; Paths; Collapsible card; Every kind; Packs");
+
+                var navs = new List<System.Windows.Controls.ListBox>();
+                CollectAll(probe.Root, navs);
+                var navNames = new List<string>();
+                System.Windows.Automation.Peers.AutomationPeer navPeer = navs.Count > 0 ? PeerOf(navs[0]) : null;
+                if (navPeer != null)
+                    foreach (System.Windows.Automation.Peers.AutomationPeer item in navPeer.GetChildren() ?? new List<System.Windows.Automation.Peers.AutomationPeer>())
+                        if (item.GetAutomationControlType() == System.Windows.Automation.Peers.AutomationControlType.ListItem) navNames.Add(item.GetName());
+                var titles = new List<string>();
+                foreach (DesktopAICompanion.Wpf.ShellPane pane in shell) titles.Add(pane.Title);
+                ok &= Check(sb, "host-options: UIA: the nav entries are list items named after their panes (" + string.Join(", ", navNames.ToArray()) + ")",
+                    navPeer != null && navPeer.GetName() == "Settings sections" && string.Join(", ", navNames.ToArray()) == string.Join(", ", titles.ToArray()));
+
+                // WITNESS: two controls built without a name, put inside a card, are caught by the same walk.
+                var firstCard = cards.Count > 0 ? cards[0].Child as System.Windows.Controls.Panel : null;
+                if (firstCard != null)
+                {
+                    firstCard.Children.Add(new System.Windows.Controls.CheckBox());
+                    firstCard.Children.Add(new System.Windows.Controls.TextBox());
+                    probe.Layout();
+                }
+                int witnessCount;
+                List<string> caught = UnnamedControls(probe.Root, out witnessCount);
+                ok &= Check(sb, "host-options: UIA: WITNESS a control built without a name, inside a card, is caught by the walk (caught: " +
+                    string.Join(", ", caught.ToArray()) + ")",
+                    firstCard != null && caught.Count == 2 && caught.Contains("CheckBox CheckBox") && caught.Contains("Edit TextBox"));
+            }
+            finally { probe.Window.Close(); }
             return ok;
         }
     }

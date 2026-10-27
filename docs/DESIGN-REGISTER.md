@@ -5550,6 +5550,51 @@ at once. A publish on the UI thread is raised inline, as before.
 WS_EX_LAYERED and WS_EX_TRANSPARENT never decides a monitor; layered alone (every per-pixel-alpha window, the companions'
 own among them) and transparent alone still decide as they always have.
 
+#### feature/host-options
+
+Host only (`src/Portable/Wpf/OptionsWindow.cs`, `CompanionsPaneControl.cs`), asserted in `--wpf-options-selftest`; no ABI
+change. The options-window backlog items of campaign 2026-10-26.
+
+**A LoadPending pane's stored baseline is a read of its own, asked FIRST.** Whenever a build is handed anything (a
+ReloadOnChange cascade, a ReloadPaneAfter rebuild) the host asks `LoadPending` with an empty dictionary for the stored
+answer, which the contract already defines as "answer from what is stored", and then asks with the screen. The order is
+the point: AgentFlow builds its schema inside `LoadPending`, and the host reads `Schema` after the last call, so the stored
+read second would rebuild the second dropdown for the stored pet. A ReloadPaneAfter rebuild of such a pane asks the
+module with the user's edits the action did NOT write (`PaneView.EditsToCarry`, the merge's own decision), never the whole
+screen: handed the pet it replaced, a "reset to defaults" would be shown the value it had just undone. The cost is one more
+`LoadPending` call per cascade and per action rebuild; a first open still makes one.
+
+**Apply is asked of the view on screen, not lit by the signal.** `NotifyDirty` now means "an edit happened"; the window
+sets Apply to `ShellPane.HasEditsToApply`, which a schema pane answers from the view it holds (an unsaved edit against
+Load's own answer, a staged tick, a key Load left out against what its editor first showed). feature/pane-rebuild refused
+exactly this because a LoadPending pane's rebuilt view could not tell an edit from its stored answer; the separate stored
+read above removed that reason. Two consequences of the old signal that read as defects are gone with it: Apply lit over a
+pane whose only edit an action had just saved, and Apply lit after a radio flipped away and back (N-cli-model-effort-06).
+A secret's box counts whenever it holds text, whatever presence hint Load answered, because the box is write-only; and a
+Bool is compared by meaning, so a module answering "True" is not read as edited.
+
+**Info rows show a hyphen inside a word as U+2011, for display only.** A WPF TextBlock offers no selection and no copy,
+so the substituted character can never reach a clipboard; the module's text is unchanged in `_loaded` (the EnabledWhen
+fallback) and is what UI Automation reads. Refused: the modules writing U+2011, which a user would then copy out of the
+module's own messages into a CLI that does not take it; and "wrap at spaces only", which a TextBlock cannot be told except
+by changing the characters it may break at, which is this. Measured in process: at the width where the ordinary sentence
+splits "gpt-6.1-" / "sol", the displayed one keeps the id whole and wraps at the space before it; Segoe UI carries the glyph.
+
+**The Settings window's UI Automation gap was unnamed controls, not missing peers.** Walked in process the way
+UIElementAutomationPeer walks it, the window already exposed its nav entries as named ListItems and its labels as Text;
+what it did not do was name a single editor: every CheckBox, Edit, ComboBox and PasswordBox had an empty name and no
+LabeledBy, the path buttons were named "…" and "✕", the collapsible and list-group Expanders, the whole-group box, the
+filter box and the Companions size slider were nameless, and a card was no element at all (a Border has no peer). Each
+editor is now named by its row's label and labelled by it, its hint as help text; each card is a named Group
+(`SettingsCard`). The earlier out-of-process run that saw 0 ListItems and 0 Text had opened Settings with a UI Automation
+Invoke of the tray's Options item, which runs the modal window inside that Invoke call; that is the likelier reason it saw
+nothing, and it is for the outside check to confirm, by opening the window another way.
+
+**A blank render names itself.** While the session is disconnected, and it appears while its Remote Desktop window is
+minimized, `RenderTargetBitmap` hands back a bitmap in which not one pixel shows the frame's own background; every pixel
+check then fails alike. The checks still FAIL (nothing was judged), and their line now ends "[render blank: is the Windows
+session disconnected, or its Remote Desktop window minimized?]".
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

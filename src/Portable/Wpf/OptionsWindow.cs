@@ -101,6 +101,8 @@ namespace DesktopAICompanion.Wpf
             // name is clipped legibly rather than clipped silently (F377).
             ScrollViewer.SetHorizontalScrollBarVisibility(nav, ScrollBarVisibility.Disabled);
             _nav = nav;   // kept so an already-open window can be sent to a named pane
+            // Named for UI Automation, like each of its entries (N-settings-accessibility-01).
+            System.Windows.Automation.AutomationProperties.SetName(nav, "Settings sections");
             foreach (ShellPane p in _panes) nav.Items.Add(NavItem(p != null ? (p.Title ?? "(untitled)") : "(null)"));
             nav.SelectionChanged += (s, e) => ShowPane(nav.SelectedIndex);
             Grid.SetColumn(nav, 0);
@@ -146,6 +148,9 @@ namespace DesktopAICompanion.Wpf
             _apply.Click += (s, e) => ApplyCurrent();
             var close = new Button { Content = "_Close", Width = 84, Height = 26, Margin = new Thickness(4) };
             close.Click += (s, e) => Close();
+            // Named without the access-key underscore their captions carry.
+            System.Windows.Automation.AutomationProperties.SetName(_apply, "Apply");
+            System.Windows.Automation.AutomationProperties.SetName(close, "Close");
             buttons.Children.Add(_apply);
             buttons.Children.Add(close);
             DockPanel.SetDock(buttons, Dock.Right);
@@ -370,7 +375,14 @@ namespace DesktopAICompanion.Wpf
             // A field edit in the pane enables the Apply button (it starts disabled = nothing to apply).
             // Same guard: a view that has been replaced must not light Apply for the view on screen, unless it
             // is the view whose own rebuild produced it, re-raising the edits it handed over (_rebuiltFrom).
-            pane.NotifyDirty = delegate { if (gen == _buildGeneration || gen == _rebuiltFrom) SetDirty(true); };
+            //
+            // The signal asks rather than lights (N-cli-model-effort-06): Apply goes to what the view ON SCREEN says it
+            // holds, so an edit put back the way it was greys Apply again, and the re-raise after a rebuild is answered
+            // by the rebuilt view, which counts the edits it carried against Load's own answer. Lighting on every edit
+            // left Apply lit over a radio flipped away and back. Asking was refused once (feature/pane-rebuild) because
+            // a LoadPending pane's rebuilt view could not tell an edit from its stored answer; it can since its stored
+            // baseline became a read of its own (N-modules-update-all-02).
+            pane.NotifyDirty = delegate { if (gen == _buildGeneration || gen == _rebuiltFrom) SetDirty(pane.HasEditsToApply); };
             FrameworkElement content;
             try { content = _current.BuildContent(); }
             catch (Exception ex) { content = new TextBlock { Text = "This pane failed to load: " + ex.Message, Margin = new Thickness(6), TextWrapping = TextWrapping.Wrap }; }
@@ -467,8 +479,12 @@ namespace DesktopAICompanion.Wpf
         // a view calling this after an await can discard what it stashed for the rebuild instead of leaving
         // it for an unrelated later build to consume (F375, RA-329, RA-330).
         public Func<bool> RequestReload { get; set; }
-        // Set by the window before BuildContent: invoke when a field edit makes the pane dirty (enables Apply).
+        // Set by the window before BuildContent: invoke after a field edit; the window then lights Apply while
+        // HasEditsToApply holds and greys it when it does not.
         public Action NotifyDirty { get; set; }
+        // Whether the view on screen holds anything Apply would write. True by default: a pane that raises NotifyDirty
+        // and cannot say keeps the old meaning of the signal, which was "light Apply".
+        public virtual bool HasEditsToApply { get { return true; } }
         // Called by the window right before a rebuild it starts itself (the refresh after Apply), so view state
         // that is not a setting -- which collapsible cards are open, how far the pane is scrolled -- survives it.
         // Inert for a pane with no such state (host 1.4.0; the scroll position host 1.5.0).
@@ -499,6 +515,7 @@ namespace DesktopAICompanion.Wpf
         }
         public override bool HasApply { get { return _pane != null && _pane.Save != null; } }
         public override bool Apply() { return _view != null && _view.Save(); }
+        public override bool HasEditsToApply { get { return _view != null && _view.HasEditsToApply(); } }
         public override void CarryViewStateIntoRebuild() { if (_view != null) _view.StashViewState(); }
         public override bool RefreshAfterApply
         {
@@ -680,6 +697,31 @@ namespace DesktopAICompanion.Wpf
     }
 
     /// <summary>
+    /// The titled box every settings card is drawn in (a schema group's card, a list card), exposed to UI Automation as
+    /// a Group named after the card (N-settings-accessibility-01). A plain Border has no automation peer, so a card's
+    /// rows reached UI Automation loose, one long run of labels and editors with nothing saying which card held them.
+    /// The peer adds the group and nothing else: its children are the card's own elements, found the way any peer finds
+    /// them, through the visual tree.
+    /// </summary>
+    internal sealed class SettingsCard : Border
+    {
+        protected override System.Windows.Automation.Peers.AutomationPeer OnCreateAutomationPeer()
+        {
+            return new SettingsCardAutomationPeer(this);
+        }
+
+        private sealed class SettingsCardAutomationPeer : System.Windows.Automation.Peers.FrameworkElementAutomationPeer
+        {
+            public SettingsCardAutomationPeer(SettingsCard owner) : base(owner) { }
+            protected override System.Windows.Automation.Peers.AutomationControlType GetAutomationControlTypeCore()
+            {
+                return System.Windows.Automation.Peers.AutomationControlType.Group;
+            }
+            protected override string GetClassNameCore() { return "SettingsCard"; }
+        }
+    }
+
+    /// <summary>
     /// Renders one <see cref="OptionsPane"/>'s schema into WPF controls and collects/persists edited values
     /// via the pane's Load/Save. Kept separate + headless-constructable (STA) so the render + Load/Save
     /// round-trip is unit-testable without showing a window. Secret fields are write-only: the box starts
@@ -727,6 +769,9 @@ namespace DesktopAICompanion.Wpf
                 Entry e = Find(card, id);
                 if (e != null) _entries.Remove(e);
             }
+
+            /// <summary>How many ticks are staged: anything here is something Apply would write.</summary>
+            public int Count { get { return _entries.Count; } }
 
             /// <summary>Hand every staged edit to its card, then forget them. Cleared even on a callback
             /// throw, so a failed Apply can't replay the same edit twice on the next one.</summary>
@@ -827,6 +872,10 @@ namespace DesktopAICompanion.Wpf
         /// nothing that differed from it. The edit went, Apply went grey, and nothing was written.
         /// </summary>
         private IReadOnlyDictionary<string, string> _stored = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        /// <summary>What every editor read when this view finished building, before any edit: the baseline for a key
+        /// Load did not answer, which <see cref="HasEditsToApply"/> still has to see an edit of.</summary>
+        private Dictionary<string, string> _shownAtBuild = new Dictionary<string, string>(StringComparer.Ordinal);
 
         /// <summary>
         /// On-screen values handed from the view being torn down to the one the host builds in its place,
@@ -1003,11 +1052,28 @@ namespace DesktopAICompanion.Wpf
             IReadOnlyDictionary<string, string> onScreen,
             out int restored)
         {
-            restored = 0;
             var merged = new Dictionary<string, string>(StringComparer.Ordinal);
             if (fresh != null)
                 foreach (KeyValuePair<string, string> kv in fresh) merged[kv.Key] = kv.Value;
-            if (before == null || onScreen == null) return merged;
+            Dictionary<string, string> carried = EditsToCarry(fresh, before, onScreen);
+            foreach (KeyValuePair<string, string> kv in carried) merged[kv.Key] = kv.Value;
+            restored = carried.Count;
+            return merged;
+        }
+
+        /// <summary>
+        /// The unsaved edits a <see cref="PaneAction.ReloadPaneAfter"/> rebuild hands back to the user: every field on
+        /// screen that differs from what Load said before the action, where the fresh Load still answers what it said
+        /// then (the action did not write it). The decision behind <see cref="MergeAfterAction"/>, and on a LoadPending
+        /// pane also what the module is asked with, so a field derived from one of these edits is built from it.
+        /// </summary>
+        internal static Dictionary<string, string> EditsToCarry(
+            IReadOnlyDictionary<string, string> fresh,
+            IReadOnlyDictionary<string, string> before,
+            IReadOnlyDictionary<string, string> onScreen)
+        {
+            var carried = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (fresh == null || before == null || onScreen == null) return carried;
 
             foreach (KeyValuePair<string, string> kv in onScreen)
             {
@@ -1017,28 +1083,80 @@ namespace DesktopAICompanion.Wpf
                     continue;                                                // the user left it alone
 
                 string nowLoaded;
-                if (!merged.TryGetValue(kv.Key, out nowLoaded)) continue;    // gone from the schema
+                if (!fresh.TryGetValue(kv.Key, out nowLoaded)) continue;     // gone from the schema
                 if (!string.Equals(nowLoaded ?? "", wasLoaded ?? "", StringComparison.Ordinal))
                     continue;                                                // the action wrote it too
 
-                merged[kv.Key] = kv.Value;
-                restored++;
+                carried[kv.Key] = kv.Value;
             }
-            return merged;
+            return carried;
+        }
+
+        /// <summary>
+        /// A Load answer with a baseline for every <see cref="SettingKind.Secret"/> field: "" where the answer leaves the
+        /// key out (N-pane-rebuild-01), and the secret typed on screen where <paramref name="typed"/> carries one, over
+        /// the presence hint a LoadPending module answers for it (N-pane-rebuild-02). Every other key passes through.
+        /// </summary>
+        internal static Dictionary<string, string> WithSecretBaselines(
+            IReadOnlyDictionary<string, string> answer,
+            IReadOnlyList<SettingField> schema,
+            IReadOnlyDictionary<string, string> typed)
+        {
+            var result = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (answer != null)
+                foreach (KeyValuePair<string, string> kv in answer) result[kv.Key] = kv.Value;
+            if (schema == null) return result;
+            foreach (SettingField f in schema)
+            {
+                if (f == null || f.Kind != SettingKind.Secret || string.IsNullOrEmpty(f.Id)) continue;
+                string typedSecret;
+                if (typed != null && typed.TryGetValue(f.Id, out typedSecret) && !string.IsNullOrEmpty(typedSecret))
+                    result[f.Id] = typedSecret;
+                else if (!result.ContainsKey(f.Id))
+                    result[f.Id] = "";
+            }
+            return result;
         }
 
         /// <summary>Whether anything on screen differs from what Load() supplied for this build: from
-        /// <see cref="_stored"/>, so an edit a rebuild put back still counts as unsaved.</summary>
-        private bool HasUnsavedEdits()
+        /// <see cref="_stored"/>, so an edit a rebuild put back still counts as unsaved. A key Load did not answer is
+        /// skipped, since no rebuild can carry it, unless <paramref name="unansweredToo"/>: then it is measured against
+        /// what its editor showed when this view was built (<see cref="_shownAtBuild"/>).</summary>
+        private bool HasUnsavedEdits(bool unansweredToo = false)
         {
             if (_stored == null) return false;
             foreach (KeyValuePair<string, string> kv in Collect())
             {
+                // A secret's box is write-only, so anything in it was typed on this screen, or carried as a typed edit:
+                // an edit whatever presence hint Load answered, even one that happens to read the same.
+                if (_secretIds.Contains(kv.Key)) { if (!string.IsNullOrEmpty(kv.Value)) return true; continue; }
                 string wasLoaded;
-                if (!_stored.TryGetValue(kv.Key, out wasLoaded)) continue;
-                if (!string.Equals(kv.Value ?? "", wasLoaded ?? "", StringComparison.Ordinal)) return true;
+                if (!_stored.TryGetValue(kv.Key, out wasLoaded) && !(unansweredToo && _shownAtBuild.TryGetValue(kv.Key, out wasLoaded))) continue;
+                if (!SameValue(kv.Key, kv.Value, wasLoaded)) return true;
             }
             return false;
+        }
+
+        /// <summary>
+        /// Whether Apply has anything to write (N-cli-model-effort-06): an unsaved edit, a key Load did not answer that
+        /// the user changed, or a staged tick on a deferred list card. The window asks this of the view on screen after
+        /// every edit and lights Apply only while it holds, so a radio flipped away and back greys Apply again. An edit
+        /// a rebuild carried stays counted, because it is measured against Load's own answer (<see cref="_stored"/>),
+        /// not against what the rebuilt view showed.
+        /// </summary>
+        internal bool HasEditsToApply()
+        {
+            return _pendingChecks.Count > 0 || HasUnsavedEdits(true);
+        }
+
+        /// <summary>Whether a value on screen is the value it is compared with. A Bool by meaning: its editor reads
+        /// "true"/"false", and a module that answers "True" (bool.ToString) has not been edited.</summary>
+        private bool SameValue(string id, string onScreen, string baseline)
+        {
+            SettingField f;
+            if (id != null && _fieldsById.TryGetValue(id, out f) && f.Kind == SettingKind.Bool)
+                return ParseBool(onScreen) == ParseBool(baseline);
+            return string.Equals(onScreen ?? "", baseline ?? "", StringComparison.Ordinal);
         }
 
         /// <summary>
@@ -1207,10 +1325,67 @@ namespace DesktopAICompanion.Wpf
         private static void SetInfoText(TextBlock info, string value)
         {
             string text = value ?? "";
-            if (!string.Equals(info.Text, text, StringComparison.Ordinal)) info.Text = text;
+            string shown = InfoDisplayText(text);
+            if (!string.Equals(info.Text, shown, StringComparison.Ordinal)) info.Text = shown;
             if (text.StartsWith("✓", StringComparison.Ordinal)) info.Foreground = Brushes.LimeGreen;
             else if (text.StartsWith("✗", StringComparison.Ordinal)) info.Foreground = Brushes.Salmon;
             else info.ClearValue(TextBlock.ForegroundProperty);
+            // Named for UI Automation from the module's own text, ordinary hyphens and all, and the row's label
+            // (N-settings-accessibility-01): what a screen reader reads is what the module wrote, not the display form.
+            var label = System.Windows.Automation.AutomationProperties.GetLabeledBy(info) as TextBlock;
+            System.Windows.Automation.AutomationProperties.SetName(info, InfoAutomationName(label != null ? label.Text : null, text));
+        }
+
+        /// <summary>An Info row's automation name: "label: value", or the label alone while there is no value.</summary>
+        internal static string InfoAutomationName(string label, string value)
+        {
+            if (string.IsNullOrEmpty(value)) return label ?? "";
+            return string.IsNullOrEmpty(label) ? value : label + ": " + value;
+        }
+
+        /// <summary>U+2011, the non-breaking hyphen.</summary>
+        internal const char NonBreakingHyphen = '\u2011';
+
+        /// <summary>
+        /// What an Info row DISPLAYS for <paramref name="text"/>: every hyphen with a letter or digit on both sides drawn
+        /// as <see cref="NonBreakingHyphen"/>, so a model id is never split at its hyphens ("last answered on gpt-6.1-" /
+        /// "sol at low effort", N-cli-model-effort-08), and the row still wraps at its spaces. Display only: the row is a
+        /// TextBlock, which offers no selection and no copy, so the substituted character can never reach a clipboard;
+        /// the module's text is unchanged everywhere it is read (the EnabledWhen fallback, the automation name).
+        /// Refused: the module writing U+2011 itself, which a user copying the id out of the module's own messages would
+        /// then paste into a CLI that does not take it; and wrapping Info rows at spaces only, which WPF's TextBlock
+        /// cannot be told to do except by changing the characters it wraps at, which is this.
+        /// </summary>
+        internal static string InfoDisplayText(string text)
+        {
+            if (string.IsNullOrEmpty(text) || text.IndexOf('-') < 0) return text ?? "";
+            char[] chars = text.ToCharArray();
+            for (int i = 1; i < chars.Length - 1; i++)
+                if (chars[i] == '-' && char.IsLetterOrDigit(chars[i - 1]) && char.IsLetterOrDigit(chars[i + 1]))
+                    chars[i] = NonBreakingHyphen;
+            return new string(chars);
+        }
+
+        /// <summary>The label column's width, and the gap kept clear on its right before the editor
+        /// (N-cli-model-effort-10).</summary>
+        internal const double LabelWidth = 165;
+        internal const double LabelGap = 8;
+
+        /// <summary>A Secret editor's hint, as its tooltip and its automation help text, while a value is saved.</summary>
+        internal const string SavedSecretHint = "A value is saved. Leave blank to keep it.";
+
+        /// <summary>
+        /// Give an editor its row's label as its UI Automation name, the label element as its LabeledBy, and its hint, when
+        /// it has one, as its help text (N-settings-accessibility-01). The editors were bare controls beside a TextBlock,
+        /// so UI Automation saw "CheckBox", "Edit" and "ComboBox" with no name and nothing tying them to the text beside
+        /// them: a screen reader could not say what a control was for, and an automation client could not find one.
+        /// </summary>
+        internal static void LabelForAutomation(FrameworkElement editor, TextBlock label, string name, string help = null)
+        {
+            if (editor == null) return;
+            System.Windows.Automation.AutomationProperties.SetName(editor, name ?? "");
+            if (label != null) System.Windows.Automation.AutomationProperties.SetLabeledBy(editor, label);
+            if (!string.IsNullOrEmpty(help)) System.Windows.Automation.AutomationProperties.SetHelpText(editor, help);
         }
 
         public void Dispose()
@@ -1262,6 +1437,11 @@ namespace DesktopAICompanion.Wpf
 
             // Asked for unconditionally, even by a pane that will not use it: see StashPendingRebuildValues.
             Dictionary<string, string> pending = TakePendingRebuildValues(_pane);
+            // ...and this one too, taken BEFORE the Load below rather than after it, because a LoadPending pane hands
+            // the edits a ReloadPaneAfter action did not write to the module, so its answer (and the schema it builds
+            // with it) is the screen the user is going back to.
+            ActionRebuild afterAction = TakeActionRebuild(_pane);
+            _actionMessages = null;
 
             // Subscribe before the first Load. A producer may publish a new cached status while
             // Load is reading its old value and then suppress identical later notifications.
@@ -1283,15 +1463,54 @@ namespace DesktopAICompanion.Wpf
             IReadOnlyDictionary<string, string> values = null;
             // Load's (or LoadPending's) own answer, before any unsaved edit is put back over it below: _stored.
             IReadOnlyDictionary<string, string> stored = null;
+            // The pending values a LoadPending pane's own answer was asked for: its typed secrets go back over the
+            // presence hint it answers for them, below.
+            IReadOnlyDictionary<string, string> askedPending = null;
             if (_pane != null && _pane.LoadPending != null)
             {
                 // LoadPending REPLACES Load for a module that supplies one, rather than running alongside
                 // it: two sources for the same value would make "which one wins" a per-field accident. A
                 // first build has nothing on screen yet and so passes the empty dictionary, which is the
                 // same "nothing pending, answer from what is stored" case the module already handles.
-                if (pending == null) pending = new Dictionary<string, string>(StringComparer.Ordinal);
-                try { values = _pane.LoadPending(pending); } catch { values = null; }
-                stored = values;
+                //
+                // That same case is the STORED baseline, asked for separately whenever the build is handed
+                // anything (N-modules-update-all-02, N-pane-rebuild-02). The baseline was the answer to the pending
+                // values, which already carries the edits, so a cascade's edits measured as unchanged: the next
+                // ReloadPaneAfter action found nothing to carry and dropped them, and a typed secret came back as
+                // the module's presence hint, both shown and stored, so it was never put back in its box. The
+                // stored read runs FIRST: a module may build its schema inside LoadPending (AgentFlow does), and
+                // the host reads Schema after the last call, which has to be the one the screen is built from.
+                OptionsPane loading = _pane;
+                Func<IReadOnlyDictionary<string, string>, IReadOnlyDictionary<string, string>> ask = delegate(IReadOnlyDictionary<string, string> onScreen)
+                {
+                    try { return loading.LoadPending(onScreen); } catch { return null; }
+                };
+                if (pending != null && pending.Count > 0)
+                {
+                    // A ReloadOnChange cascade.
+                    stored = ask(new Dictionary<string, string>(StringComparer.Ordinal));
+                    values = ask(pending);
+                    askedPending = pending;
+                }
+                else if (afterAction != null)
+                {
+                    // A ReloadPaneAfter action. What is stored now carries the action's writes; the module is asked
+                    // again with the user's edits the action did not write (and ONLY those, so a field it did write,
+                    // a reset to defaults, is not handed back the value it replaced), so a field derived from an
+                    // edit, the animations of the pet picked by a cascade before the press, is built from that edit.
+                    stored = ask(new Dictionary<string, string>(StringComparer.Ordinal));
+                    Dictionary<string, string> carry = EditsToCarry(stored, afterAction.Before, afterAction.OnScreen);
+                    values = carry.Count > 0 ? ask(carry) : stored;
+                    if (values == null) values = stored;
+                    askedPending = carry;
+                }
+                else
+                {
+                    values = ask(pending ?? new Dictionary<string, string>(StringComparer.Ordinal));
+                    stored = values;
+                }
+                // A stored read that failed leaves the answer itself as the baseline, which is what it always was.
+                if (stored == null) stored = values;
             }
             else
             {
@@ -1314,11 +1533,17 @@ namespace DesktopAICompanion.Wpf
             }
             if (values == null) values = new Dictionary<string, string>();
             if (stored == null) stored = new Dictionary<string, string>(StringComparer.Ordinal);
+            IReadOnlyList<SettingField> schema = _pane != null ? _pane.Schema : null;
+            // Every Secret field has a baseline, "" where Load leaves its key out, which the ABI allows ("return "" or
+            // omit") (N-pane-rebuild-01). The merge below and the unsaved-edit test both skip a key with no baseline,
+            // so a secret typed on such a pane was neither counted nor carried, and died on a reloading button. On a
+            // LoadPending pane the secret typed on the screen this build replaces goes back over the presence hint the
+            // module answers for it (N-pane-rebuild-02), as the Load-only overlay above already puts it back.
+            values = WithSecretBaselines(values, schema, askedPending);
+            stored = WithSecretBaselines(stored, schema, null);
 
             // A ReloadPaneAfter action just ran: put the user's unsaved edits back over the fields it
             // did not itself write, and remember what it reported so the rebuilt row can say it again.
-            ActionRebuild afterAction = TakeActionRebuild(_pane);
-            _actionMessages = null;
             if (afterAction != null)
             {
                 int restored;
@@ -1333,7 +1558,6 @@ namespace DesktopAICompanion.Wpf
             var order = new List<string>();
             var groupFields = new Dictionary<string, List<SettingField>>(StringComparer.Ordinal);
             var groupActions = new Dictionary<string, List<PaneAction>>(StringComparer.Ordinal);
-            IReadOnlyList<SettingField> schema = _pane != null ? _pane.Schema : null;
             if (schema != null)
                 foreach (SettingField f in schema)
                 {
@@ -1405,7 +1629,7 @@ namespace DesktopAICompanion.Wpf
                     foreach (PaneAction a in groupActions[g]) body.Children.Add(BuildActionRow(a, "group " + g));
                 }
                 if (dressed) DressCard(inner, body, g, cardWhen, collapsible ? lead : null, groupFields[g], groupActions[g]);
-                cards.Children.Add(NewCard(inner, lead != null && lead.FullWidth));
+                cards.Children.Add(NewCard(inner, g, lead != null && lead.FullWidth));
             }
 
             // Dynamic list cards (checkable item lists a flat schema can't express, e.g. fortune packs/genres).
@@ -1426,6 +1650,7 @@ namespace DesktopAICompanion.Wpf
             // Now that every reader exists, settle the EnabledWhen states once. Doing it as each row was
             // built would leave a dependent that names a later field reading nothing and starting enabled.
             RefreshEnabledStates();
+            _shownAtBuild = Collect();
             _suppressDirty = false;   // initial values are in place; from here real edits mark the pane dirty
             // Own ScrollViewer so the pane scrolls (incl. the mouse wheel) without an outer one to nest in.
             _scroller = new ScrollViewer
@@ -1541,6 +1766,9 @@ namespace DesktopAICompanion.Wpf
                 }
                 body.Margin = new Thickness(0, 6, 0, 0);
                 var expander = new Expander { Header = header, Content = body, IsExpanded = IsCardOpen(key, collapsibleLead) };
+                // Its header is a panel, which UI Automation reads no name from: named after the card, and the count
+                // beside the title as its help text.
+                LabelForAutomation(expander, title, !string.IsNullOrEmpty(group) ? group : (_pane != null ? (_pane.Title ?? "") : ""), count);
                 // What the card is showing, kept for the next rebuild of this pane (StashViewState). Recorded on
                 // every change, the user's or code's, and only for THIS expander: Expanded and Collapsed are
                 // routed events, and one raised inside the body must not be taken for the card's own.
@@ -1612,9 +1840,9 @@ namespace DesktopAICompanion.Wpf
         // (CardMargin, 4), which the masonry panel's 368 column pitch is built around. A card that spans n
         // columns is 368n minus that same gutter, and only the panel knows n, so the card stretches into
         // the slot the panel gives it rather than guessing.
-        private static Border NewCard(UIElement child, bool fullWidth = false)
+        private Border NewCard(UIElement child, string title, bool fullWidth = false)
         {
-            var card = new Border
+            var card = new SettingsCard
             {
                 BorderBrush = Brushes.Gray,
                 BorderThickness = new Thickness(1),
@@ -1622,6 +1850,9 @@ namespace DesktopAICompanion.Wpf
                 Padding = new Thickness(8),
                 Child = child,
             };
+            // Named after its title; the untitled default card is the pane's own, so it takes the pane's title.
+            System.Windows.Automation.AutomationProperties.SetName(card,
+                !string.IsNullOrEmpty(title) ? title : (_pane != null ? (_pane.Title ?? "") : ""));
             if (fullWidth) card.HorizontalAlignment = HorizontalAlignment.Stretch;
             else card.Width = MasonryPanel.CardWidth;
             MasonryPanel.SetSpanAllColumns(card, fullWidth);
@@ -1766,6 +1997,8 @@ namespace DesktopAICompanion.Wpf
                             Margin = new Thickness(0, 0, 6, 0),
                             ToolTip = "Turn this whole group on or off",
                         };
+                        // A box with no content, which UI Automation read as a nameless check box.
+                        LabelForAutomation(groupCheck, null, "All in " + g, "Turn this whole group on or off");
                         header.Children.Add(groupCheck);
                         header.Children.Add(new TextBlock
                         {
@@ -1819,6 +2052,7 @@ namespace DesktopAICompanion.Wpf
                             Content = groupPanel,
                             Margin = new Thickness(0, 2, 0, 2),
                         };
+                        LabelForAutomation(expander, null, g);
                         listPanel.Children.Add(expander);
                         groupExpanders.Add(new KeyValuePair<Expander, List<CheckBox>>(expander, boxes));
                     }
@@ -1827,6 +2061,7 @@ namespace DesktopAICompanion.Wpf
                 if (lc.Filterable)
                 {
                     var filterBox = new TextBox { Margin = new Thickness(0, 0, 0, 6), Tag = "Filter" };
+                    LabelForAutomation(filterBox, null, string.IsNullOrEmpty(lc.Title) ? "Filter" : "Filter " + lc.Title);
                     filterBox.TextChanged += delegate
                     {
                         string q = (filterBox.Text ?? "").Trim();
@@ -1876,7 +2111,7 @@ namespace DesktopAICompanion.Wpf
                         inner.Children.Add(BuildActionRow(a, "list " + (lc.Title ?? "")));
             }
 
-            return NewCard(inner);
+            return NewCard(inner, lc.Title);
         }
 
         /// <summary>
@@ -2399,7 +2634,12 @@ namespace DesktopAICompanion.Wpf
         private FrameworkElement BuildEditorRow(SettingField f, string cur)
         {
             var row = new DockPanel { Margin = new Thickness(0, 3, 0, 3), LastChildFill = true };
-            var label = new TextBlock { Text = f.Label ?? f.Id, Width = 165, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap };
+            string labelText = f.Label ?? f.Id;
+            // A gap on the label's right (N-cli-model-effort-10): the column is a fixed width and the label wraps
+            // inside it, so a label long enough to fill it ran its last letters into the editor beside it ("Claude
+            // sign-in token (optional)", AI Brain's fullscreen stand-down). The gap is outside the 165, so a label
+            // wraps exactly where it did before.
+            var label = new TextBlock { Text = labelText, Width = LabelWidth, Margin = new Thickness(0, 0, LabelGap, 0), VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap };
             DockPanel.SetDock(label, Dock.Left);
             row.Children.Add(label);
 
@@ -2408,6 +2648,7 @@ namespace DesktopAICompanion.Wpf
                 case SettingKind.Bool:
                 {
                     var cb = new CheckBox { VerticalAlignment = VerticalAlignment.Center, IsChecked = ParseBool(cur) };
+                    LabelForAutomation(cb, label, labelText);
                     _readers[f.Id] = () => (cb.IsChecked == true) ? "true" : "false";
                     cb.Checked += delegate { FieldChanged(f); };
                     cb.Unchecked += delegate { FieldChanged(f); };
@@ -2419,8 +2660,18 @@ namespace DesktopAICompanion.Wpf
                     var combo = new ComboBox();
                     if (f.Options != null) foreach (string o in f.Options) combo.Items.Add(o);
                     combo.SelectedItem = cur;
+                    LabelForAutomation(combo, label, labelText);
+                    // The closed box clips an option longer than the row ("Unload after each remark (fre"), so its
+                    // tooltip is the chosen option in full, kept current as the choice changes (N-cli-model-effort-10).
+                    // No tooltip while nothing is chosen: there is nothing clipped to show.
+                    Action showChoice = delegate
+                    {
+                        string chosen = combo.SelectedItem as string;
+                        combo.ToolTip = string.IsNullOrEmpty(chosen) ? null : chosen;
+                    };
+                    showChoice();
                     _readers[f.Id] = () => combo.SelectedItem as string ?? "";
-                    combo.SelectionChanged += delegate { FieldChanged(f); };
+                    combo.SelectionChanged += delegate { showChoice(); FieldChanged(f); };
                     row.Children.Add(combo);
                     break;
                 }
@@ -2457,6 +2708,10 @@ namespace DesktopAICompanion.Wpf
                                 Margin = new Thickness(0, 2, 0, 2),
                                 IsChecked = string.Equals(o, cur, StringComparison.Ordinal),
                             };
+                            // Each option is named by its own text, and labelled by the row's label, which says what
+                            // the options choose between. The name is set rather than left to the content: with a
+                            // LabeledBy and no name of its own, every option would be named after the row's label.
+                            LabelForAutomation(rb, label, o);
                             buttons.Add(rb);
                             choices.Children.Add(rb);
                         }
@@ -2479,10 +2734,11 @@ namespace DesktopAICompanion.Wpf
                     // (a module must not have to defend against its own status text coming back as input).
                     var info = new TextBlock
                     {
-                        Text = cur ?? "",
                         VerticalAlignment = VerticalAlignment.Center,
                         TextWrapping = TextWrapping.Wrap,
                     };
+                    // Labelled before its text is set: SetInfoText names the row "<label>: <value>" from it.
+                    System.Windows.Automation.AutomationProperties.SetLabeledBy(info, label);
                     SetInfoText(info, cur);
                     _infoBlocks.Add(new KeyValuePair<string, TextBlock>(f.Id, info));
                     row.Children.Add(info);
@@ -2497,7 +2753,8 @@ namespace DesktopAICompanion.Wpf
                     // typed secret back, `cur` is that typed text, and the hint would claim a save that never was.
                     string said;
                     bool alreadySet = _stored.TryGetValue(f.Id, out said) && !string.IsNullOrEmpty(said);
-                    if (alreadySet) pw.ToolTip = "A value is saved. Leave blank to keep it.";
+                    if (alreadySet) pw.ToolTip = SavedSecretHint;
+                    LabelForAutomation(pw, label, labelText, alreadySet ? SavedSecretHint : null);
                     // A secret TYPED on the view this build replaces, and put back by the rebuild (a ReloadOnChange
                     // cascade's overlay, or the ReloadPaneAfter merge where the action did not write the field),
                     // goes back in the box, masked (host 1.5.0, N-cli-token-04). It was typed on this screen, so
@@ -2520,7 +2777,7 @@ namespace DesktopAICompanion.Wpf
                 {
                     // host 1.4.0. The default case below is what an OLDER host draws for these, which is why a
                     // module using them degrades to a text box of the full path rather than breaking.
-                    row.Children.Add(BuildPathEditor(f, cur));
+                    row.Children.Add(BuildPathEditor(f, cur, label));
                     break;
                 }
                 default: // Int + Text both edit as text.
@@ -2543,6 +2800,7 @@ namespace DesktopAICompanion.Wpf
                     // of line with every single-line field above it. The checkbox and status rows already
                     // pin Center for the same reason.
                     var tb = new TextBox { Text = cur, VerticalAlignment = VerticalAlignment.Center };
+                    LabelForAutomation(tb, label, labelText);
                     SettingField bounded = f;
                     _readers[f.Id] = () => ClampIfBounded(bounded, tb.Text ?? "");
                     tb.TextChanged += delegate { FieldChanged(f); };
@@ -2595,7 +2853,7 @@ namespace DesktopAICompanion.Wpf
         /// here because without it a path, once browsed to, could never be set back to blank, which for a storage
         /// folder means "the default".
         /// </summary>
-        private FrameworkElement BuildPathEditor(SettingField f, string cur)
+        private FrameworkElement BuildPathEditor(SettingField f, string cur, TextBlock label)
         {
             bool folder = f.Kind == SettingKind.FolderPath;
             string value = cur ?? "";
@@ -2612,6 +2870,11 @@ namespace DesktopAICompanion.Wpf
                 Clear = new Button { Content = "✕", Width = 24, Margin = new Thickness(2, 0, 0, 0), ToolTip = "Clear" },
             };
             _pathEditors[f.Id] = parts;
+            // The buttons are drawn as "…" and "✕", which is all UI Automation read from them: each is named for what it
+            // does to this field, the Browse button with its dialog's own title (N-settings-accessibility-01).
+            string fieldName = PathFieldName(f);
+            LabelForAutomation(parts.Browse, label, PathDialogTitle(f), parts.Browse.ToolTip as string);
+            LabelForAutomation(parts.Clear, label, fieldName.Length > 0 ? "Clear " + fieldName : "Clear");
             var line = new DockPanel { LastChildFill = true };
             DockPanel.SetDock(parts.Browse, Dock.Right);
             DockPanel.SetDock(parts.Clear, Dock.Right);
@@ -2622,8 +2885,12 @@ namespace DesktopAICompanion.Wpf
             editor.Children.Add(line);
             editor.Children.Add(parts.Folder);
 
+            // The name in the box is read as text; the row's label says which field it is, and its help text is the
+            // whole path (or the EmptyHint), what the box's tooltip shows.
+            System.Windows.Automation.AutomationProperties.SetLabeledBy(parts.Name, label);
             Action show = delegate
             {
+                System.Windows.Automation.AutomationProperties.SetHelpText(parts.Name, value.Length > 0 ? value : (f.EmptyHint ?? ""));
                 if (value.Length == 0)
                 {
                     parts.Name.Text = f.EmptyHint ?? "";
@@ -2714,36 +2981,76 @@ namespace DesktopAICompanion.Wpf
                 : "All files (*.*)|*.*";
         }
 
-        /// <summary>The host's own dialog for a path field, opened where the current value points when it still
-        /// exists. Never throws: a dialog that fails to open answers as a cancel.</summary>
+        /// <summary>
+        /// A path field's name for its dialog and its buttons: the label cut at its first " (" and trimmed. A label is
+        /// written to sit beside a box, and its parenthetical ("whisper-cli path (filled in for you if one is found)")
+        /// reads oddly anywhere else.
+        /// </summary>
+        internal static string PathFieldName(SettingField f)
+        {
+            string label = f != null ? (f.Label ?? "") : "";
+            int cut = label.IndexOf(" (", StringComparison.Ordinal);
+            if (cut >= 0) label = label.Substring(0, cut);
+            return label.Trim();
+        }
+
+        /// <summary>
+        /// The title of a path field's Browse dialog: "Choose " and the field's name (N-layout-remembrance-01), where it
+        /// was the whole label, so Remembrance's whisper-cli Browse opened a dialog titled "whisper-cli path (filled in
+        /// for you if one is found)". A field with no name left is "Choose a folder" or "Choose a file", as before.
+        /// </summary>
+        internal static string PathDialogTitle(SettingField f)
+        {
+            string name = PathFieldName(f);
+            if (name.Length > 0) return "Choose " + name;
+            return f != null && f.Kind == SettingKind.FolderPath ? "Choose a folder" : "Choose a file";
+        }
+
+        /// <summary>
+        /// The dialog behind a path field's Browse, configured and not shown: an Open-folder dialog for a FolderPath, an
+        /// Open-file one for a FilePath, titled <see cref="PathDialogTitle"/> and opened where the current value points
+        /// when it still exists. Split from <see cref="PickPath"/>, which shows it, so the self-test can read the title the
+        /// real dialog carries without one ever opening.
+        /// </summary>
+        internal static Microsoft.Win32.CommonItemDialog PathDialogFor(SettingField f, string current)
+        {
+            string title = PathDialogTitle(f);
+            if (f.Kind == SettingKind.FolderPath)
+            {
+                var pickFolder = new Microsoft.Win32.OpenFolderDialog { Title = title, Multiselect = false };
+                if (!string.IsNullOrEmpty(current) && System.IO.Directory.Exists(current)) pickFolder.InitialDirectory = current;
+                return pickFolder;
+            }
+            var pickFile = new Microsoft.Win32.OpenFileDialog
+            {
+                Title = title,
+                Filter = PathDialogFilter(f.FileExtensions),
+                CheckFileExists = true,
+                Multiselect = false,
+            };
+            string dir = null;
+            try { dir = string.IsNullOrEmpty(current) ? null : System.IO.Path.GetDirectoryName(current); } catch (Exception) { dir = null; }
+            if (!string.IsNullOrEmpty(dir) && System.IO.Directory.Exists(dir))
+            {
+                pickFile.InitialDirectory = dir;
+                pickFile.FileName = System.IO.Path.GetFileName(current);
+            }
+            return pickFile;
+        }
+
+        /// <summary>The host's own dialog for a path field (<see cref="PathDialogFor"/>), shown. Never throws: a dialog
+        /// that fails to open answers as a cancel.</summary>
         private static string PickPath(SettingField f, string current, Window owner)
         {
             try
             {
-                string title = string.IsNullOrEmpty(f.Label) ? (f.Kind == SettingKind.FolderPath ? "Choose a folder" : "Choose a file") : f.Label;
-                if (f.Kind == SettingKind.FolderPath)
-                {
-                    var pickFolder = new Microsoft.Win32.OpenFolderDialog { Title = title, Multiselect = false };
-                    if (!string.IsNullOrEmpty(current) && System.IO.Directory.Exists(current)) pickFolder.InitialDirectory = current;
-                    bool? chose = owner != null ? pickFolder.ShowDialog(owner) : pickFolder.ShowDialog();
-                    return chose == true ? pickFolder.FolderName : null;
-                }
-                var pickFile = new Microsoft.Win32.OpenFileDialog
-                {
-                    Title = title,
-                    Filter = PathDialogFilter(f.FileExtensions),
-                    CheckFileExists = true,
-                    Multiselect = false,
-                };
-                string dir = null;
-                try { dir = string.IsNullOrEmpty(current) ? null : System.IO.Path.GetDirectoryName(current); } catch (Exception) { dir = null; }
-                if (!string.IsNullOrEmpty(dir) && System.IO.Directory.Exists(dir))
-                {
-                    pickFile.InitialDirectory = dir;
-                    pickFile.FileName = System.IO.Path.GetFileName(current);
-                }
-                bool? picked = owner != null ? pickFile.ShowDialog(owner) : pickFile.ShowDialog();
-                return picked == true ? pickFile.FileName : null;
+                Microsoft.Win32.CommonItemDialog dialog = PathDialogFor(f, current);
+                bool? chose = owner != null ? dialog.ShowDialog(owner) : dialog.ShowDialog();
+                if (chose != true) return null;
+                var pickFolder = dialog as Microsoft.Win32.OpenFolderDialog;
+                if (pickFolder != null) return pickFolder.FolderName;
+                var pickFile = dialog as Microsoft.Win32.OpenFileDialog;
+                return pickFile != null ? pickFile.FileName : null;
             }
             catch (Exception) { return null; }
         }
