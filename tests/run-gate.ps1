@@ -141,6 +141,14 @@ try {
         }
         catch { $failures.Add("$harnessProject build: " + $_.Exception.Message) }
     }
+    # The window soak's private-bytes judge runs with no window and no module (--judge-selftest, lane
+    # feature/test-infra), so it is graded here, where the soak itself cannot run.
+    Write-Host '=== window soak private-bytes judge (--judge-selftest)' -ForegroundColor Cyan
+    try {
+        & (Join-Path $repoRoot 'tests\DesktopAICompanion.WindowSoak\bin\Release\DesktopAICompanion.WindowSoak.exe') --judge-selftest
+        if ($LASTEXITCODE -ne 0) { $failures.Add("window soak --judge-selftest (exit $LASTEXITCODE)") }
+    }
+    catch { $failures.Add('window soak --judge-selftest: ' + $_.Exception.Message) }
 
     # The flag table, the marker map and the skip detection all live in one place now, called
     # by BOTH this gate and .github\workflows\build.yml. They used to be duplicated, under a

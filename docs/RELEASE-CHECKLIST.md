@@ -98,9 +98,10 @@ To cut a release:
    Then, if any module owns a window, **run the module-window soak too**:
    `.\tests\module-window-soak.ps1` → expect `RESULT=PASS`. The soak above cannot reach a module window at
    all — it drives the shipped app from outside and the app's churn loop never opens one — so this is the only
-   check covering a module's own HWNDs, Bitmaps and decoded sprites. It compares the LAST segment against the
-   previous one rather than against a cold start, because the first pass legitimately sets a high private-byte
-   watermark while a sprite sheet decodes. Record these numbers too.
+   check covering a module's own HWNDs, Bitmaps and decoded sprites. It judges private bytes by their slope over
+   every segment (five by default) and handles, GDI and USER on the last segment against the previous one, never
+   against a cold start, because the first pass legitimately sets a high private-byte watermark while a sprite
+   sheet decodes. Record these numbers too.
 5. **Re-run the mutation harnesses if any assertion or guard changed since the last release.** They are
    the only thing that distinguishes a passing gate from a gate that cannot fail, and none of them runs
    in CI (each edits source in place and rebuilds what its cases touch, several times per run:

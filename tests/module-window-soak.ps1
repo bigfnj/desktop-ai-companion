@@ -15,16 +15,18 @@
     Pass criteria, strongest first:
       1. every window is unreachable after an LOH-compacting GC;
       2. handles / GDI / USER are flat across the LAST segment;
-      3. the last segment's private bytes barely move.
-    Segment 1 is excluded from 2 and 3 on purpose: the first pass legitimately sets a high watermark while the
-    sprite sheet decodes and caches fill. Comparing the last segment against the previous one, rather than
-    against a cold start, is what makes the memory signal usable.
+      3. private bytes show no upward trend: the least-squares slope of the sample after each segment, over
+         every segment, stays under 16 MiB a segment (the exe's PrivateBytesJudge, N-release-150-01).
+    Segment 1's growth from the cold start is excluded from 2 and 3 on purpose: the first pass legitimately sets
+    a high watermark while the sprite sheet decodes and caches fill. Comparing segments with each other, rather
+    than with a cold start, is what makes the memory signal usable.
 
 .PARAMETER Cycles
     Open/close cycles per segment. Default 20.
 
 .PARAMETER Segments
-    Number of segments. Must be at least 2, because the growth checks compare the last against the previous.
+    Number of segments. Default 5, at least 4: the private-byte judge needs a slope over three segments of
+    change, and the handle/GDI/USER checks compare the last segment against the previous one.
 
 .PARAMETER Module
     Path to the module DLL to drive. Defaults to the built Pet Studio.
@@ -44,7 +46,7 @@ param(
     # before the exe's hard FAIL (F399, F390). The exe refuses such a value itself now; the wrapper refuses
     # it first, with PowerShell's own message naming the parameter.
     [ValidateRange(1, [int]::MaxValue)][int]$Cycles = 20,
-    [ValidateRange(2, [int]::MaxValue)][int]$Segments = 2,
+    [ValidateRange(4, [int]::MaxValue)][int]$Segments = 5,
     [string]$Module,
     [string]$Pet,
     [string]$Configuration = 'Release'
