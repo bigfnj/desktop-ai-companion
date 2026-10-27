@@ -151,6 +151,54 @@ up online: a reviewed re-pin reaches users only inside a published AgentBroker
 module. A Codex VS Code refusal names the version that the running engine's
 extension folder declares, read from the path for this text and never trusted.
 
+## Scheduled re-pin check, 2026-10-27
+
+`.github/workflows/agentbroker-repin.yml` runs daily and on manual dispatch, on
+`windows-latest`. Every step is `tools/agentbroker/Invoke-AgentBrokerRepinCheck.ps1`,
+runnable here with the same downloads in one invocation:
+
+1. It fetches the newest `@anthropic-ai/claude-code` from npm, requires its
+   `optionalDependencies` to bind `@anthropic-ai/claude-code-win32-x64` at the same
+   version, and downloads that tarball, whose sha512 must equal the registry's
+   published `dist.integrity`. It also fetches the newest non-prerelease win32-x64
+   VSIX of `anthropic.claude-code` and `openai.chatgpt` from the Visual Studio
+   Marketplace. Downloads start only from https on `registry.npmjs.org`,
+   `vsassets.io` or `visualstudio.com`.
+2. It runs the re-pin helper in package mode on each one. Nothing downloaded is
+   executed.
+3. For each build that is not yet pinned and passes every check (no FAIL, no
+   UNPROVEN), it opens one DRAFT pull request on the branch
+   `agentbroker-repin/<build>`, adding that build's entry to the pin document, with
+   the helper's output, the REVIEW checklist and the LIVE checklist in the
+   description. An npm CLI and a VS Code extension that ship the same `claude.exe`
+   are one build and one pull request (on 2026-10-27 versions 2.1.310 and 2.1.312
+   did). It skips a build whose branch already has an open pull request. Every
+   other build goes to the run summary only.
+
+It never merges, approves or pushes to the base branch; the owner's merge is the
+review. The workflow has `contents: write` and `pull-requests: write` only, pins
+every action by commit SHA, keeps no token in `.git/config` while packages are
+read (`persist-credentials: false`; the push authenticates through `gh auth
+setup-git`), and the script's `-SelfTest` checks those properties of the
+workflow file and of itself. Three consequences of GitHub's rules: the repository
+setting "Allow GitHub Actions to create and approve pull requests" must be on, or
+`gh pr create` is refused and the run fails; a pull request opened with the
+workflow token starts no other workflow, so the build runs only after the pull
+request is closed and reopened or a commit is pushed to it; and two drafts that
+add to the same list conflict once the first is merged, so close the stale one
+and the next run drafts it again from the new base. A merged re-pin reaches users
+with the next AgentBroker module publish.
+
+The Codex desktop app is a Microsoft Store package that this check cannot fetch.
+It stays a manual re-pin: run the helper against the installed package, then add
+its entry with `-MergeEntry` or by hand.
+
+Locally: `pwsh -NoProfile -File tools/agentbroker/Invoke-AgentBrokerRepinCheck.ps1
+-OutputDirectory <new folder>` (optionally `-ClaudeVersion`,
+`-ClaudeVsCodeVersion`, `-CodexVsCodeVersion` with versions or `latest`), then
+`-OpenPullRequests -DryRun -OutputDirectory <same folder>` to print the git and gh
+commands without running them.
+
 ## Re-pin helper, 2026-10-27
 
 `tools/agentbroker/Test-AgentBrokerRepin.ps1` is a read-only assistant for exact

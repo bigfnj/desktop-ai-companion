@@ -1,0 +1,57 @@
+name: agentbroker-repin
+
+# Daily check for vendor builds newer than AgentBroker's exact pins (owner decision 2026-10-27). It fetches the newest
+# Claude Code CLI native package from npm (verifying npm's published integrity) and the newest win32-x64 VSIX of the
+# Claude Code and Codex VS Code extensions, checks each OFFLINE with tools/agentbroker/Test-AgentBrokerRepin.ps1
+# (signatures, markers and hashes are read; nothing downloaded is executed), and opens one DRAFT pull request per
+# build that passes every check, unless one is already open for that build. It never merges and never applies a pin:
+# the owner's merge is the review. Builds with a FAIL or UNPROVEN check go to the run summary only. The Codex desktop
+# app is a Store package this job cannot fetch; it stays a manual re-pin. Every step is runnable locally:
+# tools/agentbroker/Invoke-AgentBrokerRepinCheck.ps1 (see docs/agentbroker-client-compatibility.md).
+on:
+  schedule:
+    - cron: '23 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: agentbroker-repin
+  cancel-in-progress: false
+
+jobs:
+  repin:
+    name: Check vendor builds and draft re-pin pull requests
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
+        with:
+          # No token is left in .git/config while downloaded packages are read; the pull request step authenticates
+          # git through gh for its push alone.
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Fetch and check the newest vendor builds
+        id: check
+        shell: pwsh
+        run: ./tools/agentbroker/Invoke-AgentBrokerRepinCheck.ps1 -OutputDirectory (Join-Path $env:RUNNER_TEMP 'agentbroker-repin')
+
+      - name: Write the results to the run summary
+        if: always()
+        shell: pwsh
+        run: |
+          $summary = Join-Path $env:RUNNER_TEMP 'agentbroker-repin/summary.md'
+          if (Test-Path -LiteralPath $summary) { Get-Content -LiteralPath $summary -Raw | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8 }
+          else { Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value 'The re-pin check wrote no summary; see the step log.' -Encoding utf8 }
+
+      - name: Draft one pull request per eligible build
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_BRANCH: ${{ github.event.repository.default_branch }}
+        run: ./tools/agentbroker/Invoke-AgentBrokerRepinCheck.ps1 -OpenPullRequests -OutputDirectory (Join-Path $env:RUNNER_TEMP 'agentbroker-repin') -BaseBranch $env:BASE_BRANCH

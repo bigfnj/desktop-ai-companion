@@ -6443,6 +6443,13 @@ follows for the full Native adapters field. The codes stay `unsupported_public_v
 and so on, so nothing that keys on a code changes; raising the module's 160 was refused as a module change for a
 worker-side sentence. It looks nothing up: the app makes no network call, and the comparison is reporting only.
 
+**The scheduled check drafts and never decides.** Pull requests are opened as drafts on `agentbroker-repin/<build>`
+(version plus the first 12 hex digits of the image hash), one per build: an npm CLI and a VS Code extension with the
+same `claude.exe` are one build, because two pull requests adding one hash would make the second a repeat the loader
+refuses. A build is skipped only while an open pull request has its branch, as the brief says, so a pull request the
+owner closes without merging is drafted again by the next run; making a decline stick would mean also skipping
+closed pull requests, which is the owner's call. The checkout keeps no token while downloaded packages are read
+(`persist-credentials: false`), and only the pull request step authenticates git, through `gh auth setup-git`.
 
 ## Known ABI gaps
 
