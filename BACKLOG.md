@@ -93,6 +93,28 @@ Anything closed that still carries standing value was extracted rather than dele
 
 - 📌 **N-agentbroker-claude-channel-01** [supported-ingress proposal, 2026-10-26] Evaluate the vendor-documented [Claude MCP channels contract](https://code.claude.com/docs/en/channels-reference) for broker push into an open CLI session. A per-session stdio bridge can register/renew its own generic broker inbox, emit `notifications/claude/channel` for new messages and expose acknowledged receipt/reply tools. This avoids depending on native peer-key records or a per-build private messaging schema. Preserve paired-sender authorization, private/mute controls, stable message IDs and explicit recipient receipts; notification submission alone is not Delivered. Omit the permission-relay capability. Custom channels are currently research preview and require interactive per-entry development consent; organization policy and supported-authentication requirements still apply. Test the actual installed CLI's support and a dedicated consenting session before claiming wake/reply, busy behavior or permission parity. Do not infer VS Code or desktop-host support from CLI documentation. This is unimplemented; generic active polling remains the proven route.
 
+## Toolchain
+
+- 📌 **N-toolchain-wix-01** [installer/toolchain] Move the MSI toolchain from WiX 5.0.2 to WiX 7.0.1 (the newest on
+  nuget.org on 2026-10-27; 6.0.2 also exists). 5.0.2 has been locked since 1.0.0 (2026-09-03) by
+  `packaging/wix-toolchain-lock.json`, which pins each package's SHA-256, and nothing records a reason to stay on it.
+  The owner asked for it on the backlog on 2026-10-27.
+  ⚠ WiX 6 and later refuse every build command until the Open Source Maintenance Fee EULA is accepted (error 7015;
+  `--acceptEula wix7`, or the acceptance file under `~/.wix`), locally and in CI. The fee itself applies only to use
+  "as part of revenue-generating activities" at US$10,000 or more of annual gross revenue
+  (https://github.com/wixtoolset/wix/blob/main/OSMFEULA.txt). Accepting it is the owner's decision when this starts.
+  The work: the lock's packages and SHA-256s (wix, the UI and Util extensions); the version checks at
+  `packaging/Install-LockedWixToolchain.ps1` :223, :487 and :533 and `packaging/WixToolchainPolicy.ps1` :360 and :510;
+  the toolchain paths at `.github/workflows/build.yml:272` and `release.yml:169`; the Readme's build prerequisites
+  (:733, :745); the WiX 5 table names the MSI lifecycle test asserts (`Wix4CloseApplication`,
+  `Wix4FailWhenDeferred_X64`, `tests/Test-IsolatedMsiLifecycle.ps1` :159 and :249); and the native
+  installation-scoped shutdown, which replaced 5.0.2's CloseApps behaviour (`docs/installer-scoped-shutdown.md`
+  :50-55), re-verified against the new Util extension's action order. Acceptance: the native installer checks, the
+  isolated MSI lifecycle, and a real upgrade from a 5.0.2-built 1.7.x MSI to a 7.0.1-built one that exits 0 and keeps
+  modules and settings, since that is the path users take. It does not touch the 1.7.0 Defender false positive, which
+  is on the app's DLL, not the MSI.
+  CLOSES-WHEN: grep-absent packaging/wix-toolchain-lock.json "5.0.2"
+
 ## Closed: 2026-09-29 full audit and its fix campaign (summary; the record is in docs/audits/)
 
 The full code audit of 2026-09-29 verified 447 findings at `35725396`; the campaign that followed closed every one, plus the 72 items
