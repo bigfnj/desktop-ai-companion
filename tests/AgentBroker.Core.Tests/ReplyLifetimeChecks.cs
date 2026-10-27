@@ -43,7 +43,8 @@ internal static class ReplyLifetimeChecks
             Check(reply.Status == MessageStatus.Accepted && reply.Message.CreatedAt == clock.GetUtcNow() &&
                 reply.Message.ExpiresAt == clock.GetUtcNow().AddMinutes(configured ?? 1440),
                 "A fresh reply after its parent's deadline receives exactly the configured/default delivery lifetime.");
-            Check(store.Messages(to.Address).Single(receipt => receipt.Message.Id == parent.Id).Message == parent,
+            // The delivered parent is a tombstone (owner decision 2026-10-27): every field but its text is kept as supplied.
+            Check(store.Messages(to.Address).Single(receipt => receipt.Message.Id == parent.Id).Message == parent with { Text = "" },
                 "Creating a reply never extends or rewrites the explicitly supplied parent timestamps.");
             store.RecordRecipientReceipt(reply.Message.Id, from.Address, store.BrokerId, MessageStatus.Delivered);
             clock.Advance(TimeSpan.FromMinutes((configured ?? 1440) + 1));

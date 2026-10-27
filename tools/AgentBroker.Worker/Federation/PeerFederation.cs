@@ -138,8 +138,10 @@ public sealed partial class PeerFederation : IPeerFederation
             if (RequirePeer(c) != caller) throw new UnauthorizedAccessException();
             return Results.Json(store.Accept(message, caller), Json);
         })));
+        // A tombstoned (acknowledged) ID answers 404 like an unknown one, never a receipt with an empty Text: a 1.0.4
+        // peer compares the whole message before recording an outcome, so the record shape on this route is unchanged.
         application.MapGet("/federation/receipts/{id:guid}", (HttpContext c, Guid id) => Handle(c, () => {
-            Guid caller = RequirePeer(c); var receipt = store.FindReceipt(id);
+            Guid caller = RequirePeer(c); var receipt = store.FindReceiptWithText(id);
             return Task.FromResult<IResult>(receipt is not null && (receipt.Message.Sender.BrokerId == caller || receipt.Message.Recipient.BrokerId == caller)
                 ? Results.Json(receipt, Json) : Results.NotFound());
         }));

@@ -17,7 +17,10 @@ internal static class PaginationChecks
         Directory.CreateDirectory(storeDirectory);
         Guid brokerId = Guid.NewGuid(), senderId = Guid.NewGuid(), recipientId = Guid.NewGuid();
         Guid senderIncarnation = Guid.NewGuid(), recipientIncarnation = Guid.NewGuid();
-        var sender = new SessionAddress(brokerId, "mcp:" + senderId.ToString("D"), senderIncarnation);
+        // The sender is on another broker. An acknowledged message this broker sent keeps only a tombstone without its
+        // text (lane broker-e), while one from a paired broker keeps its text, so that is the history that still
+        // reaches the stdio bound. No Peers entry: a directory page would then wait on an unreachable peer.
+        var sender = new SessionAddress(Guid.NewGuid(), "mcp:" + senderId.ToString("D"), senderIncarnation);
         var recipient = new SessionAddress(brokerId, "mcp:" + recipientId.ToString("D"), recipientIncarnation);
         var now = DateTimeOffset.UtcNow;
         string text = new('\u0001', 16 * 1024); // Every character expands to a six-byte JSON escape.

@@ -15,7 +15,8 @@ exact recipient acknowledgement separately. `Delivered` still does not prove exe
 completion, or appearance in a vendor conversation UI.
 
 Failed durable writes leave both the prior file and published in-memory state unchanged. Compatible state
-is not rewritten merely by opening it. Malformed, missing-required-field, unknown-field, incompatible, or
+is not rewritten merely by opening it, unless an older worker left acknowledged messages in it (see the
+tombstone paragraph below). Malformed, missing-required-field, unknown-field, incompatible, or
 structurally invalid state is refused without replacing its bytes; recovery requires an explicit repair.
 Unknown fields are refused so an older build cannot silently erase state written by a newer schema.
 
@@ -32,6 +33,18 @@ claims; this API does not provide a native reservation or an automatic retry loo
 Expired queued/held messages cannot start. An authenticated duplicate retains the original receipt after
 session disconnection or expiry. Durable receipts are retained until 24 hours after message expiry, then
 removed during journal maintenance. Deduplication is bounded by that retention, not a lifetime guarantee.
+
+A message this broker sent leaves `broker-state.json` once it is `Delivered` or `Refused` and is kept as a
+tombstone in `broker-tombstones.jsonl`: every field except the text, plus the text's SHA-256. A retry
+carrying the original text recovers the original receipt; any other text collides. `FindReceipt` and
+`Messages` answer a tombstone with an empty `Text`, which real text never is, and `FindReceiptWithText`
+answers it as unknown, which is what a paired broker is sent. `Held`, `Expired`, and every message from a
+paired broker keep their text. Tombstones follow the same retention. `BrokerLimits.MaximumMessages` counts
+only messages with text, and `MaximumTombstones` bounds tombstones and those messages together, so an
+acknowledgement always has room. The journal is appended (tombstone first, then the snapshot without the
+message, so a crash between them leaves the snapshot authoritative), ignores a torn last line, refuses any
+other malformed line, and is compacted once its dead lines outnumber live ones by 4,096. The snapshot keeps
+schema 1 exactly, so a 1.0.4 worker still loads it and loses only the tombstoned IDs.
 In-flight and uncertain records count toward per-recipient queue bounds. Session leases, current receive
 capability, privacy changes, idle state, and wake capability are rechecked before a local claim. Unknown
 activity permits a claim only with explicit `AtomicIdleAdmission` plus receive/wake capabilities; the

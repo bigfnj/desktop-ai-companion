@@ -73,6 +73,20 @@ if (args.Length == 1 && args[0] == "--loopback-host-only")
     }
     catch (Exception ex) { Console.Error.WriteLine(ex); Console.WriteLine("RESULT=FAIL"); return 1; }
 }
+// Tombstone on acknowledgement (lane feature/agentbroker-backlog-e, N-broker-a-02). --tombstone-case runs one group,
+// so each mutation witness fails on the check it targets.
+if (args.Length >= 1 && args[0] is "--tombstone-only" or "--tombstone-case")
+{
+    try
+    {
+        if (args[0] == "--tombstone-only" && args.Length == 1) await TombstoneChecks.RunAsync(Check);
+        else if (args[0] == "--tombstone-case" && args.Length == 2) await TombstoneChecks.RunAsync(Check, args[1]);
+        else throw new ArgumentException("Unexpected tombstone test arguments.");
+        Console.WriteLine($"RESULT=PASS assertions={assertions}");
+        return 0;
+    }
+    catch (Exception ex) { Console.Error.WriteLine(ex); Console.WriteLine("RESULT=FAIL"); return 1; }
+}
 if (args.Length == 1 && args[0] == "--channel-only")
 {
     try
@@ -262,6 +276,8 @@ try
         await ChannelBridgeChecks.RunAsync(Check);
         // The loopback listener's two authorities, localhost included (lane feature/agentbroker-backlog-d, N-bus-04).
         await LoopbackHostChecks.RunAsync(Check);
+        // Tombstone on acknowledgement, rollback to 1.0.4 and the unchanged federation wire (lane broker-e, N-broker-a-02).
+        await TombstoneChecks.RunAsync(Check);
     }
     try { WorkerOptions.Parse(["--data", scratch, "--lan", "false", "--lan", "true"]); throw new Exception("Accepted duplicate option."); }
     catch (ArgumentException) { Check(true, "duplicate worker options fail before startup"); }

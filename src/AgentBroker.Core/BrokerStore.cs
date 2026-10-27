@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -8,6 +9,7 @@ namespace AgentBroker.Core;
 /// <summary>
 /// Single-writer durable broker state. The owner lock belongs to this object, not a thread.
 /// Each mutation writes a replacement before publishing in-memory state. No message text is logged.
+/// An acknowledged message this broker sent keeps a tombstone without its text (see Tombstoned).
 /// </summary>
 public sealed class BrokerStore : IDisposable
 {
@@ -17,6 +19,16 @@ public sealed class BrokerStore : IDisposable
         internal PeerAuthorization(Guid brokerId, Guid stamp) { BrokerId = brokerId; Stamp = stamp; }
     }
     private sealed record State(int Version, Guid BrokerId, List<PeerTrust> Peers, List<MessageReceipt> Messages);
+    // N-broker-a-02, owner decision 2026-10-27 ("Tombstone on ack"). Once a message this broker sent is Delivered or
+    // Refused, its record leaves broker-state.json for broker-tombstones.jsonl without its text: a retry compares
+    // TextSha256, and receipts, replies and waits need only the rest. broker-state.json keeps exactly the schema-1
+    // shape a 1.0.4 worker reads (it disallows unmapped members, and its loader refuses more than 4,096 messages or an
+    // empty Text), so tombstones live in a file 1.0.4 never opens.
+    private sealed record Tombstone(Guid Id, Guid ConversationId, Guid? ReplyTo, SessionAddress Sender, SessionAddress Recipient,
+        string TextSha256, DateTimeOffset CreatedAt, DateTimeOffset ExpiresAt, int RemainingReplies,
+        MessageStatus Status, DateTimeOffset UpdatedAt, string? Reason, int Attempts);
+    // The journal's first line. A journal written under another broker identity (a replaced broker-state.json) is stale.
+    private sealed record TombstoneJournal(int Version, Guid BrokerId);
     private static readonly JsonSerializerOptions Json = new()
     {
         WriteIndented = true,
@@ -24,12 +36,30 @@ public sealed class BrokerStore : IDisposable
         RespectNullableAnnotations = true,
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
     };
+    // One record per line, so an interrupted append can only leave a torn LAST line.
+    private static readonly JsonSerializerOptions JournalJson = new(Json) { WriteIndented = false };
+    // A receipt, and a tombstone alike, stays this long after its message expires: the window for a late reply and for
+    // retry de-duplication. Tombstones keep it unchanged, because they are small enough not to need a shorter one.
+    private static readonly TimeSpan RecordGrace = TimeSpan.FromDays(1);
+    // A tombstone line stays far below this: two 160-character session IDs at six escaped bytes a character, plus
+    // fixed-size fields. A longer line is corruption, never a record.
+    private const int MaximumJournalLineBytes = 4096;
+    // Dead journal lines (expired tombstones, a duplicate left by a failed snapshot write) wait for compaction, which
+    // runs once they outnumber live lines by this much. Its cost is then spread over at least as many appends.
+    private const int JournalCompactionSlack = 4096;
     private readonly object gate = new();
     private readonly string path;
+    private readonly string tombstonePath;
+    private readonly Dictionary<Guid, Tombstone> tombstones = new();
+    private readonly Dictionary<SessionAddress, HashSet<Guid>> tombstonesByParticipant = new();
+    private readonly PriorityQueue<Guid, DateTimeOffset> tombstoneExpiry = new();
+    private long journalLength;  // Bytes of complete lines. The next append starts here, dropping any torn tail.
+    private long journalEntries; // Tombstone lines in the journal, live or dead; the header is not counted.
     private readonly FileStream ownership;
     private readonly BrokerLimits limits;
     private readonly TimeProvider clock;
     private readonly long maximumStateBytes;
+    private readonly long maximumJournalBytes;
     private readonly Dictionary<SessionAddress, BrokerSession> sessions = new();
     // Generic MCP mailboxes only: when the owner last registered or renewed. Process-local like the
     // sessions themselves (never on the wire, never in State), so a worker restart still drops them.
@@ -47,13 +77,21 @@ public sealed class BrokerStore : IDisposable
         this.clock = clock ?? TimeProvider.System;
         if (this.limits.MaximumMessages <= 0 || this.limits.MaximumTextBytes <= 0 ||
             this.limits.MaximumSessions <= 0 || this.limits.MaximumPeers <= 0 ||
-            this.limits.MaximumPendingPerSession <= 0 || this.limits.MaximumReplies < 0 ||
+            this.limits.MaximumPendingPerSession <= 0 || this.limits.MaximumReplies < 0 || this.limits.MaximumTombstones <= 0 ||
             this.limits.DefaultMessageLifetimeMinutes is < 1 or > 1440)
             throw new ArgumentOutOfRangeException(nameof(limits), "Broker limits must be positive (reply budget may be zero); default message lifetime must be 1..1440 minutes.");
-        try { maximumStateBytes = checked((long)this.limits.MaximumMessages * (this.limits.MaximumTextBytes * 6L + 4096) + 1024 * 1024); }
+        try
+        {
+            maximumStateBytes = checked((long)this.limits.MaximumMessages * (this.limits.MaximumTextBytes * 6L + 4096) + 1024 * 1024);
+            // Lines, live or dead, stay under twice the cap plus the compaction slack and one commit's batch. The byte
+            // bound allows 4,096 bytes a line, about five times a measured line (756 bytes), so a run of failed
+            // compactions does not lock the store out.
+            maximumJournalBytes = checked((2L * this.limits.MaximumTombstones + JournalCompactionSlack + this.limits.MaximumMessages + 1) * MaximumJournalLineBytes);
+        }
         catch (OverflowException) { throw new ArgumentOutOfRangeException(nameof(limits), "Broker state size limit overflows."); }
         System.IO.Directory.CreateDirectory(directory);
         path = Path.Combine(directory, "broker-state.json");
+        tombstonePath = Path.Combine(directory, "broker-tombstones.jsonl");
         ownership = new FileStream(Path.Combine(directory, "broker-owner.lock"),
             FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
         try
@@ -64,13 +102,17 @@ public sealed class BrokerStore : IDisposable
                     ?? throw new InvalidDataException("Broker state is empty.")
                 : new State(1, Guid.NewGuid(), [], []);
             ValidateState();
+            LoadTombstones();
             foreach (var peer in state.Peers) peerAuthorizations.Add(peer.BrokerId, Guid.NewGuid());
             // Submission interrupted between adapter admission and receipt is ambiguous. Never
             // blindly re-submit a native client prompt after a crash and claim exactly-once delivery.
             var recovered = state.Messages.Select(r => r.Status is MessageStatus.Submitting or MessageStatus.Submitted
                 ? r with { Status = MessageStatus.Uncertain, UpdatedAt = Now, Reason = "restart_during_submission" }
                 : r).ToList();
-            if (!existed || !recovered.SequenceEqual(state.Messages)) Commit(state with { Messages = recovered });
+            // A state an older worker wrote (1.0.4, or this one during a rollback) still holds acknowledged messages
+            // with their text. The commit below moves them to tombstones before anything else can read them.
+            bool upgraded = recovered.Any(Tombstoned);
+            if (!existed || upgraded || !recovered.SequenceEqual(state.Messages)) Commit(state with { Messages = recovered });
         }
         catch (JsonException ex) { ownership.Dispose(); throw new InvalidDataException("Broker state is malformed. It was preserved for recovery.", ex); }
         catch { ownership.Dispose(); throw; }
@@ -282,10 +324,12 @@ public sealed class BrokerStore : IDisposable
                 Fail("unpaired_peer");
             // An authenticated retry can recover its receipt after a recipient disconnect/restart
             // or message expiry. It must not create a new delivery or require a live old incarnation.
-            var existing = state.Messages.Find(r => r.Message.Id == message.Id);
+            // An acknowledged original is a tombstone: its text is compared by SHA-256, and a match returns the
+            // original receipt carrying the caller's (identical) text, so a peer's receipt check still passes.
+            var existing = Stored(message.Id, message.Text, out bool sameText);
             if (existing is not null)
             {
-                if (existing.Message != message) Fail("message_id_collision");
+                if (!sameText || existing.Message != message) Fail("message_id_collision");
                 if (IsPending(existing.Status) && existing.Message.ExpiresAt <= Now)
                 {
                     var expired = existing with { Status = MessageStatus.Expired, UpdatedAt = Now, Reason = "expired" };
@@ -312,7 +356,8 @@ public sealed class BrokerStore : IDisposable
             }
             if (message.ReplyTo is Guid replyId)
             {
-                var parent = state.Messages.Find(r => r.Message.Id == replyId)?.Message;
+                // A tombstoned parent keeps every field a reply is checked against; only its text is gone.
+                var parent = Stored(replyId, null, out _)?.Message;
                 if (parent is null || parent.ConversationId != message.ConversationId ||
                     parent.Recipient != message.Sender || parent.Sender != message.Recipient ||
                     parent.RemainingReplies <= 0 || message.RemainingReplies != parent.RemainingReplies - 1)
@@ -320,7 +365,12 @@ public sealed class BrokerStore : IDisposable
             }
             else if (message.RemainingReplies != limits.MaximumReplies) Fail("invalid_reply_budget");
             var retained = Expire(state.Messages);
+            // Only messages that still carry their text count here; acknowledged ones are tombstones.
             if (retained.Count >= limits.MaximumMessages) Fail("message_limit");
+            // Every message admitted here may become a tombstone, so the tombstone cap bounds both together and an
+            // acknowledgement never has to drop a tombstone (which would lose a retry's de-duplication) to fit.
+            PruneTombstones();
+            if (retained.Count + tombstones.Count >= limits.MaximumTombstones) Fail("message_limit");
             if (retained.Count(r => r.Message.Recipient == message.Recipient && IsOutstanding(r.Status)) >= limits.MaximumPendingPerSession)
                 Fail("recipient_queue_full");
             var receipt = new MessageReceipt(message, MessageStatus.Accepted, Now);
@@ -339,17 +389,17 @@ public sealed class BrokerStore : IDisposable
         lock (gate)
         {
             EnsureOpen();
-            var parent = state.Messages.Find(receipt => receipt.Message.Id == originalMessageId)?.Message;
+            var parent = Stored(originalMessageId, null, out _)?.Message;
             if (parent is null) Fail("invalid_reply");
             if (authenticatedBroker != parent.Recipient.BrokerId) Fail("sender_mismatch");
             if (authenticatedBroker != state.BrokerId && !state.Peers.Any(peer => peer.BrokerId == authenticatedBroker))
                 Fail("unpaired_peer");
-            var existing = state.Messages.Find(receipt => receipt.Message.Id == messageId);
+            var existing = Stored(messageId, text, out bool sameText);
             if (existing is not null)
             {
                 var reply = existing.Message;
                 if (reply.ReplyTo != parent.Id || reply.ConversationId != parent.ConversationId ||
-                    reply.Sender != parent.Recipient || reply.Recipient != parent.Sender || reply.Text != text ||
+                    reply.Sender != parent.Recipient || reply.Recipient != parent.Sender || !sameText ||
                     parent.RemainingReplies <= 0 || reply.RemainingReplies != parent.RemainingReplies - 1)
                     Fail("message_id_collision");
                 // Reentrant admission rechecks transport authority and returns/ages the same receipt.
@@ -378,11 +428,11 @@ public sealed class BrokerStore : IDisposable
             if (sender is null || recipient is null || text is null || messageId == Guid.Empty ||
                 conversationId == Guid.Empty || lifetimeMinutes < 0) Fail("invalid_message");
             sender!.Validate(); recipient!.Validate();
-            var existing = state.Messages.Find(receipt => receipt.Message.Id == messageId);
+            var existing = Stored(messageId, text, out bool sameText);
             if (existing is not null)
             {
                 var sent = existing.Message;
-                if (sent.Sender != sender || sent.Recipient != recipient || sent.Text != text || sent.ReplyTo is not null ||
+                if (sent.Sender != sender || sent.Recipient != recipient || !sameText || sent.ReplyTo is not null ||
                     conversationId is Guid conversation && sent.ConversationId != conversation)
                     Fail("message_id_collision");
                 // The requested lifetime is ignored on a retry. Reentrant admission rechecks transport
@@ -405,7 +455,12 @@ public sealed class BrokerStore : IDisposable
             participant.Validate();
             var messages = Expire(state.Messages);
             if (!messages.SequenceEqual(state.Messages)) Commit(state with { Messages = messages });
-            return state.Messages.Where(r => r.Message.Sender == participant || r.Message.Recipient == participant).ToArray();
+            var history = state.Messages.Where(r => r.Message.Sender == participant || r.Message.Recipient == participant).ToList();
+            // An acknowledged message stays in the history, with its status and routing and an empty Text.
+            PruneTombstones();
+            if (tombstonesByParticipant.TryGetValue(participant, out var acknowledged))
+                history.AddRange(acknowledged.Select(id => Render(tombstones[id], "")));
+            return history.ToArray();
         }
     }
 
@@ -452,11 +507,26 @@ public sealed class BrokerStore : IDisposable
             var index = messages.FindIndex(r => r.Message.Id == messageId);
             if (index < 0 || messages[index].Status != MessageStatus.Submitting) Fail("message_not_submitting");
             var next = messages[index] with { Status = outcome, Reason = reason, UpdatedAt = Now };
-            messages[index] = next; Commit(state with { Messages = messages }); return next;
+            messages[index] = next; Commit(state with { Messages = messages }); return Stored(messageId, null, out _)!;
         }
     }
 
+    /// <summary>
+    /// The receipt of a message this broker holds. An acknowledged message this broker sent is a tombstone and is
+    /// answered with its status, routing and timestamps and an empty Text: real message text is never empty or
+    /// whitespace, so an empty Text always means the broker no longer has it. For local tools only.
+    /// </summary>
     public MessageReceipt? FindReceipt(Guid messageId)
+    {
+        lock (gate) { EnsureOpen(); return Stored(messageId, null, out _); }
+    }
+
+    /// <summary>
+    /// Only a receipt that still carries its message text, so a tombstoned ID answers null exactly as an unknown one.
+    /// This is what a paired broker is sent. A 1.0.4 peer compares a receipt's whole message, Text included, before it
+    /// records the outcome, and would silently ignore an empty Text forever; it already handles "not found".
+    /// </summary>
+    public MessageReceipt? FindReceiptWithText(Guid messageId)
     {
         lock (gate) { EnsureOpen(); return state.Messages.Find(r => r.Message.Id == messageId); }
     }
@@ -517,13 +587,22 @@ public sealed class BrokerStore : IDisposable
             if (outcome is not (MessageStatus.Delivered or MessageStatus.Held or MessageStatus.Refused)) Fail("invalid_outcome");
             var messages = state.Messages.ToList();
             int index = messages.FindIndex(r => r.Message.Id == messageId);
-            if (index < 0 || messages[index].Message.Recipient != recipient) Fail("recipient_mismatch");
+            if (index < 0)
+            {
+                // Already acknowledged, so a tombstone: the same outcome again is idempotent, and its status is final.
+                var acknowledged = Stored(messageId, null, out _);
+                if (acknowledged is null || acknowledged.Message.Recipient != recipient) Fail("recipient_mismatch");
+                if (acknowledged!.Status == outcome) return acknowledged;
+                Fail("receipt_final");
+            }
+            if (messages[index].Message.Recipient != recipient) Fail("recipient_mismatch");
             var previous = messages[index];
             if (previous.Status == outcome) return previous;
             if (previous.Status is MessageStatus.Delivered or MessageStatus.Refused or MessageStatus.Expired) Fail("receipt_final");
             if (previous.Status == MessageStatus.Accepted && previous.Message.ExpiresAt <= Now) Fail("message_expired");
             var next = previous with { Status = outcome, UpdatedAt = Now, Reason = "recipient_receipt", Attempts = 1 };
-            messages[index] = next; Commit(state with { Messages = messages }); return next;
+            // The answer is what the store now holds: for a Delivered or Refused message this broker sent, a tombstone.
+            messages[index] = next; Commit(state with { Messages = messages }); return Stored(messageId, null, out _)!;
         }
     }
 
@@ -561,7 +640,7 @@ public sealed class BrokerStore : IDisposable
     private void Forget(SessionAddress address) { sessions.Remove(address); mailboxActivity.Remove(address); }
     private static TaskCompletionSource NewSignal() => new(TaskCreationOptions.RunContinuationsAsynchronously);
     private List<MessageReceipt> Expire(List<MessageReceipt> messages) => messages
-        .Where(r => r.Message.ExpiresAt > Now - TimeSpan.FromDays(1))
+        .Where(r => r.Message.ExpiresAt > Now - RecordGrace)
         .Select(r => IsPending(r.Status) && r.Message.ExpiresAt <= Now
             ? r with { Status = MessageStatus.Expired, Reason = "expired", UpdatedAt = Now }
             : r.Status == MessageStatus.Submitted && r.Message.ExpiresAt <= Now
@@ -636,18 +715,23 @@ public sealed class BrokerStore : IDisposable
     }
     private void Commit(State next)
     {
+        // A Delivered or Refused message this broker sent leaves the snapshot as a tombstone. The tombstone is appended
+        // durably FIRST: a crash between the two writes leaves the message in both files, the snapshot wins at load,
+        // and the worst outcome is an acknowledgement the recipient repeats. The other order could lose both.
+        var added = next.Messages.Where(Tombstoned).Select(ToTombstone).ToList();
+        if (added.Count > 0)
+        {
+            AppendTombstones(added);
+            next = next with { Messages = next.Messages.Where(receipt => !Tombstoned(receipt)).ToList() };
+        }
         var temporary = path + ".next";
         try
         {
             using (var stream = new FileStream(temporary, FileMode.Create, FileAccess.Write, FileShare.None, 4096, FileOptions.WriteThrough))
             { JsonSerializer.Serialize(stream, next, Json); stream.Flush(true); }
-            // Same-directory replacement, matching the repository's AtomicFile primary path. Unlike
-            // Move(overwrite), this never asks Windows for a copy-and-delete fallback.
-            if (File.Exists(path) && OperatingSystem.IsWindows())
-                DesktopAICompanion.ModuleKit.AtomicFile.ReplaceExisting(temporary, path, null!, CancellationToken.None);
-            else if (File.Exists(path)) File.Replace(temporary, path, destinationBackupFileName: null, ignoreMetadataErrors: true);
-            else File.Move(temporary, path);
+            ReplaceFile(temporary, path);
             state = next;
+            foreach (var tombstone in added) AddTombstone(tombstone);
             // Continuations run asynchronously, so completing under gate never runs a waiter here.
             Interlocked.Exchange(ref changeSignal, NewSignal()).TrySetResult();
         }
@@ -655,6 +739,214 @@ public sealed class BrokerStore : IDisposable
         {
             try { if (File.Exists(temporary)) File.Delete(temporary); }
             catch (IOException) { /* Preserve the original write failure; next commit replaces the scratch file. */ }
+            catch (UnauthorizedAccessException) { }
+        }
+        if (added.Count > 0 && journalEntries > 2L * tombstones.Count + JournalCompactionSlack) CompactTombstones();
+    }
+
+    // Same-directory replacement, matching the repository's AtomicFile primary path. Unlike
+    // Move(overwrite), this never asks Windows for a copy-and-delete fallback.
+    private static void ReplaceFile(string temporary, string destination)
+    {
+        if (File.Exists(destination) && OperatingSystem.IsWindows())
+            DesktopAICompanion.ModuleKit.AtomicFile.ReplaceExisting(temporary, destination, null!, CancellationToken.None);
+        else if (File.Exists(destination)) File.Replace(temporary, destination, destinationBackupFileName: null, ignoreMetadataErrors: true);
+        else File.Move(temporary, destination);
+    }
+
+    // Which records keep a tombstone instead of their text. Delivered and Refused are final. Held is not: it can still
+    // become Delivered, Refused or Expired, a paired sender keeps polling it, and the recipient that held it may read it
+    // again, so it keeps its text and counts toward MaximumMessages. Expired was never acknowledged and its recipient
+    // can still read it until the record goes, as before. A message FROM a paired broker keeps its text until its
+    // record goes too: the sender's broker reconciles by fetching /federation/receipts/{id} and comparing the whole
+    // message with its own copy (BrokerRuntime.ReconcilePeersAsync, unchanged since 1.0.4), so a receipt without the
+    // text, or a "not found", would leave that sender at Submitted and then Uncertain for good.
+    private bool Tombstoned(MessageReceipt receipt) => receipt.Status is MessageStatus.Delivered or MessageStatus.Refused &&
+        receipt.Message.Sender.BrokerId == state.BrokerId;
+
+    private static Tombstone ToTombstone(MessageReceipt receipt) => new(receipt.Message.Id, receipt.Message.ConversationId,
+        receipt.Message.ReplyTo, receipt.Message.Sender, receipt.Message.Recipient, HashText(receipt.Message.Text),
+        receipt.Message.CreatedAt, receipt.Message.ExpiresAt, receipt.Message.RemainingReplies,
+        receipt.Status, receipt.UpdatedAt, receipt.Reason, receipt.Attempts);
+
+    private static MessageReceipt Render(Tombstone tombstone, string text) => new(new(tombstone.Id, tombstone.ConversationId,
+        tombstone.ReplyTo, tombstone.Sender, tombstone.Recipient, text, tombstone.CreatedAt, tombstone.ExpiresAt,
+        tombstone.RemainingReplies), tombstone.Status, tombstone.UpdatedAt, tombstone.Reason, tombstone.Attempts);
+
+    private static string HashText(string text) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
+
+    // The stored record for an ID as a receipt: the full record, or a tombstone. A tombstone is rendered with
+    // candidateText when that text hashes to its SHA-256, so a retry carrying the original text recovers the original
+    // receipt exactly, and with an empty Text otherwise. sameText says whether candidateText is the stored text.
+    private MessageReceipt? Stored(Guid messageId, string? candidateText, out bool sameText)
+    {
+        var full = state.Messages.Find(receipt => receipt.Message.Id == messageId);
+        if (full is not null) { sameText = full.Message.Text == candidateText; return full; }
+        PruneTombstones();
+        if (!tombstones.TryGetValue(messageId, out var tombstone)) { sameText = false; return null; }
+        sameText = candidateText is not null && HashText(candidateText) == tombstone.TextSha256;
+        return Render(tombstone, sameText ? candidateText! : "");
+    }
+
+    private void AddTombstone(Tombstone tombstone)
+    {
+        if (tombstones.Remove(tombstone.Id, out var previous)) Unindex(previous);
+        tombstones.Add(tombstone.Id, tombstone);
+        foreach (var participant in new[] { tombstone.Sender, tombstone.Recipient })
+        {
+            if (!tombstonesByParticipant.TryGetValue(participant, out var ids)) tombstonesByParticipant[participant] = ids = new();
+            ids.Add(tombstone.Id);
+        }
+        tombstoneExpiry.Enqueue(tombstone.Id, tombstone.ExpiresAt);
+    }
+
+    private void Unindex(Tombstone tombstone)
+    {
+        foreach (var participant in new[] { tombstone.Sender, tombstone.Recipient })
+            if (tombstonesByParticipant.TryGetValue(participant, out var ids) && ids.Remove(tombstone.Id) && ids.Count == 0)
+                tombstonesByParticipant.Remove(participant);
+    }
+
+    // Retention ends RecordGrace after expiry, exactly when a full record's does (Expire). Pruning is memory only, so a
+    // read never rewrites the journal; the dead lines leave at the next compaction.
+    private void PruneTombstones()
+    {
+        var retainedAfter = Now - RecordGrace;
+        while (tombstoneExpiry.TryPeek(out var id, out var expires) && expires <= retainedAfter)
+        {
+            tombstoneExpiry.Dequeue();
+            // A queue entry can outlive its tombstone: a duplicate line replaced it at load.
+            if (tombstones.TryGetValue(id, out var tombstone) && tombstone.ExpiresAt == expires)
+            { tombstones.Remove(id); Unindex(tombstone); }
+        }
+    }
+
+    private void LoadTombstones()
+    {
+        if (!File.Exists(tombstonePath)) return;
+        using var stream = new FileStream(tombstonePath, FileMode.Open, FileAccess.Read, FileShare.Read, 65536, FileOptions.SequentialScan);
+        if (stream.Length > maximumJournalBytes) throw new InvalidDataException("Broker tombstones exceed their size limit. They were preserved for recovery.");
+        var full = state.Messages.Select(receipt => receipt.Message.Id).ToHashSet();
+        byte[] buffer = new byte[65536], line = new byte[MaximumJournalLineBytes];
+        int used = 0, count;
+        long offset = 0, complete = 0, entries = 0;
+        bool header = false;
+        while ((count = stream.Read(buffer)) != 0)
+        {
+            for (int index = 0; index < count; index++)
+            {
+                offset++;
+                if (buffer[index] != (byte)'\n')
+                {
+                    if (used == line.Length) throw MalformedTombstones();
+                    line[used++] = buffer[index];
+                    continue;
+                }
+                var record = line.AsSpan(0, used);
+                used = 0; complete = offset;
+                if (!header)
+                {
+                    var journal = ParseJournal<TombstoneJournal>(record);
+                    if (journal.Version != 1) throw new InvalidDataException("Broker tombstones are incompatible. They were preserved for recovery.");
+                    // Another identity's tombstones cannot describe this broker's messages: the next append replaces them.
+                    if (journal.BrokerId != state.BrokerId) return;
+                    header = true;
+                    continue;
+                }
+                var tombstone = ParseJournal<Tombstone>(record);
+                if (!ValidTombstone(tombstone)) throw MalformedTombstones();
+                entries++;
+                // The snapshot wins over a tombstone for the same ID: that is a crash between the append and the
+                // snapshot write, or a rollback worker that admitted the ID again. Either way the full record is current.
+                if (!full.Contains(tombstone.Id)) AddTombstone(tombstone);
+            }
+        }
+        // Bytes after the last newline are an interrupted append (or header). They are ignored here and the next
+        // append truncates them; nothing before them is affected.
+        if (!header) return;
+        journalLength = complete;
+        journalEntries = entries;
+        PruneTombstones();
+        if (tombstones.Count > limits.MaximumTombstones) throw new InvalidDataException("Broker tombstones are incompatible or invalid. They were preserved for recovery.");
+    }
+
+    private static T ParseJournal<T>(ReadOnlySpan<byte> record)
+    {
+        try { return JsonSerializer.Deserialize<T>(record, JournalJson) ?? throw MalformedTombstones(); }
+        catch (JsonException error) { throw new InvalidDataException("Broker tombstones are malformed. They were preserved for recovery.", error); }
+    }
+
+    private static InvalidDataException MalformedTombstones() =>
+        new("Broker tombstones are malformed. They were preserved for recovery.");
+
+    private bool ValidTombstone(Tombstone tombstone)
+    {
+        if (tombstone.Sender is null || tombstone.Recipient is null || tombstone.TextSha256 is null ||
+            tombstone.Id == Guid.Empty || tombstone.ConversationId == Guid.Empty || tombstone.Sender == tombstone.Recipient ||
+            tombstone.Sender.BrokerId != state.BrokerId || tombstone.TextSha256.Length != 64 || !tombstone.TextSha256.All(Uri.IsHexDigit) ||
+            tombstone.ExpiresAt <= tombstone.CreatedAt || tombstone.ExpiresAt - tombstone.CreatedAt > BrokerLimits.MaximumLifetime ||
+            tombstone.RemainingReplies < 0 || tombstone.RemainingReplies > limits.MaximumReplies ||
+            tombstone.ReplyTo == Guid.Empty || tombstone.ReplyTo == tombstone.Id ||
+            tombstone.Status is not (MessageStatus.Delivered or MessageStatus.Refused) || tombstone.Attempts is < 0 or > 1 ||
+            tombstone.Status == MessageStatus.Delivered && tombstone.Attempts != 1 ||
+            tombstone.Reason?.Length > 80 || tombstone.Reason?.Any(c => !char.IsAsciiLetterOrDigit(c) && c != '_') == true) return false;
+        try { tombstone.Sender.Validate(); tombstone.Recipient.Validate(); return true; }
+        catch (BrokerException) { return false; }
+    }
+
+    // One flushed append per commit. It starts at the end of the last complete line, so a torn tail left by an
+    // interrupted append is cut off first; a failed append changes nothing the next one does not overwrite.
+    private void AppendTombstones(IReadOnlyList<Tombstone> added)
+    {
+        using var lines = new MemoryStream();
+        if (journalLength == 0) WriteJournalLine(lines, new TombstoneJournal(1, state.BrokerId));
+        foreach (var tombstone in added) WriteJournalLine(lines, tombstone);
+        using (var stream = new FileStream(tombstonePath, FileMode.OpenOrCreate, FileAccess.Write, FileShare.None, 4096, FileOptions.WriteThrough))
+        {
+            stream.SetLength(journalLength);
+            stream.Position = journalLength;
+            lines.Position = 0;
+            lines.CopyTo(stream);
+            stream.Flush(true);
+        }
+        if (journalLength == 0) journalEntries = 0;
+        journalLength += lines.Length;
+        journalEntries += added.Count;
+    }
+
+    private static void WriteJournalLine<T>(Stream stream, T value)
+    {
+        JsonSerializer.Serialize(stream, value, JournalJson);
+        stream.WriteByte((byte)'\n');
+    }
+
+    // Rewrites the journal with only the live tombstones, through the same replacement as the snapshot. It runs after
+    // a successful commit, so a failure here must not look like a failed commit: the old journal is still complete
+    // and correct, only longer, and the next commit tries again.
+    private void CompactTombstones()
+    {
+        PruneTombstones();
+        var temporary = tombstonePath + ".next";
+        try
+        {
+            long length;
+            using (var stream = new FileStream(temporary, FileMode.Create, FileAccess.Write, FileShare.None, 65536, FileOptions.WriteThrough))
+            {
+                WriteJournalLine(stream, new TombstoneJournal(1, state.BrokerId));
+                foreach (var tombstone in tombstones.Values) WriteJournalLine(stream, tombstone);
+                stream.Flush(true);
+                length = stream.Length;
+            }
+            ReplaceFile(temporary, tombstonePath);
+            journalLength = length;
+            journalEntries = tombstones.Count;
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+        finally
+        {
+            try { if (File.Exists(temporary)) File.Delete(temporary); }
+            catch (IOException) { }
             catch (UnauthorizedAccessException) { }
         }
     }

@@ -6113,6 +6113,110 @@ restart) returned its pending messages and said `session_unavailable` only when 
 acknowledge, and no refusal telling it to register again. The channel bridge's 20-second re-registration timer stays
 as a second path, so its broker-c witness (`broker-c-channel-renew-only-by-wait`) now removes both ways back.
 
+#### feature/agentbroker-backlog-e
+
+Tombstone on acknowledgement (N-broker-a-02, owner decision 2026-10-27, "Tombstone on ack"). `BrokerStore.cs` and
+`BrokerLimits.MaximumTombstones` changed, plus the receipts route's lookup in `PeerFederation.cs` and four tool
+descriptions. No federation record, schema-1 state member, tool, parameter or limit a peer sees changed.
+
+**A message from a paired broker keeps its text after it is acknowledged.** The federation wire forces that; it is
+not an oversight. The sending broker settles a message only by fetching `/federation/receipts/{id}` and comparing the
+whole message with its own copy, text included (`BrokerRuntime.ReconcilePeersAsync`, unchanged since 1.0.4). An empty
+`Text` passes a 1.0.4 peer's strict reader, because only null is refused, and that comparison then ignores the receipt
+on every pass. A 404 is ignored the same way. Either one leaves a delivered message at Submitted, and later Uncertain,
+on the sender for good. So only messages this broker sent become tombstones, and the route answers a tombstoned ID with
+404, as it answers an unknown one (`FindReceiptWithText`). Nothing legitimate asks for one: 1.0.4 and this version
+query only the receipts of messages they sent. Refused alternative: tombstoning an inbound message once its sender
+has fetched a final receipt. That turns a GET into a write and strands the sender at Uncertain whenever that one
+response is lost.
+
+**Held keeps its text and still counts toward `message_limit`.** Held is not final: it can still become Delivered,
+Refused or Expired, the recipient that held it may read it again, and a paired sender keeps polling a Held receipt and
+compares it whole. **Expired keeps its text as before**: it was never acknowledged, and its recipient can still read
+it until the record goes.
+
+**The grace after expiry stays one day, for tombstones too.** It is the window for a late reply (a parent's expiry
+bounds delivery, not the work) and for retry de-duplication. A tombstone is small enough not to need less, so the
+shorter grace broker-d offered as option D (the message's own lifetime, capped at 24 hours) is not needed; it would
+have shortened the reply window of every short-lived message.
+
+**Tombstones are an append-only journal beside the snapshot, not part of it.** `broker-state.json` keeps schema 1
+exactly and holds only messages with text: a 1.0.4 loader disallows unmapped members, refuses more than 4,096
+messages and refuses an empty `Text`, so tombstones could not live there. Rewriting a tombstone file on every
+acknowledgement would cost what the snapshot does, about 105 ms per commit at 4,096 records of 512 B (below), so
+each acknowledgement appends one write-through line to `broker-tombstones.jsonl`. The tombstone is appended before
+the snapshot drops the message. A crash between the two leaves the message in both files, the snapshot wins at load,
+and the worst outcome is an acknowledgement the recipient repeats; the other order could lose both. A torn last line
+is the interrupted append it looks like: it is ignored and the next append truncates it. Any other malformed line
+refuses to load and is preserved, as the snapshot is. Expiry prunes only memory, so a read never writes; the journal
+is compacted once its dead lines outnumber live ones by 4,096. A failed compaction is not reported as a failed
+commit, because the old journal is still complete. The first line names the broker identity, and a journal from
+another identity (a replaced `broker-state.json`) is replaced at the next append. Opening a state an older worker
+wrote moves its acknowledged messages to tombstones at once.
+
+**`acknowledge_message` answers with the tombstone, empty text included.** The answer is what the store now keeps,
+so a first and a repeated acknowledgement read alike. The text already came back from the wait that delivered it.
+Refused alternative: echoing up to 16 KiB of text once more on the call that removes it.
+
+**`read_inbox`, `get_message_receipt` and `wait_for_reply` show an acknowledged message with its status and an empty
+`text` rather than omitting it.** Keyset paging and cursors stay as they were, and an agent can still see what it
+acknowledged. Empty text is unambiguous: admission refuses empty and whitespace text.
+
+**A rollback to 1.0.4 loads, and loses only the tombstoned IDs.** Checked against the published 1.0.4 store itself
+(`tests/AgentBroker.Worker.Tests/Rollback104/`, the 1.0.4 sources byte for byte except the namespace), not a model
+of it. For each tombstoned ID still within its retention, a 1.0.4 worker reports an unknown receipt, admits a retry as
+a new message and delivers it again, refuses `reply_to_message` and `wait_for_reply` on it, and omits it from
+`read_inbox`. That is more than de-duplication: receipt lookup and reply routing go with it. Pending, Held, Expired
+and paired-broker messages are untouched. Messages 1.0.4 acknowledges meanwhile keep their text until this version
+starts again and moves them; an ID 1.0.4 admitted again is its full record, over the older tombstone.
+
+**`MaximumTombstones` is 65,536, sized from a measurement.** Only messages with text count toward `MaximumMessages`
+(4,096); the new cap bounds tombstones and those messages together, so an acknowledgement always has room and a send
+past it is refused as `message_limit` instead of dropping a tombstone and with it a retry's de-duplication. Measured
+2026-10-27 with `tests/Measure-AgentBrokerCoordination.ps1 -Scenario tombstone`: five fresh processes per row and
+build, interleaved round-robin with the start rotated per repetition. The control is the base store (371407b) built
+with this lane's benchmark driver copied in (the same file, SHA-256 checked), so both builds run identical arguments.
+Stopwatch inside the process around the operation only; state on the SSD volume the installed module's data uses;
+the workstation was shared with other builds and a model evaluation. Warm is the median of the five operations after
+the first, across all five processes. "Acknowledged" rows seed the snapshot with Delivered 512-byte or 16 KiB records,
+the shape the current store keeps; the tombstone store moves them to tombstones as it opens, which its open time
+includes. "Tombstones" rows seed the journal directly, which the control cannot hold.
+
+| Measured (warm median unless stated) | Current store | Tombstone store |
+|---|---|---|
+| Send, 4,096 unacknowledged 512 B (the old bound, nothing acknowledged) | 107 ms (cold 124) | 110 ms (cold 116) |
+| Send, 4,090 acknowledged 512 B | 106 ms | 11.2 ms |
+| Acknowledgement, 4,090 acknowledged 512 B | 102 ms | 8.4 ms |
+| Send, 4,090 acknowledged 16 KiB | 629 ms | 11.3 ms |
+| Acknowledgement, 4,090 acknowledged 16 KiB | 616 ms | 8.3 ms |
+| Open, 4,090 acknowledged 512 B / 16 KiB | 117 / 530 ms | 186 / 650 ms |
+| Store heap after open, 4,090 acknowledged 16 KiB | 137 MB | 3.9 MB |
+| Send / acknowledgement, empty store | 11.6 / 11.5 ms | 11.3 / 8.6 ms (first acknowledgement 23 ms cold, it creates the journal; 12 ms before) |
+
+| Tombstone store, live tombstones (512 B messages) | Journal | Open | Heap | History read | First acknowledgement |
+|---|---|---|---|---|---|
+| 16,384 | 12 MB | 384 ms | 14 MB | 5.9 ms | 26 ms |
+| 65,512 (the cap) | 50 MB | 1,153 ms | 56 MB | 28 ms | 41 ms |
+| 131,060 (cap raised) | 99 MB | 1,911 ms | 112 MB | 58 ms | 61 ms |
+| 262,132 (cap raised) | 198 MB | 2,960 ms | 225 MB | 131 ms | 93 ms |
+| 65,512 plus 69,700 dead lines (that acknowledgement compacts) | 50 MB after | 1,913 ms | 71 MB | 23 ms | 346 ms (max 446) |
+| 262,132 plus 266,300 dead lines (compacts) | 198 MB after | 5,581 ms | 272 MB | 101 ms | 1,407 ms |
+
+Warm send and acknowledgement stay at 11 and 8 ms at every size: an append does not grow with the journal. History
+read is `store.Messages` for the session every record involves, the list each `read_inbox` page and wait pass builds.
+The compaction rows warm the code paths on a scratch store first, so their first acknowledgement is the compaction, not
+the JIT. Load, heap, history read and compaction grow linearly. At 65,536 the worst compaction (446 ms) holds the store
+lock well inside the module's three-second status deadline (`ControlProtocol.ClientTimeout`), and the worst open
+(1.9 s with a full set of dead lines) is far inside the 15-second startup grace. At 262,144 a compaction holds the lock
+1.4 s and the heap passes 200 MB. A tombstone costs about 850 bytes of heap.
+
+Sustained rate at the default 24-hour lifetime: a tombstone lives 48 hours (lifetime plus the one-day grace), so 65,536
+sustains 65,536 / 2,880 minutes, about 22.7 acknowledged messages a minute, against about 1.4 before (4,096 over the
+same 48 hours). At that rate the measured warm cost (11.2 ms send plus 8.3 ms acknowledgement) keeps the store busy
+about 0.44 s a minute, plus one compaction per (live tombstones + 4,096) acknowledgements, about 0.35 s at the cap. Ten messages a minute,
+which met the old bound after 410 minutes, now needs about 28,800 tombstones at most. Messages nobody acknowledges
+still meet the 4,096 bound, as before.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of
