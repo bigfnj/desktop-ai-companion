@@ -6077,6 +6077,13 @@ present that as a supported route.
 The loopback listener's localhost authority (N-bus-04), waits on a restart-lost mailbox (N-broker-c-02), client setup
 finding npm-installed CLIs (N-broker-a-01) and broker-b's hand-backs.
 
+**The loopback listener answers `localhost:<port>` as well as `127.0.0.1:<port>`, and nothing else.** The org's Claude
+Code policy admits local MCP only as `serverUrl` `http://localhost*`, so a `claude -p` session given the literal URL
+had no tools (owner decision 2026-10-27, "Accept localhost"). The DNS-rebinding guard keeps its point: any other name
+can be pointed at 127.0.0.1 by whoever controls it, and still gets 403. The port must be the listener's own, because
+another port's authority is not this listener; a Host without a port means port 80. Refused alternative: ASP.NET
+Core's HostFiltering, whose `AllowedHosts` excludes ports.
+
 **A wait checks addressability before it returns anything.** A wait on a mailbox the broker no longer knows (worker
 restart) returned its pending messages and said `session_unavailable` only when there were none, while
 `acknowledge_message` refused those same messages as `recipient_unavailable`. An agent then saw messages it could not

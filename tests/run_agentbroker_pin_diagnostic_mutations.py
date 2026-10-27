@@ -330,8 +330,18 @@ WITNESSES = (
         'else if (args[index] == "--private" && !isPrivate) isPrivate = true;', 'else if (args[index] == "--private") isPrivate = true;',
     ),)),
     # ---- lane feature/agentbroker-backlog-d ----
-    # A wait on a restart-lost mailbox (N-broker-c-02). The new check runs after the --existing-tests-only cut-off,
-    # so the existing pin stays 196.
+    # The loopback listener's two authorities (N-bus-04, owner decision 2026-10-27) and a wait on a restart-lost mailbox
+    # (N-broker-c-02). The new checks run after the --existing-tests-only cut-off, so the existing pin stays 196.
+    Witness("broker-d-host-any-name", "workerapp", "worker", ("--loopback-host-only",), "LoopbackHostChecks.cs", ((
+        'bool knownName = host.Host == "127.0.0.1" || string.Equals(host.Host, "localhost", StringComparison.OrdinalIgnoreCase);',
+        "bool knownName = true;",
+    ),)),
+    Witness("broker-d-host-localhost-refused", "workerapp", "worker", ("--loopback-host-only",), "LoopbackHostChecks.cs", ((
+        ' || string.Equals(host.Host, "localhost", StringComparison.OrdinalIgnoreCase);', ";",
+    ),)),
+    Witness("broker-d-host-any-port", "workerapp", "worker", ("--loopback-host-only",), "LoopbackHostChecks.cs", ((
+        "return knownName && (host.Port ?? 80) == listenerPort;", "return knownName;",
+    ),)),
     Witness("broker-d-wait-returns-unaddressable", "tools", "worker", ("--wait-tools-only",), "WaitToolChecks.cs", ((
         '            if (!runtime.Store.IsAddressable(session)) throw new McpException("session_unavailable");\n'
         "            var result = pending();\n",

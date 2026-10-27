@@ -63,6 +63,16 @@ if (args.Length == 1 && args[0] is "--mailbox-only" or "--wait-tools-only" or "-
     }
     catch (Exception ex) { Console.Error.WriteLine(ex); Console.WriteLine("RESULT=FAIL"); return 1; }
 }
+if (args.Length == 1 && args[0] == "--loopback-host-only")
+{
+    try
+    {
+        await LoopbackHostChecks.RunAsync(Check);
+        Console.WriteLine($"RESULT=PASS assertions={assertions}");
+        return 0;
+    }
+    catch (Exception ex) { Console.Error.WriteLine(ex); Console.WriteLine("RESULT=FAIL"); return 1; }
+}
 if (args.Length == 1 && args[0] == "--channel-only")
 {
     try
@@ -250,6 +260,8 @@ try
         await CodexTrustPolicyChecks.RunAsync(Check);
         // Opt-in Claude Code channel bridge: push, explicit receipts, reply, mute and pairing gates.
         await ChannelBridgeChecks.RunAsync(Check);
+        // The loopback listener's two authorities, localhost included (lane feature/agentbroker-backlog-d, N-bus-04).
+        await LoopbackHostChecks.RunAsync(Check);
     }
     try { WorkerOptions.Parse(["--data", scratch, "--lan", "false", "--lan", "true"]); throw new Exception("Accepted duplicate option."); }
     catch (ArgumentException) { Check(true, "duplicate worker options fail before startup"); }
@@ -297,7 +309,8 @@ try
         }
         using (var alias = new HttpRequestMessage(HttpMethod.Post, "") { Content = JsonContent.Create(new { jsonrpc = "2.0", id = 3, method = "tools/list" }) })
         {
-            alias.Headers.Host = "localhost";
+            // Not localhost: since N-bus-04 localhost:<port> is answered (LoopbackHostChecks owns that rule).
+            alias.Headers.Host = "agentbroker.invalid";
             using var denied = await client.SendAsync(alias);
             Check(denied.StatusCode == HttpStatusCode.Forbidden, "DNS aliases cannot inherit literal-loopback authority");
         }
