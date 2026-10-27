@@ -31,7 +31,13 @@ public sealed class BrokerStore : IDisposable
     private readonly TimeProvider clock;
     private readonly long maximumStateBytes;
     private readonly Dictionary<SessionAddress, BrokerSession> sessions = new();
+    // Generic MCP mailboxes only: when the owner last registered or renewed. Process-local like the
+    // sessions themselves (never on the wire, never in State), so a worker restart still drops them.
+    private readonly Dictionary<SessionAddress, DateTimeOffset> mailboxActivity = new();
     private readonly Dictionary<Guid, Guid> peerAuthorizations = new();
+    // Completed and replaced by every Commit. A waiter captures it BEFORE checking state, so a commit
+    // between its check and its wait has already completed the task it awaits. Never awaited under gate.
+    private TaskCompletionSource changeSignal = NewSignal();
     private State state;
     private bool disposed;
 
@@ -83,7 +89,8 @@ public sealed class BrokerStore : IDisposable
             if (session.Address.BrokerId != state.BrokerId) Fail("foreign_registration");
             if (string.IsNullOrWhiteSpace(session.Adapter) || session.Adapter.Length > 80 || session.Adapter.Any(char.IsControl) ||
                 session.Label is null || session.Label.Length > 160 || session.Label.Any(char.IsControl) ||
-                !Enum.IsDefined(session.Activity) ||
+                // Away is the store's own display state for a retained mailbox, never a claim.
+                !Enum.IsDefined(session.Activity) || session.Activity == SessionActivity.Away ||
                 (session.Capabilities & ~(SessionCapabilities.Receive | SessionCapabilities.WakeIdle | SessionCapabilities.Reply | SessionCapabilities.NativeIdleGuard)) != 0 ||
                 session.Capabilities.HasFlag(SessionCapabilities.NativeIdleGuard) &&
                     !session.Capabilities.HasFlag(SessionCapabilities.Receive | SessionCapabilities.WakeIdle))
@@ -92,11 +99,16 @@ public sealed class BrokerStore : IDisposable
                 Fail("invalid_lease");
             TrimSessions();
             var displaced = sessions.Keys.Where(a => a.SessionId == session.Address.SessionId && a != session.Address).ToArray();
-            if (!sessions.ContainsKey(session.Address) && sessions.Count - displaced.Length >= limits.MaximumSessions) Fail("session_limit");
+            // At capacity a new registration may take a retained mailbox's slot (lapsed presence), never
+            // a present session's. With only present sessions left the refusal stays session_limit.
+            if (!sessions.ContainsKey(session.Address) && sessions.Count - displaced.Length >= limits.MaximumSessions &&
+                EvictRetained(displaced) is null) Fail("session_limit");
             // A new incarnation supersedes only the same exact vendor session ID, never a title/cwd match.
             foreach (var previous in displaced)
-                sessions.Remove(previous);
+                Forget(previous);
             sessions[session.Address] = session;
+            if (session.Adapter == "mcp") mailboxActivity[session.Address] = Now;
+            else mailboxActivity.Remove(session.Address);
         }
     }
 
@@ -105,21 +117,28 @@ public sealed class BrokerStore : IDisposable
         lock (gate)
         {
             EnsureOpen(); TrimSessions();
-            return sessions.Values.Where(s => !forPeer || !s.IsPrivate).ToArray();
+            var now = Now;
+            // Peers see presence only, exactly as before mailboxes existed: a lapsed lease never leaves
+            // this broker, so an older peer never meets Away and no wire record changes.
+            if (forPeer) return sessions.Values.Where(s => s.LeaseUntil > now && !s.IsPrivate).ToArray();
+            // Locally a retained mailbox is listed as Away with its last presence lease, now in the past.
+            return sessions.Values.Where(s => s.LeaseUntil > now || Retained(s))
+                .Select(s => s.LeaseUntil > now ? s : s with { Activity = SessionActivity.Away }).ToArray();
         }
     }
 
-    // Only an existing live polling inbox can be extended. Keep the read and replacement
-    // under the store lock so expiry, disconnection and a new incarnation cannot be undone.
+    // Only an existing addressable polling inbox can be extended: a present one, or a retained mailbox
+    // whose owner is back (that call restores presence). Keep the read and replacement under the store
+    // lock so retention ending, disconnection and a new incarnation cannot be undone.
     public BrokerSession? RenewPollingSession(SessionAddress address)
     {
         lock (gate)
         {
             EnsureOpen(); address.Validate();
             var now = Now;
-            if (!sessions.TryGetValue(address, out var session) || session.Adapter != "mcp" ||
-                session.LeaseUntil <= now || session.Activity == SessionActivity.Disconnected)
+            if (!sessions.TryGetValue(address, out var session) || session.Adapter != "mcp" || !Addressable(address))
                 return null;
+            mailboxActivity[address] = now;
             var until = now.AddMinutes(1);
             if (until <= session.LeaseUntil) return session;
             var renewed = session with { LeaseUntil = until };
@@ -130,7 +149,45 @@ public sealed class BrokerStore : IDisposable
 
     public void Disconnect(SessionAddress address)
     {
-        lock (gate) { EnsureOpen(); sessions.Remove(address); }
+        lock (gate) { EnsureOpen(); Forget(address); }
+    }
+
+    /// <summary>A present session, or a retained generic MCP mailbox. Native sessions only while live.</summary>
+    public bool IsAddressable(SessionAddress address)
+    {
+        lock (gate) { EnsureOpen(); return Addressable(address); }
+    }
+
+    /// <summary>Frees one registration slot by evicting a retained mailbox; null when none is retained.</summary>
+    public SessionAddress? EvictRetainedMailbox()
+    {
+        lock (gate) { EnsureOpen(); TrimSessions(); return EvictRetained([]); }
+    }
+
+    /// <summary>
+    /// Applies a local privacy or pause choice to a retained mailbox. Registering would need a live lease,
+    /// and the owner's choice is not the agent's activity, so presence and retention stay as they were.
+    /// </summary>
+    public void ApplyRetainedPreference(BrokerSession overlay)
+    {
+        lock (gate)
+        {
+            EnsureOpen();
+            if (overlay is null || overlay.Address is null) Fail("invalid_session");
+            if (!sessions.TryGetValue(overlay!.Address, out var current) || !Retained(current)) Fail("recipient_unavailable");
+            if (!Enum.IsDefined(overlay.Activity) || overlay.Activity is SessionActivity.Away or SessionActivity.Disconnected)
+                Fail("invalid_session");
+            sessions[overlay.Address] = current! with { IsPrivate = overlay.IsPrivate, Activity = overlay.Activity };
+        }
+    }
+
+    /// <summary>
+    /// The task the next committed change completes. Capture it BEFORE checking state, check, then await
+    /// it outside every lock; a commit in between has already completed it, so no change is missed.
+    /// </summary>
+    public Task ChangeSignal()
+    {
+        lock (gate) { EnsureOpen(); return changeSignal.Task; }
     }
 
     public IReadOnlyList<PeerTrust> Peers()
@@ -243,12 +300,13 @@ public sealed class BrokerStore : IDisposable
             if (authenticatedBroker != state.BrokerId && message.Recipient.BrokerId != state.BrokerId) Fail("transit_refused");
             if (message.Recipient.BrokerId != state.BrokerId && !state.Peers.Any(p => p.BrokerId == message.Recipient.BrokerId))
                 Fail("unpaired_peer");
-            if (authenticatedBroker == state.BrokerId && !Live(message.Sender)) Fail("sender_unavailable");
+            // A retained generic mailbox (lapsed presence) still sends and receives; native sessions must be live.
+            if (authenticatedBroker == state.BrokerId && !Addressable(message.Sender)) Fail("sender_unavailable");
             if (authenticatedBroker == state.BrokerId && message.ReplyTo is not null &&
                 !sessions[message.Sender].Capabilities.HasFlag(SessionCapabilities.Reply)) Fail("sender_cannot_reply");
             if (message.Recipient.BrokerId == state.BrokerId)
             {
-                if (!sessions.TryGetValue(message.Recipient, out var target) || !Live(message.Recipient)) Fail("recipient_unavailable");
+                if (!sessions.TryGetValue(message.Recipient, out var target) || !Addressable(message.Recipient)) Fail("recipient_unavailable");
                 if (authenticatedBroker != state.BrokerId && target!.IsPrivate) Fail("private_session");
                 if (!target!.Capabilities.HasFlag(SessionCapabilities.Receive)) Fail("recipient_cannot_receive");
             }
@@ -302,6 +360,40 @@ public sealed class BrokerStore : IDisposable
             var now = Now;
             return Accept(new(messageId, parent.ConversationId, parent.Id, parent.Recipient, parent.Sender,
                 text, now, now.AddMinutes(limits.DefaultMessageLifetimeMinutes), parent.RemainingReplies - 1), authenticatedBroker);
+        }
+    }
+
+    /// <summary>
+    /// Creates or recovers a new (non-reply) message from caller-supplied fields only. A retry compares
+    /// sender, recipient, text, the absence of ReplyTo and, when given, the conversation; never a
+    /// timestamp, so a client that regenerates its clock fields on retry recovers its receipt instead of
+    /// colliding. Modelled on AcceptReply: one lock, timestamps fixed by the first admission.
+    /// </summary>
+    public MessageReceipt Send(SessionAddress sender, SessionAddress recipient, Guid messageId, string text,
+        Guid? conversationId, int lifetimeMinutes, Guid authenticatedBroker)
+    {
+        lock (gate)
+        {
+            EnsureOpen();
+            if (sender is null || recipient is null || text is null || messageId == Guid.Empty ||
+                conversationId == Guid.Empty || lifetimeMinutes < 0) Fail("invalid_message");
+            sender!.Validate(); recipient!.Validate();
+            var existing = state.Messages.Find(receipt => receipt.Message.Id == messageId);
+            if (existing is not null)
+            {
+                var sent = existing.Message;
+                if (sent.Sender != sender || sent.Recipient != recipient || sent.Text != text || sent.ReplyTo is not null ||
+                    conversationId is Guid conversation && sent.ConversationId != conversation)
+                    Fail("message_id_collision");
+                // The requested lifetime is ignored on a retry. Reentrant admission rechecks transport
+                // authority and returns (or ages) the stored receipt, exactly as a reply retry does.
+                return Accept(sent, authenticatedBroker);
+            }
+            var now = Now;
+            var lifetime = TimeSpan.FromMinutes(lifetimeMinutes == 0 ? limits.DefaultMessageLifetimeMinutes : lifetimeMinutes);
+            if (lifetime > BrokerLimits.MaximumLifetime) lifetime = BrokerLimits.MaximumLifetime;
+            return Accept(new(messageId, conversationId ?? messageId, null, sender, recipient, text, now, now + lifetime,
+                limits.MaximumReplies), authenticatedBroker);
         }
     }
 
@@ -421,7 +513,7 @@ public sealed class BrokerStore : IDisposable
             if (recipient.BrokerId != authenticatedBroker) Fail("recipient_mismatch");
             if (authenticatedBroker != state.BrokerId && !state.Peers.Any(p => p.BrokerId == authenticatedBroker)) Fail("unpaired_peer");
             if (authenticatedBroker == state.BrokerId &&
-                (!Live(recipient) || !sessions[recipient].Capabilities.HasFlag(SessionCapabilities.Receive))) Fail("recipient_unavailable");
+                (!Addressable(recipient) || !sessions[recipient].Capabilities.HasFlag(SessionCapabilities.Receive))) Fail("recipient_unavailable");
             if (outcome is not (MessageStatus.Delivered or MessageStatus.Held or MessageStatus.Refused)) Fail("invalid_outcome");
             var messages = state.Messages.ToList();
             int index = messages.FindIndex(r => r.Message.Id == messageId);
@@ -439,11 +531,35 @@ public sealed class BrokerStore : IDisposable
         (sessions[address].Activity == SessionActivity.Idle || sessions[address].Activity == SessionActivity.Unknown &&
             sessions[address].Capabilities.HasFlag(SessionCapabilities.NativeIdleGuard)) &&
         sessions[address].Capabilities.HasFlag(SessionCapabilities.WakeIdle | SessionCapabilities.Receive);
-    private bool Live(SessionAddress address) => sessions.TryGetValue(address, out var s) && s.LeaseUntil > Now && s.Activity != SessionActivity.Disconnected;
+    private bool Live(SessionAddress address) => sessions.TryGetValue(address, out var s) && Live(s);
+    private bool Live(BrokerSession s) => s.LeaseUntil > Now && s.Activity != SessionActivity.Disconnected;
+    // A generic MCP mailbox whose presence lapsed stays addressable for MailboxRetention after its owner's
+    // last call. Native sessions never are: their adapter re-observes a live vendor session, so a lapsed
+    // native lease means that session is gone, and waking it must stay impossible.
+    private bool Retained(BrokerSession s) => s.Adapter == "mcp" && s.Activity != SessionActivity.Disconnected &&
+        s.LeaseUntil <= Now && mailboxActivity.TryGetValue(s.Address, out var seen) && seen + BrokerLimits.MailboxRetention > Now;
+    private bool Addressable(SessionAddress address) => sessions.TryGetValue(address, out var s) && (Live(s) || Retained(s));
     private void TrimSessions()
     {
-        foreach (var key in sessions.Where(p => p.Value.LeaseUntil <= Now).Select(p => p.Key).ToArray()) sessions.Remove(key);
+        // A lapsed native lease or an ended retention goes. A disconnected activity with a live lease
+        // stays until that lease lapses, exactly as before mailboxes existed.
+        foreach (var key in sessions.Where(p => p.Value.LeaseUntil <= Now && !Retained(p.Value)).Select(p => p.Key).ToArray()) Forget(key);
+        while (sessions.Values.Count(Retained) > BrokerLimits.MaximumRetainedMailboxes && EvictRetained([]) is not null) { }
     }
+    // The oldest retained mailbox with nothing outstanding goes first, then the oldest retained one; a
+    // present session is never a candidate. Its persisted messages stay: re-registering the same clientId
+    // and incarnation addresses them again.
+    private SessionAddress? EvictRetained(IReadOnlyCollection<SessionAddress> keep)
+    {
+        var victim = sessions.Values.Where(s => Retained(s) && !keep.Contains(s.Address))
+            .OrderBy(s => state.Messages.Any(r => r.Message.Recipient == s.Address && IsOutstanding(r.Status) && r.Message.ExpiresAt > Now))
+            .ThenBy(s => mailboxActivity[s.Address]).FirstOrDefault();
+        if (victim is null) return null;
+        Forget(victim.Address);
+        return victim.Address;
+    }
+    private void Forget(SessionAddress address) { sessions.Remove(address); mailboxActivity.Remove(address); }
+    private static TaskCompletionSource NewSignal() => new(TaskCreationOptions.RunContinuationsAsynchronously);
     private List<MessageReceipt> Expire(List<MessageReceipt> messages) => messages
         .Where(r => r.Message.ExpiresAt > Now - TimeSpan.FromDays(1))
         .Select(r => IsPending(r.Status) && r.Message.ExpiresAt <= Now
@@ -532,6 +648,8 @@ public sealed class BrokerStore : IDisposable
             else if (File.Exists(path)) File.Replace(temporary, path, destinationBackupFileName: null, ignoreMetadataErrors: true);
             else File.Move(temporary, path);
             state = next;
+            // Continuations run asynchronously, so completing under gate never runs a waiter here.
+            Interlocked.Exchange(ref changeSignal, NewSignal()).TrySetResult();
         }
         finally
         {
@@ -548,7 +666,8 @@ public sealed class BrokerStore : IDisposable
         lock (gate)
         {
             if (disposed) return;
-            disposed = true; sessions.Clear(); ownership.Dispose();
+            disposed = true; sessions.Clear(); mailboxActivity.Clear(); ownership.Dispose();
+            changeSignal.TrySetResult(); // A waiter wakes and meets the disposed store instead of its deadline.
         }
     }
 }

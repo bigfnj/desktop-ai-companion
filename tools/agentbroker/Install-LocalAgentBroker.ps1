@@ -45,6 +45,9 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Net;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
@@ -79,6 +82,57 @@ public static class AgentBrokerLocalInstallNative {
         return $"{identity.Volume:X8}:{identity.IndexHigh:X8}:{identity.IndexLow:X8}";
     }
     public static void VerifySingleLink(FileStream file) { FileStamp(file); }
+
+    // The package's own ModuleInfo.Version: the string loaded immediately before a call to ModuleInfo's
+    // set_Version. The module DLL's file version stays 1.0.0.0 and the ZIP carries no manifest, so this
+    // literal is the only version the package itself declares. Read from metadata; nothing is loaded.
+    public static string DeclaredModuleVersion(byte[] assembly) {
+        using var stream = new MemoryStream(assembly, false);
+        using var pe = new PEReader(stream);
+        if (!pe.HasMetadata) throw new InvalidDataException("The package module has no metadata.");
+        var metadata = pe.GetMetadataReader();
+        var setters = new HashSet<int>();
+        foreach (var handle in metadata.MemberReferences) {
+            var reference = metadata.GetMemberReference(handle);
+            if (metadata.StringComparer.Equals(reference.Name, "set_Version") && reference.Parent.Kind == HandleKind.TypeReference &&
+                metadata.StringComparer.Equals(metadata.GetTypeReference((TypeReferenceHandle)reference.Parent).Name, "ModuleInfo"))
+                setters.Add(MetadataTokens.GetToken(handle));
+        }
+        foreach (var handle in metadata.MethodDefinitions) {
+            var method = metadata.GetMethodDefinition(handle);
+            if (metadata.StringComparer.Equals(method.Name, "set_Version") &&
+                metadata.StringComparer.Equals(metadata.GetTypeDefinition(method.GetDeclaringType()).Name, "ModuleInfo"))
+                setters.Add(MetadataTokens.GetToken(handle));
+        }
+        var found = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var handle in metadata.MethodDefinitions) {
+            int rva = metadata.GetMethodDefinition(handle).RelativeVirtualAddress;
+            if (rva == 0) continue;
+            byte[] il = pe.GetMethodBody(rva).GetILBytes() ?? Array.Empty<byte>();
+            // ldstr <user string> then call/callvirt <ModuleInfo::set_Version>.
+            for (int i = 0; i + 10 <= il.Length; i++) {
+                if (il[i] != 0x72 || il[i + 4] != 0x70 || il[i + 5] != 0x6F && il[i + 5] != 0x28) continue;
+                if (!setters.Contains(BitConverter.ToInt32(il, i + 6))) continue;
+                found.Add(metadata.GetUserString(MetadataTokens.UserStringHandle(BitConverter.ToInt32(il, i + 1) & 0xFFFFFF)));
+            }
+        }
+        if (found.Count != 1) throw new InvalidDataException("The package module did not declare exactly one version.");
+        foreach (string version in found) return version;
+        throw new InvalidDataException("The package module version was unavailable.");
+    }
+
+    // The exact MCP tool set each published package serves. A rollback through this script installs an
+    // older package, so the probe pins THAT package's contract, never this script's newest one.
+    public static string[] ExpectedTools(string declaredVersion) {
+        if (!Version.TryParse(declaredVersion, out var version) || version.Build < 0 || version.Revision >= 0)
+            throw new InvalidDataException("The package module version is not major.minor.patch.");
+        if (version < new Version(1, 0, 0)) throw new InvalidDataException("This helper does not know that package's MCP tool contract.");
+        var tools = new List<string> { "list_sessions", "register_agent", "send_message", "read_inbox",
+            "acknowledge_message", "get_message_receipt", "reply_to_message" };
+        // 1.1.0: the agent-to-agent bus (durable mailboxes, blocking waits, field-compared send).
+        if (version >= new Version(1, 1, 0)) tools.AddRange(new[] { "send", "wait_for_messages", "wait_for_reply" });
+        return tools.ToArray();
+    }
     public static void CreateTestHardLink(string link, string existing) {
         if (!CreateHardLink(link, existing, IntPtr.Zero)) throw new Win32Exception();
     }
@@ -146,7 +200,8 @@ public static class AgentBrokerLocalInstallNative {
             total += read; if (total > 65536) throw new IOException("MCP probe diagnostics exceeded their bound.");
         } } finally { Array.Clear(buffer); }
     }
-    public static async Task<Probe> ProbeAsync(string worker, string data) {
+    public static async Task<Probe> ProbeAsync(string worker, string data, string[] expectedTools) {
+        if (expectedTools is null || expectedTools.Length == 0) throw new ArgumentException("The package's MCP tool contract is required.");
         var start = new ProcessStartInfo(worker) { UseShellExecute = false, CreateNoWindow = true,
             RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true,
             StandardInputEncoding = new UTF8Encoding(false), StandardOutputEncoding = new UTF8Encoding(false, true),
@@ -172,8 +227,7 @@ public static class AgentBrokerLocalInstallNative {
             var names = new HashSet<string>(StringComparer.Ordinal);
             foreach (var tool in second.GetProperty("result").GetProperty("tools").EnumerateArray())
                 if (!names.Add(tool.GetProperty("name").GetString() ?? "")) throw new IOException("Duplicate MCP probe tool.");
-            if (!names.SetEquals(new[] { "list_sessions", "register_agent", "send_message", "read_inbox",
-                "acknowledge_message", "get_message_receipt", "reply_to_message" })) throw new IOException("MCP tool contract differed.");
+            if (!names.SetEquals(expectedTools)) throw new IOException("MCP tool contract differed.");
             process.StandardInput.Close();
             await process.WaitForExitAsync(deadline.Token);
             await errors;
@@ -771,6 +825,9 @@ if ($SelfTest) {
     $installedPayload = Join-Path $testRoot 'installed-payload'
     $applicationStage = Join-Path $testRoot 'application.staged'
     $payloadLink = Join-Path $testRoot 'linked-payload.dll'
+    $contractsFixture = Join-Path $testRoot 'Synthetic.Contracts.dll'
+    $legacyModuleFixture = Join-Path $testRoot 'Synthetic.Module.1.0.4.dll'
+    $busModuleFixture = Join-Path $testRoot 'Synthetic.Module.1.1.0.dll'
     try {
         [IO.File]::WriteAllBytes($original, [byte[]]@(1, 2, 3))
         $testInput = [IO.File]::Open($original, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
@@ -891,9 +948,45 @@ if ($SelfTest) {
         if ((Test-UpdateApplication $installedPayload $expected $applicationStage $marker).Applied) { throw 'A hard-linked public payload passed the application proof.' }
         $checks++
         $checks += Test-HostRuntimeTransaction $testRoot
+
+        # Package-version tool contracts. Synthetic module assemblies call a ModuleInfo setter in a separate
+        # contracts assembly, as the real module does, so the version read crosses a member reference.
+        Add-Type -TypeDefinition 'namespace SyntheticContracts { public sealed class ModuleInfo { public string Id { get; set; } public string Version { get; set; } public string MinHostVersion { get; set; } } }' `
+            -OutputAssembly $contractsFixture -OutputType Library
+        foreach ($fixture in @(@{ Path = $legacyModuleFixture; Version = '1.0.4' }, @{ Path = $busModuleFixture; Version = '1.1.0' })) {
+            $suffix = $fixture.Version.Replace('.', '_')
+            Add-Type -TypeDefinition ('namespace SyntheticModule' + $suffix + ' { public sealed class Module { public SyntheticContracts.ModuleInfo Info => ' +
+                'new SyntheticContracts.ModuleInfo { Id = "agentbroker", Version = "' + $fixture.Version + '", MinHostVersion = "1.6.1" }; } }') `
+                -ReferencedAssemblies $contractsFixture -OutputAssembly $fixture.Path -OutputType Library
+        }
+        $sevenTools = @('list_sessions', 'register_agent', 'send_message', 'read_inbox', 'acknowledge_message', 'get_message_receipt', 'reply_to_message')
+        $legacyVersion = [AgentBrokerLocalInstallNative]::DeclaredModuleVersion([IO.File]::ReadAllBytes($legacyModuleFixture))
+        $legacyTools = [AgentBrokerLocalInstallNative]::ExpectedTools($legacyVersion)
+        if ($legacyVersion -cne '1.0.4' -or $legacyTools.Count -ne 7 -or @(Compare-Object $legacyTools $sevenTools -CaseSensitive).Count -ne 0) {
+            throw 'A 1.0.4 package did not keep its seven-tool MCP contract.'
+        }
+        $checks++
+        $busVersion = [AgentBrokerLocalInstallNative]::DeclaredModuleVersion([IO.File]::ReadAllBytes($busModuleFixture))
+        $busTools = [AgentBrokerLocalInstallNative]::ExpectedTools($busVersion)
+        if ($busVersion -cne '1.1.0' -or $busTools.Count -ne 10 -or
+            @(Compare-Object $busTools ($sevenTools + @('send', 'wait_for_messages', 'wait_for_reply')) -CaseSensitive).Count -ne 0) {
+            throw 'A 1.1.0 package did not require all ten MCP tools.'
+        }
+        $checks++
+        $refused = $false
+        try { [void][AgentBrokerLocalInstallNative]::DeclaredModuleVersion([IO.File]::ReadAllBytes($contractsFixture)) } catch { $refused = $true }
+        if (-not $refused) { throw 'An assembly that declares no module version invented one.' }
+        $checks++
+        foreach ($unknown in @('0.9.0', '1.1', '1.1.0.0', 'one')) {
+            $refused = $false
+            try { [void][AgentBrokerLocalInstallNative]::ExpectedTools($unknown) } catch { $refused = $true }
+            if (-not $refused) { throw 'An unknown or malformed package version received a tool contract.' }
+            $checks++
+        }
     }
     finally {
-        foreach ($file in @($hardLink, $original, $versioned, $markerLink, $marker, $payloadLink, (Join-Path $newSettings 'settings.json'),
+        foreach ($file in @($hardLink, $original, $versioned, $markerLink, $marker, $payloadLink, $contractsFixture, $legacyModuleFixture, $busModuleFixture,
+                            (Join-Path $newSettings 'settings.json'),
                             (Join-Path $publishedData 'settings.json'), (Join-Path $collidingSettings 'settings.json'),
                             (Join-Path $publishedStage 'settings.json'), (Join-Path $applicationStage 'payload.bin'),
                             (Join-Path $expectedPayload 'AgentBroker.dll'), (Join-Path $expectedPayload 'worker\AgentBroker.Worker.dll'),
@@ -1018,6 +1111,17 @@ try {
     $zipStream.Position = 0
     $actualSha = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($zipStream))
     if (-not $actualSha.Equals($ExpectedSha256, [StringComparison]::OrdinalIgnoreCase)) { throw 'Archive SHA256 differs from the explicit expected digest.' }
+    # The readiness probe expects the tool set of THIS package's declared version, read only after the
+    # digest matched, so installing an older package (a rollback) is checked against its own contract.
+    $moduleEntries = @($archive.Entries.Where({ $_.FullName -ieq 'AgentBroker.dll' }))
+    if ($moduleEntries.Count -ne 1) { throw 'Archive module assembly was not unique.' }
+    $moduleBytes = [IO.MemoryStream]::new()
+    $moduleRead = $moduleEntries[0].Open()
+    try { $moduleRead.CopyTo($moduleBytes); if ($moduleBytes.Length -gt 128MB) { throw 'Archive module assembly exceeds its size limit.' } }
+    finally { $moduleRead.Dispose() }
+    $packageVersion = [AgentBrokerLocalInstallNative]::DeclaredModuleVersion($moduleBytes.ToArray())
+    $moduleBytes.Dispose()
+    $expectedTools = [AgentBrokerLocalInstallNative]::ExpectedTools($packageVersion)
     if ($ArchivePreviousCopy -and (Test-Path -LiteralPath $updateReplaced)) {
         Assert-PreviousCopyMetadata $updateReplaced $installRoot
     }
@@ -1039,6 +1143,8 @@ try {
         Write-Host "ExpandedBytes=$expanded"
         Write-Host 'HostVersionVerified=True'
         Write-Host 'PublishedModuleHostFloorVerified=True'
+        Write-Host "PackageModuleVersion=$packageVersion"
+        Write-Host "ExpectedMcpToolCount=$($expectedTools.Count)"
         Write-Host "StageUpdateMode=$([bool]$StageUpdate)"
         Write-Host "HostRuntimeInputsVerified=$([bool]($null -ne $runtimePlan))"
         Write-Host "ArchivePreviousCopyRequested=$([bool]$ArchivePreviousCopy)"
@@ -1230,7 +1336,7 @@ try {
         if ($null -eq $worker) { throw 'The installed worker did not own both required listeners within the readiness deadline.' }
         try {
             $workerCreated = [AgentBrokerLocalInstallNative]::Created($worker)
-            $probe = [AgentBrokerLocalInstallNative]::ProbeAsync($workerExe, $moduleData).GetAwaiter().GetResult()
+            $probe = [AgentBrokerLocalInstallNative]::ProbeAsync($workerExe, $moduleData, $expectedTools).GetAwaiter().GetResult()
             $listeners = [AgentBrokerLocalInstallNative]::Listeners()
             if ($worker.HasExited -or [AgentBrokerLocalInstallNative]::Created($worker) -ne $workerCreated -or
                 $listeners.Length -ne 2 -or @($listeners.Where({ $_.Pid -ne $worker.Id })).Count -ne 0 -or

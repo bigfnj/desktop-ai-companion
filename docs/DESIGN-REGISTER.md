@@ -5698,6 +5698,44 @@ creates, reads nor passes it: `ReadClaudeStream` skips the init line whole. The 
 gone with the process. It is accepted as the CLI's behaviour, with no lever sought, so a reader who finds one in a handle
 or process trace knows it belongs to that call's Claude Code child, one per call.
 
+#### feature/agentbroker-bus
+
+AgentBroker agent-to-agent bus: durable generic mailboxes, blocking waits, a field-compared `send`, and MCP
+server instructions. The design constraints were fixed in advance: no new property on any federation record
+(a 1.0.4 peer deserializes with unmapped members disallowed and does not catch the failure), no change to the
+persisted state schema (rollback must still read it), and no wait while holding the store lock.
+
+**A mailbox whose agent is Away still accepts messages.** That is the feature, not a lapsed-lease leak. A
+generic MCP session stays addressable for 24 hours after its owner's last call; the presence lease still lapses
+after a minute, and only presence is ever shown to a peer (`Directory(forPeer: true)` and
+`/federation/directory` filter on a live lease exactly as before). Native sessions are never retained: a lapsed
+native lease means the vendor session is gone.
+
+**Retention is process-local, on purpose.** Persisting registrations would change the `State` record that a
+rolled-back 1.0.4 worker must still read. A restart therefore drops every mailbox, messages persist, and the same
+`clientId` and incarnation find them again. Refused alternative: deriving retention from `LeaseUntil`, which a
+direct store registration can set up to two minutes ahead; a separate last-activity time is exact.
+
+**`wait_for_reply` returns at most 16 replies** although several are legal. Sixteen worst-case escaped receipts
+are what the pagination checks proved fit the stdio bridge's 8 MiB response bound; more are read with
+`read_inbox`.
+
+**A wait on an unreachable mailbox is refused (`session_unavailable`) instead of returning empty.** After a
+restart every wait would otherwise return empty until the agent gave up, while senders already get
+`recipient_unavailable`. Waits are local operations, so a paired broker cannot occupy the sixteen slots.
+
+**`send` caps a lifetime above 24 hours instead of refusing it, and refuses a negative one.** The receipt shows
+the applied `ExpiresAt`. A retry ignores `ttlMinutes`, because the stored message is the one being recovered.
+
+**A privacy or pause choice on a retained mailbox applies in place.** Registering needs a live lease, and the
+owner's choice is not the agent's activity, so presence and retention are left as they were.
+
+**The installer reads the package version from the module's IL.** The post-install probe pins the exact MCP
+tool set of the package being installed, so rolling back to a 1.0.4 package through the current script expects
+seven tools and a 1.1.0 package expects ten. The module DLL's FileVersion is 1.0.0.0 and the ZIP carries no
+manifest, so the only version the package declares is the `ldstr` that feeds `ModuleInfo.set_Version`. It is read
+with System.Reflection.Metadata, nothing is loaded, and anything other than exactly one such literal is refused.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

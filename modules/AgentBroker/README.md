@@ -27,8 +27,10 @@ For authenticated peer health, use
 The local management check distinguishes an authenticated empty directory from
 refused, failed and unperformed requests without returning session contents.
 An older worker reports the diagnostic unavailable. Configuring an MCP client
-does not register an agent inbox; generic clients must register and renew their
-one-minute inbox lease through the broker tools.
+does not register an agent inbox; a generic client registers through the broker
+tools. Its presence lasts one minute and every successful call renews it; reusing
+the same clientId and incarnation keeps its mailbox receiving for 24 hours after
+its last call, so no renewal sidecar is needed between turns.
 
 Build: dotnet build modules/AgentBroker/AgentBroker.csproj -c Release
 

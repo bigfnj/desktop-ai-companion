@@ -22,9 +22,18 @@ internal static class PollingLeaseChecks
                 live.LeaseUntil == fixture.Clock.GetUtcNow().AddMinutes(1),
                 "active polling remains available beyond the original sixty-second lease without sleeping");
             fixture.Clock.Advance(TimeSpan.FromSeconds(61));
-            check(fixture.Current(session.Address) is null, "a polling inbox expires sixty seconds after activity stops");
+            // Presence still lapses after sixty seconds; the mailbox behind it is retained and listed as Away.
+            var lapsed = fixture.Current(session.Address);
+            check(lapsed is { Activity: SessionActivity.Away } && lapsed.LeaseUntil < fixture.Clock.GetUtcNow() &&
+                !fixture.Store.Directory(forPeer: true).Any(peer => peer.Address == session.Address),
+                "a polling inbox's presence lapses sixty seconds after activity stops and its mailbox is listed locally as Away");
             fixture.Tools.ReadInbox(session.Address);
-            check(fixture.Current(session.Address) is null, "a history read cannot revive an expired polling inbox");
+            check(fixture.Current(session.Address) is { Activity: SessionActivity.Idle } restored &&
+                restored.LeaseUntil == fixture.Clock.GetUtcNow().AddMinutes(1),
+                "a history read of a retained mailbox restores its presence");
+            fixture.Clock.Advance(BrokerLimits.MailboxRetention + TimeSpan.FromSeconds(1));
+            fixture.Tools.ReadInbox(session.Address);
+            check(fixture.Current(session.Address) is null, "a history read cannot revive a mailbox after its 24-hour retention");
             var replacement = fixture.Runtime.RegisterPollingAgent(Guid.Parse(session.Address.SessionId[4..]),
                 session.Address.Incarnation, session.Label, session.IsPrivate);
             check(fixture.Current(replacement.Address) is not null, "explicit registration can restore an expired polling inbox");
@@ -145,8 +154,12 @@ internal static class PollingLeaseChecks
         {
             var expired = fixture.Register("Synthetic retained expired inbox");
             fixture.Clock.Advance(TimeSpan.FromSeconds(61));
+            check(fixture.Store.RenewPollingSession(expired.Address) is { } back &&
+                back.LeaseUntil == fixture.Clock.GetUtcNow().AddMinutes(1) && fixture.Current(expired.Address)?.Activity == SessionActivity.Idle,
+                "atomic renewal of a lapsed but retained mailbox restores its presence before any directory pruning occurs");
+            fixture.Clock.Advance(BrokerLimits.MailboxRetention + TimeSpan.FromSeconds(1));
             check(fixture.Store.RenewPollingSession(expired.Address) is null && fixture.Store.Directory().Count == 0,
-                "atomic renewal refuses an expired record before any directory pruning occurs");
+                "atomic renewal refuses a mailbox whose 24-hour retention ended before any directory pruning occurs");
         }
 
         await using (var fixture = new Fixture())
@@ -169,6 +182,12 @@ internal static class PollingLeaseChecks
             fixture.Store.Register(longLease);
             fixture.Tools.ReadInbox(longLease.Address);
             check(fixture.Current(longLease.Address) == longLease, "renewal never shortens an existing longer valid lease");
+            fixture.Clock.Advance(TimeSpan.FromMinutes(3));
+            fixture.Tools.ReadInbox(native.Address);
+            check(fixture.Current(native.Address) is null && fixture.Current(disconnected.Address) is null,
+                "a lapsed native lease and a lapsed disconnected inbox are gone rather than retained as mailboxes");
+            check(fixture.Current(longLease.Address) is { Activity: SessionActivity.Away },
+                "WITNESS a lapsed generic inbox in the same store is retained as an Away mailbox");
         }
     }
 

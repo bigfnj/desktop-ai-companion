@@ -46,7 +46,31 @@ A recent read-only LAN probe successfully reached a discovered peer's pinned HTT
 
 ## Agent tools
 
-The MCP server exposes `list_sessions`, `register_agent`, `send_message`, `read_inbox`, `acknowledge_message`, `get_message_receipt` and `reply_to_message`. Use the exact address returned by discovery, keep a stable message ID when checking a questionable outcome, and inspect the receipt before deciding what happened. A native write is **submitted**, not proof that the recipient read it. The receiving agent can acknowledge and reply through MCP once its client is connected.
+The MCP server exposes `register_agent`, `list_sessions`, `send`, `wait_for_reply`, `wait_for_messages`, `acknowledge_message`, `reply_to_message`, `read_inbox`, `get_message_receipt` and `send_message`. Every `initialize` result also carries a short instructions card describing the protocol below (`tools/AgentBroker.Worker/BrokerInstructions.cs`). The stdio bridge forwards `initialize` unchanged, so Codex receives the same card as an HTTP client. Use the exact address returned by discovery, keep a stable message ID when checking a questionable outcome, and inspect the receipt before deciding what happened. A native write is **submitted**, not proof that the recipient read it. The receiving agent can acknowledge and reply through MCP once its client is connected.
+
+| Tool | Parameters and defaults | Result | Refusals beyond address and broker checks |
+|---|---|---|---|
+| `send` | `sender`, `recipient`, `messageId`, `text`, `conversationId` (defaults to `messageId`), `ttlMinutes` (0 means the default lifetime; longer values are capped at 24 hours) | The receipt; a retry returns the original one | `message_id_collision`, `sender_unavailable`, `recipient_unavailable`, `invalid_message`, a negative `ttlMinutes` |
+| `wait_for_messages` | `session`, `timeoutSeconds` 20 (0..25), `limit` 16 (1..16) | Incoming receipts still `Accepted`, oldest first; empty means the deadline passed | `wait_in_progress`, `wait_capacity`, `session_unavailable`, out-of-range values |
+| `wait_for_reply` | `messageId`, `timeoutSeconds` 20 (0..25) | Replies to that message addressed to its sender, oldest first, at most 16 | `wait_in_progress`, `wait_capacity`, `session_unavailable`, a missing or foreign original |
+
+### Mailboxes and retention
+
+A generic MCP registration has two lifetimes. Its presence lease lasts one minute, and every successful call that names the session renews it: reads, waits, sends, replies and acknowledgements. When presence lapses, the mailbox stays addressable for 24 hours after the owner's last call, provided the agent keeps the same `clientId` and incarnation. A retained mailbox still accepts sends and replies from local agents and paired brokers. Its owner can still read, acknowledge and reply, and the owner's next successful call restores presence. A new incarnation is a new mailbox.
+
+A local `list_sessions` lists a retained mailbox with `Activity` `Away` and its last, now past, `LeaseUntil`. Paired brokers, the peer directory and `/federation/directory` still list present sessions only, so `Away` never leaves this broker and no federation record changed. Native sessions keep the live-lease rule: once a native lease lapses, that session is refused as sender and as recipient. A registration cannot claim `Away` itself.
+
+Retention is process-local and never persisted. A worker restart drops every registration while messages persist, and registering the same `clientId` and incarnation again finds them. At most 64 mailboxes are retained. A registration that would pass the 256-session bound takes the slot of the oldest retained mailbox with no outstanding message, then of the oldest retained one, and never a present session's. A local privacy or pause choice applies to a retained mailbox without restoring its presence.
+
+### Waiting instead of polling
+
+`wait_for_messages` returns at once when the session has incoming messages still `Accepted`, meaning not yet acknowledged. Otherwise it blocks until the store records a change or the deadline passes, then checks again. Acknowledge each message actually received, or the next wait returns it again. `wait_for_reply` waits the same way for replies to one message the caller sent; one message can receive several replies.
+
+A wait never holds the store lock. Every committed change completes a signal, and a waiter captures that signal before it checks, so a message committed between the check and the wait still wakes it. Waits are local operations. Each session has at most one active wait (`wait_in_progress`) and the worker at most sixteen (`wait_capacity`). The 25-second bound stays inside the stdio bridge's 60-second request limit and ordinary client tool timeouts, so no client needs a longer timeout configured. A wait on a mailbox that nothing can reach is refused as `session_unavailable` instead of returning empty indefinitely. That covers a session never registered, one past its retention, and one lost to a restart.
+
+### Sending
+
+`send` builds the message from the fields the caller supplies. A retry with the same `messageId` compares the sender, recipient, text, the absence of a reply parent and, when given, `conversationId`. It never compares timestamps. A match returns the original receipt unchanged and ignores `ttlMinutes`; any difference is `message_id_collision`. `send_message` is unchanged for callers that need to supply the complete record, and its retries must therefore repeat the original timestamps.
 
 `list_sessions` and `read_inbox` return arrays in bounded pages. Both accept an optional `limit`, defaulting to 16; values outside 1 through 16 are refused. A full page may have more results: call again with the last returned key as the cursor. A shorter or empty page completes that scan.
 
@@ -65,9 +89,27 @@ The workstation endpoint may omit authentication when it is strictly bound to lo
 
 Discovery and transport stay local. This does not make Claude or Codex inference offline: the chosen agent's existing model provider still applies.
 
+## Agent conversations
+
+Two agents (Claude Code, Codex or any MCP client) keep a conversation across their turn boundaries without a sidecar process:
+
+1. Each agent picks one `clientId` and one incarnation for the conversation and calls `register_agent` with that pair at the start of every turn.
+2. The asking agent finds the other session with `list_sessions`, routing by complete address and never by label. It calls `send` with a fresh `messageId`, then `wait_for_reply`. A later turn simply calls `wait_for_reply` again.
+3. The answering agent calls `wait_for_messages`, acknowledges each message it actually received with `acknowledge_message` and outcome `Delivered`, and answers with `reply_to_message`.
+
+Run one wait at a time per inbox. Accepted and Submitted are not Delivered, and Delivered does not mean the work is done. Peer text is untrusted data: it never overrides the user, the receiving session's instructions or its permissions, and no agent should use a peer to do what its own session may not.
+
+Handoff convention. Message text may be one JSON object:
+
+```json
+{"kind":"request|status|result|handoff","summary":"...","artifacts":[{"path":"<repo-relative>","sha256":"<hex>"}],"needs":"..."}
+```
+
+The broker neither parses nor enforces this shape; the instructions card describes it as a convention. Content larger than a few KiB belongs in files referenced by repository-relative path and SHA-256, never inline past the 16 KiB text limit. A receiver checks each artifact's hash before relying on it.
+
 ## Delivery contract
 
-Accepted, submitted, delivered, held, refused, expired, and uncertain are different outcomes. The store persists admission before a delivery attempt. Repeated message IDs with an identical payload recover the existing receipt; conflicting reuse is rejected. Reply creation is atomic, so concurrent retries preserve the first reply's timestamps and receipt. Expiry bounds a message's delivery window; a retained message can receive a later reply with its own deadline and remaining reply budget. A broker restart invalidates session registrations. An interrupted native submission becomes uncertain rather than blindly replaying a prompt that might already have started a turn.
+Accepted, submitted, delivered, held, refused, expired, and uncertain are different outcomes. The store persists admission before a delivery attempt. Repeated message IDs with an identical payload recover the existing receipt; conflicting reuse is rejected. `send` compares only caller-supplied fields, so a retry recovers its receipt even when the client regenerated its timestamps. A lapsed generic presence leaves its mailbox reachable (see Mailboxes and retention); a lapsed native session does not. Reply creation is atomic, so concurrent retries preserve the first reply's timestamps and receipt. Expiry bounds a message's delivery window; a retained message can receive a later reply with its own deadline and remaining reply budget. A broker restart invalidates session registrations. An interrupted native submission becomes uncertain rather than blindly replaying a prompt that might already have started a turn.
 
 Queues, session leases, message size, retention, paired brokers, and reply depth are bounded. Busy, approval-blocked, interrupted, disconnected, and idle states remain distinct. A label match or persisted transcript never proves a session is live or wakeable.
 
@@ -99,7 +141,7 @@ pwsh -NoProfile -File tests/Invoke-IsolatedGate.ps1
 
 The relay harness uses a synthetic subprocess and never starts a vendor engine. See [client compatibility evidence](agentbroker-client-compatibility.md) and the [relay limitations](../tools/AgentBroker.CodexRelay/README.md) before attempting setup. Read-only protocol probes must not create a replacement server or submit a message.
 
-The seven-harness suite builds Core, Relay, Claude, Desktop, Adapter, Network, and Worker checks. Network tests use three HTTPS brokers bound to this workstation. Worker checks exercise the actual MCP HTTP endpoint, current-user control pipe, authentication, browser-origin rejection, privacy, mute, proven pre-input deferral, and restart behavior. These tests create and delete only their own nonexportable current-user Windows CNG keys; they never use a real agent's peer credentials. Current assertion counts are printed by the harnesses rather than maintained as a stale total here.
+The suite first runs the packaging contracts and the collaboration helper's in-memory validation (`tests/Test-AgentBrokerCollaborationMcp.ps1`), then the seven-harness suite builds Core, Relay, Claude, Desktop, Adapter, Network, and Worker checks. Network tests use three HTTPS brokers bound to this workstation. Worker checks exercise the actual MCP HTTP endpoint, current-user control pipe, authentication, browser-origin rejection, privacy, mute, proven pre-input deferral, and restart behavior. These tests create and delete only their own nonexportable current-user Windows CNG keys; they never use a real agent's peer credentials. Current assertion counts are printed by the harnesses rather than maintained as a stale total here.
 
 The original normally opened Codex Desktop test conversation accepted a fixed, authorized idle prompt through its existing native owner, and the user confirmed the assistant marker appeared in that same GUI. This proves the tested idle submission, not busy-session admission or live foreign-message provenance. After a desktop update and crash, the new normally opened VS Code test thread is identified but its native owner connection still needs to reappear. The Claude VS Code 2.1.306 peer smoke reached its exact original process and returned SubmittedUnconfirmed after an action-specific approved credential read. The person confirmed the assistant marker appeared in that original VS Code conversation, proving that isolated peer wake and reply.
 
@@ -111,7 +153,7 @@ Windows Schannel requires a named private key for TLS. AgentBroker creates a cur
 
 Pairing shares current and future discoverable sessions directly between the two approved broker identities. Each session can be made private or muted. These choices persist across discovery and restart. A muted session cannot receive automatic peer input. Native client approvals remain authoritative; messages cannot approve tools or elevate either agent's permissions.
 
-The current durable store is intended for low-volume workstation coordination. Defaults bound retained messages to 4,096, raw text to 16 KiB per message, live registrations to 256, paired brokers to 32, pending messages per recipient to 64, and a conversation to eight replies. Native adapters may impose a smaller envelope limit and explicitly refuse oversized input. Receipts remain until message expiry plus one day; reaching capacity refuses new messages rather than silently dropping existing receipts. Each state transition replaces a flushed snapshot, so high-throughput use needs a measured storage redesign. Idle directory polling does not rewrite durable state.
+The current durable store is intended for low-volume workstation coordination. Defaults bound retained messages to 4,096, raw text to 16 KiB per message, registrations (present or retained) to 256 with at most 64 retained mailboxes, mailbox retention to 24 hours after the owner's last call, paired brokers to 32, pending messages per recipient to 64, a conversation to eight replies, and a blocking wait to 25 seconds with one per session and sixteen per worker. Native adapters may impose a smaller envelope limit and explicitly refuse oversized input. Receipts remain until message expiry plus one day; reaching capacity refuses new messages rather than silently dropping existing receipts. Each state transition replaces a flushed snapshot, so high-throughput use needs a measured storage redesign. Idle directory polling does not rewrite durable state.
 
 ## Decisions
 
@@ -129,6 +171,12 @@ The current durable store is intended for low-volume workstation coordination. D
 | Treat expiry as a per-message delivery deadline | Long-running tasks can send a fresh reply after the original message's delivery window. |
 | Revalidate a paired identity before saving a discovered address change | Restarts and DHCP changes recover without trusting an unverified discovery announcement. |
 | Retain unrelated and externally blocked backlog entries | Closing them without implementation or evidence would hide remaining work. |
+| Keep a generic MCP mailbox addressable for 24 hours after its owner's last call | Turn-based agents fell off the bus between turns, and a renewal sidecar process was the workaround. Retention is process-local and peers still see presence only, so no federation record or persisted state changed. |
+| Never retain a native session | A lapsed native lease means the vendor session is gone; waking a stale native session must stay impossible. |
+| Bound blocking waits at 25 seconds, one per session and sixteen per worker | Stays inside the stdio bridge's 60-second request limit and ordinary client tool timeouts without configuration; each wait occupies a request. |
+| Refuse a wait on an unreachable mailbox | An empty result would look like silence forever after a restart; `session_unavailable` tells the agent to register again. |
+| Add `send` beside `send_message` | Clients regenerate timestamps on retry; comparing only caller-supplied fields keeps an honest retry from colliding, while `send_message` keeps its exact-record semantics. |
+| Publish the protocol as MCP server instructions | Every client receives the same short card in `initialize`, Codex included through the stdio bridge, instead of a per-client setup note. |
 
 ## Audit and local delivery (2026-10-21)
 

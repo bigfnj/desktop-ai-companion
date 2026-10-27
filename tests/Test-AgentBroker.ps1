@@ -17,6 +17,17 @@ Set-StrictMode -Version Latest
 $repoRoot = [IO.Path]::GetFullPath((Split-Path $PSScriptRoot -Parent))
 Write-Host '=== AgentBroker payload source and packaging contracts'
 & (Join-Path $PSScriptRoot 'Test-AgentBrokerPackaging.ps1') -RepoRoot $repoRoot
+# The collaboration helper is PowerShell 7 only, so it runs in its own pwsh child even when this
+# script runs under Windows PowerShell. Missing pwsh fails here; it is never skipped in silence.
+Write-Host '=== AgentBroker collaboration helper validation'
+$collaborationOutput = @(& pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Test-AgentBrokerCollaborationMcp.ps1'))
+$collaborationExit = $LASTEXITCODE
+foreach ($line in $collaborationOutput) { Write-Host $line }
+$collaborationSummary = @($collaborationOutput | Where-Object { "$_" -match '^PASS: ([1-9][0-9]*) in-memory collaboration MCP checks;' })
+if ($collaborationExit -ne 0 -or $collaborationSummary.Count -ne 1) {
+    throw "AgentBroker collaboration helper validation failed (exit $collaborationExit)."
+}
+$collaborationChecks = [int]([regex]::Match([string]$collaborationSummary[0], '^PASS: ([0-9]+)').Groups[1].Value)
 $harnesses = @(
     @{ Name = 'Core'; Project = 'tests\AgentBroker.Core.Tests\AgentBroker.Core.Tests.csproj'
        Executable = "tests\AgentBroker.Core.Tests\bin\$Configuration\net10.0\AgentBroker.Core.Tests.exe"
@@ -65,4 +76,4 @@ foreach ($harness in $harnesses) {
     catch { $failures.Add($harness.Name + ': ' + $_.Exception.Message) }
 }
 if ($failures.Count -gt 0) { throw ('AgentBroker checks failed: ' + ($failures -join '; ')) }
-Write-Host ("AgentBroker deterministic harnesses PASS: $($harnesses.Count) harnesses, $assertions assertions.")
+Write-Host ("AgentBroker deterministic harnesses PASS: $($harnesses.Count) harnesses, $assertions assertions; collaboration helper $collaborationChecks checks.")
