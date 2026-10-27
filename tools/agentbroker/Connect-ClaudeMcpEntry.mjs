@@ -1,8 +1,11 @@
 // Reviewed one-shot user-scope Claude Code registration or exact-only HTTP connection check.
 // Run only after reviewing this script, checking host projection, and approving the exact action.
 // node tools/agentbroker/Connect-ClaudeMcpEntry.mjs --apply <claude.exe> <worker.exe> <data-directory> <project-directory> [<Git/bin/bash.exe>]
-// --apply-http instead explicitly asks Claude to register http://127.0.0.1:7432/mcp under the same name.
-// --verify-http instead runs only `mcp get desktop-ai-companion-agentbroker`, after exact HTTP preflight.
+// --apply-http instead explicitly asks Claude to register http://127.0.0.1:7432/mcp under the same name. An allowlist
+// miss ("not allowed by enterprise policy") gets one more add with http://localhost:7432/mcp, which a managed policy can
+// admit where it refuses 127.0.0.1 and the worker also answers (N-bus-04); no other refusal is retried.
+// --verify-http instead runs only `mcp get desktop-ai-companion-agentbroker`, after exact HTTP preflight. Either canonical
+// spelling of the endpoint is the exact entry.
 // It prints fixed connection fields only. No arbitrary server name, list, login, model or native inbox command.
 // Pure path-policy checks, no public file reads or CLI launch: node tools/agentbroker/Connect-ClaudeMcpEntry.mjs --self-test
 import { createHash } from 'node:crypto';
@@ -14,17 +17,24 @@ const [mode, cliArgument, workerArgument, dataArgument, projectArgument, bashArg
 const expectedSha = 'EB95BB65955F8B1702E800815F9A2C0388A5DE0F196C354C7EE1DD5CB9A2BA23';
 const serverName = 'desktop-ai-companion-agentbroker';
 const loopbackEndpoint = 'http://127.0.0.1:7432/mcp';
+const localhostEndpoint = 'http://localhost:7432/mcp';
 const useHttp = mode === '--apply-http';
 const verifyHttp = mode === '--verify-http';
 function report(status, additional = {}) { console.log(JSON.stringify({ status, ...additional })); }
 function strictLoopbackEndpoint(value) {
-  if (value !== loopbackEndpoint) throw new Error('invalid_loopback_endpoint');
+  if (value !== loopbackEndpoint && value !== localhostEndpoint) throw new Error('invalid_loopback_endpoint');
   return value;
 }
-function argumentsFor(http, worker, data) {
+function argumentsFor(http, worker, data, endpoint = loopbackEndpoint) {
   return http
-    ? ['mcp', 'add', '--transport', 'http', '--scope', 'user', serverName, strictLoopbackEndpoint(loopbackEndpoint)]
+    ? ['mcp', 'add', '--transport', 'http', '--scope', 'user', serverName, strictLoopbackEndpoint(endpoint)]
     : ['mcp', 'add', '--transport', 'stdio', '--scope', 'user', serverName, '--', worker, '--mcp-stdio', '--data', data];
+}
+// One localhost add after an HTTP allowlist miss on the literal URL; an explicit deny, exclusive or plugin-only control
+// and every non-policy failure are final.
+function retriesWithLocalhost(http, endpoint, result) {
+  return http && endpoint === loopbackEndpoint && result.exitCode !== 0 && !result.timedOut && !result.oversized &&
+    policyReason(result) === 'allowlist_miss';
 }
 function verificationArguments() { return ['mcp', 'get', serverName]; }
 function probeEntryMatches(entry) {
@@ -59,7 +69,7 @@ function connectionFields(stdout) {
   };
   fields.reportedScopeIsUser = one('Scope') === 'User config (available in all your projects)';
   fields.reportedTypeIsHttp = one('Type') === 'http';
-  fields.reportedUrlMatches = one('URL') === loopbackEndpoint;
+  fields.reportedUrlMatches = [loopbackEndpoint, localhostEndpoint].includes(one('URL'));
   const status = one('Status');
   // The pinned public figures table uses U+221A on Windows and U+2714 elsewhere.
   if (/^[✓✔√] Connected$/.test(status ?? '')) fields.connectionState = 'connected';
@@ -110,6 +120,7 @@ function file(path, leaf, expected) {
 }
 function inspect(worker, data, project) {
   const argv = [join(import.meta.dirname, 'Inspect-ClaudeMcpEntry.mjs'), worker, data, project];
+  // The inspector counts the localhost spelling of this literal URL as the same exact entry.
   if (useHttp || verifyHttp) argv.push('--http-url', strictLoopbackEndpoint(loopbackEndpoint));
   const result = spawnSync(process.execPath, argv,
     { windowsHide: true, encoding: 'utf8', timeout: 25000, maxBuffer: 16 * 1024 });
@@ -151,10 +162,11 @@ try {
     catch (error) { locationRefused = error.message === 'public_tool_location_refused'; }
     if (!locationRefused) throw new Error('invalid_path');
     checks++;
-    if (strictLoopbackEndpoint(loopbackEndpoint) !== loopbackEndpoint) throw new Error('invalid_loopback_endpoint');
+    if (strictLoopbackEndpoint(loopbackEndpoint) !== loopbackEndpoint || strictLoopbackEndpoint(localhostEndpoint) !== localhostEndpoint)
+      throw new Error('invalid_loopback_endpoint');
     checks++;
-    for (const url of ['https://127.0.0.1:7432/mcp', 'http://localhost:7432/mcp', 'http://127.1:7432/mcp',
-      'http://127.0.0.1:7432/mcp?token=synthetic', 'http://127.0.0.1:7432/mcp#fragment',
+    for (const url of ['https://127.0.0.1:7432/mcp', 'http://LOCALHOST:7432/mcp', 'http://localhost:7433/mcp', 'http://127.1:7432/mcp',
+      'http://127.0.0.1:7432/mcp?token=synthetic', 'http://127.0.0.1:7432/mcp#fragment', 'http://localhost.evil.invalid:7432/mcp',
       'http://user@127.0.0.1:7432/mcp', 'http://127.0.0.1:7433/mcp', 'http://127.0.0.1.evil.invalid:7432/mcp']) {
       let refused = false;
       try { strictLoopbackEndpoint(url); } catch (error) { refused = error.message === 'invalid_loopback_endpoint'; }
@@ -168,6 +180,21 @@ try {
       'mcp', 'add', '--transport', 'stdio', '--scope', 'user', serverName, '--', 'synthetic worker', '--mcp-stdio', '--data', 'synthetic data']))
       throw new Error('invalid_arguments');
     checks++;
+    if (JSON.stringify(argumentsFor(true, 'synthetic-worker', 'synthetic-data', localhostEndpoint)) !== JSON.stringify([
+      'mcp', 'add', '--transport', 'http', '--scope', 'user', serverName, localhostEndpoint])) throw new Error('invalid_arguments');
+    checks++;
+    // The retry rule: an HTTP allowlist miss on the literal URL only, never a deny, a stdio add, a retry or another failure.
+    const miss = { exitCode: 1, stdout: '', stderr: 'Cannot add MCP server: not allowed by enterprise policy', timedOut: false, oversized: false };
+    if (!retriesWithLocalhost(true, loopbackEndpoint, miss)) throw new Error('invalid_retry');
+    checks++;
+    for (const [http, endpoint, changed] of [
+      [true, loopbackEndpoint, { ...miss, stderr: 'Cannot add MCP server: server is explicitly blocked by enterprise policy' }],
+      [true, loopbackEndpoint, { ...miss, stderr: 'EPERM: configuration write failed' }],
+      [true, loopbackEndpoint, { ...miss, exitCode: 0 }], [true, loopbackEndpoint, { ...miss, timedOut: true }],
+      [false, loopbackEndpoint, miss], [true, localhostEndpoint, miss]]) {
+      if (retriesWithLocalhost(http, endpoint, changed)) throw new Error('invalid_retry');
+      checks++;
+    }
     const entry = { status: 'ok', userEntryFound: true, userType: 'http', userUrlMatches: true,
       userHttpProbeSafe: true, localEntryFound: false };
     const privateMarker = 'SYNTHETIC_CONNECTION_PRIVATE_VALUE';
@@ -180,6 +207,8 @@ try {
       if (!connectionConfirmed({ ...result, stdout: output.replace('✓ Connected', status) }, entry)) throw new Error('invalid_verification');
       checks++;
     }
+    if (!connectionConfirmed({ ...result, stdout: output.replace(loopbackEndpoint, localhostEndpoint) }, entry)) throw new Error('invalid_verification');
+    checks++;
     for (const status of ['! Connected · tools fetch failed', '! Needs authentication', '✘ Failed to connect',
       '✘ Connection error', '⏸ Pending approval (run `claude` to approve)', '✘ Rejected (see disabledMcpjsonServers in settings)',
       '⊘ Disabled for this project (re-enable via /mcp)', '- Not configured', 'new vendor state']) {
@@ -190,7 +219,7 @@ try {
     for (const changed of [ { ...result, exitCode: 1 }, { ...result, timedOut: true }, { ...result, oversized: true },
       { ...result, stdout: output.replace(serverName + ':', 'another-server:') },
       { ...result, stdout: output.replace('Type: http', 'Type: stdio') },
-      { ...result, stdout: output.replace(loopbackEndpoint, 'http://localhost:7432/mcp') },
+      { ...result, stdout: output.replace(loopbackEndpoint, 'http://localhost:7433/mcp') },
       { ...result, stdout: output.replace('User config (available in all your projects)', 'Project config (shared via .mcp.json)') },
       { ...result, stdout: output + '  Status: ✓ Connected\n' },
       { ...result, stdout: output + '  URL: http://example.invalid/mcp\n' } ]) {
@@ -250,8 +279,7 @@ try {
   Object.assign(env, { HOME: home, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
     DISABLE_TELEMETRY: '1', DISABLE_ERROR_REPORTING: '1', DISABLE_AUTOUPDATER: '1', NO_COLOR: '1' });
   if (bash) env.CLAUDE_CODE_GIT_BASH_PATH = bash;
-  const argv = verifyHttp ? verificationArguments() : argumentsFor(useHttp, worker, data);
-  const result = await new Promise((complete, reject) => {
+  const runCli = argv => new Promise((complete, reject) => {
     const child = spawn(cli, argv, { cwd: project, env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
     child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
     let stdout = '', stderr = '', capturedBytes = 0, oversized = false, timedOut = false;
@@ -268,8 +296,13 @@ try {
     child.once('error', () => { clearTimeout(timer); reject(new Error('cli_start_failed')); });
     child.once('close', exitCode => { clearTimeout(timer); complete({ exitCode, stdout, stderr, oversized, timedOut }); });
   });
+  let result = await runCli(verifyHttp ? verificationArguments() : argumentsFor(useHttp, worker, data));
+  // Claude's add handler refuses an allowlist miss before it writes anything, so the one localhost add cannot replace an
+  // entry; an entry that exists by then makes it fail "already exists", which is final.
+  const retriedWithLocalhost = !verifyHttp && retriesWithLocalhost(useHttp, loopbackEndpoint, result);
+  if (retriedWithLocalhost) result = await runCli(argumentsFor(true, worker, data, localhostEndpoint));
   // A failed/timed-out CLI can still have written the entry before failing. Inspect only
-  // the selected config entry afterward, and never retry or overwrite automatically.
+  // the selected config entry afterward, and never retry or overwrite beyond the one localhost add.
   let after;
   try { after = inspect(worker, data, project); } catch { after = { status: 'unavailable' }; }
   if (verifyHttp) {
@@ -286,13 +319,13 @@ try {
         : after.userType === 'stdio' && after.userCommandMatches === true && after.userArgumentsMatch === true);
     report('completed', { publicVersion: '2.1.292', transport: useHttp ? 'http' : 'stdio', exitCode: result.exitCode,
       reason: result.timedOut ? 'timed_out' : result.oversized ? 'cli_output_limit' : classification(result),
-      managedPolicyReason: policyReason(result), registrationConfirmed });
+      managedPolicyReason: policyReason(result), retriedWithLocalhost, registrationConfirmed });
     if (!registrationConfirmed) process.exitCode = 1;
   }
 } catch (error) {
   // Only fixed local error codes are permitted; never print vendor stdout/stderr or config.
   const allowed = new Set(['invalid_path', 'invalid_loopback_endpoint', 'protected_path_refused', 'public_tool_location_refused', 'linked_path', 'invalid_public_file', 'invalid_arguments', 'public_cli_changed',
-    'invalid_directory', 'legacy_configuration_present', 'entry_inspection_unavailable', 'existing_entry_refused', 'probe_entry_refused', 'project_override_refused', 'cli_start_failed']);
+    'invalid_directory', 'invalid_retry', 'legacy_configuration_present', 'entry_inspection_unavailable', 'existing_entry_refused', 'probe_entry_refused', 'project_override_refused', 'cli_start_failed']);
   report('refused', { reason: allowed.has(error.message) ? error.message : 'diagnostic_unavailable' });
   process.exitCode = 1;
 }

@@ -1,6 +1,7 @@
 // Read-only selected-entry diagnostic. Does not launch Claude, MCP, or a worker.
 // Usage: node tools/agentbroker/Inspect-ClaudeMcpEntry.mjs <expected-worker.exe> <expected-data-directory> [<current-project-directory>]
-// Append --http-url http://127.0.0.1:7432/mcp to additionally compare the selected HTTP endpoint.
+// Append --http-url http://127.0.0.1:7432/mcp to additionally compare the selected HTTP endpoint; its localhost
+// spelling on the same port is the same exact entry.
 // Prints fixed fields only. No configuration values, paths, other server names, or CLI output.
 import { spawnSync } from 'node:child_process';
 import { isAbsolute, join, resolve, relative, sep, parse } from 'node:path';
@@ -96,7 +97,12 @@ public static class SelectedClaudeMcpEntry {
             (args[1] as string) == "--data" && (args[2] as string) == data;
     }
     static bool UrlMatches(Dictionary<string, object> entry, string expected) {
-        return !String.IsNullOrEmpty(expected) && Type(entry) == "http" && (Property(entry, "url") as string) == expected;
+        // Either canonical spelling of this endpoint is the exact entry (N-bus-04): the literal URL setup writes first,
+        // and the localhost URL on the same port it writes after a Claude allowlist miss.
+        const string literal = "http://127.0.0.1:";
+        string url = Property(entry, "url") as string;
+        return !String.IsNullOrEmpty(expected) && Type(entry) == "http" && url != null && (url == expected ||
+            expected.StartsWith(literal, StringComparison.Ordinal) && url == "http://localhost:" + expected.Substring(literal.Length));
     }
     static bool HttpProbeSafe(Dictionary<string, object> entry, string expected) {
         // A health probe must not invoke headers helpers or consume configured auth/env.
@@ -217,10 +223,12 @@ try {
 }
 const syntheticConfig = join(temporary, '.claude.json');
 try {
+  // With --http-url the user entry holds the localhost spelling and the project entry the literal one, so both
+  // canonical forms must count as the exact entry for the selected-entry assertions below to pass.
   if (selfTest) writeFileSync(syntheticConfig, JSON.stringify({
     unrelated: { token: 'SYNTHETIC_DO_NOT_PRINT' },
     mcpServers: { 'desktop-ai-companion-agentbroker': expectedHttpEndpoint
-      ? { type: 'http', url: expectedHttpEndpoint }
+      ? { type: 'http', url: expectedHttpEndpoint.replace('http://127.0.0.1:', 'http://localhost:') }
       : { type: 'stdio', command: worker, args: ['--mcp-stdio', '--data', data] } },
     projects: { [project.replaceAll('\\', '/')]: { mcpServers: { 'desktop-ai-companion-agentbroker': expectedHttpEndpoint
       ? { type: 'http', url: expectedHttpEndpoint, headersHelper: 'SYNTHETIC_NEVER_EXECUTE' }

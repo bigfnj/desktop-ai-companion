@@ -28,6 +28,19 @@ if ($collaborationExit -ne 0 -or $collaborationSummary.Count -ne 1) {
     throw "AgentBroker collaboration helper validation failed (exit $collaborationExit)."
 }
 $collaborationChecks = [int]([regex]::Match([string]$collaborationSummary[0], '^PASS: ([0-9]+)').Groups[1].Value)
+# The re-pin helper's fixture checks (broker-b's hand-back, lane feature/agentbroker-backlog-d). The helper supports
+# Windows PowerShell 5.1, so it runs in a powershell.exe child whichever edition runs this script. It reads and writes
+# only its own temporary fixture directory. A failed check, a missing summary line or a nonzero exit fails here.
+Write-Host '=== AgentBroker re-pin helper self-test'
+$repinHelper = Join-Path $repoRoot 'tools\agentbroker\Test-AgentBrokerRepin.ps1'
+$repinOutput = @(& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $repinHelper -SelfTest)
+$repinExit = $LASTEXITCODE
+foreach ($line in $repinOutput) { Write-Host $line }
+$repinSummary = @($repinOutput | Where-Object { "$_" -match '^PASS: ([1-9][0-9]*) re-pin helper fixture checks$' })
+if ($repinExit -ne 0 -or $repinSummary.Count -ne 1 -or @($repinOutput | Where-Object { "$_" -match '^(FAIL:|RESULT=FAIL)' }).Count -gt 0) {
+    throw "AgentBroker re-pin helper self-test failed: tools/agentbroker/Test-AgentBrokerRepin.ps1 -SelfTest (exit $repinExit)."
+}
+$repinChecks = [int]([regex]::Match([string]$repinSummary[0], '^PASS: ([0-9]+)').Groups[1].Value)
 $harnesses = @(
     @{ Name = 'Core'; Project = 'tests\AgentBroker.Core.Tests\AgentBroker.Core.Tests.csproj'
        Executable = "tests\AgentBroker.Core.Tests\bin\$Configuration\net10.0\AgentBroker.Core.Tests.exe"
@@ -76,4 +89,4 @@ foreach ($harness in $harnesses) {
     catch { $failures.Add($harness.Name + ': ' + $_.Exception.Message) }
 }
 if ($failures.Count -gt 0) { throw ('AgentBroker checks failed: ' + ($failures -join '; ')) }
-Write-Host ("AgentBroker deterministic harnesses PASS: $($harnesses.Count) harnesses, $assertions assertions; collaboration helper $collaborationChecks checks.")
+Write-Host ("AgentBroker deterministic harnesses PASS: $($harnesses.Count) harnesses, $assertions assertions; collaboration helper $collaborationChecks checks; re-pin helper $repinChecks checks.")

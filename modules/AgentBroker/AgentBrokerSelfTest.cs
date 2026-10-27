@@ -27,6 +27,7 @@ public sealed partial class AgentBrokerModule
             RunPairingChecks(Check, dispatcher);
             RunFirewallChecks(Check, dispatcher);
             RunOnboardingChecks(Check, dispatcher);
+            RunClientRouteChecks(Check);
             var host = new TestHost();
             string directory = Path.Combine(Path.GetTempPath(), "agentbroker-synthetic-" + Guid.NewGuid().ToString("N"));
             host.UseStorage(Id, new TestStorage(directory));
@@ -188,9 +189,12 @@ public sealed partial class AgentBrokerModule
             setupCommand.AddResult = new(1, privateDiagnostic, "Cannot add MCP server: not allowed by enterprise policy");
             setupCommand.Calls.Clear();
             setupResult = setup.ConfigureAsync("claude", syntheticWorker, directory, CancellationToken.None, httpEndpoint).GetAwaiter().GetResult();
-            Check(setupCommand.Calls.Count == 2 && setupResult.Contains("allowlist " + httpEndpoint, StringComparison.Ordinal) &&
+            // Since N-bus-04 an allowlist miss gets one localhost add of the same endpoint, and nothing else.
+            Check(setupCommand.Calls.Count == 3 && setupCommand.Calls[2].Arguments.SequenceEqual(new[] { "mcp", "add", "--transport", "http", "--scope", "user",
+                    AgentClientSetup.ServerName, "http://localhost:7432/mcp" }) &&
+                setupResult.Contains("allowlist http://localhost:7432/mcp or " + httpEndpoint, StringComparison.Ordinal) &&
                 !setupResult.Contains(privateDiagnostic, StringComparison.Ordinal),
-                "HTTP allowlist refusal names only the validated local URL and never retries another transport");
+                "HTTP allowlist refusal names only the validated local URLs and retries no other URL or transport");
             setupCommand.AddResult = null;
             setupCommand.GetResult = new(0, "existing server", ""); setupCommand.Calls.Clear();
             setup.ConfigureAsync("claude", syntheticWorker, directory, CancellationToken.None, httpEndpoint).GetAwaiter().GetResult();
@@ -245,11 +249,9 @@ public sealed partial class AgentBrokerModule
                 !setupCommand.Calls[1].Arguments.Contains(httpEndpoint) && !setupCommand.Calls[1].Arguments.Contains(privateDiagnostic),
                 "module client action uses stdio only after a verified authenticated connection without persisting its token");
             control.Connection = null;
-            Check(AgentClientCommand.CanUseClaudeFallback("claude", 2) && AgentClientCommand.CanUseClaudeFallback("claude", 3),
-                "only missing bare Claude launch errors can use the canonical user CLI fallback");
-            Check(!AgentClientCommand.CanUseClaudeFallback("claude", 5) && !AgentClientCommand.CanUseClaudeFallback("claude", 1) &&
-                !AgentClientCommand.CanUseClaudeFallback("codex", 2) && !AgentClientCommand.CanUseClaudeFallback("C:\\synthetic\\claude.exe", 2),
-                "access denial, child policy exits, other clients and explicit executables cannot select a fallback launch");
+            // The bare-name launch and its one ~/.local/bin fallback are gone (N-broker-a-01): the client is located before
+            // anything starts, the user's own Claude install is one rung of that order, and the located binary starts once.
+            // RunLocatorChecks holds the replacements ("cli locator: ..."), Claude-only native rung included.
             using (var cancelledSetup = new CancellationTokenSource())
             {
                 cancelledSetup.Cancel(); setupCommand.Calls.Clear();

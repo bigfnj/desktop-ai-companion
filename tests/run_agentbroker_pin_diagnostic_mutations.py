@@ -313,15 +313,40 @@ WITNESSES = (
     Witness("broker-c-channel-reply-any-session", "channel", "worker", ("--channel-only",), "ChannelBridgeChecks.cs", ((
         'if (parent.Message.Recipient != session) throw new ChannelBrokerException("not_addressed_to_this_channel");', "",
     ),)),
-    Witness("broker-c-channel-renew-only-by-wait", "channel", "worker", ("--channel-only",), "ChannelBridgeChecks.cs", ((
-        "if (session is null || Environment.TickCount64 - registeredAt >= tuning.RenewMilliseconds)",
-        "if (session is null || Environment.TickCount64 - registeredAt >= long.MaxValue)",
-    ),)),
+    # Re-pointed by lane feature/agentbroker-backlog-d: since N-broker-c-02 the broker refuses a wait on a dropped inbox,
+    # which resets the bridge's session, so the timer alone is no longer the only way back. Same intent (a bridge that
+    # keeps a dropped inbox), both ways back removed.
+    Witness("broker-c-channel-renew-only-by-wait", "channel", "worker", ("--channel-only",), "ChannelBridgeChecks.cs", (
+        ("if (session is null || Environment.TickCount64 - registeredAt >= tuning.RenewMilliseconds)",
+         "if (session is null || Environment.TickCount64 - registeredAt >= long.MaxValue)"),
+        ("                    Volatile.Write(ref self, null);\n"
+         "                    await Task.Delay(Math.Min(tuning.PollMilliseconds, 250), token);",
+         "                    await Task.Delay(Math.Min(tuning.PollMilliseconds, 250), token);"),
+    )),
     Witness("broker-c-channel-error-code-wrapped", "channel", "worker", ("--channel-only",), "ChannelBridgeChecks.cs", ((
         "if (wrapped >= 0) candidate = candidate[(wrapped + 3)..].Trim();", "_ = wrapped;",
     ),)),
     Witness("broker-c-channel-options-repeat", "channel", "worker", ("--channel-only",), "ChannelBridgeChecks.cs", ((
         'else if (args[index] == "--private" && !isPrivate) isPrivate = true;', 'else if (args[index] == "--private") isPrivate = true;',
+    ),)),
+    # ---- lane feature/agentbroker-backlog-d ----
+    # The loopback listener's two authorities (N-bus-04, owner decision 2026-10-27) and a wait on a restart-lost mailbox
+    # (N-broker-c-02). The new checks run after the --existing-tests-only cut-off, so the existing pin stays 196.
+    Witness("broker-d-host-any-name", "workerapp", "worker", ("--loopback-host-only",), "LoopbackHostChecks.cs", ((
+        'bool knownName = host.Host == "127.0.0.1" || string.Equals(host.Host, "localhost", StringComparison.OrdinalIgnoreCase);',
+        "bool knownName = true;",
+    ),)),
+    Witness("broker-d-host-localhost-refused", "workerapp", "worker", ("--loopback-host-only",), "LoopbackHostChecks.cs", ((
+        ' || string.Equals(host.Host, "localhost", StringComparison.OrdinalIgnoreCase);', ";",
+    ),)),
+    Witness("broker-d-host-any-port", "workerapp", "worker", ("--loopback-host-only",), "LoopbackHostChecks.cs", ((
+        "return knownName && (host.Port ?? 80) == listenerPort;", "return knownName;",
+    ),)),
+    Witness("broker-d-wait-returns-unaddressable", "tools", "worker", ("--wait-tools-only",), "WaitToolChecks.cs", ((
+        '            if (!runtime.Store.IsAddressable(session)) throw new McpException("session_unavailable");\n'
+        "            var result = pending();\n",
+        "            var result = pending();\n"
+        '            if (result.Length == 0 && !runtime.Store.IsAddressable(session)) throw new McpException("session_unavailable");\n',
     ),)),
 )
 

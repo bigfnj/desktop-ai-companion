@@ -142,7 +142,7 @@ public sealed class WorkerApplication : IAsyncDisposable
             if (!context.Request.IsHttps)
             {
                 if (context.Connection.RemoteIpAddress is null || !IPAddress.IsLoopback(context.Connection.RemoteIpAddress) ||
-                    context.Request.Host.Host != "127.0.0.1")
+                    !IsLoopbackAuthority(context.Request.Host, context.Connection.LocalPort))
                 { context.Response.StatusCode = StatusCodes.Status403Forbidden; return; }
                 if (!Options.AllowUnauthenticatedLoopback && !ValidLocalToken(context.Request.Headers.Authorization.ToString()))
                 { context.Response.StatusCode = StatusCodes.Status401Unauthorized; return; }
@@ -164,6 +164,18 @@ public sealed class WorkerApplication : IAsyncDisposable
         });
         Runtime.Federation.MapEndpoints(Application);
         Application.MapMcp("/mcp");
+    }
+
+    // The loopback listener answers exactly two authorities, both naming its own port: the literal address, and
+    // localhost, which a managed Claude Code allowlist can admit (serverUrl http://localhost*) where it refuses
+    // 127.0.0.1 (owner decision 2026-10-27, N-bus-04). Every other name stays refused: a name the requester controls
+    // can be rebound to 127.0.0.1 (DNS rebinding) and must not inherit loopback authority. Another port's authority
+    // is refused too, because it is not this listener. Names compare case-insensitively (RFC 9110); a Host without
+    // a port means http's port 80. Refused alternative: ASP.NET Core's HostFiltering, whose AllowedHosts excludes ports.
+    private static bool IsLoopbackAuthority(HostString host, int listenerPort)
+    {
+        bool knownName = host.Host == "127.0.0.1" || string.Equals(host.Host, "localhost", StringComparison.OrdinalIgnoreCase);
+        return knownName && (host.Port ?? 80) == listenerPort;
     }
 
     private bool ValidLocalToken(string authorization)
