@@ -40,14 +40,23 @@ namespace DesktopAICompanion.Ai
         /// padded copy of it (review finding F4: a hand-edited "text-only-low" with spaces round it read as not listed, so
         /// the screen was captured and the runner then refused the call as ModelCannotSee instead of the text turn).</param>
         /// <param name="effort">The CLI card's effort for this CLI (low, medium or high); "" is the runner's default.</param>
-        internal CodingAgentBackend(CodingAgentCli cli, CodingAgentKind agent, TimeSpan timeout, string model, string effort)
+        /// <param name="leaveOutOwnClaudeSettings">The CLI card's "Keep my Claude Code settings out of companion calls" (lane
+        /// feature/cli-runner-aibrain), handed to every call; the runner reads it on Claude Code alone.</param>
+        internal CodingAgentBackend(CodingAgentCli cli, CodingAgentKind agent, TimeSpan timeout, string model, string effort,
+            bool leaveOutOwnClaudeSettings = false)
         {
             _cli = cli ?? new CodingAgentCli(null, null);
             _agent = agent;
             _timeout = timeout > TimeSpan.Zero ? timeout : CodingAgentCli.DefaultCallTimeout;
             _model = (model ?? "").Trim();
             _effort = effort ?? "";
+            _leaveOutOwnClaudeSettings = leaveOutOwnClaudeSettings;
         }
+
+        private readonly bool _leaveOutOwnClaudeSettings;
+
+        /// <summary>For the self-test: whether this backend's calls ask for the user's settings files to be left out.</summary>
+        internal bool LeavesOutOwnClaudeSettingsForDiagnostics { get { return _leaveOutOwnClaudeSettings; } }
 
         /// <summary>For the self-test: which CLI this backend calls, through which runner, on which model and effort.</summary>
         internal CodingAgentKind AgentForDiagnostics { get { return _agent; } }
@@ -113,6 +122,7 @@ namespace DesktopAICompanion.Ai
                 Purpose = image != null ? "remark-vision" : "remark",
                 Model = _model,
                 Effort = _effort,
+                LeaveOutOwnClaudeSettings = _leaveOutOwnClaudeSettings,
             }, ct).ConfigureAwait(false);
             if (answer.Outcome == CliOutcome.Cancelled) throw new OperationCanceledException(ct);
             if (!answer.Ok) throw new CodingAgentCliException(_agent, answer);

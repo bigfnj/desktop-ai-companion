@@ -344,12 +344,13 @@ namespace DesktopAICompanion.AiBrainModule
             "cloudProvider", "cloudEndpoint", "apiKey", "cloudTextModel", "cloudVisionModel", "cloudConsent", "useLocalFallback",
         };
 
-        private static readonly string[] CliCardRows = { "cliName", "cliStatus" };
+        private static readonly string[] CliCardRows = { "cliStatus" };
 
-        // One "signed in as" row and one "Goes through" row per CLI since aibrain 1.5.0's round 2, each gated on its own
-        // CLI inside the card's gate (AiBrainModule's schema says why).
-        private static readonly string[] ClaudeCliRows = { "cliAccountClaude", "cliSendsClaude" };
-        private static readonly string[] CodexCliRows = { "cliAccountCodex", "cliSendsCodex" };
+        // One "signed in as" row and one "Goes through" row per CLI since aibrain 1.5.0's round 2, and one CLI row per CLI
+        // since lane feature/cli-runner-aibrain (BACKLOG N-cli-model-effort-15; re-pointed from the one "cliName" row
+        // CliCardRows held), each gated on its own CLI inside the card's gate (AiBrainModule's schema says why).
+        private static readonly string[] ClaudeCliRows = { "cliNameClaude", "cliAccountClaude", "cliSendsClaude" };
+        private static readonly string[] CodexCliRows = { "cliNameCodex", "cliAccountCodex", "cliSendsCodex" };
 
         private static readonly string[] AlwaysLiveFields =
         {
@@ -422,7 +423,7 @@ namespace DesktopAICompanion.AiBrainModule
                 ok &= Check(sb, "aibrain cli: the Status card is one Info line, full width and pinned first",
                     status != null && status.Kind == SettingKind.Info && status.Group == "Status" && status.FullWidth && status.PinTop);
                 SettingField enabled = FieldOf(pane, "enabled");
-                SettingField cliName = FieldOf(pane, "cliName");
+                SettingField cliName = FieldOf(pane, "cliNameClaude");
                 ok &= Check(sb, "aibrain cli: the AI brain card and the CLI card are pinned beside it",
                     enabled != null && enabled.PinTop && enabled.Group == "AI brain" && cliName != null && cliName.PinTop);
                 SettingField radio = FieldOf(pane, "brainRunsOn");
@@ -475,7 +476,10 @@ namespace DesktopAICompanion.AiBrainModule
                 }
                 ok &= Check(sb, "aibrain cli: the CLI card's rows grey unless a CLI is chosen, in the mockup's order" +
                     (wrong.Count > 0 ? ": " + string.Join(", ", wrong) : ""),
-                    wrong.Count == 0 && IndexOfField(pane, "cliName") < IndexOfField(pane, "cliAccountClaude") &&
+                    wrong.Count == 0 && IndexOfField(pane, "cliNameClaude") >= 0 &&
+                    FirstFieldOfGroup(pane, AiBrainModule.CliCardGroup) == FieldOf(pane, "cliNameClaude") &&
+                    IndexOfField(pane, "cliNameClaude") < IndexOfField(pane, "cliNameCodex") &&
+                    IndexOfField(pane, "cliNameCodex") < IndexOfField(pane, "cliAccountClaude") &&
                     IndexOfField(pane, "cliAccountClaude") < IndexOfField(pane, "cliAccountCodex") &&
                     IndexOfField(pane, "cliAccountCodex") < IndexOfField(pane, "cliStatus") &&
                     IndexOfField(pane, "cliStatus") < IndexOfField(pane, "cliSendsClaude") &&
@@ -557,11 +561,13 @@ namespace DesktopAICompanion.AiBrainModule
             {
                 OptionsPane pane = rig.Pane;
                 IReadOnlyDictionary<string, string> shown = pane.Load();
-                // Re-pointed in round 3 of lane feature/cli-model-effort, to the whole row: "No CLI in use yet" read wrong on the
-                // local slot after a CLI had been in use (the second on-screen walk).
-                ok &= Check(sb, "aibrain cli: with no CLI chosen the CLI row says to pick one and press Apply: " + shown["cliName"],
-                    shown["cliName"] == "No CLI in use. Choose Claude Code CLI or Codex CLI under \"Brain runs on\" and press Apply " +
-                                        "(Validate tests the one on screen before that).");
+                // Re-pointed by lane feature/cli-runner-aibrain (BACKLOG N-cli-model-effort-15): one CLI row per CLI, so with no
+                // CLI saved each row says what reads it, true whichever CLI the radio shows (the signed-in rows' rule), where
+                // the one row said "No CLI in use".
+                ok &= Check(sb, "aibrain cli: with no CLI saved each CLI row says which CLI to choose before Validate: " +
+                                shown["cliNameClaude"] + " | " + shown["cliNameCodex"],
+                    shown["cliNameClaude"] == "Claude Code: not checked yet. Choose Claude Code CLI under \"Brain runs on\", then press Validate." &&
+                    shown["cliNameCodex"] == "Codex: not checked yet. Choose Codex CLI under \"Brain runs on\", then press Validate.");
                 rig.Runner.RefreshDetailsAsync(CodingAgentKind.Claude, CancellationToken.None).GetAwaiter().GetResult();
                 rig.Save("brainRunsOn", "Claude Code CLI", "useVision", "true");
                 Func<int> codexStarts = delegate { return rig.Fake.Calls.FindAll(delegate(FakeCliCall c) { return c.IsCodex; }).Count; };
@@ -572,8 +578,12 @@ namespace DesktopAICompanion.AiBrainModule
                 bool codexReadByLoad = SpinWait.SpinUntil(delegate { return codexStarts() > codexStartsBeforeLoad; }, TimeSpan.FromSeconds(1.5));
                 // Re-pointed by lane feature/cli-model-effort (aibrain 1.5.0): the row named "its default model", which was
                 // whatever the user's own setup resolved; it names the card's choice now, from the module's defaults here.
-                ok &= Check(sb, "aibrain cli: the card's CLI row names Claude Code, its version, and the model and effort chosen: " + shown["cliName"],
-                    shown["cliName"] == "Claude Code 2.1.292, " + DefaultClaudeChoicePhrase());
+                ok &= Check(sb, "aibrain cli: the card's CLI row names Claude Code, its version, and the model and effort chosen: " + shown["cliNameClaude"],
+                    shown["cliNameClaude"] == "Claude Code 2.1.292, " + DefaultClaudeChoicePhrase());
+                // Lane feature/cli-runner-aibrain (BACKLOG N-cli-model-effort-15): the Codex row follows Codex, not the saved
+                // Claude Code, and a pane open starts no Codex to fill it (codexReadByLoad, below).
+                ok &= Check(sb, "aibrain cli: with Claude Code saved, the Codex CLI row describes Codex, never the saved Claude Code: " + shown["cliNameCodex"],
+                    shown["cliNameCodex"] == AiBrainModule.CliNameNotReadYet(CodingAgentKind.Codex) && !codexReadByLoad);
                 ok &= Check(sb, "aibrain cli: the card's Signed in as row names the account the CLI reports",
                     shown["cliAccountClaude"] == "someone@example.invalid (max)");
                 ok &= Check(sb, "aibrain cli: the card's Status row asks for a Validate until one has run",

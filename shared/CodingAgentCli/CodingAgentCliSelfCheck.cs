@@ -384,6 +384,15 @@ namespace DesktopAICompanion.CodingAgent
             Guard(check, "a setting Codex refused", CheckCodexConfigRefusal);
             Guard(check, "a Codex screenshot named by its file name in its own folder", CheckCodexImagePath);
             Guard(check, "Codex's skill-roots list left out", CheckCodexSkillRootsLeftOut);
+            // Lane feature/cli-runner-aibrain.
+            Guard(check, "a stopped call's log line", CheckNoExitLog);
+            Guard(check, "a Validate across an Apply of another choice", CheckValidationAcrossApply);
+            Guard(check, "Remove token's retry of a held file", CheckTokenDeleteRetry);
+            Guard(check, "a setting Codex ignored", CheckCodexIgnoredSetting);
+            Guard(check, "a plain Codex failure's quoted stderr", CheckCodexQuotedStderr);
+            Guard(check, "an organisation's managed MCP policy", CheckMcpPolicyRefusal);
+            Guard(check, "the opt-in that keeps the user's Claude Code settings out", CheckOwnSettingsLeftOut);
+            Guard(check, "Claude Code's permission mode named", CheckPermissionModeNamed);
         }
 
         private static void Guard(Action<string, bool> check, string group, Action<Action<string, bool>> run)
@@ -490,6 +499,9 @@ namespace DesktopAICompanion.CodingAgent
             {
                 "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
                 "--no-session-persistence", "--tools", "", "--strict-mcp-config", "--disable-slash-commands",
+                // Re-pointed by lane feature/cli-runner-aibrain (BACKLOG N-codex-config-refusal-02): the permission mode named,
+                // a privacy control (the site says what auto mode added to every request).
+                "--permission-mode", "default",
                 "--settings", ExpectedClaudeSettings(CodingAgentCli.DefaultEffort), "--effort", CodingAgentCli.DefaultEffort,
                 "--system-prompt", Persona,
             };
@@ -1390,6 +1402,7 @@ namespace DesktopAICompanion.CodingAgent
             {
                 "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
                 "--no-session-persistence", "--tools", "", "--strict-mcp-config", "--disable-slash-commands",
+                "--permission-mode", "default",
                 "--settings", ExpectedClaudeSettings("high"), "--model", "sonnet", "--effort", "high",
                 "--system-prompt", Persona,
             };
@@ -2022,8 +2035,10 @@ namespace DesktopAICompanion.CodingAgent
                     !fake.Calls.Exists(delegate(FakeCliCall x) { return x.Is("exec"); }) &&
                     CodingAgentCliText.Describe(CodingAgentKind.Codex, chosenPair, null) ==
                         "✗ Codex was not started: the model text-only-low takes low or medium effort in Codex's own catalog, not high. Choose again in the CLI card and press Apply." &&
-                    CodingAgentCliText.Describe(CodingAgentKind.Codex, automaticPair, null).StartsWith(
-                        "✗ Codex was not started: Codex's automatic pick, text-only-low, takes low or medium effort in Codex's own catalog, not high.", StringComparison.Ordinal));
+                    // Re-pointed by lane feature/cli-runner-aibrain (BACKLOG N-cli-model-effort-14), to the whole sentence:
+                    // the automatic pick in the words every row says it in, "the automatic pick (text-only-low)".
+                    CodingAgentCliText.Describe(CodingAgentKind.Codex, automaticPair, null) ==
+                        "✗ Codex was not started: the automatic pick (text-only-low) takes low or medium effort in Codex's own catalog, not high. Choose again in the CLI card and press Apply.");
                 CliAnswer listedPair = Wait(runner.AskAsync(Chosen(CodingAgentKind.Codex, "text-only-low", "medium", null), CancellationToken.None));
                 CliAnswer unlistedPair = Wait(runner.AskAsync(Chosen(CodingAgentKind.Codex, "not-listed-9", "high", null), CancellationToken.None));
                 CliAnswer noEfforts = Wait(runner.AskAsync(Chosen(CodingAgentKind.Codex, "hidden-first", "high", null), CancellationToken.None));
@@ -2160,9 +2175,9 @@ namespace DesktopAICompanion.CodingAgent
                 CliAnswer refusedPick = Wait(odd.AskAsync(atLow, CancellationToken.None));
                 check("cli runner: an automatic pick no user could type is held to its own catalog entry's efforts, and refused before the call",
                     refusedPick.Outcome == CliOutcome.ChoiceRefused && !oddFake.Calls.Exists(delegate(FakeCliCall x) { return x.Is("exec"); }) &&
-                    CodingAgentCliText.Describe(CodingAgentKind.Codex, refusedPick, null).StartsWith(
-                        "✗ Codex was not started: Codex's automatic pick, Org/Pick_Low, takes medium or high effort in Codex's own catalog, not low.",
-                        StringComparison.Ordinal));
+                    // Re-pointed by lane feature/cli-runner-aibrain (BACKLOG N-cli-model-effort-14), as the pin above.
+                    CodingAgentCliText.Describe(CodingAgentKind.Codex, refusedPick, null) ==
+                        "✗ Codex was not started: the automatic pick (Org/Pick_Low) takes medium or high effort in Codex's own catalog, not low. Choose again in the CLI card and press Apply.");
                 CliRequest atMedium = Remark(CodingAgentKind.Codex, "t", null);
                 atMedium.Effort = "medium";
                 CliAnswer pickRuns = Wait(odd.AskAsync(atMedium, CancellationToken.None));
@@ -3307,6 +3322,464 @@ namespace DesktopAICompanion.CodingAgent
                   probes.Count + " probes" + (leaked.Count > 0 ? "; found on: " + string.Join(" | ", leaked) : "") + ")",
                 ProbeKindsRan(probes).Count == 4 && leaked.Count == 0);
         }
+
+        // ---- lane feature/cli-runner-aibrain ----
+
+        /// <summary>The runner's last log line for <paramref name="prefix"/> ("cli: claude remark "), read under the log's
+        /// own lock.</summary>
+        private static string LastLogLine(List<string> log, string prefix)
+        {
+            lock (log) return log.FindLast(delegate(string l) { return l.StartsWith(prefix, StringComparison.Ordinal); }) ?? "";
+        }
+
+        /// <summary>
+        /// BACKLOG N-cli-model-effort-04: a call that STARTED and was stopped, by its bound or by its caller, has no exit code,
+        /// and its log line says "no-exit" in place of the "exit=0" it used to print; one that came back prints its exit
+        /// code and one never started "not-started", as before.
+        /// </summary>
+        private static void CheckNoExitLog(Action<string, bool> check)
+        {
+            using (var scratch = new FakeCliScratch())
+            {
+                var log = new List<string>();
+                var entered = new ManualResetEventSlim(false);
+                var fake = new FakeCliProcess();
+                fake.Respond = async delegate(FakeCliCall call, CancellationToken token)
+                {
+                    if (!call.IsModelCall) return await FakeCliProcess.Answering("OK")(call, token).ConfigureAwait(false);
+                    entered.Set();
+                    await Task.Delay(-1, token).ConfigureAwait(false);
+                    return FakeCliProcess.Result(0, "", "");
+                };
+                CodingAgentCli runner = scratch.NewRunner(fake, log);
+                CliRequest bounded = Remark(CodingAgentKind.Claude, "p", null);
+                bounded.Timeout = TimeSpan.FromMilliseconds(300);
+                CliAnswer timedOut = Wait(runner.AskAsync(bounded, CancellationToken.None));
+                string timedOutLine = LastLogLine(log, "cli: claude remark ");
+                check("cli runner: a call its bound stopped logs no-exit, never an exit code it did not have: " + timedOutLine,
+                    timedOut.Outcome == CliOutcome.TimedOut && timedOutLine.Contains(" timed-out no-exit ms=") && !timedOutLine.Contains(" exit="));
+                entered.Reset();
+                CliAnswer cancelled;
+                bool inFlight;
+                using (var stop = new CancellationTokenSource())
+                {
+                    Task<CliAnswer> stopping = runner.AskAsync(Remark(CodingAgentKind.Claude, "p", null), stop.Token);
+                    inFlight = entered.Wait(TimeSpan.FromSeconds(10));
+                    stop.Cancel();
+                    cancelled = Wait(stopping);
+                }
+                string cancelledLine = LastLogLine(log, "cli: claude remark ");
+                check("cli runner: ...and so does a call its caller stopped: " + cancelledLine,
+                    inFlight && cancelled.Outcome == CliOutcome.Cancelled && cancelledLine.Contains(" cancelled no-exit ms=") &&
+                    !cancelledLine.Contains(" exit="));
+                fake.Respond = FakeCliProcess.Answering("OK");
+                CliAnswer answered = Wait(runner.AskAsync(Remark(CodingAgentKind.Claude, "p", null), CancellationToken.None));
+                string answeredLine = LastLogLine(log, "cli: claude remark ");
+                CliAnswer refused = Wait(runner.AskAsync(Chosen(CodingAgentKind.Claude, "not-an-alias", "low", null), CancellationToken.None));
+                string refusedLine = LastLogLine(log, "cli: claude remark ");
+                check("WITNESS cli runner: a call that came back logs its exit code, and one never started says not-started: " +
+                      answeredLine + " | " + refusedLine,
+                    answered.Ok && answeredLine.Contains(" ok exit=0 ms=") && refused.Outcome == CliOutcome.ChoiceRefused &&
+                    refusedLine.Contains(" choice-refused not-started ms="));
+            }
+        }
+
+        /// <summary>
+        /// BACKLOG N-cli-model-effort-13, the round 3 reviewer's fix: a Validate still running when an Apply saves ANOTHER choice
+        /// for its CLI records no tick afterwards, so the card's Status row never shows a green tick for a choice the Apply
+        /// replaced; one that ends after an Apply of the very choice it tested keeps its tick (the WITNESS). The fake holds
+        /// the Validate's call open while the Apply's forget runs, as the pane allows (only the pressed button greys).
+        /// </summary>
+        private static void CheckValidationAcrossApply(Action<string, bool> check)
+        {
+            using (var scratch = new FakeCliScratch())
+            {
+                var entered = new ManualResetEventSlim(false);
+                TaskCompletionSource<CliProcessResult> hold = null;
+                var fake = new FakeCliProcess();
+                fake.Respond = delegate(FakeCliCall call, CancellationToken token)
+                {
+                    TaskCompletionSource<CliProcessResult> held = Volatile.Read(ref hold);
+                    if (call.IsModelCall && held != null)
+                    {
+                        entered.Set();
+                        return held.Task;
+                    }
+                    return FakeCliProcess.Answering("OK")(call, token);
+                };
+                CodingAgentCli runner = scratch.NewRunner(fake, new List<string>());
+                Func<string, string, string, bool> validateAcrossApply = delegate(string tested, string applied, string effort)
+                {
+                    entered.Reset();
+                    Volatile.Write(ref hold, new TaskCompletionSource<CliProcessResult>(TaskCreationOptions.RunContinuationsAsynchronously));
+                    Task<CliAnswer> validating = runner.ValidateAsync(CodingAgentKind.Claude, CancellationToken.None, null, tested, effort);
+                    bool inFlight = entered.Wait(TimeSpan.FromSeconds(10));
+                    runner.ForgetValidationUnlessTested(CodingAgentKind.Claude, applied, effort);
+                    hold.SetResult(FakeCliProcess.Result(0,
+                        FakeCliProcess.ClaudeStream("OK", false, FakeCliProcess.AnsweredModelFor(tested), tested), ""));
+                    CliAnswer answer = Wait(validating);
+                    return inFlight && answer.Ok;
+                };
+                bool staleRan = validateAcrossApply("haiku", "sonnet", "low");
+                string staleRow = runner.LatestValidation();
+                check("cli runner: a Validate that ends after an Apply saved another choice for its CLI records no tick for the choice the Apply replaced: " +
+                      (staleRow ?? "(no row)"),
+                    staleRan && runner.LastValidation(CodingAgentKind.Claude) == null && staleRow == null);
+                bool sameRan = validateAcrossApply("haiku", "haiku", "low");
+                string sameRow = runner.LastValidation(CodingAgentKind.Claude);
+                check("WITNESS cli runner: ...and one that ends after an Apply of the very choice it tested keeps its tick: " + (sameRow ?? "(no row)"),
+                    sameRan && sameRow != null && sameRow.StartsWith("✓ Claude Code: answered at ", StringComparison.Ordinal));
+            }
+        }
+
+        /// <summary>
+        /// BACKLOG N-codex-config-refusal-01: Remove token tries the delete again for a moment when the token file is held open
+        /// (Remembrance's self-check met an IOException there now and then), so a file let go mid-retry is deleted and the
+        /// answer is the tick; a file held past the bound still reports the failure in the words it always had, after every
+        /// try (the WITNESS that the bound holds and nothing is swallowed). The file is held by a handle without delete sharing,
+        /// which is what makes File.Delete throw IOException, and let go only once the runner says a retry is under way.
+        /// </summary>
+        private static void CheckTokenDeleteRetry(Action<string, bool> check)
+        {
+            using (var scratch = new FakeCliScratch())
+            {
+                var log = new List<string>();
+                CodingAgentCli runner = scratch.NewRunner(new FakeCliProcess { Respond = FakeCliProcess.Answering("OK") }, log);
+                string error;
+                string file = Path.Combine(scratch.Data, "cli", CodingAgentCli.ClaudeTokenFileName);
+                bool saved = runner.TrySetClaudeToken(SelfTestToken, out error);
+                bool retried;
+                string removed;
+                using (var holder = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read))
+                {
+                    Task<string> removing = Task.Run(delegate { return runner.RemoveClaudeToken(); });
+                    retried = SpinWait.SpinUntil(delegate { return Volatile.Read(ref runner.TokenDeleteRetriesForDiagnostics) > 0; },
+                        TimeSpan.FromSeconds(10));
+                    holder.Dispose();
+                    removed = Wait(removing);
+                }
+                string read;
+                check("cli runner: Remove token tries again for a moment when the token file is held open, and deletes it once it is let go: " + removed,
+                    saved && retried && removed.StartsWith("✓ Removed.", StringComparison.Ordinal) && !File.Exists(file) &&
+                    runner.ReadClaudeToken(out read) == CodingAgentCli.ClaudeTokenState.None);
+                bool savedAgain = runner.TrySetClaudeToken(SelfTestToken, out error);
+                int retriesBefore = Volatile.Read(ref runner.TokenDeleteRetriesForDiagnostics);
+                string held;
+                using (new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read))
+                    held = runner.RemoveClaudeToken();
+                int retries = Volatile.Read(ref runner.TokenDeleteRetriesForDiagnostics) - retriesBefore;
+                check("WITNESS cli runner: ...and a file held past the bound still reports the failure, after " + CodingAgentCli.TokenDeleteAttempts +
+                      " tries (" + retries + " retried): " + held,
+                    savedAgain && held == "✗ The saved sign-in token could not be removed (IOException). Press Remove token again in a moment." &&
+                    retries == CodingAgentCli.TokenDeleteAttempts - 1 && File.Exists(file) &&
+                    LastLogLine(log, "cli: claude sign-in token not removed") == "cli: claude sign-in token not removed: IOException");
+                runner.RemoveClaudeToken();
+            }
+        }
+
+        /// <summary>One Codex --json item.completed error item carrying <paramref name="message"/>, then an answer, as the
+        /// ignored-key captures are laid out (a shape, not a capture).</summary>
+        private static string CodexStreamWithNotice(string message)
+        {
+            return "{\"type\":\"thread.started\",\"thread_id\":\"t\"}\n" +
+                   new JsonObject
+                   {
+                       ["type"] = "item.completed",
+                       ["item"] = new JsonObject { ["id"] = "item_0", ["type"] = "error", ["message"] = message },
+                   }.ToJsonString() + "\n" + FakeCliProcess.CodexStream("OK");
+        }
+
+        /// <summary>
+        /// BACKLOG N-codex-config-refusal-04, the owner's decision (fail closed): a key the call SETS that Codex's stream says
+        /// it ignored fails the call, whatever it answered, as ConfigRefused naming the key, the answer unused, in the one
+        /// sentence with "ignored" and "so its answer was not used"; the card's Status row, the Status card's brief, the
+        /// thrown message and the log say "ignored"; a remark that came back that way is not kept as what last answered. Over
+        /// the verbatim Codex 0.160.1 captures (CodexRefusalCaptures.Ignored*: keys the call does not set, which answer; on the
+        /// command line that set them, refused) and shapes built from them around the call's own keys. Not for the five
+        /// token-only features keys, which the owner chose to let a rename cost tokens instead (WITNESS of that carve-out). A
+        /// key counts only on a "session-flags:" line of its own, ended as Codex ends it, and only in an error item.
+        /// </summary>
+        private static void CheckCodexIgnoredSetting(Action<string, bool> check)
+        {
+            string module = CodingAgentModuleWords.Module;
+            string version = CodingAgentCli.CodexSettingsMeasuredOn;
+            string row;
+            List<string> arguments;
+            var log = new List<string>();
+            CliAnswer ignored = CodexValidateOver(CodexEnding(version, 0, CodexRefusalShapes.IgnoredOwnSkillsKeyStdout, ""), out row, out arguments, log);
+            const string said = "Codex is ignoring 1 unrecognized configuration setting. Check for typos or deprecated settings. " +
+                                "session-flags: `skills.include_instructions` is ignored.";
+            string expected = "✗ Codex " + version + " ignored skills.include_instructions, one of the settings " + module +
+                              " starts it with, so its answer was not used: check the Modules pane for an update to " + module +
+                              ", or choose another engine under " + CodingAgentModuleWords.EngineRow + " meanwhile. (Codex said: " + said + ")";
+            string sentence = CodingAgentCliText.Describe(CodingAgentKind.Codex, ignored, CodingAgentCli.ValidateTimeout);
+            check("cli runner: a key the call sets that Codex says it ignored fails the call closed, its answer unused, in one sentence: " + sentence,
+                ignored.Outcome == CliOutcome.ConfigRefused && ignored.SettingIgnored && ignored.RefusedSetting == "skills.include_instructions" &&
+                ignored.Text.Length == 0 && ignored.ExitCode == 0 && arguments != null && sentence == expected);
+            string head = "✗ Codex: ignored skills.include_instructions at ";
+            string tail = " s; it is " + ExpectedAdvice(false);
+            string line = LastLogLine(log, "cli: codex validate ");
+            check("cli runner: ...the Status row, the Status card's brief, the thrown message and the log say it was ignored: " + row + " | " + line,
+                row.StartsWith(head, StringComparison.Ordinal) && row.EndsWith(tail, StringComparison.Ordinal) &&
+                CodingAgentCliText.Brief(ignored) == "ignored skills.include_instructions, " + ExpectedAdvice(false) &&
+                new CodingAgentCliException(CodingAgentKind.Codex, ignored).Message == CodingAgentCliText.Describe(CodingAgentKind.Codex, ignored, null) &&
+                line.Contains(" config-refused exit=0 ") && line.EndsWith(" ignored=skills.include_instructions", StringComparison.Ordinal));
+
+            CodexValidateOver(CodexEnding(version, 0, FakeCliProcess.CodexStream("OK"), ""), out row, out arguments, new List<string>());
+            List<string> todays = arguments ?? new List<string>();
+            var captures = new[]
+            {
+                new object[] { CodexRefusalCaptures.IgnoredSkillsKeyStdout, "skills.zz_not_a_key", new[] { "-c", "skills.zz_not_a_key=false" } },
+                new object[] { CodexRefusalCaptures.IgnoredTwoKeysStdout, "skills.zz_not_a_key",
+                               new[] { "-c", "skills.zz_not_a_key=false", "-c", "zz_top_level_key=false" } },
+                new object[] { CodexRefusalCaptures.IgnoredKeyStdout, "features.zz_not_a_feature", new[] { "-c", "features.zz_not_a_feature=false" } },
+            };
+            var answeredToday = new List<string>();
+            var refusedOnOwn = new List<string>();
+            foreach (object[] c in captures)
+            {
+                CliAnswer today = Interpreted(CodingAgentKind.Codex, 0, (string)c[0], "", todays);
+                CliAnswer own = Interpreted(CodingAgentKind.Codex, 0, (string)c[0], "", CaptureCommandLine(todays, (string[])c[2], null, null));
+                if (today.Ok && today.Text == "OK") answeredToday.Add((string)c[1]);
+                if (own.Outcome == CliOutcome.ConfigRefused && own.SettingIgnored && own.RefusedSetting == (string)c[1]) refusedOnOwn.Add((string)c[1]);
+            }
+            check("cli runner: a key Codex ignored that the call did not set leaves the answer standing, each verbatim 0.160.1 capture: " +
+                  answeredToday.Count + " of " + captures.Length,
+                todays.Count > 0 && answeredToday.Count == captures.Length);
+            check("WITNESS cli runner: ...each capture fails closed on the command line that set its keys: " + string.Join(", ", refusedOnOwn),
+                refusedOnOwn.Count == captures.Length);
+            CliAnswer second = Interpreted(CodingAgentKind.Codex, 0, CodexRefusalShapes.IgnoredOwnSecondKeyStdout, "", todays);
+            check("cli runner: the call's own key is found on any line of a notice that names several: " + second.RefusedSetting,
+                second.Outcome == CliOutcome.ConfigRefused && second.RefusedSetting == "project_doc_max_bytes");
+
+            var tokenOnlyAnswered = new List<string>();
+            foreach (string feature in CodingAgentCli.CodexFeatureKeysOff)
+            {
+                CliAnswer a = Interpreted(CodingAgentKind.Codex, 0,
+                    CodexRefusalCaptures.IgnoredKeyStdout.Replace("features.zz_not_a_feature", "features." + feature), "", todays);
+                if (a.Ok && a.Text == "OK") tokenOnlyAnswered.Add(feature);
+            }
+            check("cli runner: one of the five token-only features keys Codex ignored still answers, the owner's ignore-if-unknown form: " +
+                  string.Join(", ", tokenOnlyAnswered),
+                tokenOnlyAnswered.Count == 5 && CodingAgentCli.CodexFeatureKeysOff.Length == 5);
+
+            CliAnswer otherLayer = Interpreted(CodingAgentKind.Codex, 0,
+                CodexRefusalShapes.IgnoredOwnSkillsKeyStdout.Replace("session-flags: `", "user: `"), "", todays);
+            CliAnswer inline = Interpreted(CodingAgentKind.Codex, 0, CodexStreamWithNotice(
+                "Codex is ignoring 1 unrecognized configuration setting: `skills.include_instructions` is ignored."), "", todays);
+            CliAnswer unended = Interpreted(CodingAgentKind.Codex, 0, CodexStreamWithNotice(
+                "Codex is ignoring 1 unrecognized configuration setting. Check for typos or deprecated settings.\n" +
+                "  session-flags: `skills.include_instructions` was ignored."), "", todays);
+            CliAnswer spoken = Interpreted(CodingAgentKind.Codex, 0, FakeCliProcess.CodexStream(
+                "Codex is ignoring 1 unrecognized configuration setting.\n  session-flags: `skills.include_instructions` is ignored."), "", todays);
+            check("cli runner: an ignored key counts only on a session-flags line of its own, ended as Codex ends it, in an error item: " +
+                  otherLayer.Outcome + ", " + inline.Outcome + ", " + unended.Outcome + ", " + spoken.Outcome,
+                otherLayer.Ok && inline.Ok && unended.Ok && spoken.Ok);
+
+            using (var scratch = new FakeCliScratch())
+            {
+                var fake = new FakeCliProcess { Respond = CodexEnding(version, 0, CodexRefusalShapes.IgnoredOwnSkillsKeyStdout, "") };
+                CodingAgentCli runner = scratch.NewRunner(fake, new List<string>());
+                CliAnswer remark = Wait(runner.AskAsync(Remark(CodingAgentKind.Codex, "a remark", null), CancellationToken.None));
+                check("cli runner: ...and a remark that came back that way is not kept as what last answered",
+                    remark.Outcome == CliOutcome.ConfigRefused && remark.SettingIgnored && runner.LastAnswered(CodingAgentKind.Codex) == null);
+            }
+        }
+
+        /// <summary>
+        /// BACKLOG N-codex-config-refusal-06 (decision: fix): a plain Codex failure quotes its stderr without the WARNING lines
+        /// Codex writes ahead of anything else, over the real-codex re-check's own stderr (TempOverHomeWarning, its two folders
+        /// a stand-in, then a capture byte for byte), which on today's command line is a plain failure. Leading lines only,
+        /// and Codex only: a WARNING after Codex's error, and Claude Code's stderr, are quoted as written (the WITNESS).
+        /// </summary>
+        private static void CheckCodexQuotedStderr(Action<string, bool> check)
+        {
+            string row;
+            List<string> arguments;
+            CodexValidateOver(CodexEnding(CodingAgentCli.CodexSettingsMeasuredOn, 0, FakeCliProcess.CodexStream("OK"), ""), out row, out arguments,
+                new List<string>());
+            List<string> todays = arguments ?? new List<string>();
+            CliAnswer plain = Interpreted(CodingAgentKind.Codex, 1, "", CodexRefusalCaptures.TempOverHomeUnknownFeatureStderr, todays);
+            CliAnswer onlyWarning = Interpreted(CodingAgentKind.Codex, 1, "", CodexRefusalCaptures.TempOverHomeWarning, todays);
+            string words = CodingAgentCliText.Describe(CodingAgentKind.Codex, plain, null);
+            check("cli runner: a plain Codex failure quotes its stderr without the WARNING line Codex writes first, which names its home and TEMP folders: " +
+                  words,
+                todays.Count > 0 && plain.Outcome == CliOutcome.Failed &&
+                plain.Said == "Error: Unknown feature flag: zz_not_a_feature" &&
+                words == "✗ Codex failed (exit 1): Error: Unknown feature flag: zz_not_a_feature" &&
+                onlyWarning.Said.Length == 0 && words.IndexOf("stand-in", StringComparison.Ordinal) < 0);
+            CliAnswer after = Interpreted(CodingAgentKind.Codex, 1, "", "Error: the turn could not start\n" + CodexRefusalCaptures.TempOverHomeWarning, todays);
+            CliAnswer claude = Interpreted(CodingAgentKind.Claude, 1, "", CodexRefusalCaptures.TempOverHomeWarning + "Error: the turn could not start\n", null);
+            check("WITNESS cli runner: ...a WARNING line after Codex's error stays in what it said, and Claude Code's stderr is quoted as written",
+                after.Said.StartsWith("Error: the turn could not start WARNING: proceeding", StringComparison.Ordinal) &&
+                claude.Said.StartsWith("WARNING: proceeding", StringComparison.Ordinal));
+        }
+
+        /// <summary>
+        /// BACKLOG N-cli-home-files-06: under an organisation's managed MCP configuration Claude Code refuses a call that passes
+        /// --strict-mcp-config, which every model call does, in the words the 2.1.293 binary holds
+        /// (CodingAgentCli.ClaudeMcpPolicyRefusal); the call is McpPolicyRefused, said in its own sentence naming this module
+        /// and its engine row with Claude Code's words last, in the card's Status row and the log by its class. Its words on a
+        /// Codex call, on a Claude Code call that did not pass the flag, and an ordinary failure stay what they were.
+        /// </summary>
+        private static void CheckMcpPolicyRefusal(Action<string, bool> check)
+        {
+            string module = CodingAgentModuleWords.Module;
+            // Typed here, not read from the runner, so a change to the words it reads is a change here too: what the
+            // Claude Code 2.1.293 binary refuses a --strict-mcp-config call with under an enterprise MCP config.
+            const string words = "You cannot use --strict-mcp-config when an enterprise MCP config is present";
+            using (var scratch = new FakeCliScratch())
+            {
+                var log = new List<string>();
+                var fake = new FakeCliProcess();
+                fake.Respond = delegate(FakeCliCall call, CancellationToken token)
+                {
+                    if (call.IsModelCall && !call.IsCodex) return Task.FromResult(FakeCliProcess.Result(1, "", words + "\n"));
+                    return FakeCliProcess.Answering("OK")(call, token);
+                };
+                CodingAgentCli runner = scratch.NewRunner(fake, log);
+                CliAnswer refused = Wait(runner.ValidateAsync(CodingAgentKind.Claude, CancellationToken.None));
+                string sentence = CodingAgentCliText.Describe(CodingAgentKind.Claude, refused, CodingAgentCli.ValidateTimeout);
+                string expected = "✗ Your organisation's MCP policy refused this Claude Code call: a managed MCP configuration on this machine " +
+                                  "keeps control of Claude Code's MCP servers, and " + module + " starts Claude Code with none of them " +
+                                  "(--strict-mcp-config). Choose another engine under " + CodingAgentModuleWords.EngineRow + ". (Claude Code said: " +
+                                  words + ")";
+                check("cli runner: Claude Code's refusal under a managed MCP configuration is its own outcome, said as the organisation's policy: " + sentence,
+                    refused.Outcome == CliOutcome.McpPolicyRefused && sentence == expected);
+                string row = runner.LatestValidation() ?? "";
+                string line = LastLogLine(log, "cli: claude validate ");
+                check("cli runner: ...the card's Status row says it in a few words and the log names its class: " + row + " | " + line,
+                    row.StartsWith("✗ Claude Code: refused by your organisation's MCP policy at ", StringComparison.Ordinal) &&
+                    line.StartsWith("cli: claude validate mcp-policy-refused exit=1 ", StringComparison.Ordinal) &&
+                    line.IndexOf("enterprise", StringComparison.OrdinalIgnoreCase) < 0);
+            }
+            List<string> claudeArgs = CodingAgentCli.BuildArguments(Remark(CodingAgentKind.Claude, "p", null), "", null, null);
+            CliAnswer prefixed = Interpreted(CodingAgentKind.Claude, 1, "", "Error: " + words + "\n", claudeArgs);
+            check("WITNESS cli runner: ...the same words after a prefix Claude Code may put ahead of them are the same outcome",
+                prefixed.Outcome == CliOutcome.McpPolicyRefused);
+            List<string> withoutFlag = new List<string>(claudeArgs);
+            withoutFlag.Remove("--strict-mcp-config");
+            CliAnswer codex = Interpreted(CodingAgentKind.Codex, 1, "", words + "\n", new List<string> { "exec", "--strict-mcp-config" });
+            CliAnswer unflagged = Interpreted(CodingAgentKind.Claude, 1, "", words + "\n", withoutFlag);
+            CliAnswer ordinary = Interpreted(CodingAgentKind.Claude, 1, "", "Something else went wrong\n", claudeArgs);
+            check("cli runner: the words on a Codex call or on a call that did not pass --strict-mcp-config, and an ordinary failure, are plain failures: " +
+                  codex.Outcome + ", " + unflagged.Outcome + ", " + ordinary.Outcome,
+                codex.Outcome == CliOutcome.Failed && unflagged.Outcome == CliOutcome.Failed && ordinary.Outcome == CliOutcome.Failed);
+        }
+
+        /// <summary>How many arguments name <paramref name="flag"/>, as itself or with a value joined on.</summary>
+        private static int FlagMentions(List<string> arguments, string flag)
+        {
+            if (arguments == null) return -1;
+            return arguments.FindAll(delegate(string a) { return a == flag || a.StartsWith(flag + "=", StringComparison.Ordinal); }).Count;
+        }
+
+        /// <summary>
+        /// BACKLOG N-cli-home-files-01, the owner's decision (an opt-in, default off): with the module's "Keep my Claude Code
+        /// settings out of companion calls" on, a Claude Code MODEL call carries --setting-sources with an empty list, once,
+        /// right after its --settings; with it off, the default, none does. A remark and a Validate that ask for it carry it;
+        /// a Codex call and every probe (--version, auth status, update) never do.
+        /// </summary>
+        private static void CheckOwnSettingsLeftOut(Action<string, bool> check)
+        {
+            CliRequest off = Remark(CodingAgentKind.Claude, "x", null);
+            CliRequest on = Remark(CodingAgentKind.Claude, "x", null);
+            on.LeaveOutOwnClaudeSettings = true;
+            List<string> offArgs = CodingAgentCli.BuildArguments(off, "", null, null);
+            List<string> onArgs = CodingAgentCli.BuildArguments(on, "", null, null);
+            check("cli runner: with " + CodingAgentCliText.LeaveOutOwnClaudeSettingsLabel + " off, the default, no Claude Code call carries --setting-sources",
+                FlagMentions(offArgs, "--setting-sources") == 0 && !off.LeaveOutOwnClaudeSettings);
+            var expectedOn = new List<string>
+            {
+                "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
+                "--no-session-persistence", "--tools", "", "--strict-mcp-config", "--disable-slash-commands",
+                "--permission-mode", "default",
+                "--settings", ExpectedClaudeSettings(CodingAgentCli.DefaultEffort), "--setting-sources", "",
+                "--effort", CodingAgentCli.DefaultEffort, "--system-prompt", Persona,
+            };
+            check("cli runner: with it on, a Claude Code model call reads none of the user's settings files: --setting-sources with an empty list, once, after --settings",
+                onArgs != null && string.Join("\u0001", onArgs) == string.Join("\u0001", expectedOn));
+            CliRequest codexOn = Remark(CodingAgentKind.Codex, "x", null);
+            codexOn.LeaveOutOwnClaudeSettings = true;
+            check("cli runner: a Codex call never carries --setting-sources, the switch on or off",
+                FlagMentions(CodingAgentCli.BuildArguments(codexOn, "pick-1", null, "C:\\x\\instructions.md"), "--setting-sources") == 0);
+
+            using (var scratch = new FakeCliScratch())
+            {
+                var fake = new FakeCliProcess { Respond = FakeCliProcess.Answering("OK") };
+                CodingAgentCli runner = scratch.NewRunner(fake, new List<string>());
+                CliRequest remarkOn = Remark(CodingAgentKind.Claude, "p", null);
+                remarkOn.LeaveOutOwnClaudeSettings = true;
+                CliAnswer remark = Wait(runner.AskAsync(remarkOn, CancellationToken.None));
+                FakeCliCall remarkCall = LastModelCall(fake, false);
+                CliAnswer validateOn = Wait(runner.ValidateAsync(CodingAgentKind.Claude, CancellationToken.None, null, null, null, true));
+                FakeCliCall validateOnCall = LastModelCall(fake, false);
+                CliAnswer validateOff = Wait(runner.ValidateAsync(CodingAgentKind.Claude, CancellationToken.None));
+                FakeCliCall validateOffCall = LastModelCall(fake, false);
+                Wait(runner.RefreshDetailsAsync(CodingAgentKind.Claude, CancellationToken.None));
+                Wait(runner.UpdateAsync(CodingAgentKind.Claude, CancellationToken.None));
+                List<FakeCliCall> probes = fake.Calls.FindAll(delegate(FakeCliCall x) { return !x.IsModelCall; });
+                bool probesClean = probes.TrueForAll(delegate(FakeCliCall x) { return FlagMentions(x.Arguments, "--setting-sources") == 0; });
+                check("cli runner: a remark and a Validate that ask for it carry it, a Validate that does not carries none, and no probe ever does (" +
+                      probes.Count + " probes)",
+                    remark.Ok && validateOn.Ok && validateOff.Ok && remarkCall != null && validateOnCall != null && validateOffCall != null &&
+                    FlagMentions(remarkCall.Arguments, "--setting-sources") == 1 && remarkCall.After("--setting-sources") == "" &&
+                    FlagMentions(validateOnCall.Arguments, "--setting-sources") == 1 &&
+                    FlagMentions(validateOffCall.Arguments, "--setting-sources") == 0 &&
+                    probes.Exists(delegate(FakeCliCall x) { return x.Is("auth", "status"); }) &&
+                    probes.Exists(delegate(FakeCliCall x) { return x.Is("update"); }) && probesClean);
+            }
+        }
+
+        /// <summary>
+        /// BACKLOG N-codex-config-refusal-02, a privacy control (lane measure-offline's measurement, at the site): every Claude
+        /// Code MODEL call names the permission mode default, once, so auto mode's classifier context, with its copies of the
+        /// work folder and the Windows user name, never goes with it; no probe and no Codex call carries the flag. Through
+        /// every call shape built and through the runner's fake CLI. The exact-argument pins in CheckFlags and
+        /// CheckModelAndEffort type it too.
+        /// </summary>
+        private static void CheckPermissionModeNamed(Action<string, bool> check)
+        {
+            int shapes = 0, named = 0;
+            foreach (CliRequest shape in new[]
+            {
+                Remark(CodingAgentKind.Claude, "text", null), Remark(CodingAgentKind.Claude, "image", SyntheticPng),
+                new CliRequest { Agent = CodingAgentKind.Claude, Prompt = "Reply with OK.", Purpose = "validate" },
+                Chosen(CodingAgentKind.Claude, "haiku", "medium", SyntheticPng), Chosen(CodingAgentKind.Claude, "opus", "high", null),
+            })
+            {
+                shapes++;
+                List<string> args = CodingAgentCli.BuildArguments(shape, "", null, null);
+                if (FlagMentions(args, "--permission-mode") == 1 && FollowedBy(args, "--permission-mode", "default", false)) named++;
+            }
+            using (var scratch = new FakeCliScratch())
+            {
+                var fake = new FakeCliProcess { Respond = FakeCliProcess.Answering("OK") };
+                CodingAgentCli runner = scratch.NewRunner(fake, new List<string>());
+                CliAnswer remark = Wait(runner.AskAsync(Remark(CodingAgentKind.Claude, "a remark", null), CancellationToken.None));
+                CliAnswer screenshot = Wait(runner.AskAsync(Remark(CodingAgentKind.Claude, "the screen", SyntheticPng), CancellationToken.None));
+                CliAnswer validated = Wait(runner.ValidateAsync(CodingAgentKind.Claude, CancellationToken.None, null, "sonnet", "low"));
+                CliAnswer codex = Wait(runner.AskAsync(Remark(CodingAgentKind.Codex, "a remark", null), CancellationToken.None));
+                Wait(runner.RefreshDetailsAsync(CodingAgentKind.Claude, CancellationToken.None));
+                Wait(runner.UpdateAsync(CodingAgentKind.Claude, CancellationToken.None));
+                List<FakeCliCall> claudeModelCalls = fake.Calls.FindAll(delegate(FakeCliCall x) { return x.IsModelCall && !x.IsCodex; });
+                int carried = claudeModelCalls.FindAll(delegate(FakeCliCall x)
+                {
+                    return FlagMentions(x.Arguments, "--permission-mode") == 1 && x.After("--permission-mode") == "default";
+                }).Count;
+                check("cli runner: every Claude Code model call names the permission mode default, once, so auto mode's classifier context never goes with it: " +
+                      named + "/" + shapes + " shapes, " + carried + "/" + claudeModelCalls.Count + " calls",
+                    named == shapes && remark.Ok && screenshot.Ok && validated.Ok && claudeModelCalls.Count == 3 && carried == 3);
+                List<FakeCliCall> others = fake.Calls.FindAll(delegate(FakeCliCall x) { return x.IsCodex || !x.IsModelCall; });
+                bool clean = others.TrueForAll(delegate(FakeCliCall x) { return FlagMentions(x.Arguments, "--permission-mode") == 0; });
+                check("cli runner: no Codex call and no probe carries --permission-mode (" + others.Count + " starts, auth status and update among them)",
+                    codex.Ok && clean && others.Exists(delegate(FakeCliCall x) { return x.Is("auth", "status"); }) &&
+                    others.Exists(delegate(FakeCliCall x) { return !x.IsCodex && x.Is("update"); }));
+                check("WITNESS cli runner: the flag reader sees the flag with its value joined on, so that form cannot pass for none",
+                    FlagMentions(new List<string> { "--permission-mode=default" }, "--permission-mode") == 1 &&
+                    FlagMentions(new List<string> { "--permission-modes" }, "--permission-mode") == 0);
+            }
+        }
     }
 
     /// <summary>
@@ -3567,6 +4040,40 @@ namespace DesktopAICompanion.CodingAgent
 
         /// <summary>The call's -s read-only renamed read-onlyx: exit 2. (ref-fix-aibrain-f5-refused-value-tempoverhome.)</summary>
         internal const string TempOverHomeInvalidSandboxValueStderr = TempOverHomeWarning + InvalidSandboxValueStderr;
+
+        // Added by lane feature/cli-runner-aibrain (2026-10-26, BACKLOG N-codex-config-refusal-04), the same method: what
+        // Codex 0.160.1 writes when it IGNORES a -c key it does not know and answers anyway. stdout only, verbatim (each
+        // run's stderr held the stub's websocket lines alone). The first from the image-path study's arm s-unk under
+        // .dac-worktrees/temp/codex-image-path/out, the second from this lane's offline run under its own TEMP
+        // (measure/out), local and not committed.
+
+        /// <summary>An unknown key inside skills.* ignored and the turn answered (the companion's argv with -c skills.zz_not_a_key=false added): exit 0. Codex 0.160.1, the image-path study's arm s-unk (2026-10-13; s-unk.stdout.jsonl, 1516 bytes).</summary>
+        internal const string IgnoredSkillsKeyStdout =
+            "{\"type\":\"thread.started\",\"thread_id\":\"01a1364f-8a75-7121-b3c1-ddb15d6de47f\"}\n" +
+            "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"error\",\"message\":\"Codex is ignoring 1 unrecognized configuration setting. Check for typos or deprecated settings.\\n  session-flags: `skills.zz_not_a_key` is ignored.\"}}\n" +
+            "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_1\",\"type\":\"error\",\"message\":\"Codex is ignoring 1 unrecognized configuration setting. Check for typos or deprecated settings.\\n  session-flags: `skills.zz_not_a_key` is ignored.\"}}\n" +
+            "{\"type\":\"turn.started\"}\n" +
+            "{\"type\":\"error\",\"message\":\"Reconnecting... 2/5 (unexpected status 404 Not Found: Unknown error, url: ws://127.0.0.1:51500/v1/responses)\"}\n" +
+            "{\"type\":\"error\",\"message\":\"Reconnecting... 3/5 (unexpected status 404 Not Found: {}, url: ws://127.0.0.1:51500/v1/responses)\"}\n" +
+            "{\"type\":\"error\",\"message\":\"Reconnecting... 4/5 (unexpected status 404 Not Found: Unknown error, url: ws://127.0.0.1:51500/v1/responses)\"}\n" +
+            "{\"type\":\"error\",\"message\":\"Reconnecting... 5/5 (unexpected status 404 Not Found: {}, url: ws://127.0.0.1:51500/v1/responses)\"}\n" +
+            "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_2\",\"type\":\"error\",\"message\":\"Falling back from WebSockets to HTTPS transport. unexpected status 404 Not Found: {}, url: ws://127.0.0.1:51500/v1/responses\"}}\n" +
+            "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_3\",\"type\":\"agent_message\",\"text\":\"OK\"}}\n" +
+            "{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":0,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":1,\"reasoning_output_tokens\":0}}\n";
+
+        /// <summary>Two unknown keys ignored at once, one inside skills.* and one top-level (-c skills.zz_not_a_key=false -c zz_top_level_key=false added): exit 0, one "session-flags:" line per key. Codex 0.160.1, lane feature/cli-runner-aibrain's arm ign-two (2026-10-26; ign-two.stdout.jsonl, 1616 bytes).</summary>
+        internal const string IgnoredTwoKeysStdout =
+            "{\"type\":\"thread.started\",\"thread_id\":\"01a17936-9a50-7710-9c89-e5a96563beaf\"}\n" +
+            "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"error\",\"message\":\"Codex is ignoring 2 unrecognized configuration settings. Check for typos or deprecated settings.\\n  session-flags: `skills.zz_not_a_key` is ignored.\\n  session-flags: `zz_top_level_key` is ignored.\"}}\n" +
+            "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_1\",\"type\":\"error\",\"message\":\"Codex is ignoring 2 unrecognized configuration settings. Check for typos or deprecated settings.\\n  session-flags: `skills.zz_not_a_key` is ignored.\\n  session-flags: `zz_top_level_key` is ignored.\"}}\n" +
+            "{\"type\":\"turn.started\"}\n" +
+            "{\"type\":\"error\",\"message\":\"Reconnecting... 2/5 (unexpected status 404 Not Found: {}, url: ws://127.0.0.1:54168/v1/responses)\"}\n" +
+            "{\"type\":\"error\",\"message\":\"Reconnecting... 3/5 (unexpected status 404 Not Found: Unknown error, url: ws://127.0.0.1:54168/v1/responses)\"}\n" +
+            "{\"type\":\"error\",\"message\":\"Reconnecting... 4/5 (unexpected status 404 Not Found: {}, url: ws://127.0.0.1:54168/v1/responses)\"}\n" +
+            "{\"type\":\"error\",\"message\":\"Reconnecting... 5/5 (unexpected status 404 Not Found: Unknown error, url: ws://127.0.0.1:54168/v1/responses)\"}\n" +
+            "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_2\",\"type\":\"error\",\"message\":\"Falling back from WebSockets to HTTPS transport. unexpected status 404 Not Found: {}, url: ws://127.0.0.1:54168/v1/responses\"}}\n" +
+            "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_3\",\"type\":\"agent_message\",\"text\":\"OK\"}}\n" +
+            "{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":0,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":1,\"reasoning_output_tokens\":0}}\n";
     }
 
     /// <summary>
@@ -3622,5 +4129,19 @@ namespace DesktopAICompanion.CodingAgent
             "Error loading config.toml: reasoning effort `low` is not supported\n" +
             "in `model_reasoning_effort`\n" +
             "\n";
+
+        // Added by lane feature/cli-runner-aibrain (BACKLOG N-codex-config-refusal-04): the ignored-key captures' words
+        // around a key the call SETS, which no 0.160.1 run can produce, since that Codex knows every key the call sets.
+        // That a Codex which renamed one would write exactly this is inferred from the captures, not measured.
+
+        /// <summary>CodexRefusalCaptures.IgnoredSkillsKeyStdout with skills.include_instructions, the key the call sets, in
+        /// place of skills.zz_not_a_key: a Codex that renamed it, ignoring it and answering.</summary>
+        internal static readonly string IgnoredOwnSkillsKeyStdout =
+            CodexRefusalCaptures.IgnoredSkillsKeyStdout.Replace("skills.zz_not_a_key", "skills.include_instructions");
+
+        /// <summary>CodexRefusalCaptures.IgnoredTwoKeysStdout with project_doc_max_bytes, a key the call sets, in place of the
+        /// second key: the call's own key on the notice's second line.</summary>
+        internal static readonly string IgnoredOwnSecondKeyStdout =
+            CodexRefusalCaptures.IgnoredTwoKeysStdout.Replace("zz_top_level_key", "project_doc_max_bytes");
     }
 }

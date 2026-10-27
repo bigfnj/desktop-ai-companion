@@ -2793,6 +2793,8 @@ CASES = (
     # The refused levers (aibrain 1.5.1, remembrance 2.3.1): each added where a lane might put it, on the command line, on
     # the child's environment, in the --settings, or in a module, and the allowed levers taken away for the WITNESS. Named
     # "cli-home-files:" so one --only runs the lane.
+    # Re-pointed by lane feature/cli-runner-aibrain (same intent: no unconditional --setting-sources): the flag left the
+    # refused list for the owner's opt-in, and an unconditional one is now a second site beside the opt-in's.
     (
         "cli-home-files: Claude Code is started with --setting-sources",
         os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCli.cs"),
@@ -2800,7 +2802,7 @@ CASES = (
         b'                args.Add("--strict-mcp-config");\n'
         b'                args.Add("--setting-sources");\n'
         b'                args.Add("");\n',
-        "cli-home-files: no refused lever",
+        "cli-runner-aibrain: --setting-sources is in BuildArguments' Claude Code branch alone",
     ),
     (
         "cli-home-files: Claude Code is started in safe mode",
@@ -3447,6 +3449,40 @@ CASES = (
         b"                                  Reasons = @(\"$Id did not exit within its ${limit}s limit ($whose)\") }\n",
         b"                                  Reasons = @(\"did not exit in ${TimeoutSeconds}s\") }\n",
         "test-infra: a module self-test TIMEOUT names",
+    ),
+    # ---- lane feature/cli-runner-aibrain ----
+    # BACKLOG N-cli-home-files-01, the owner's opt-in: --setting-sources is allowed in BuildArguments' Claude Code branch
+    # alone, once, behind CliRequest.LeaveOutOwnClaudeSettings. The flag sent whatever the switch, the flag gone from behind
+    # it, a module naming it, and the slice moved (the WITNESS that the check reads a real body). Named
+    # "cli-runner-aibrain:" for one --only.
+    (
+        "cli-runner-aibrain: --setting-sources is sent whatever the switch",
+        os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCli.cs"),
+        b"                if (request.LeaveOutOwnClaudeSettings)\n",
+        b"                if (request.Agent == CodingAgentKind.Claude)\n",
+        "cli-runner-aibrain: --setting-sources is in BuildArguments' Claude Code branch alone",
+    ),
+    (
+        "cli-runner-aibrain: --setting-sources is gone from behind the switch",
+        os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCli.cs"),
+        b'                    args.Add("--setting-sources");\n                    args.Add("");\n',
+        b"",
+        "cli-runner-aibrain: --setting-sources is in BuildArguments' Claude Code branch alone",
+    ),
+    (
+        "cli-runner-aibrain: AI Brain names --setting-sources itself",
+        os.path.join(REPO, "modules", "AiBrain", "engine", "CodingAgentBackend.cs"),
+        b'            _effort = effort ?? "";\n',
+        b'            _effort = effort ?? "";\n'
+        b'            string isolate = "--setting-sources";\n',
+        "cli-runner-aibrain: --setting-sources is in BuildArguments' Claude Code branch alone",
+    ),
+    (
+        "cli-runner-aibrain: the Claude Code branch is not where the check looks",
+        os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCli.cs"),
+        b'            if (request.Agent == CodingAgentKind.Claude)\n            {\n                args.Add("-p");\n',
+        b'            if (CodingAgentKind.Claude == request.Agent)\n            {\n                args.Add("-p");\n',
+        "cli-runner-aibrain: BuildArguments and its Claude Code branch were sliced",
     ),
 )
 

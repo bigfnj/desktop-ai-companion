@@ -2810,6 +2810,11 @@ namespace DesktopAICompanion.AiBrainModule
                     keptNotRemoved.LoadWarning.IndexOf(Path.GetFileName(copies[0]), StringComparison.Ordinal) >= 0 &&
                     keptNotRemoved.LoadWarning.IndexOf("could not be removed", StringComparison.Ordinal) >= 0 &&
                     keptNotRemoved.LoadWarning.IndexOf("could not be kept", StringComparison.Ordinal) < 0);
+                // Lane feature/cli-runner-aibrain (BACKLOG N-remembrance-delete-logging-05): the delete's failure is named by
+                // its exception type, as every user-data delete's is; the held handle above makes it an IOException.
+                ok &= Check(sb, "...and the warning names the delete failure's exception type: " + (keptNotRemoved.LoadWarning ?? "(none)"),
+                    keptNotRemoved.LoadWarning != null &&
+                    keptNotRemoved.LoadWarning.IndexOf("the primary could not be removed (IOException), so it is overwritten in place", StringComparison.Ordinal) >= 0);
                 foreach (string copy in copies) File.Delete(copy);
 
                 // --- RA-081: the reset-to-defaults warning says why the backup did not serve ---

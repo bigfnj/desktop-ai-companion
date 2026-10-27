@@ -475,7 +475,7 @@ namespace DesktopAICompanion.Ai
             return
                 "You are " + name + ", a tiny companion living on the user's screen. " +
                 "Disposition (apply to the remark text only, keep the JSON exactly as specified): " + disposition +
-                " Commit to it fully and stay in character in every word." + user +
+                " Commit to it fully and stay in character in every word." + user + CliNamesRule(userName) +
                 " It is currently " + TimeOfDay() + ". " +
                 "Look at what is on the screen (described below) and make one short, in-character remark " +
                 "about something specific you actually see there — name a program, file, word or detail from it. " +
@@ -496,6 +496,35 @@ namespace DesktopAICompanion.Ai
                 "Never say that you are an AI or a language model. " +
                 "Reply ONLY with compact JSON of the form " +
                 "{\"text\":\"<your remark>\",\"emotion\":\"<one of: happy, sad, thinking, excited, confused, neutral>\"}.";
+        }
+
+        /// <summary>
+        /// The stronger no-names rule a coding-agent CLI turn adds to the persona (lane feature/cli-runner-aibrain, BACKLOG
+        /// N-cli-model-effort-03, part 1 of 2), "" on every other engine. Measured by the coordinator's eval of 2026-10-09 (14
+        /// synthetic screens, 112 remarks per arm, two blind judges): on Claude Code 8 to 25% of remarks read a name or a
+        /// private detail off the screen, against none on Codex, and haiku used the signed-in account holder's first name in
+        /// 11 of 224 remarks, a name no screen showed and this module never sends: it came from Claude Code's own context,
+        /// so "You do not know your human's name" is not true on that engine. So the CLI branch says both halves, the screen
+        /// and the assistant's own context. On both CLIs, since the rule costs a sentence and Codex's context can carry an
+        /// account too. Whether it works is measured by the Claude arms run again (another lane's eval, approved by the owner);
+        /// this lane makes no model call, so the item is part 1 of 2. A name the user typed in the pane stays the one
+        /// allowed. The local and cloud slots keep their prompt byte for byte.
+        /// </summary>
+        private string CliNamesRule(string userName)
+        {
+            if (DesktopAICompanion.CodingAgent.CodingAgents.FromId(_settings.CliBackend) == DesktopAICompanion.CodingAgent.CodingAgentKind.None)
+                return "";
+            return CliNamesRuleText(userName);
+        }
+
+        /// <summary>The rule's words (CliNamesRule), for the self-check that pins them.</summary>
+        internal static string CliNamesRuleText(string userName)
+        {
+            string allowed = string.IsNullOrEmpty(userName) ? "" : " (the one name you may use is " + userName + ")";
+            return " You run inside a coding assistant that may know who is signed in to it: never use that person's name, " +
+                   "username, email address or organisation, or any name from your own context. Never repeat a person's name, " +
+                   "username, handle, email address, phone number or other private detail you see on the screen either" + allowed +
+                   "; remark on the programs, files and things on the screen, not on the people.";
         }
 
         /// <summary>
