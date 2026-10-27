@@ -890,7 +890,34 @@ namespace DesktopAICompanion.BlinkingLed
             return (_host != null ? _host.GetSettings(Info.Id) : null) ?? new MemoryModuleSettings();
         }
 
+        /// <summary>The pane's Load: what is stored, and a copy of it as what this pane now shows
+        /// (<see cref="_paneShown"/>, N-blinkingled-resume-03).</summary>
         private IReadOnlyDictionary<string, string> LoadPaneValues()
+        {
+            IReadOnlyDictionary<string, string> stored = StoredPaneValues();
+            _paneShown = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (KeyValuePair<string, string> kv in stored) _paneShown[kv.Key] = kv.Value;
+            return stored;
+        }
+
+        /// <summary>
+        /// What this options pane shows (N-blinkingled-resume-03): what it last loaded, or, after an Apply whose write
+        /// landed, what that Apply submitted over it, because the window re-reads a pane after Apply only when its
+        /// schema has an Info or Header row (RefreshAfterApply in src/Portable/Wpf/OptionsWindow.cs) and this schema has
+        /// neither, so after an Apply the pane goes on showing what it sent. Null until the host first loads the pane.
+        /// UI thread only, like Load and Save. A failed write leaves it as it was, so the next Apply sends the same
+        /// change again rather than taking it for one already made.
+        /// </summary>
+        private Dictionary<string, string> _paneShown;
+
+        /// <summary>What a pane Apply is compared with: <see cref="_paneShown"/>, or, for a pane no host has loaded
+        /// (a direct Save, as the self-test makes), what is stored, which is what Load would have shown.</summary>
+        private IReadOnlyDictionary<string, string> PaneShown()
+        {
+            return _paneShown ?? StoredPaneValues();
+        }
+
+        private IReadOnlyDictionary<string, string> StoredPaneValues()
         {
             IModuleSettings s = Settings();
             string rate = s.Get("rate", ScrollLockBlinker.DefaultRate);
@@ -908,13 +935,23 @@ namespace DesktopAICompanion.BlinkingLed
         private bool SavePaneValues(IReadOnlyDictionary<string, string> values)
         {
             IModuleSettings s = Settings();
-            // What the user changed, against what Load shows: read BEFORE anything is written, the way Load reads it.
-            // The pane sends every box on Apply, so "enabled" and "rate" arrive whether or not they were touched.
-            IReadOnlyDictionary<string, string> shown = LoadPaneValues();
+            // What the user changed ON THIS PANE (N-blinkingled-resume-03, the owner's decision of 2026-10-26: module-side):
+            // each value this Apply submits against what the pane shows, which is what it last loaded or last applied
+            // (PaneShown), and ONLY those are written. The pane sends every box on Apply, so "enabled" and "rate" arrive
+            // whether or not they were touched, and they used to be written whatever they said: compared with the disk,
+            // a tray pick made while the window was open read as the user's change on the pane, and the next Apply from
+            // that window, changing only another box, wrote the pane's stale on/off and speed over it (the final review
+            // of feature/blinkingled-resume, probe S9: a tray speed pick over a Caps Lock off, then an announce-only Apply,
+            // saved a plain off and cleared the reason). This reverses that lane's refusal of "comparing an Apply with
+            // what the pane last loaded instead of the disk": the second copy is the pane's own view, which is what the
+            // user's Apply is a change to, and the disk still wins for everything the user did not touch there.
+            IReadOnlyDictionary<string, string> shown = PaneShown();
             bool onOffChanged = PaneChanges(values, shown, "enabled");
             // Unticking "Stop when Caps Lock is on" is the user saying Caps Lock should not stop it, so during a stop it is
             // a choice like a changed on/off or speed (a stop needs that box ticked, so a change to it there is an untick).
             bool choiceChanged = onOffChanged || PaneChanges(values, shown, "rate") || PaneChanges(values, shown, "capsStops");
+            IReadOnlyDictionary<string, string> submitted = values;
+            values = ChangedOnPane(values, shown);   // from here on, only what the user changed on this pane
             string v;
             if (values.TryGetValue("enabled", out v)) s.Set("enabled", v);
             if (values.TryGetValue("rate", out v) && ScrollLockBlinker.IsKnownRate(v)) s.Set("rate", v);
@@ -923,20 +960,22 @@ namespace DesktopAICompanion.BlinkingLed
             if (values.TryGetValue("announce", out v)) s.Set("announce", v);
             if (onOffChanged) s.Set(StoppedByKey, "");   // the user set on/off here, so a Caps Lock off's reason goes
             // Nothing else here ends an off a Caps Lock stop SAVED (the box was unticked then), whatever "Resume on application
-            // restart" says now: this Apply writes the on/off it submitted and no other. The final round (the third fix round)
-            // had a changed speed or an unticked "Stop when Caps Lock is on" switch such an off back on under a ticked box, as
-            // they end a session stop, and that wrote an on this Apply never sent. The options window re-reads a pane after
-            // Apply only when its schema has an Info or Header row (RefreshAfterApply in src/Portable/Wpf/OptionsWindow.cs),
-            // and this schema has neither, so the pane went on showing the off it loaded; the user's next Apply from it sent
-            // that off, which reads here as their own Off, and saved a plain off they never picked: the failure this version
-            // exists to end. Refused: an Info row only so the window rebuilds the pane, which rests the rule on when a host
-            // chooses to re-read a pane, something the module ABI does not state; and comparing with what the pane last loaded
-            // instead of the disk, a second copy of the state beside the disk. The tray needs neither, since its menu is built
-            // afresh on every open: a tray speed pick ends such an off (SetRateFromTray), and under a ticked box the next start
-            // resumes it (ResumeSavedCapsLockOff). A session stop is untouched by this: it saves nothing, so the pane loaded the
-            // saved on, and an Apply from it, however long ago it loaded, sends an off only when the user unticks "Blink the
-            // Scroll Lock light" there.
+            // restart" says now: this Apply writes an on/off only when the user changed it on this pane, and no other. The final
+            // round (the third fix round) had a changed speed or an unticked "Stop when Caps Lock is on" switch such an off back
+            // on under a ticked box, as they end a session stop, and that wrote an on this Apply never sent. The options window
+            // re-reads a pane after Apply only when its schema has an Info or Header row (RefreshAfterApply in
+            // src/Portable/Wpf/OptionsWindow.cs), and this schema has neither, so the pane went on showing the off it loaded;
+            // the user's next Apply from it sent that off, which read here as their own Off, and saved a plain off they never
+            // picked: the failure this version exists to end. Refused: an Info row only so the window rebuilds the pane, which
+            // rests the rule on when a host chooses to re-read a pane, something the module ABI does not state. Comparing with
+            // what the pane last loaded, refused here at first as a second copy of the state beside the disk, is what this Apply
+            // has done since N-blinkingled-resume-03 (see the top), and it keeps that off too. The tray needs neither, since its
+            // menu is built afresh on every open: a tray speed pick ends such an off (SetRateFromTray), and under a ticked box
+            // the next start resumes it (ResumeSavedCapsLockOff). A session stop is untouched by this: it saves nothing, so the
+            // pane loaded the saved on, and an Apply from it, however long ago it loaded, sends an off only when the user
+            // unticks "Blink the Scroll Lock light" there.
             bool ok = s.Save();
+            if (ok) RememberPaneShown(shown, submitted);   // the pane now shows what it sent
             // A write that failed during a Caps Lock stop changes nothing, as in the two tray handlers: with the box ticked
             // the disk still reads on, so ApplyState(true) would END the stop and start the blinker from the disk, a pane
             // Off included, while the pane says the settings could not be saved. Outside a stop a failed write still
@@ -951,6 +990,26 @@ namespace DesktopAICompanion.BlinkingLed
             if (_stoppedByCaps && !choiceChanged) return ok;
             ApplyState(true);   // the user was just here, so an on/off change may speak
             return ok;
+        }
+
+        /// <summary>The entries of <paramref name="values"/> that differ from what the pane showed, by
+        /// <see cref="PaneChanges"/>: what one Apply writes (N-blinkingled-resume-03).</summary>
+        private static IReadOnlyDictionary<string, string> ChangedOnPane(IReadOnlyDictionary<string, string> values,
+                                                                        IReadOnlyDictionary<string, string> shown)
+        {
+            var changed = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (KeyValuePair<string, string> kv in values)
+                if (PaneChanges(values, shown, kv.Key)) changed[kv.Key] = kv.Value;
+            return changed;
+        }
+
+        /// <summary>After an Apply whose write landed, the pane shows what it submitted over what it showed before.</summary>
+        private void RememberPaneShown(IReadOnlyDictionary<string, string> shown, IReadOnlyDictionary<string, string> submitted)
+        {
+            var next = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (KeyValuePair<string, string> kv in shown) next[kv.Key] = kv.Value;
+            foreach (KeyValuePair<string, string> kv in submitted) next[kv.Key] = kv.Value;
+            _paneShown = next;
         }
 
         /// <summary>Whether a pane Apply changes <paramref name="key"/> from what Load showed, reading the submitted value
@@ -2387,6 +2446,119 @@ namespace DesktopAICompanion.BlinkingLed
 
             SelfCheckPaneApplyDuringStop(probe);
             SelfCheckFailedTrayPickDuringStop(probe);
+            SelfCheckPaneWritesOnlyItsChanges(probe);
+        }
+
+        /// <summary>
+        /// N-blinkingled-resume-03: a pane Apply writes only what the user changed on that pane, judged against what the
+        /// pane last loaded or last applied, so a tray choice made while the options window is open stands. Each case loads
+        /// the pane once, as the window does when it opens, makes the tray choice, then applies from that same view with
+        /// one other box changed, and WITNESSes that the changed box is saved. Then the pane's own view: it moves on after
+        /// an Apply whose write landed, and stays after one that failed, so the retry still writes.
+        /// </summary>
+        private static void SelfCheckPaneWritesOnlyItsChanges(SelfTestProbe probe)
+        {
+            Func<IReadOnlyDictionary<string, string>, Dictionary<string, string>> opened = delegate(IReadOnlyDictionary<string, string> loaded)
+            {
+                var view = new Dictionary<string, string>(StringComparer.Ordinal);
+                foreach (KeyValuePair<string, string> kv in loaded) view[kv.Key] = kv.Value;
+                return view;
+            };
+
+            // A tray Off while the window is open.
+            DesktopAICompanion.ModuleKit.Testing.RecordingHost offHost;
+            BlinkingLedModule off = StartSession(new Dictionary<string, string>
+            {
+                { "enabled", "true" }, { "rate", "Normal" }, { "capsStops", "true" }, { "resumeOnRestart", "true" }, { "announce", "true" },
+            }, out offHost);
+            DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings offDisk = offHost.SettingsFor("blinkingled");
+            OptionsPane offPane = offHost.OptionsPanes[0];
+            Dictionary<string, string> offView = opened(offPane.Load());   // the window opens: on, Normal
+            off.SetEnabledFromTray(false);                                   // the tray Off, the window still open
+            offView["announce"] = "false";                                   // only "announce" changed there
+            offPane.Save(offView);
+            probe.Check("a tray Off made while the options window is open survives an Apply from that window that changed only another box (N-blinkingled-resume-03)",
+                offDisk.Get("enabled", null) == "false" && !off._blinker.IsRunning &&
+                offHost.TrayItems[0].DynamicText() == "Blinking LED: off");
+            probe.Check("WITNESS ...and the box the user did change on that pane is saved",
+                offDisk.Get("announce", null) == "false");
+            off.Shutdown();
+
+            // A tray speed pick over a saved off while the window is open: neither the off nor the old speed is put back.
+            DesktopAICompanion.ModuleKit.Testing.RecordingHost pickHost;
+            BlinkingLedModule pick = StartSession(new Dictionary<string, string>
+            {
+                { "enabled", "false" }, { "rate", "Normal" }, { "capsStops", "true" }, { "resumeOnRestart", "true" }, { "announce", "true" },
+            }, out pickHost);
+            DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings pickDisk = pickHost.SettingsFor("blinkingled");
+            OptionsPane pickPane = pickHost.OptionsPanes[0];
+            Dictionary<string, string> pickView = opened(pickPane.Load());  // off, Normal
+            pick.SetRateFromTray("Fast");                                    // on at Fast, from the tray
+            pickView["resumeOnRestart"] = "false";                           // only the box changed there
+            pickPane.Save(pickView);
+            probe.Check("a tray speed pick made while the options window is open survives an Apply from that window: still on, at the speed picked",
+                pick._blinker.IsRunning && pickDisk.Get("enabled", null) == "true" && pickDisk.Get("rate", null) == "Fast" &&
+                pickHost.TrayItems[0].DynamicText() == "Blinking LED: on");
+            probe.Check("WITNESS ...and the box unticked on that pane is saved",
+                pickDisk.Get("resumeOnRestart", null) == "false");
+            pick.Shutdown();
+
+            // The final review's probe S9: over an off a Caps Lock stop saved with the box unticked, the pane ticks the box
+            // (the off and its reason stay for the session), a tray pick of its speed starts it and clears the reason, and the
+            // next Apply from the same, never re-read, view changes only "announce". It saved a plain off; it must not.
+            DesktopAICompanion.ModuleKit.Testing.RecordingHost s9Host;
+            BlinkingLedModule s9 = StartSession(new Dictionary<string, string>
+            {
+                { "enabled", "false" }, { "rate", "Normal" }, { "capsStops", "true" }, { "resumeOnRestart", "false" },
+                { StoppedByKey, StoppedByCapsLock },
+            }, out s9Host);
+            DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings s9Disk = s9Host.SettingsFor("blinkingled");
+            OptionsPane s9Pane = s9Host.OptionsPanes[0];
+            Dictionary<string, string> s9View = opened(s9Pane.Load());
+            s9View["resumeOnRestart"] = "true";
+            s9Pane.Save(s9View);                                             // the box ticked: the off stays, named
+            bool stillOff = !s9._blinker.IsRunning && s9Disk.Get(StoppedByKey, null) == StoppedByCapsLock;
+            s9.SetRateFromTray("Normal");                                    // the tray pick starts it
+            s9View["announce"] = "false";
+            s9Pane.Save(s9View);                                             // the announce-only Apply from the same view
+            DesktopAICompanion.ModuleKit.Testing.RecordingHost s9NextHost;
+            BlinkingLedModule s9Next = StartSession(SavedCopy(s9Disk), out s9NextHost);
+            probe.Check("probe S9: after a tray pick ends a saved Caps Lock off, an announce-only Apply from the still-open pane keeps it on, saves no off, and the next start blinks",
+                stillOff && s9._blinker.IsRunning && s9Disk.Get("enabled", null) == "true" &&
+                string.IsNullOrEmpty(s9Disk.Get(StoppedByKey, null)) && s9Host.TrayItems[0].DynamicText() == "Blinking LED: on" &&
+                s9Next._blinker.IsRunning);
+            probe.Check("WITNESS ...and that Apply's own change, announce unticked, is saved",
+                s9Disk.Get("announce", null) == "false");
+            s9Next.Shutdown();
+            s9.Shutdown();
+
+            // The pane's own view moves on after an Apply whose write landed: a speed changed and then changed back, from
+            // one pane never re-read, lands both times.
+            DesktopAICompanion.ModuleKit.Testing.RecordingHost viewHost;
+            BlinkingLedModule viewed = StartSession(new Dictionary<string, string>
+            {
+                { "enabled", "true" }, { "rate", "Normal" }, { "capsStops", "true" }, { "resumeOnRestart", "true" }, { "announce", "true" },
+            }, out viewHost);
+            DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings viewDisk = viewHost.SettingsFor("blinkingled");
+            OptionsPane viewPane = viewHost.OptionsPanes[0];
+            Dictionary<string, string> view2 = opened(viewPane.Load());
+            view2["rate"] = "Fast";
+            viewPane.Save(view2);
+            bool fastLanded = viewDisk.Get("rate", null) == "Fast";
+            view2["rate"] = "Normal";
+            viewPane.Save(view2);
+            probe.Check("two Applies from one pane both land: a speed changed, then changed back, is saved back (the pane's view moves on after an Apply)",
+                fastLanded && viewDisk.Get("rate", null) == "Normal");
+
+            // ...and stays after an Apply whose write failed, so the same Apply again is still a change, and lands.
+            viewDisk.FailSaves = true;
+            view2["rate"] = "Slow";
+            bool failedSave = viewPane.Save(view2);
+            viewDisk.FailSaves = false;
+            bool retriedSave = viewPane.Save(view2);
+            probe.Check("an Apply whose write failed is written by the same Apply sent again (the pane's view stays where it was)",
+                !failedSave && retriedSave && viewDisk.Get("rate", null) == "Slow");
+            viewed.Shutdown();
         }
 
         /// <summary>

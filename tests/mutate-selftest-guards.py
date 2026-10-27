@@ -12948,6 +12948,55 @@ CASES = (
      "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
      "a sweep that cannot list its folder says so by the exception's type"),
 
+    # Blinking LED: a pane Apply writes only what the user changed on that pane, against what the pane last loaded or
+    # last applied (N-blinkingled-resume-03, the owner's decision: module-side). Every case runs the module's own SelfTest
+    # (SelfCheckPaneWritesOnlyItsChanges) with DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT=1; none needs a real press.
+
+    # The Apply writes every box it submits again.
+    ("modules-small: blinkingled: a pane Apply writes every box again",
+     BLINKINGLED_MODULE,
+     b"            values = ChangedOnPane(values, shown);   // from here on, only what the user changed on this pane\n",
+     b"",
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "a tray Off made while the options window is open survives an Apply from that window"),
+
+    # ...it is judged against the disk again, so a tray choice made since the pane loaded reads as the user's.
+    ("modules-small: blinkingled: a pane Apply is compared with the disk again",
+     BLINKINGLED_MODULE,
+     b"            IReadOnlyDictionary<string, string> shown = PaneShown();\n",
+     b"            IReadOnlyDictionary<string, string> shown = StoredPaneValues();\n",
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "probe S9: after a tray pick ends a saved Caps Lock off"),
+
+    # ...the pane's Load no longer records what it shows, so the first Apply is judged against the disk.
+    ("modules-small: blinkingled: the pane's Load records nothing",
+     BLINKINGLED_MODULE,
+     b"            _paneShown = new Dictionary<string, string>(StringComparer.Ordinal);\n"
+     b"            foreach (KeyValuePair<string, string> kv in stored) _paneShown[kv.Key] = kv.Value;\n",
+     b"",
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "a tray Off made while the options window is open survives an Apply from that window"),
+
+    # ...the pane's view never moves on after an Apply, so a speed changed back is taken for no change.
+    ("modules-small: blinkingled: the pane's view never moves on after an Apply",
+     BLINKINGLED_MODULE,
+     b"            if (ok) RememberPaneShown(shown, submitted);   // the pane now shows what it sent\n",
+     b"",
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "two Applies from one pane both land"),
+
+    # ...it moves on after a failed Apply too, so the retry is taken for no change.
+    ("modules-small: blinkingled: the pane's view moves on after a failed Apply",
+     BLINKINGLED_MODULE,
+     b"            if (ok) RememberPaneShown(shown, submitted);",
+     b"            RememberPaneShown(shown, submitted);",
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "an Apply whose write failed is written by the same Apply sent again"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

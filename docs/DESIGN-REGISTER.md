@@ -5490,6 +5490,53 @@ and no other, rather than a new card changing the approved card order.
 **Measured on the owner's box, names only:** the storage folder (inside OneDrive) held 2 day folders with 3 recordings
 under the old names, 8 files (3 transcripts, 3 summaries, 2 recordings' audio; the third's audio already purged).
 
+#### feature/modules-small
+
+Campaign 2026-10-26, lane modules-small: backlog items in Fortunes, Companion Studio, AgentFlow, Reminder and Blinking
+LED. Module-only; no MinHostVersion moves.
+
+**Blinking LED: a pane Apply writes only what the user changed on that pane (N-blinkingled-resume-03; the owner's
+decision of 2026-10-26: module-side).** `SavePaneValues` compares each submitted value with what that pane shows, which
+is what it last loaded or, after an Apply whose write landed, what that Apply submitted over it, and writes only the
+values that differ. A tray choice made while the options window is open therefore stands: the final review's probe S9
+(a tray speed pick over a Caps Lock off, then an Apply that changed only "announce") no longer saves a plain off, and a
+tray Off or a tray speed pick is not put back by the window's stale on/off or speed. This reverses
+feature/blinkingled-resume's refusal of "comparing an Apply with what the pane last loaded instead of the disk", whose
+reason was drift between a second copy and the disk. The copy kept is the pane's own view, and an Apply is a change to
+that view, so the disk still wins for every field the user did not touch there. A failed write leaves the view where it
+was, so the same Apply sent again still writes; a pane no host has loaded (a direct Save) is compared with the disk, as
+before. Refused, the other half of the owner question: the host re-reading every module pane after Apply or after a tray
+change. That is a host change reaching every module, for a hazard one module's schema has, and the module ABI does not
+state when a host re-reads a pane.
+
+**Companion Studio's extraction trees are in scope of the delete rule (N-remembrance-delete-logging-01, -02).** The rule
+of 2026-10-07 exempts temp as written, and the tree is `%TEMP%\petstudio-shimeji-<guid>`; the campaign took it in scope
+because the tree is a copy of the user's own skin. Each delete of a window's tree writes one line ("deleted this window's
+extracted skin folder", or the failure's exception type and that the sweep will collect it); each orphan sweep that
+removed or failed anything writes one line with the counts and types, a folder it cannot list included, and a sweep with
+nothing due writes nothing, as Remembrance's purge does. The sweep reaches the log through a static host, the newest
+window's, rather than a host argument: every window has the module's one host, and the F159/F160 source invariants pin
+`BeginOrphanSweep()` and its call of the sweep as they are. Not driven by the module self-test, which builds no window:
+the constructor's assignment of that host, the parameterless sweep that reads it, and `DeleteTree`'s one call of
+`DeleteExtractionTree(path, _host)`. The delete, the sweep and their lines are driven over fixture folders.
+
+**Fortunes' backup line has no path from the pane today (N-remembrance-delete-logging-04).** The pane's import approves no
+overwrite, so it never makes a backup; the importer counts the two backup deletes for whatever approves one, and the line
+is driven through `LogImportDeletes` with the importer's counts handed in. The backup `RestoreTornReplace` deletes after
+a refused replace can be the zero-byte reservation the commit made before the replace failed; it is counted as a backup
+all the same, because it is the file reserved for the pack's earlier version and the rule counts deletes, not bytes. The
+staging files and the lock file stay silent, as temp. The rollback line (-03) has a pane path, and the module self-test
+drives it: a folder holding the second pack's name makes the commit fail after the first pack landed.
+
+**AgentFlow's inline tick is a seam, not a mode (N-agentflow-enhancements-01).** `RunTickInlineForSelfTest` and
+`TickClockForSelfTest` are set by `SelfCheckTickBeat` alone; everywhere else the worker runs on the pool and the beat
+reads `Environment.TickCount64`, as before.
+
+**Reminder: the Do Not Disturb half is unverified (N-tray-questions-03).** `QUNS_QUIET_TIME` is Windows' quiet period
+after setup or a feature update, and the comments now say so. The pane's label "Stay quiet while presenting or in Do Not
+Disturb" is left as it is until the live check is read (Do Not Disturb on, a test question from the debug window, the
+host's `[question] held` line), which is a GUI action this lane did not take.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of
