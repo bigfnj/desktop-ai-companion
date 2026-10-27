@@ -26,7 +26,11 @@ namespace DesktopAICompanion.PetStudioModule
         {
             Id = "petstudio",
             Name = "Companion Studio",
-            Version = "1.1.18",  // 1.1.18: the 2026-09-29 audit's PetStudio lane (BUG-012, F150-F165, F226).
+            Version = "1.1.19",  // 1.1.19: deleting the extracted copy of an imported skin zip logs one line, with the
+                                 //        failure's type when it will not go, and the orphan sweep logs one line when
+                                 //        it removed or failed anything and none when nothing was due
+                                 //        (N-remembrance-delete-logging-01, -02).
+                                 // 1.1.18: the 2026-09-29 audit's PetStudio lane (BUG-012, F150-F165, F226).
                                  //         The analyzer adopts the validator's parse for the reachability
                                  //         walk and stages no sprite frame, and the window analyzes on a
                                  //         pool thread and renders on the dispatcher, so a typing pause

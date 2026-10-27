@@ -2156,8 +2156,8 @@ namespace DesktopAICompanion.FortunesModule
             var module = new FortunesModule();
             try
             {
-                ok &= Check(sb, "MinHostVersion is 1.4.0, the host that introduced ListCard.MasterToggle (" + module.Info.MinHostVersion + ")",
-                    module.Info.MinHostVersion == "1.4.0");
+                ok &= Check(sb, "MinHostVersion is 1.7.0, the host that introduced ICatalogListing (" + module.Info.MinHostVersion + ")",
+                    module.Info.MinHostVersion == "1.7.0");
                 module.Init(host);
                 OptionsPane pane = host.OptionsPanes.Count > 0 ? host.OptionsPanes[0] : null;
                 ListCard packs = FindCard(pane, "Fortune packs");

@@ -7725,14 +7725,15 @@ CASES = (
      "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
      "no Select all or Select none button is left anywhere on the pane"),
 
-    # The floor goes back to 1.0.0, where a host without ListCard.MasterToggle would load the module.
-    ("layout-fortunes: declare: MinHostVersion falls back to 1.0.0",
+    # The floor falls to 1.6.1, where a host without ICatalogListing would load the module. (Re-pointed at the
+    # campaign's 1.7.0 version step: the floor was 1.4.0, for ListCard.MasterToggle.)
+    ("layout-fortunes: declare: MinHostVersion falls below 1.7.0, the ICatalogListing host",
      FORTUNES_MODULE,
-     b'            MinHostVersion = "1.4.0",\n',
-     b'            MinHostVersion = "1.0.0",\n',
+     b'            MinHostVersion = "1.7.0",\n',
+     b'            MinHostVersion = "1.6.1",\n',
      FORTUNES_CSPROJ, FORTUNES_DLL,
      "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
-     "MinHostVersion is 1.4.0, the host that introduced ListCard.MasterToggle"),
+     "MinHostVersion is 1.7.0, the host that introduced ICatalogListing"),
 
     # A failed check leaves the earlier list standing, so the host never draws the red block over it.
     ("layout-fortunes: block: a failed check leaves the list standing",

@@ -179,7 +179,10 @@ namespace DesktopAICompanion.AgentFlow
         {
             Id = "agentflow",
             Name = "AgentFlow",
-            Version = "1.12.0",  // 1.12.0: the owner's report of 2026-10-21 that 1.11.0 still did not clear several Codex
+            Version = "1.12.1",  // 1.12.1: no behaviour change: two self-test seams let the self-test run OnTick's body
+                                 //        inline on an injected clock, so the transcript beat is driven over a
+                                 //        transcript that grows every tick (N-agentflow-enhancements-01).
+                                 // 1.12.0: the owner's report of 2026-10-21 that 1.11.0 still did not clear several Codex
                                  //        requests in one pass. Measured the same day (agentflow_codex_card_count.py): one
                                  //        Codex panel holds a QUEUE, the next request's card mounting 26-240 ms after a
                                  //        press, and sometimes a STACK, two cards at once, of which the reader took the

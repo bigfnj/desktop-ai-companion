@@ -129,7 +129,16 @@ namespace DesktopAICompanion.FortunesModule
         {
             Id = "fortunes",
             Name = "Fortunes",
-            Version = "1.1.0",   // 1.1.0: the smart index maintains itself, and the pane says its state. The
+            Version = "1.2.0",   // 1.2.0: "Check online for packs" names each pack the catalog lists but the app
+                                 //        refused, with why, under its answer, instead of leaving it out; a pack
+                                 //        already on disk is not named and an unreadable pack list says so
+                                 //        (N-catalog-insight-05; host 1.7.0's ICatalogListing, so MinHostVersion rises
+                                 //        to 1.7.0). The catalog's red block quotes what a wrapped failure says (a TLS
+                                 //        handshake's certificate error) rather than "see inner exception"
+                                 //        (N-layout-fortunes-01). An import that rolls back logs one line with the
+                                 //        packs removed, restored and failed by type, and a replaced pack's earlier
+                                 //        backups are counted and logged (N-remembrance-delete-logging-03, -04).
+                                 // 1.1.0: the smart index maintains itself, and the pane says its state. The
                                  //        "Rebuild smart index" button is gone; in its place the Selection
                                  //        card's "Smart index" line says, whenever the pane is built, whether
                                  //        the index is up to date (its count and when it was built), being built
@@ -287,7 +296,7 @@ namespace DesktopAICompanion.FortunesModule
             // correctly refuses. Until this change the floor was 1.0.0: the pet-aware responders shipped in the
             // host before the public renumbering (pre-release 1.5.0), and a host below a declared floor refuses
             // the module with a legible reason instead of loading it and broadcasting every fortune.
-            MinHostVersion = "1.4.0",
+            MinHostVersion = "1.7.0",
             Permissions = ModulePermissions.Speech | ModulePermissions.ScreenContext | ModulePermissions.Storage,
         };
 

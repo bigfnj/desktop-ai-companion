@@ -62,7 +62,10 @@ namespace DesktopAICompanion.ReminderModule
         {
             Id = Id,
             Name = "Reminder",
-            Version = "1.2.0",  // 1.2.0: Join & record (the owner's request of 2026-10-16). While Remembrance says it
+            Version = "1.2.1",  // 1.2.1: comments only: QUNS_QUIET_TIME is Windows' quiet period, not Do Not Disturb
+                                //        (N-tray-questions-03); republished so the published payload matches its
+                                //        source.
+                                // 1.2.0: Join & record (the owner's request of 2026-10-16). While Remembrance says it
                                 //        can start a recording (the shared context's "remembrance.recorder", see
                                 //        shared/MeetingApps/RecordingHandshake.cs), the join card offers a third button,
                                 //        Join & record: it asks Remembrance for a recording of that meeting, then opens

@@ -41,7 +41,24 @@ public sealed partial class AgentBrokerModule : IModule
     {
         Id = "agentbroker",
         Name = "AgentBroker",
-        Version = "1.0.4",
+        Version = "1.1.0",   // 1.1.0: the agent-to-agent bus (campaign 2026-10-26). A generic MCP mailbox stays
+                             //        addressable for 24 hours after its owner's last call (listed locally as Away,
+                             //        never to peers); new send, wait_for_messages and wait_for_reply tools and MCP
+                             //        server instructions; the lease sidecar is retired, and the installer's probe
+                             //        expects the tool set of the package it installs. The loopback listener also
+                             //        answers Host localhost:<port> (a managed Claude Code allowlist admits only
+                             //        http://localhost*), Connect Claude MCP retries an allowlist miss once with that
+                             //        URL, and client setup finds npm-installed Claude Code and Codex by the model
+                             //        calls' locator, never a shim. A wait on a restart-lost mailbox is refused before
+                             //        it returns pending messages. An acknowledged message sent from this workstation
+                             //        keeps a tombstone without its text, so only messages with text count toward the
+                             //        4,096 bound; paired-broker, Held and Expired messages keep theirs, and a rollback
+                             //        to 1.0.4 loads. Coding agents and the tray show per-client setup states; LAN
+                             //        access shows the network category beside the firewall rule. Codex sessions on a
+                             //        publisher-signed build that is not exactly pinned are listed read-only instead of
+                             //        hidden, with an opt-in to wake them (default off); a read-only re-pin helper; the
+                             //        worker's opt-in --mcp-channel Claude Code channel bridge. MinHostVersion
+                             //        unchanged (1.6.1).
         MinHostVersion = "1.6.1",
         Permissions = ModulePermissions.Network | ModulePermissions.Storage | ModulePermissions.LaunchProcess |
             ModulePermissions.AgentTranscripts
