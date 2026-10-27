@@ -86,18 +86,30 @@ public sealed class LocalControlServer(WorkerApplication worker) : IAsyncDisposa
     public BrokerSnapshot Snapshot()
     {
         var runtime = worker.Runtime;
-        return new(runtime.Store.BrokerId, worker.Options.Name, LoopbackEndpoint(),
-            worker.Options.EnableLan ? runtime.Federation.LocalAdvertisement.Endpoint : null,
+        string? lanEndpoint = worker.Options.EnableLan ? runtime.Federation.LocalAdvertisement.Endpoint : null;
+        var directory = runtime.Store.Directory();
+        var mcp = worker.McpStatus;
+        // Attributions travel only for generic inboxes still in the directory, so the snapshot stays bounded
+        // by the directory rather than by the tracker's history.
+        var listed = directory.Where(s => s.Adapter == "mcp").Select(s => (s.Address.SessionId, s.Address.Incarnation)).ToHashSet();
+        var attributed = mcp.Inboxes?.Where(inbox => listed.Contains((inbox.SessionId, inbox.Incarnation))).ToArray();
+        mcp = mcp with { Inboxes = attributed is { Length: > 0 } ? attributed : null };
+        return new(runtime.Store.BrokerId, worker.Options.Name, LoopbackEndpoint(), lanEndpoint,
             runtime.Federation.Discovered.Take(32).Select(Peer).ToArray(),
             runtime.Store.Peers().Select(p => new PeerView(p.BrokerId, p.Name, p.Endpoint, p.CertificateSha256)).ToArray(),
             runtime.Federation.PairingOffers.Take(32).Select(p => new PairingView(p.RequestId, Peer(p.Peer),
                 p.VerificationCode, p.ExpiresAt, p.Outbound, p.LocalApproved, p.RemoteApproved)).ToArray(),
-            runtime.Store.Directory().Select(s => new SessionView(s.Address.SessionId, s.Address.Incarnation,
+            directory.Select(s => new SessionView(s.Address.SessionId, s.Address.Incarnation,
                 s.Label, s.Adapter, s.Activity.ToString(), s.Capabilities.HasFlag(SessionCapabilities.Receive),
                 s.Capabilities.HasFlag(SessionCapabilities.WakeIdle), s.IsPrivate, runtime.IsMuted(s.Address.SessionId))).ToArray(),
             new Dictionary<string, string>(runtime.AdapterErrors, StringComparer.Ordinal),
-            worker.Options.EnableLan ? runtime.Federation.LocalAdvertisement.CertificateSha256 : null, worker.McpStatus);
+            worker.Options.EnableLan ? runtime.Federation.LocalAdvertisement.CertificateSha256 : null, mcp, LanProfile(lanEndpoint));
     }
+    // The rule Allow LAN access creates names this executable and the advertised port. Hosted inside another
+    // process (the test harnesses) the rule read is refused as unavailable; the category is still read.
+    private LanProfileView? LanProfile(string? lanEndpoint) =>
+        Uri.TryCreate(lanEndpoint, UriKind.Absolute, out var endpoint) && System.Net.IPAddress.TryParse(endpoint.Host, out var address)
+            ? worker.LanProfile.Snapshot(address, Environment.ProcessPath ?? "", endpoint.Port) : null;
     private static PeerView Peer(BrokerAdvertisement peer) => new(peer.BrokerId, peer.Name, peer.Endpoint, peer.CertificateSha256);
     internal static async Task<byte[]> ReadFrameAsync(Stream stream, CancellationToken token)
     {

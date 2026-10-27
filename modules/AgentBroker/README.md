@@ -32,6 +32,14 @@ tools. Its presence lasts one minute and every successful call renews it; reusin
 the same clientId and incarnation keeps its mailbox receiving for 24 hours after
 its last call, so no renewal sidecar is needed between turns.
 
+The Coding agents group and the tray show separate setup states per client (Claude Code, Codex):
+broker, configuration, endpoint, tools, inbox and native wake. Check client setup runs only the
+client's read-only `mcp get` for this entry, on demand. An inbox counts for a client only when its
+own registration request identified that client. LAN firewall access shows the Windows network
+category of the broker's LAN interface beside the rule's Private profile, and observed LAN requests
+separately from the configured rule. See `AgentBrokerModule.Clients.cs` and
+`tools/AgentBroker.Worker/LanProfile.cs`.
+
 Build: dotnet build modules/AgentBroker/AgentBroker.csproj -c Release
 
 The public SelfTest(out string detail) exercises real Init, Options, tray controls, pairing scope,

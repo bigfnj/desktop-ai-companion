@@ -7,6 +7,12 @@ using AgentBroker.Protocol;
 namespace DesktopAICompanion.AgentBroker;
 
 internal sealed record ClientCommandResult(int ExitCode, string Output, string Error);
+internal enum ClientConfiguration { CliMissing, Absent, Configured, DifferentEntry, Disabled, PolicyBlocked, Unrecognized, Failed, Cancelled }
+// Fixed codes only. Scope: user, project, local, managed, "" (the client reports none) or unrecognized.
+// Transport: http, stdio or other. Health is Claude's own connection check: connected, tools_unavailable,
+// needs_authentication, failed, connection_error, pending_approval, rejected, disabled, timed_out or unknown.
+internal sealed record ClientInspection(ClientConfiguration State, string Scope = "", string Transport = "", string Health = "",
+    int ExitCode = 0, DateTimeOffset CheckedUtc = default);
 internal interface IAgentClientCommand
 {
     Task<ClientCommandResult> RunAsync(string executable, IReadOnlyList<string> arguments, CancellationToken token);
@@ -59,6 +65,110 @@ internal sealed class AgentClientSetup(IAgentClientCommand command)
         }
         catch (OperationCanceledException) { return "Setup was cancelled or timed out. Check the client's MCP settings before retrying."; }
         catch (Exception) { return "The client CLI could not complete setup. Install or repair that client's supported CLI, then try again."; }
+    }
+
+    /// <summary>
+    /// Read-only detection through the vendor's own read command (`claude mcp get`, `codex mcp get --json`),
+    /// for the fixed AgentBroker name only. Never adds, edits or removes an entry, never reads a client
+    /// configuration file, and never returns or logs vendor output: every field is a fixed code. Claude's
+    /// get also runs its own connection check against the configured entry, which is the one place this
+    /// detection observes reachability directly.
+    /// </summary>
+    public async Task<ClientInspection> InspectAsync(string client, string worker, string directory, string loopbackMcpEndpoint,
+        DateTimeOffset now, CancellationToken token)
+    {
+        if (client is not ("codex" or "claude")) throw new ArgumentOutOfRangeException(nameof(client));
+        string[] get = client == "codex" ? ["mcp", "get", ServerName, "--json"] : ["mcp", "get", ServerName];
+        ClientCommandResult result;
+        try
+        {
+            token.ThrowIfCancellationRequested();
+            result = await command.RunAsync(client, get, token);
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { return new(ClientConfiguration.Cancelled, CheckedUtc: now); }
+        catch (OperationCanceledException) { return new(ClientConfiguration.Failed, Health: "timed_out", CheckedUtc: now); }
+        // Only an executable is launched (never a script shim such as an npm .cmd), and Claude's one
+        // fallback is the current user's standard install; both missing is "not found", not a failure.
+        catch (Exception error) when (error is FileNotFoundException || error is Win32Exception { NativeErrorCode: 2 or 3 })
+        { return new(ClientConfiguration.CliMissing, CheckedUtc: now); }
+        catch (Exception) { return new(ClientConfiguration.Failed, CheckedUtc: now); }
+        string text = result.Output + "\n" + result.Error;
+        bool Has(string value) => text.Contains(value, StringComparison.OrdinalIgnoreCase);
+        if (result.ExitCode != 0)
+        {
+            if (Has("enterprise policy") || Has("enterprise MCP configuration") || Has("managed settings") || Has("managed MCP"))
+                return new(ClientConfiguration.PolicyBlocked, ExitCode: result.ExitCode, CheckedUtc: now);
+            // The same absence rule setup uses: our exact name and a not-found phrase, nothing looser. Claude's
+            // message also lists the other configured server names, which are matched here and never kept.
+            if (text.Contains(ServerName, StringComparison.Ordinal) && (Has("not found") || Has("No MCP server")))
+                return new(ClientConfiguration.Absent, ExitCode: result.ExitCode, CheckedUtc: now);
+            return new(ClientConfiguration.Failed, ExitCode: result.ExitCode, CheckedUtc: now);
+        }
+        return client == "claude"
+            ? InspectClaude(result.Output, worker, directory, loopbackMcpEndpoint, now)
+            : InspectCodex(result.Output, worker, directory, loopbackMcpEndpoint, now);
+    }
+
+    // The labels the reviewed public mcpGetHandler prints (Connect-ClaudeMcpEntry.mjs connectionFields). A
+    // block that does not have exactly one of each label it needs is Unrecognized, never Configured.
+    private static ClientInspection InspectClaude(string output, string worker, string directory, string endpoint, DateTimeOffset now)
+    {
+        var lines = output.Replace("\r", "", StringComparison.Ordinal).Split('\n');
+        var headings = lines.Select((line, index) => (line, index)).Where(item => item.line == ServerName + ":").ToArray();
+        if (headings.Length != 1) return new(ClientConfiguration.Unrecognized, CheckedUtc: now);
+        var block = lines.Skip(headings[0].index + 1).TakeWhile(line => line.Length == 0 || line.StartsWith("  ", StringComparison.Ordinal)).ToArray();
+        string? One(string label)
+        {
+            string prefix = "  " + label + ": ";
+            var found = block.Where(line => line.StartsWith(prefix, StringComparison.Ordinal)).ToArray();
+            return found.Length == 1 ? found[0][prefix.Length..] : null;
+        }
+        string? scopeLabel = One("Scope"), type = One("Type"), status = One("Status");
+        string scope = scopeLabel is null ? "unrecognized"
+            : scopeLabel.StartsWith("User config", StringComparison.Ordinal) ? "user"
+            : scopeLabel.StartsWith("Project config", StringComparison.Ordinal) ? "project"
+            : scopeLabel.StartsWith("Local config", StringComparison.Ordinal) ? "local"
+            : scopeLabel.StartsWith("Enterprise config", StringComparison.Ordinal) || scopeLabel.StartsWith("Managed", StringComparison.Ordinal) ? "managed"
+            : "unrecognized";
+        string health = status is null ? "unknown"
+            : System.Text.RegularExpressions.Regex.IsMatch(status, "^[\u2713\u2714\u221A] Connected$") ? "connected"
+            : status == "! Connected \u00B7 tools fetch failed" ? "tools_unavailable"
+            : status == "! Needs authentication" ? "needs_authentication"
+            : System.Text.RegularExpressions.Regex.IsMatch(status, "^[\u2717\u2718\u00D7] Failed to connect$") ? "failed"
+            : System.Text.RegularExpressions.Regex.IsMatch(status, "^[\u2717\u2718\u00D7] Connection error$") ? "connection_error"
+            : status.StartsWith("\u23F8 Pending approval", StringComparison.Ordinal) ? "pending_approval"
+            : System.Text.RegularExpressions.Regex.IsMatch(status, "^[\u2717\u2718\u00D7] Rejected ") ? "rejected"
+            : status.StartsWith("\u2298 Disabled", StringComparison.Ordinal) ? "disabled"
+            : "unknown";
+        if (type is null) return new(ClientConfiguration.Unrecognized, scope, "", health, CheckedUtc: now);
+        bool exact = type == "http" ? One("URL") == endpoint
+            : type == "stdio" && string.Equals(One("Command"), worker, StringComparison.OrdinalIgnoreCase) &&
+                One("Args") == "--mcp-stdio --data " + directory;
+        string transport = type is "http" or "stdio" ? type : "other";
+        var state = !exact ? ClientConfiguration.DifferentEntry
+            : health is "rejected" or "disabled" ? ClientConfiguration.Disabled : ClientConfiguration.Configured;
+        return new(state, scope, transport, health, CheckedUtc: now);
+    }
+
+    // Codex prints no scope; its JSON names the transport and whether the entry is enabled.
+    private static ClientInspection InspectCodex(string json, string worker, string directory, string endpoint, DateTimeOffset now)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            var root = document.RootElement;
+            var transport = root.GetProperty("transport");
+            string? type = transport.GetProperty("type").GetString();
+            bool exact = type == "stdio"
+                ? MatchesCodex(json, worker, ["--mcp-stdio", "--data", directory])
+                : type == "streamable_http" && transport.TryGetProperty("url", out var url) && url.GetString() == endpoint;
+            string kind = type == "stdio" ? "stdio" : type == "streamable_http" ? "http" : "other";
+            bool disabled = root.TryGetProperty("enabled", out var enabled) && enabled.ValueKind == JsonValueKind.False;
+            var state = !exact ? ClientConfiguration.DifferentEntry : disabled ? ClientConfiguration.Disabled : ClientConfiguration.Configured;
+            return new(state, "", kind, "", CheckedUtc: now);
+        }
+        catch (Exception error) when (error is JsonException or KeyNotFoundException or InvalidOperationException)
+        { return new(ClientConfiguration.Unrecognized, CheckedUtc: now); }
     }
 
     internal static string? EndpointFromConnection(ControlResponse? response) =>

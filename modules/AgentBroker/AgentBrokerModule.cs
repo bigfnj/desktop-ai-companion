@@ -15,7 +15,8 @@ public sealed partial class AgentBrokerModule : IModule
     private IHost? host;
     private IModuleSettings? settingsStore;
     private OptionsPane? optionsPane;
-    private (string Status, string NativeStatus, string PairingStatus, string McpStatus, string AgentInboxes, string LanAccess, string PairedBrokers)? notifiedInfo;
+    private (string Status, string NativeStatus, string PairingStatus, string McpStatus, string AgentInboxes, string LanAccess, string PairedBrokers,
+        string ClaudeClient, string CodexClient)? notifiedInfo;
     private ITrayQuestions? questions;
     private SynchronizationContext? ui;
     private BrokerSettings settings = new(false, "AgentBroker", 7432, 7433, true, true, true, true, false, false);
@@ -57,7 +58,8 @@ public sealed partial class AgentBrokerModule : IModule
         string? storage = host.GetStorage(Id)?.DataDirectory;
         if (storage is not null && Path.IsPathFullyQualified(storage)) dataDirectory = Path.GetFullPath(storage);
         optionsPane = BuildOptions();
-        notifiedInfo = (DisplayedStatus(), NativeStatusText(), PairingDisplayText(), McpDisplay().Detail, AgentInboxDisplay().Detail, LanAccessText(), PairedBrokersDisplay());
+        notifiedInfo = (DisplayedStatus(), NativeStatusText(), PairingDisplayText(), McpDisplay().Detail, AgentInboxDisplay().Detail, LanAccessText(), PairedBrokersDisplay(),
+            ClientDisplay("claude"), ClientDisplay("codex"));
         host.AddOptionsPane(optionsPane);
         host.AddTrayItems([new TrayItem { Label = "AgentBroker", Group = 30, Order = 0, BuildChildren = BuildTray,
             IconPng = DesktopAICompanion.ModuleKit.EmbeddedResources.LoadBytes(typeof(AgentBrokerModule).Assembly, "agentbroker.png") }]);
@@ -106,13 +108,16 @@ public sealed partial class AgentBrokerModule : IModule
             new() { Id = "claudePeerCredentials", Label = "Wake existing Claude sessions", Kind = SettingKind.Bool, Group = "Coding agents" },
             new() { Id = "nativePrivacy", Label = "Native delivery", Kind = SettingKind.Info, Group = "Coding agents" },
             new() { Id = "clientSetup", Label = "Client connection", Kind = SettingKind.Info, Group = "Coding agents" },
+            new() { Id = "claudeClient", Label = "Claude Code (CLI and VS Code)", Kind = SettingKind.Info, Group = "Coding agents", FullWidth = true },
+            new() { Id = "codexClient", Label = "Codex", Kind = SettingKind.Info, Group = "Coding agents", FullWidth = true },
             new() { Id = "nativeStatus", Label = "Native adapters", Kind = SettingKind.Info, Group = "Coding agents" }
         ],
         Load = LoadOptions, Save = SaveOptions,
         Actions = [new PaneAction { Label = "Refresh status", Group = "AgentBroker", ReloadPaneAfter = true,
             InvokeAsync = RefreshStatusAsync },
-            new PaneAction { Label = "Connect Codex MCP", Group = "Coding agents", InvokeAsync = () => ConfigureClientAsync("codex") },
-            new PaneAction { Label = "Connect Claude MCP", Group = "Coding agents", InvokeAsync = () => ConfigureClientAsync("claude") },
+            new PaneAction { Label = "Check client setup", Group = "Coding agents", ReloadPaneAfter = true, InvokeAsync = () => CheckClientSetupAsync() },
+            new PaneAction { Label = "Connect Codex MCP", Group = "Coding agents", ReloadPaneAfter = true, InvokeAsync = () => ConnectAndCheckAsync("codex") },
+            new PaneAction { Label = "Connect Claude MCP", Group = "Coding agents", ReloadPaneAfter = true, InvokeAsync = () => ConnectAndCheckAsync("claude") },
             new PaneAction { Label = "Allow LAN access", Group = "Connections", ReloadPaneAfter = true, InvokeAsync = AllowLanAccessAsync },
             new PaneAction { Label = "Copy broker invitation", Group = "Connections", InvokeAsync = CopyInvitationAsync },
             new PaneAction { Label = "Pair from invitation", Group = "Connections", InvokeWithPendingAsync = PairInvitationAsync }]
@@ -133,6 +138,8 @@ public sealed partial class AgentBrokerModule : IModule
         values["nativePrivacy"] = "The wake switches let messages reach existing idle client sessions automatically. MCP agents can still poll and reply without them. Wake adapters require verified client versions; Claude wake-up uses sensitive local peer credentials. Existing agent permission controls still apply.";
         values["clientSetup"] = "Connect MCP once per client for receipt and reply tools. Claude Code uses the local HTTP endpoint when it needs no token; other connections use the stdio bridge. Client policy can require administrator approval. For Claude Code in VS Code, start a new conversation and check /mcp afterward.";
         values["nativeStatus"] = NativeStatusText();
+        values["claudeClient"] = ClientDisplay("claude");
+        values["codexClient"] = ClientDisplay("codex");
         return values;
     }
 
@@ -149,7 +156,8 @@ public sealed partial class AgentBrokerModule : IModule
     private void NotifyInfoChanged()
     {
         if (shutDown || optionsPane is null) return;
-        var current = (DisplayedStatus(), NativeStatusText(), PairingDisplayText(), McpDisplay().Detail, AgentInboxDisplay().Detail, LanAccessText(), PairedBrokersDisplay());
+        var current = (DisplayedStatus(), NativeStatusText(), PairingDisplayText(), McpDisplay().Detail, AgentInboxDisplay().Detail, LanAccessText(), PairedBrokersDisplay(),
+            ClientDisplay("claude"), ClientDisplay("codex"));
         if (notifiedInfo == current) return;
         notifiedInfo = current;
         optionsPane.NotifyInfoChanged();
@@ -183,6 +191,8 @@ public sealed partial class AgentBrokerModule : IModule
         snapshot = null; ownsWorker = false; askedOffers.Clear();
         ResetPairingStatus();
         lanFirewallStatus = "";
+        // A check compared the entry with the previous port, worker and data directory; it no longer applies.
+        claudeInspection = null; codexInspection = null; clientSetupResults.Clear();
         ResetDiscoveryPrompts();
         SetStatus(!settings.Enabled ? "Disabled" : dataDirectory is null ? "Module storage unavailable" :
             !settings.Valid ? "Invalid broker settings" : ui is null ? "UI dispatcher unavailable" : "Starting");
@@ -281,10 +291,14 @@ public sealed partial class AgentBrokerModule : IModule
             new() { Label = settings.Enabled ? (ownsWorker ? "Disable AgentBroker" : "Disconnect this companion") : "Enable AgentBroker", Click = () =>
                 SaveOptions(new Dictionary<string, string> { ["enabled"] = settings.Enabled ? "false" : "true" }) }
         };
+        if (settings.Enabled) items.AddRange(ClientTrayItems());
         if (pairingStatus.Length != 0) items.Add(new() { Label = Safe(pairingStatus, 120) });
         string pairedSummary = PairedTrustSummary();
         if (pairedSummary.Length != 0) items.Add(new() { Label = Safe(pairedSummary, 120) });
         items.Add(new() { Label = "Allow LAN access", Click = () => _ = AllowLanAccessAsync() });
+        if (LanProfileMismatch()) items.Add(new() { Label = snapshot!.Lan!.Category == "public"
+            ? "This network is Public; the LAN rule covers Private networks only"
+            : "This network is a Domain network; the LAN rule covers Private networks only" });
         if (lanFirewallStatus.Length != 0) items.Add(new() { Label = Safe(lanFirewallStatus, 120) });
         BrokerSnapshot? view = snapshot;
         if (view is null) return items;

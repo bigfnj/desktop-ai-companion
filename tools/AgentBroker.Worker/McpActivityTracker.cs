@@ -8,18 +8,39 @@ namespace AgentBroker.Worker;
 
 internal enum McpObservedOperation { Other, Initialize, ListTools, CallTool }
 
-/// <summary>Passive, process-local protocol evidence. Retains only three fixed rows and UTC times.</summary>
+/// <summary>Passive, process-local protocol evidence. Retains three fixed rows, UTC times and a bounded
+/// list of inbox addresses whose own registration call carried a verified Claude or Codex identity.</summary>
 internal sealed class McpActivityTracker
 {
+    // Matches the store's registration bound, so a full directory of generic inboxes stays attributable.
+    internal const int MaximumAttributedInboxes = 256;
     private readonly object gate = new();
     private readonly McpClientActivityView[] clients = [new(McpClientFamily.Other), new(McpClientFamily.Claude), new(McpClientFamily.Codex)];
+    // Oldest first. Holds a session ID, an incarnation and a family only: no label, no client name.
+    private readonly List<McpInboxAttributionView> inboxes = [];
     private bool ready;
     private DateTimeOffset? lastRequest, lastToolsList;
 
     public void SetReady(bool value) { lock (gate) ready = value; }
     public McpStatusView Snapshot()
     {
-        lock (gate) return new(ready, lastRequest, lastToolsList, [.. clients]);
+        lock (gate) return new(ready, lastRequest, lastToolsList, [.. clients], inboxes.Count == 0 ? null : [.. inboxes]);
+    }
+
+    /// <summary>Attributes an inbox only to the family that the successful registration request itself
+    /// identified. An Other registration (an older stateless request) leaves any earlier attribution of
+    /// the same address untouched rather than inheriting a family from another request.</summary>
+    public void ObserveRegistration(McpClientFamily family, string sessionId, Guid incarnation)
+    {
+        if (family is not (McpClientFamily.Claude or McpClientFamily.Codex) || incarnation == Guid.Empty ||
+            !sessionId.StartsWith("mcp:", StringComparison.Ordinal) || sessionId.Length > 64) return;
+        lock (gate)
+        {
+            if (!ready) return;
+            inboxes.RemoveAll(inbox => inbox.SessionId == sessionId && inbox.Incarnation == incarnation);
+            if (inboxes.Count >= MaximumAttributedInboxes) inboxes.RemoveAt(0);
+            inboxes.Add(new(sessionId, incarnation, family));
+        }
     }
     public void Observe(McpClientFamily family, McpObservedOperation operation)
     {
@@ -58,13 +79,15 @@ internal sealed class McpActivityFilters(McpActivityTracker tracker, Guid broker
     private const string ObservationKey = "agentbroker.mcp-observation";
 
     // This object lives only in one HTTP request's Items. It contains no request id,
-    // client name/version, header, tool name/arguments, response text or server reference.
+    // client name/version, header, label, text or server reference. A successful register_agent
+    // call adds only the session ID and incarnation that call created.
     private sealed class Observation(McpClientFamily family, McpObservedOperation operation)
     {
         private int successful = operation is McpObservedOperation.Initialize or McpObservedOperation.Other ? 1 : 0;
         private int recorded;
         public McpClientFamily Family = family;
         public McpObservedOperation Operation { get; } = operation;
+        public (string SessionId, Guid Incarnation)? Registration;
         public void MarkSuccessful(McpClientFamily value) { Family = value; Volatile.Write(ref successful, 1); }
         public bool TakeSuccess() => Volatile.Read(ref successful) == 1 && Interlocked.Exchange(ref recorded, 1) == 0;
     }
@@ -96,7 +119,11 @@ internal sealed class McpActivityFilters(McpActivityTracker tracker, Guid broker
             LocalContext(context) is { } http && !http.RequestAborted.IsCancellationRequested &&
             http.Response.StatusCode < 400 && http.Items.TryGetValue(ObservationKey, out var value) &&
             value is Observation observation && observation.TakeSuccess())
+        {
             tracker.Observe(observation.Family, observation.Operation);
+            if (observation.Registration is { } registration)
+                tracker.ObserveRegistration(observation.Family, registration.SessionId, registration.Incarnation);
+        }
     };
 
     public McpRequestFilter<ListToolsRequestParams, ListToolsResult> ListTools() => next => async (context, token) =>
@@ -109,9 +136,23 @@ internal sealed class McpActivityFilters(McpActivityTracker tracker, Guid broker
     public McpRequestFilter<CallToolRequestParams, CallToolResult> CallTool() => next => async (context, token) =>
     {
         var result = await next(context, token).ConfigureAwait(false);
-        if (result.IsError is not true) MarkSuccessful(context, McpObservedOperation.CallTool, token);
+        if (result.IsError is not true)
+        {
+            MarkSuccessful(context, McpObservedOperation.CallTool, token);
+            // The tool itself derives the inbox address from these two arguments ("mcp:" + clientId),
+            // so a successful call proves exactly this session was registered by this request.
+            if (context.Params is { Name: "register_agent", Arguments: { } arguments } &&
+                Identifier(arguments, "clientId") is { } clientId && Identifier(arguments, "incarnation") is { } incarnation &&
+                LocalContext(context) is { } http && http.Items.TryGetValue(ObservationKey, out var value) &&
+                value is Observation observation && observation.Operation == McpObservedOperation.CallTool)
+                observation.Registration = ("mcp:" + clientId.ToString("D"), incarnation);
+        }
         return result;
     };
+
+    private static Guid? Identifier(IDictionary<string, System.Text.Json.JsonElement> arguments, string name) =>
+        arguments.TryGetValue(name, out var element) && element.ValueKind == System.Text.Json.JsonValueKind.String &&
+        Guid.TryParse(element.GetString(), out var value) && value != Guid.Empty ? value : null;
 
     private void MarkSuccessful(MessageContext context, McpObservedOperation operation, CancellationToken token)
     {

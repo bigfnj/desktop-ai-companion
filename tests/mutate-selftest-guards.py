@@ -231,6 +231,15 @@ WINDOWSOAK_CSPROJ = os.path.join(REPO, "tests", "DesktopAICompanion.WindowSoak",
 WINDOWSOAK_DLL = os.path.join(REPO, "tests", "DesktopAICompanion.WindowSoak", "bin", "Release", "DesktopAICompanion.WindowSoak.dll")
 WINDOWSOAK_EXE = os.path.join(REPO, "tests", "DesktopAICompanion.WindowSoak", "bin", "Release", "DesktopAICompanion.WindowSoak.exe")
 
+# AgentBroker's module self-test (lane feature/agentbroker-backlog-a). The module build also publishes its worker
+# payload; the artefact graded is the module DLL the host loads from the build folder.
+AGENTBROKER_CSPROJ = os.path.join(REPO, "modules", "AgentBroker", "AgentBroker.csproj")
+AGENTBROKER_DLL = os.path.join(BIN, "modules", "agentbroker", "AgentBroker.dll")
+AGENTBROKER_MODULE = os.path.join(REPO, "modules", "AgentBroker", "AgentBrokerModule.cs")
+AGENTBROKER_CLIENTS = os.path.join(REPO, "modules", "AgentBroker", "AgentBrokerModule.Clients.cs")
+AGENTBROKER_SETUP = os.path.join(REPO, "modules", "AgentBroker", "AgentClientSetup.cs")
+AGENTBROKER_FIREWALL = os.path.join(REPO, "modules", "AgentBroker", "AgentBrokerModule.Firewall.cs")
+
 TEMP = os.environ.get("TEMP", ".")
 # One private TEMP per harness run, created in main() and handed to every child through its environment
 # (Path.GetTempPath() reads TMP, then TEMP). Deleted at the end: the SelfTestScratch sweep inside the child
@@ -13856,6 +13865,106 @@ CASES = (
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "...with the name the user gave the one allowed, on either CLI"),
+    # ---- lane feature/agentbroker-backlog-a ----
+    # AgentBroker per-client onboarding states (BACKLOG N-agentbroker-client-onboarding-01) and the LAN network profile
+    # (N-agentbroker-lan-profile-01), graded through --module-selftest=agentbroker (AgentBrokerOnboardingChecks.cs). Each
+    # case puts back a shortcut the design refuses: a label or a connection standing in for an inbox, another client's
+    # traffic, a loose entry match, a status poll that runs the vendor CLI. Named "backlog-a: ..." for one --only run.
+    ("backlog-a: a generic inbox labelled with the client's name counts as that client's",
+     AGENTBROKER_CLIENTS,
+     b"            if (!attributions.TryGetValue((session.SessionId, session.Incarnation), out var owner))\n"
+     b"            { unattributed++; if (present) unattributedPresent++; }\n",
+     b"            if (!attributions.TryGetValue((session.SessionId, session.Incarnation), out var owner) && session.Label != ClientName(client))\n"
+     b"            { unattributed++; if (present) unattributedPresent++; }\n"
+     b"            else if (owner == McpClientFamily.Other) { attributed++; if (present) attributedPresent++; }\n",
+     AGENTBROKER_CSPROJ, AGENTBROKER_DLL,
+     "--module-selftest=agentbroker", "dp-module-agentbroker-selftest.txt",
+     "onboarding: a generic inbox labelled Claude Code without a verified registration is not Claude's inbox"),
+    ("backlog-a: the client's MCP tool list is shown as a registered inbox",
+     AGENTBROKER_CLIENTS,
+     b"        else if (inbox.Attributed > 0)\n",
+     b"        else if (inbox.Attributed > 0 || snapshot?.Mcp?.Clients?.Any(row => row is not null && row.LastToolsListUtc is not null &&\n"
+     b"            row.Family == (client == \"claude\" ? McpClientFamily.Claude : McpClientFamily.Codex)) == true)\n",
+     AGENTBROKER_CSPROJ, AGENTBROKER_DLL,
+     "--module-selftest=agentbroker", "dp-module-agentbroker-selftest.txt",
+     "onboarding: Claude MCP traffic shows its tools without claiming an inbox"),
+    ("backlog-a: any client's tool list is credited to every client",
+     AGENTBROKER_CLIENTS,
+     b"        if (row.LastToolsListUtc is { } listed && listed <= now.AddSeconds(5))\n",
+     b"        if ((row.LastToolsListUtc ?? mcp!.LastToolsListUtc) is { } listed && listed <= now.AddSeconds(5))\n",
+     AGENTBROKER_CSPROJ, AGENTBROKER_DLL,
+     "--module-selftest=agentbroker", "dp-module-agentbroker-selftest.txt",
+     "onboarding: Claude's tool list is not Codex traffic"),
+    ("backlog-a: every status poll runs the vendor CLI check",
+     AGENTBROKER_MODULE,
+     b"        AskAboutDiscovery(snapshot);\n",
+     b"        AskAboutDiscovery(snapshot);\n        _ = CheckClientSetupAsync();\n",
+     AGENTBROKER_CSPROJ, AGENTBROKER_DLL,
+     "--module-selftest=agentbroker", "dp-module-agentbroker-selftest.txt",
+     "onboarding: each client has its own row, unchecked until asked, and status polls launch no CLI"),
+    ("backlog-a: a settings restart keeps the check made against the old settings",
+     AGENTBROKER_MODULE,
+     b"        claudeInspection = null; codexInspection = null; clientSetupResults.Clear();\n",
+     b"        clientSetupResults.Clear();\n",
+     AGENTBROKER_CSPROJ, AGENTBROKER_DLL,
+     "--module-selftest=agentbroker", "dp-module-agentbroker-selftest.txt",
+     "onboarding: a settings restart clears the previous configuration check"),
+    ("backlog-a: any Claude HTTP entry under AgentBroker's name counts as this broker's",
+     AGENTBROKER_SETUP,
+     b"        bool exact = type == \"http\" ? One(\"URL\") == endpoint\n",
+     b"        bool exact = type == \"http\" ? One(\"URL\") is not null\n",
+     AGENTBROKER_CSPROJ, AGENTBROKER_DLL,
+     "--module-selftest=agentbroker", "dp-module-agentbroker-selftest.txt",
+     "onboarding: an entry with AgentBroker's name for another endpoint is a different entry, never configured"),
+    ("backlog-a: a Claude stdio entry matches on a data-directory prefix",
+     AGENTBROKER_SETUP,
+     b"                One(\"Args\") == \"--mcp-stdio --data \" + directory;\n",
+     b"                One(\"Args\")!.StartsWith(\"--mcp-stdio --data \" + directory, StringComparison.Ordinal);\n",
+     AGENTBROKER_CSPROJ, AGENTBROKER_DLL,
+     "--module-selftest=agentbroker", "dp-module-agentbroker-selftest.txt",
+     "onboarding: a stdio entry for another data directory is a different entry"),
+    ("backlog-a: any nonzero get exit reads as an absent entry",
+     AGENTBROKER_SETUP,
+     b"            if (text.Contains(ServerName, StringComparison.Ordinal) && (Has(\"not found\") || Has(\"No MCP server\")))\n",
+     b"            if (result.ExitCode != 0)\n",
+     AGENTBROKER_CSPROJ, AGENTBROKER_DLL,
+     "--module-selftest=agentbroker", "dp-module-agentbroker-selftest.txt",
+     "onboarding: an unrelated nonzero exit is a failed check, never absent"),
+    ("backlog-a: a managed-policy refusal is not classified",
+     AGENTBROKER_SETUP,
+     b"                return new(ClientConfiguration.PolicyBlocked, ExitCode: result.ExitCode, CheckedUtc: now);\n",
+     b"                return new(ClientConfiguration.Failed, ExitCode: result.ExitCode, CheckedUtc: now);\n",
+     AGENTBROKER_CSPROJ, AGENTBROKER_DLL,
+     "--module-selftest=agentbroker", "dp-module-agentbroker-selftest.txt",
+     "onboarding: a managed-policy refusal is blocked by policy"),
+    ("backlog-a: a missing Codex executable is a failed check",
+     AGENTBROKER_SETUP,
+     b"        catch (Exception error) when (error is FileNotFoundException || error is Win32Exception { NativeErrorCode: 2 or 3 })\n",
+     b"        catch (Exception error) when (error is FileNotFoundException)\n",
+     AGENTBROKER_CSPROJ, AGENTBROKER_DLL,
+     "--module-selftest=agentbroker", "dp-module-agentbroker-selftest.txt",
+     "onboarding: a missing Codex executable is not found, not a failure"),
+    ("backlog-a: a Codex entry with enabled = false reads as configured",
+     AGENTBROKER_SETUP,
+     b"            var state = !exact ? ClientConfiguration.DifferentEntry : disabled ? ClientConfiguration.Disabled : ClientConfiguration.Configured;\n",
+     b"            var state = !exact ? ClientConfiguration.DifferentEntry : ClientConfiguration.Configured;\n            _ = disabled;\n",
+     AGENTBROKER_CSPROJ, AGENTBROKER_DLL,
+     "--module-selftest=agentbroker", "dp-module-agentbroker-selftest.txt",
+     "onboarding: a disabled, a foreign and a malformed Codex entry are each reported as such"),
+    ("backlog-a: the Public-network mismatch is never explained",
+     AGENTBROKER_FIREWALL,
+     b"        if (lan.Rule == \"configured\" && lan.Category == \"public\")\n",
+     b"        if (lan.Rule == \"configured\" && lan.Category == \"private\")\n",
+     AGENTBROKER_CSPROJ, AGENTBROKER_DLL,
+     "--module-selftest=agentbroker", "dp-module-agentbroker-selftest.txt",
+     "lan profile: a Public network beside the Private rule is explained in one sentence in the pane and the tray"),
+    ("backlog-a: a configured rule is reported as observed reachability",
+     AGENTBROKER_FIREWALL,
+     b"        lines.Add(lan.LastInboundUtc is { } inbound && inbound <= McpNow().AddSeconds(5)\n",
+     b"        lines.Add((lan.LastInboundUtc ?? (lan.Rule == \"configured\" ? lan.CheckedUtc : null)) is { } inbound && inbound <= McpNow().AddSeconds(5)\n",
+     AGENTBROKER_CSPROJ, AGENTBROKER_DLL,
+     "--module-selftest=agentbroker", "dp-module-agentbroker-selftest.txt",
+     "lan profile: a configured rule is not presented as observed reachability"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

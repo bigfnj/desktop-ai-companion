@@ -13,6 +13,8 @@ using System.Text.Json;
 int assertions = 0;
 void Check(bool value, string name)
 { if (!value) throw new InvalidOperationException(name); assertions++; Console.WriteLine("PASS: " + name); }
+// O-agentbroker-02: a measurement, not a check. Driven one fresh process at a time by tests/Measure-AgentBrokerCoordination.ps1.
+if (args.Length >= 1 && args[0] == "--coordination-benchmark") return await CoordinationBenchmark.RunAsync(args[1..]);
 if (args.Length == 1 && args[0] == "--claude-public-discovery-observation")
 {
     try
@@ -45,10 +47,13 @@ if (args.Length == 1 && args[0] == "--polling-lease-only")
     }
     catch (Exception ex) { Console.Error.WriteLine(ex); Console.WriteLine("RESULT=FAIL"); return 1; }
 }
-if (args.Length == 1 && args[0] is "--mailbox-only" or "--wait-tools-only" or "--send-only" or "--instructions-only")
+if (args.Length == 1 && args[0] is "--mailbox-only" or "--wait-tools-only" or "--send-only" or "--instructions-only" or
+    "--inbox-attribution-only" or "--lan-profile-only")
 {
     try
     {
+        if (args[0] == "--inbox-attribution-only") await OnboardingChecks.InboxAttributionAsync(Check);
+        if (args[0] == "--lan-profile-only") await OnboardingChecks.LanProfileAsync(Check);
         if (args[0] == "--mailbox-only") await MailboxChecks.RunAsync(Check);
         if (args[0] == "--wait-tools-only") await WaitToolChecks.RunAsync(Check);
         if (args[0] == "--send-only") await SendToolChecks.RunAsync(Check);
@@ -219,6 +224,8 @@ try
         await WaitToolChecks.RunAsync(Check);
         await SendToolChecks.RunAsync(Check);
         await InstructionsChecks.RunAsync(Check);
+        // Client inbox attribution and the LAN network profile (lane feature/agentbroker-backlog-a).
+        await OnboardingChecks.RunAsync(Check);
     }
     try { WorkerOptions.Parse(["--data", scratch, "--lan", "false", "--lan", "true"]); throw new Exception("Accepted duplicate option."); }
     catch (ArgumentException) { Check(true, "duplicate worker options fail before startup"); }

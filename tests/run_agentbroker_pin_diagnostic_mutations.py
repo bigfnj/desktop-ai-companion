@@ -45,6 +45,9 @@ SOURCES = {
     "store": "src/AgentBroker.Core/BrokerStore.cs",
     "tools": "tools/AgentBroker.Worker/BrokerTools.cs",
     "workerapp": "tools/AgentBroker.Worker/WorkerApplication.cs",
+    "tracker": "tools/AgentBroker.Worker/McpActivityTracker.cs",
+    "localcontrol": "tools/AgentBroker.Worker/LocalControlServer.cs",
+    "lanprofile": "tools/AgentBroker.Worker/LanProfile.cs",
 }
 PROJECTS = {
     "worker": "tests/AgentBroker.Worker.Tests/AgentBroker.Worker.Tests.csproj",
@@ -155,6 +158,45 @@ WITNESSES = (
         ('private bool Retained(BrokerSession s) => s.Adapter == "mcp" && s.Activity',
          "private bool Retained(BrokerSession s) => s.Activity"),
     )),
+    # ---- lane feature/agentbroker-backlog-a ----
+    # Inbox attribution (N-agentbroker-client-onboarding-01) and the LAN network profile (N-agentbroker-lan-profile-01).
+    # The new checks run after the --existing-tests-only cut-off, so the existing pin stays 196.
+    Witness("backlog-a-attribution-any-family", "tracker", "worker", ("--inbox-attribution-only",), "OnboardingChecks.cs", ((
+        "        if (family is not (McpClientFamily.Claude or McpClientFamily.Codex) || incarnation == Guid.Empty ||",
+        "        if (incarnation == Guid.Empty ||",
+    ),)),
+    Witness("backlog-a-attribution-outlives-directory", "localcontrol", "worker", ("--inbox-attribution-only",), "OnboardingChecks.cs", ((
+        "        var attributed = mcp.Inboxes?.Where(inbox => listed.Contains((inbox.SessionId, inbox.Incarnation))).ToArray();",
+        "        var attributed = mcp.Inboxes; _ = listed;",
+    ),)),
+    Witness("backlog-a-lan-any-adapter", "lanprofile", "worker", ("--lan-profile-only",), "OnboardingChecks.cs", ((
+        "        var categories = connections.Where(item => item.AdapterId == carrier[0]).Select(item => item.Category).ToArray();",
+        "        var categories = connections.Select(item => item.Category).ToArray();",
+    ),)),
+    Witness("backlog-a-lan-least-restrictive", "lanprofile", "worker", ("--lan-profile-only",), "OnboardingChecks.cs", ((
+        "        return categories.Min() switch",
+        "        return categories.Max() switch",
+    ),)),
+    Witness("backlog-a-lan-rule-any-under-name", "lanprofile", "worker", ("--lan-profile-only",), "OnboardingChecks.cs", ((
+        '        return found.Count == 1 && FirewallSetup.Matches(found[0], desired) ? ("configured", profiles) : ("conflicting", profiles);',
+        '        return ("configured", profiles);',
+    ),)),
+    Witness("backlog-a-lan-cache-by-reference", "lanprofile", "worker", ("--lan-profile-only",), "OnboardingChecks.cs", ((
+        "            if (!Nullable.Equals(key, requested)) { key = requested; reading = null; }",
+        "            if (key != requested) { key = requested; reading = null; }",
+    ),)),
+    Witness("backlog-a-lan-stale-after-address-change", "lanprofile", "worker", ("--lan-profile-only",), "OnboardingChecks.cs", ((
+        "            if (!Nullable.Equals(key, requested)) { key = requested; reading = null; }",
+        "            if (!Nullable.Equals(key, requested)) { key = requested; }",
+    ),)),
+    Witness("backlog-a-lan-own-address-evidence", "lanprofile", "worker", ("--lan-profile-only",), "OnboardingChecks.cs", ((
+        "        if (local is not null && NetworkPolicy.Normalize(local).Equals(NetworkPolicy.Normalize(remote))) return;",
+        "        _ = local;",
+    ),)),
+    Witness("backlog-a-lan-failure-reads-private", "lanprofile", "worker", ("--lan-profile-only",), "OnboardingChecks.cs", ((
+        '{ category = "unavailable"; }',
+        '{ category = "private"; }',
+    ),)),
 )
 
 

@@ -5923,6 +5923,77 @@ byte as before. Whether it lowers the 8 to 25% the eval measured on Claude Code 
 another lane, with the owner's approval. Until then the item is part 1 of 2. The default choice of opus at medium rested
 partly on that rate, so the eval may move it too.
 
+#### feature/agentbroker-backlog-a
+
+Per-client onboarding states (N-agentbroker-client-onboarding-01), the LAN network profile
+(N-agentbroker-lan-profile-01) and the coordination benchmark (O-agentbroker-02). No federation record, persisted
+state, tool, limit, `BrokerStore.cs` or `BrokerTools.cs` changed.
+
+**The client configuration check runs only when asked.** `claude mcp get` starts the vendor CLI and makes it connect to
+the configured entry, and Codex's get starts its CLI too. Running that on the two-second status poll, or at every
+companion start, would start a vendor process per poll. A client row therefore says "not checked" until the person
+chooses **Check client setup**, a Connect action or the tray item, and a settings restart clears it, because the check
+compared the entry with the previous port and paths.
+
+**Most inboxes show as carrying no client identity, and that is the evidence, not a defect.** An inbox counts for
+Claude Code or Codex only when its own successful `register_agent` request carried that client's identity: its
+initialize, or 2026 per-request metadata. Current clients mostly send stateless tool calls without either, so their
+inboxes are listed as unidentified. Refused alternatives: the session label (self-reported), the most recent
+initialize on the endpoint (another client's), and the existence of the client's MCP traffic (a connection is not an
+inbox). Clients that send per-request identity are attributed with no change here.
+
+**The companion never launches a script shim for a vendor CLI.** `Process.Start` with a bare name finds only an
+`.exe`, so a CLI installed as an npm `claude.cmd` or `codex.cmd` shows "CLI not found". Running a `.cmd` means cmd.exe
+parsing of the worker path and data directory; resolving the shim to the package's bundled executable would pin the
+package's internal layout. Left for an owner decision as N-broker-a-01.
+
+**A 1.0.4 module cannot read a 1.1.0 snapshot that carries the new members.** The control protocol disallows
+unmapped members. The new `BrokerSnapshot.Lan` and `McpStatusView.Inboxes` are omitted while null, but a LAN reading
+is present whenever LAN is enabled, so an older companion attached as standby to a newer worker reports its worker
+status unavailable until it is updated. That is the shape the 1.0.3 `Mcp` member already had. The module and worker
+ship in one package, so it takes two companions of different versions for one user.
+
+**Several networks on one adapter resolve to the most restrictive category** (Public, then Private, then Domain),
+because that is the profile Windows Firewall applies. The Network List Manager interfaces declare vtable slots only
+up to `INetwork.GetCategory`: `SetCategory` follows it and is not declared, so this code cannot call it.
+
+**Observed LAN reachability has no positive check on one workstation.** The worker records an HTTPS request on the
+LAN listener whose source is a private address other than loopback and other than the local address. Producing one
+needs a second PC, so the observation logic is checked with synthetic addresses and the one-line hook in the request
+pipeline is left to the physical LAN acceptance.
+
+**O-agentbroker-02: the snapshot store is not what limits sustained coordination (DECLINED-MEASURED for a journal
+or SQLite).** Measured 2026-10-27 with `tests/Measure-AgentBrokerCoordination.ps1` against the unmodified store:
+five fresh processes per configuration, interleaved round-robin with the start rotated per repetition, Stopwatch
+around the operation inside the process, state on the SSD volume the installed module's data uses, on a workstation
+shared with other builds. Cold is the first operation in a process; warm is the median of the rest across all five.
+
+| Measured | Cold median | Warm median (max) |
+|---|---|---|
+| Accept + Commit, 100 retained, 512 B (146 KB state) | 25 ms | 16 ms (19) |
+| Accept + Commit, 1,000 retained, 512 B (1.5 MB) | 45 ms | 39 ms (44) |
+| Accept + Commit, 4,096 retained, 512 B (6.0 MB) | 121 ms | 115 ms (130) |
+| Accept + Commit, 1,000 retained, 16 KiB (17 MB) | 263 ms | 184 ms (278) |
+| Accept + Commit, 4,096 retained, 16 KiB (71 MB) | 683 ms | 667 ms (926) |
+| Accept + Commit, 4,096 retained, 16 KiB of escaped characters (407 MB, the serializer's worst case) | 2,637 ms | 2,688 ms (3,060) |
+| `wait_for_messages` wake, send issued to waiter's reply, HTTP MCP | 44 ms | 18 ms (108) |
+| Federated `list_sessions` page, 8 peers of 16 sessions | 269 ms | 24 ms (33) |
+| Federated `list_sessions` page, 32 peers of 16 sessions | 579 ms | 324 ms (375) |
+| Federated `list_sessions` page, 32 peers of 256 sessions (all 8,192 returned by the runtime) | 595 ms | 352 ms (396) |
+
+The peers were real workers with mutual TLS on loopback in one process, so a LAN adds its round trips to every
+handshake; every page opened a new connection to every peer and still finished inside the five-second directory
+budget with every session present. At ten messages a minute, about twenty commits a minute (each message and its
+acknowledgement), the measured warm cost keeps the store busy about 4% of the time at 512-byte messages with all
+4,096 retained, about 22% at 16 KiB, and about 90% in the escaped worst case. That last case also holds the store lock
+for about 2.7 s per commit, close to the module's three-second status deadline (`ControlProtocol.ClientTimeout`).
+
+What breaks first is the retained-message bound, not storage cost. A receipt stays until its expiry plus one day
+(`BrokerStore.Expire`), and Accept refuses `message_limit` at 4,096 retained (`BrokerStore.Accept`), so ten messages a
+minute reaches the bound after 410 minutes whatever the lifetime. By the same arithmetic the sustainable rate is
+4,096 per lifetime plus a day: about 1.4 a minute at the default 24-hour lifetime. No limit was changed in this lane;
+filed as N-broker-a-02 for an owner decision.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

@@ -26,6 +26,7 @@ public sealed partial class AgentBrokerModule
             RunLifetimeChecks(Check, dispatcher);
             RunPairingChecks(Check, dispatcher);
             RunFirewallChecks(Check, dispatcher);
+            RunOnboardingChecks(Check, dispatcher);
             var host = new TestHost();
             string directory = Path.Combine(Path.GetTempPath(), "agentbroker-synthetic-" + Guid.NewGuid().ToString("N"));
             host.UseStorage(Id, new TestStorage(directory));
@@ -294,7 +295,10 @@ public sealed partial class AgentBrokerModule
         }
         catch (Exception ex) { failures.Add("self-test exception " + ex.GetType().Name + ": " + ex.Message); }
         finally { module?.Shutdown(); SynchronizationContext.SetSynchronizationContext(previous); }
-        detail = checks + " checks" + (failures.Count == 0 ? " passed" : "; " + string.Join("; ", failures));
+        // One FAIL: line per failed check, under the summary line: the host re-emits each line with the module's
+        // prefix, and the self-test mutation harness grades a case by the failed check's own label on such a line.
+        detail = checks + " checks" + (failures.Count == 0 ? " passed"
+            : "; " + failures.Count + " failed" + string.Concat(failures.Select(failure => "\nFAIL: " + failure)));
         return failures.Count == 0;
     }
 

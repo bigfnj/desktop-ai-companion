@@ -27,6 +27,8 @@ public sealed class WorkerApplication : IAsyncDisposable
     public WorkerOptions Options { get; }
     public string LocalAccessToken => Convert.ToHexString(localToken);
     public McpStatusView McpStatus => mcpActivity.Snapshot();
+    // Read-only LAN observations for status: network category, this worker's rule, inbound evidence.
+    public LanProfileMonitor LanProfile { get; } = new(new WindowsLanProfileProbe());
 
     private WorkerApplication(WebApplication application, BrokerRuntime runtime,
         BrokerIdentity identity, WorkerOptions options, McpActivityTracker mcpActivity)
@@ -130,6 +132,9 @@ public sealed class WorkerApplication : IAsyncDisposable
     {
         Application.Use(async (context, next) =>
         {
+            // Before any refusal: a request that arrived over the LAN listener proves reachability even when
+            // it is then refused, which is what separates "observed reachable" from "rule configured".
+            if (context.Request.IsHttps) LanProfile.ObserveInbound(context.Connection.RemoteIpAddress, context.Connection.LocalIpAddress);
             // Agent connections are native clients. Browsers and DNS aliases are not implicit local authority.
             if (context.Request.Headers.ContainsKey("Origin"))
             { context.Response.StatusCode = StatusCodes.Status403Forbidden; return; }
