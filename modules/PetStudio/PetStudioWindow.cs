@@ -147,6 +147,8 @@ namespace DesktopAICompanion.PetStudioModule
         internal PetStudioWindow(IHost host)
         {
             _host = host;
+            // The static orphan sweep's log target, which it cannot reach through an instance (see _sweepHost).
+            if (host != null) Volatile.Write(ref _sweepHost, host);
             _pets = host != null ? host.GetCompanionManager("petstudio") : null;
             _settings = host != null ? host.GetSettings("petstudio") : null;
             // Ask the host which theme it is presenting; it owns the light/dark/system preference.
@@ -847,12 +849,56 @@ namespace DesktopAICompanion.PetStudioModule
             Task.Run(delegate { DeleteTree(path); });
         }
 
-        /// <summary>One recursive delete, swallowing everything: a tree another process still holds open is
-        /// left for the sweep rather than failing the import or the close in front of it.</summary>
-        private static void DeleteTree(string path)
+        /// <summary>One recursive delete of an extraction tree this window made, and its one log line: the two
+        /// callers hand it to a pool thread (F159), and it logs through this window's host.</summary>
+        private void DeleteTree(string path)
+        {
+            DeleteExtractionTree(path, _host);
+        }
+
+        /// <summary>
+        /// Delete one extraction tree and say what happened, in one line (N-remembrance-delete-logging-01). The tree
+        /// is %TEMP%\petstudio-shimeji-&lt;guid&gt;, the unpacked copy of a Shimeji zip the user imported. That is temp,
+        /// which the owner's rule of 2026-10-07 exempts as written, and the 2026-10-26 campaign took it in scope
+        /// anyway because the tree is a copy of the user's own skin: the rule's question is "what happened to my
+        /// files", and an extraction the log never mentions cannot answer it. So the delete logs "deleted this
+        /// window's extracted skin folder", and a failure logs its exception's TYPE, never its message (which names
+        /// the path, under the user's profile) and leaves the tree for the orphan sweep, as before: a tree another
+        /// process still holds open must not fail the import or the close in front of it. A path with no folder
+        /// behind it is no delete, and logs nothing. Internal and static so the module self-test drives it on a
+        /// fixture tree with a recording host.
+        /// </summary>
+        internal static void DeleteExtractionTree(string path, IHost host)
         {
             if (string.IsNullOrEmpty(path)) return;
-            try { if (Directory.Exists(path)) Directory.Delete(path, true); } catch { }
+            string line;
+            try
+            {
+                if (!Directory.Exists(path)) return;
+                Directory.Delete(path, true);
+                line = ExtractionDeletedLine;
+            }
+            catch (Exception ex)
+            {
+                line = ExtractionNotDeletedLine(ex);
+            }
+            LogQuietly(host, line);
+        }
+
+        internal const string ExtractionDeletedLine = "deleted this window's extracted skin folder";
+
+        internal static string ExtractionNotDeletedLine(Exception ex)
+        {
+            return "could not delete this window's extracted skin folder (" + (ex == null ? "Exception" : ex.GetType().Name) +
+                   "); the orphan sweep removes it once it is " + SweepAgeHours.ToString(System.Globalization.CultureInfo.InvariantCulture) +
+                   " h old";
+        }
+
+        /// <summary>One line under the module's id; never throws, which is IHost.Log's own contract.</summary>
+        private static void LogQuietly(IHost host, string line)
+        {
+            if (host == null || string.IsNullOrEmpty(line)) return;
+            try { host.Log("petstudio", line); } catch { }
         }
 
         /// <summary>Trees older than this are collected by <see cref="SweepOrphanedExtractions"/>; a conversion
@@ -862,6 +908,13 @@ namespace DesktopAICompanion.PetStudioModule
         // At most one sweep in flight, ever: the Interlocked gate of AiBrainModule.BeginVramProbe. Static
         // because the sweep is, and because it guards %TEMP%, which every window of this module shares.
         private static int _sweepInFlight;
+
+        // Where the sweep's line goes (N-remembrance-delete-logging-02): the host of the newest window, set in its
+        // constructor. Static because the sweep is, for the reason above, and a window's host is the module's one
+        // host, so whichever window set it last names the same log. Rejected: a host argument on the sweep's entry
+        // point, which every load path would then pass for the same value, and whose shape the F159/F160 source
+        // invariants pin as it is.
+        private static IHost _sweepHost;
 
         /// <summary>
         /// Run <see cref="SweepOrphanedExtractions"/> on a pool thread, at most once at a time. The shape
@@ -901,10 +954,26 @@ namespace DesktopAICompanion.PetStudioModule
         /// </summary>
         private static void SweepOrphanedExtractions()
         {
+            SweepOrphanedExtractions(Path.GetTempPath(), DateTime.UtcNow.AddHours(-SweepAgeHours),
+                Volatile.Read(ref _sweepHost));
+        }
+
+        /// <summary>
+        /// The sweep over <paramref name="temp"/>, and its one line (N-remembrance-delete-logging-02): how many
+        /// trees it removed, how many it could not and their exception TYPES, and whether the folder could not be
+        /// listed, written only when one of those is not zero. Each delete was inside its own empty catch and the
+        /// walk inside another, so the log could say neither what went nor what would not. A sweep with nothing
+        /// due writes NOTHING, as Remembrance's purge does: it runs at every window open and every load, and a
+        /// line each time would bury the one that matters. Internal so the module self-test drives it over a
+        /// fixture folder with a past cutoff and a recording host.
+        /// </summary>
+        internal static void SweepOrphanedExtractions(string temp, DateTime cutoff, IHost host)
+        {
+            int removed = 0, failed = 0;
+            var failureTypes = new List<string>();
+            string listFailure = null;
             try
             {
-                string temp = Path.GetTempPath();
-                DateTime cutoff = DateTime.UtcNow.AddHours(-SweepAgeHours);
                 foreach (string dir in Directory.EnumerateDirectories(temp, "petstudio-shimeji-*"))
                 {
                     try
@@ -915,11 +984,38 @@ namespace DesktopAICompanion.PetStudioModule
                         if (!Guid.TryParseExact(suffix.Substring("petstudio-shimeji-".Length), "N", out ignored)) continue;
                         if (Directory.GetLastWriteTimeUtc(dir) > cutoff) continue;
                         Directory.Delete(dir, true);
+                        removed++;
                     }
-                    catch (Exception) { }
+                    catch (Exception ex)
+                    {
+                        failed++;
+                        if (!failureTypes.Contains(ex.GetType().Name)) failureTypes.Add(ex.GetType().Name);
+                    }
                 }
             }
-            catch (Exception) { }
+            catch (Exception ex)
+            {
+                listFailure = ex.GetType().Name;
+            }
+            LogQuietly(host, SweepLine(removed, failed, string.Join(", ", failureTypes), listFailure));
+        }
+
+        /// <summary>"orphan sweep: removed 2 extracted skin folder(s) older than 6 h; could not remove 1
+        /// (IOException); the next sweep tries again", each part only when it has something to say, or null when
+        /// none has. Counts and type names only: a tree's name is a GUID, but an exception's message names its path.</summary>
+        internal static string SweepLine(int removed, int failed, string failureTypes, string listFailure)
+        {
+            var parts = new List<string>();
+            if (removed > 0)
+                parts.Add("removed " + removed.ToString(System.Globalization.CultureInfo.InvariantCulture) +
+                          " extracted skin folder(s) older than " +
+                          SweepAgeHours.ToString(System.Globalization.CultureInfo.InvariantCulture) + " h");
+            if (failed > 0)
+                parts.Add("could not remove " + failed.ToString(System.Globalization.CultureInfo.InvariantCulture) +
+                          " (" + failureTypes + "); the next sweep tries again");
+            if (listFailure != null)
+                parts.Add("could not list the temp folder (" + listFailure + ")");
+            return parts.Count == 0 ? null : "orphan sweep: " + string.Join("; ", parts);
         }
 
         /// <summary>

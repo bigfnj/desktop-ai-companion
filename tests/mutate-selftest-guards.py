@@ -12863,6 +12863,91 @@ CASES = (
      "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
      "an import's backup deletes are logged in one line"),
 
+    # PetStudio: an extraction tree's delete and the orphan sweep each log one line (N-remembrance-delete-logging-01,
+    # -02), taken in scope by the 2026-10-26 campaign. Every case runs the module's own SelfTest
+    # (SelfCheckExtractionDeletes) through the convention flag.
+
+    # The tree's delete goes silent again.
+    ("modules-small: petstudio: an extraction tree's delete logs nothing again",
+     PETSTUDIO_WINDOW,
+     b"            LogQuietly(host, line);\n",
+     b"",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "an extraction tree's delete is logged in one line"),
+
+    # ...a delete that failed is logged as one that worked.
+    ("modules-small: petstudio: a failed tree delete is logged as a success",
+     PETSTUDIO_WINDOW,
+     b"                line = ExtractionNotDeletedLine(ex);\n",
+     b"                line = ExtractionDeletedLine + (ex == null ? \"\" : \"\");\n",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "an extraction tree that will not delete is logged with its exception's type"),
+
+    # ...a path with nothing behind it is "deleted" and fails.
+    ("modules-small: petstudio: a missing tree is deleted and logged anyway",
+     PETSTUDIO_WINDOW,
+     b"                if (!Directory.Exists(path)) return;\n                Directory.Delete(path, true);\n",
+     b"                Directory.Delete(path, true);\n",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "WITNESS no tree, no delete and no line"),
+
+    # The sweep's line is never written.
+    ("modules-small: petstudio: the orphan sweep logs nothing again",
+     PETSTUDIO_WINDOW,
+     b"            LogQuietly(host, SweepLine(removed, failed, string.Join(\", \", failureTypes), listFailure));\n",
+     b"            if (removed < 0) LogQuietly(host, SweepLine(removed, failed, string.Join(\", \", failureTypes), listFailure));\n",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "a sweep that removed and failed writes one line"),
+
+    # ...a tree it could not remove goes uncounted.
+    ("modules-small: petstudio: a sweep's failed delete is not counted",
+     PETSTUDIO_WINDOW,
+     b"                        failed++;\n",
+     b"",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "a sweep that removed and failed writes one line"),
+
+    # ...a tree it removed goes uncounted.
+    ("modules-small: petstudio: a sweep's removal is not counted",
+     PETSTUDIO_WINDOW,
+     b"                        removed++;\n",
+     b"",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "the next sweep removes the tree once nothing holds it, and says only that"),
+
+    # ...the failure's type is dropped.
+    ("modules-small: petstudio: a sweep's failure loses its exception type",
+     PETSTUDIO_WINDOW,
+     b"                        if (!failureTypes.Contains(ex.GetType().Name)) failureTypes.Add(ex.GetType().Name);\n",
+     b"                        if (ex == null) failureTypes.Add(\"\");\n",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "a sweep that removed and failed writes one line"),
+
+    # ...a sweep with nothing due writes a line anyway.
+    ("modules-small: petstudio: a sweep with nothing due writes a line",
+     PETSTUDIO_WINDOW,
+     b"            return parts.Count == 0 ? null : \"orphan sweep: \" + string.Join(\"; \", parts);\n",
+     b"            return \"orphan sweep: \" + string.Join(\"; \", parts);\n",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "WITNESS a sweep with nothing due writes nothing"),
+
+    # ...a folder it cannot list is swallowed again.
+    ("modules-small: petstudio: a sweep that cannot list its folder says nothing",
+     PETSTUDIO_WINDOW,
+     b"                listFailure = ex.GetType().Name;\n",
+     b"                listFailure = ex == null ? \"\" : null;\n",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "a sweep that cannot list its folder says so by the exception's type"),
+
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
