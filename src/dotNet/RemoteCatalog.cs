@@ -126,6 +126,11 @@ namespace DesktopAICompanion
         /// row says is not offered. Never used to decide anything.</summary>
         public string Name = "";
         public string Version = "";
+        /// <summary>The fixed category of <see cref="Rule"/>, set where the rule is chosen, never read back out of
+        /// its words (a refused id is echoed into them, so they are partly the catalog's): the ONLY thing about the
+        /// refusal a module is told (ICatalogListing, host 1.6.2; <see cref="CatalogForModules"/>). Module entries
+        /// keep <see cref="CatalogRefusalReason.Other"/> for their own rules, since no module can browse them.</summary>
+        public CatalogRefusalReason Category;
 
         public override string ToString()
         {
@@ -431,6 +436,77 @@ namespace DesktopAICompanion
         internal string ForLog()
         {
             return ForCopy().Replace(Environment.NewLine, " | ");
+        }
+    }
+
+    /// <summary>
+    /// What a module is handed of one catalog read, for one <see cref="CatalogKinds"/> kind (lane
+    /// feature/abi-pane-actions, BACKLOG N-catalog-insight-05). ONE conversion behind both IHost.FetchCatalogItemsAsync
+    /// and ICatalogListing.FetchCatalogListingAsync (host 1.6.2), so the offered list cannot differ between the two, and
+    /// pure, so --catalog-selftest asserts it without a network.
+    ///
+    /// A refused entry crosses as its id, its position and <see cref="CatalogRejection.Category"/>, and as nothing
+    /// else: never <see cref="CatalogRejection.Rule"/>, Name or Version, which hold the catalog's own text. The panes
+    /// show those through <see cref="CatalogText.Echo"/>, bounded; a module would be a second renderer of remote text
+    /// with none of that, and its words for a category are its own. Considered and refused: handing modules the
+    /// sanitised rule, which would make the host's rule wording an ABI no clause could be reworded under.
+    /// </summary>
+    internal static class CatalogForModules
+    {
+        internal static CatalogListing ListingFrom(RemoteCatalog catalog, string kind)
+        {
+            var items = new List<CatalogItem>();
+            var refused = new List<RefusedCatalogItem>();
+            string refusalKind = null;
+            if (catalog != null && IsPackKind(kind))
+            {
+                refusalKind = CatalogRejection.Pack;
+                foreach (CatalogPack pack in catalog.Packs)
+                    items.Add(new CatalogItem
+                    {
+                        Id = pack.Id,
+                        Name = pack.Name,
+                        Group = pack.Group,
+                        Description = pack.Description,
+                        Bytes = pack.Bytes,
+                        Count = pack.Count,
+                    });
+            }
+            else if (catalog != null && IsPetKind(kind))
+            {
+                refusalKind = CatalogRejection.Companion;
+                foreach (CatalogCompanion pet in catalog.Pets)
+                    items.Add(new CatalogItem
+                    {
+                        Id = pet.Id,
+                        Name = pet.Name,
+                        Group = pet.Author ?? "",   // pets have no collection; the author is the useful grouping
+                        Description = "",
+                        Bytes = pet.Bytes,
+                        Count = 0,
+                    });
+            }
+            if (refusalKind != null)
+                foreach (CatalogRejection rejection in catalog.RefusedOf(refusalKind))
+                    refused.Add(new RefusedCatalogItem
+                    {
+                        // The parser hands Refuse an id only once it passed IdRule, and "" otherwise. Checked again
+                        // here rather than trusted, because this is the one string of the catalog's a module gets.
+                        Id = !string.IsNullOrEmpty(rejection.Id) && SecureDownload.IsSafeId(rejection.Id) ? rejection.Id : "",
+                        Position = rejection.Index < 0 ? 0 : rejection.Index + 1,
+                        Reason = rejection.Category,
+                    });
+            return new CatalogListing { Items = items, Refused = refused };
+        }
+
+        internal static bool IsPackKind(string kind)
+        {
+            return string.Equals(kind, CatalogKinds.Pack, StringComparison.OrdinalIgnoreCase);
+        }
+
+        internal static bool IsPetKind(string kind)
+        {
+            return string.Equals(kind, CatalogKinds.Pet, StringComparison.OrdinalIgnoreCase);
         }
     }
 
@@ -809,6 +885,9 @@ namespace DesktopAICompanion
                     CatalogCompanion pet = null;
                     string named = "";
                     string rule;
+                    // Unreadable until a rule function says otherwise: a token that is not an object, or a read
+                    // that throws, never reaches one.
+                    CatalogRefusalReason category = CatalogRefusalReason.Unreadable;
                     try
                     {
                         JsonObject token = pets[index] as JsonObject;
@@ -828,14 +907,14 @@ namespace DesktopAICompanion
                                 Animations = JsonRead.IntOrNull(token["animations"]) ?? 0,
                                 Sounds = JsonRead.IntOrNull(token["sounds"]) ?? 0
                             };
-                            rule = IdRule(pet.Id, petIds);
-                            if (rule == null) { named = pet.Id; rule = PetRule(pet); }
+                            rule = IdRule(pet.Id, petIds, out category);
+                            if (rule == null) { named = pet.Id; rule = PetRule(pet, out category); }
                         }
                     }
-                    catch (Exception ex) { rule = "could not be read (" + CatalogText.Echo(ex.Message, 120) + ")"; }
+                    catch (Exception ex) { rule = "could not be read (" + CatalogText.Echo(ex.Message, 120) + ")"; category = CatalogRefusalReason.Unreadable; }
                     if (rule != null)
                     {
-                        Refuse(catalog, CatalogRejection.Companion, index, named, rule, pet != null ? pet.Name : "", "");
+                        Refuse(catalog, CatalogRejection.Companion, index, named, rule, pet != null ? pet.Name : "", "", category);
                         continue;
                     }
                     catalog.Pets.Add(pet);
@@ -848,6 +927,7 @@ namespace DesktopAICompanion
                     CatalogPack pack = null;
                     string named = "";
                     string rule;
+                    CatalogRefusalReason category = CatalogRefusalReason.Unreadable;   // as for companions above
                     try
                     {
                         JsonObject token = packs[index] as JsonObject;
@@ -869,14 +949,14 @@ namespace DesktopAICompanion
                                 Count = JsonRead.IntOrNull(token["count"]) ?? 0,
                                 DataSchema = JsonRead.IntOrNull(token["dataSchema"]) ?? 0
                             };
-                            rule = IdRule(pack.Id, packIds);
-                            if (rule == null) { named = pack.Id; rule = PackRule(pack); }
+                            rule = IdRule(pack.Id, packIds, out category);
+                            if (rule == null) { named = pack.Id; rule = PackRule(pack, out category); }
                         }
                     }
-                    catch (Exception ex) { rule = "could not be read (" + CatalogText.Echo(ex.Message, 120) + ")"; }
+                    catch (Exception ex) { rule = "could not be read (" + CatalogText.Echo(ex.Message, 120) + ")"; category = CatalogRefusalReason.Unreadable; }
                     if (rule != null)
                     {
-                        Refuse(catalog, CatalogRejection.Pack, index, named, rule, pack != null ? pack.Name : "", "");
+                        Refuse(catalog, CatalogRejection.Pack, index, named, rule, pack != null ? pack.Name : "", "", category);
                         continue;
                     }
                     catalog.Packs.Add(pack);
@@ -890,6 +970,8 @@ namespace DesktopAICompanion
                     CatalogModule module = null;
                     string named = "";
                     string rule;
+                    // A module entry's own rules stay Other (ModuleRule names none): no module browses this kind.
+                    CatalogRefusalReason category = CatalogRefusalReason.Unreadable;
                     try
                     {
                         JsonObject token = modules[index] as JsonObject;
@@ -911,15 +993,15 @@ namespace DesktopAICompanion
                                 Permissions = permissions,
                                 MinHostVersion = JsonRead.Str(token["minHostVersion"]).Trim()
                             };
-                            rule = IdRule(module.Id, moduleIds);
+                            rule = IdRule(module.Id, moduleIds, out category);
                             if (rule == null) { named = module.Id; rule = ModuleRule(module, permissionsValid, permissionText); }
                         }
                     }
-                    catch (Exception ex) { rule = "could not be read (" + CatalogText.Echo(ex.Message, 120) + ")"; }
+                    catch (Exception ex) { rule = "could not be read (" + CatalogText.Echo(ex.Message, 120) + ")"; category = CatalogRefusalReason.Unreadable; }
                     if (rule != null)
                     {
                         Refuse(catalog, CatalogRejection.Module, index, named, rule,
-                            module != null ? module.Name : "", module != null ? module.Version : "");
+                            module != null ? module.Name : "", module != null ? module.Version : "", category);
                         continue;
                     }
                     catalog.Modules.Add(module);
@@ -946,6 +1028,7 @@ namespace DesktopAICompanion
                     Index = -1,
                     Id = "",
                     Rule = "the list is not a JSON array, so no " + kind + " is offered",
+                    Category = CatalogRefusalReason.ListUnreadable,
                 });
             return list;
         }
@@ -961,12 +1044,13 @@ namespace DesktopAICompanion
         }
 
         private static void Refuse(RemoteCatalog catalog, string kind, int index, string id, string rule,
-            string name, string version)
+            string name, string version, CatalogRefusalReason category)
         {
             catalog.Rejected.Add(new CatalogRejection
             {
                 Kind = kind, Index = index, Id = id ?? "", Rule = rule,
                 Name = CatalogText.Echo(name, 64), Version = CatalogText.Echo(version, 32),
+                Category = category,
             });
         }
 
@@ -976,22 +1060,32 @@ namespace DesktopAICompanion
         /// itself echoed through <see cref="CatalogText.Echo"/>. A refused entry's id still counts as seen, as it
         /// did when the uniqueness check ran ahead of the rest, so a second entry with that id reads as the
         /// duplicate it is rather than quietly standing in for the first.
+        ///
+        /// <paramref name="category"/> is set AHEAD of each clause rather than on its return, so each clause's own
+        /// line is unchanged; it ends as Other when no clause refused.
         /// </summary>
-        private static string IdRule(string id, HashSet<string> seen)
+        private static string IdRule(string id, HashSet<string> seen, out CatalogRefusalReason category)
         {
+            category = CatalogRefusalReason.BadId;
             if (string.IsNullOrEmpty(id)) return "has no id";
             if (!SecureDownload.IsSafeId(id))
                 return "id \"" + CatalogText.Echo(id, 40) + "\" is not a valid id (1 to 64 letters, digits, '.', '_' " +
                        "or '-', not starting or ending with a symbol, and not a Windows device name such as CON)";
+            category = CatalogRefusalReason.DuplicateId;
             if (!seen.Add(id)) return "id \"" + id + "\" is already used by an earlier entry";
+            category = CatalogRefusalReason.Other;
             return null;
         }
 
-        private static string PetRule(CatalogCompanion pet)
+        /// <summary>A companion entry's own rules, in the old condition's order: the rule broken, or null. Each clause
+        /// sets <paramref name="category"/> beside its own words, the one place both are chosen (host 1.6.2).</summary>
+        private static string PetRule(CatalogCompanion pet, out CatalogRefusalReason category)
         {
+            category = CatalogRefusalReason.BadText;
             if (string.IsNullOrWhiteSpace(pet.Name)) return "has no name";
             if (pet.Name.Length > 128) return CatalogText.TooLong("name", pet.Name.Length, 128);
             if (pet.Author.Length > 128) return CatalogText.TooLong("author", pet.Author.Length, 128);
+            category = CatalogRefusalReason.OutOfBounds;
             if (pet.Bytes < 1 || pet.Bytes > CompanionXmlValidator.MaximumXmlBytes)
                 return CatalogText.OutOfRange("bytes", pet.Bytes, 1, CompanionXmlValidator.MaximumXmlBytes);
             // Bounded like every other number here. These only ever render as text, so the risk is a nonsense
@@ -1001,32 +1095,43 @@ namespace DesktopAICompanion
                 return CatalogText.OutOfRange("animations", pet.Animations, 0, MaximumCountedItems);
             if (pet.Sounds < 0 || pet.Sounds > MaximumCountedItems)
                 return CatalogText.OutOfRange("sounds", pet.Sounds, 0, MaximumCountedItems);
+            category = CatalogRefusalReason.BadChecksum;
             if (!IsSha256(pet.Sha256)) return "sha256 is not 64 hex characters";
+            category = CatalogRefusalReason.UntrustedAddress;
             if (!IsPetAssetUrl(pet.Url, pet.Id))
                 return "url is not this repository's Companions/" + pet.Id + "/animations.xml on raw.githubusercontent.com";
+            category = CatalogRefusalReason.Other;
             return null;
         }
 
-        private static string PackRule(CatalogPack pack)
+        /// <summary>A pack entry's own rules, in the old condition's order: the rule broken, or null, with its category
+        /// set beside it as in <see cref="PetRule"/>.</summary>
+        private static string PackRule(CatalogPack pack, out CatalogRefusalReason category)
         {
+            category = CatalogRefusalReason.BadText;
             if (string.IsNullOrWhiteSpace(pack.Name)) return "has no name";
             if (pack.Name.Length > 128) return CatalogText.TooLong("name", pack.Name.Length, 128);
             if (pack.Group.Length > 128) return CatalogText.TooLong("group", pack.Group.Length, 128);
             if (pack.Description.Length > 1024) return CatalogText.TooLong("description", pack.Description.Length, 1024);
             if (pack.License.Length > 256) return CatalogText.TooLong("license", pack.License.Length, 256);
+            category = CatalogRefusalReason.UnsupportedFormat;
             if (pack.DataSchema != 1 && pack.DataSchema != 2)
                 return (pack.DataSchema == 0 ? "dataSchema is missing or 0" : "dataSchema is " + CatalogText.Number(pack.DataSchema)) +
                        ", and this app reads 1 or 2";
+            category = CatalogRefusalReason.BadChecksum;
             if (!IsSha256(pack.Sha256)) return "sha256 is not 64 hex characters";
+            category = CatalogRefusalReason.UntrustedAddress;
             if (!IsPackAssetUrl(pack.Url, pack.Id))
                 return "url is not this repository's packs/" + pack.Id + ".txt on raw.githubusercontent.com";
             // Reuse the same runtime-loadability bounds the embedded catalog enforces. The policy decides; the
             // words name whichever of its two bounds the entry is outside.
+            category = CatalogRefusalReason.OutOfBounds;
             string packError;
             if (!FortunePackLoadPolicy.TryValidatePackMetadata(pack.Bytes, pack.Count, out packError))
                 return pack.Bytes < 1 || pack.Bytes > FortunePackLoadPolicy.MaximumFileBytes
                     ? CatalogText.OutOfRange("bytes", pack.Bytes, 1, FortunePackLoadPolicy.MaximumFileBytes)
                     : CatalogText.OutOfRange("count", pack.Count, 1, FortunePackLoadPolicy.MaximumEntries);
+            category = CatalogRefusalReason.Other;
             return null;
         }
 
@@ -1381,6 +1486,11 @@ namespace DesktopAICompanion
                 Check("a modules list that is not an array is refused as a list: the whole catalog threw " + ex.Message, false);
             }
 
+            // ---- lane feature/abi-pane-actions ----
+            // WHAT A MODULE IS TOLD OF A REFUSAL (ICatalogListing, host 1.6.2; BACKLOG N-catalog-insight-05). Each rule of a
+            // kind a module browses carries its own category, set beside the rule; a module entry's own rules stay Other.
+            ModuleListingChecks(Check, catalogOf, validPet, validPack, validModule, moduleWithDescription);
+
             // STRUCTURAL failures still refuse the whole catalog, as a CatalogRejectedException naming the rule, so
             // a pane can say "reached but could not be read" rather than "couldn't reach".
             var tooMany = new StringBuilder();
@@ -1674,6 +1784,170 @@ namespace DesktopAICompanion
         private static string Echo(string text)
         {
             return CatalogText.Echo((text ?? "").Replace("\r", " ").Replace("\n", " "), 200);
+        }
+
+        /// <summary>
+        /// Lane feature/abi-pane-actions (BACKLOG N-catalog-insight-05): the category each rule of a module-browsable
+        /// kind is refused under, and what <see cref="CatalogForModules.ListingFrom"/> hands a module: the offered list,
+        /// and the refused entries of the kind as id, position and category, nothing of the catalog's own text.
+        /// </summary>
+        private static void ModuleListingChecks(Action<string, bool> check, Func<string, string, string, string> catalogOf,
+            string validPet, string validPack, string validModule, Func<string, string, string> moduleWithDescription)
+        {
+            Func<string, string> pack = delegate (string fields)
+            {
+                return "{ \"id\": \"p2\", \"name\": \"P\", \"url\": \"" + PackUrlBase + "p2.txt\", \"sha256\": \"" + SampleSha +
+                       "\", \"bytes\": 10, \"count\": 1, \"dataSchema\": 2" + fields + " }";
+            };
+            Func<string, string> pet = delegate (string fields)
+            {
+                return "{ \"id\": \"c2\", \"name\": \"C\", \"url\": \"" + PetUrlBase + "c2/animations.xml\", \"sha256\": \"" +
+                       SampleSha + "\", \"bytes\": 10" + fields + " }";
+            };
+            // Each case breaks ONE rule of an otherwise valid entry; the two helpers add a field the base entry lacks.
+            var cases = new[]
+            {
+                new object[] { "a pack entry that is not an object", CatalogRejection.Pack, "5", CatalogRefusalReason.Unreadable },
+                new object[] { "a pack whose id is a path", CatalogRejection.Pack,
+                    "{ \"id\": \"../etc\", \"name\": \"x\", \"url\": \"" + PackUrlBase + "x.txt\", \"sha256\": \"" + SampleSha +
+                    "\", \"bytes\": 10, \"count\": 1, \"dataSchema\": 2 }", CatalogRefusalReason.BadId },
+                new object[] { "a pack id used twice", CatalogRejection.Pack, validPack, CatalogRefusalReason.DuplicateId },
+                new object[] { "a pack with no name", CatalogRejection.Pack,
+                    "{ \"id\": \"p2\", \"name\": \"\", \"url\": \"" + PackUrlBase + "p2.txt\", \"sha256\": \"" + SampleSha +
+                    "\", \"bytes\": 10, \"count\": 1, \"dataSchema\": 2 }", CatalogRefusalReason.BadText },
+                new object[] { "a pack description past its bound", CatalogRejection.Pack,
+                    pack(", \"desc\": \"" + new string('d', 1025) + "\""), CatalogRefusalReason.BadText },
+                new object[] { "a pack in a data format this app does not read", CatalogRejection.Pack,
+                    "{ \"id\": \"p2\", \"name\": \"P\", \"url\": \"" + PackUrlBase + "p2.txt\", \"sha256\": \"" + SampleSha +
+                    "\", \"bytes\": 10, \"count\": 1, \"dataSchema\": 3 }", CatalogRefusalReason.UnsupportedFormat },
+                new object[] { "a pack with a malformed sha256", CatalogRejection.Pack,
+                    "{ \"id\": \"p2\", \"name\": \"P\", \"url\": \"" + PackUrlBase + "p2.txt\", \"sha256\": \"notahash\", " +
+                    "\"bytes\": 10, \"count\": 1, \"dataSchema\": 2 }", CatalogRefusalReason.BadChecksum },
+                new object[] { "a pack hosted off the repository", CatalogRejection.Pack,
+                    "{ \"id\": \"p2\", \"name\": \"P\", \"url\": \"https://evil.example.com/packs/p2.txt\", \"sha256\": \"" +
+                    SampleSha + "\", \"bytes\": 10, \"count\": 1, \"dataSchema\": 2 }", CatalogRefusalReason.UntrustedAddress },
+                new object[] { "a pack with no line count", CatalogRejection.Pack,
+                    "{ \"id\": \"p2\", \"name\": \"P\", \"url\": \"" + PackUrlBase + "p2.txt\", \"sha256\": \"" + SampleSha +
+                    "\", \"bytes\": 10, \"dataSchema\": 2 }", CatalogRefusalReason.OutOfBounds },
+                new object[] { "a companion name past its bound", CatalogRejection.Companion,
+                    "{ \"id\": \"c2\", \"name\": \"" + new string('n', 129) + "\", \"url\": \"" + PetUrlBase +
+                    "c2/animations.xml\", \"sha256\": \"" + SampleSha + "\", \"bytes\": 10 }", CatalogRefusalReason.BadText },
+                new object[] { "a companion with no byte count", CatalogRejection.Companion,
+                    "{ \"id\": \"c2\", \"name\": \"C\", \"url\": \"" + PetUrlBase + "c2/animations.xml\", \"sha256\": \"" +
+                    SampleSha + "\" }", CatalogRefusalReason.OutOfBounds },
+                new object[] { "a companion with too many animations", CatalogRejection.Companion,
+                    pet(", \"animations\": " + (MaximumCountedItems + 1)), CatalogRefusalReason.OutOfBounds },
+                new object[] { "a companion with a malformed sha256", CatalogRejection.Companion,
+                    "{ \"id\": \"c2\", \"name\": \"C\", \"url\": \"" + PetUrlBase + "c2/animations.xml\", \"sha256\": \"x\", " +
+                    "\"bytes\": 10 }", CatalogRefusalReason.BadChecksum },
+                new object[] { "a companion hosted off the repository", CatalogRejection.Companion,
+                    "{ \"id\": \"c2\", \"name\": \"C\", \"url\": \"https://evil.example.com/c2/animations.xml\", \"sha256\": \"" +
+                    SampleSha + "\", \"bytes\": 10 }", CatalogRefusalReason.UntrustedAddress },
+                new object[] { "a companion id used twice", CatalogRejection.Companion, validPet, CatalogRefusalReason.DuplicateId },
+                // A module entry's own rules have no category (no module browses modules); its id rules do.
+                new object[] { "a module entry's own rule (a description past its bound)", CatalogRejection.Module,
+                    moduleWithDescription("agentflow", new string('d', 1049)), CatalogRefusalReason.Other },
+            };
+            foreach (object[] c in cases)
+            {
+                string name = (string)c[0], kind = (string)c[1], entry = (string)c[2];
+                var expected = (CatalogRefusalReason)c[3];
+                string got;
+                bool good = false;
+                try
+                {
+                    RemoteCatalog parsed = Parse(catalogOf(
+                        kind == CatalogRejection.Companion ? validPet + ", " + entry : validPet,
+                        kind == CatalogRejection.Pack ? validPack + ", " + entry : validPack,
+                        kind == CatalogRejection.Module ? validModule + ", " + entry : validModule));
+                    got = parsed.Rejected.Count == 1 ? parsed.Rejected[0].Category + " (" + Echo(parsed.Rejected[0].ToString()) + ")"
+                                                     : parsed.Rejected.Count + " refused";
+                    good = parsed.Rejected.Count == 1 && parsed.Rejected[0].Kind == kind && parsed.Rejected[0].Category == expected;
+                }
+                catch (Exception ex) { got = "threw " + ex.GetType().Name + ": " + ex.Message; }
+                check("abi-pane-actions: a refusal carries its rule's category: " + name + " is " + expected + " (got " + got + ")", good);
+            }
+
+            // THE LISTING. Packs: one offered, then a pack off the repository at position 2, a non-object at 3, a path id at 4.
+            // Companions: one offered, then the same id again at position 2.
+            try
+            {
+                RemoteCatalog read = Parse(catalogOf(
+                    validPet + ", " + validPet,
+                    validPack + ", " + "{ \"id\": \"comp\", \"name\": \"Computers\", \"url\": \"https://evil.example.com/comp.txt\", " +
+                    "\"sha256\": \"" + SampleSha + "\", \"bytes\": 10, \"count\": 1, \"dataSchema\": 2 }, 5, " +
+                    "{ \"id\": \"../etc\", \"name\": \"x\", \"url\": \"" + PackUrlBase + "x.txt\", \"sha256\": \"" + SampleSha +
+                    "\", \"bytes\": 10, \"count\": 1, \"dataSchema\": 2 }",
+                    validModule + ", " + moduleWithDescription("agentflow", new string('d', 1049))));
+                CatalogListing packs = CatalogForModules.ListingFrom(read, CatalogKinds.Pack);
+                string packsSaid = DescribeListing(packs);
+                check("abi-pane-actions: a module's pack listing offers what the catalog offers and names each refused pack by id, position and category (" +
+                      packsSaid + ")",
+                      packsSaid == "offered tech; refused comp@2 UntrustedAddress, @3 Unreadable, @4 BadId" &&
+                      packs.Items[0].Name == "Tech" && packs.Items[0].Count == 620 && packs.Items[0].Bytes == 308767);
+                CatalogListing pets = CatalogForModules.ListingFrom(read, "PET");
+                string petsSaid = DescribeListing(pets);
+                check("abi-pane-actions: a module's companion listing names only refused companions, and the kind is read ignoring case (" +
+                      petsSaid + ")",
+                      petsSaid == "offered fox; refused @2 DuplicateId" && pets.Items[0].Group == "Michelle");
+                CatalogListing unknown = CatalogForModules.ListingFrom(read, "module");
+                check("abi-pane-actions: WITNESS an unknown kind lists nothing offered and nothing refused (" + DescribeListing(unknown) + ")",
+                      unknown.Items != null && unknown.Refused != null && unknown.Items.Count == 0 && unknown.Refused.Count == 0);
+
+                RemoteCatalog noPackList = Parse("{ \"version\": 1, \"companions\": [ " + validPet + " ], \"packs\": { \"id\": \"tech\" } }");
+                string noListSaid = DescribeListing(CatalogForModules.ListingFrom(noPackList, CatalogKinds.Pack));
+                check("abi-pane-actions: a pack list that is not a list reaches a module as one refusal of the whole list (" + noListSaid + ")",
+                      noListSaid == "offered nothing; refused @0 ListUnreadable");
+            }
+            catch (Exception ex)
+            {
+                check("abi-pane-actions: a module's pack listing: it threw " + ex.GetType().Name + ": " + ex.Message, false);
+            }
+
+            // NEVER THE CATALOG'S OWN TEXT. The refusal a module gets has exactly three members, none of them free text; an
+            // id the parser refused never crosses (its echo is in the rule, which stays in the host); and an id is checked
+            // again on the way out, so a refusal recorded with an unsafe id by any later code is still not handed over.
+            var members = new List<string>();
+            foreach (System.Reflection.PropertyInfo property in typeof(RefusedCatalogItem).GetProperties())
+                members.Add(property.Name + ":" + property.PropertyType.Name);
+            members.Sort(StringComparer.Ordinal);
+            string shape = string.Join(", ", members.ToArray());
+            check("abi-pane-actions: a module's refused entry is an id, a position and a category, and nothing that can hold catalog text (" +
+                  shape + ")", shape == "Id:String, Position:Int32, Reason:CatalogRefusalReason");
+            try
+            {
+                RemoteCatalog hostile = Parse(catalogOf(validPet,
+                    validPack + ", { \"id\": \"evil\\u202Eid\", \"name\": \"Evil\\u202E\", \"url\": \"" + PackUrlBase + "x.txt\", " +
+                    "\"sha256\": \"" + SampleSha + "\", \"bytes\": 10, \"count\": 1, \"dataSchema\": 2 }", validModule));
+                CatalogListing seen = CatalogForModules.ListingFrom(hostile, CatalogKinds.Pack);
+                check("abi-pane-actions: a pack refused for its id reaches a module with no id at all, only its position (" + DescribeListing(seen) + ")",
+                      seen.Refused.Count == 1 && seen.Refused[0].Id == "" && seen.Refused[0].Position == 2 &&
+                      seen.Refused[0].Reason == CatalogRefusalReason.BadId);
+            }
+            catch (Exception ex)
+            {
+                check("abi-pane-actions: a pack refused for its id reaches a module with no id: it threw " + ex.Message, false);
+            }
+            var forged = new RemoteCatalog();
+            forged.Rejected.Add(new CatalogRejection { Kind = CatalogRejection.Pack, Index = 0, Id = "..\\x", Rule = "r", Category = CatalogRefusalReason.Other });
+            forged.Rejected.Add(new CatalogRejection { Kind = CatalogRejection.Pack, Index = 1, Id = "fine-id", Rule = "r", Category = CatalogRefusalReason.Other });
+            string forgedSaid = DescribeListing(CatalogForModules.ListingFrom(forged, CatalogKinds.Pack));
+            check("abi-pane-actions: an unsafe id recorded on a refusal is withheld on the way to a module, a safe one kept (" + forgedSaid + ")",
+                  forgedSaid == "offered nothing; refused @1 Other, fine-id@2 Other");
+        }
+
+        /// <summary>A module listing in one line for a self-test label: "offered a, b; refused id@2 Reason, @3 Reason".</summary>
+        private static string DescribeListing(CatalogListing listing)
+        {
+            if (listing == null) return "(null)";
+            var offered = new List<string>();
+            if (listing.Items != null) foreach (CatalogItem item in listing.Items) offered.Add(item.Id);
+            var refused = new List<string>();
+            if (listing.Refused != null)
+                foreach (RefusedCatalogItem item in listing.Refused)
+                    refused.Add((item.Id ?? "") + "@" + item.Position + " " + item.Reason);
+            return "offered " + (offered.Count == 0 ? "nothing" : string.Join(", ", offered.ToArray())) +
+                   (refused.Count == 0 ? "" : "; refused " + string.Join(", ", refused.ToArray()));
         }
 
         /// <summary>

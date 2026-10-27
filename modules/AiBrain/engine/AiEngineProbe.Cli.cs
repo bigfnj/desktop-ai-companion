@@ -795,6 +795,15 @@ namespace DesktopAICompanion.AiBrainModule
                 ok &= Check(sb, "aibrain token: the CLI card has a Secret token row, live only while Claude Code is the CLI on screen, and a Remove token button that rebuilds the pane",
                     row != null && row.Kind == SettingKind.Secret && row.Group == AiBrainModule.CliCardGroup &&
                     row.EnabledWhen == AiBrainModule.OnClaudeCliOnly && remove != null && remove.ReloadPaneAfter);
+                // Lane feature/abi-pane-actions (BACKLOG N-cli-model-effort-05, PaneAction.EnabledWhen, host 1.6.2): the button
+                // greys with the token row it clears, on the very same condition, and the card's two buttons that serve
+                // either CLI carry none of their own. The host half (the grey-out, the refusal) is --wpf-options-selftest's.
+                PaneAction updateCli = FindAction(pane, AiBrainModule.CliCardGroup, "Update CLI");
+                ok &= Check(sb, "aibrain token: Remove token is live only while Claude Code is the CLI on screen, on the token row's own condition (" +
+                              (remove != null ? remove.EnabledWhen ?? "(none)" : "(no button)") + ")",
+                    remove != null && row != null && remove.EnabledWhen == row.EnabledWhen && remove.EnabledWhen == AiBrainModule.OnClaudeCliOnly);
+                ok &= Check(sb, "WITNESS aibrain token: Validate and Update CLI serve either CLI and carry no EnabledWhen of their own",
+                    validate != null && updateCli != null && string.IsNullOrEmpty(validate.EnabledWhen) && string.IsNullOrEmpty(updateCli.EnabledWhen));
                 ok &= Check(sb, "WITNESS aibrain token: with no token saved the row loads empty", pane.Load()["cliToken"] == "");
 
                 string read;

@@ -972,8 +972,12 @@ namespace DesktopAICompanion.AiBrainModule
                     new PaneAction { Label = "Validate", InvokeWithPendingAsync = ValidateCliPendingAsync, Group = CliCardGroup, ReloadPaneAfter = true },
                     new PaneAction { Label = "Update CLI", InvokeWithPendingAsync = UpdateCliPendingAsync, Group = CliCardGroup, ReloadPaneAfter = true },
                     // Deletes the saved sign-in token at once (there is nothing to Apply), so Claude Code runs on its own
-                    // sign-in again; the pane rebuilds so Signed in as says so.
-                    new PaneAction { Label = "Remove token", InvokeAsync = RemoveCliTokenAsync, Group = CliCardGroup, ReloadPaneAfter = true },
+                    // sign-in again; the pane rebuilds so Signed in as says so. Live only while Claude Code is the CLI on
+                    // screen, like the token row it clears (PaneAction.EnabledWhen, host 1.6.2; BACKLOG
+                    // N-cli-model-effort-05): it stayed pressable with Codex chosen while the row above it greyed, because a
+                    // button could grey only with its whole card. It still deletes only the Claude Code token if a press
+                    // reaches it anyway, and says so.
+                    new PaneAction { Label = "Remove token", InvokeAsync = RemoveCliTokenAsync, Group = CliCardGroup, ReloadPaneAfter = true, EnabledWhen = OnClaudeCliOnly },
                     // No "Choose OCR engine…" since lane feature/layout-aibrain: the OCR engine field's own Browse opens the
                     // same host dialog on .exe. That button also SAVED the pick behind Apply's back; the field makes it an
                     // unsaved edit like any other, Test OCR (pending-aware) tests it before Apply, and Apply rebuilds the

@@ -226,6 +226,24 @@ if (answer.ChoiceId == "stop") StopAndSave();   // Chosen, TimedOut and Expired 
   `StandDownHost` is the pattern), and validate what you ask against the rules above so a bad question fails your
   self-test rather than a user's screen. ModuleKit ships no double on purpose: changing it republishes every module.
 
+### The catalog's refused entries (host 1.6.2)
+
+`FetchCatalogItemsAsync` answers what the catalog offers; an entry that breaks one of the host's rules is left out of it.
+`ICatalogListing` answers the same list from the same read, plus the refused entries of that kind, so a module can say
+that an item is in the catalog and why it is not offered:
+
+```csharp
+var catalog = host as ICatalogListing;          // never null on 1.6.2+; declare MinHostVersion = "1.6.2"
+CatalogListing listing = await catalog.FetchCatalogListingAsync(CatalogKinds.Pack);   // throws as FetchCatalogItemsAsync does
+foreach (RefusedCatalogItem refused in listing.Refused)
+    ShowNotOffered(refused.Id.Length > 0 ? refused.Id : "entry " + refused.Position, refused.Reason);   // yours: your words per reason
+```
+
+A refusal is an id that passed the host's safe-id rule (`""` when the id itself was the fault), a 1-based position and a
+`CatalogRefusalReason`, never the catalog's own text: word each reason yourself, and read a value you do not know as
+`Other`. Fortunes' "Check online for packs" is the shipped example. Test it with a `RecordingHost` subclass that also
+implements `ICatalogListing`; ModuleKit ships none.
+
 ### Rules the host relies on
 
 - **Never throw.** Throw in `Init` and you are skipped with a log line; throw in a tray click and you eat the
@@ -286,6 +304,7 @@ You declare data; the host renders it. That is why a module needs no UI framewor
   | `Collapsible`, `StartCollapsed` | **1.4.0** | card-level, first field: the title becomes an expander with a count ("1 setting, 4 buttons"); `StartCollapsed` closes it on open. The card keeps the state it shows across every rebuild while the pane stays up. A card of buttons only carries the flag on a `Header` |
   | `SettingKind.FilePath`, `FolderPath` | **1.4.0** | the name in the box, the folder muted under it, the full path on hover, and a host-owned Browse (filtered by `FileExtensions`) whose choice is an unsaved edit. Stores the full path, exactly what `Text` stores; `EmptyHint` says what blank means |
   | `ListCard.MasterToggle` | **1.4.0** | an "All" row (`"All packs"`): tri-state, "N of M", and a click goes through each item's own box, so `SetChecked` and `DeferChanges` behave as for single ticks |
+  | `PaneAction.EnabledWhen` | **1.6.2** | a button's own condition, in `EnabledWhen`'s syntax and read by the same parser: greys the action's row, its result line included, and the button refuses a click. For a button that serves one state of a card that is live; a card greyed whole still uses `CardEnabledWhen` |
 
   Rendering only, nothing to set (1.4.0): a field greyed by either `EnabledWhen` LOOKS greyed in the dark theme
   too, a list item's `Detail` is a muted column on the right, a grouped list's headers count "12 of 18", and an

@@ -391,7 +391,8 @@ namespace DesktopAICompanion.Modules
         //
         // One string per card rather than an EnabledWhen per PaneAction: every greyed card the approved
         // layouts draw greys all of its buttons together, and one condition cannot drift out of step with
-        // itself the way a copy on each button can.
+        // itself the way a copy on each button can. A button that serves only ONE state of a card that is
+        // live has its own PaneAction.EnabledWhen since host 1.6.2; a card greyed whole still uses this.
         public string CardEnabledWhen { get; set; }
 
         // Card-level, read from the group's FIRST field. The card's title row becomes an expander (click it,
@@ -476,6 +477,24 @@ namespace DesktopAICompanion.Modules
         //
         // Setting this ALONE is enough: the host renders the button when either delegate is set.
         public Func<IReadOnlyDictionary<string, string>, System.Threading.Tasks.Task<string>> InvokeWithPendingAsync { get; set; }
+
+        // "otherFieldId=value", read exactly as SettingField.EnabledWhen is, by the same parser: '|' for several
+        // values, both sides trimmed, case-insensitive, against the value ON SCREEN, re-evaluated live as that
+        // field changes, and able to name a field declared later or a display-only one. Null or empty => always
+        // enabled, which is every action before host 1.6.2. Added in host 1.6.2.
+        //
+        // While it is not met the host greys the action's whole row, the button and the result line beside it,
+        // and the button REFUSES a click as well as looking disabled, the way a button in a card greyed by
+        // SettingField.CardEnabledWhen does. It greys and never hides. Inside a card that is itself greyed the
+        // row is dimmed once, like a field row with its own EnabledWhen. A message the action wrote stays on
+        // the row while it is greyed.
+        //
+        // For the button CardEnabledWhen cannot express: one that serves only one state of a card that is live.
+        // AI Brain's and Remembrance's "Remove token" deletes the Claude Code sign-in token and stayed pressable
+        // with Codex CLI chosen while the token row above it greyed (BACKLOG N-cli-model-effort-05). A module
+        // that sets it raises its MinHostVersion to 1.6.2: an older Contracts.dll has no such property, so the
+        // method that builds the pane fails to bind its setter on an older host.
+        public string EnabledWhen { get; set; }
     }
 
     /// <summary>One checkable row in a <see cref="ListCard"/>: a stable <see cref="Id"/> (passed back to the
@@ -1189,6 +1208,73 @@ namespace DesktopAICompanion.Modules
         // Refused only: a fixed token such as "no-text", "too-many-choices", "duplicate-key", "rate-limited",
         // "unknown-module", "not-available". Never contains the question's text.
         public string Reason { get; set; }
+    }
+
+    // ---- the catalog as listed, refusals included (host 1.6.2+) ----
+    // IHost.FetchCatalogItemsAsync answers only the entries the host OFFERS. An entry that breaks one of the host's catalog
+    // rules (a description past its bound, a download address that is not this project's, a pack format it does not
+    // read) is refused alone and the rest of the catalog stays usable (feature/catalog-insight), so from a module's side
+    // a refused entry simply was not there: Fortunes' "Available online" could not say that the pack the user looked for
+    // is in the catalog and why it is not offered (BACKLOG N-catalog-insight-05). This answers the same list from the
+    // same read, plus the entries of that kind the host refused, each with its id and a fixed category.
+    //
+    // NEVER THE CATALOG'S OWN TEXT. The host's rule ("description is 1049 characters, the limit is 1024") and the name
+    // the catalog gave a refused entry are remote data, which the host's own panes sanitise and bound before showing; a
+    // module gets an enum, an integer and an id that passed the host's safe-id rule, or "" when the id itself was the
+    // fault. The module words the reason in its own voice; the diagnostic log carries the host's full rule.
+    //
+    // A separate interface rather than a member of IHost, for the reason ICompanionStandDown gives above: a new IHost
+    // member changes RecordingHost and so every module's payload. The host's IHost implements this too, so a module asks
+    // with `host as ICatalogListing`, and a module that uses it declares MinHostVersion 1.6.2 (these types live in this
+    // assembly, so code that names them fails to load against an older Contracts.dll). A module's self-test supplies its
+    // own double, a RecordingHost subclass implementing this; ModuleKit carries none, on purpose.
+    public interface ICatalogListing
+    {
+        // As FetchCatalogItemsAsync, from ONE read of the host's shared catalog copy, so Items and Refused can never
+        // describe two different catalogs: Items is exactly what FetchCatalogItemsAsync answers for that read. Throws
+        // exactly when it throws (no answer, or a catalog refused whole), so a caller keeps its one failure path. An
+        // unknown kind answers two empty lists.
+        System.Threading.Tasks.Task<CatalogListing> FetchCatalogListingAsync(string kind);
+    }
+
+    /// <summary>One read of the catalog for one kind: what is offered, and what was refused.</summary>
+    public sealed class CatalogListing
+    {
+        // The offered entries, as FetchCatalogItemsAsync would answer them. Never null from the host.
+        public IReadOnlyList<CatalogItem> Items { get; set; }
+
+        // The refused entries of the same kind, in catalog order. Never null from the host; empty on a clean read.
+        public IReadOnlyList<RefusedCatalogItem> Refused { get; set; }
+    }
+
+    /// <summary>A catalog entry the host refused: which one, and the category of rule it broke.</summary>
+    public sealed class RefusedCatalogItem
+    {
+        // The entry's id when the id passed the host's own rules (1 to 64 letters, digits, '.', '_' or '-', not a
+        // Windows device name), so it is safe to show and to compare with an installed id. "" when the id was the
+        // fault (BadId, DuplicateId) or the whole list was refused (ListUnreadable): Position names it then.
+        public string Id { get; set; }
+
+        // 1-based position in its kind's list in catalog.json; 0 for ListUnreadable, which is about the whole list.
+        public int Position { get; set; }
+
+        public CatalogRefusalReason Reason { get; set; }
+    }
+
+    /// <summary>The category of catalog rule a refused entry broke. A host newer than the module may add categories:
+    /// read a value you do not know as <see cref="Other"/>.</summary>
+    public enum CatalogRefusalReason
+    {
+        Other = 0,              // a rule with no category of its own here (and any value a module does not know)
+        Unreadable = 1,         // the entry is not a JSON object, or could not be read at all
+        ListUnreadable = 2,     // the kind's whole list is not a JSON array, so no entry of the kind is offered
+        BadId = 3,              // no id, or one that is not a safe id
+        DuplicateId = 4,        // an id an earlier entry of the kind already uses; the earlier entry keeps it and is offered
+        BadText = 5,            // no name, or a name, group, author, description or licence longer than the host takes
+        UnsupportedFormat = 6,  // a pack whose data format (dataSchema) this host does not read
+        BadChecksum = 7,        // the SHA-256 its download would be checked against is not 64 hex characters
+        UntrustedAddress = 8,   // its download address is not this project's own file for that id
+        OutOfBounds = 9,        // a size or count outside what the host loads (bytes, lines, animations, sounds)
     }
 
     /// <summary>A DesktopAICompanion plugin. Implemented by exactly one public class per module DLL.</summary>

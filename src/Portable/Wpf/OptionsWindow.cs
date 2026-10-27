@@ -1626,7 +1626,7 @@ namespace DesktopAICompanion.Wpf
                     // Action buttons (S5b): the schema is data-only, so things a module DOES (test a
                     // connection, clear history, ...) render as async buttons with a status line.
                     if (groupFields[g].Count > 0) body.Children.Add(new Separator { Margin = new Thickness(0, 6, 0, 4) });
-                    foreach (PaneAction a in groupActions[g]) body.Children.Add(BuildActionRow(a, "group " + g));
+                    foreach (PaneAction a in groupActions[g]) body.Children.Add(BuildActionRow(a, "group " + g, cardLive));
                 }
                 if (dressed) DressCard(inner, body, g, cardWhen, collapsible ? lead : null, groupFields[g], groupActions[g]);
                 cards.Children.Add(NewCard(inner, g, lead != null && lead.FullWidth));
@@ -2225,7 +2225,9 @@ namespace DesktopAICompanion.Wpf
         /// <param name="scope">The card the row renders in ("group &lt;name&gt;" for a field group's card,
         /// "list &lt;title&gt;" for a list card), which with the label names the row a carried message belongs
         /// to (<see cref="ActionMessageKey"/>).</param>
-        private FrameworkElement BuildActionRow(PaneAction action, string scope)
+        /// <param name="cardLive">The row's card's <see cref="SettingField.CardEnabledWhen"/>, when it has one, as for
+        /// <see cref="BuildRow"/>: a row greyed inside a card that is itself greyed is already dimmed by the card's body.</param>
+        private FrameworkElement BuildActionRow(PaneAction action, string scope, Func<bool> cardLive = null)
         {
             var row = new DockPanel { Margin = new Thickness(0, 3, 0, 3), LastChildFill = true };
             // MinWidth, not Width: a fixed 150 clipped every label longer than it, so the Remembrance card
@@ -2313,6 +2315,24 @@ namespace DesktopAICompanion.Wpf
             };
             row.Children.Add(btn);
             row.Children.Add(status);
+
+            // PaneAction.EnabledWhen (host 1.6.2, BACKLOG N-cli-model-effort-05), read exactly the way a field's
+            // EnabledWhen is in BuildRow: the same parser (IsSatisfied), the same updater list, so it settles once at the
+            // end of Build and again after every edit, and it greys the WHOLE row, the result line with the button. The
+            // button refuses through the row: a disabled panel disables what it holds, which is the IsEnabled the click
+            // handler above checks before it runs anything, as for a button in a card greyed by CardEnabledWhen.
+            if (!string.IsNullOrEmpty(action.EnabledWhen))
+            {
+                string actionWhen = action.EnabledWhen;
+                FrameworkElement actionRow = row;
+                _enableUpdaters.Add(delegate
+                {
+                    bool actionLive = IsSatisfied(actionWhen);
+                    actionRow.IsEnabled = actionLive;
+                    // Dimmed ONCE, as BuildRow's rows are: a greyed card's body already carries the dim.
+                    DimGreyed(actionRow, !actionLive && (cardLive == null || cardLive()));
+                });
+            }
             return row;
         }
 

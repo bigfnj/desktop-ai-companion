@@ -1028,6 +1028,49 @@ CASES = [
      "            System.Windows.Automation.AutomationProperties.SetName(nav, \"Settings sections\");\n",
      "",
      "wpf", "the nav entries are list items named after their panes"),
+    # ---- lane feature/abi-pane-actions ----
+    # PaneAction.EnabledWhen (host 1.6.2, BACKLOG N-cli-model-effort-05), graded by --wpf-options-selftest's "abi:" checks.
+    # Each case is the defect the member's contract rules out: never read, greyed in look only, a parser of its own,
+    # settled once at build, group cards only, the message wiped, the dim lost or doubled. "abi-pane-actions:" for --only.
+    ("abi-pane-actions: PaneAction.EnabledWhen is never read", OPTIONSWINDOW,
+     "            if (!string.IsNullOrEmpty(action.EnabledWhen))\n",
+     "            if (action.EnabledWhen == \"never set by anyone\")\n",
+     "wpf", "abi: an unmet PaneAction.EnabledWhen greys its action's whole row"),
+    ("abi-pane-actions: a greyed action looks greyed and still presses", OPTIONSWINDOW,
+     "                    actionRow.IsEnabled = actionLive;\n",
+     "",
+     "wpf", "abi: a button greyed by its own EnabledWhen refuses a raised click"),
+    ("abi-pane-actions: an action's condition is parsed by a split of its own", OPTIONSWINDOW,
+     "                    bool actionLive = IsSatisfied(actionWhen);\n",
+     "                    bool actionLive = CurrentValueOf(actionWhen.Split('=')[0]) == actionWhen.Substring(actionWhen.IndexOf('=') + 1);\n",
+     "wpf", "abi: PaneAction.EnabledWhen is read by the fields' parser"),
+    ("abi-pane-actions: an action's condition reads only fields with an editor", OPTIONSWINDOW,
+     "                    bool actionLive = IsSatisfied(actionWhen);\n",
+     "                    bool actionLive = IsSatisfied(actionWhen) && _readers.ContainsKey(actionWhen.Split('=')[0].Trim());\n",
+     "wpf", "abi: PaneAction.EnabledWhen can name a display-only field"),
+    ("abi-pane-actions: an action's grey-out is settled once and never again", OPTIONSWINDOW,
+     "                    bool actionLive = IsSatisfied(actionWhen);\n",
+     "                    bool actionLive = IsSatisfied(actionWhen);\n"
+     "                    if (actionRow.Tag != null) return;\n"
+     "                    actionRow.Tag = \"settled\";\n",
+     "wpf", "abi: the grey-out lifts LIVE when the field it names changes"),
+    ("abi-pane-actions: only a field group's actions are gated", OPTIONSWINDOW,
+     "            if (!string.IsNullOrEmpty(action.EnabledWhen))\n",
+     "            if (!string.IsNullOrEmpty(action.EnabledWhen) && scope.StartsWith(\"group \", StringComparison.Ordinal))\n",
+     "wpf", "abi: an action in a list card greys by its EnabledWhen too"),
+    ("abi-pane-actions: a greyed action's message is wiped", OPTIONSWINDOW,
+     "                    actionRow.IsEnabled = actionLive;\n",
+     "                    actionRow.IsEnabled = actionLive;\n"
+     "                    if (!actionLive) status.Text = \"\";\n",
+     "wpf", "abi: ...and it greys again when the field moves away, keeping the message"),
+    ("abi-pane-actions: a greyed action's row is not dimmed", OPTIONSWINDOW,
+     "                    DimGreyed(actionRow, !actionLive && (cardLive == null || cardLive()));\n",
+     "",
+     "wpf", "abi: a greyed action's result line renders dimmer than while it was live"),
+    ("abi-pane-actions: an action greyed inside a greyed card is dimmed twice", OPTIONSWINDOW,
+     "                    DimGreyed(actionRow, !actionLive && (cardLive == null || cardLive()));\n",
+     "                    DimGreyed(actionRow, !actionLive);\n",
+     "wpf", "abi: an action greyed by its own EnabledWhen inside a greyed card is dimmed once"),
 ]
 
 
