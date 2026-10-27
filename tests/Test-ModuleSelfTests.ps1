@@ -46,12 +46,15 @@
     script creates one directory per run, hands it to the child as TEMP/TMP, reads the marker from it
     and removes it at the end.
 
-    Cost: ~15s. Measured per module -- agentflow 7.5s, remembrance 3.5s, fortunes 1.6s, reminder
-    1.0s, petstudio 0.7s, aibrain 0.8s, blinkingled 0.5s.
+    Cost: each module's wall time is printed beside its OK line, so the figure is re-measured on every
+    run instead of being restated here (the per-module list this header carried said fortunes 1.6 s
+    while its self-test had grown to over half a minute). A run that fails keeps its private TEMP
+    and writes environment.txt beside the markers (see Save-RunEnvironment).
 #>
 [CmdletBinding()]
 param(
     [string]$RepoRoot = '',
+    # The limit for every module that has none of its own in $ModuleTimeoutSeconds below.
     [int]$TimeoutSeconds = 180
 )
 
@@ -72,6 +75,20 @@ if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
 }
 
 $Covered = @('agentbroker', 'agentflow', 'aibrain', 'blinkingled', 'fortunes', 'petstudio', 'reminder', 'remembrance')
+
+# A MODULE'S OWN LIMIT, where the shared one is too close to its measured time (N-release-150-02). Fortunes' self-test
+# runs the whole engine probe (FortuneEngineProbe.Run: the embedder, the smart index, the filter and importer suites) and is
+# CPU-bound over a dozen threads, so its wall time is whatever the rest of the machine leaves it. Measured: 187 s on the
+# 1.5.0 branch and 174 s on master's 1.4.0 build, single runs on 2026-10-07 while a game ran, and the first timed this
+# runner out at 180 s; on 2026-10-26, three fresh runs of --module-selftest=fortunes took 34.3, 32.4 and 34.5 s (102-106 CPU
+# seconds each, the box 50-70% busy with other work), and one of ten --fortunes-engine-selftest runs beside them took 69.9 s
+# against 30-36 s for the other nine. 300 s is 1.6 times the slowest recorded run. Every other module keeps the shared
+# limit, which is not a claim that they are quick: in the same day's whole run of this file, on the same busy box,
+# agentflow took 36.7 s, aibrain 39.8, remembrance 42.5 and fortunes 39.5, but only Fortunes has been recorded near the
+# limit. The OK line prints each module's time against its limit on every run, so the next one to approach it is seen
+# before it times out. A caller's larger -TimeoutSeconds still wins (Get-ModuleTimeoutSeconds), so this can only lengthen
+# a module's limit, never shorten it below what the caller asked for.
+$ModuleTimeoutSeconds = @{ 'fortunes' = 300 }
 
 # The EXACT set of failures each uncovered module is expected to report -- not merely "it failed",
 # and not just its first failure. The first draft of this file matched the first FAIL line only, and
@@ -143,6 +160,14 @@ if ($missing.Count -gt 0) {
            '. Remove them, or find out why build.ps1 stopped producing them.')
 }
 
+function Get-ModuleTimeoutSeconds([string]$Id) {
+    if ($ModuleTimeoutSeconds.ContainsKey($Id)) { return [Math]::Max([int]$ModuleTimeoutSeconds[$Id], $TimeoutSeconds) }
+    return $TimeoutSeconds
+}
+
+# Each module's wall time and limit, by id, for its OK line and for environment.txt on a failure.
+$moduleTimings = [ordered]@{}
+
 function Invoke-ModuleSelfTest([string]$Id) {
     # $env:TEMP is this run's private directory by the time this runs (see below), and the child
     # inherits it, so the exe's Path.GetTempPath() and this path agree.
@@ -168,11 +193,21 @@ function Invoke-ModuleSelfTest([string]$Id) {
                                   Reasons = @("the previous real-input record could not be deleted, so it would be read as this run's: $record") }
     }
 
+    # The module's own limit when it has one, the shared one otherwise; timed, so the OK line and a kept run's
+    # environment.txt say how close a module came to it.
+    $limit = Get-ModuleTimeoutSeconds $Id
+    $watch = [Diagnostics.Stopwatch]::StartNew()
     $process = Start-Process -FilePath $exe -ArgumentList "--module-selftest=$Id" -PassThru
-    $exited = $process.WaitForExit($TimeoutSeconds * 1000)
+    $exited = $process.WaitForExit($limit * 1000)
+    $watch.Stop()
+    $moduleTimings[$Id] = [pscustomobject]@{ Seconds = [Math]::Round($watch.Elapsed.TotalSeconds, 1); Limit = $limit; Exited = $exited }
     if (-not $exited) {
         try { $process.Kill() } catch { }
-        return [pscustomobject]@{ Id = $Id; Result = 'TIMEOUT'; Lines = @(); Skips = @(); RealInputSkips = @(); RealInputRecord = $null; Reasons = @("did not exit in ${TimeoutSeconds}s") }
+        # The module AND its limit, and whose limit it is: a timeout under the shared limit and one under a module's own
+        # are read differently (the first may be load, the second is past a margin that was measured for it).
+        $whose = if ($ModuleTimeoutSeconds.ContainsKey($Id)) { "its own limit; the shared one is ${TimeoutSeconds}s" } else { 'the shared limit' }
+        return [pscustomobject]@{ Id = $Id; Result = 'TIMEOUT'; Lines = @(); Skips = @(); RealInputSkips = @(); RealInputRecord = $null
+                                  Reasons = @("$Id did not exit within its ${limit}s limit ($whose)") }
     }
     if (-not (Test-Path -LiteralPath $marker -PathType Leaf)) {
         # The marker is the ONLY evidence the module was actually loaded and exercised. An exit code
@@ -288,12 +323,55 @@ function Get-RealInputMeasurement([string]$Id, $r) {
 # (measured 2026-09-29: TEMP of 74 characters passes, 107 fails; filed as a Fortunes/ModuleKit item).
 # A runner must not fail a module on a path length the module never sees in production, so this
 # stays under twenty characters.
+# THE EXACT ENVIRONMENT, KEPT BESIDE THE MARKERS (N-fortunes-import-probe-01). A red run already kept its markers, but
+# not what the children ran under, and the one unexplained Fortunes refusal (its portable replacement/rollback fallback,
+# once, in a healthy baseline) could not be re-examined for want of it: that probe has failed before on the LENGTH of
+# TEMP (the MAX_PATH note below) and on a handle a scanner held for a moment, so the TEMP the children saw, its length,
+# whether it is an 8.3 alias, and what they left behind are the evidence. Only named variables are written, never the
+# whole environment block, which can hold a token. Best-effort: a failure to write it is said, and never replaces the
+# run's own verdict.
+function Save-RunEnvironment([string]$Directory, [string]$OriginalTemp, [string[]]$Problems) {
+    try {
+        $text = New-Object 'Collections.Generic.List[string]'
+        $text.Add('written: ' + (Get-Date).ToString('o'))
+        $text.Add("runner: tests\Test-ModuleSelfTests.ps1 under PowerShell $($PSVersionTable.PSVersion) ($($PSVersionTable.PSEdition))")
+        $text.Add("children's TEMP and TMP (this run's own): $Directory ($($Directory.Length) characters; 8.3 alias segment: " +
+                  $(if ($Directory.Contains('~')) { 'yes' } else { 'no' }) + ')')
+        $text.Add("TEMP before this run: $OriginalTemp ($("$OriginalTemp".Length) characters)")
+        foreach ($name in 'DESKTOP_AI_COMPANION_DATA_ROOT', $noRealInputVariable) {
+            $value = [Environment]::GetEnvironmentVariable($name)
+            $text.Add("${name}: " + $(if ($null -eq $value) { '(unset)' } else { $value }))
+        }
+        $hostFile = Get-Item -LiteralPath $exe
+        $text.Add("host: $exe ($($hostFile.LastWriteTime.ToString('o')), $($hostFile.Length) bytes)")
+        $text.Add("os: $([Environment]::OSVersion.VersionString); logical processors: $([Environment]::ProcessorCount)")
+        $text.Add('modules (wall seconds, limit, exited):')
+        foreach ($entry in $moduleTimings.GetEnumerator()) {
+            $text.Add("  $($entry.Key): $($entry.Value.Seconds) s of $($entry.Value.Limit) s, exited=$($entry.Value.Exited)")
+        }
+        $text.Add('problems:')
+        foreach ($problem in @($Problems)) { $text.Add("  $problem") }
+        $text.Add('files left under the children''s TEMP (first 200):')
+        $left = @(Get-ChildItem -LiteralPath $Directory -Recurse -Force -ErrorAction SilentlyContinue | Select-Object -First 200)
+        foreach ($item in $left) {
+            $size = if ($item.PSIsContainer) { '<dir>' } else { "$($item.Length) bytes" }
+            $text.Add('  ' + $item.FullName.Substring($Directory.Length).TrimStart('\') + "  $size")
+        }
+        $path = Join-Path $Directory 'environment.txt'
+        [IO.File]::WriteAllLines($path, $text.ToArray(), (New-Object Text.UTF8Encoding($false)))
+        Write-Host ("  environment kept beside them: " + $path)
+    }
+    catch { Write-Host ("  the run's environment could not be recorded: " + $_.Exception.Message) }
+}
+
 $previousTemp = $env:TEMP
 $previousTmp = $env:TMP
 $runTemp = Join-Path $env:TEMP ('dp-msr-' + [guid]::NewGuid().ToString('N').Substring(0, 12))
 New-Item -ItemType Directory -Path $runTemp -Force | Out-Null
 $env:TEMP = $runTemp
 $env:TMP = $runTemp
+# Set true as the last statement of the run's try: a run that threw before it is kept like a red one (see the finally).
+$runFinished = $false
 
 # Said on every run that presses, before the first module runs, as tests\mutate-selftest-guards.py says it at its start:
 # a run without the variable makes Blinking LED's real presses, and until the final round of lane
@@ -377,7 +455,9 @@ try {
                 $noRealInputMeasured += $id
                 Write-Output "SELFTEST-NO-REAL-INPUT: $id : $measured"
             }
-            Write-Host ("  OK   {0,-12} PASS ({1} assertion line(s)){2}" -f $id, $assertions, $notRunNote)
+            $timing = $moduleTimings[$id]
+            Write-Host ("  OK   {0,-12} PASS ({1} assertion line(s)) in {2} s of its {3} s limit{4}" -f $id, $assertions,
+                        $timing.Seconds.ToString('0.0', [Globalization.CultureInfo]::InvariantCulture), $timing.Limit, $notRunNote)
         }
     }
 
@@ -417,14 +497,17 @@ try {
             Write-Host ("  gap  {0,-12} {1} known gap(s), unchanged" -f $id, $expected.Count)
         }
     }
+    $runFinished = $true
 }
 finally {
     $env:TEMP = $previousTemp
     $env:TMP = $previousTmp
-    if ($problems.Count -gt 0) {
+    # A run that threw before it finished is kept too: it has no verdict, and its markers are all there is to read.
+    if ($problems.Count -gt 0 -or -not $runFinished) {
         # The markers are the only record of WHICH assertion failed beyond the one line quoted in the
         # throw below, so a red run keeps its directory and names it. Invoke-SelfTests.ps1 does the same.
         Write-Host ("  markers kept for inspection: " + $runTemp)
+        Save-RunEnvironment $runTemp $previousTemp $problems
     }
     else {
         # Best-effort: every child has exited, so nothing maps the staged module copies any more. A

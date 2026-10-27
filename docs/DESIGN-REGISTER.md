@@ -5512,6 +5512,22 @@ are judged as before. The judge runs on its own as `--judge-selftest` (no window
 `tests/module-window-soak.ps1` changes (outside this lane), its default `-Segments 2` makes the soak FAIL with "NOT
 JUDGED, a slope needs at least 4 segments and 2 ran"**: run it with `-Segments 5`.
 
+**Fortunes has its own module self-test limit of 300 s (N-release-150-02).** Its self-test took 187 s and 174 s under load
+on 2026-10-07 against `tests/Test-ModuleSelfTests.ps1`'s shared 180 s, and 32.4 to 34.5 s in three fresh runs on
+2026-10-26 on a busy box. 300 s is 1.6 times the slowest recorded run. The other modules keep 180 s although agentflow,
+aibrain and remembrance measured 37 to 43 s in the same day's run, because only Fortunes has been recorded near the limit;
+every OK line now prints the module's wall time against its limit, so the next one to approach it is visible first. A
+TIMEOUT names the module, its limit and whose limit that was. A run that fails keeps `environment.txt` beside its markers.
+
+**The Fortunes import probe did not fail again (N-fortunes-import-probe-01, DECLINED-MEASURED).** Ten fresh
+`--fortunes-engine-selftest` processes, each with its own short TEMP and data root and real input withheld, all passed
+with `custom_import=PASS` (30.3 to 69.9 s), and so did the three `--module-selftest=fortunes` runs that contain the same
+probe: 0 of 10 plus the 3 earlier. The assertion is unchanged. If it recurs under `tests/Test-ModuleSelfTests.ps1`, the
+kept run now holds the children's TEMP, its length and whether it is an 8.3 alias, the data root, the host's build,
+every module's time and what the children left. Not kept, because keeping it is a Fortunes change:
+`FortuneFileImporter.RunSelfTest` deletes its own scratch even on a failure, and `TestPortableReplacementFallback`
+reports its five conditions as one line.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

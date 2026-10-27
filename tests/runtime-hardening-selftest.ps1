@@ -5073,6 +5073,25 @@ Assert-True ($tiSelfTestAt -ge 0 -and $tiLoopAt -gt $tiSelfTestAt -and $tiKeepAt
     $tiSoak -cnotmatch 'PrivateBytes - previous\.PrivateBytes') (
     "test-infra: the window soak judges private bytes once, by their slope over every segment after the loop, and never the last segment against the one before (found at $tiSelfTestAt, $tiLoopAt, $tiKeepAt, $tiJudgeAt, $tiFoldAt, $tiResultAt)")
 
+# FORTUNES HAS ITS OWN SELF-TEST LIMIT, AND A TIMEOUT SAYS WHOSE (N-release-150-02). Its self-test measured 174 and 187 s under
+# load against the runner's shared 180 s; tests\Test-ModuleSelfTests.ps1 now gives it 300 s, every other module keeps 180,
+# and the TIMEOUT reason names the module and the limit it ran under. Seeing the limit at run time takes a module that
+# runs past it, so the SHAPE is pinned: the one entry in the table, the wait handed the module's limit and never the shared
+# value, the limit never below the shared one, and the reason's words. Positive control: the shared limit is still 180.
+$tiRunner = Remove-PsLineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'tests\Test-ModuleSelfTests.ps1') -Raw)
+$tiInvokeAt = $tiRunner.IndexOf('function Invoke-ModuleSelfTest(', [StringComparison]::Ordinal)
+$tiInvoke = if ($tiInvokeAt -ge 0) { $tiRunner.Substring($tiInvokeAt, [Math]::Max(0, $tiRunner.IndexOf("`n}", $tiInvokeAt, [StringComparison]::Ordinal) - $tiInvokeAt)) } else { '' }
+Assert-True ($tiInvoke.Length -gt 0 -and $tiRunner -cmatch '\[int\]\$TimeoutSeconds = 180\b') (
+    'WITNESS test-infra: the module self-test runner was read, Invoke-ModuleSelfTest was sliced, and the shared limit is still 180 s')
+$tiLimitAt = $tiInvoke.IndexOf('$limit = Get-ModuleTimeoutSeconds $Id', [StringComparison]::Ordinal)
+$tiWaitAt = $tiInvoke.IndexOf('$exited = $process.WaitForExit($limit * 1000)', [StringComparison]::Ordinal)
+Assert-True ([regex]::Matches($tiRunner, '(?m)^\$ModuleTimeoutSeconds = @\{ ''fortunes'' = 300 \}\s*$').Count -eq 1 -and
+    $tiRunner.Contains('if ($ModuleTimeoutSeconds.ContainsKey($Id)) { return [Math]::Max([int]$ModuleTimeoutSeconds[$Id], $TimeoutSeconds) }') -and
+    $tiLimitAt -ge 0 -and $tiWaitAt -gt $tiLimitAt -and -not $tiRunner.Contains('WaitForExit($TimeoutSeconds')) (
+    "test-infra: Test-ModuleSelfTests.ps1 gives fortunes, and only fortunes, its own 300 s limit, never below the shared one, and waits each module for its own limit (found at $tiLimitAt, $tiWaitAt)")
+Assert-True ($tiInvoke.Contains('Reasons = @("$Id did not exit within its ${limit}s limit ($whose)")')) (
+    'test-infra: a module self-test TIMEOUT names the module, the limit it ran under and whose limit that was')
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever

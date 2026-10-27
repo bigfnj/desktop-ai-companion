@@ -3375,6 +3375,48 @@ CASES = (
         b"            bool ok = true;\n",
         "test-infra: the window soak judges private bytes once",
     ),
+    (
+        "test-infra: the shared module self-test limit moves",
+        os.path.join(REPO, "tests", "Test-ModuleSelfTests.ps1"),
+        b"    [int]$TimeoutSeconds = 180\n",
+        b"    [int]$TimeoutSeconds = 240\n",
+        "WITNESS test-infra: the module self-test runner was read",
+    ),
+    (
+        "test-infra: fortunes is back on the shared module self-test limit",
+        os.path.join(REPO, "tests", "Test-ModuleSelfTests.ps1"),
+        b"$ModuleTimeoutSeconds = @{ 'fortunes' = 300 }\n",
+        b"$ModuleTimeoutSeconds = @{}\n",
+        "test-infra: Test-ModuleSelfTests.ps1 gives fortunes",
+    ),
+    (
+        "test-infra: a second module gets its own self-test limit",
+        os.path.join(REPO, "tests", "Test-ModuleSelfTests.ps1"),
+        b"$ModuleTimeoutSeconds = @{ 'fortunes' = 300 }\n",
+        b"$ModuleTimeoutSeconds = @{ 'fortunes' = 300; 'agentflow' = 300 }\n",
+        "test-infra: Test-ModuleSelfTests.ps1 gives fortunes",
+    ),
+    (
+        "test-infra: a module self-test waits for the shared limit again",
+        os.path.join(REPO, "tests", "Test-ModuleSelfTests.ps1"),
+        b"    $exited = $process.WaitForExit($limit * 1000)\n",
+        b"    $exited = $process.WaitForExit($TimeoutSeconds * 1000)\n",
+        "test-infra: Test-ModuleSelfTests.ps1 gives fortunes",
+    ),
+    (
+        "test-infra: a module's own self-test limit can undercut the caller's",
+        os.path.join(REPO, "tests", "Test-ModuleSelfTests.ps1"),
+        b"    if ($ModuleTimeoutSeconds.ContainsKey($Id)) { return [Math]::Max([int]$ModuleTimeoutSeconds[$Id], $TimeoutSeconds) }\n",
+        b"    if ($ModuleTimeoutSeconds.ContainsKey($Id)) { return [int]$ModuleTimeoutSeconds[$Id] }\n",
+        "test-infra: Test-ModuleSelfTests.ps1 gives fortunes",
+    ),
+    (
+        "test-infra: a module self-test TIMEOUT stops naming the module and its limit",
+        os.path.join(REPO, "tests", "Test-ModuleSelfTests.ps1"),
+        b"                                  Reasons = @(\"$Id did not exit within its ${limit}s limit ($whose)\") }\n",
+        b"                                  Reasons = @(\"did not exit in ${TimeoutSeconds}s\") }\n",
+        "test-infra: a module self-test TIMEOUT names",
+    ),
 )
 
 
