@@ -614,6 +614,8 @@ namespace DesktopAICompanion.PetStudioModule
                 probe.Check("WITNESS a folder that saves is stored under its key and nothing is logged",
                     !unsaid && writable.Get(PetStudioPaths.LastOpenDirKey, "") == @"C:\pets\wip" && quietHost.LoggedLines.Count == 0);
 
+                SelfCheckExtractionDeletes(probe);
+
                 string fixture = EmbeddedResources.LoadText(typeof(PetStudioModule).Assembly, "selftest-companion.xml");
                 if (!probe.Check("the self-test companion is embedded (" + fixture.Length + " chars)", fixture.Length > 1000))
                     return probe.Finish(out detail);
@@ -736,6 +738,101 @@ namespace DesktopAICompanion.PetStudioModule
             }
             catch (Exception ex) { probe.Exception(ex); }
             return probe.Finish(out detail);
+        }
+
+        /// <summary>
+        /// N-remembrance-delete-logging-01 and -02: a skin import's extraction tree is deleted with one line saying so,
+        /// a delete that fails names its exception's type and leaves the tree, and the orphan sweep writes one line per
+        /// sweep that removed or failed anything and none when nothing was due. Over fixture folders under this run's
+        /// TEMP with a recording host; a file held open with no sharing is what makes a delete fail, as an image viewer
+        /// holding a sprite would. Nothing here touches the user's own %TEMP% trees: the sweep is handed the fixture
+        /// root and a cutoff.
+        /// </summary>
+        private static void SelfCheckExtractionDeletes(SelfTestProbe probe)
+        {
+            string root = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "dp-petstudio-deletes-" + Guid.NewGuid().ToString("N"));
+            System.IO.Directory.CreateDirectory(root);
+            System.IO.FileStream held = null;
+            try
+            {
+                Func<string, string> tree = delegate (string name)
+                {
+                    string dir = System.IO.Path.Combine(root, name);
+                    System.IO.Directory.CreateDirectory(dir);
+                    System.IO.File.WriteAllText(System.IO.Path.Combine(dir, "shime1.png"), "not really a sprite");
+                    return dir;
+                };
+
+                // One window's tree: deleted, and said.
+                var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                string mine = tree("petstudio-shimeji-" + Guid.NewGuid().ToString("N"));
+                PetStudioWindow.DeleteExtractionTree(mine, host);
+                probe.Check("an extraction tree's delete is logged in one line: deleted this window's extracted skin folder (N-remembrance-delete-logging-01)",
+                    !System.IO.Directory.Exists(mine) && host.LoggedLines.Count == 1 &&
+                    host.LoggedLines[0] == "petstudio: " + PetStudioWindow.ExtractionDeletedLine);
+
+                // ...one that will not go names the exception's type, and the tree stays for the sweep.
+                host.ClearLoggedLines();
+                string stuck = tree("petstudio-shimeji-" + Guid.NewGuid().ToString("N"));
+                held = new System.IO.FileStream(System.IO.Path.Combine(stuck, "shime1.png"), System.IO.FileMode.Open,
+                    System.IO.FileAccess.Read, System.IO.FileShare.None);
+                PetStudioWindow.DeleteExtractionTree(stuck, host);
+                string stuckLine = host.LoggedLines.Count == 1 ? host.LoggedLines[0] : "";
+                probe.Check("an extraction tree that will not delete is logged with its exception's type and left for the sweep: " + stuckLine,
+                    System.IO.Directory.Exists(stuck) &&
+                    stuckLine == "petstudio: could not delete this window's extracted skin folder (IOException); the orphan sweep removes it once it is 6 h old");
+                probe.Check("WITNESS the failure line quotes no path",
+                    stuckLine.Length > 0 && stuckLine.IndexOf(root, StringComparison.OrdinalIgnoreCase) < 0 && stuckLine.IndexOf(":\\", StringComparison.Ordinal) < 0);
+                held.Dispose();
+                held = null;
+
+                host.ClearLoggedLines();
+                PetStudioWindow.DeleteExtractionTree(System.IO.Path.Combine(root, "petstudio-shimeji-gone"), host);
+                PetStudioWindow.DeleteExtractionTree(null, host);
+                probe.Check("WITNESS no tree, no delete and no line: a path with nothing behind it, and none at all",
+                    host.LoggedLines.Count == 0);
+
+                // The sweep: two trees past the cutoff (one held open), one inside it, and one past it whose name is not
+                // this module's GUID shape. The held one fails; the young and the foreign one are not this sweep's.
+                string old = tree("petstudio-shimeji-" + Guid.NewGuid().ToString("N"));
+                string young = tree("petstudio-shimeji-" + Guid.NewGuid().ToString("N"));
+                string foreign = tree("petstudio-shimeji-not-one-of-ours");
+                DateTime now = DateTime.UtcNow;
+                DateTime cutoff = now.AddHours(-6);
+                held = new System.IO.FileStream(System.IO.Path.Combine(stuck, "shime1.png"), System.IO.FileMode.Open,
+                    System.IO.FileAccess.Read, System.IO.FileShare.None);
+                foreach (string dir in new[] { old, stuck, foreign })
+                    System.IO.Directory.SetLastWriteTimeUtc(dir, now.AddHours(-7));
+                var sweepHost = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                PetStudioWindow.SweepOrphanedExtractions(root, cutoff, sweepHost);
+                string sweepLine = sweepHost.LoggedLines.Count == 1 ? sweepHost.LoggedLines[0] : "";
+                probe.Check("a sweep that removed and failed writes one line with both counts and the failure's type (N-remembrance-delete-logging-02): " + sweepLine,
+                    sweepLine == "petstudio: orphan sweep: removed 1 extracted skin folder(s) older than 6 h; could not remove 1 (IOException); the next sweep tries again" &&
+                    !System.IO.Directory.Exists(old) && System.IO.Directory.Exists(stuck));
+                probe.Check("WITNESS the sweep leaves a tree inside the cutoff and a folder whose name is not this module's",
+                    System.IO.Directory.Exists(young) && System.IO.Directory.Exists(foreign));
+                held.Dispose();
+                held = null;
+
+                sweepHost.ClearLoggedLines();
+                PetStudioWindow.SweepOrphanedExtractions(root, cutoff, sweepHost);
+                string secondLine = sweepHost.LoggedLines.Count == 1 ? sweepHost.LoggedLines[0] : "";
+                probe.Check("the next sweep removes the tree once nothing holds it, and says only that: " + secondLine,
+                    secondLine == "petstudio: orphan sweep: removed 1 extracted skin folder(s) older than 6 h" && !System.IO.Directory.Exists(stuck));
+                sweepHost.ClearLoggedLines();
+                PetStudioWindow.SweepOrphanedExtractions(root, cutoff, sweepHost);
+                probe.Check("WITNESS a sweep with nothing due writes nothing",
+                    sweepHost.LoggedLines.Count == 0 && System.IO.Directory.Exists(young));
+                PetStudioWindow.SweepOrphanedExtractions(System.IO.Path.Combine(root, "no-such-folder"), cutoff, sweepHost);
+                probe.Check("a sweep that cannot list its folder says so by the exception's type",
+                    sweepHost.LoggedLines.Count == 1 &&
+                    sweepHost.LoggedLines[0] == "petstudio: orphan sweep: could not list the temp folder (DirectoryNotFoundException)");
+            }
+            finally
+            {
+                if (held != null) held.Dispose();
+                try { System.IO.Directory.Delete(root, true); } catch { }
+            }
         }
 
         private delegate bool ChecksRunner(string fixturePetXml, out string detail);

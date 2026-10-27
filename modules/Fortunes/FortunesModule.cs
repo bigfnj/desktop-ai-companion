@@ -1625,6 +1625,7 @@ namespace DesktopAICompanion.FortunesModule
                     return FortuneFileImporter.Import(chosen, directory, null, token);   // no overwrite approved (see summary)
                 });
 
+                LogImportDeletes(result);
                 if (result.ImportedCount > 0) await RebuildEngineAsync(IndexChange.Packs);   // new lines join the pool at once
 
                 string status = "Imported " + result.ImportedCount +
@@ -1803,14 +1804,15 @@ namespace DesktopAICompanion.FortunesModule
         /// name.</para>
         ///
         /// Told apart by the exception's TYPE NAME, never its type: CatalogRejectedException is internal to the
-        /// host, so no module can name it in code. The reason is the host's own message, bounded the way every
+        /// host, so no module can name it in code. The reason is the host's own message (<see cref="CatalogReason"/>,
+        /// which follows a message that only points at its inner exception), bounded the way every
         /// status here is (Short), with its own closing stop dropped so the line does not end in two; a host with
         /// nothing to say gets no empty reason line. The time is the user's own format, "today" while it is
         /// (<paramref name="now"/> is the moment the pane is drawn). Pure, so each case is asserted.
         /// </summary>
         internal static string CatalogFailureBlock(Exception ex, DateTime checkedAt, DateTime now)
         {
-            string reason = Short(ex == null ? "" : ex.Message).TrimEnd('.', ' ');
+            string reason = Short(CatalogReason(ex)).TrimEnd('.', ' ');
             string title, reasonLabel, whose;
             switch (ex == null ? "" : ex.GetType().Name)
             {
@@ -1841,6 +1843,35 @@ namespace DesktopAICompanion.FortunesModule
             block.Append('\n').Append(checkedAt.Date == now.Date ? "Checked today at " : "Checked at ")
                  .Append(Clock(checkedAt, now)).Append(". “Check online for packs” tries again.");
             return block.ToString();
+        }
+
+        /// <summary>
+        /// The words the red block's reason line quotes (N-layout-fortunes-01). The exception's own message, except
+        /// that a message which only points at its inner exception takes the inner one's words after its head, up to
+        /// three levels down: a failed TLS handshake reaches here as an HttpRequestException reading "The SSL
+        /// connection could not be established, see inner exception.", and the block quoted that sentence whole,
+        /// which tells the user where to look and not what was wrong with the certificate. The same walk as the
+        /// host's own panels (CatalogText.Reason in src/dotNet/RemoteCatalog.cs), so the block and the Modules pane's
+        /// problem panel word one failure alike. It crosses the load context safely: Message and InnerException are
+        /// System.Exception's own, which the host and this module share, so no host type is named here. A message
+        /// that does not point at its inner exception keeps its own words, an inner exception beside it or not.
+        /// Only the walk is the host's: its Echo (control characters to '?', double quotes to single) is not copied,
+        /// because the block has quoted the message as it came since 1.1.0 and this change is about which words.
+        /// </summary>
+        internal static string CatalogReason(Exception ex)
+        {
+            if (ex == null) return "";
+            string text = (ex.Message ?? "").Trim();
+            Exception inner = ex.InnerException;
+            for (int depth = 0; inner != null && depth < 3 &&
+                 text.IndexOf("inner exception", StringComparison.OrdinalIgnoreCase) >= 0; depth++)
+            {
+                int pointer = text.IndexOf(", see inner exception", StringComparison.OrdinalIgnoreCase);
+                string head = pointer >= 0 ? text.Substring(0, pointer) : text;
+                text = head.TrimEnd('.', ' ') + ": " + (inner.Message ?? "").Trim();
+                inner = inner.InnerException;
+            }
+            return text;
         }
 
         /// <summary>Download the ticked packs, then rebuild the engine so they're live immediately. Each
@@ -1983,6 +2014,51 @@ namespace DesktopAICompanion.FortunesModule
                     " malformed=" + Invariant(malformed) +
                     " error=" + Invariant(threw) + ")";
             return string.IsNullOrEmpty(lastCategory) ? line : line + " last=" + lastCategory;
+        }
+
+        /// <summary>
+        /// What an import deleted of the user's packs, in at most two lines (the owner's rule of 2026-10-07: a delete
+        /// of the user's data logs its outcome, and a failure is never swallowed in silence). A batch whose commit
+        /// failed rolls back: the packs it had written new are deleted again and the packs it had replaced are put
+        /// back from their backups, and until now nothing said how many, or which failed and why; the user heard only
+        /// "rollback could not be fully verified" (N-remembrance-delete-logging-03). A replacing batch deletes the
+        /// backup of each pack's earlier version once it has committed, and a failed replace that left the pack in
+        /// place deletes the backup it had reserved; both were silent either way (N-remembrance-delete-logging-04).
+        /// This import action approves no overwrite, so no backup is made from the pane today; the line is written
+        /// for whatever does, because the importer counts it. Nothing is written when nothing was deleted or failed:
+        /// a batch that committed whole, or a rollback that had nothing to undo. Internal so the probe can hand it a
+        /// result.
+        /// </summary>
+        internal void LogImportDeletes(FortuneImportBatchResult result)
+        {
+            if (result == null) return;
+            string rollback = DescribeImportRollback(result);
+            if (rollback.Length > 0) Log(rollback);
+            string backups = DescribeImportBackups(result);
+            if (backups.Length > 0) Log(backups);
+        }
+
+        /// <summary>The rollback's line: packs removed (written new by the failed batch), restored (replaced by it, put
+        /// back from their backups) and failed, with the failures' exception TYPES; "" for a rollback with nothing to
+        /// do. Counts and type names only: a pack's file name is the user's own, and an IOException's message names its
+        /// path.</summary>
+        internal static string DescribeImportRollback(FortuneImportBatchResult result)
+        {
+            if (result == null || result.RollbackRemoved + result.RollbackRestored + result.RollbackFailed == 0) return "";
+            string line = "import rolled back: removed=" + Invariant(result.RollbackRemoved) +
+                          " restored=" + Invariant(result.RollbackRestored) +
+                          " failed=" + Invariant(result.RollbackFailed);
+            return result.RollbackFailed > 0 ? line + " (" + result.RollbackFailureTypes + ")" : line;
+        }
+
+        /// <summary>The backups' line: backups of a replaced pack's earlier version deleted, and those that could not
+        /// be, which stay beside the pack, with the failures' exception TYPES; "" when there was none.</summary>
+        internal static string DescribeImportBackups(FortuneImportBatchResult result)
+        {
+            if (result == null || result.BackupsDeleted + result.BackupsNotDeleted == 0) return "";
+            string line = "replaced-pack backups: deleted=" + Invariant(result.BackupsDeleted) +
+                          " failed=" + Invariant(result.BackupsNotDeleted);
+            return result.BackupsNotDeleted > 0 ? line + " (" + result.BackupFailureTypes + ")" : line;
         }
 
         /// <summary>Replace the cached browse result with the catalog packs that aren't on disk yet, and

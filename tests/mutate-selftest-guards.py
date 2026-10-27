@@ -4937,7 +4937,7 @@ CASES = (
     # RA-104: the commit's catch deletes the backup whatever state the destination is in again.
     ("burn-fortunes: importer: a torn replace deletes the backup that holds the pack again",
      FORTUNE_IMPORTER,
-     b"                    RestoreTornReplace(destinationPath, backupPath);\n"
+     b"                    RestoreTornReplace(destinationPath, backupPath, report);\n"
      b"                    throw;",
      b"                    TryDeleteFile(backupPath);\n"
      b"                    throw;",
@@ -12937,6 +12937,282 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--fullscreen-selftest", "dp-fullscreen-selftest.txt",
      "WITNESS layered-not-transparent-fullscreen-primary"),
+
+    # ---- lane feature/modules-small ----
+    # Campaign 2026-10-26, lane modules-small. Fortunes: the catalog block's reason walks InnerException as the host's
+    # CatalogText.Reason does (N-layout-fortunes-01), and an import's rollback and backup deletes are counted and logged
+    # (N-remembrance-delete-logging-03, -04). Every Fortunes case runs the module's own SelfTest through the convention
+    # flag (FortuneEngineProbe: CatalogFailureChecks, ImportDeleteLogChecks, the folder-action scenario). Names carry the
+    # "modules-small:" prefix so `--only=modules-small:` runs the lane.
+
+    # N-layout-fortunes-01: the block quotes the outer message again, "..., see inner exception." and all.
+    ("modules-small: fortunes: the catalog reason quotes the outer message again",
+     FORTUNES_MODULE,
+     b"            string reason = Short(CatalogReason(ex)).TrimEnd('.', ' ');\n",
+     b"            string reason = Short(ex == null ? \"\" : ex.Message).TrimEnd('.', ' ');\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "quotes the inner one's words after its head"),
+
+    # ...every message takes its inner exception's words, pointing at it or not.
+    ("modules-small: fortunes: every catalog reason takes its inner exception's words",
+     FORTUNES_MODULE,
+     b'                 text.IndexOf("inner exception", StringComparison.OrdinalIgnoreCase) >= 0; depth++)',
+     b'                 text.Length >= 0; depth++)',
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "WITNESS a message that does not point at its inner exception keeps its own words"),
+
+    # ...the walk stops one level down, short of the words at the chain's end.
+    ("modules-small: fortunes: the catalog reason stops one level down",
+     FORTUNES_MODULE,
+     b"                inner = inner.InnerException;\n",
+     b"                inner = null;\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a chain of messages that each point inward is followed to the words at its end"),
+
+    # N-remembrance-delete-logging-03: the rollback's removed pack goes uncounted.
+    ("modules-small: fortunes: a rollback's removed pack is not counted",
+     FORTUNE_IMPORTER,
+     b"                        if (report != null) report.RollbackRemoved++;\n",
+     b"                        if (report != null) report.RollbackRemoved += 0;\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a failed batch's rollback is counted"),
+
+    ("modules-small: fortunes: a rollback's restored pack is not counted",
+     FORTUNE_IMPORTER,
+     b"                        if (report != null) report.RollbackRestored++;\n",
+     b"                        if (report != null) report.RollbackRestored += 0;\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a failed batch's rollback is counted"),
+
+    # ...a pack the rollback could not undo only clears `complete` again.
+    ("modules-small: fortunes: a rollback failure is swallowed again",
+     FORTUNE_IMPORTER,
+     b"                    if (report != null) report.RollbackNotUndone(ex);\n",
+     b"                    if (report != null && ex == null) report.RollbackNotUndone(ex);\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "counts the failure by its exception type"),
+
+    # ...a rollback with nothing to undo writes a line of zeros.
+    ("modules-small: fortunes: a rollback with nothing to undo is logged",
+     FORTUNES_MODULE,
+     b'            if (result == null || result.RollbackRemoved + result.RollbackRestored + result.RollbackFailed == 0) return "";\n',
+     b'            if (result == null) return "";\n',
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "WITNESS a rollback with nothing to undo"),
+
+    # ...the line drops the failures' types.
+    ("modules-small: fortunes: the rollback line drops the failures' types",
+     FORTUNES_MODULE,
+     b'            return result.RollbackFailed > 0 ? line + " (" + result.RollbackFailureTypes + ")" : line;\n',
+     b"            return line;\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "counts the failure by its exception type"),
+
+    # ...the module never writes the rollback line it built.
+    ("modules-small: fortunes: the rollback line is never logged",
+     FORTUNES_MODULE,
+     b"            if (rollback.Length > 0) Log(rollback);\n",
+     b"            if (rollback.Length < 0) Log(rollback);\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "removes that pack and logs one line"),
+
+    # ...the pane's import never reports what its import deleted.
+    ("modules-small: fortunes: the pane's import does not log its deletes",
+     FORTUNES_MODULE,
+     b"                LogImportDeletes(result);\n",
+     b"",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "removes that pack and logs one line"),
+
+    # N-remembrance-delete-logging-04: a committed batch's backup goes through the silent delete again.
+    ("modules-small: fortunes: a committed replace's backup is deleted in silence again",
+     FORTUNE_IMPORTER,
+     b"                            DeleteBackup(committedImport.BackupPath, result);\n",
+     b"                            TryDeleteFile(committedImport.BackupPath);\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a replacing batch that committed deletes the earlier version's backup and counts it"),
+
+    # ...so does the backup a refused replace reserved.
+    ("modules-small: fortunes: a refused replace's backup is deleted in silence again",
+     FORTUNE_IMPORTER,
+     b"            DeleteBackup(backupPath, report);\n",
+     b"            TryDeleteFile(backupPath);\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a refused replace that left the pack in place deletes the backup it had reserved"),
+
+    # ...a deleted backup goes uncounted.
+    ("modules-small: fortunes: a deleted backup is not counted",
+     FORTUNE_IMPORTER,
+     b"                if (report != null) report.BackupsDeleted++;\n",
+     b"",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a replacing batch that committed deletes the earlier version's backup and counts it"),
+
+    # ...a backup that will not delete is swallowed again.
+    ("modules-small: fortunes: a backup that will not delete is swallowed again",
+     FORTUNE_IMPORTER,
+     b"                if (report != null) report.BackupNotDeleted(ex);\n",
+     b"                if (report != null && ex == null) report.BackupNotDeleted(ex);\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a backup that will not delete is counted as a failure by its exception type"),
+
+    # ...the module never writes the backups' line it built.
+    ("modules-small: fortunes: the backups line is never logged",
+     FORTUNES_MODULE,
+     b"            if (backups.Length > 0) Log(backups);\n",
+     b"            if (backups.Length < 0) Log(backups);\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "an import's backup deletes are logged in one line"),
+
+    # PetStudio: an extraction tree's delete and the orphan sweep each log one line (N-remembrance-delete-logging-01,
+    # -02), taken in scope by the 2026-10-26 campaign. Every case runs the module's own SelfTest
+    # (SelfCheckExtractionDeletes) through the convention flag.
+
+    # The tree's delete goes silent again.
+    ("modules-small: petstudio: an extraction tree's delete logs nothing again",
+     PETSTUDIO_WINDOW,
+     b"            LogQuietly(host, line);\n",
+     b"",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "an extraction tree's delete is logged in one line"),
+
+    # ...a delete that failed is logged as one that worked.
+    ("modules-small: petstudio: a failed tree delete is logged as a success",
+     PETSTUDIO_WINDOW,
+     b"                line = ExtractionNotDeletedLine(ex);\n",
+     b"                line = ExtractionDeletedLine + (ex == null ? \"\" : \"\");\n",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "an extraction tree that will not delete is logged with its exception's type"),
+
+    # ...a path with nothing behind it is "deleted" and fails.
+    ("modules-small: petstudio: a missing tree is deleted and logged anyway",
+     PETSTUDIO_WINDOW,
+     b"                if (!Directory.Exists(path)) return;\n                Directory.Delete(path, true);\n",
+     b"                Directory.Delete(path, true);\n",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "WITNESS no tree, no delete and no line"),
+
+    # The sweep's line is never written.
+    ("modules-small: petstudio: the orphan sweep logs nothing again",
+     PETSTUDIO_WINDOW,
+     b"            LogQuietly(host, SweepLine(removed, failed, string.Join(\", \", failureTypes), listFailure));\n",
+     b"            if (removed < 0) LogQuietly(host, SweepLine(removed, failed, string.Join(\", \", failureTypes), listFailure));\n",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "a sweep that removed and failed writes one line"),
+
+    # ...a tree it could not remove goes uncounted.
+    ("modules-small: petstudio: a sweep's failed delete is not counted",
+     PETSTUDIO_WINDOW,
+     b"                        failed++;\n",
+     b"",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "a sweep that removed and failed writes one line"),
+
+    # ...a tree it removed goes uncounted.
+    ("modules-small: petstudio: a sweep's removal is not counted",
+     PETSTUDIO_WINDOW,
+     b"                        removed++;\n",
+     b"",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "the next sweep removes the tree once nothing holds it, and says only that"),
+
+    # ...the failure's type is dropped.
+    ("modules-small: petstudio: a sweep's failure loses its exception type",
+     PETSTUDIO_WINDOW,
+     b"                        if (!failureTypes.Contains(ex.GetType().Name)) failureTypes.Add(ex.GetType().Name);\n",
+     b"                        if (ex == null) failureTypes.Add(\"\");\n",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "a sweep that removed and failed writes one line"),
+
+    # ...a sweep with nothing due writes a line anyway.
+    ("modules-small: petstudio: a sweep with nothing due writes a line",
+     PETSTUDIO_WINDOW,
+     b"            return parts.Count == 0 ? null : \"orphan sweep: \" + string.Join(\"; \", parts);\n",
+     b"            return \"orphan sweep: \" + string.Join(\"; \", parts);\n",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "WITNESS a sweep with nothing due writes nothing"),
+
+    # ...a folder it cannot list is swallowed again.
+    ("modules-small: petstudio: a sweep that cannot list its folder says nothing",
+     PETSTUDIO_WINDOW,
+     b"                listFailure = ex.GetType().Name;\n",
+     b"                listFailure = ex == null ? \"\" : null;\n",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "a sweep that cannot list its folder says so by the exception's type"),
+
+    # Blinking LED: a pane Apply writes only what the user changed on that pane, against what the pane last loaded or
+    # last applied (N-blinkingled-resume-03, the owner's decision: module-side). Every case runs the module's own SelfTest
+    # (SelfCheckPaneWritesOnlyItsChanges) with DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT=1; none needs a real press.
+
+    # The Apply writes every box it submits again.
+    ("modules-small: blinkingled: a pane Apply writes every box again",
+     BLINKINGLED_MODULE,
+     b"            values = ChangedOnPane(values, shown);   // from here on, only what the user changed on this pane\n",
+     b"",
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "a tray Off made while the options window is open survives an Apply from that window"),
+
+    # ...it is judged against the disk again, so a tray choice made since the pane loaded reads as the user's.
+    ("modules-small: blinkingled: a pane Apply is compared with the disk again",
+     BLINKINGLED_MODULE,
+     b"            IReadOnlyDictionary<string, string> shown = PaneShown();\n",
+     b"            IReadOnlyDictionary<string, string> shown = StoredPaneValues();\n",
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "probe S9: after a tray pick ends a saved Caps Lock off"),
+
+    # ...the pane's Load no longer records what it shows, so the first Apply is judged against the disk.
+    ("modules-small: blinkingled: the pane's Load records nothing",
+     BLINKINGLED_MODULE,
+     b"            _paneShown = new Dictionary<string, string>(StringComparer.Ordinal);\n"
+     b"            foreach (KeyValuePair<string, string> kv in stored) _paneShown[kv.Key] = kv.Value;\n",
+     b"",
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "a tray Off made while the options window is open survives an Apply from that window"),
+
+    # ...the pane's view never moves on after an Apply, so a speed changed back is taken for no change.
+    ("modules-small: blinkingled: the pane's view never moves on after an Apply",
+     BLINKINGLED_MODULE,
+     b"            if (ok) RememberPaneShown(shown, submitted);   // the pane now shows what it sent\n",
+     b"",
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "two Applies from one pane both land"),
+
+    # ...it moves on after a failed Apply too, so the retry is taken for no change.
+    ("modules-small: blinkingled: the pane's view moves on after a failed Apply",
+     BLINKINGLED_MODULE,
+     b"            if (ok) RememberPaneShown(shown, submitted);",
+     b"            RememberPaneShown(shown, submitted);",
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "an Apply whose write failed is written by the same Apply sent again"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

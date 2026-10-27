@@ -40,6 +40,39 @@ namespace DesktopAICompanion.Ai
         {
             if (item != null) items.Add(item);
         }
+
+        // What this import deleted of the user's packs, for the module's log (the owner's rule of 2026-10-07: a
+        // delete of the user's data logs its outcome, and a failure is never swallowed in silence). Counts and
+        // exception TYPE names only, never a name or a Message: a pack's file name is the user's own, and an
+        // IOException's message names the path it failed on. The staging files and the lock file are temp, and
+        // exempt as the rule says.
+
+        /// <summary>Backups of a replaced pack's earlier version deleted: after a replacing batch committed, and
+        /// after a failed replace that left the pack in place (N-remembrance-delete-logging-04).</summary>
+        public int BackupsDeleted;
+        /// <summary>...and those that could not be, which stay beside the pack under their internal name.</summary>
+        public int BackupsNotDeleted;
+        /// <summary>A failed batch's rollback (N-remembrance-delete-logging-03): packs it had written new and deleted
+        /// again, packs it had replaced and put back from their backups, and packs it could not undo.</summary>
+        public int RollbackRemoved;
+        public int RollbackRestored;
+        public int RollbackFailed;
+
+        private readonly List<string> backupFailureTypes = new List<string>();
+        private readonly List<string> rollbackFailureTypes = new List<string>();
+
+        /// <summary>The distinct exception type names, in the order first seen: "IOException, UnauthorizedAccessException".</summary>
+        public string BackupFailureTypes { get { return string.Join(", ", backupFailureTypes); } }
+        public string RollbackFailureTypes { get { return string.Join(", ", rollbackFailureTypes); } }
+
+        internal void BackupNotDeleted(Exception ex) { BackupsNotDeleted++; NoteType(backupFailureTypes, ex); }
+        internal void RollbackNotUndone(Exception ex) { RollbackFailed++; NoteType(rollbackFailureTypes, ex); }
+
+        private static void NoteType(List<string> types, Exception ex)
+        {
+            string type = ex == null ? "Exception" : ex.GetType().Name;
+            if (!types.Contains(type)) types.Add(type);
+        }
     }
 
     /// <summary>
@@ -467,7 +500,8 @@ namespace DesktopAICompanion.Ai
                         {
                             committed.Add(CommitAtomic(
                                 stagedImport,
-                                replaceFile));
+                                replaceFile,
+                                result));
                             stagedImport.TemporaryPath = null;
                         }
                         catch (Exception ex)
@@ -481,14 +515,15 @@ namespace DesktopAICompanion.Ai
                         foreach (CommittedImport committedImport in committed)
                         {
                             committedImport.Staged.Result.Imported = true;
-                            TryDeleteFile(committedImport.BackupPath);
+                            DeleteBackup(committedImport.BackupPath, result);
                         }
                     }
                     else
                     {
                         bool rollbackComplete = RollBackCommittedImports(
                             committed,
-                            replaceFile);
+                            replaceFile,
+                            result);
                         string error =
                             "Batch commit failed and " +
                             (rollbackComplete
@@ -896,9 +931,12 @@ namespace DesktopAICompanion.Ai
             return true;
         }
 
+        /// <param name="report">Where a backup this commit deletes is counted (N-remembrance-delete-logging-04);
+        /// null counts nothing.</param>
         private static CommittedImport CommitAtomic(
             StagedImport stagedImport,
-            Action<string, string, string, bool> replaceFile)
+            Action<string, string, string, bool> replaceFile,
+            FortuneImportBatchResult report)
         {
             if (stagedImport == null)
                 throw new ArgumentNullException("stagedImport");
@@ -943,7 +981,7 @@ namespace DesktopAICompanion.Ai
                     // destination into the backup before its move. This catch used to delete the backup
                     // whatever state the destination was in, which threw the user's pack away (RA-104).
                     // Put it back first; delete the backup only when the destination is intact.
-                    RestoreTornReplace(destinationPath, backupPath);
+                    RestoreTornReplace(destinationPath, backupPath, report);
                     throw;
                 }
             }
@@ -957,8 +995,9 @@ namespace DesktopAICompanion.Ai
 
         /// <summary>After a failed replace: move a filled backup back over a missing destination, or delete
         /// the backup when the destination is still there. A backup that cannot be moved back stays where it
-        /// is, because it is then the only copy.</summary>
-        private static void RestoreTornReplace(string destinationPath, string backupPath)
+        /// is, because it is then the only copy. The delete is the user's earlier version of the pack, so it is
+        /// counted in <paramref name="report"/> (N-remembrance-delete-logging-04).</summary>
+        private static void RestoreTornReplace(string destinationPath, string backupPath, FortuneImportBatchResult report)
         {
             if (string.IsNullOrEmpty(backupPath)) return;
             try
@@ -974,12 +1013,16 @@ namespace DesktopAICompanion.Ai
             {
                 return;
             }
-            TryDeleteFile(backupPath);
+            DeleteBackup(backupPath, report);
         }
 
+        /// <param name="report">Where the rollback's outcome is counted for the module's one line
+        /// (N-remembrance-delete-logging-03): each pack removed or restored, and each failure by its type, where
+        /// the catch below only cleared <c>complete</c>. Null counts nothing.</param>
         private static bool RollBackCommittedImports(
             IList<CommittedImport> committed,
-            Action<string, string, string, bool> replaceFile)
+            Action<string, string, string, bool> replaceFile,
+            FortuneImportBatchResult report)
         {
             bool complete = true;
             for (int index = committed.Count - 1; index >= 0; index--)
@@ -1002,18 +1045,43 @@ namespace DesktopAICompanion.Ai
                             });
                         else
                             WithTransientRetry(delegate { File.Move(item.BackupPath, destination); });
+                        if (report != null) report.RollbackRestored++;
                     }
                     else if (item.CreatedNew && File.Exists(destination))
                     {
                         WithTransientRetry(delegate { File.Delete(destination); });
+                        if (report != null) report.RollbackRemoved++;
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
                     complete = false;
+                    if (report != null) report.RollbackNotUndone(ex);
                 }
             }
             return complete;
+        }
+
+        /// <summary>
+        /// Delete the backup of the user's earlier version of a pack, and count the outcome in
+        /// <paramref name="report"/> (N-remembrance-delete-logging-04). It went through <see cref="TryDeleteFile"/>,
+        /// whose catch is empty, so a backup that would not go stayed beside the pack with no line, and one that went
+        /// was silent too. A path with no file behind it is no delete and counts nothing. The import's own staging
+        /// files and its lock file still go through TryDeleteFile: they are temp, which the owner's rule exempts.
+        /// </summary>
+        private static void DeleteBackup(string path, FortuneImportBatchResult report)
+        {
+            if (string.IsNullOrEmpty(path)) return;
+            try
+            {
+                if (!File.Exists(path)) return;
+                File.Delete(path);
+                if (report != null) report.BackupsDeleted++;
+            }
+            catch (Exception ex)
+            {
+                if (report != null) report.BackupNotDeleted(ex);
+            }
         }
 
         private static void TryDeleteFile(string path)
@@ -1103,7 +1171,8 @@ namespace DesktopAICompanion.Ai
 
             CommittedImport committed = CommitAtomic(
                 staged,
-                unsupportedReplace);
+                unsupportedReplace,
+                null);
             bool committedThroughFallback =
                 ByteArraysEqual(replacement, File.ReadAllBytes(destination)) &&
                 !File.Exists(temporary) &&
@@ -1115,7 +1184,8 @@ namespace DesktopAICompanion.Ai
 
             bool rolledBackThroughFallback = RollBackCommittedImports(
                 new[] { committed },
-                unsupportedReplace);
+                unsupportedReplace,
+                null);
             bool ok = committedThroughFallback &&
                 rolledBackThroughFallback &&
                 ByteArraysEqual(original, File.ReadAllBytes(destination)) &&

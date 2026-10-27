@@ -2449,6 +2449,56 @@ CASES = (
         "",
         "a queue that drips a card every 450 ms",
     ),
+
+    # ---- lane feature/modules-small ----
+    # Campaign 2026-10-26, lane modules-small: N-agentflow-enhancements-01. SelfCheckTickBeat runs OnTick INLINE
+    # (RunTickInlineForSelfTest) over a growing transcript fixture with an injected clock (TickClockForSelfTest) and
+    # counts the folds; each case below makes the tick read the transcripts every time or never after the first.
+    # Names carry the "modules-small:" prefix so `--only=modules-small:` runs the lane.
+    (
+        "modules-small: the tick reads the transcripts on every tick",
+        MODULE,
+        "            bool readTranscripts = TranscriptsDue(_lastTranscriptReadMs, nowMs);",
+        "            bool readTranscripts = true;",
+        "folds a transcript that grows every tick only on the ten-second beat",
+    ),
+    (
+        "modules-small: the tick never records its read, so every tick is the first",
+        MODULE,
+        "            if (readTranscripts) _lastTranscriptReadMs = nowMs;\n",
+        "",
+        "folds a transcript that grows every tick only on the ten-second beat",
+    ),
+    (
+        "modules-small: the tick records a read on every tick, so none is ever due again",
+        MODULE,
+        "            if (readTranscripts) _lastTranscriptReadMs = nowMs;\n",
+        "            _lastTranscriptReadMs = nowMs;\n",
+        "folds a transcript that grows every tick only on the ten-second beat",
+    ),
+    (
+        "modules-small: the worker reads the transcripts whatever the beat decided",
+        MODULE,
+        "                if (readTranscripts)\n                {\n                    try\n                    {\n                        results = Scan(",
+        "                if (readTranscripts || true)\n                {\n                    try\n                    {\n                        results = Scan(",
+        "folds a transcript that grows every tick only on the ten-second beat",
+    ),
+    (
+        "modules-small: the worker reads the transcripts only once",
+        MODULE,
+        "                if (readTranscripts)\n                {\n                    try\n                    {\n                        results = Scan(",
+        "                if (readTranscripts && _lastScanResults == null)\n                {\n                    try\n                    {\n                        results = Scan(",
+        "folds a transcript that grows every tick only on the ten-second beat",
+    ),
+    (
+        # The seam itself: OnTick ignores the injected clock, so twenty-one ticks a few milliseconds apart in real
+        # time read once. Proof that the check's clock is the one OnTick decides by.
+        "modules-small: the tick ignores the injected clock",
+        MODULE,
+        "            long nowMs = TickClockForSelfTest != null ? TickClockForSelfTest() : Environment.TickCount64;",
+        "            long nowMs = Environment.TickCount64;",
+        "folds a transcript that grows every tick only on the ten-second beat",
+    ),
 )
 
 

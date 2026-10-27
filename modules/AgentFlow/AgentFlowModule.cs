@@ -858,7 +858,7 @@ namespace DesktopAICompanion.AgentFlow
 
             // The transcripts on their own ten-second beat, the panels on the user's (1.11.0). Decided here,
             // on the UI thread and past the guard, so a tick that never ran a worker does not count as a read.
-            long nowMs = Environment.TickCount64;
+            long nowMs = TickClockForSelfTest != null ? TickClockForSelfTest() : Environment.TickCount64;
             bool readTranscripts = TranscriptsDue(_lastTranscriptReadMs, nowMs);
             if (readTranscripts) _lastTranscriptReadMs = nowMs;
 
@@ -885,7 +885,7 @@ namespace DesktopAICompanion.AgentFlow
 
             // Reading and parsing transcripts is file IO plus JSON, so it never runs on the tick.
             // Nothing inside this task touches _host.
-            Task.Run(() =>
+            Action work = () =>
             {
               // The re-entrancy guard covers this ENTIRE body, not just the scan. It used
               // to be released in the scan's own finally, which left the CDP sweep and the
@@ -1079,7 +1079,13 @@ namespace DesktopAICompanion.AgentFlow
                   // so the UI work is not inside the guard and cannot deadlock against it.
                   Volatile.Write(ref _scanning, 0);
               }
-            });
+            };
+            // On a pool thread, always, but for the one self-test that runs this body INLINE
+            // (RunTickInlineForSelfTest, N-agentflow-enhancements-01): a worker started here under
+            // --module-selftest completes whenever the pool gets to it, so the test could not say which tick
+            // folded the transcript, and with no UI context its PostToUi runs inline on that worker anyway.
+            if (RunTickInlineForSelfTest) work();
+            else Task.Run(work);
         }
 
         /// <summary>Four-argument form: no Codex opt-in. Kept so the existing assertions read as
@@ -2619,6 +2625,16 @@ namespace DesktopAICompanion.AgentFlow
         /// context, entered once with one.</summary>
         internal int TicksEnteredForSelfTest;
 
+        /// <summary>Self-test seam (N-agentflow-enhancements-01): the monotonic milliseconds OnTick decides the
+        /// transcript beat by, in place of Environment.TickCount64, so a test can step a minute in a few
+        /// milliseconds. Null, which everything but SelfCheckTickBeat leaves it, is the real clock.</summary>
+        internal Func<long> TickClockForSelfTest;
+
+        /// <summary>Self-test seam (N-agentflow-enhancements-01): run OnTick's worker on the calling thread instead
+        /// of the pool, so one tick is one whole body that has finished when OnTick returns. Only SelfCheckTickBeat
+        /// sets it, over a transcript fixture, with the port probe pointed at an argv.json that does not exist.</summary>
+        internal bool RunTickInlineForSelfTest;
+
         /// <summary>
         /// May a press happen right now? One place, so the worker and the self-test ask the same
         /// question, and so the shutdown case cannot be reintroduced by an inline condition that
@@ -3596,6 +3612,7 @@ namespace DesktopAICompanion.AgentFlow
                         SelfCheckStatusCard,
                         SelfCheckMultiPress,
                         SelfCheckCodexQueue,
+                        SelfCheckTickBeat,
                         SelfCheckCacheBound,
                     };
                     // Short-circuits on the first false, exactly as the && chain did. The result is
