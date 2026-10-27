@@ -337,11 +337,12 @@ public static class McpChannelBridge
                 try
                 {
                     var session = Volatile.Read(ref self);
-                    // Register, and renew on a timer rather than trusting waits to do it: a wait on a mailbox the broker
-                    // no longer knows (worker restart) still returns its pending messages, renews nothing, and never
-                    // says session_unavailable while anything is pending, so a pushed and unacknowledged message would
-                    // otherwise keep the inbox unreachable for good. The same clientId and incarnation every time: this
-                    // finds the same mailbox, whose messages the broker kept.
+                    // Register, and renew on a timer as well as after a refused wait. Before N-broker-c-02 a wait on a
+                    // mailbox the broker no longer knows (worker restart) still returned its pending messages and never
+                    // said session_unavailable, so a pushed, unacknowledged message kept the inbox unreachable and the
+                    // timer was the only way back. The broker now refuses that wait, which resets the session below; the
+                    // timer stays as the second path, for an older worker that still answers such a wait. The same
+                    // clientId and incarnation every time: this finds the same mailbox, whose messages the broker kept.
                     if (session is null || Environment.TickCount64 - registeredAt >= tuning.RenewMilliseconds)
                     {
                         session = (await broker.RegisterAsync(clientId, incarnation, options.Label, options.IsPrivate, token)).Address;

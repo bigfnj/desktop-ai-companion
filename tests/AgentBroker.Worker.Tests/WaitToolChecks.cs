@@ -88,6 +88,29 @@ internal static class WaitToolChecks
         check(await ToolFixture.RefusedAsync(() => tools.WaitForMessages(unknown, default, timeoutSeconds: 1), "session_unavailable"),
             "a wait on a mailbox nothing can reach is refused as session_unavailable");
 
+        // N-broker-c-02: a worker restart drops every registration and keeps every message. A wait on that mailbox must
+        // say session_unavailable even while messages are pending for it, because acknowledge_message refuses them
+        // (recipient_unavailable) until the owner registers the same clientId and incarnation again.
+        Guid lostClient = Guid.NewGuid(), lostIncarnation = Guid.NewGuid();
+        var lost = fixture.Runtime.RegisterPollingAgent(lostClient, lostIncarnation, "Synthetic restart-lost mailbox", false);
+        Guid kept = Guid.NewGuid(), lostQuestion = Guid.NewGuid(), lostAnswer = Guid.NewGuid();
+        tools.Send(sender.Address, lost.Address, kept, "Synthetic message kept across a restart.");
+        tools.Send(lost.Address, sender.Address, lostQuestion, "Synthetic question from a mailbox about to be lost.");
+        tools.ReplyToMessage(lostQuestion, lostAnswer, "Synthetic answer to a mailbox about to be lost.");
+        tools.AcknowledgeMessage(lostQuestion, sender.Address, MessageStatus.Delivered);
+        fixture.Store.Disconnect(lost.Address);
+        check(ToolFixture.Refused(() => tools.AcknowledgeMessage(kept, lost.Address, MessageStatus.Delivered), "recipient_unavailable") &&
+            await ToolFixture.RefusedAsync(() => tools.WaitForMessages(lost.Address, default, timeoutSeconds: 0), "session_unavailable"),
+            "a wait on a restart-lost mailbox with pending messages is refused as session_unavailable, like its acknowledgement");
+        check(await ToolFixture.RefusedAsync(() => tools.WaitForReply(lostQuestion, default, timeoutSeconds: 0), "session_unavailable"),
+            "a reply wait for a restart-lost sender with a pending reply is refused as session_unavailable");
+        fixture.Runtime.RegisterPollingAgent(lostClient, lostIncarnation, "Synthetic restart-lost mailbox", false);
+        var recovered = await tools.WaitForMessages(lost.Address, default, timeoutSeconds: 0);
+        check(recovered.Select(receipt => receipt.Message.Id).ToHashSet().SetEquals(new[] { kept, lostAnswer }) &&
+            tools.AcknowledgeMessage(kept, lost.Address, MessageStatus.Delivered).Status == MessageStatus.Delivered &&
+            tools.AcknowledgeMessage(lostAnswer, lost.Address, MessageStatus.Delivered).Status == MessageStatus.Delivered,
+            "WITNESS registering the same clientId and incarnation again returns the kept messages, and they acknowledge");
+
         fixture.Clock.Advance(TimeSpan.FromSeconds(61));
         bool lapsed = fixture.Current(owner.Address)?.Activity == SessionActivity.Away;
         await tools.WaitForMessages(owner.Address, default, timeoutSeconds: 0);

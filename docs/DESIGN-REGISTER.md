@@ -6072,6 +6072,17 @@ session's tool-approval prompts.
 development flag per session and, in Team and Enterprise organizations, an organization switch. A button would
 present that as a supported route.
 
+#### feature/agentbroker-backlog-d
+
+The loopback listener's localhost authority (N-bus-04), waits on a restart-lost mailbox (N-broker-c-02), client setup
+finding npm-installed CLIs (N-broker-a-01) and broker-b's hand-backs.
+
+**A wait checks addressability before it returns anything.** A wait on a mailbox the broker no longer knows (worker
+restart) returned its pending messages and said `session_unavailable` only when there were none, while
+`acknowledge_message` refused those same messages as `recipient_unavailable`. An agent then saw messages it could not
+acknowledge, and no refusal telling it to register again. The channel bridge's 20-second re-registration timer stays
+as a second path, so its broker-c witness (`broker-c-channel-renew-only-by-wait`) now removes both ways back.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

@@ -166,10 +166,13 @@ public sealed class BrokerTools(BrokerRuntime runtime, IHttpContextAccessor http
             cancellationToken.ThrowIfCancellationRequested();
             // Captured BEFORE the check, so a commit between the check and the wait is never lost.
             var changed = runtime.Store.ChangeSignal();
+            // Addressability first, on every pass, and before anything is returned (N-broker-c-02). Waiting on a mailbox
+            // nothing can reach would only return empty until the agent gave up; and returning its kept messages after a
+            // worker restart dropped the registration would hand out messages acknowledge_message then refuses as
+            // recipient_unavailable, with no session_unavailable to say "register again" while any were pending.
+            if (!runtime.Store.IsAddressable(session)) throw new McpException("session_unavailable");
             var result = pending();
             long remaining = deadline - Environment.TickCount64;
-            // Waiting on a mailbox nothing can reach would only return empty until the agent gave up.
-            if (result.Length == 0 && !runtime.Store.IsAddressable(session)) throw new McpException("session_unavailable");
             if (result.Length > 0 || remaining <= 0)
             {
                 runtime.RenewPollingAgent(session, caller);

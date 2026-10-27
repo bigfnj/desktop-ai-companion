@@ -133,7 +133,8 @@ internal static class ChannelBridgeChecks
             store.RevokePeer(peerId);
 
             // A worker restart drops registrations and keeps messages. With a pushed message still unacknowledged, the
-            // broker's wait keeps returning it and never reports session_unavailable, so only renewal can recover.
+            // broker refuses the wait as session_unavailable (N-broker-c-02) and the bridge's timer renews as well;
+            // the mutation case removes both ways back, so this check sees a bridge that keeps a dropped inbox.
             check(store.FindReceipt(muted)?.Status == MessageStatus.Accepted, "WITNESS a pushed message is still unacknowledged when the registration drops");
             store.Disconnect(self);
             bool renewed = await Eventually(() => store.Directory().Any(session => session.Address == self), TimeSpan.FromSeconds(20));
