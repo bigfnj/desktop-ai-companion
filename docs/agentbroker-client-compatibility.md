@@ -2,6 +2,47 @@
 
 Compatibility snapshot: 2026-10-22. The ordinary Codex desktop passed one idle wake test through its existing owner. After a client update, public source and read-only connection checks were repeated. This records those limited live results and the remaining acceptance gates.
 
+## Re-pin helper, 2026-10-27
+
+`tools/agentbroker/Test-AgentBrokerRepin.ps1` is a read-only assistant for exact
+re-pinning. It finds the installed Codex desktop package, Codex VS Code
+extensions, the VS Code router and the Claude Code executables (standalone and
+VS Code). For each it verifies the expected-publisher Authenticode signature,
+compares the image with the pins in source, and runs the offline public checks
+this document relies on:
+
+- Codex desktop: the `OpenAI.Codex` package family and publisher ID under
+  WindowsApps, SYSTEM or TrustedInstaller ownership with no foreign write grant
+  on the executable and archive, and the fixed-pipe, owner-discovery,
+  follower-start, untrusted-input, inherited-settings, busy-guard and
+  status-request markers in the archive's `.vite/build/` members (read through
+  `inspect-public-asar.mjs`).
+- Codex VS Code: the engine's OpenAI signature and the same protocol markers in
+  `out/extension.js` and the `app-main-*`, `app-initial-*` and `src-*` bundles.
+- Claude Code: the native inbox version floor and the messaging token and socket,
+  `cc-msg-` pipe, peer record, start-time and inbound-policy markers.
+
+A build that passes every offline check gets the exact replacement pin text for
+the owner to review. The helper never applies it. It writes nothing, opens no
+pipe and reads no credential, session or configuration file. Every failed or
+unproven check is listed by name with its reason. Facts that depend on minified
+code stay UNPROVEN for a person to re-read: Claude peer-token admission, the
+Codex idle-check order, which extension bundle owns the renderer bridge, and the
+canonical manifest hash. Every check from "Required live acceptance" is always
+UNPROVEN. A signature and matching markers never authorize a build by themselves.
+
+Run `pwsh -NoProfile -File tools/agentbroker/Test-AgentBrokerRepin.ps1`, with
+`-Json` or `-Vendor Codex|Claude` as needed. Exit code 1 means at least one
+installed build is NOT READY. `-SelfTest` runs its fixture checks under Windows
+PowerShell 5.1 or PowerShell 7 and touches only its own temporary directory.
+
+On the development workstation on 2026-10-27 it reported the VS Code router
+1.143.1 as already pinned, and offered drafts for Codex desktop 26.1021.3705.0,
+Codex VS Code 26.1021.22027 and the Claude Code VS Code runtime 2.1.310, each
+with every live check unproven. Its first run also corrected its own scope: in
+extension 26.1021.22027 the inherited-settings and busy-guard markers sit in a
+`src-*` chunk rather than `app-initial-*`, so it scans both.
+
 ## Discovery and diagnostics update, 2026-10-26
 
 Claude discovery and native delivery now have separate trust outcomes. An exact
