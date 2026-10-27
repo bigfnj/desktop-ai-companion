@@ -111,6 +111,7 @@ CLI_RUNNER = os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCli.cs")
 CLI_SELFCHECK = os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCliSelfCheck.cs")
 CLI_SUMMARY = os.path.join(REPO, "modules", "Remembrance", "CliSummary.cs")
 CLOUD_SUMMARY = os.path.join(REPO, "modules", "Remembrance", "CloudSummary.cs")
+TRAY_QUESTION_CARD = os.path.join(REPO, "src", "Portable", "Wpf", "TrayQuestionCard.cs")
 CODING_AGENT_BACKEND = os.path.join(REPO, "modules", "AiBrain", "engine", "CodingAgentBackend.cs")
 
 # CoreTests is a second runner, not a flag on the host exe: a console harness with its own csproj,
@@ -14477,6 +14478,39 @@ CASES = (
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "WITNESS remembrance cli-followups: a Codex Validate never carries the switch's flag"),
+    # ---- lane feature/remembrance-next ----
+    # The owner's three requests of 2026-10-27 (host 1.7.1, remembrance 2.8.0). The question card's height follows its
+    # content and the card is placed again when its size or the work area changes ("the prompt is too low, a refresh puts it
+    # in the correct place"), graded by --trayquestions-selftest on the real card window against the real work area.
+    # Names carry "remembrance-next:" so one --only runs the lane.
+    ("remembrance-next: the question card keeps the height it was measured at before the show",
+     TRAY_QUESTION_CARD,
+     b"            stack.SizeChanged += delegate { FitToContent(); };\n",
+     b"",
+     HOST_CSPROJ, EXE,
+     "--trayquestions-selftest", "dp-trayquestions-selftest.txt",
+     "card fit: a question queued behind it grows the card to hold"),
+    ("remembrance-next: the question card is not placed again when its size changes",
+     TRAY_QUESTION_CARD,
+     b"            w.SizeChanged += delegate { Place(); };\n",
+     b"",
+     HOST_CSPROJ, EXE,
+     "--trayquestions-selftest", "dp-trayquestions-selftest.txt",
+     "card fit: grown, its bottom stays inside the work area"),
+    ("remembrance-next: the question card's content is stretched to the window again",
+     TRAY_QUESTION_CARD,
+     b"            var stack = new StackPanel { VerticalAlignment = VerticalAlignment.Top };\n",
+     b"            var stack = new StackPanel();\n",
+     HOST_CSPROJ, EXE,
+     "--trayquestions-selftest", "dp-trayquestions-selftest.txt",
+     "card fit: when the waiting line goes, the card shrinks back to its content"),
+    ("remembrance-next: the question card ignores a work-area change",
+     TRAY_QUESTION_CARD,
+     b"            if ((msg == WM_SETTINGCHANGE && wParam == (IntPtr)SPI_SETWORKAREA) || msg == WM_DISPLAYCHANGE)\n",
+     b"            if (msg == WM_DISPLAYCHANGE)\n",
+     HOST_CSPROJ, EXE,
+     "--trayquestions-selftest", "dp-trayquestions-selftest.txt",
+     "card fit: a work-area change places it again in the tray's corner"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

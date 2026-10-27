@@ -45,6 +45,8 @@ namespace DesktopAICompanion.Wpf
         private ProgressBar _bar;
         private TextBlock _waiting;
         private TextBlock _text;
+        private Border _content;
+        private StackPanel _buttonRow;
         private readonly List<Button> _buttons = new List<Button>();
         private bool _keyboard;
         private IntPtr _returnFocusTo;
@@ -59,6 +61,11 @@ namespace DesktopAICompanion.Wpf
         internal IntPtr HandleForSelfTest { get { return _hwnd; } }
         internal bool CaptureExcluded { get; private set; }
         internal IReadOnlyList<Button> ButtonsForSelfTest { get { return _buttons.ToArray(); } }
+        /// <summary>For --trayquestions-selftest (app 1.7.1): the height Build measured before the window had a presentation
+        /// source, and the card's row of buttons, so the test can set what was measured against what was laid out, and the
+        /// buttons' bottom against the window's and the work area's.</summary>
+        internal double PreShowHeightForSelfTest { get; private set; }
+        internal FrameworkElement ButtonRowForSelfTest { get { return _buttonRow; } }
 
         public void Show(QuestionEntry question, int othersWaiting, Action<string> onChoice)
         {
@@ -97,6 +104,8 @@ namespace DesktopAICompanion.Wpf
             _source = null;
             _hwnd = IntPtr.Zero;
             _buttons.Clear();
+            _content = null;
+            _buttonRow = null;
             try { w.Close(); } catch { }
         }
 
@@ -129,7 +138,10 @@ namespace DesktopAICompanion.Wpf
             try { if (Program.MyData != null) mode = Program.MyData.GetThemeMode(); } catch { }
             bool dark = WpfTheme.EffectiveDark(mode);
 
-            var stack = new StackPanel();
+            // Top, not the default Stretch (app 1.7.1): laid out at its own height, never the card's, so its SizeChanged says
+            // when the content needs another height, growing or shrinking. A stack taller than its slot is laid out whole
+            // and clipped, which is how the buttons went past the card's edge (FitToContent).
+            var stack = new StackPanel { VerticalAlignment = VerticalAlignment.Top };
             stack.Children.Add(new TextBlock { Text = q.ModuleName, FontWeight = FontWeights.SemiBold, FontSize = 12, Opacity = 0.8 });
             if (!string.IsNullOrEmpty(q.Title))
                 stack.Children.Add(new TextBlock { Text = q.Title, FontWeight = FontWeights.SemiBold, FontSize = 13, Margin = new Thickness(0, 4, 0, 0), TextWrapping = TextWrapping.Wrap });
@@ -169,6 +181,7 @@ namespace DesktopAICompanion.Wpf
                 row.Children.Add(button);
             }
             stack.Children.Add(row);
+            _buttonRow = row;
 
             var border = new Border
             {
@@ -177,16 +190,31 @@ namespace DesktopAICompanion.Wpf
                 BorderBrush = dark ? new SolidColorBrush(Color.FromRgb(0x46, 0x46, 0x4A)) : SystemColors.ActiveBorderBrush,
                 Child = stack,
             };
+            _content = border;
             // Clicking the card itself (not a button) is the user asking for the keyboard.
             border.MouseLeftButtonDown += delegate { TakeKeyboard(); };
             w.Content = border;
             w.KeyDown += OnKeyDown;
             w.SourceInitialized += delegate { OnSourceInitialized(w); };
             w.DpiChanged += delegate { try { w.Dispatcher.BeginInvoke(new Action(Place)); } catch { } };
+            // THE CARD FOLLOWS ITS CONTENT (app 1.7.1, lane feature/remembrance-next; the owner, 2026-10-27: "the prompt is too
+            // low, a refresh puts it in the correct place"). The height below was the window's for its whole life, fixed
+            // before it was ever shown, and Place ran only at the show and on a DPI change. Reproduced on the owner's box
+            // (one monitor, 2560x1440 at 100%, taskbar at the bottom): a question queued behind the one on screen brings in
+            // "+1 more waiting" (Refresh), the content grew from 132 to 150.5 DIP inside a window that stayed 132, and the
+            // row of buttons was pushed 5.5 DIP past the card's bottom edge with the bottom padding gone: the card read as
+            // sitting under the taskbar, and the next card, measured afresh, was right. So the window takes the content's
+            // laid-out height whenever it changes, and every change of the window's size places it again, its bottom kept
+            // inside the work area. The pre-show measure stays as the first estimate, for the placement before the show; it
+            // has no presentation source, so on a monitor scaled otherwise than the one its text was measured for it can be
+            // off, and this corrects that too.
+            stack.SizeChanged += delegate { FitToContent(); };
+            w.SizeChanged += delegate { Place(); };
             Refresh(q, othersWaiting);
             // Height from the content at the card's width; WPF then scales the window to the monitor's DPI itself.
             border.Measure(new Size(WidthDip, double.PositiveInfinity));
             w.Height = Math.Ceiling(border.DesiredSize.Height);
+            PreShowHeightForSelfTest = w.Height;
             return w;
         }
 
@@ -247,7 +275,30 @@ namespace DesktopAICompanion.Wpf
                 IntPtr me = hwnd;
                 try { _window.Dispatcher.BeginInvoke(new Action(delegate { if (_hwnd == me) EnableWindow(me, true); })); } catch { }
             }
+            if ((msg == WM_SETTINGCHANGE && wParam == (IntPtr)SPI_SETWORKAREA) || msg == WM_DISPLAYCHANGE)
+            {
+                // The work area moved under the card (app 1.7.1): the taskbar was resized, moved or set to hide, or a
+                // display changed. The card is placed again, after the message, as on a DPI change.
+                try { _window.Dispatcher.BeginInvoke(new Action(Place)); } catch { }
+            }
             return IntPtr.Zero;
+        }
+
+        /// <summary>The window's height to its content's laid-out height (app 1.7.1), whenever the two part: the stack's own
+        /// height (laid out at the top, so never the card's) with the card's padding and border round it. The window's
+        /// SizeChanged then places it again. Converges in one pass, since the stack's height does not depend on the
+        /// window's. Not the border's height: a stack too tall for its border leaves the border at the window's height and
+        /// is clipped inside it, which is what the defect looked like from the inside.</summary>
+        private void FitToContent()
+        {
+            Window w = _window;
+            Border content = _content;
+            FrameworkElement inner = content == null ? null : content.Child as FrameworkElement;
+            if (w == null || inner == null) return;
+            double needed = Math.Ceiling(inner.ActualHeight + content.Padding.Top + content.Padding.Bottom +
+                                         content.BorderThickness.Top + content.BorderThickness.Bottom);
+            if (inner.ActualHeight <= 0 || Math.Abs(needed - w.Height) < 0.5) return;
+            w.Height = needed;
         }
 
         private void Place()
@@ -332,6 +383,9 @@ namespace DesktopAICompanion.Wpf
         internal const int WS_EX_TOOLWINDOW = 0x00000080;
         private const int WM_MOUSEACTIVATE = 0x0021;
         private const int WM_ENABLE = 0x000A;
+        internal const int WM_SETTINGCHANGE = 0x001A;
+        internal const int SPI_SETWORKAREA = 0x002F;
+        private const int WM_DISPLAYCHANGE = 0x007E;
         private const int MA_NOACTIVATE = 3;
         private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
         private const uint SWP_NOSIZE = 0x0001;
