@@ -62,7 +62,7 @@ internal static class ClaudePinDiagnosticChecks
         var diagnostic = provider.DiscoveryDiagnostics.SingleOrDefault();
         check(sessions.Count == 0 && diagnostic?.Code == "unsupported_public_version",
             "Claude stale public version is refused with its specific compatibility diagnostic");
-        check(diagnostic is not null && diagnostic.Description.Contains("Claude Code 2.1.310 installed", StringComparison.Ordinal) &&
+        check(diagnostic is not null && diagnostic.Description.Contains("Claude Code 2.1.305 installed", StringComparison.Ordinal) &&
             EngineProfile.Verified.All(profile => diagnostic.Description.Contains(profile.Version, StringComparison.Ordinal)),
             "Claude stale version diagnostic names the installed and every currently verified version");
         check(source.Calls.SequenceEqual(["201:metadata", "201:open", "201:name", "201:image", "201:start", "201:guard", "201:version", "201:dispose"]),
@@ -182,7 +182,9 @@ internal static class ClaudePinDiagnosticChecks
         });
         var metadata = NativeSessionMetadata.Parse(pid.ToString(System.Globalization.CultureInfo.InvariantCulture) + ".json", json);
         return new(pid, metadata, "claude", Path.Combine(Path.GetTempPath(), "agentbroker-claude-diagnostic-" + pid, "claude.exe"),
-            started, "2.1.310", Pin21306.Sha256);
+            // Re-pointed by lane broker-pins: 2.1.310 is now pinned, so a stale build is 2.1.305, between pins and not
+            // newer than all of them (the newer-than-every-pin text has its own checks in PinStatusChecks.cs).
+            started, "2.1.305", Pin21306.Sha256);
     }
 
     private sealed record PublicProcess(int Pid, NativeSessionMetadata Metadata, string Name, string? Image,

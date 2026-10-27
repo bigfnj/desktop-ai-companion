@@ -6451,6 +6451,13 @@ owner closes without merging is drafted again by the next run; making a decline 
 closed pull requests, which is the owner's call. The checkout keeps no token while downloaded packages are read
 (`persist-credentials: false`), and only the pull request step authenticates git, through `gh auth setup-git`.
 
+**The first re-pin pins Claude and holds Codex back, on the same evidence rule.** For each new Claude build, five
+peer-classification and admission code sites compare token for token (minified names renamed) with a reviewed image,
+so the REVIEW item has offline evidence. For Codex 26.1021.22027 the code around the reviewed markers changed from the
+pinned 26.1007.21434, so its REVIEW items are open, and an exact pin would let the wake switch alone deliver to builds
+that today need the separate `codexUpdateTolerantDelivery` opt-in, whose accepted gaps are exactly those items. Their
+entries are drafted for a person's re-read instead.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

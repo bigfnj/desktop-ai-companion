@@ -199,6 +199,46 @@ Locally: `pwsh -NoProfile -File tools/agentbroker/Invoke-AgentBrokerRepinCheck.p
 `-OpenPullRequests -DryRun -OutputDirectory <same folder>` to print the git and gh
 commands without running them.
 
+## First re-pin, 2026-10-27
+
+Pinned through the pin document: Claude Code 2.1.293, the npm CLI on the
+development workstation (image `8693C4A02DDE7441D0066EDE68AF8DDFC408BB982D77E12B506286268224E6FA`,
+equal to the installed CLI's), and Claude Code 2.1.310, one image for the npm CLI
+and the VS Code extension
+(`F9A3920634AE3B961EE92C2EB58D0051F5F8852B120983D0A4F57B6A5EFEBA61`, equal to the
+installed extension's). Both came from the scheduled check's local runner: npm
+tarballs matching their published integrity and the marketplace VSIX, with every
+offline check passing; the installed-copy checks agree.
+
+The REVIEW item, peer-token admission, was checked offline against the two
+reviewed images, 2.1.292 and 2.1.306, fetched from npm and byte-identical to their
+pins. Five code sites were compared token by token, minified local names renamed:
+the token classification (peer or child), the `selfSent` verdict and its call
+site, the socket user message origin, and the inbound admission policy. The first
+four are identical in all of these builds. The admission policy of 2.1.310 is
+2.1.306's and that of 2.1.293 is 2.1.292's. This is evidence for the reviewer, not
+a substitute for live acceptance.
+
+Not pinned: Codex VS Code 26.1021.22027 and Codex desktop 26.1021.3705.0. Every
+offline check passes, but the code around the reviewed markers changed from the
+pinned 26.1007.21434: one of two windows around the busy-guard error is identical,
+one of five around `inheritThreadSettings` and one of two around
+`supportsUntrustedAppInput`. Their REVIEW items (the renderer-bridge bundle and the
+idle-check order) need a person to re-read those changes. Their entries are
+drafted for that review. Until then, `codexUpdateTolerantDelivery` remains the
+opt-in for those builds.
+
+The owner's live wake check follows the module publish. In the AgentBroker pane,
+tick "Wake existing Claude sessions" and Apply. Open a new, dedicated Claude Code
+conversation on a pinned build and leave it idle; the Claude line should read
+"Native wake on: N of M discovered Claude sessions can be woken" with N at least
+one (a session on an unpinned build is named in the Native line instead). From
+another agent connected to the broker's MCP, call `list_sessions`, then `send` that
+session one message, such as "Broker wake test: reply WAKE_OK and use no tools."
+The dedicated conversation should start a turn showing the peer message, reply
+WAKE_OK, and keep its permission mode; `wait_for_reply` returns the reply, and no
+other conversation changes.
+
 ## Re-pin helper, 2026-10-27
 
 `tools/agentbroker/Test-AgentBrokerRepin.ps1` is a read-only assistant for exact
