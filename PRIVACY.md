@@ -227,7 +227,17 @@ Two consequences of the watch to know about:
 - **A storage folder inside OneDrive is uploaded.** If **Where recordings are stored** is inside a OneDrive folder
   (Documents often is), OneDrive uploads every recording, and a recording deleted here, by the 72-hour purge or by
   the cut above, stays in OneDrive's recycle bin for as long as OneDrive keeps it. The Status line warns when this
-  is so; Remembrance moves nothing on its own.
+  is so; Remembrance moves nothing on its own. Since Remembrance 2.7.0 a fresh install (no storage folder ever
+  saved, and no `Documents\Remembrance` folder yet) whose Documents is inside OneDrive records to `Remembrance` in
+  the application's data folder instead (`%LOCALAPPDATA%\DesktopAICompanion\Remembrance` for an installed copy),
+  which OneDrive does not upload; the Status line says so. That folder sits beside the modules folder, not inside
+  Remembrance's own data folder, because uninstalling a module deletes its data folder and with it every
+  transcript. An existing install keeps the folder it has.
+- **The 72-hour purge follows a storage folder you move away from.** Since Remembrance 2.7.0, when **Where
+  recordings are stored** changes, the folder it pointed to before is remembered (the last 8, in Remembrance's
+  settings) and purged by the same rules as the current one, so recordings and snapshots left there are deleted
+  after 72 hours as the module promises, while transcripts, summaries and every file Remembrance did not write are
+  left alone. A remembered folder that is missing or cannot be read is logged once and tried again at each purge.
 
 ## Data stored locally
 

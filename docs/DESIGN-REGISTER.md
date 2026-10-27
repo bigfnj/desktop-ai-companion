@@ -5736,6 +5736,60 @@ seven tools and a 1.1.0 package expects ten. The module DLL's FileVersion is 1.0
 manifest, so the only version the package declares is the `ldstr` that feeds `ModuleInfo.set_Version`. It is read
 with System.Reflection.Metadata, nothing is loaded, and anything other than exactly one such literal is refused.
 
+#### feature/remembrance-backlog
+
+Remembrance's six backlog items of the 2026-10-26 campaign (N-cli-model-effort-07, -11 and -15 for Remembrance's half,
+N-layout-remembrance-02, N-remembrance-delete-logging-06, N-meeting-end-02). Version and floor are the coordinator's:
+the live refresh needs MinHostVersion 1.6.1, for `OptionsPane.NotifyInfoChanged`.
+
+**An open pane is told when a summary or a Validate has finished, and Load's bookkeeping survives that (N-cli-model-effort-07).**
+The module calls `NotifyInfoChanged` after a recording's transcription, once the whole stop is over, at the end of
+every "Try it on a file" press and after the CLI and cloud Validates. The host answers by calling Load again for the
+Info rows alone, which Remembrance's Load was never written for: it cleared BUG-013's record of background writes and
+took what it showed as the baseline Save compares with. A refresh between the pull's selection and an Apply would have
+let the untouched screen write the old model back over the download. Load now keeps a background write's record, with
+the baseline from before it, when it shows that field otherwise than the baseline did, and a successful Apply settles
+every record. Refused: telling the refresh from a build by a flag set before each notification. The host coalesces
+notifications, drops a queued refresh on a rebuild and ignores one while the pane is closed, so a flag would outlive
+the refresh it was meant for and mislabel the next build. The cost of the rule kept: after a REBUILD that followed a
+background write, a user who picks the old value again before any Apply has that one Apply keep the background write,
+and the pane it rebuilds shows so.
+
+**Apply stores a field only when it changed, except the summary model (N-cli-model-effort-11).** The feature/remembrance-2
+entry refused writing only the fields that differ from Load, because the summary dropdown preselects a model when none
+is saved and the stop path reads only the saved one. That reason holds for that one field and no other: every other
+field's Load value is what its readers use with nothing saved. So the diff applies to every field but `summaryModel`
+(`StoredEvenWhenUntouched`), an untouched Apply on a fresh install adds only `summaryModel`, and the WITNESS that keeps
+the refused rule out still fires on it. The detached copy the actions read keeps taking every field.
+
+**One CLI row per CLI (N-cli-model-effort-15).** "Claude Code CLI" and "Codex CLI" rows, each gated by its CLI's
+`EnabledWhen` like the signed-in rows, the first carrying the card's condition. The saved CLI's row reads the runner's
+cache as before; the other's shows what was last read of it and starts no read. Refused: a "Saved CLI" label on the one
+row, which would still show the other CLI's model beside the radio. The "No CLI in use" sentence went with the single
+row; the greyed card's reason line says it.
+
+**The purge covers earlier storage roots, by the same strict shapes (N-remembrance-delete-logging-06).** When an Apply
+moves the storage folder, the folder left is remembered in `earlierStorageLocations` (newest first, 8 at most) if it
+exists, and every purge pass walks each remembered folder through the same `CaptureStore.Purge` as the current one.
+One line for all of them ("purge, earlier storage folders: ..."), counts and exception types only. A remembered folder
+that is missing or unreadable is said once per session while it stays so and kept, since a drive comes back. Refused:
+seeding the list with folders used before this version, which nothing recorded; a user who moved away before 2.7.0 has
+their earlier folder outside the purge until they point the storage folder there and back. A folder that did not exist
+when it was left is not remembered: it holds nothing, and a fresh install's never-made `Documents\Remembrance` would
+otherwise be reported missing at every start. Past the bound the oldest folder leaves the purge, and the move's log
+line says so.
+
+**A fresh install whose Documents is inside OneDrive records to `<data root>\Remembrance` (N-meeting-end-02, the owner's
+decision of 2026-10-26).** "Fresh" is the storage location never saved; saved blank keeps `Documents\Remembrance`, which
+blank always meant, and so does an install with `Documents\Remembrance` already on disk. The folder is the APP's data
+root, beside its `modules` folder, never inside the module's own folder: `PendingModuleRemovals.ProcessPending` deletes
+that folder whole when the module is uninstalled, and with it every transcript, which this module keeps for ever. The
+data root is found from the module's folder's layout (`<data root>\modules\remembrance`) and the rule stands down when
+that layout is not there or the data root is itself inside OneDrive. The folder is saved as the storage location at the
+first capture, so a `Documents\Remembrance` that appears later (OneDrive bringing one from another computer) does not
+move new recordings into OneDrive. The Status line adds "(on this computer, outside OneDrive)" and the blank box's hint
+names the folder.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of
