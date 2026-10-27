@@ -5748,17 +5748,19 @@ session's `acknowledge` call records a receipt. Refused alternative: letting the
 after a push, which would also stop waits returning pushed messages. It changes `acknowledge_message`'s outcome
 set and the store's receipt transitions, which this lane does not own.
 
-**At most 16 unacknowledged pushes, and a 2-second poll while any are outstanding.** `wait_for_messages` returns
-at once while anything is Accepted and returns the oldest 16, so the bridge remembers what it pushed, pauses
-between waits that bring nothing new, and sees no newer message until the session acknowledges older ones. That
-is backpressure, not a stall.
+**Pushes come from the oldest 16 unacknowledged messages, with a 2-second poll while any are outstanding.**
+`wait_for_messages` returns at once while anything is Accepted and returns the oldest 16 by creation time, so the
+bridge remembers what it pushed, pauses between waits that bring nothing new, and sees no newer message until the
+session acknowledges older ones. That is backpressure, not a stall. The bound is 16 only while senders' clocks
+agree: a paired broker's message stamped earlier than the window can still enter it.
 
 **Mute defers; an unpaired sender and a paired sender to a private inbox are refused.** The broker already refuses
 both at admission and again in its delivery loop, but a wait blocked across a revocation or privacy change can
 return the message first, so the bridge re-reads the snapshot after each wait. Mute has no broker-side meaning for
 a generic inbox (a polling agent pulls), so for a pushed channel the bridge is the only place it can apply.
 
-**The registration is renewed on a 20-second timer, not by waits.** A wait on a mailbox the broker no longer knows
+**The bridge registers again between waits once 20 seconds have passed, instead of trusting waits to renew it.**
+A wait on a mailbox the broker no longer knows
 (worker restart) still returns its pending messages, renews nothing and never reports `session_unavailable` while
 anything is pending. A bridge holding one unacknowledged push would otherwise stay unreachable for good; the
 synthetic check that drops the registration found exactly that before the timer existed.

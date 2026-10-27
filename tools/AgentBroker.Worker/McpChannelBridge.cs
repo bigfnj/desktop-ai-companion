@@ -99,8 +99,8 @@ public static class McpChannelBridge
         "A pushed message is not yet received in the broker's terms. Once you have read it, call acknowledge with its message_id " +
         "(outcome Delivered, or Held or Refused). To answer, call reply with the message_id and your text; an identical retry returns " +
         "the same receipt. Delivered does not mean the work is done: say so in a reply when it is. " +
-        "Do not start an unbounded automatic conversation. At most 16 unacknowledged messages are pushed; later ones wait in the " +
-        "broker until you acknowledge earlier ones.";
+        "Do not start an unbounded automatic conversation. Messages are pushed from the oldest 16 you have not acknowledged; " +
+        "newer ones wait in the broker until you acknowledge older ones.";
 
     private const string ToolList = """
         {"tools":[
