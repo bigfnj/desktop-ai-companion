@@ -5775,6 +5775,38 @@ LAN listener whose source is a private address other than loopback and other tha
 needs a second PC, so the observation logic is checked with synthetic addresses and the one-line hook in the request
 pipeline is left to the physical LAN acceptance.
 
+**O-agentbroker-02: the snapshot store is not what limits sustained coordination (DECLINED-MEASURED for a journal
+or SQLite).** Measured 2026-10-27 with `tests/Measure-AgentBrokerCoordination.ps1` against the unmodified store:
+five fresh processes per configuration, interleaved round-robin with the start rotated per repetition, Stopwatch
+around the operation inside the process, state on the SSD volume the installed module's data uses, on a workstation
+shared with other builds. Cold is the first operation in a process; warm is the median of the rest across all five.
+
+| Measured | Cold median | Warm median (max) |
+|---|---|---|
+| Accept + Commit, 100 retained, 512 B (146 KB state) | 25 ms | 16 ms (19) |
+| Accept + Commit, 1,000 retained, 512 B (1.5 MB) | 45 ms | 39 ms (44) |
+| Accept + Commit, 4,096 retained, 512 B (6.0 MB) | 121 ms | 115 ms (130) |
+| Accept + Commit, 1,000 retained, 16 KiB (17 MB) | 263 ms | 184 ms (278) |
+| Accept + Commit, 4,096 retained, 16 KiB (71 MB) | 683 ms | 667 ms (926) |
+| Accept + Commit, 4,096 retained, 16 KiB of escaped characters (407 MB, the serializer's worst case) | 2,637 ms | 2,688 ms (3,060) |
+| `wait_for_messages` wake, send issued to waiter's reply, HTTP MCP | 44 ms | 18 ms (108) |
+| Federated `list_sessions` page, 8 peers of 16 sessions | 269 ms | 24 ms (33) |
+| Federated `list_sessions` page, 32 peers of 16 sessions | 579 ms | 324 ms (375) |
+| Federated `list_sessions` page, 32 peers of 256 sessions (all 8,192 returned by the runtime) | 595 ms | 352 ms (396) |
+
+The peers were real workers with mutual TLS on loopback in one process, so a LAN adds its round trips to every
+handshake; every page opened a new connection to every peer and still finished inside the five-second directory
+budget with every session present. At ten messages a minute, about twenty commits a minute (each message and its
+acknowledgement), the measured warm cost keeps the store busy about 4% of the time at 512-byte messages with all
+4,096 retained, about 22% at 16 KiB, and about 90% in the escaped worst case. That last case also holds the store lock
+for about 2.7 s per commit, close to the module's three-second status deadline (`ControlProtocol.ClientTimeout`).
+
+What breaks first is the retained-message bound, not storage cost. A receipt stays until its expiry plus one day
+(`BrokerStore.Expire`), and Accept refuses `message_limit` at 4,096 retained (`BrokerStore.Accept`), so ten messages a
+minute reaches the bound after 410 minutes whatever the lifetime. By the same arithmetic the sustainable rate is
+4,096 per lifetime plus a day: about 1.4 a minute at the default 24-hour lifetime. No limit was changed in this lane;
+filed as N-broker-a-02 for an owner decision.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

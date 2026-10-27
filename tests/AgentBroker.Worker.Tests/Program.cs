@@ -13,6 +13,8 @@ using System.Text.Json;
 int assertions = 0;
 void Check(bool value, string name)
 { if (!value) throw new InvalidOperationException(name); assertions++; Console.WriteLine("PASS: " + name); }
+// O-agentbroker-02: a measurement, not a check. Driven one fresh process at a time by tests/Measure-AgentBrokerCoordination.ps1.
+if (args.Length >= 1 && args[0] == "--coordination-benchmark") return await CoordinationBenchmark.RunAsync(args[1..]);
 if (args.Length == 1 && args[0] == "--claude-public-discovery-observation")
 {
     try
