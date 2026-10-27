@@ -437,7 +437,8 @@ chimes) — so you can silence one category without the other.
 A local "meeting memory" module: records the meeting (your microphone plus the system output over WASAPI
 loopback), transcribes it **offline** with a local Whisper (whisper.cpp), names the file from the calendar
 (via the Reminder module) or a timestamp, snapshots the screen on a hotkey, and purges the audio and
-snapshots after 72 hours while keeping the transcript and the calendar attendee roster. A purge that deletes
+snapshots after 72 hours while keeping the transcript and the calendar attendee roster, in the storage folder
+and, since Remembrance 2.7.0, in up to 8 folders it pointed to before, by the same rules. A purge that deletes
 anything, and any delete of a recording's files or folder that fails, writes one line to the diagnostic log
 with the counts and the error's type, never a file or folder name. The audio and its transcription never
 leave the machine. It can also write an optional plain-language **summary** beside the
@@ -486,7 +487,9 @@ microphone indicator; no other application's audio is touched. The two tracks ar
 16-bit **as the audio arrives** (about 115 MB an hour each, where the device's own format took about 1.3 GB, which
 used to stop a track saving after about three hours without a word); a track that does stop saving is logged and
 shown with a ⚠ on the Status line, as is a storage folder inside OneDrive (recordings upload, and deleted audio
-stays in OneDrive's recycle bin). Requires the v1.6.0 (or newer) host, which draws the questions.
+stays in OneDrive's recycle bin). Since Remembrance 2.7.0 a fresh install whose Documents is inside OneDrive
+records to `Remembrance` in the application's data folder instead of `Documents\Remembrance`, and the Status line
+says so; an existing install keeps its folder. Requires the v1.6.0 (or newer) host, which draws the questions.
 
 ### 🚦 AgentFlow (optional module)
 <img align="right" width="66" src="docs/images/agentflow-icon.jpg" alt="AgentFlow">

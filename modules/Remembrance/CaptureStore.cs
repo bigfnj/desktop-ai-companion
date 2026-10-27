@@ -781,6 +781,21 @@ namespace DesktopAICompanion.RemembranceModule
         public string FailureTypes { get { return string.Join(", ", _failureTypes); } }
 
         public void FileFailed(Exception ex) { FilesFailed++; NoteType(ex); }
+
+        /// <summary>Add another pass's counts and failure types to this one: the purge of the earlier storage roots says
+        /// them all in one line (RemembranceModule.PurgeEarlierRoots, lane feature/remembrance-backlog).</summary>
+        public void Add(DeletionReport other)
+        {
+            if (other == null) return;
+            AudioFiles += other.AudioFiles;
+            Snapshots += other.Snapshots;
+            Folders += other.Folders;
+            FilesFailed += other.FilesFailed;
+            FoldersFailed += other.FoldersFailed;
+            FoldersUnread += other.FoldersUnread;
+            foreach (string type in other._failureTypes)
+                if (!_failureTypes.Contains(type)) _failureTypes.Add(type);
+        }
         public void FolderFailed(Exception ex) { FoldersFailed++; NoteType(ex); }
         public void FolderUnread(Exception ex) { FoldersUnread++; NoteType(ex); }
 

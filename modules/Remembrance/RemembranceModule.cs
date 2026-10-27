@@ -849,7 +849,7 @@ namespace DesktopAICompanion.RemembranceModule
                 _currentMeetingName = mc.Name;
                 _currentAttendees = mc.Attendees;
 
-                store = new CaptureStore(_settings.Get("storageLocation", CaptureStore.DefaultRoot()), CurrentFolderLayout());
+                store = new CaptureStore(StorageRootForCapture(), CurrentFolderLayout());
                 _current = store.NewCapture(mc.Name, DateTimeOffset.Now);
                 _currentBase = _current.BaseName;
                 LastCaptureForSelfTest = _current;
@@ -1171,7 +1171,7 @@ namespace DesktopAICompanion.RemembranceModule
                 {
                     // NOTHING RECORDING: not the storage root any more (2.0.0, the owner's decision), but that day's
                     // folder by date or the "Snapshots" folder per capture, named as before. Both are purge shapes.
-                    var store = new CaptureStore(_settings.Get("storageLocation", CaptureStore.DefaultRoot()), CurrentFolderLayout());
+                    var store = new CaptureStore(StorageRootForCapture(), CurrentFolderLayout());
                     dir = store.SnapshotDirectory(taken);
                     System.IO.Directory.CreateDirectory(dir);
                     prefix = "snap";
@@ -1503,14 +1503,18 @@ namespace DesktopAICompanion.RemembranceModule
         private Task RunPurge()
         {
             Interlocked.Increment(ref _purgesStarted);
-            string root = _settings.Get("storageLocation", CaptureStore.DefaultRoot());
+            string root = StorageRoot();
             string layout = CurrentFolderLayout();   // the purge walks every folder shape whatever the layout is now
+            // The folders the storage location pointed to before, read here on the caller's thread with the root
+            // (N-remembrance-delete-logging-06); each is purged by the same shapes, after the current root.
+            List<string> earlier = EarlierRoots(root);
             return Task.Run(() =>
             {
                 try
                 {
                     string purgeLine = PurgeLine(StorePurge(root, layout));
                     if (purgeLine != null) Log(purgeLine);
+                    PurgeEarlierRoots(earlier, layout);
                 }
                 // By the exception's TYPE, never its Message, which can name the path it failed on (DeletionReport).
                 catch (Exception ex) { Log("purge failed: " + ex.GetType().Name); }
@@ -2245,8 +2249,10 @@ namespace DesktopAICompanion.RemembranceModule
 
                 // A folder path (host 1.4.0): blank still means Documents\Remembrance, and the empty box says so, which is why
                 // the label lost its "(blank = Documents\Remembrance)". Stored exactly as the Text field stored it.
-                new SettingField { Id = "storageLocation", Label = "Where recordings are stored", Kind = SettingKind.FolderPath, Group = "Storage",
-                    EmptyHint = StorageEmptyHint },
+                // Held since lane feature/remembrance-backlog: Load sets its hint, which names the local folder on a fresh
+                // install whose default it is (RefreshStorageHint, N-meeting-end-02).
+                (_storageField = new SettingField { Id = "storageLocation", Label = "Where recordings are stored", Kind = SettingKind.FolderPath, Group = "Storage",
+                    EmptyHint = StorageEmptyHint }),
                 // Two options in the owner's words, stored as "capture" / "date" under folderLayout (2.0.0). It was a
                 // "Create a folder per capture" checkbox whose OFF state filed captures flat in the root; that key is
                 // still read (FolderLayout.Migrate) and never written, so an install that has not chosen keeps its
@@ -2433,6 +2439,7 @@ namespace DesktopAICompanion.RemembranceModule
                     AutoDiscoverModelsOnce();
                     RefreshDynamicOptions();
                     OpenSetupCardsThatAreNeeded();   // after RefreshDynamicOptions: it reads the summary model's options
+                    RefreshStorageHint();
                     var shown = new Dictionary<string, string>
                 {
                     ["sysEnabled"] = _settings.GetBool("sysEnabled", true) ? "true" : "false",
@@ -2529,7 +2536,9 @@ namespace DesktopAICompanion.RemembranceModule
                         }
                         Log("cloud: api key saved");
                     }
+                    string rootBefore = StorageRoot();
                     ApplyPaneValues(_settings, values, BackgroundWritesToKeep(values), _loadedValues);
+                    NoteStorageMove(rootBefore);   // N-remembrance-delete-logging-06: the purge keeps covering the folder left
                     ForgetValidationsOfReplacedChoices();
                     bool ok = _settings.Save();
                     if (ok) AppliedAsShown(values);
@@ -2542,8 +2551,7 @@ namespace DesktopAICompanion.RemembranceModule
 
         private string StatusLine()
         {
-            string root = _settings.Get("storageLocation", "");
-            if (string.IsNullOrWhiteSpace(root)) root = CaptureStore.DefaultRoot();
+            string root = StorageRoot();
             bool whisper = WhisperConfigured();
             int outs = Math.Max(0, AudioDevices.RenderDevices().Count - 1);   // minus the "System default" entry
             int mics = Math.Max(0, AudioDevices.CaptureDevices().Count - 1);
@@ -2569,7 +2577,7 @@ namespace DesktopAICompanion.RemembranceModule
             else summary = "on (" + _settings.Get("summaryModel", "") + ")";
 
             string s = _lastStatus + "  |  devices: " + outs + " output, " + mics + " mic"
-                + "  |  storage: " + root
+                + "  |  storage: " + root + StorageNote(root)
                 + "  |  Whisper: " + (whisper ? "configured" : "not set up — use \"Set up Whisper for me…\"")
                 + "  |  summary: " + summary;
             // 2.4.0: the storage folder inside OneDrive (recordings upload; deleted audio waits in its recycle bin), and a
@@ -4738,6 +4746,10 @@ namespace DesktopAICompanion.RemembranceModule
             SelfCheckRecordingWatch(check);
             SelfCheckOneDrive(check);
             SelfCheckMeetingEndInModule(check);
+            // Lane feature/remembrance-backlog: the earlier storage roots the purge keeps covering, and a fresh install's
+            // storage folder when Documents is inside OneDrive (RemembranceModule.Storage.cs).
+            SelfCheckEarlierRoots(check);
+            SelfCheckFreshInstallRoot(check);
 
             detail = sb.ToString();
             return ok;
