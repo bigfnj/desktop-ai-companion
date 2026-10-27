@@ -703,6 +703,11 @@ namespace DesktopAICompanion.AiBrainModule
                 if (h == null) return;
                 try { h.Log(Info.Id, line); } catch { }
             });
+            // A details read the CLI rows started behind the cache tells an open pane when it lands (lane
+            // feature/cli-followups, BACKLOG N-remembrance-backlog-01): until then the saved CLI's row said "checking…
+            // reopen this pane in a moment" and kept saying it while the pane stayed open. CodingAgentCli.DetailsRead says
+            // why the reload this causes starts no read of its own.
+            _cli.DetailsRead = delegate { NotifyPaneInfoChanged(); };
 
             // Track the current pet for the screen-context anchor; harmless while the brain is off.
             host.CompanionSpawned += OnPetSeen;
@@ -836,6 +841,10 @@ namespace DesktopAICompanion.AiBrainModule
                     // The model and effort each CLI runs on (lane feature/cli-model-effort), above Status because Validate
                     // tests what they show.
                     _cliClaudeModelField,
+                    // The warning on the Haiku choice (lane feature/cli-followups, BACKLOG N-measure-model-03, the owner's
+                    // decision of 2026-10-27, "Warn on the Haiku choice"): right under the model row, live only while that row
+                    // shows Haiku (HaikuNoteWhen says why the gate names the model row and not the radio).
+                    new SettingField { Id = "cliClaudeHaikuNote", Label = "About Haiku", Kind = SettingKind.Info, Group = CliCardGroup, EnabledWhen = HaikuNoteWhen },
                     _cliClaudeEffortField,
                     // The opt-in that keeps the user's own Claude Code settings files out of this module's calls (lane
                     // feature/cli-runner-aibrain, BACKLOG N-cli-home-files-01, the owner's decision: off by default).
@@ -1647,6 +1656,33 @@ namespace DesktopAICompanion.AiBrainModule
             new[] { "Claude Code's default", "" },
         };
 
+        // THE WARNING ON THE HAIKU CHOICE (lane feature/cli-followups, BACKLOG N-measure-model-03, the owner's decision of
+        // 2026-10-27: "Warn on the Haiku choice"; AI Brain keeps offering Haiku). Lane measure-model ran AI Brain's remark
+        // prompt with the stronger no-names rule (N-cli-model-effort-03, part 1 of 2) over 112 synthetic screens per model,
+        // two judges reading every remark, on 2026-10-27: with the rule, both judges found a name or private detail read off
+        // the screen in 14 of Haiku's 112 remarks (at low effort), 0 of Opus's (at medium and at low) and 1 of Sonnet's (at
+        // low); without it 19, 6, 13 and 22. So Haiku is the one choice the rule does not hold, and the card says so where it
+        // is chosen. An Info row under the model row, and not the option's text: the option is the plain name by the owner's
+        // ruling of 2026-10-09, the first build's longer labels were cut off in the 177 DIP editor column, and no option text
+        // of that width holds the figure. Remembrance is left out on purpose: its summaries are meant to name the meeting's
+        // participants.
+        //
+        // Its gate names the MODEL row, the one condition SettingField.EnabledWhen takes, so the note is live exactly while
+        // the dropdown on screen shows Haiku, applied or not, and greyed under any other model. The cost of one condition:
+        // with Codex CLI on screen and Haiku still showing in the greyed Claude Code model row, the note stays live, and what
+        // it says is still true of that row's choice. Refused: gating it on the radio like the rows around it, which would
+        // leave it live under Opus; and an Info value that names Haiku only when it is SAVED, which says nothing of a choice
+        // on screen until Apply. The layout check's rule that a row's own gate narrows its card's on the same field has this
+        // row as its one exception (AiEngineProbe.Layout.cs), a display-only row gated on another row of its card.
+
+        /// <summary>The Haiku note's gate: the Claude Code model row showing Haiku's label (ClaudeModelChoices).</summary>
+        internal const string HaikuNoteWhen = "cliClaudeModel=Haiku";
+
+        /// <summary>What the Haiku note says, with the measured figures (lane feature/cli-followups).</summary>
+        internal const string HaikuNote =
+            "⚠ Haiku may repeat names and other private details it reads on the screen, though told not to: in a test on 112 " +
+            "sample screens (2026-10-27), 14 of its remarks did, against none of Opus's and 1 of Sonnet's.";
+
         /// <summary>The labels this version's first build showed, read as their alias and never offered, so a value handed
         /// back under one still maps (round 2); without them it would be text that is no option, which changes nothing.</summary>
         private static readonly string[][] FormerClaudeModelLabels =
@@ -1902,7 +1938,9 @@ namespace DesktopAICompanion.AiBrainModule
             string product = CodingAgents.ProductName(agent);
             bool isSaved = agent == saved;
             CodingAgentCli.CliDetails details = _cli == null ? null : isSaved ? _cli.CachedDetails(agent) : _cli.KeptDetails(agent);
-            if (details == null) return isSaved ? product + ": checking… reopen this pane in a moment." : CliNameNotReadYet(agent);
+            // "checking…" alone since lane feature/cli-followups: the read it waits for tells the open pane when it lands
+            // (CodingAgentCli.DetailsRead), where the row asked the user to reopen the pane.
+            if (details == null) return isSaved ? product + ": checking…" : CliNameNotReadYet(agent);
             if (!details.Installed) return CodingAgentCliText.NotInstalledRow(agent);
             string named = product + (details.Version.Length > 0 ? " " + details.Version : "") +
                            (details.Where.Length > 0 ? " (" + details.Where + ")" : "");
@@ -2038,7 +2076,9 @@ namespace DesktopAICompanion.AiBrainModule
         /// 1.6.1 closed. Callable from any thread (the host marshals it); inert while the pane is closed, whose next open
         /// reads the latest values anyway. Load stays what a pane open already ran: cached reads, plus the behind-the-scenes
         /// refreshes CachedDetails and VramStatusLine start when theirs are stale, so a notification never waits on a child
-        /// process or the network, and nothing a reload starts notifies again. Needs host 1.6.1, whose MinHostVersion the
+        /// process or the network. Since lane feature/cli-followups the details read CachedDetails starts notifies once when
+        /// it lands (CodingAgentCli.DetailsRead, BACKLOG N-remembrance-backlog-01), and the reload that follows finds that
+        /// reading fresh and starts none, so no notification starts another. Needs host 1.6.1, whose MinHostVersion the
         /// coordinator sets with this module's version.
         /// </summary>
         private void NotifyPaneInfoChanged()
@@ -2166,6 +2206,7 @@ namespace DesktopAICompanion.AiBrainModule
                 // loads as is one the dropdown offers (Codex's labels are registered by the rebuild).
                 RefreshCliChoiceOptions(s);
                 d["cliClaudeModel"] = ClaudeModelLabel(s.CliClaudeModel);
+                d["cliClaudeHaikuNote"] = HaikuNote;
                 d["cliClaudeEffort"] = EffortLabel(s.CliClaudeEffort);
                 d["cliCodexModel"] = CodexModelLabel(s.CliCodexModel);
                 d["cliCodexEffort"] = EffortLabel(s.CliCodexEffort);

@@ -85,6 +85,9 @@ namespace DesktopAICompanion.AiBrainModule
                 var stray = new List<string>();
                 var rowGates = new List<string>();
                 var narrowed = new List<string>();
+                // Lane feature/cli-followups: the one exception, a display-only row gated on another row of its own card (the
+                // Haiku note, live while the Claude Code model row shows Haiku; AiBrainModule.HaikuNoteWhen says why).
+                var notes = new List<string>();
                 if (pane != null && pane.Schema != null)
                     foreach (SettingField f in pane.Schema)
                     {
@@ -93,8 +96,11 @@ namespace DesktopAICompanion.AiBrainModule
                         if (string.IsNullOrEmpty(f.EnabledWhen)) continue;
                         SettingField lead = FirstFieldOfGroup(pane, f.Group);
                         if (IsStrictlyNarrower(f.EnabledWhen, lead == null ? null : lead.CardEnabledWhen)) narrowed.Add(f.Id);
+                        else if (IsNoteOnARowOfItsCard(pane, f)) notes.Add(f.Id);
                         else rowGates.Add(f.Id);
                     }
+                ok &= Check(sb, "WITNESS aibrain layout: the one display-only row gated on another row of its card is the Haiku note: " +
+                    string.Join(", ", notes), string.Join(",", notes) == "cliClaudeHaikuNote");
                 ok &= Check(sb, "aibrain layout: no field but a card's first carries a CardEnabledWhen, which the host would ignore" +
                     (stray.Count > 0 ? ": " + string.Join(", ", stray) : ""), stray.Count == 0);
                 ok &= Check(sb, "aibrain layout: no row carries an EnabledWhen of its own unless it is strictly narrower than its card's gate" +
