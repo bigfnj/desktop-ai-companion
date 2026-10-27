@@ -41,7 +41,17 @@ public sealed partial class AgentBrokerModule : IModule
     {
         Id = "agentbroker",
         Name = "AgentBroker",
-        Version = "1.1.0",   // 1.1.0: the agent-to-agent bus (campaign 2026-10-26). A generic MCP mailbox stays
+        Version = "1.2.0",   // 1.2.0: vendor re-pins as data (lane broker-pins, 2026-10-27). Every exact pin is one
+                             //        JSON document embedded in the worker's adapters and validated strictly at start;
+                             //        a missing or malformed document fails closed (no wake, Codex discovery refused)
+                             //        and the Native status says why. Claude Code 2.1.293 (npm CLI), 2.1.310, 2.1.311
+                             //        and 2.1.312 are verified builds (the owner approved the four re-pins). A client
+                             //        newer than every pin is named in the Native status with "a reviewed re-pin
+                             //        arrives as a module update"; nothing is checked online. The re-pin helper checks
+                             //        a downloaded npm package or VSIX and drafts a pin entry, and a daily repository
+                             //        workflow drafts one pull request per new build that passes every offline check,
+                             //        never merging. MinHostVersion unchanged (1.6.1).
+                             // 1.1.0: the agent-to-agent bus (campaign 2026-10-26). A generic MCP mailbox stays
                              //        addressable for 24 hours after its owner's last call (listed locally as Away,
                              //        never to peers); new send, wait_for_messages and wait_for_reply tools and MCP
                              //        server instructions; the lease sidecar is retired, and the installer's probe
