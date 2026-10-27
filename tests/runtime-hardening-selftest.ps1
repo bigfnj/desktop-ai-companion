@@ -5045,13 +5045,17 @@ Assert-True ($tqSettings -cmatch 'target\.QuestionHeadsUp = current\.QuestionHea
 # project's or the local settings files, which also drops a sign-in helper, forceLoginMethod and an env block's proxy, so it
 # is allowed in exactly one place, BuildArguments' Claude Code branch, behind CliRequest.LeaveOutOwnClaudeSettings. The
 # self-checks see the command lines of the calls they drive, with the switch on and off; a second site, an unconditional
-# add or one in a module is the shape they cannot see. Comment-stripped runner and both modules ($cmeModules), -cmatch; the
+# add or one in a module is the shape they cannot see. Comment-stripped runner and both modules ($crModules), -cmatch; the
 # condition and the arguments it guards are asserted together, so a guard removed with the add left standing fails.
 $crBuildAt = $chfBuild.IndexOf('if (request.Agent == CodingAgentKind.Claude)')
 $crCodexAt = $chfBuild.IndexOf('if (request.Agent == CodingAgentKind.Codex)')
 $crClaude = if ($crBuildAt -ge 0 -and $crCodexAt -gt $crBuildAt) { $chfBuild.Substring($crBuildAt, $crCodexAt - $crBuildAt) } else { '' }
-$crSettingSources = [regex]::Matches(($cliRunnerCode + "`n" + $cmeModules), [regex]::Escape('--setting-sources')).Count
-Assert-True ($chfBuild.Length -gt 0 -and $crClaude.Length -gt 0 -and $cmeModules.Length -gt 0) (
+# The modules' code without AI Brain's self-test files (AiEngineProbe*.cs), which name the flag to assert where it goes,
+# as the runner's self-check (never scanned here) does.
+$crModules = (@($cliScanFiles | Where-Object { $_ -like '*\modules\*' -and (Split-Path $_ -Leaf) -notlike 'AiEngineProbe*' } |
+    ForEach-Object { Remove-LineComments (Get-Content -LiteralPath $_ -Raw) }) -join "`n")
+$crSettingSources = [regex]::Matches(($cliRunnerCode + "`n" + $crModules), [regex]::Escape('--setting-sources')).Count
+Assert-True ($chfBuild.Length -gt 0 -and $crClaude.Length -gt 0 -and $crModules.Length -gt 0 -and $crModules.Contains('CliLeaveOutClaudeSettings')) (
     'cli-runner-aibrain: BuildArguments and its Claude Code branch were sliced, and both modules read')
 Assert-True ($crSettingSources -eq 1 -and
     $crClaude -cmatch 'if \(request\.LeaveOutOwnClaudeSettings\)\s*\{\s*args\.Add\("--setting-sources"\);\s*args\.Add\(""\);\s*\}') (

@@ -71,10 +71,21 @@ DesktopAICompanion sends data only when a network feature is used:
   module's folder, and loads no MCP servers or claude.ai connectors, your organisation's included (the call
   has no tools to use them). Before these versions an
   installed copy sent a `CLAUDE.md` or `AGENTS.md` kept in your home folder with every remark and summary. Your own
-  settings files are still read, so their permission rules and extra folder names still reach the prompt. It
+  settings files are still read, so their permission rules and extra folder names still reach the prompt, unless you
+  turn on the switch in the next paragraph. It
   switches off none of the controls an organisation manages: managed settings, managed instructions (a managed
   `CLAUDE.md`) and managed hooks still apply, and a managed hook can see what a call sends and what comes back.
   The calls run on your Claude Code sign-in, or on a token saved in the module (below).
+- **Since the AI Brain version after 1.5.6, AI Brain's Coding-agent CLI card has a switch, "Keep my Claude Code
+  settings out of companion calls", off by default.** With it on, AI Brain's Claude Code calls read none of your own
+  settings files: neither your user `settings.json` nor a project's or a local one. So their permission rules and
+  extra folder names no longer reach the prompt, and Claude Code skips its synced-plugin sync, which otherwise writes
+  under `%USERPROFILE%\.claude\plugins` on each call. It also drops everything else those files set for these calls: a
+  sign-in helper (`apiKeyHelper`), a forced login method (`forceLoginMethod`), and a proxy or any other variable in
+  their `env` block, so a setup that needs one of those to reach Anthropic would fail on these calls. Your
+  organisation's managed settings still apply, and so do the companion's own settings for the call. It is off by
+  default because of what it drops. Your version checks, sign-in checks and updates read your settings as before.
+  Remembrance runs the same code and gets the switch once its pane offers it.
 - **Since the AI Brain and Remembrance versions after 1.5.6 and 2.3.6, a Claude Code call never runs in auto
   mode.** In auto mode, which your own Claude Code settings can select, every request carried context for Claude
   Code's auto-mode safety classifier that held the module's work folder 13 more times (on an installed copy it sits

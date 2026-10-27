@@ -101,11 +101,13 @@ namespace DesktopAICompanion.AiBrainModule
                     (rowGates.Count > 0 ? ": " + string.Join(", ", rowGates) : ""), rowGates.Count == 0);
                 // Re-pointed by lane feature/cli-model-effort (aibrain 1.5.0): the CLI card's model and effort rows are each
                 // read by one CLI alone, so they narrow the card's gate as the token row does; since its round 2 so do the
-                // signed-in and Goes through rows, one per CLI.
-                ok &= Check(sb, "WITNESS aibrain layout: the rows narrower than their card are the per-CLI signed-in and Goes through rows, the sign-in token and the four model and effort rows: " +
+                // signed-in and Goes through rows, one per CLI. Re-pointed by lane feature/cli-runner-aibrain: the CLI rows,
+                // one per CLI (N-cli-model-effort-15), and the settings opt-in (N-cli-home-files-01) narrow it too.
+                ok &= Check(sb, "WITNESS aibrain layout: the rows narrower than their card are the per-CLI CLI, signed-in and Goes through rows, the sign-in token, the four model and effort rows and the settings opt-in: " +
                     string.Join(", ", narrowed),
                     string.Join(",", narrowed) ==
-                        "cliAccountClaude,cliAccountCodex,cliToken,cliClaudeModel,cliClaudeEffort,cliCodexModel,cliCodexEffort,cliSendsClaude,cliSendsCodex");
+                        "cliNameClaude,cliNameCodex,cliAccountClaude,cliAccountCodex,cliToken,cliClaudeModel,cliClaudeEffort,cliClaudeSettingsOut," +
+                        "cliCodexModel,cliCodexEffort,cliSendsClaude,cliSendsCodex");
 
                 var gatedAlways = new List<string>();
                 foreach (string g in UngatedCards)

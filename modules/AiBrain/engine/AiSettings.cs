@@ -284,6 +284,13 @@ namespace DesktopAICompanion.Ai
         /// <summary>The effort Codex runs at for this module: low, medium or high.</summary>
         public string CliCodexEffort = DefaultCodexEffort;
 
+        /// <summary>"Keep my Claude Code settings out of companion calls" (lane feature/cli-runner-aibrain, BACKLOG
+        /// N-cli-home-files-01, the owner's decision: an opt-in, default OFF): each Claude Code model call then reads none of
+        /// the user's, the project's or the local settings files (CliRequest.LeaveOutOwnClaudeSettings, whose site in the
+        /// runner says what it drops). A file without the key leaves it at this initialiser, so no install turns it on by
+        /// updating.</summary>
+        public bool CliLeaveOutClaudeSettings = false;
+
         /// <summary>This module's default model for <paramref name="cli"/> ("" for Claude Code's default or Codex's automatic
         /// pick): the constant an install that never chose runs on, which a refusal of it says (review finding F14).</summary>
         internal static string DefaultCliModelFor(DesktopAICompanion.CodingAgent.CodingAgentKind cli)
@@ -600,7 +607,8 @@ namespace DesktopAICompanion.Ai
             // store has kept its corrupt primary as `<name>.corrupt-<stamp>-<guid>.json` since before 1.0.0;
             // this is the same shape, and the copy is what makes a "corrupt" verdict checkable afterwards.
             bool primaryRemoved = true;
-            string preserved = result == ReadResult.Unreadable ? PreserveCorruptPrimary(out primaryRemoved) : null;
+            string removeFailure = null;
+            string preserved = result == ReadResult.Unreadable ? PreserveCorruptPrimary(out primaryRemoved, out removeFailure) : null;
 
             string backupFailure;
             ReadResult backupResult = TryRead(FilePath + ".bak", out loaded, out backupFailure);
@@ -614,7 +622,7 @@ namespace DesktopAICompanion.Ai
                     loaded._writesBlockedByFutureSchema =
                         !loaded.RestorePrimaryWithoutRotatingBackup();
                 loaded.LoadWarning = DescribeRecovery(
-                    result, failure, "recovered from the backup", preserved, primaryRemoved, null);
+                    result, failure, "recovered from the backup", preserved, primaryRemoved, removeFailure, null);
                 loaded.CaptureBaseline();
                 return loaded;
             }
@@ -629,7 +637,7 @@ namespace DesktopAICompanion.Ai
             defaults.CaptureBaseline();
             if (result != ReadResult.Missing)
                 defaults.LoadWarning =
-                    DescribeRecovery(result, failure, "reset to defaults", preserved, primaryRemoved, backupFailure) +
+                    DescribeRecovery(result, failure, "reset to defaults", preserved, primaryRemoved, removeFailure, backupFailure) +
                     (defaultsWritten ? "" : "; the default file could not be written either");
             else if (!defaultsWritten)
                 defaults.LoadWarning =
@@ -640,7 +648,8 @@ namespace DesktopAICompanion.Ai
         /// <summary>The LoadWarning for a recovery: what was wrong, what was done, where the rejected file went, and
         /// why the backup did not serve when it did not.</summary>
         private static string DescribeRecovery(
-            ReadResult primary, string failure, string action, string preserved, bool primaryRemoved, string backupFailure)
+            ReadResult primary, string failure, string action, string preserved, bool primaryRemoved, string removeFailure,
+            string backupFailure)
         {
             string why = primary == ReadResult.Missing
                 ? "ai-settings.json was missing"
@@ -652,7 +661,11 @@ namespace DesktopAICompanion.Ai
                       // Copy succeeded, Delete did not (a handle without delete sharing): the copy is real and the
                       // primary stays where it is, overwritten in place. This used to read as "could not be kept and
                       // was overwritten" while the copy sat on disk (R-018).
-                      (primaryRemoved ? "" : ", and the primary could not be removed, so it is overwritten in place")
+                      // The delete's exception type rides with it (lane feature/cli-runner-aibrain, BACKLOG
+                      // N-remembrance-delete-logging-05): the delete failed inside a bare catch, so the warning said the
+                      // primary could not be removed and not why, which the logging rule asks for of a user-data delete.
+                      (primaryRemoved ? "" : ", and the primary could not be removed (" + (removeFailure ?? "unknown") +
+                          "), so it is overwritten in place")
                     : "; the rejected file could not be kept and was overwritten";
             // Only a missing or an unreadable .bak reaches the reset-to-defaults branch, and the two ask different
             // things of the user; TryRead's answer for it used to be dropped (RA-081).
@@ -673,9 +686,10 @@ namespace DesktopAICompanion.Ai
         /// delete sharing, so a primary another process holds open passes the first and fails the second, and one
         /// try around both answered null with the copy already on disk (R-018).
         /// </summary>
-        private static string PreserveCorruptPrimary(out bool primaryRemoved)
+        private static string PreserveCorruptPrimary(out bool primaryRemoved, out string removeFailure)
         {
             primaryRemoved = false;
+            removeFailure = null;
             string primary = FilePath;
             string recovery;
             try
@@ -697,7 +711,7 @@ namespace DesktopAICompanion.Ai
                 File.Delete(primary);
                 primaryRemoved = true;
             }
-            catch { }
+            catch (Exception ex) { removeFailure = ex.GetType().Name; }
             return recovery;
         }
 

@@ -5582,6 +5582,47 @@ refusal says "the automatic pick (gpt-6.1-sol)", the words every row says it in 
 tries the delete again up to five times, 100 ms apart, when the file is held open, and reports the failure as before if
 the last try fails (N-codex-config-refusal-01; the holder Remembrance's self-check met was never identified).
 
+**AI Brain: the switch on the pane.** "Keep my Claude Code settings out of companion calls" is a Bool row in the CLI
+card, live only while Claude Code is the CLI on screen (an `EnabledWhen` strictly narrower than the card's gate, as the
+token row's is), saved as `CliLeaveOutClaudeSettings`, false in a file without the key. The live brain and the auditions
+take it through `CodingAgentBackend`'s constructor, as they take the model and effort; Validate takes the value on screen.
+"Goes through Claude Code" adds a sentence naming what it drops while it is saved on.
+
+**AI Brain: one CLI row per CLI (BACKLOG N-cli-model-effort-15).** The one "CLI" row described the saved CLI in live text
+while every row under it followed the radio. Now "Claude Code CLI" and "Codex CLI" rows each carry their CLI's
+`EnabledWhen`. The Claude Code row is the card's first field, so it also carries `PinTop` and `CardEnabledWhen`. The saved
+CLI's row reads the runner's cache, refreshed behind it; the other row shows what was last read of that CLI and starts no
+read, the rule the signed-in rows keep. Until something reads it, it says which CLI to choose before Validate. The brief's
+fallback, a "Saved CLI" label, was not needed. "No CLI in use" went with the one row: on the local slot both rows are
+greyed with the card.
+
+**AI Brain: the pane hears about a remark, an audition and a Validate (BACKLOG N-cli-model-effort-07, AI Brain's half).**
+`OptionsPane.NotifyInfoChanged`, added in host 1.6.1, asks the host to reload an open pane's Info rows. AI Brain keeps its
+pane and calls it after each of the three, so the Status card's last remark and the CLI rows' "last answered" show what
+just happened. The register's "A module cannot push a live value into an open options pane" (Known ABI gaps) was written
+before that member existed; for a pane it no longer holds, while the tray-menu half stands. Using the member raises the
+module's floor to host 1.6.1; the coordinator sets MinHostVersion with the version. Load stays what a pane open always
+ran: cached reads, plus the background refreshes CachedDetails and VramStatusLine start when theirs are stale. So a
+reload never waits on a child process or the network, and nothing a reload starts notifies again. Remembrance's half is
+another lane's.
+
+**AI Brain: smaller ones.** "When OCR is used" says what each engine does (N-cli-model-effort-01): on the local slot a
+model reported blind is swapped for one that can see, and a cloud primary ends the turn saying the model can't see images;
+only a CLI turn for a Codex model that takes no images reads the screen as text. A Local model Apply stores
+`LastCloudProvider` only when the dropdown shows something other than what Load showed (N-cli-model-effort-11, AI Brain's
+half), so an install that never chose a provider no longer gets "openai" written. That is one field's fix, not the general
+"store what changed" rule: Apply still writes the four model and effort keys as it always has, by the ruling of
+`#### feature/cli-model-effort`. The corrupt-settings recovery names the delete failure's exception type
+(N-remembrance-delete-logging-05).
+
+**AI Brain: the stronger no-names rule (BACKLOG N-cli-model-effort-03, part 1 of 2).** A CLI turn's persona adds a
+sentence: never use the signed-in person's name, username, email or organisation, or any name from the assistant's own
+context, and never repeat a person's name, handle, email, phone number or other private detail seen on the screen. The
+name the user typed in the pane stays the one allowed. It goes on both CLIs and on neither slot, whose prompt is byte for
+byte as before. Whether it lowers the 8 to 25% the eval measured on Claude Code is for the Claude arms run again, in
+another lane, with the owner's approval. Until then the item is part 1 of 2. The default choice of opus at medium rested
+partly on that rate, so the eval may move it too.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

@@ -33,6 +33,8 @@ namespace DesktopAICompanion.AiBrainModule
             ok &= GuardedCheck(sb, "CheckCliChoiceValidate", CheckCliChoiceValidate);
             ok &= GuardedCheck(sb, "CheckCliChoiceOnScreenRows", CheckCliChoiceOnScreenRows);
             ok &= GuardedCheck(sb, "CheckCliRoundThreeRows", CheckCliRoundThreeRows);
+            // Lane feature/cli-runner-aibrain (AiEngineProbe.CliRunner.cs).
+            ok &= GuardedCheck(sb, "CheckCliRunnerLane", CheckCliRunnerLane);
             return ok;
         }
 
@@ -496,8 +498,8 @@ namespace DesktopAICompanion.AiBrainModule
                 rig.Runner.RefreshDetailsAsync(CodingAgentKind.Claude, CancellationToken.None).GetAwaiter().GetResult();
                 rig.Save("brainRunsOn", "Claude Code CLI", "cliClaudeModel", "Sonnet", "cliClaudeEffort", "High", "useVision", "false");
                 IReadOnlyDictionary<string, string> shown = pane.Load();
-                ok &= Check(sb, "aibrain cli model: the CLI row names the Claude Code model and effort chosen: " + shown["cliName"],
-                    shown["cliName"] == "Claude Code 2.1.292, sonnet at high effort");
+                ok &= Check(sb, "aibrain cli model: the CLI row names the Claude Code model and effort chosen: " + shown["cliNameClaude"],
+                    shown["cliNameClaude"] == "Claude Code 2.1.292, sonnet at high effort");
                 ok &= Check(sb, "aibrain cli model: the Status card names the Claude Code model and effort chosen: " + shown["brainStatus"],
                     shown["brainStatus"].StartsWith("On.  |  runs on: Claude Code CLI 2.1.292, sonnet at high effort  |  vision: off", StringComparison.Ordinal));
                 // A real call on the saved choice (round 2: a Validate is never what last answered, so these checks, which
@@ -505,23 +507,23 @@ namespace DesktopAICompanion.AiBrainModule
                 AuditionSaved(rig);
                 shown = pane.Load();
                 string answered = FakeCliProcess.AnsweredModelFor("sonnet");
-                ok &= Check(sb, "aibrain cli model: once a call has answered, the CLI row names the model that answered: " + shown["cliName"],
-                    shown["cliName"] == "Claude Code 2.1.292, sonnet at high effort; last answered on " + answered + " at high effort");
+                ok &= Check(sb, "aibrain cli model: once a call has answered, the CLI row names the model that answered: " + shown["cliNameClaude"],
+                    shown["cliNameClaude"] == "Claude Code 2.1.292, sonnet at high effort; last answered on " + answered + " at high effort");
                 // Round 3: an audition sample is a real call and no remark, so the CLI row names it and the Status card, which
                 // describes its last remark alone, does not (the second on-screen walk read the two as one call).
                 ok &= Check(sb, "aibrain cli model: once a call has answered, the Status card still describes its last remark alone, and an audition is none: " +
                     shown["brainStatus"],
                     shown["brainStatus"] == "On.  |  runs on: Claude Code CLI 2.1.292, sonnet at high effort  |  vision: off  |  no remark yet this session");
                 rig.Save("cliClaudeModel", "Claude Code's default", "cliClaudeEffort", "Medium");
-                ok &= Check(sb, "aibrain cli model: on Claude Code's default the CLI row says so, at the effort chosen: " + pane.Load()["cliName"],
-                    pane.Load()["cliName"].StartsWith("Claude Code 2.1.292, Claude Code's default model at medium effort; last answered on ", StringComparison.Ordinal));
+                ok &= Check(sb, "aibrain cli model: on Claude Code's default the CLI row says so, at the effort chosen: " + pane.Load()["cliNameClaude"],
+                    pane.Load()["cliNameClaude"].StartsWith("Claude Code 2.1.292, Claude Code's default model at medium effort; last answered on ", StringComparison.Ordinal));
                 // Review finding F13: the answer kept is the audition's, on sonnet at high, and the choice saved since is
                 // another, so both rows say what that call asked for; the two exact checks above, where the call asked for
                 // the saved choice, are the witness that the note is said only then.
                 shown = pane.Load();
                 string askedNote = " (that call asked for sonnet at high effort)";
-                ok &= Check(sb, "aibrain cli model: after the choice changed, the CLI row says what the call that last answered asked for: " + shown["cliName"],
-                    shown["cliName"] == "Claude Code 2.1.292, Claude Code's default model at medium effort; last answered on " + answered + askedNote);
+                ok &= Check(sb, "aibrain cli model: after the choice changed, the CLI row says what the call that last answered asked for: " + shown["cliNameClaude"],
+                    shown["cliNameClaude"] == "Claude Code 2.1.292, Claude Code's default model at medium effort; last answered on " + answered + askedNote);
                 ok &= Check(sb, "aibrain cli model: ...while the Status card names the choice saved and says nothing of that call: " + shown["brainStatus"],
                     shown["brainStatus"] == "On.  |  runs on: Claude Code CLI 2.1.292, Claude Code's default model at medium effort  |  vision: off  |  " +
                                             "no remark yet this session");
@@ -541,8 +543,8 @@ namespace DesktopAICompanion.AiBrainModule
                 shown = pane.Load();
                 string fellBack = "on claude-sonnet-selftest-9 (Claude Code fell back to it from claude-opus-selftest-9)";
                 // Re-pointed in round 3: what last answered is the CLI row's alone, so the fallback is said there.
-                ok &= Check(sb, "aibrain cli model: Claude Code's fallback is said in the CLI row, in the runner's words: " + shown["cliName"],
-                    shown["cliName"] == "Claude Code 2.1.292, Claude Code's default model at medium effort; last answered " + fellBack + " at medium effort" &&
+                ok &= Check(sb, "aibrain cli model: Claude Code's fallback is said in the CLI row, in the runner's words: " + shown["cliNameClaude"],
+                    shown["cliNameClaude"] == "Claude Code 2.1.292, Claude Code's default model at medium effort; last answered " + fellBack + " at medium effort" &&
                     !shown["brainStatus"].Contains("fell back"));
 
                 CodingAgentCli.CliDetails codex = rig.Runner.RefreshDetailsAsync(CodingAgentKind.Codex, CancellationToken.None).GetAwaiter().GetResult();
@@ -551,9 +553,9 @@ namespace DesktopAICompanion.AiBrainModule
                 rig.Save("brainRunsOn", "Codex CLI", "cliCodexModel", "Text Only", "cliCodexEffort", "Low", "useVision", "true");
                 shown = pane.Load();
                 ok &= Check(sb, "aibrain cli model: the CLI row names a chosen Codex model, and with Use vision on that one which takes no images reads the screen as text: " +
-                    shown["cliName"],
+                    shown["cliNameCodex"],
                     rig.Settings.CliCodexModel == "text-only-low" &&
-                    shown["cliName"] == named + ", text-only-low at low effort (it takes no images, so with Use vision on its remarks read the screen as text)");
+                    shown["cliNameCodex"] == named + ", text-only-low at low effort (it takes no images, so with Use vision on its remarks read the screen as text)");
                 // Review finding F15: Goes through it said a screenshot goes while every remark sent the OCR text.
                 ok &= Check(sb, "aibrain cli model: with Use vision on, Goes through it says a chosen Codex model that takes no images is sent the screen's text: " +
                     shown["cliSendsCodex"],
@@ -561,15 +563,15 @@ namespace DesktopAICompanion.AiBrainModule
                                                     "the random drops and the poke reaction each send the text read off the screen (OCR) instead of a screenshot.") &&
                     !shown["cliSendsCodex"].Contains("a screenshot of the window"));
                 rig.Save("cliCodexModel", "Vision Second");
-                ok &= Check(sb, "WITNESS aibrain cli model: ...and says nothing of images for one that takes them: " + pane.Load()["cliName"],
-                    pane.Load()["cliName"] == named + ", vision-second at low effort");
+                ok &= Check(sb, "WITNESS aibrain cli model: ...and says nothing of images for one that takes them: " + pane.Load()["cliNameCodex"],
+                    pane.Load()["cliNameCodex"] == named + ", vision-second at low effort");
                 ok &= Check(sb, "WITNESS aibrain cli model: ...and Goes through it says a screenshot goes to one that takes them",
                     pane.Load()["cliSendsCodex"].Contains("each send a screenshot of the window (Use vision is on)") &&
                     !pane.Load()["cliSendsCodex"].Contains("takes no images"));
                 rig.Save("cliCodexModel", AiBrainModule.CodexAutomaticLabel, "useVision", "false");
                 // Re-pointed in round 3: one phrasing of the automatic pick in every row (the owner's plain-voice rule).
-                ok &= Check(sb, "aibrain cli model: on Automatic the CLI row names Codex's pick and the effort: " + pane.Load()["cliName"],
-                    pane.Load()["cliName"] == named + ", automatic pick (text-only-low) at low effort");
+                ok &= Check(sb, "aibrain cli model: on Automatic the CLI row names Codex's pick and the effort: " + pane.Load()["cliNameCodex"],
+                    pane.Load()["cliNameCodex"] == named + ", automatic pick (text-only-low) at low effort");
                 ok &= Check(sb, "aibrain cli model: ...and the Status card says it runs on the automatic pick, in the CLI row's words: " + pane.Load()["brainStatus"],
                     pane.Load()["brainStatus"].StartsWith("On.  |  runs on: Codex CLI " + codex.Version + ", automatic pick (text-only-low) at low effort  |  ",
                         StringComparison.Ordinal));
@@ -672,9 +674,9 @@ namespace DesktopAICompanion.AiBrainModule
                 ok &= Check(sb, "aibrain cli model: a Validate of a choice on screen is never said as what last answered, in the CLI row or the Status card: " +
                     shown["brainStatus"],
                     audition != null && said != null && said.StartsWith("✓ Claude Code ", StringComparison.Ordinal) &&
-                    shown["cliName"].EndsWith("; last answered on " + savedAnswered + " at " + effort + " effort", StringComparison.Ordinal) &&
+                    shown["cliNameClaude"].EndsWith("; last answered on " + savedAnswered + " at " + effort + " effort", StringComparison.Ordinal) &&
                     shown["brainStatus"].EndsWith("  |  no remark yet this session", StringComparison.Ordinal) &&
-                    !shown["cliName"].Contains(otherAnswered) && !shown["brainStatus"].Contains(otherAnswered));
+                    !shown["cliNameClaude"].Contains(otherAnswered) && !shown["brainStatus"].Contains(otherAnswered));
                 ok &= Check(sb, "WITNESS aibrain cli model: ...the card's Status row says what that Validate answered on, naming the CLI: " + shown["cliStatus"],
                     shown["cliStatus"].StartsWith("✓ Claude Code: answered at ", StringComparison.Ordinal) &&
                     shown["cliStatus"].EndsWith(" s, on " + otherAnswered + " at " + effort + " effort", StringComparison.Ordinal));
@@ -692,8 +694,14 @@ namespace DesktopAICompanion.AiBrainModule
                     codexBefore == AiBrainModule.CliAccountNotReadYet(CodingAgentKind.Codex) && shown["cliAccountCodex"] == "a ChatGPT account (Codex does not say which)" &&
                     shown["cliAccountClaude"] == "someone@example.invalid (max)");
                 ok &= Check(sb, "WITNESS aibrain cli model: ...while the CLI row and the Status card still describe the saved Claude Code",
-                    shown["cliName"].StartsWith("Claude Code 2.1.292, ", StringComparison.Ordinal) &&
+                    shown["cliNameClaude"].StartsWith("Claude Code 2.1.292, ", StringComparison.Ordinal) &&
                     shown["brainStatus"].Contains("runs on: Claude Code CLI 2.1.292, ") && rig.Settings.CliBackend == "claude");
+                // Lane feature/cli-runner-aibrain (BACKLOG N-cli-model-effort-15): the Codex row follows the radio, so after
+                // that Validate it describes Codex from what the Validate read, where the one row went on describing the saved
+                // Claude Code (the third on-screen walk).
+                ok &= Check(sb, "aibrain cli: after a Validate on Codex chosen on screen, the Codex CLI row describes Codex: " + shown["cliNameCodex"],
+                    shown["cliNameCodex"].StartsWith("Codex 0.160.1, automatic pick (", StringComparison.Ordinal) &&
+                    !shown["cliNameCodex"].Contains("Claude"));
             }
             return ok;
         }
@@ -770,7 +778,7 @@ namespace DesktopAICompanion.AiBrainModule
                 IReadOnlyDictionary<string, string> shown = pane.Load();
                 ok &= Check(sb, "aibrain cli: the Status card's last remark names the model it ran on, whatever answered after it: " + shown["brainStatus"],
                     shown["brainStatus"] == "On.  |  runs on: Claude Code CLI 2.1.292, sonnet at high effort  |  vision: off  |  last remark 22:40 (4.5 s, on " + ranOn + ")" &&
-                    shown["cliName"].Contains("last answered on " + FakeCliProcess.AnsweredModelFor("haiku")));
+                    shown["cliNameClaude"].Contains("last answered on " + FakeCliProcess.AnsweredModelFor("haiku")));
                 rig.Save("brainRunsOn", "Local model");
                 string onLocal = pane.Load()["brainStatus"];
                 ok &= Check(sb, "aibrain cli: ...and still names the CLI model that remark ran on with the module back on its local slot: " + onLocal,

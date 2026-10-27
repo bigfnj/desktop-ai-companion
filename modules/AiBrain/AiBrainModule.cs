@@ -151,11 +151,18 @@ namespace DesktopAICompanion.AiBrainModule
         /// <summary>The Codex model and effort rows: live only while Codex is the CLI on screen (feature/cli-model-effort).</summary>
         internal const string OnCodexCliOnly = "brainRunsOn=Codex CLI";
 
-        /// <summary>What Use vision leaves to OCR, on every engine (AiBrain.AskAboutScreenAsync: the vision path sends the
-        /// screenshot and runs no OCR; the poke passes allowVision=false; ChooseModel falls back to text for a model that
-        /// cannot see), and what a blank OCR engine resolves to (ResolveTesseract, then RunOcrAsync's Windows fallback).</summary>
+        /// <summary>What Use vision leaves to OCR, engine by engine (AiBrain.AskAboutScreenAsync: the vision path sends the
+        /// screenshot and runs no OCR; the poke passes allowVision=false), and what a blank OCR engine resolves to
+        /// (ResolveTesseract, then RunOcrAsync's Windows fallback). Lane feature/cli-runner-aibrain (BACKLOG
+        /// N-cli-model-effort-01): it said "any remark whose model cannot see images", and on the local and cloud slots no
+        /// remark is read as text for that. With Use vision on and a model the backend reports blind, AiModelPolicy.ChooseModel
+        /// (its listedButCannotSee branch) substitutes a model that can see on the local slot, or ends the turn saying none is
+        /// available, and on a cloud primary ends it on "can't see images, and I don't switch models"; only a CLI turn for a
+        /// Codex model whose catalog says it takes no images is read the screen as text (AiBrain.SendsScreenshot).</summary>
         internal const string OcrWhenLine =
-            "Only for text: with Use vision on, the poke reaction and any remark whose model cannot see images; with it off, every remark. " +
+            "Only for text: with Use vision on, the poke reaction and, on Codex CLI, a remark whose chosen model takes no images; with it off, every remark. " +
+            "With Use vision on, the local model and a cloud provider never read the screen as text for a model that cannot see images: " +
+            "the local model switches to one that can (or says it found none), and a cloud provider says the model can't see images. " +
             "Tesseract is optional: left blank, an installed one is used if found, and otherwise Windows' own OCR.";
 
         public ModuleInfo Info { get; } = new ModuleInfo
@@ -784,7 +791,9 @@ namespace DesktopAICompanion.AiBrainModule
             // what the user set. The cards nothing gates (Status, AI brain, Persona, Triggers, What it sees) set none, and
             // a field the module still reads on every engine must sit in one of them: inside a greyed card the host
             // disables the whole body, so no row there can stay live (OptionsWindow.DressCard).
-            host.AddOptionsPane(new OptionsPane
+            // Kept, so a remark, an audition and a Validate can ask the host to reload its Info rows while the pane is open
+            // (NotifyInfoChanged, NotifyPaneInfoChanged below).
+            _pane = new OptionsPane
             {
                 Title = "AI Brain",
                 Schema = new[]
@@ -800,7 +809,15 @@ namespace DesktopAICompanion.AiBrainModule
                     new SettingField { Id = "brainRunsOn", Label = "Brain runs on", Kind = SettingKind.Radio, Options = BrainRunsOnLabels(), Group = "AI brain" },
                     // ---- the coding-agent CLI card: the rows in the mockup's order, then Validate and Update CLI ----
                     // Greyed whole, its two buttons included, unless a CLI is chosen on screen (the mockup's cw).
-                    new SettingField { Id = "cliName", Label = "CLI", Kind = SettingKind.Info, Group = CliCardGroup, PinTop = true, CardEnabledWhen = OnCliOnly },
+                    // ONE CLI ROW PER CLI (lane feature/cli-runner-aibrain, BACKLOG N-cli-model-effort-15), each with its CLI's
+                    // EnabledWhen, the way the signed-in and Goes through rows have been since round 2 of lane
+                    // feature/cli-model-effort: the one "CLI" row described the SAVED CLI in live text while the rows under it
+                    // followed the radio, so with Codex on screen and not applied it read "Claude Code: checking..." (the third
+                    // on-screen walk). The Claude Code row is the card's first field, so it carries the card's flags too (PinTop,
+                    // CardEnabledWhen); its own EnabledWhen is strictly narrower, as the token row's is. Refused: a label saying
+                    // the row describes the saved CLI, the brief's fallback, since one row per CLI was workable.
+                    new SettingField { Id = "cliNameClaude", Label = "Claude Code CLI", Kind = SettingKind.Info, Group = CliCardGroup, PinTop = true, CardEnabledWhen = OnCliOnly, EnabledWhen = OnClaudeCliOnly },
+                    new SettingField { Id = "cliNameCodex", Label = "Codex CLI", Kind = SettingKind.Info, Group = CliCardGroup, EnabledWhen = OnCodexCliOnly },
                     // ONE "Signed in as" ROW PER CLI, and below one "Goes through" row per CLI (round 2 of lane
                     // feature/cli-model-effort, 2026-10-09). The first on-screen walk chose Codex and did not apply it, and the
                     // card still said "Every remark goes to Anthropic" and named the Claude Code account: Load describes the
@@ -820,6 +837,10 @@ namespace DesktopAICompanion.AiBrainModule
                     // tests what they show.
                     _cliClaudeModelField,
                     _cliClaudeEffortField,
+                    // The opt-in that keeps the user's own Claude Code settings files out of this module's calls (lane
+                    // feature/cli-runner-aibrain, BACKLOG N-cli-home-files-01, the owner's decision: off by default).
+                    // Claude Code's alone, so live only while Claude Code is the CLI on screen, like the token row.
+                    new SettingField { Id = "cliClaudeSettingsOut", Label = CodingAgentCliText.LeaveOutOwnClaudeSettingsLabel, Kind = SettingKind.Bool, Group = CliCardGroup, EnabledWhen = OnClaudeCliOnly },
                     _cliCodexModelField,
                     _cliCodexEffortField,
                     // The most recent Validate of either CLI, naming it (round 2): whichever CLI the radio shows, the row
@@ -841,8 +862,8 @@ namespace DesktopAICompanion.AiBrainModule
                     // poke reaction is the one exception and stays on the text path (see OnPokeReaction). It sits
                     // in "What it sees", not in Local provider, since 1.3.0: every engine takes the screenshot.
                     new SettingField { Id = "useVision", Label = "Use vision (send a screenshot, not OCR text, with each remark)", Kind = SettingKind.Bool, Group = "What it sees" },
-                    // Screen reading uses this OCR engine whenever vision is off, the chosen model cannot see, or the
-                    // remark is the poke reaction (always text). Blank = search the usual install locations, then PATH,
+                    // Screen reading uses this OCR engine whenever vision is off, a Codex model chosen on a CLI takes no
+                    // images, or the remark is the poke reaction (always text); OcrWhenLine says what the other engines do. Blank = search the usual install locations, then PATH,
                     // then Windows' own OCR. A PATH FIELD since lane feature/layout-aibrain (host 1.4.0, the FilePath
                     // kind): the 177 DIP editor column showed only the tail of a real path ("…ract-OCR\tesseract.exe"),
                     // the field shows the file's name with its folder under it and the whole path on hover, and its own
@@ -974,7 +995,8 @@ namespace DesktopAICompanion.AiBrainModule
                     new PaneAction { Label = "Test connection", InvokeAsync = TestConnectionAsync, InvokeWithPendingAsync = TestConnectionPendingAsync, Group = "Cloud provider" },
                     new PaneAction { Label = "Refresh cloud models", InvokeAsync = RefreshCloudModelsAsync, InvokeWithPendingAsync = RefreshCloudModelsPendingAsync, Group = "Cloud provider", ReloadPaneAfter = true },
                 },
-            });
+            };
+            host.AddOptionsPane(_pane);
 
             ApplyState();
         }
@@ -1055,7 +1077,13 @@ namespace DesktopAICompanion.AiBrainModule
         {
             if (!TryBeginAudition()) return "⏳ Already generating examples — give it a moment.";
             try { return await RunAuditionAsync(live, pending).ConfigureAwait(false); }
-            finally { EndAudition(); }
+            finally
+            {
+                EndAudition();
+                // An audition sample is a real call, so the CLI row's "last answered" may have moved (lane
+                // feature/cli-runner-aibrain, N-cli-model-effort-07).
+                NotifyPaneInfoChanged();
+            }
         }
 
         /// <summary>
@@ -1557,11 +1585,17 @@ namespace DesktopAICompanion.AiBrainModule
             // thread; Validate does not save them, they wait for Apply like every other row.
             string model, effort;
             CliChoiceOnScreen(agent, pending, out model, out effort);
+            // The settings opt-in on screen too (lane feature/cli-runner-aibrain): Validate tests the call a remark would make.
+            bool leaveOutOwnSettings = LeaveOutOwnClaudeSettingsOnScreen(pending);
             CancellationToken token;
             try { token = _lifetime.Token; } catch (ObjectDisposedException) { return Task.FromResult("✗ AI Brain is shutting down."); }
             return Task.Run(async delegate
             {
-                CliAnswer answer = await cli.ValidateAsync(agent, token, typedToken, model, effort).ConfigureAwait(false);
+                CliAnswer answer = await cli.ValidateAsync(agent, token, typedToken, model, effort,
+                    agent == CodingAgentKind.Claude && leaveOutOwnSettings).ConfigureAwait(false);
+                // The CLI rows read details this Validate may have just fetched (N-cli-model-effort-07); the press's own
+                // rebuild shows them too, and the notification is inert once that has happened.
+                NotifyPaneInfoChanged();
                 // A refusal of this module's own default says so (review finding F14).
                 return CodingAgentCliText.Describe(agent, answer, CodingAgentCli.ValidateTimeout, AiSettings.DefaultCliModelFor(agent));
             });
@@ -1790,6 +1824,18 @@ namespace DesktopAICompanion.AiBrainModule
             }
         }
 
+        /// <summary>"Keep my Claude Code settings out of companion calls" as the pane shows it, applied or not, else as saved
+        /// (lane feature/cli-runner-aibrain): text that is no Bool changes nothing, as every Bool row's does.</summary>
+        private bool LeaveOutOwnClaudeSettingsOnScreen(IReadOnlyDictionary<string, string> pending)
+        {
+            AiSettings s = _settings;
+            bool value = s != null && s.CliLeaveOutClaudeSettings;
+            string shown;
+            bool parsed;
+            if (pending != null && pending.TryGetValue("cliClaudeSettingsOut", out shown) && bool.TryParse(shown, out parsed)) value = parsed;
+            return value;
+        }
+
         /// <summary>The saved choice for <paramref name="agent"/> as the card and the Status card say it: "haiku at low
         /// effort", "Claude Code's default model at low effort", "vision-second at high effort", or Codex's automatic pick and
         /// its effort ("automatic pick (gpt-6.1-sol) at low effort", CodexPickPhrase, the same words in every row since round
@@ -1839,19 +1885,20 @@ namespace DesktopAICompanion.AiBrainModule
             return on.Length == 0 ? "" : "; last answered " + on;
         }
 
-        /// <summary>The card's "CLI" row: which CLI, its version, the model and effort a call runs on, and what last
-        /// answered.</summary>
-        private string CliNameLine(CodingAgentKind agent, AiSettings s)
+        /// <summary>The card's row for <paramref name="agent"/>, one row per CLI since lane feature/cli-runner-aibrain (BACKLOG
+        /// N-cli-model-effort-15; the row for the CLI on screen is live): its version, the model and effort this module's
+        /// calls on it run on, and what last answered. The SAVED CLI's details come from the runner's cache, refreshed behind
+        /// (CachedDetails); another CLI's are what was last read of it (KeptDetails) and no read is started for it, so a pane
+        /// open starts no CLI the user did not choose, as the signed-in rows keep it (CliAccountLine). Until the one row
+        /// described the saved CLI whatever the radio showed ("Claude Code: checking..." under Codex on screen, the third
+        /// on-screen walk), and said "No CLI in use" on the local slot.</summary>
+        private string CliNameLine(CodingAgentKind agent, CodingAgentKind saved, AiSettings s)
         {
-            // About the SAVED choice, which the radio may already differ from on screen (the owner's other workstation,
-            // 2026-10-07: "None chosen" beside a radio showing Claude Code CLI read as a contradiction); Validate tests the
-            // one on screen before Apply. No "yet" since round 3: the second walk read "No CLI in use yet" on the local slot
-            // minutes after a CLI had been in use.
-            if (agent == CodingAgentKind.None)
-                return "No CLI in use. Choose Claude Code CLI or Codex CLI under \"Brain runs on\" and press Apply (Validate tests the one on screen before that).";
+            if (agent == CodingAgentKind.None) return "";
             string product = CodingAgents.ProductName(agent);
-            CodingAgentCli.CliDetails details = _cli == null ? null : _cli.CachedDetails(agent);
-            if (details == null) return product + ": checking… reopen this pane in a moment.";
+            bool isSaved = agent == saved;
+            CodingAgentCli.CliDetails details = _cli == null ? null : isSaved ? _cli.CachedDetails(agent) : _cli.KeptDetails(agent);
+            if (details == null) return isSaved ? product + ": checking… reopen this pane in a moment." : CliNameNotReadYet(agent);
             if (!details.Installed) return CodingAgentCliText.NotInstalledRow(agent);
             string named = product + (details.Version.Length > 0 ? " " + details.Version : "") +
                            (details.Where.Length > 0 ? " (" + details.Where + ")" : "");
@@ -1882,6 +1929,14 @@ namespace DesktopAICompanion.AiBrainModule
         internal static string CliAccountNotReadYet(CodingAgentKind agent)
         {
             return "Not checked yet. Choose " + CodingAgents.ChoiceLabel(agent) + " under \"Brain runs on\", then press Validate.";
+        }
+
+        /// <summary>The CLI row of <paramref name="agent"/>, when it is not the saved CLI, before anything has read it: the
+        /// signed-in row's words with the product ahead (lane feature/cli-runner-aibrain), true whichever CLI the radio shows.</summary>
+        internal static string CliNameNotReadYet(CodingAgentKind agent)
+        {
+            return CodingAgents.ProductName(agent) + ": not checked yet. Choose " + CodingAgents.ChoiceLabel(agent) +
+                   " under \"Brain runs on\", then press Validate.";
         }
 
         /// <summary>The card's "signed in as" row for <paramref name="agent"/>, one row per CLI since round 2 (the row for
@@ -1927,7 +1982,10 @@ namespace DesktopAICompanion.AiBrainModule
                        : "Ask, the hotkey, the tray row, the random drops and the poke reaction each send the text read off the screen (OCR); with Use vision on, a screenshot instead.") +
                    " The persona auditions go the same way." +
                    // aibrain 1.5.1 (lane feature/cli-home-files): what a Claude Code call leaves out of the user's own setup.
-                   (agent == CodingAgentKind.Claude ? " " + CodingAgentCliText.ClaudeOwnSetupLeftOut : "");
+                   (agent == CodingAgentKind.Claude ? " " + CodingAgentCliText.ClaudeOwnSetupLeftOut : "") +
+                   // And, with the opt-in saved on, the settings files too and what that drops (lane feature/cli-runner-aibrain).
+                   (agent == CodingAgentKind.Claude && s != null && s.CliLeaveOutClaudeSettings
+                       ? " " + CodingAgentCliText.ClaudeOwnSettingsFilesLeftOut : "");
         }
 
         // ---- the Status card (owner, 2026-10-06): one line, true when read ----------------------------------------
@@ -1961,6 +2019,29 @@ namespace DesktopAICompanion.AiBrainModule
                 _lastRemarkFailure = failure;
                 _lastRemarkModel = failure == null ? model : "";
             }
+            NotifyPaneInfoChanged();
+        }
+
+        /// <summary>The pane Init handed the host, for NotifyPaneInfoChanged; null before Init.</summary>
+        private OptionsPane _pane;
+
+        /// <summary>
+        /// Ask the host to reload this pane's Info rows if it is open (OptionsPane.NotifyInfoChanged, host 1.6.1; lane
+        /// feature/cli-runner-aibrain, BACKLOG N-cli-model-effort-07, AI Brain's half): after a remark, an audition and a
+        /// Validate, so the Status card's last remark and the CLI rows' "last answered" show what just happened while the
+        /// pane stays open. They kept what Load had read until the next rebuild (the walk: "last remark 18:36" 47 s after an
+        /// 18:43 answer), the gap the register's "A module cannot push a live value into an open options pane" named and host
+        /// 1.6.1 closed. Callable from any thread (the host marshals it); inert while the pane is closed, whose next open
+        /// reads the latest values anyway. Load stays what a pane open already ran: cached reads, plus the behind-the-scenes
+        /// refreshes CachedDetails and VramStatusLine start when theirs are stale, so a notification never waits on a child
+        /// process or the network, and nothing a reload starts notifies again. Needs host 1.6.1, whose MinHostVersion the
+        /// coordinator sets with this module's version.
+        /// </summary>
+        private void NotifyPaneInfoChanged()
+        {
+            OptionsPane pane = _pane;
+            if (pane == null) return;
+            try { pane.NotifyInfoChanged(); } catch { }
         }
 
         internal string StatusRowLine(AiSettings s, string remembrancePhase)
@@ -2069,7 +2150,9 @@ namespace DesktopAICompanion.AiBrainModule
                 // "Goes through" rows are one per CLI, each live while its CLI is on screen (round 2).
                 CodingAgentKind cli = CodingAgents.FromId(s.CliBackend);
                 d["brainRunsOn"] = BrainRunsOnLabel(s);
-                d["cliName"] = CliNameLine(cli, s);
+                d["cliNameClaude"] = CliNameLine(CodingAgentKind.Claude, cli, s);
+                d["cliNameCodex"] = CliNameLine(CodingAgentKind.Codex, cli, s);
+                d["cliClaudeSettingsOut"] = s.CliLeaveOutClaudeSettings ? "true" : "false";
                 d["cliAccountClaude"] = CliAccountLine(CodingAgentKind.Claude, cli);
                 d["cliAccountCodex"] = CliAccountLine(CodingAgentKind.Codex, cli);
                 // The saved sign-in token's presence and never the token: the host's Secret box shows "a value is saved".
@@ -2198,7 +2281,13 @@ namespace DesktopAICompanion.AiBrainModule
                 string onScreen;
                 string named = values.TryGetValue("cloudProvider", out onScreen) ? CloudProviderIdForLabel(onScreen) : "";
                 if (!string.IsNullOrEmpty(s.Provider)) s.LastCloudProvider = s.Provider;
-                else if (named.Length > 0) s.LastCloudProvider = named;
+                // Stored only when the dropdown says something Load did not show (lane feature/cli-runner-aibrain, BACKLOG
+                // N-cli-model-effort-11): with no provider saved, Load shows RememberedCloudProvider, which is "openai" for an
+                // install that never chose, so every Local model Apply wrote "LastCloudProvider": "openai", a choice nobody
+                // made, and a later change of that fallback would not have reached such an install. Compared with what Load
+                // shows from these same settings, so a provider picked in the dropdown while Local model is chosen is kept.
+                else if (named.Length > 0 && !string.Equals(named, RememberedCloudProvider(s), StringComparison.Ordinal))
+                    s.LastCloudProvider = named;
                 s.Provider = "";
             }
             else if (CodingAgents.FromId(runsOn) != CodingAgentKind.None)
@@ -2243,6 +2332,8 @@ namespace DesktopAICompanion.AiBrainModule
             if (values.TryGetValue("cliClaudeEffort", out v) && (chosen = EffortForLabel(v)) != null) s.CliClaudeEffort = chosen;
             if (values.TryGetValue("cliCodexModel", out v) && (chosen = CodexModelForLabel(v)) != null) s.CliCodexModel = chosen;
             if (values.TryGetValue("cliCodexEffort", out v) && (chosen = EffortForLabel(v)) != null) s.CliCodexEffort = chosen;
+            // The settings opt-in (lane feature/cli-runner-aibrain), collected whichever CLI is chosen, as every greyed row is.
+            if (values.TryGetValue("cliClaudeSettingsOut", out v) && bool.TryParse(v, out b)) s.CliLeaveOutClaudeSettings = b;
             // ---- Fallback + triggers ----
             if (values.TryGetValue("useLocalFallback", out v) && bool.TryParse(v, out b)) s.UseLocalFallback = b;
             if (values.TryGetValue("hotkey", out v) && !string.IsNullOrWhiteSpace(v)) s.Hotkey = v.Trim();
@@ -3269,7 +3360,7 @@ namespace DesktopAICompanion.AiBrainModule
                 // model or effort reaches the next remark without being part of BackendFingerprint, which decides only
                 // whether a retirement EVICTS, and a CLI holds nothing in VRAM to evict.
                 var cliBackend = new CodingAgentBackend(cli, agent, TimeSpan.FromSeconds(s.TimeoutSeconds),
-                    s.CliModelFor(agent), s.CliEffortFor(agent));
+                    s.CliModelFor(agent), s.CliEffortFor(agent), s.CliLeaveOutClaudeSettings);
                 AiBrain cliBrain = new AiBrain(cliBackend, s.ActiveSlotSnapshot());
                 cliBrain.BackendHostDescription = CodingAgents.IdOf(agent) + "-cli";
                 cliBrain.SubstituteMissingModel = false;
