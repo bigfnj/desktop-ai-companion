@@ -108,6 +108,16 @@ if (args.Length == 2 && args[0] == "--claude-public-image-trust")
     }
     catch (Exception ex) { Console.Error.WriteLine(ex); Console.WriteLine("RESULT=FAIL"); return 1; }
 }
+if (args.Length == 1 && args[0] == "--codex-trust-policy-only")
+{
+    try
+    {
+        await CodexTrustPolicyChecks.RunAsync(Check);
+        Console.WriteLine($"RESULT=PASS assertions={assertions}");
+        return 0;
+    }
+    catch (Exception ex) { Console.Error.WriteLine(ex); Console.WriteLine("RESULT=FAIL"); return 1; }
+}
 if (args.Length == 1 && args[0] == "--claude-observation-only")
 {
     try
@@ -219,6 +229,8 @@ try
         await WaitToolChecks.RunAsync(Check);
         await SendToolChecks.RunAsync(Check);
         await InstructionsChecks.RunAsync(Check);
+        // Codex observation-only discovery and opt-in update-tolerant delivery (lane broker-b).
+        await CodexTrustPolicyChecks.RunAsync(Check);
     }
     try { WorkerOptions.Parse(["--data", scratch, "--lan", "false", "--lan", "true"]); throw new Exception("Accepted duplicate option."); }
     catch (ArgumentException) { Check(true, "duplicate worker options fail before startup"); }

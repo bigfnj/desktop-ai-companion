@@ -26,11 +26,21 @@ public sealed class DesktopDirectoryObserver : IAsyncDisposable
         heartbeatTask = RefreshMetadataAsync(heartbeatInterval, lifetime.Token);
     }
 
-    public static async Task<DesktopDirectoryObserver> ConnectAsync(CancellationToken token = default)
+    public static Task<DesktopDirectoryObserver> ConnectAsync(CancellationToken token = default)
+        => ConnectAsync(allowPublisherSignedRouter: false, token);
+
+    /// <summary>
+    /// <paramref name="allowPublisherSignedRouter"/> admits a router that fails its exact pin when Windows verifies
+    /// its expected publisher. The observer is metadata-only either way; <see cref="RouterTrust"/> reports which.
+    /// </summary>
+    public static async Task<DesktopDirectoryObserver> ConnectAsync(bool allowPublisherSignedRouter, CancellationToken token = default)
     {
-        var adapter = await DesktopAdapter.ConnectAsync(token: token);
+        var adapter = await DesktopAdapter.ConnectAsync(new() { AllowPublisherSignedRouter = allowPublisherSignedRouter }, token);
         return await WarmUpAsync(adapter.CreateDirectoryObserver(TimeSpan.FromSeconds(30)), TimeSpan.FromSeconds(1), token);
     }
+
+    public DesktopRouterTrust RouterTrust => connection.Trust;
+    public DesktopAdapterException? ExactPinRefusal => connection.ExactPinRefusal;
 
     internal static async Task<DesktopDirectoryObserver> ConnectForTestAsync(IDesktopConnection connection,
         TimeSpan heartbeatInterval, CancellationToken token = default)

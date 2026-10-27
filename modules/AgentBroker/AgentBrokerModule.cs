@@ -104,6 +104,8 @@ public sealed partial class AgentBrokerModule : IModule
             new() { Id = "claudeDiscovery", Label = "Discover open Claude sessions", Kind = SettingKind.Bool, Group = "Coding agents" },
             new() { Id = "codexPeerMessages", Label = "Wake existing Codex sessions", Kind = SettingKind.Bool, Group = "Coding agents" },
             new() { Id = "claudePeerCredentials", Label = "Wake existing Claude sessions", Kind = SettingKind.Bool, Group = "Coding agents" },
+            new() { Id = "codexUpdateTolerantDelivery", Label = "Also wake updated Codex builds (publisher verified)", Kind = SettingKind.Bool,
+                Group = "Coding agents", EnabledWhen = "codexPeerMessages=true" },
             new() { Id = "nativePrivacy", Label = "Native delivery", Kind = SettingKind.Info, Group = "Coding agents" },
             new() { Id = "clientSetup", Label = "Client connection", Kind = SettingKind.Info, Group = "Coding agents" },
             new() { Id = "nativeStatus", Label = "Native adapters", Kind = SettingKind.Info, Group = "Coding agents" }
@@ -130,7 +132,7 @@ public sealed partial class AgentBrokerModule : IModule
         values["lanAccess"] = LanAccessText();
         values["sharing"] = "Pair brokers from the tray. Pairing shares current and future sessions. Mark a session private to hide it, or mute it to stop peer messages. LAN connections always authenticate.";
         values["manualPeer"] = "";
-        values["nativePrivacy"] = "The wake switches let messages reach existing idle client sessions automatically. MCP agents can still poll and reply without them. Wake adapters require verified client versions; Claude wake-up uses sensitive local peer credentials. Existing agent permission controls still apply.";
+        values["nativePrivacy"] = "The wake switches let messages reach existing idle client sessions automatically. MCP agents can still poll and reply without them. Wake adapters require exactly verified client versions. Allowing updated Codex builds instead accepts a valid OpenAI signature plus the native capability checks, and is off by default. Claude wake-up uses sensitive local peer credentials. Existing agent permission controls still apply.";
         values["clientSetup"] = "Connect MCP once per client for receipt and reply tools. Claude Code uses the local HTTP endpoint when it needs no token; other connections use the stdio bridge. Client policy can require administrator approval. For Claude Code in VS Code, start a new conversation and check /mcp afterward.";
         values["nativeStatus"] = NativeStatusText();
         return values;

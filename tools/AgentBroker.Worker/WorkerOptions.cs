@@ -10,6 +10,8 @@ public sealed record WorkerOptions(string DataDirectory, string Name, int Loopba
 {
     public bool EnableCodexNativeDiscovery { get; init; } = true;
     public bool EnableCodexPeerMessages { get; init; }
+    // Opt-in: a publisher-verified Codex build that is not exactly pinned may deliver. Strict pins are the default.
+    public bool EnableCodexUpdateTolerantDelivery { get; init; }
     public bool EnableClaudeNativeDiscovery { get; init; } = true;
     public bool EnableClaudePeerCredentials { get; init; }
     public System.Net.IPAddress LanListenAddress { get; init; } = System.Net.IPAddress.Any;
@@ -33,7 +35,7 @@ public sealed record WorkerOptions(string DataDirectory, string Name, int Loopba
         {
             if (i + 1 >= args.Length || args[i] is not ("--data" or "--name" or "--loopback-port" or "--lan-port" or
                 "--lan" or "--allow-unauthenticated-loopback" or "--parent-pid" or "--parent-start" or
-                "--codex-discovery" or "--codex-peer-messages" or "--claude-discovery" or "--claude-peer-credentials" or
+                "--codex-discovery" or "--codex-peer-messages" or "--codex-update-tolerant-delivery" or "--claude-discovery" or "--claude-peer-credentials" or
                 "--message-lifetime-minutes") ||
                 !values.TryAdd(args[i], args[i + 1])) throw new ArgumentException("Invalid broker arguments.");
         }
@@ -45,6 +47,7 @@ public sealed record WorkerOptions(string DataDirectory, string Name, int Loopba
         {
             EnableCodexNativeDiscovery = Bool("--codex-discovery", true),
             EnableCodexPeerMessages = Bool("--codex-peer-messages", false),
+            EnableCodexUpdateTolerantDelivery = Bool("--codex-update-tolerant-delivery", false),
             EnableClaudeNativeDiscovery = Bool("--claude-discovery", true),
             EnableClaudePeerCredentials = Bool("--claude-peer-credentials", false),
             DefaultMessageLifetimeMinutes = Int("--message-lifetime-minutes", 1440),

@@ -5,7 +5,8 @@ namespace DesktopAICompanion.AgentBroker;
 
 internal sealed record BrokerSettings(bool Enabled, string Name, int LoopbackPort, int LanPort,
     bool EnableLan, bool NoAuthLoopback, bool CodexDiscovery, bool ClaudeDiscovery,
-    bool CodexPeerMessages, bool ClaudePeerCredentials, int MessageLifetimeHours = 24)
+    bool CodexPeerMessages, bool ClaudePeerCredentials, int MessageLifetimeHours = 24,
+    bool CodexUpdateTolerantDelivery = false)
 {
     internal static BrokerSettings Read(IModuleSettings settings) => new(
         settings.GetBool("enabled", false), settings.Get("name", Environment.MachineName),
@@ -13,7 +14,9 @@ internal sealed record BrokerSettings(bool Enabled, string Name, int LoopbackPor
         settings.GetBool("enableLan", true), settings.GetBool("noAuthLoopback", true),
         settings.GetBool("codexDiscovery", true), settings.GetBool("claudeDiscovery", true),
         settings.GetBool("codexPeerMessages", false), settings.GetBool("claudePeerCredentials", false),
-        settings.GetInt("messageLifetimeHours", 24));
+        settings.GetInt("messageLifetimeHours", 24),
+        // Opt-in on top of Codex delivery; strict exact pins stay the default.
+        settings.GetBool("codexUpdateTolerantDelivery", false));
 
     internal bool Valid => Name.Length is > 0 and <= 80 && !string.IsNullOrWhiteSpace(Name) &&
         !Name.Any(char.IsControl) && LoopbackPort is >= 1 and <= 65535 && LanPort is >= 1 and <= 65535 &&
@@ -27,6 +30,7 @@ internal sealed record BrokerSettings(bool Enabled, string Name, int LoopbackPor
         ["noAuthLoopback"] = Bool(NoAuthLoopback), ["codexDiscovery"] = Bool(CodexDiscovery),
         ["claudeDiscovery"] = Bool(ClaudeDiscovery), ["codexPeerMessages"] = Bool(CodexPeerMessages),
         ["claudePeerCredentials"] = Bool(ClaudePeerCredentials),
+        ["codexUpdateTolerantDelivery"] = Bool(CodexUpdateTolerantDelivery),
         ["messageLifetimeHours"] = MessageLifetimeHours.ToString(CultureInfo.InvariantCulture)
     };
 
@@ -45,9 +49,10 @@ internal sealed record BrokerSettings(bool Enabled, string Name, int LoopbackPor
             !bool.TryParse(values["codexDiscovery"], out bool codexDiscovery) ||
             !bool.TryParse(values["claudeDiscovery"], out bool claudeDiscovery) ||
             !bool.TryParse(values["codexPeerMessages"], out bool codexMessages) ||
-            !bool.TryParse(values["claudePeerCredentials"], out bool claudeCredentials)) return false;
+            !bool.TryParse(values["claudePeerCredentials"], out bool claudeCredentials) ||
+            !bool.TryParse(values["codexUpdateTolerantDelivery"], out bool codexUpdateTolerant)) return false;
         result = new(enabled, values["name"].Trim(), local, lan, enableLan, noAuth,
-            codexDiscovery, claudeDiscovery, codexMessages, claudeCredentials, messageLifetimeHours);
+            codexDiscovery, claudeDiscovery, codexMessages, claudeCredentials, messageLifetimeHours, codexUpdateTolerant);
         return result.Valid;
     }
 

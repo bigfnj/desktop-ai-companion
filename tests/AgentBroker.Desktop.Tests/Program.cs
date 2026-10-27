@@ -98,6 +98,52 @@ if (args.SequenceEqual(new[] { "--discovery-timeouts-only" })
         return 1;
     }
 }
+if (args.SequenceEqual(new[] { "--codex-observation-only" }))
+{
+    try
+    {
+        await CodexObservationChecks.RunAsync(Check);
+        Console.WriteLine($"AgentBroker Codex observation checks passed: {passed}");
+        return 0;
+    }
+    catch (Exception error)
+    {
+        Console.Error.WriteLine(error);
+        Console.WriteLine("RESULT=FAIL");
+        return 1;
+    }
+}
+// Read-only: one WinVerifyTrust call on an explicitly named installed image. No pipe, process or vendor input.
+if (args.Length == 4 && args[0] == "--codex-public-image-trust" && args[3] is "protected" or "unprotected")
+{
+    try
+    {
+        CodexObservationChecks.RunPublicImageCheck(Check, args[1], args[2], args[3] == "protected");
+        Console.WriteLine($"AgentBroker Codex public-image checks passed: {passed}");
+        return 0;
+    }
+    catch (Exception error)
+    {
+        Console.Error.WriteLine(error);
+        Console.WriteLine("RESULT=FAIL");
+        return 1;
+    }
+}
+if (args.Length == 2 && args[0] == "--codex-publisher-router")
+{
+    try
+    {
+        CodexObservationChecks.RunPublisherRouterCheck(Check, args[1]);
+        Console.WriteLine($"AgentBroker Codex publisher router checks passed: {passed}");
+        return 0;
+    }
+    catch (Exception error)
+    {
+        Console.Error.WriteLine(error is DesktopAdapterException known ? "DesktopAdapterException: " + known.Code : error.ToString());
+        Console.WriteLine("RESULT=FAIL");
+        return 1;
+    }
+}
 if (args.SequenceEqual(new[] { "--exact-thread-metadata-only" }))
 {
     try
@@ -485,6 +531,8 @@ if (!args.SequenceEqual(new[] { "--existing-tests-only" })) await ExactThreadMet
 if (!args.SequenceEqual(new[] { "--existing-tests-only" })) await ConnectionProfileChecks.RunAsync(Check);
 if (!args.SequenceEqual(new[] { "--existing-tests-only" })) VsCodeManifestChecks.Run(Check);
 if (!args.SequenceEqual(new[] { "--existing-tests-only" })) DesktopPackageProfileChecks.Run(Check);
+// Codex observation-only discovery and the opt-in update-tolerant delivery gate (lane broker-b).
+if (!args.SequenceEqual(new[] { "--existing-tests-only" })) await CodexObservationChecks.RunAsync(Check);
 Console.WriteLine($"AgentBroker desktop synthetic checks passed: {passed}");
 return 0;
 
@@ -496,6 +544,9 @@ sealed class FakeConnection : IDesktopConnection
     public FakeConnection() { stream = new FakeDuplex(Handle); }
     public Stream Stream => stream;
     public OwnerProcessIdentity Identity { get; } = new(1234, 123456789, "synthetic-public-app.exe");
+    // Synthetic routers stand for an exactly pinned image unless a check selects publisher trust.
+    public DesktopRouterTrust Trust { get; set; } = DesktopRouterTrust.ExactPinned;
+    public DesktopAdapterException? ExactPinRefusal { get; set; }
     public Guid OwnerId { get; set; } = Guid.NewGuid();
     private Guid ClientId { get; } = Guid.NewGuid();
     private readonly List<JsonObject> requests = [];

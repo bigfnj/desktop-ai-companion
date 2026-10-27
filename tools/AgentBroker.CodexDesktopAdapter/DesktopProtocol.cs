@@ -23,6 +23,14 @@ public sealed record DesktopAdapterOptions(bool EnableAuthorizedPlaintextDeliver
     TimeSpan? RequestTimeout = null, int MaximumMessageBytes = 16 * 1024,
     bool EnableExternalPeerDelivery = false)
 {
+    /// <summary>
+    /// Discovery may admit a router that fails its exact pin when Windows verifies the expected publisher
+    /// (and, for the desktop package, its protected WindowsApps location). Such a connection is observation
+    /// only: its bindings carry <see cref="DesktopRouterTrust.PublisherSigned"/> and every submission refuses.
+    /// </summary>
+    public bool AllowPublisherSignedRouter { get; init; }
+    /// <summary>Opt-in update-tolerant delivery through a publisher-signed router. Strict exact pins stay the default.</summary>
+    public bool EnableUpdateTolerantDelivery { get; init; }
     internal TimeSpan Timeout => RequestTimeout ?? TimeSpan.FromSeconds(5);
     // Pinned VS Code routers can spend ten seconds discovering a recipient.
     // Leave time for that result without changing connect or submission limits.
@@ -30,7 +38,8 @@ public sealed record DesktopAdapterOptions(bool EnableAuthorizedPlaintextDeliver
     internal void Validate()
     {
         if (Timeout < TimeSpan.FromMilliseconds(50) || Timeout > TimeSpan.FromSeconds(30)
-            || MaximumMessageBytes < 1 || MaximumMessageBytes > 32 * 1024)
+            || MaximumMessageBytes < 1 || MaximumMessageBytes > 32 * 1024
+            || EnableUpdateTolerantDelivery && (!AllowPublisherSignedRouter || !EnableExternalPeerDelivery))
             throw new DesktopAdapterException("invalid_options");
     }
 }
@@ -38,6 +47,11 @@ public sealed record DesktopAdapterOptions(bool EnableAuthorizedPlaintextDeliver
 public sealed record DesktopOwnerBinding(Guid ConversationId, Guid OwnerClientId, Guid Incarnation,
     uint ServerPid, ulong ServerCreationFileTime, bool SupportsUntrustedAppInput)
 {
+    /// <summary>
+    /// The trust of the router connection that discovered this owner. The adapter sets it from its verified
+    /// connection and refuses a binding whose trust differs; the default grants no delivery authority.
+    /// </summary>
+    public DesktopRouterTrust RouterTrust { get; init; } = DesktopRouterTrust.Unverified;
     /// <summary>Stable broker address identity while the same native GUI process/client owns this conversation.</summary>
     public Guid NativeSessionIncarnation
     {
@@ -66,6 +80,10 @@ internal interface IDesktopConnection : IAsyncDisposable
 {
     Stream Stream { get; }
     OwnerProcessIdentity Identity { get; }
+    // Every implementation states its trust; there is deliberately no default member that could grant a pin.
+    DesktopRouterTrust Trust { get; }
+    // The exact-pin refusal a publisher-signed router fell back from: diagnostic only, never authority.
+    DesktopAdapterException? ExactPinRefusal => null;
     void VerifyStillSameOwner();
 }
 

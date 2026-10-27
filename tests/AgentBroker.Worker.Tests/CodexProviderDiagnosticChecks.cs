@@ -112,7 +112,7 @@ internal static class CodexProviderDiagnosticChecks
 
     private sealed class SyntheticOwner : ICodexOwnerConnection
     {
-        internal DesktopOwnerBinding Binding { get; } = new(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), 12345, 134000000000000000, true);
+        internal DesktopOwnerBinding Binding { get; } = new(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), 12345, 134000000000000000, true) { RouterTrust = DesktopRouterTrust.ExactPinned };
         internal int Submissions;
         public bool NativeIdleGuard => true;
         public Task<DesktopOwnerBinding?> DiscoverAsync(Guid conversationId, CancellationToken token)

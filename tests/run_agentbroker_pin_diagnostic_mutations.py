@@ -45,6 +45,10 @@ SOURCES = {
     "store": "src/AgentBroker.Core/BrokerStore.cs",
     "tools": "tools/AgentBroker.Worker/BrokerTools.cs",
     "workerapp": "tools/AgentBroker.Worker/WorkerApplication.cs",
+    "desktopadapter": "tools/AgentBroker.CodexDesktopAdapter/DesktopAdapter.cs",
+    "publishertrust": "tools/AgentBroker.CodexDesktopAdapter/WindowsPublisherImageTrust.cs",
+    "vscode": "tools/AgentBroker.CodexDesktopAdapter/VsCodeCompatibilityProfile.cs",
+    "probe": "tools/AgentBroker.CodexDesktopAdapter/DesktopConnectionProfileProbe.cs",
 }
 PROJECTS = {
     "worker": "tests/AgentBroker.Worker.Tests/AgentBroker.Worker.Tests.csproj",
@@ -155,6 +159,84 @@ WITNESSES = (
         ('private bool Retained(BrokerSession s) => s.Adapter == "mcp" && s.Activity',
          "private bool Retained(BrokerSession s) => s.Activity"),
     )),
+    # ---- lane feature/agentbroker-backlog-b ----
+    # Codex observation-only discovery: publisher trust, protected location, router fallback, adapter guards.
+    Witness("codex-publisher-organization", "publishertrust", "desktop", ("--codex-observation-only",), "CodexObservationChecks.cs", ((
+        "            return commonName == expectedPublisher && organization == expectedPublisher;",
+        "            return commonName == expectedPublisher;",
+    ),)),
+    Witness("codex-protected-location-owner", "publishertrust", "desktop", ("--codex-observation-only",), "CodexObservationChecks.cs", ((
+        "        if (descriptor.Owner?.Value is not (LocalSystem or TrustedInstaller) || descriptor.DiscretionaryAcl is null) return false;",
+        "        if (descriptor.DiscretionaryAcl is null) return false;",
+    ),)),
+    Witness("codex-protected-location-conditional-write", "publishertrust", "desktop", ("--codex-observation-only",), "CodexObservationChecks.cs", ((
+        "bool allows = known is QualifiedAce qualified ? qualified.AceQualifier == AceQualifier.AccessAllowed : known is CompoundAce;",
+        "bool allows = known is QualifiedAce qualified ? qualified.AceQualifier == AceQualifier.AccessAllowed && !qualified.IsCallback : known is CompoundAce;",
+    ),)),
+    Witness("codex-router-strict-fallback", "desktop", "desktop", ("--codex-observation-only",), "CodexObservationChecks.cs", ((
+        "when (allowPublisherSigned && DesktopCompatibilityProfile.IsExactPinMismatch(pinned.Code))",
+        "when (DesktopCompatibilityProfile.IsExactPinMismatch(pinned.Code))",
+    ),)),
+    Witness("codex-router-identity-fallback", "desktop", "desktop", ("--codex-observation-only",), "CodexObservationChecks.cs", ((
+        "when (allowPublisherSigned && DesktopCompatibilityProfile.IsExactPinMismatch(pinned.Code))",
+        "when (allowPublisherSigned)",
+    ),)),
+    Witness("codex-publisher-router-location", "desktop", "desktop", ("--codex-observation-only",), "CodexObservationChecks.cs", ((
+        "        RequirePublisher(verify(image, WindowsPublisherImageTrust.OpenAIPublisher, true), version);",
+        "        RequirePublisher(verify(image, WindowsPublisherImageTrust.OpenAIPublisher, false), version);",
+    ),)),
+    Witness("codex-publisher-router-archive", "desktop", "desktop", ("--codex-observation-only",), "CodexObservationChecks.cs", ((
+        '        if (!isProtectedFile(archive)) throw new DesktopAdapterException("public_image_location_unprotected", version);\n',
+        "",
+    ),)),
+    Witness("codex-running-engine-publisher", "vscode", "desktop", ("--codex-observation-only",), "CodexObservationChecks.cs", ((
+        "            WindowsDesktopConnection.RequirePublisher(verify(engine.Image), version);\n",
+        "",
+    ),)),
+    Witness("codex-adapter-observation-guard", "desktopadapter", "desktop", ("--codex-observation-only",), "CodexObservationChecks.cs", ((
+        "            if (connection.Trust != DesktopRouterTrust.ExactPinned &&\n"
+        "                !(connection.Trust == DesktopRouterTrust.PublisherSigned && options.EnableUpdateTolerantDelivery))\n"
+        '                return new(DesktopSubmissionOutcome.Rejected, ErrorCode: "router_observation_only");\n',
+        "",
+    ),)),
+    Witness("codex-adapter-binding-trust", "desktopadapter", "desktop", ("--codex-observation-only",), "CodexObservationChecks.cs", ((
+        "            || !binding.SupportsUntrustedAppInput || binding.RouterTrust != connection.Trust)",
+        "            || !binding.SupportsUntrustedAppInput)",
+    ),)),
+    Witness("codex-adapter-capability-observation", "desktopadapter", "desktop", ("--codex-observation-only",), "CodexObservationChecks.cs", ((
+        "        if (!capability && connection.Trust != DesktopRouterTrust.PublisherSigned)",
+        "        if (!capability)",
+    ),)),
+    Witness("codex-probe-trust-guard", "probe", "desktop", ("--codex-observation-only",), "CodexObservationChecks.cs", ((
+        " ||\n            connection.Trust is not (DesktopRouterTrust.ExactPinned or DesktopRouterTrust.PublisherSigned))",
+        ")",
+    ),)),
+    # Worker provider/adapter: observation refusal, lent trust, unsupported capability, strict profiles, diagnostics.
+    Witness("codex-worker-observation-guard", "codex", "worker", ("--codex-trust-policy-only",), "CodexTrustPolicyChecks.cs", ((
+        "            if (previous.RouterTrust != DesktopRouterTrust.ExactPinned && !updateTolerant)\n"
+        '                return new(AdapterAdmission.Refused, "codex_observation_only");\n',
+        "",
+    ),)),
+    Witness("codex-worker-lent-exact-trust", "codex", "worker", ("--codex-trust-policy-only",), "CodexTrustPolicyChecks.cs", ((
+        "        CodexDeliveryAuthority.ExactPinned when binding.RouterTrust == DesktopRouterTrust.ExactPinned => null,",
+        "        CodexDeliveryAuthority.ExactPinned => null,",
+    ),)),
+    Witness("codex-worker-unsupported-capability", "provider", "worker", ("--codex-trust-policy-only",), "CodexTrustPolicyChecks.cs", ((
+        "        return NativeIdleGuard && profileTrust != DesktopRouterTrust.Unverified && binding.SupportsUntrustedAppInput\n",
+        "        return NativeIdleGuard && profileTrust != DesktopRouterTrust.Unverified\n",
+    ),)),
+    Witness("codex-worker-strict-profiles", "provider", "worker", ("--codex-trust-policy-only",), "CodexTrustPolicyChecks.cs", ((
+        "        if (!updateTolerant || !DesktopCompatibilityProfile.IsExactPinMismatch(exact.Code)) return DesktopRouterTrust.Unverified;",
+        "        if (!DesktopCompatibilityProfile.IsExactPinMismatch(exact.Code)) return DesktopRouterTrust.Unverified;",
+    ),)),
+    Witness("codex-worker-fresh-publisher-check", "provider", "worker", ("--codex-trust-policy-only",), "CodexTrustPolicyChecks.cs", ((
+        "            profileTrust = VerifyProfilesByPublisher(error, diagnostics: null);",
+        "            profileTrust = DesktopRouterTrust.PublisherSigned;",
+    ),)),
+    Witness("codex-worker-router-pin-diagnostic", "provider", "worker", ("--codex-trust-policy-only",), "CodexTrustPolicyChecks.cs", ((
+        "            diagnostics.Add(CodexNativeAdapter.DescribeDiscoveryFailure(routerPin));\n",
+        "",
+    ),)),
 )
 
 

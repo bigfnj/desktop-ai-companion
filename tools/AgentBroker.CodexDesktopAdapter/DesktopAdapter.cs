@@ -23,6 +23,10 @@ public sealed partial class DesktopAdapter : IAsyncDisposable
     private const int MaximumReceipts = 4096;
     /// <summary>Native owner checks idle twice before context dispatch. This is not an engine-wide lock.</summary>
     public bool NativeIdleGuard => options.EnableExternalPeerDelivery;
+    /// <summary>How this connection's router was verified. Only an exact pin carries the reviewed delivery profile.</summary>
+    public DesktopRouterTrust RouterTrust => connection.Trust;
+    /// <summary>For a publisher-signed router, the exact-pin refusal it fell back from (diagnostic only).</summary>
+    public DesktopAdapterException? ExactPinRefusal => connection.ExactPinRefusal;
 
     private DesktopAdapter(IDesktopConnection connection, DesktopAdapterOptions options)
     { this.connection = connection; this.options = options; }
@@ -32,7 +36,7 @@ public sealed partial class DesktopAdapter : IAsyncDisposable
     {
         options ??= new();
         options.Validate();
-        var connection = await WindowsDesktopConnection.ConnectAsync(options.Timeout, token);
+        var connection = await WindowsDesktopConnection.ConnectAsync(options.Timeout, options.AllowPublisherSignedRouter, token);
         return await ConnectForTestAsync(connection, options, token);
     }
 
@@ -72,10 +76,14 @@ public sealed partial class DesktopAdapter : IAsyncDisposable
         var owner = DesktopFrames.Id(response, "handledByClientId");
         if (targetClientId is not null && targetClientId != owner)
             throw new DesktopAdapterException("owner_changed");
-        if (!DesktopFrames.IsTrue(response["result"], "supportsUntrustedAppInput"))
+        bool capability = DesktopFrames.IsTrue(response["result"], "supportsUntrustedAppInput");
+        // An exactly pinned owner always advertises the reviewed capability, so its absence stays a protocol fault.
+        // A publisher-signed router is an unreviewed build: its owner stays observable without the capability,
+        // and the missing capability is the runtime check that refuses update-tolerant delivery.
+        if (!capability && connection.Trust != DesktopRouterTrust.PublisherSigned)
             throw new DesktopAdapterException("owner_capability_mismatch");
         return new(threadId, owner, incarnation, connection.Identity.Pid,
-            connection.Identity.CreationFileTime, true);
+            connection.Identity.CreationFileTime, capability) { RouterTrust = connection.Trust };
     }
 
     public Task<DesktopSubmissionResult> SubmitAuthorizedPlaintextAsync(DesktopOwnerBinding binding,
@@ -111,6 +119,11 @@ public sealed partial class DesktopAdapter : IAsyncDisposable
         await gate.WaitAsync(token);
         try
         {
+            // A publisher signature permits observation only. Refuse before any frame, receipt or rediscovery
+            // unless the caller explicitly opted in to update-tolerant delivery for this connection.
+            if (connection.Trust != DesktopRouterTrust.ExactPinned &&
+                !(connection.Trust == DesktopRouterTrust.PublisherSigned && options.EnableUpdateTolerantDelivery))
+                return new(DesktopSubmissionOutcome.Rejected, ErrorCode: "router_observation_only");
             ValidateBinding(binding);
             string digest = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
                 (externalPeer ? "external_peer" : "plaintext") + "\0" + text)));
@@ -185,7 +198,7 @@ public sealed partial class DesktopAdapter : IAsyncDisposable
         if (binding.Incarnation != incarnation || binding.ServerPid != connection.Identity.Pid
             || binding.ServerCreationFileTime != connection.Identity.CreationFileTime
             || binding.ConversationId == Guid.Empty || binding.OwnerClientId == Guid.Empty
-            || !binding.SupportsUntrustedAppInput)
+            || !binding.SupportsUntrustedAppInput || binding.RouterTrust != connection.Trust)
             throw new DesktopAdapterException("stale_binding");
     }
 

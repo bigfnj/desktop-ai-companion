@@ -172,7 +172,7 @@ internal static class CodexQueueChecks
         internal void MakeUncertain(Guid id) => uncertain.TryAdd(id, 0);
         internal NativeAttempt[] AttemptsFor(Guid id) => attempts.Where(attempt => attempt.Id == id).ToArray();
         internal int AdmittedFor(Guid id) => attempts.Count(attempt => attempt.Id == id && attempt.Outcome == DesktopSubmissionOutcome.Accepted);
-        private DesktopOwnerBinding Binding => new(Thread, owner, connection, 12345, 134000000000000000, true);
+        private DesktopOwnerBinding Binding => new(Thread, owner, connection, 12345, 134000000000000000, true) { RouterTrust = DesktopRouterTrust.ExactPinned };
         public bool IsDeliveryAuthorized(DesktopOwnerBinding binding) => !Disposed && binding == Binding;
         public Task<IReadOnlyList<DesktopDirectorySession>> ObserveAsync(CancellationToken token)
         {

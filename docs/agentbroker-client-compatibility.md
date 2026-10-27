@@ -2,6 +2,115 @@
 
 Compatibility snapshot: 2026-10-22. The ordinary Codex desktop passed one idle wake test through its existing owner. After a client update, public source and read-only connection checks were repeated. This records those limited live results and the remaining acceptance gates.
 
+## Codex observation and update-tolerant delivery, 2026-10-27
+
+Codex discovery now follows the 2026-10-26 Claude amendment below. When the
+connected `\\.\pipe\codex-ipc` router fails its exact pin, discovery can still
+observe it, provided Windows Authenticode verifies the expected publisher:
+
+- Desktop router: `ChatGPT.exe` inside its `OpenAI.Codex_<version>_<arch>__2p2nqsd0c76g0`
+  package directory under `%ProgramFiles%\WindowsApps`, signed by `OpenAI OpCo, LLC`.
+  Both the common name and the organization must equal that name exactly. The held
+  image and the unsigned `resources\app.asar` archive must be owned by SYSTEM or
+  TrustedInstaller and writable by no other principal. Package installation
+  verified the archive, and the protected location keeps it unchanged since then.
+- Code-hosted router: the current-user `Code.exe` signed by `Microsoft Corporation`,
+  plus at least one running Code-owned engine at
+  `~/.vscode/extensions/openai.chatgpt-<version>-win32-x64/bin/windows-x86_64/codex.exe`
+  signed by `OpenAI OpCo, LLC`.
+
+Only an exact-pin mismatch can fall back to publisher evidence
+(`DesktopCompatibilityProfile.IsExactPinMismatch`). A linked image, an
+unverifiable process snapshot, another user's process, a changed process
+incarnation or a foreign pipe write grant still refuse. Process, user, creation
+time, fixed endpoint, pipe ACL, version-1 owner discovery and the bounded frame
+checks are unchanged. Verification uses cached revocation data only, so publisher
+trust is unavailable when Windows cannot verify it offline.
+
+Every owner binding from such a connection carries `DesktopRouterTrust.PublisherSigned`.
+Those rows have no receive, wake or reply capability. A submission to one refuses
+before owner rediscovery, transport or model input: `codex_observation_only` in the
+worker adapter and `router_observation_only` in the adapter library. An updated
+owner that stops advertising `supportsUntrustedAppInput` stays listed without
+capabilities; for an exactly pinned router that absence is still a protocol fault.
+Status names the failed exact pin and `codex_observation_only` on every pass. The
+exact-pin delivery path is unchanged. Sources: `WindowsDesktopConnection.VerifyRouter`,
+`WindowsDesktopConnection.VerifyPublisherSignedRouter`, `WindowsPublisherImageTrust`
+and the shared `DesktopAdapter` submission guard in `tools/AgentBroker.CodexDesktopAdapter/`;
+`CodexNativeProvider.Authorize` and `CodexNativeAdapter.SubmitAsync` in
+`tools/AgentBroker.Worker/Adapters/`.
+
+WinVerifyTrust hashes the whole image. No performance saving is claimed for it.
+The persistent directory observer still verifies once per connection.
+
+Read-only checks on the development workstation, 2026-10-27: the installed desktop
+package `26.1021.3705.0` and VS Code extension `26.1021.22027` both fail their exact
+pins (`26.1016.6573.0` / `26.1016.8622.0` and `26.1007.21434`). `ChatGPT.exe` and the
+extension engine verified as `OpenAI OpCo, LLC`, and `Code.exe` 1.143.1 as
+`Microsoft Corporation`. The packaged image grants write access only to SYSTEM and
+TrustedInstaller. The complete publisher router branch passed for both the
+installed desktop and Code routers. None of these checks opened the pipe,
+initialized the protocol or sent input, so live observation of a running router
+is still a separate step.
+
+### Update-tolerant native delivery contract
+
+Strict exact pins stay the default. The per-vendor opt-in below lets a build that
+is not exactly pinned deliver only when every listed runtime check passes. Any
+unmet check refuses with `unsupported_capability` before transport. A signature
+establishes publisher identity, not protocol compatibility, so the runtime checks
+are required in addition to it.
+
+**Codex**: `codexUpdateTolerantDelivery` ("Also wake updated Codex builds (publisher
+verified)"), default off, effective only with `codexPeerMessages`. Required, all of:
+
+1. Router: an exact pin, or the publisher branch above.
+2. Every running Code-owned engine: its exact extension profile, or a same-user
+   `Code.exe` child at the OpenAI extension layout with an OpenAI signature
+   (`VsCodeCompatibilityProfile.VerifyRunningClientsByPublisher`). This check runs
+   on each discovery pass and again immediately before each submission.
+3. Same-user server process, PID and creation FILETIME, the fixed endpoint and no
+   foreign write grant, rechecked before every frame.
+4. `initialize` returns a canonical client ID. Version-1 `thread-owner-discovery`
+   for the exact conversation returns the exact owner with
+   `supportsUntrustedAppInput:true`, rechecked immediately before version-2
+   `thread-follower-start-turn`.
+5. The native incarnation (server PID, creation FILETIME, owner client and
+   conversation) matches the recipient address. A changed owner defers as
+   `native_owner_changed`.
+
+These stay exactly as in strict mode: recipient binding, recipient-native admission
+with `inheritThreadSettings:true` and no permission, model or workspace fields,
+immutable deduplicated message IDs, `DeferredNotSubmitted` only for the exact typed
+busy error from the correct owner, `Uncertain` for every other failure after entering
+submission, and paired-broker identity. Tolerant rows carry the same capabilities as
+exact rows, including `NativeIdleGuard`, because the submission path and its runtime
+checks are the same code.
+
+Not re-proven for an unreviewed build: that the owner still inherits thread
+settings, still checks idle twice before injection, and still uses the busy error
+to mean "not submitted"; and that the unsigned extension JavaScript still matches
+the reviewed renderer bridge and owner manager. Opting in accepts those gaps, which
+is why the setting is off by default and why status reports
+`codex_update_tolerant_delivery` and the failed exact pin on every pass while it is
+in effect. Synthetic checks cover a compatible updated build, wrong publisher,
+invalid signature, changed protocol, held and refused admission, busy and
+reconnect (`CodexTrustPolicyChecks.cs`, `CodexObservationChecks.cs`). Live native
+acceptance of an updated build has not been run.
+
+**Claude**: no update-tolerant delivery. An unpinned Claude build stays
+observation-only, and exact re-pinning (below) is the supported path. Two separate
+reasons hold it there. The delivery boundary, `NativePeerAdapter.SendAsync` in
+`tools/AgentBroker.ClaudeAdapter/`, requires `EngineProfile.Find` for both the target
+and the connected server image. The vendor contract also has a gap no bounded
+runtime check can close. The published cross-session messaging page documents only
+the child-token route, whose `selfSent` classification bypasses default inbound
+parity (see "Claude child-token trust constraint"). Peer-token classification and
+inbound admission are source facts of each reviewed build, and the inbox returns
+no acknowledgement or classification at runtime. Clearing this needs a
+vendor-published peer-class ingress contract, or an inbox that reports its
+admission outcome.
+
 ## Re-pin helper, 2026-10-27
 
 `tools/agentbroker/Test-AgentBrokerRepin.ps1` is a read-only assistant for exact
