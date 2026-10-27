@@ -35,6 +35,8 @@ namespace DesktopAICompanion.AiBrainModule
             ok &= GuardedCheck(sb, "CheckCliRoundThreeRows", CheckCliRoundThreeRows);
             // Lane feature/cli-runner-aibrain (AiEngineProbe.CliRunner.cs).
             ok &= GuardedCheck(sb, "CheckCliRunnerLane", CheckCliRunnerLane);
+            // Lane feature/cli-followups (AiEngineProbe.CliFollowups.cs).
+            ok &= GuardedCheck(sb, "CheckCliFollowupsLane", CheckCliFollowupsLane);
             return ok;
         }
 

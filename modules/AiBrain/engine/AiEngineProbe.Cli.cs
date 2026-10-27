@@ -385,6 +385,17 @@ namespace DesktopAICompanion.AiBrainModule
                    rowValues.Count < cardValues.Count && rowValues.IsSubsetOf(cardValues);
         }
 
+        /// <summary>Lane feature/cli-followups: <paramref name="f"/> is an Info row whose own gate names one value of another
+        /// row in the same card (the Haiku note's shape), the one row gate CheckLayoutCards allows beside a narrower one.</summary>
+        internal static bool IsNoteOnARowOfItsCard(OptionsPane pane, SettingField f)
+        {
+            string field;
+            HashSet<string> values;
+            if (f == null || f.Kind != SettingKind.Info || !SplitGate(f.EnabledWhen, out field, out values) || values.Count != 1) return false;
+            SettingField named = FieldOf(pane, field);
+            return named != null && !ReferenceEquals(named, f) && string.Equals(named.Group, f.Group, StringComparison.Ordinal);
+        }
+
         private static bool SplitGate(string gate, out string field, out HashSet<string> values)
         {
             field = null;

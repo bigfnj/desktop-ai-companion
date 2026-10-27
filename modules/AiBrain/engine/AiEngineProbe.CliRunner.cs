@@ -139,6 +139,11 @@ namespace DesktopAICompanion.AiBrainModule
             {
                 OptionsPane pane = rig.Pane;
                 rig.Fake.Respond = FakeCliProcess.Answering(CliReply);
+                // The saved CLI's details read first, awaited, which tells nobody (lane feature/cli-followups): with none
+                // kept, the Load below would start one behind it, and that read tells the open pane when it lands
+                // (CodingAgentCli.DetailsRead, AiEngineProbe.CliFollowups.cs holds it), a fourth notification racing the three
+                // this group counts.
+                rig.Runner.RefreshDetailsAsync(CodingAgentKind.Claude, CancellationToken.None).Wait(TimeSpan.FromSeconds(10));
                 int notified = 0;
                 Action counter = delegate { Interlocked.Increment(ref notified); };
                 pane.InfoChanged += counter;

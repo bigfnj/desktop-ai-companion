@@ -1,13 +1,16 @@
 ﻿# Desktop AI Companion privacy
 
-Last updated: 2026-10-15
+Last updated: 2026-10-27
 
 DesktopAICompanion does not include advertising, analytics, crash reporting, or telemetry. Fortunes and
 smart-fortune matching run locally. The optional AI brain is disabled by default. Claude Code, when the AI brain
 or a meeting summary runs on it, does its own reporting to Anthropic; that reporting is Claude Code's, not this
 application's, and is described below. The companion starts Codex without your own Codex `config.toml`, so an
-analytics or telemetry choice made there does not apply to these calls; what Codex itself reports to OpenAI has not
-been measured.
+analytics or telemetry choice made there does not apply to these calls. Since AI Brain 1.6.0 and Remembrance 2.7.0
+every Codex model call turns Codex's own analytics off (`-c analytics.enabled=false`). Measured on 2026-10-27 with Codex
+0.160.1, by the names of the servers the Codex process connected to: without that setting each call reached
+`chatgpt.com` and also `ab.chatgpt.com`, with it `chatgpt.com` alone, and the call still answered. What was sent to
+either was not read. Should a later Codex say it ignored the setting, the call fails instead of answering.
 
 ## Data that can leave the computer
 
@@ -76,8 +79,8 @@ DesktopAICompanion sends data only when a network feature is used:
   switches off none of the controls an organisation manages: managed settings, managed instructions (a managed
   `CLAUDE.md`) and managed hooks still apply, and a managed hook can see what a call sends and what comes back.
   The calls run on your Claude Code sign-in, or on a token saved in the module (below).
-- **Since the AI Brain version after 1.5.6, AI Brain's Coding-agent CLI card has a switch, "Keep my Claude Code
-  settings out of companion calls", off by default.** With it on, AI Brain's Claude Code calls read none of your own
+- **Since AI Brain 1.6.0 and Remembrance 2.7.0, each module's Coding-agent CLI card has a switch, "Keep my Claude Code
+  settings out of companion calls", off by default.** With it on, that module's Claude Code calls read none of your own
   settings files: neither your user `settings.json` nor a project's or a local one. So their permission rules and
   extra folder names no longer reach the prompt, and Claude Code skips its synced-plugin sync, which otherwise writes
   under `%USERPROFILE%\.claude\plugins` on each call. It also drops everything else those files set for these calls: a
@@ -85,7 +88,6 @@ DesktopAICompanion sends data only when a network feature is used:
   their `env` block, so a setup that needs one of those to reach Anthropic would fail on these calls. Your
   organisation's managed settings still apply, and so do the companion's own settings for the call. It is off by
   default because of what it drops. Your version checks, sign-in checks and updates read your settings as before.
-  Remembrance runs the same code and gets the switch once its pane offers it.
 - **Since the AI Brain and Remembrance versions after 1.5.6 and 2.6.1, a Claude Code call never runs in auto
   mode.** In auto mode, which your own Claude Code settings can select, every request carried context for Claude
   Code's auto-mode safety classifier that held the module's work folder 13 more times (on an installed copy it sits

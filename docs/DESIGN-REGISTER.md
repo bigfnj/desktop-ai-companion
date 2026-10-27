@@ -6274,6 +6274,70 @@ about 0.44 s a minute, plus one compaction per (live tombstones + 4,096) acknowl
 which met the old bound after 410 minutes, now needs about 28,800 tombstones at most. Messages nobody acknowledges
 still meet the 4,096 bound, as before.
 
+#### feature/cli-followups
+
+The shared runner's follow-ups from lanes measure-model and cli-runner, and two owner decisions of 2026-10-27, for AI Brain
+1.6.0 and Remembrance 2.7.0 (versions are the coordinator's, set at publish). This lane made no model call; its evidence is
+lane measure-model's captures of that morning (Codex 0.160.1, local and not committed).
+
+**Every Codex model call turns Codex's own analytics off (BACKLOG N-cli-home-files-07, the owner's decision: "Always off
+for companion calls").** `-c analytics.enabled=false`, beside `include_environment_context=false`. The call starts Codex
+with `--ignore-user-config`, so a choice in the user's own `config.toml` never reached it. Measured by measure-model with
+four real calls, the TLS server names of the Codex process tree captured: without the key each call reached chatgpt.com and
+ab.chatgpt.com; with it chatgpt.com alone, the answer came back and Codex reported no key ignored. What either host was sent
+was not read. A Codex that later ignores the key fails the call closed naming it, by the path every `-c` key the call sets
+already takes (`CodexIgnoredSetting`); the self-check holds that path for this key. The probes carry no analytics key.
+
+**A Codex server error is quoted as its message and parameter; the classifier still reads it whole (BACKLOG
+N-measure-model-01).** Codex passes the server's JSON error on as the message text, laid out over several lines with
+`"param": "reasoning.effort"` last, past the 240 characters a failure quotes. So `RefusalNamesEffort`, which reads that
+excerpt, missed Codex's real effort refusal, the sentence sent the user to the model row, and the automatic pick was
+forgotten for a refusal that was not about it. `CodexErrorWords` reduces such a document to "message (param)", and a message
+Codex gives twice (an error event and again in turn.failed) is quoted once. Only what is quoted changes: `Classify` reads
+the messages as Codex wrote them, the document's status and code included, so no failure changes class by this. Refused:
+deciding on the whole text and carrying the result on the answer, which would leave the pane quoting raw JSON and the
+sentence "Its words are about the effort" about words the excerpt cut off. The self-check's F17 reading now runs on the real
+capture (`CodexServerCaptures.MinimalEffortStdout`), with the thread id and the five managed-requirement items, which named
+an organisation's requirement layers and a group id, taken out.
+
+**"Selected model is at capacity" is its own outcome, `ModelAtCapacity` (BACKLOG N-measure-model-02).** Two of
+measure-model's judge calls met it and both answered when asked again, so it is said as passing, with ⚠ as Busy is: "⚠
+Codex's server has the model X at capacity right now: try again shortly, or choose another model in the CLI card." Log word
+`model-at-capacity`. The automatic pick is kept, since the model was not refused. Refused: retrying the call by itself, which
+is a second call's usage for an answer the user did not ask twice for, and which AI Brain's retry predicate deliberately
+never does for a CLI failure.
+
+**AI Brain warns on the Haiku choice in an Info row gated on the model row (BACKLOG N-measure-model-03, the owner's
+decision: "Warn on the Haiku choice").** "About Haiku", right under the Claude Code model row, live only while that row
+shows Haiku (`EnabledWhen = "cliClaudeModel=Haiku"`), with the measured figures: under the no-names rule both judges found
+a name or private detail read off the screen in 14 of 112 Haiku remarks, 0 for Opus and 1 for Sonnet. Not the option's
+text: the owner ruled the options plain names on 2026-10-09, the first build's longer labels were cut off in the 177 DIP
+editor column, and no label that fits holds the figure. What one condition per row costs, and is not a defect: with Codex
+CLI on screen and Haiku still showing in the greyed Claude Code model row, the note stays live, and what it says is still
+true of that row. The layout check's rule that a row's own gate narrows its card's on the same field gains this one
+exception, a display-only row gated on another row of its own card (`IsNoteOnARowOfItsCard`). Remembrance is left out on
+purpose: its summaries are meant to name the meeting's participants.
+
+**Remembrance's card has the settings switch (lane feature/cli-runner-aibrain's hand-off).** "Keep my Claude Code settings
+out of companion calls" after the Claude Code effort row, live only while Claude Code is the CLI on screen, stored as
+`cliClaudeSettingsOut` and false without the key. A recording's summary reads it from the saved settings at the stop with
+the model and effort; Validate and "Summarize a transcript…" read it from the screen. "Goes through Claude Code" adds AI
+Brain's sentence while it is saved on. No code in the module names the flag: `tests/runtime-hardening-selftest.ps1` counts
+it in the modules' code (N-cli-runner-03), so the module's checks read a command line through `FakeCliCall`.
+
+**A details read the cache started tells an open pane when it lands (BACKLOG N-remembrance-backlog-01).**
+`CodingAgentCli.DetailsRead`, which both modules hand `OptionsPane.NotifyInfoChanged`, is called after a read
+`BeginDetailsRefresh` started, and only when that reading is the one kept and still fresh, so the reload it causes finds it
+fresh and starts no read: a notification never starts another. The saved CLI's row says "checking…" until then, where it
+asked the user to reopen the pane. The register's AI Brain entry above said "nothing a reload starts notifies again"; that
+is now "notifies once, and starts nothing". The freshness half of the guard has no self-check of its own: it covers a read
+that outlasts the 60-second freshness, which the fake CLI cannot produce without a clock seam, and without it such a read
+would cost one more read per minute while the pane stays open, never a tight loop.
+
+**The Readme says what the switch and the permission mode do (BACKLOG N-cli-runner-01).** AI Brain's paragraph says the
+user's own Claude Code settings files are read unless the switch is on, and that every Claude Code model call names the
+permission mode `default`; Remembrance's paragraph names its switch too.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

@@ -138,6 +138,11 @@ namespace DesktopAICompanion.CodingAgent
         /// (lane feature/cli-runner-aibrain, BACKLOG N-cli-home-files-06). Read by Claude Code's own words; nothing the
         /// module can change, so the sentence names another engine.</summary>
         McpPolicyRefused,
+        /// <summary>Codex's server answered that the model is at capacity ("Selected model is at capacity. Please try a
+        /// different model.", lane feature/cli-followups, BACKLOG N-measure-model-02): a passing state of the service, not a
+        /// refusal of the model and nothing the module or the user set, so the sentence says to try again shortly or choose
+        /// another model, and the automatic pick is kept.</summary>
+        ModelAtCapacity,
         Failed,
     }
 
@@ -1291,7 +1296,8 @@ namespace DesktopAICompanion.CodingAgent
         /// features.&lt;name&gt;=false since aibrain 1.5.5: the reasons are at the two lists), the short instructions file in
         /// place of the base instructions, and -m with the model the user chose or else <paramref name="codexPick"/>, the
         /// automatic pick. Since aibrain 1.5.6 the skills section is off too (-c skills.include_instructions=false, a
-        /// privacy control: the reasons are at the site).
+        /// privacy control: the reasons are at the site), and since aibrain 1.6.0 Codex's own analytics (-c
+        /// analytics.enabled=false, a privacy control by the owner's decision of 2026-10-27).
         /// `-i` takes a list, so an option has to follow it, and --json does; the prompt is "-", read from stdin.
         /// <paramref name="imageFile"/> is what -i names, passed as given: AskAsync hands it the file name alone
         /// (CodexImageFileName) and starts Codex in the folder that holds it, because Codex sends the model this value as
@@ -1389,6 +1395,19 @@ namespace DesktopAICompanion.CodingAgent
                 args.Add("include_permissions_instructions=false");
                 args.Add("-c");
                 args.Add("include_environment_context=false");
+                // Codex's own analytics off, a PRIVACY control (lane feature/cli-followups, BACKLOG N-cli-home-files-07; the
+                // owner's decision of 2026-10-27, "Always off for companion calls"). The call starts Codex without the user's
+                // own config.toml (--ignore-user-config), so an analytics choice made there never reached these calls, and
+                // they ran on Codex's default. Measured by lane measure-model on 2026-10-27 (Codex 0.160.1, four real calls,
+                // two with this argument list less the key and two with it, the TLS server names of the Codex process tree
+                // captured; evidence local, not committed): without the key each call reached chatgpt.com and also
+                // ab.chatgpt.com; with it, chatgpt.com alone, the call still answered, and Codex did not say it ignored the
+                // key. What ab.chatgpt.com was sent was not read (the capture holds server names, not contents). A later Codex that renamed it would say so (CodexIgnoredSetting) and the call fails closed naming it,
+                // as for every -c key the call sets; one that retyped it refuses at config load (CodexRefusedSetting). Model
+                // calls only, like the other -c keys: --version, login status, debug models and update carry none.
+                // CheckCodexAnalyticsOff holds it once on every call and off every probe.
+                args.Add("-c");
+                args.Add("analytics.enabled=false");
                 // No project AGENTS.md (lane feature/codex-project-docs, aibrain 1.5.2 and remembrance 2.3.2; BACKLOG
                 // N-cli-home-files-05). Codex finds a project root by walking up from its working folder to the nearest
                 // .git (the default project_root_markers) and sends every AGENTS.md from that root down to the folder
@@ -1947,7 +1966,9 @@ namespace DesktopAICompanion.CodingAgent
         internal static void Interpret(CodingAgentKind agent, CliProcessResult result, CliAnswer answer, IList<string> arguments)
         {
             answer.ExitCode = result.ExitCode;
-            string said;
+            // What the CLI said, whole, for the classifier, and as the failure quotes it (lane feature/cli-followups): the
+            // same for Claude Code, and for Codex each message through CodexErrorWords, once (ParseCodexStream).
+            string said, quoted;
             if (agent == CodingAgentKind.Claude)
             {
                 ClaudeStreamReading read = ReadClaudeStream(result.StandardOutput);
@@ -1962,13 +1983,14 @@ namespace DesktopAICompanion.CodingAgent
                     return;
                 }
                 said = read.Found ? (read.Text ?? "") + " " + (read.IsError ? "" : read.Subtype ?? "") : "";
+                quoted = said;
             }
             else
             {
-                string text, errors;
+                string text, errors, shown;
                 bool failed;
                 long tokens;
-                ParseCodexStream(result.StandardOutput, out text, out errors, out failed, out tokens);
+                ParseCodexStream(result.StandardOutput, out text, out errors, out shown, out failed, out tokens);
                 answer.InputTokens = tokens;
                 // A setting of the call's that Codex IGNORED fails the call closed, whatever it answered (lane
                 // feature/cli-runner-aibrain, BACKLOG N-codex-config-refusal-04, the owner's decision: "fail closed").
@@ -1990,6 +2012,7 @@ namespace DesktopAICompanion.CodingAgent
                     return;
                 }
                 said = errors ?? "";
+                quoted = shown ?? "";
             }
             // A plain Codex failure quotes its stderr without the WARNING lines Codex writes ahead of anything else (lane
             // feature/cli-runner-aibrain, BACKLOG N-codex-config-refusal-06, decision: fix): with its home under %TEMP%,
@@ -1999,7 +2022,7 @@ namespace DesktopAICompanion.CodingAgent
             // part of what Codex said about it. The refusal reader below reads the whole stderr, anchored on its own words.
             string quotedError = agent == CodingAgentKind.Codex ? WithoutLeadingWarnings(result.StandardError) : (result.StandardError ?? "");
             string all = (said + " " + quotedError).Trim();
-            answer.Said = OneLine(all);
+            answer.Said = OneLine((quoted + " " + quotedError).Trim());
             // Claude Code refused to start under an organisation's managed MCP configuration (lane feature/cli-runner-aibrain,
             // BACKLOG N-cli-home-files-06): its own words, for the flag every model call passes. Claude Code's managed-MCP
             // docs: "The --strict-mcp-config flag asks to replace the managed set. If a user passes it while such a file is
@@ -2054,7 +2077,8 @@ namespace DesktopAICompanion.CodingAgent
         /// again"; Claude Code: "OAuth token has expired", "Your session has expired. Please run /login", and where the
         /// organisation requires remote managed settings, "... could not be loaded. Run `claude auth login` to
         /// re-authenticate", which is what a refused sign-in token meets there first), then a missing
-        /// sign-in ("Not logged in · Please run /login", "Invalid API key", an answered 401), then a refused model: the
+        /// sign-in ("Not logged in · Please run /login", "Invalid API key", an answered 401), then a model at capacity
+        /// (Codex's "Selected model is at capacity", lane feature/cli-followups), then a refused model: the
         /// server's words for one, and Claude Code's own (lane feature/cli-model-effort, measured 2026-10-09 on 2.1.293
         /// with an id that does not exist: the result line "There's an issue with the selected model (X). It may not exist
         /// or you may not have access to it." with stderr "[claude-code:unrecognized_model]"; and "is restricted by your
@@ -2075,6 +2099,13 @@ namespace DesktopAICompanion.CodingAgent
                 Has(s, "invalid api key") || Has(s, "codex login") || Has(s, "please log in") ||
                 Has(s, "login required") || Has(s, "unauthorized") || HasStandalone(s, "401"))
                 return CliOutcome.NotSignedIn;
+            // The model at capacity (lane feature/cli-followups, BACKLOG N-measure-model-02), ahead of the refused-model words
+            // so a later wording that also says "not available" is still this. Codex's server's words, seen twice by lane
+            // measure-model on 2026-10-27 (Codex 0.160.1, gpt-6.1-sol at high effort, two of its 58 judge calls; each answered
+            // when asked again after the batch): "Selected model is at capacity. Please try a different model.", as an error
+            // event and again in turn.failed. They read as a plain failure until this lane, "✗ Codex failed (exit 1): ...".
+            if (Has(s, "selected model is at capacity"))
+                return CliOutcome.ModelAtCapacity;
             if (Has(s, "model") && (Has(s, "not supported") || Has(s, "not available") || Has(s, "does not exist") ||
                 Has(s, "not found") || Has(s, "unsupported") || Has(s, "no access") || Has(s, "not allowed") ||
                 Has(s, "invalid model")))
@@ -2477,10 +2508,13 @@ namespace DesktopAICompanion.CodingAgent
         /// <summary>
         /// Whether a refusal's words are about the EFFORT rather than the model (review finding F17): "reasoning" or
         /// "effort" in them, with the effort the call ran at standing alone, so "low" is not found in "allowed" or "slow".
-        /// Not measured against a real Codex refusal (no lane call reaches a model): it assumes the server names the
-        /// parameter (reasoning.effort, or the word effort) and the value it refused, as an API refusing a parameter's value
-        /// usually does, and it reads the bounded excerpt the pane shows (Said), whose first words are the CLI's error. Used
-        /// to keep the automatic pick cached and to point the user at the effort row.
+        /// It reads the bounded excerpt the pane shows (Said), whose first words are the CLI's error, so the sentence "Its
+        /// words are about the effort" is said of words on screen. Measured against Codex's real refusal by lane
+        /// measure-model on 2026-10-27 (Codex 0.160.1, gpt-6.1-sol sent effort minimal): the server names the parameter
+        /// ("param": "reasoning.effort") and the value, as assumed until then, but at the end of a JSON document the excerpt
+        /// cut off before the parameter, so this answered false and the refusal was said as a refused model (lane
+        /// feature/cli-followups, BACKLOG N-measure-model-01). Since then the excerpt quotes that document as its message and
+        /// parameter (CodexErrorWords). Used to keep the automatic pick cached and to point the user at the effort row.
         /// </summary>
         internal static bool RefusalNamesEffort(string said, string effort)
         {
@@ -2580,8 +2614,20 @@ namespace DesktopAICompanion.CodingAgent
         /// is on turn.completed, and a failure is an "error" event or turn.failed, each carrying a message.</summary>
         internal static void ParseCodexStream(string stdout, out string text, out string errors, out bool failed, out long inputTokens)
         {
+            string shown;
+            ParseCodexStream(stdout, out text, out errors, out shown, out failed, out inputTokens);
+        }
+
+        /// <param name="errors">Every error event's and turn.failed's message, as Codex wrote it: what Classify reads.</param>
+        /// <param name="shown">The same messages as a failure quotes them (lane feature/cli-followups, BACKLOG
+        /// N-measure-model-01): each through CodexErrorWords, and one Codex already gave left out, since it writes the turn's
+        /// error as an error event and again in turn.failed.</param>
+        internal static void ParseCodexStream(string stdout, out string text, out string errors, out string shown, out bool failed,
+            out long inputTokens)
+        {
             text = "";
             var said = new StringBuilder();
+            var quoted = new List<string>();
             failed = false;
             inputTokens = -1;
             foreach (JsonObject line in JsonLines(stdout))
@@ -2601,14 +2647,60 @@ namespace DesktopAICompanion.CodingAgent
                 {
                     failed = true;
                     JsonObject error = line["error"] as JsonObject;
-                    if (error != null) said.Append(StringOf(error, "message")).Append(' ');
+                    if (error != null)
+                    {
+                        string message = StringOf(error, "message");
+                        said.Append(message).Append(' ');
+                        QuoteOnce(quoted, message);
+                    }
                 }
                 else if (type == "error")
                 {
-                    said.Append(StringOf(line, "message")).Append(' ');
+                    string message = StringOf(line, "message");
+                    said.Append(message).Append(' ');
+                    QuoteOnce(quoted, message);
                 }
             }
             errors = said.ToString().Trim();
+            shown = string.Join(" ", quoted);
+        }
+
+        private static void QuoteOnce(List<string> quoted, string message)
+        {
+            string words = CodexErrorWords(message).Trim();
+            if (words.Length > 0 && !quoted.Contains(words)) quoted.Add(words);
+        }
+
+        /// <summary>
+        /// One Codex error message as a failure quotes it (lane feature/cli-followups, BACKLOG N-measure-model-01): a server
+        /// error Codex passes on as the server's JSON document, {"type": "error", "error": {..., "message": ..., "param":
+        /// ...}, "status": 400}, reduced to its message and, in brackets, the parameter it names; any other message as it
+        /// is. Measured by lane measure-model on 2026-10-27 (Codex 0.160.1, gpt-6.1-sol sent effort minimal; the capture is
+        /// the self-check's CodexServerCaptures.MinimalEffortStdout): the document, laid out over several lines, put
+        /// "param": "reasoning.effort" last, past the 240 characters a failure quotes (OneLine), so RefusalNamesEffort found
+        /// neither "reasoning" nor "effort" in the excerpt and the effort the server refused was said as a refused model, with
+        /// the automatic pick forgotten for it. Reduced, it reads "Unsupported value: 'minimal' is not supported with the
+        /// 'gpt-6.1-sol' model. Supported values are: 'low', 'medium', 'high', 'xhigh', and 'max'. (reasoning.effort)", the
+        /// words the pane shows and RefusalNamesEffort reads. Refused: deciding on the whole text and carrying the result on
+        /// the answer, which would leave the pane quoting raw JSON and the sentence "Its words are about the effort" about
+        /// words the excerpt cut off. Only what is QUOTED changes: Classify still reads Codex's words whole, the document's
+        /// status and code with them, so no failure changes class by this.
+        /// </summary>
+        internal static string CodexErrorWords(string message)
+        {
+            string text = message ?? "";
+            string trimmed = text.Trim();
+            if (trimmed.Length == 0 || trimmed[0] != '{') return text;
+            try
+            {
+                JsonObject document = JsonNode.Parse(trimmed) as JsonObject;
+                JsonObject error = document == null ? null : document["error"] as JsonObject;
+                string said = error == null ? "" : StringOf(error, "message").Trim();
+                if (said.Length == 0) return text;
+                string param = StringOf(error, "param").Trim();
+                return param.Length > 0 ? said + " (" + param + ")" : said;
+            }
+            catch { return text; }
         }
 
         private static IEnumerable<JsonObject> JsonLines(string text)
@@ -2731,6 +2823,7 @@ namespace DesktopAICompanion.CodingAgent
                 case CliOutcome.ConfigRefused: return "config-refused";
                 case CliOutcome.ImageNotFound: return "image-not-found";
                 case CliOutcome.McpPolicyRefused: return "mcp-policy-refused";
+                case CliOutcome.ModelAtCapacity: return "model-at-capacity";
                 default: return "failed";
             }
         }
@@ -3464,6 +3557,18 @@ namespace DesktopAICompanion.CodingAgent
             return cached;
         }
 
+        /// <summary>
+        /// Called, on a pool thread, when a details read started behind the card's cached read (BeginDetailsRefresh) has
+        /// landed and is the reading kept for <paramref name="agent"/>, still fresh (lane feature/cli-followups, BACKLOG
+        /// N-remembrance-backlog-01): each module hands it OptionsPane.NotifyInfoChanged, so an open pane's CLI rows show the
+        /// reading when it lands. Until then nothing said so, and the saved CLI's row asked the user to reopen the pane
+        /// ("checking… reopen this pane in a moment"). Null in a module that hands it nothing. Never for a read a sign-in
+        /// change dropped (the read started after it says so in its turn), nor for one already stale when it lands: the reload
+        /// it causes runs Load, whose CachedDetails then finds the reading fresh and starts no read, so a notification never
+        /// starts another. A read Validate awaits (FreshDetailsAsync) is not one of these: Validate notifies on its own.
+        /// </summary>
+        internal Action<CodingAgentKind> DetailsRead;
+
         internal void BeginDetailsRefresh(CodingAgentKind agent)
         {
             if (agent == CodingAgentKind.None) return;
@@ -3472,7 +3577,8 @@ namespace DesktopAICompanion.CodingAgent
             Task.Run(async delegate
             {
                 int signIn = ClaudeSignInGeneration();
-                try { await RefreshDetailsAsync(agent, CancellationToken.None).ConfigureAwait(false); }
+                CliDetails read = null;
+                try { read = await RefreshDetailsAsync(agent, CancellationToken.None).ConfigureAwait(false); }
                 catch { }
                 finally
                 {
@@ -3485,7 +3591,25 @@ namespace DesktopAICompanion.CodingAgent
                 // reopening the pane (round 2, review of the fix pass: the card said "Checking…" until then). Only when the
                 // generation moved, so an ordinary read is never followed by a second.
                 if (agent == CodingAgentKind.Claude && ClaudeSignInGeneration() != signIn) BeginDetailsRefresh(agent);
+                // After the flag is down, so the reload it causes finds no read in flight (DetailsRead says why that ends it).
+                if (read != null && IsKeptAndFresh(agent, read)) NotifyDetailsRead(agent);
             });
+        }
+
+        /// <summary>Whether <paramref name="read"/> is the reading kept for <paramref name="agent"/> and young enough that
+        /// CachedDetails would serve it without starting a read.</summary>
+        private bool IsKeptAndFresh(CodingAgentKind agent, CliDetails read)
+        {
+            CliDetails kept;
+            lock (_detailsSync) _details.TryGetValue(agent, out kept);
+            return ReferenceEquals(kept, read) && DateTime.UtcNow - read.ReadAtUtc <= SignInFreshness;
+        }
+
+        private void NotifyDetailsRead(CodingAgentKind agent)
+        {
+            Action<CodingAgentKind> sink = DetailsRead;
+            if (sink == null) return;
+            try { sink(agent); } catch { }
         }
 
         /// <summary>The details kept for this CLI, read without starting a refresh, or null when none were read this
@@ -3660,7 +3784,9 @@ namespace DesktopAICompanion.CodingAgent
 
         private void RecordValidation(CodingAgentKind agent, CliAnswer answer, int signIn, int choice, string testedModel, string testedEffort)
         {
-            string marker = answer.Ok ? "✓" : (answer.Outcome == CliOutcome.Busy || answer.Outcome == CliOutcome.Cancelled ? "⚠" : "✗");
+            // A model at capacity is a passing state of the service, marked as Busy is (lane feature/cli-followups).
+            string marker = answer.Ok ? "✓" : (answer.Outcome == CliOutcome.Busy || answer.Outcome == CliOutcome.Cancelled ||
+                                               answer.Outcome == CliOutcome.ModelAtCapacity ? "⚠" : "✗");
             string ran = answer.Ok ? CodingAgentCliText.RanOn(answer) : "";
             // "✓ Codex: answered at 18:41:01, in 5.1 s, on gpt-6.1-sol at low effort": the CLI first, since the row shows
             // either CLI's (round 2). A refused setting says the refusal, then the time, then what the setting is and what
@@ -3997,6 +4123,7 @@ namespace DesktopAICompanion.CodingAgent
                 case CliOutcome.ConfigRefused: return "refused one of the settings " + CodingAgentModuleWords.Module + " starts Codex with";
                 case CliOutcome.ImageNotFound: return "screenshot not where Codex reads it, not sent";
                 case CliOutcome.McpPolicyRefused: return "refused by your organisation's MCP policy";
+                case CliOutcome.ModelAtCapacity: return "model at capacity, try again shortly";
                 default: return "failed";
             }
         }
@@ -4210,6 +4337,18 @@ namespace DesktopAICompanion.CodingAgent
             }
         }
 
+        /// <summary>A call whose CLI's server said the model is at capacity (lane feature/cli-followups, BACKLOG
+        /// N-measure-model-02): "⚠ Codex's server has the model gpt-6.1-sol at capacity right now: try again shortly, or
+        /// choose another model in the CLI card." The model is the one the call was sent with (CliAnswer.Model, Codex's slug),
+        /// else the one asked for; with neither known, "its model".</summary>
+        internal static string ModelAtCapacitySentence(CodingAgentKind agent, CliAnswer answer)
+        {
+            CliAnswer a = answer ?? new CliAnswer();
+            string model = CodingAgentCli.Displayable(a.Model.Length > 0 ? a.Model : a.RequestedModel);
+            return "⚠ " + CodingAgents.ProductName(agent) + "'s server has " + (model.Length > 0 ? "the model " + model : "its model") +
+                   " at capacity right now: try again shortly, or choose another model in the CLI card.";
+        }
+
         /// <summary>The places the locator looks, as the not-installed sentences name them.</summary>
         private static string LookedIn(CodingAgentKind agent)
         {
@@ -4332,6 +4471,11 @@ namespace DesktopAICompanion.CodingAgent
                     // setting of the module's and no step of the user's changes it; the sentence names the way round it and
                     // keeps Claude Code's own words last, as the saved-token sentence does.
                     return McpPolicyRefusedSentence + (string.IsNullOrEmpty(a.Said) ? "" : " (Claude Code said: " + a.Said + ")");
+                case CliOutcome.ModelAtCapacity:
+                    // Lane feature/cli-followups (BACKLOG N-measure-model-02): a passing state of the service, said as one
+                    // with ⚠ as Busy is, and what to do about it. Codex's own words are the sentence's first half, so they are
+                    // not quoted after it.
+                    return ModelAtCapacitySentence(agent, a);
                 case CliOutcome.TimedOut:
                     TimeSpan bound = timeout ?? CodingAgentCli.DefaultCallTimeout;
                     return "✗ " + product + " did not answer within " +

@@ -581,6 +581,11 @@ namespace DesktopAICompanion.RemembranceModule
             string cliData = DataDirectory();
             _cli = CliForDiagnostics ?? new CodingAgentCli(
                 string.IsNullOrWhiteSpace(cliData) ? null : System.IO.Path.Combine(cliData, "cli"), delegate(string line) { Log(line); });
+            // A details read the CLI rows started behind the cache tells an open pane when it lands (lane
+            // feature/cli-followups, BACKLOG N-remembrance-backlog-01), AI Brain's wiring: until then the saved CLI's row said
+            // "checking… reopen this pane in a moment" while the pane stayed open. CodingAgentCli.DetailsRead says why the
+            // reload this causes starts no read of its own.
+            _cli.DetailsRead = delegate { NotifyInfoChanged(); };
             // The cloud provider's key beside it, in a folder of its own (2.2.0); with no storage nothing can be saved.
             _cloudKeys = new CloudKeyStore(string.IsNullOrWhiteSpace(cliData) ? null : System.IO.Path.Combine(cliData, "cloud"));
 
@@ -957,6 +962,8 @@ namespace DesktopAICompanion.RemembranceModule
             // The model and effort that CLI summarizes on (2.3.0), read now with it.
             string summaryCliModel = SummaryRoute.ModelFor(_settings, summaryCli);
             string summaryCliEffort = SummaryRoute.EffortFor(_settings, summaryCli);
+            // ...and whether its Claude Code call leaves the user's own settings files out (2.7.0), read now with them.
+            bool summaryCliSettingsOut = SummaryRoute.LeavesOutOwnClaudeSettings(_settings);
             // A cloud provider (2.2.0): its settings read now, at the stop, like everything else this capture uses.
             CloudCall summaryCloud = SummaryRoute.IsCloud(_settings.Get(SummaryRoute.SettingKey, SummaryRoute.LocalId))
                 ? CloudCallFrom(_settings) : null;
@@ -1116,7 +1123,7 @@ namespace DesktopAICompanion.RemembranceModule
                     else if (viaCli)
                     {
                         if (busy != null) busy.Dispose();
-                        string cliFailure = await WriteCliSummaryAsync(summaryCli, summaryCliModel, summaryCliEffort,
+                        string cliFailure = await WriteCliSummaryAsync(summaryCli, summaryCliModel, summaryCliEffort, summaryCliSettingsOut,
                             string.IsNullOrWhiteSpace(meetingName) ? paths.BaseName : meetingName, transcript, paths.Summary)
                             .ConfigureAwait(false);
                         _lastStatus = (cliFailure == null ? "Transcript + summary: " : "Transcript (summary failed: " + cliFailure + "): ") +
@@ -1891,6 +1898,8 @@ namespace DesktopAICompanion.RemembranceModule
             "cloudProvider", "cloudEndpoint", "cloudModel",
             // The CLI card's model and effort for each CLI (2.3.0, lane feature/cli-model-effort).
             SummaryRoute.ClaudeModelKey, SummaryRoute.ClaudeEffortKey, SummaryRoute.CodexModelKey, SummaryRoute.CodexEffortKey,
+            // "Keep my Claude Code settings out of companion calls" (2.7.0, lane feature/cli-followups).
+            SummaryRoute.ClaudeSettingsOutKey,
             // The Meetings card (2.4.0, lane feature/meeting-end).
             MeetingEndMode.SettingKey, LongestRecordingKey, OfferToRecordKey,
             // Join & record (2.5.0).
@@ -1915,6 +1924,7 @@ namespace DesktopAICompanion.RemembranceModule
                 case "summaryOn":
                 case OfferToRecordKey:
                 case AcceptJoinRecordKey:
+                case SummaryRoute.ClaudeSettingsOutKey:
                     bool flag;
                     return bool.TryParse(value, out flag) ? (flag ? "true" : "false") : null;
                 // The Meetings card (2.4.0): the radio's text to its id, text that is no option storing nothing; and the
@@ -2328,6 +2338,11 @@ namespace DesktopAICompanion.RemembranceModule
                 // The model and effort each CLI summarizes on (2.3.0), above Status because Validate tests what they show.
                 _cliClaudeModelField,
                 _cliClaudeEffortField,
+                // The opt-in that keeps the user's own Claude Code settings files out of the summary's calls (2.7.0, lane
+                // feature/cli-followups; lane feature/cli-runner-aibrain's hand-off, AI Brain's row in the same words):
+                // Claude Code's alone, so live only while Claude Code is the CLI on screen, like the token row.
+                new SettingField { Id = SummaryRoute.ClaudeSettingsOutKey, Label = CodingAgentCliText.LeaveOutOwnClaudeSettingsLabel, Kind = SettingKind.Bool,
+                    Group = SummaryRoute.CardGroup, EnabledWhen = SummaryRoute.OnClaudeCliOnly },
                 _cliCodexModelField,
                 _cliCodexEffortField,
                 // The most recent Validate of either CLI, naming it (round 2).
@@ -2482,8 +2497,11 @@ namespace DesktopAICompanion.RemembranceModule
                     [SummaryRoute.CodexModelKey] = CodexModelLabel(SummaryRoute.ModelFor(_settings, CodingAgentKind.Codex)),
                     [SummaryRoute.CodexEffortKey] = SummaryRoute.EffortLabel(SummaryRoute.EffortFor(_settings, CodingAgentKind.Codex)),
                     ["cliStatus"] = CliStatusLine(),
-                    ["cliSendsClaude"] = SummaryRoute.SendsLine(CodingAgentKind.Claude),
-                    ["cliSendsCodex"] = SummaryRoute.SendsLine(CodingAgentKind.Codex),
+                    // The opt-in (2.7.0, lane feature/cli-followups), and the Claude Code row's sentence for it while it is
+                    // saved on.
+                    [SummaryRoute.ClaudeSettingsOutKey] = SummaryRoute.LeavesOutOwnClaudeSettings(_settings) ? "true" : "false",
+                    ["cliSendsClaude"] = SummaryRoute.SendsLine(CodingAgentKind.Claude, SummaryRoute.LeavesOutOwnClaudeSettings(_settings)),
+                    ["cliSendsCodex"] = SummaryRoute.SendsLine(CodingAgentKind.Codex, false),
                     // The cloud card (2.2.0): the key's presence, never the key.
                     ["cloudProvider"] = SavedCloudProvider(),
                     ["cloudEndpoint"] = _settings.Get("cloudEndpoint", ""),
@@ -3226,6 +3244,8 @@ namespace DesktopAICompanion.RemembranceModule
             // ...on the model and effort on screen for it (2.3.0), as Validate tests them.
             string manualCliModel = SummaryRoute.ModelFor(shown, manualCli);
             string manualCliEffort = SummaryRoute.EffortFor(shown, manualCli);
+            // ...with the settings opt-in on screen (2.7.0), as Validate tests it.
+            bool manualCliSettingsOut = SummaryRoute.LeavesOutOwnClaudeSettings(shown);
             // Or a cloud provider (2.2.0), whose settings on screen the call runs on.
             CloudCall manualCloud = SummaryRoute.IsCloud(shown.Get(SummaryRoute.SettingKey, SummaryRoute.LocalId)) ? CloudCallFrom(shown) : null;
             if (manualCli == CodingAgentKind.None && manualCloud == null && string.IsNullOrWhiteSpace(model))
@@ -3280,7 +3300,8 @@ namespace DesktopAICompanion.RemembranceModule
                             try
                             {
                                 string text = System.IO.File.ReadAllText(transcriptPath);
-                                string failure = await WriteCliSummaryAsync(manualCli, manualCliModel, manualCliEffort, name, text, summaryPath)
+                                string failure = await WriteCliSummaryAsync(manualCli, manualCliModel, manualCliEffort, manualCliSettingsOut,
+                                    name, text, summaryPath)
                                     .ConfigureAwait(false);
                                 // The CLI row's "last answered" changes with it.
                                 FinishTryIt(failure == null ? ("Summarized: " + name) : ("Summary failed (" + failure + "): " + name),
@@ -3598,10 +3619,11 @@ namespace DesktopAICompanion.RemembranceModule
         /// which the Status line shows; the log carries only the outcome's class. Cancelled by Shutdown, like the pull.
         /// Since 2.3.0 on <paramref name="model"/> and <paramref name="effort"/>, the CLI card's choice as the runner takes
         /// it (SummaryRoute.ModelFor / EffortFor; checked by the runner, never here), and the header names the model that
-        /// answered and the effort.
+        /// answered and the effort. Since 2.7.0 with <paramref name="leaveOutOwnClaudeSettings"/>, the card's "Keep my
+        /// Claude Code settings out of companion calls" read where the model and effort are (SummaryRoute.LeavesOutOwnClaudeSettings).
         /// </summary>
-        private async Task<string> WriteCliSummaryAsync(CodingAgentKind agent, string model, string effort, string meetingName,
-            string transcript, string summaryPath)
+        private async Task<string> WriteCliSummaryAsync(CodingAgentKind agent, string model, string effort, bool leaveOutOwnClaudeSettings,
+            string meetingName, string transcript, string summaryPath)
         {
             CodingAgentCli cli = _cli;
             if (cli == null) return "the CLI runner is not available";
@@ -3624,6 +3646,7 @@ namespace DesktopAICompanion.RemembranceModule
                     Purpose = "summary",
                     Model = model,
                     Effort = effort,
+                    LeaveOutOwnClaudeSettings = leaveOutOwnClaudeSettings,
                 }, token).ConfigureAwait(false);
                 if (!answer.Ok || string.IsNullOrWhiteSpace(answer.Text))
                 {
@@ -3657,6 +3680,9 @@ namespace DesktopAICompanion.RemembranceModule
             IModuleSettings shown = OnScreenSettings(pending);
             string model = SummaryRoute.ModelFor(shown, agent);
             string effort = SummaryRoute.EffortFor(shown, agent);
+            // And "Keep my Claude Code settings out of companion calls" as the card shows it (2.7.0, lane
+            // feature/cli-followups): Validate tests the call a summary would make with what is on screen.
+            bool leaveOut = SummaryRoute.LeavesOutOwnClaudeSettings(shown);
             CodingAgentCli cli = _cli;
             if (cli == null) return Task.FromResult("✗ This module has no CLI runner (it was not initialised).");
             CancellationToken token;
@@ -3677,7 +3703,7 @@ namespace DesktopAICompanion.RemembranceModule
             }
             return Task.Run(async delegate
             {
-                CliAnswer answer = await cli.ValidateAsync(agent, token, typedToken, model, effort).ConfigureAwait(false);
+                CliAnswer answer = await cli.ValidateAsync(agent, token, typedToken, model, effort, leaveOut).ConfigureAwait(false);
                 NotifyInfoChanged();   // the card's Status row and the CLI rows (N-cli-model-effort-07)
                 // A refusal of this module's own default says so (review finding F14).
                 return CodingAgentCliText.Describe(agent, answer, CodingAgentCli.ValidateTimeout, SummaryRoute.DefaultModelFor(agent));
@@ -3727,7 +3753,9 @@ namespace DesktopAICompanion.RemembranceModule
             CodingAgentCli cli = _cli;
             bool isSaved = agent == saved;
             CodingAgentCli.CliDetails details = cli == null ? null : isSaved ? cli.CachedDetails(agent) : cli.KeptDetails(agent);
-            if (details == null) return isSaved ? product + ": checking… reopen this pane in a moment." : CliAccountNotReadYet(agent);
+            // "checking…" alone since lane feature/cli-followups: the read it waits for tells the open pane when it lands
+            // (CodingAgentCli.DetailsRead), where the row asked the user to reopen the pane.
+            if (details == null) return isSaved ? product + ": checking…" : CliAccountNotReadYet(agent);
             if (!details.Installed) return CodingAgentCliText.NotInstalledRow(agent);
             string named = product + (details.Version.Length > 0 ? " " + details.Version : "") +
                            (details.Where.Length > 0 ? " (" + details.Where + ")" : "");
@@ -4753,6 +4781,9 @@ namespace DesktopAICompanion.RemembranceModule
             // storage folder when Documents is inside OneDrive (RemembranceModule.Storage.cs).
             SelfCheckEarlierRoots(check);
             SelfCheckFreshInstallRoot(check);
+            // Lane feature/cli-followups (2.7.0): the settings switch in the CLI card and the details read's landing
+            // (RemembranceModule.CliFollowups.cs).
+            SelfCheckCliFollowups(check);
 
             detail = sb.ToString();
             return ok;
@@ -7187,6 +7218,9 @@ namespace DesktopAICompanion.RemembranceModule
                     string savedEffort = SummaryRoute.DefaultClaudeEffort == "high" ? "low" : "high";
                     s.Set(SummaryRoute.ClaudeModelKey, savedModel);
                     s.Set(SummaryRoute.ClaudeEffortKey, savedEffort);
+                    // And the settings opt-in SAVED on (2.7.0, lane feature/cli-followups) while the pane still shows it off,
+                    // so the stop is seen reading the saved value and "Summarize a transcript…" below the one on screen.
+                    s.Set(SummaryRoute.ClaudeSettingsOutKey, "true");
                     string savedAnswered = FakeCliProcess.AnsweredModelFor(savedModel);
                     fake.Clear();
                     holding = true;
@@ -7213,6 +7247,8 @@ namespace DesktopAICompanion.RemembranceModule
                     check("remembrance cli model: a recording's summary runs on the model and effort saved for the CLI, read at the stop: " +
                           (summaryCall == null ? "(no call)" : (summaryCall.After("--model") ?? "(no --model)") + " at " + (summaryCall.After("--effort") ?? "(no --effort)")),
                         summaryCall != null && summaryCall.After("--model") == savedModel && summaryCall.After("--effort") == savedEffort);
+                    check("remembrance cli-followups: a recording's summary leaves the user's own Claude Code settings files out when the opt-in is saved on, read at the stop",
+                        summaryCall != null && summaryCall.LeavesOutOwnClaudeSettings && onCli[SummaryRoute.ClaudeSettingsOutKey] == "false");
                     check("remembrance cli: remembrance.busy is clear while the CLI summarizes: nothing runs on this machine's GPU",
                         asked && busyDuringCall == "");
                     string stdinText = "";
@@ -7342,6 +7378,9 @@ namespace DesktopAICompanion.RemembranceModule
                           screenModel + " at " + screenEffort,
                         manualCall != null && manualCall.After("--model") == screenModel && manualCall.After("--effort") == screenEffort &&
                         s.Get(SummaryRoute.ClaudeModelKey, null) == savedModel);
+                    check("remembrance cli-followups: Summarize a transcript follows the settings opt-in on screen, off, not the saved one, on",
+                        manualCall != null && !manualCall.NamesSettingSources && onCliChoice[SummaryRoute.ClaudeSettingsOutKey] == "false" &&
+                        s.Get(SummaryRoute.ClaudeSettingsOutKey, null) == "true");
                     string afterManual = module.StatusLine();
                     // The Status line beside the SAVED choice, which this call did not ask for, says what it asked for (F13).
                     // Pinned whole since round 3: this shape ended in a doubled "))" on the second on-screen walk (screenshot 71).
@@ -7727,7 +7766,7 @@ namespace DesktopAICompanion.RemembranceModule
                         Func<string> summarizeSaved = delegate
                         {
                             Task<string> written = module.WriteCliSummaryAsync(CodingAgentKind.Claude,
-                                SummaryRoute.ModelFor(s, CodingAgentKind.Claude), SummaryRoute.EffortFor(s, CodingAgentKind.Claude), "Standup",
+                                SummaryRoute.ModelFor(s, CodingAgentKind.Claude), SummaryRoute.EffortFor(s, CodingAgentKind.Claude), false, "Standup",
                                 "Alice: we ship on Friday.\nBob: I will write the notes.", System.IO.Path.Combine(scratch, "standup.summary.txt"));
                             var waited = Stopwatch.StartNew();
                             while (!written.IsCompleted && waited.Elapsed < TimeSpan.FromSeconds(10)) { ui.Drain(); Thread.Sleep(5); }
@@ -7844,7 +7883,7 @@ namespace DesktopAICompanion.RemembranceModule
                         const string refusedSentence = "Codex 0.160.1 refused view_image, one of the settings Remembrance starts it with: " +
                             "check the Modules pane for an update to Remembrance, or choose another engine under Summary runs on meanwhile. " +
                             "(Codex said: Error: Unknown feature flag: view_image)";
-                        Task<string> refusedWrite = module.WriteCliSummaryAsync(CodingAgentKind.Codex, "", "low", "Standup",
+                        Task<string> refusedWrite = module.WriteCliSummaryAsync(CodingAgentKind.Codex, "", "low", false, "Standup",
                             "Alice: we ship on Friday.", System.IO.Path.Combine(scratch, "refused.summary.txt"));
                         var refusedWait = Stopwatch.StartNew();
                         while (!refusedWrite.IsCompleted && refusedWait.Elapsed < TimeSpan.FromSeconds(10)) { ui.Drain(); Thread.Sleep(5); }

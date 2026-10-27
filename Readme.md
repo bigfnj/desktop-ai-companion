@@ -190,8 +190,11 @@ does not serve. Nothing else contacts it while the brain is off. When you want i
   (`--no-session-persistence`, `--ephemeral`), so AgentFlow never announces the companion's own calls. Since AI
   Brain 1.5.1 a Claude Code call leaves out your own hooks, claude.ai connectors, and the `CLAUDE.md`,
   `CLAUDE.local.md` and `AGENTS.md` files around its folder, your home folder's included. Your own Claude Code
-  settings files are still read, and [`PRIVACY.md`](PRIVACY.md) says what of them reaches the prompt. Your
-  organisation's managed settings, instructions and hooks still apply, and Claude Code's own usage reporting to
+  settings files are still read unless you turn on **Keep my Claude Code settings out of companion calls** in the
+  card (since AI Brain 1.6.0, and in Remembrance's card since 2.7.0), and [`PRIVACY.md`](PRIVACY.md) says what of
+  them reaches the prompt and what the switch also drops. Since AI Brain 1.6.0 every Claude Code model call names the
+  permission mode `default` (`--permission-mode default`), so none runs in auto mode, and `PRIVACY.md` says what auto
+  mode added to each request. Your organisation's managed settings, instructions and hooks still apply, and Claude Code's own usage reporting to
   Anthropic is left as it is (`PRIVACY.md` says what it sends). Since AI Brain 1.5.2 a Codex call sends no `AGENTS.md`
   from its folder or the folders above it, only Codex's own global instructions file, `~/.codex/AGENTS.md` (or
   `AGENTS.override.md` beside it, which Codex prefers when it exists). Since AI Brain 1.5.6, on Codex 0.160.1,
@@ -452,7 +455,8 @@ transcript, off by default, using a local Ollama over loopback, or, if you choos
 the transcript's text to Anthropic or OpenAI (since Remembrance 2.3.0 on the model and effort its Coding-agent CLI
 card chooses for that CLI, the same rows as AI Brain's, and since 2.3.1, on Claude Code, without your own hooks,
 claude.ai connectors or the `CLAUDE.md`, `CLAUDE.local.md` and `AGENTS.md` files around its folder, as in AI Brain
-1.5.1, though your own settings files are still read, and since 2.3.2, on Codex, with no `AGENTS.md` but Codex's own
+1.5.1, though your own settings files are still read unless you turn on the card's **Keep my Claude Code settings
+out of companion calls** (2.7.0), and since 2.3.2, on Codex, with no `AGENTS.md` but Codex's own
 global `~/.codex/AGENTS.md`, or the `AGENTS.override.md` beside it that Codex prefers when it exists, as in AI Brain
 1.5.2, and since 2.3.6 without Codex's skills section, which listed skill folders under your user profile, as in AI
 Brain 1.5.6, on Codex 0.160.1, the version measured), or (Remembrance 2.2.0) one call to a **Cloud provider**
