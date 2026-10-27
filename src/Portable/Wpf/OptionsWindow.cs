@@ -2874,7 +2874,7 @@ namespace DesktopAICompanion.Wpf
             // does to this field, the Browse button with its dialog's own title (N-settings-accessibility-01).
             string fieldName = PathFieldName(f);
             LabelForAutomation(parts.Browse, label, PathDialogTitle(f), parts.Browse.ToolTip as string);
-            LabelForAutomation(parts.Clear, label, "Clear " + fieldName);
+            LabelForAutomation(parts.Clear, label, fieldName.Length > 0 ? "Clear " + fieldName : "Clear");
             var line = new DockPanel { LastChildFill = true };
             DockPanel.SetDock(parts.Browse, Dock.Right);
             DockPanel.SetDock(parts.Clear, Dock.Right);

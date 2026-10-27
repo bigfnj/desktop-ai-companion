@@ -1017,9 +1017,13 @@ CASES = [
     ("feature/host-options: a path field's buttons are named by their glyphs", OPTIONSWINDOW,
      "            string fieldName = PathFieldName(f);\n"
      "            LabelForAutomation(parts.Browse, label, PathDialogTitle(f), parts.Browse.ToolTip as string);\n"
-     "            LabelForAutomation(parts.Clear, label, \"Clear \" + fieldName);\n",
+     "            LabelForAutomation(parts.Clear, label, fieldName.Length > 0 ? \"Clear \" + fieldName : \"Clear\");\n",
      "",
      "wpf", "a path field's buttons are named for what they do"),
+    ("feature/host-options: an unlabelled path field's clear button is named with a dangling space", OPTIONSWINDOW,
+     "fieldName.Length > 0 ? \"Clear \" + fieldName : \"Clear\");",
+     "\"Clear \" + fieldName);",
+     "wpf", "a path field with no label has buttons named Choose a file and Clear"),
     ("feature/host-options: the nav list is not named", OPTIONSWINDOW,
      "            System.Windows.Automation.AutomationProperties.SetName(nav, \"Settings sections\");\n",
      "",

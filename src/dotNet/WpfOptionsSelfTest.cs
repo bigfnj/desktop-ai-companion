@@ -5075,6 +5075,7 @@ namespace DesktopAICompanion
                     new SettingField { Id = "h", Label = "About this card", Kind = SettingKind.Header, Group = "Rows" },
                     new SettingField { Id = "exe", Label = "whisper-cli path (filled in for you if one is found)", Kind = SettingKind.FilePath, Group = "Paths" },
                     new SettingField { Id = "dir", Label = "Storage folder", Kind = SettingKind.FolderPath, Group = "Paths", EmptyHint = "Documents (the default)" },
+                    new SettingField { Id = "anon", Label = "", Kind = SettingKind.FilePath, Group = "Paths" },
                     new SettingField { Id = "c1", Label = "Inside a collapsible card", Kind = SettingKind.Text, Group = "Collapsible card", Collapsible = true },
                     new SettingField { Id = "u", Label = "On the untitled card", Kind = SettingKind.Text },
                 },
@@ -5083,7 +5084,8 @@ namespace DesktopAICompanion
                     return new Dictionary<string, string>(StringComparer.Ordinal)
                     {
                         { "b", "true" }, { "i", "5" }, { "t", "hello" }, { "e", "small" }, { "r", "Local model" }, { "s", "set" },
-                        { "info", "✓ Running" }, { "h", "A paragraph." }, { "exe", WhisperExe }, { "dir", "" }, { "c1", "x" }, { "u", "y" },
+                        { "info", "✓ Running" }, { "h", "A paragraph." }, { "exe", WhisperExe }, { "dir", "" }, { "anon", WhisperExe },
+                        { "c1", "x" }, { "u", "y" },
                     };
                 },
                 Save = delegate { return true; },
@@ -5192,6 +5194,9 @@ namespace DesktopAICompanion
                 ok &= Check(sb, "host-options: UIA: a path field's buttons are named for what they do, Browse with its dialog's title (" + joined + ")",
                     pathNames.Contains(DesktopAICompanion.Wpf.PaneView.PathDialogFor(exeField, "").Title) && pathNames.Contains("Clear whisper-cli path") &&
                     pathNames.Contains("Choose Storage folder"));
+                ok &= Check(sb, "host-options: UIA: a path field with no label has buttons named Choose a file and Clear, with nothing dangling (" + joined + ")",
+                    pathNames.Contains("Choose a file") && pathNames.Contains("Clear") &&
+                    pathNames.TrueForAll(delegate(string n) { return n == n.Trim(); }));
 
                 System.Windows.Controls.TextBlock status = FindInfo(probe.Window.CurrentContent as System.Windows.DependencyObject, "✓ Running");
                 string statusName = status != null && PeerOf(status) != null ? PeerOf(status).GetName() : "<no row>";
