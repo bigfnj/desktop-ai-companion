@@ -6072,6 +6072,63 @@ session's tool-approval prompts.
 development flag per session and, in Team and Enterprise organizations, an organization switch. A button would
 present that as a supported route.
 
+#### feature/abi-pane-actions
+
+Two additive ABI members for host 1.6.2 (`src/DesktopAICompanion.Contracts/PluginApi.cs`), each adopted by the module that
+asked for it, and one refused. A module that uses either declares `MinHostVersion` 1.6.2.
+
+**`PaneAction.EnabledWhen` is read by the fields' own parser, and `CardEnabledWhen` keeps its "one string per card".** That
+comment refused an `EnabledWhen` per button because a greyed card greys all of its buttons together, and that still holds:
+nothing moved off the card's condition. The new member is for the one shape the card's cannot say, a button inside a card
+that is LIVE which serves only one state of it. AI Brain's and Remembrance's `Remove token` deletes the Claude Code sign-in
+token and stayed pressable with Codex CLI chosen while the token row above it greyed (N-cli-model-effort-05). Both now carry
+the token row's own condition. The host reads it through `PaneView.IsSatisfied` and the same updater list as a field row,
+so it is settled at the end of the build and after every edit, can name a field in a later card or a display-only one, and
+is dimmed once inside a greyed card. It greys the button's whole row, its result line included, and the button refuses
+through the row's `IsEnabled`, the check its click handler already makes for a card greyed whole.
+
+**A greyed action keeps the message it wrote.** After `Remove token` answers "✓ Removed." and the user moves the CLI to
+Codex, the row greys with that answer still beside the button, which can read as a stale line. It is the only record on
+screen of a delete the user made, and greying says the button does not apply now, not that its last answer was wrong.
+Refused: clearing a greyed row's message.
+
+**A module is told a refused catalog entry's CATEGORY, never the host's rule.** `ICatalogListing.FetchCatalogListingAsync`
+(N-catalog-insight-05) answers, from one read of the shared copy, the items `FetchCatalogItemsAsync` answers plus the
+entries of that kind the parser refused, each as `RefusedCatalogItem`: an id that passed the safe-id rule ("" when the id
+was the fault), its 1-based position, and a `CatalogRefusalReason`. The rule ("description is 1049 characters, the limit is
+1024"), the name and the version stay in the host: each holds the catalog's own text, which the panes put through
+`CatalogText.Echo`, and the diagnostic log already carries the rule whole. Refused: handing modules the sanitised rule,
+which would make a module a second renderer of remote text and the host's rule wording an ABI no clause could be reworded
+under. The category is set where each rule is chosen (an `out` beside each clause of `IdRule`, `PetRule` and `PackRule`),
+never parsed back out of the words, because a refused id is echoed into them. Module entries keep `Other` for their own
+rules: no module browses that kind.
+
+**A sibling interface, not an `IHost` member and not a flag on `CatalogItem`.** Refused: listing refused entries inside
+`FetchCatalogItemsAsync` with a "refused" field, which every Fortunes before this one would have shown as packs to download;
+and a new `IHost` member, which changes `ModuleKit.Testing.RecordingHost` and so republishes every module, the reason
+`ICompanionStandDown` and `ITrayQuestions` give. One call answers both lists so they can never describe two catalogs, as
+two calls straddling the 90-second shared copy could.
+
+**Fortunes names a refused pack in the check's answer, not as a row in the list.** "Check online for packs" now answers,
+under its usual line, "⚠ Not offered: “<pack>” (<why>). Nothing on this PC needs fixing.", naming up to three and counting
+the rest, and a pack already on disk is left out because Available online never lists one. A list row was the first
+choice and is refused: a `ListItem` is always a checkbox, so a refused pack there would tick, count in "All packs" and
+download nothing, and a row that cannot be ticked is a further ABI addition this lane was not asked for. The Companions
+pane says its refused entries in its check line too. The note does not say "Published wrong" as the red block does: a
+pack in a data format this app does not read may be a newer format, which is no publishing fault, and "nothing on this PC
+needs fixing" is true of every category. N-layout-fortunes-01's red block and its wording are unchanged.
+
+**N-cli-token-02 DECLINED: no host-held credential store shared across modules (owner ruling, campaign 2026-10-26).** What
+was refused: a host-side store, an ABI addition, from which AI Brain and Remembrance would read one Claude sign-in token,
+so a user running both on Claude Code pastes it once instead of twice. Why: today each module's token is sealed in its own
+CLI runner folder (`shared/CodingAgentCli/CodingAgentCli.cs`, `ClaudeTokenPath`, DPAPI for the current user) and no host
+verb hands it to anyone; a shared store would give every module that can reach it the token another module's calls run
+on, widening each module's access to another's sign-in to save one paste, which the user makes once per module. Modules are
+not contained (see `docs/module-ecosystem-roadmap.md`), so this is about what the ABI offers, not a sandbox it would
+breach. What would change it: a store whose every read is a per-module, per-credential grant the user sees on the consent
+screen, or the host making the Claude Code calls itself so that no module ever holds the token; either is a design of its
+own, not this one, and the owner's say-so.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of
