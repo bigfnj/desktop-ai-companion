@@ -2,7 +2,10 @@ namespace AgentBroker.Core;
 
 [Flags]
 public enum SessionCapabilities { None = 0, Receive = 1, WakeIdle = 2, Reply = 4, NativeIdleGuard = 8 }
-public enum SessionActivity { Idle, Busy, ApprovalRequired, Interrupted, Disconnected, Unknown }
+// Values travel as numbers, so a member is only ever APPENDED. Away is display-only: a local directory
+// shows it for a retained generic mailbox whose presence lease lapsed. It never reaches a peer
+// directory and a registration cannot claim it.
+public enum SessionActivity { Idle, Busy, ApprovalRequired, Interrupted, Disconnected, Unknown, Away }
 // Delivered records an adapter/peer admission receipt supplied by the caller. It never proves
 // agent execution, response completion, or visibility in a vendor GUI.
 public enum MessageStatus { Accepted, Submitting, Delivered, Held, Refused, Expired, Uncertain, Submitted }
@@ -42,4 +45,8 @@ public sealed record BrokerLimits(int MaximumMessages = 4096, int MaximumTextByt
 {
     public static readonly TimeSpan MaximumLifetime = TimeSpan.FromHours(24);
     public static readonly TimeSpan MaximumSessionLease = TimeSpan.FromMinutes(2);
+    // A generic MCP mailbox stays addressable this long after its owner's last call, so a turn-based
+    // agent keeps receiving between turns without a renewal sidecar. Process-local, never persisted.
+    public static readonly TimeSpan MailboxRetention = TimeSpan.FromHours(24);
+    public const int MaximumRetainedMailboxes = 64;
 }

@@ -62,7 +62,7 @@ internal static class McpActivityChecks
                 "verified Claude initialize name records only Claude and global request evidence");
 
             var tools = await Rpc(client, "tools/list", new { });
-            check(tools.GetProperty("result").GetProperty("tools").GetArrayLength() == 7, "passive MCP observation preserves all seven tool schemas");
+            check(tools.GetProperty("result").GetProperty("tools").GetArrayLength() == 10, "passive MCP observation preserves all ten tool schemas");
             await Until(() => worker.McpStatus.LastToolsListUtc is not null);
             check(Row(worker.McpStatus, McpClientFamily.Other).LastToolsListUtc is not null &&
                 Row(worker.McpStatus, McpClientFamily.Claude).LastToolsListUtc is null,
@@ -74,7 +74,7 @@ internal static class McpActivityChecks
                 "Codex initialize evidence does not overwrite Claude's independent timestamp");
 
             var perRequest = await Rpc(client, "tools/list", Metadata("codex-mcp-client"), modern: true);
-            check(perRequest.GetProperty("result").GetProperty("tools").GetArrayLength() == 7,
+            check(perRequest.GetProperty("result").GetProperty("tools").GetArrayLength() == 10,
                 "2026 per-request MCP client metadata works without adding a session or initialize handshake");
             await Until(() => Row(worker.McpStatus, McpClientFamily.Codex).LastToolsListUtc is not null);
             check(Row(worker.McpStatus, McpClientFamily.Claude).LastToolsListUtc is null,

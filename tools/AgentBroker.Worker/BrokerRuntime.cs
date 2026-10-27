@@ -30,21 +30,33 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
         lock (sessionGate)
         {
             if (sessionPreferences is null) throw new BrokerException("preferences_unavailable", "Preferences are unavailable.");
-            if (!observed.TryGetValue(sessionId, out var session) || session.LeaseUntil <= Now)
+            if (!observed.TryGetValue(sessionId, out var session) || !Observable(session))
                 throw new BrokerException("recipient_unavailable", "This session is no longer available.");
             sessionPreferences.Set(sessionId, isPrivate, isMuted);
-            store.Register(sessionPreferences.Apply(session));
+            // A retained mailbox has no live lease to register with, and the owner's choice is not the
+            // agent's activity: apply it in place without restoring presence or extending retention.
+            if (session.LeaseUntil > Now) store.Register(sessionPreferences.Apply(session));
+            else store.ApplyRetainedPreference(sessionPreferences.Apply(session));
         }
     }
+
+    // A native observation ends with its lease. A generic MCP mailbox ends when the store stops retaining it.
+    private bool Observable(BrokerSession session) => session.LeaseUntil > Now ||
+        session.Adapter == "mcp" && store.IsAddressable(session.Address);
 
     private void Register(BrokerSession session)
     {
         lock (sessionGate)
         {
-            foreach (var stale in observed.Where(p => p.Value.LeaseUntil <= Now).Select(p => p.Key))
+            foreach (var stale in observed.Where(p => !Observable(p.Value)).Select(p => p.Key))
                 observed.TryRemove(stale, out _);
             if (observed.Count >= 256 && !observed.ContainsKey(session.Address.SessionId))
-                throw new BrokerException("session_limit", "Session observation limit reached.");
+            {
+                // A retained mailbox gives up its slot before a registration is refused; a present session never does.
+                if (store.EvictRetainedMailbox() is { } evicted && observed.TryGetValue(evicted.SessionId, out var entry) &&
+                    entry.Address == evicted) observed.TryRemove(evicted.SessionId, out _);
+                if (observed.Count >= 256) throw new BrokerException("session_limit", "Session observation limit reached.");
+            }
             store.Register(sessionPreferences?.Apply(session) ?? session);
             observed[session.Address.SessionId] = session;
         }
@@ -56,11 +68,38 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
         lock (sessionGate)
         {
             if (!observed.TryGetValue(address.SessionId, out var session) || session.Address != address ||
-                session.Adapter != "mcp" || session.LeaseUntil <= Now) return;
+                session.Adapter != "mcp" || !store.IsAddressable(address)) return;
             var renewed = store.RenewPollingSession(address);
             // Preserve the original registration under the preference overlay. A replacement
             // incarnation registered concurrently must never be overwritten by old activity.
             if (renewed is not null) observed[address.SessionId] = session with { LeaseUntil = renewed.LeaseUntil };
+        }
+    }
+
+    // Blocking MCP waits hold an HTTP request each. One per session address (a second would only race
+    // the first for the same messages) and sixteen per worker, well inside Kestrel's connection bound.
+    internal const int MaximumConcurrentWaits = 16;
+    private readonly ConcurrentDictionary<SessionAddress, byte> waits = new();
+    private int activeWaits;
+
+    internal IDisposable BeginWait(SessionAddress session)
+    {
+        if (!waits.TryAdd(session, 0)) throw new BrokerException("wait_in_progress", "This session already has an active wait.");
+        if (Interlocked.Increment(ref activeWaits) > MaximumConcurrentWaits)
+        {
+            Interlocked.Decrement(ref activeWaits); waits.TryRemove(session, out _);
+            throw new BrokerException("wait_capacity", "The broker's concurrent wait capacity is in use.");
+        }
+        return new WaitSlot(this, session);
+    }
+
+    private sealed class WaitSlot(BrokerRuntime owner, SessionAddress session) : IDisposable
+    {
+        private int released;
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref released, 1) != 0) return;
+            Interlocked.Decrement(ref owner.activeWaits); owner.waits.TryRemove(session, out _);
         }
     }
 

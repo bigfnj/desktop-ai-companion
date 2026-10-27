@@ -6,7 +6,7 @@ List the witnesses without changing files or starting processes:
 In an exclusively reserved build window, run the witnesses and retain evidence:
   python -X utf8 tests/run_agentbroker_pin_diagnostic_mutations.py --apply
 
-Only the seven explicit C# sources below can be temporarily changed.
+Only the explicit C# sources below can be temporarily changed.
 No pin, verification predicate, hash implementation or vendor file is changed.
 The original bytes are restored in finally, including on test/build failure.
 All builds are serial. Stdout/stderr go directly to ordinary evidence files,
@@ -42,6 +42,9 @@ SOURCES = {
     "runtime": "tools/AgentBroker.Worker/BrokerRuntime.cs",
     "provider": "tools/AgentBroker.Worker/Adapters/CodexNativeProvider.cs",
     "claims": "tools/AgentBroker.Worker/DeferredDeliveryClaims.cs",
+    "store": "src/AgentBroker.Core/BrokerStore.cs",
+    "tools": "tools/AgentBroker.Worker/BrokerTools.cs",
+    "workerapp": "tools/AgentBroker.Worker/WorkerApplication.cs",
 }
 PROJECTS = {
     "worker": "tests/AgentBroker.Worker.Tests/AgentBroker.Worker.Tests.csproj",
@@ -51,7 +54,9 @@ ASSEMBLIES = {
     family: ROOT / Path(project).parent / "bin/Release/net10.0-windows" / (Path(project).stem + ".dll")
     for family, project in PROJECTS.items()
 }
-EXISTING_COUNTS = {"worker": 130, "desktop": 148}
+# Worker 196 measured on 22b05e9 (feature/agentbroker-bus base): the folded 2026-10-26 preview put
+# peer diagnostics (24) and Claude observation (42) before the --existing-tests-only cut-off.
+EXISTING_COUNTS = {"worker": 196, "desktop": 148}
 FOCUSED_COUNTS = {"worker": 82, "desktop": 15}
 CLAUDE_SCENARIOS = ("early-reject", "unsupported-version", "hash-mismatch", "mixed", "recovery", "bounded-snapshot")
 
@@ -89,7 +94,7 @@ WITNESSES = (
     Witness("desktop-package-version-reporting", "desktop", "desktop", ("--pin-diagnostics-only",), "CodexPinMetadataChecks.cs", (
         ('throw new DesktopAdapterException("unsupported_desktop_version", InstalledApplicationVersion(image));',
          'throw new DesktopAdapterException("unsupported_desktop_version");'),
-        ('throw new DesktopAdapterException("desktop_image_mismatch", ApplicationVersion);',
+        ('throw new DesktopAdapterException("desktop_image_mismatch", profile.ApplicationVersion);',
          'throw new DesktopAdapterException("desktop_image_mismatch");'),
     )),
     Witness("vscode-router-version-reporting", "router", "desktop", ("--pin-diagnostics-only",), "CodexPinMetadataChecks.cs", ((
@@ -109,6 +114,47 @@ WITNESSES = (
     ),)),
     Witness("deferred-claim-atomicity", "claims", "worker", ("--deferred-claim-only",), "DeferredClaimChecks.cs",
             (("        lock (gate)", "        _ = gate;"),), replacement_counts=(2,), kind="concurrency"),
+    # ---- lane feature/agentbroker-bus ----
+    Witness("bus-mailbox-addressable-live", "store", "worker", ("--mailbox-only",), "MailboxChecks.cs", ((
+        "sessions.TryGetValue(address, out var s) && (Live(s) || Retained(s));",
+        "sessions.TryGetValue(address, out var s) && Live(s);",
+    ),)),
+    Witness("bus-away-leaks-peer-directory", "store", "worker", ("--mailbox-only",), "MailboxChecks.cs", ((
+        "if (forPeer) return sessions.Values.Where(s => s.LeaseUntil > now && !s.IsPrivate).ToArray();",
+        "if (forPeer) return sessions.Values.Where(s => !s.IsPrivate)"
+        ".Select(s => s.LeaseUntil > now ? s : s with { Activity = SessionActivity.Away }).ToArray();",
+    ),)),
+    Witness("bus-signal-never-completed", "store", "worker", ("--wait-tools-only",), "WaitToolChecks.cs", ((
+        "Interlocked.Exchange(ref changeSignal, NewSignal()).TrySetResult();",
+        "Interlocked.Exchange(ref changeSignal, NewSignal());",
+    ),)),
+    Witness("bus-send-compares-createdat", "store", "worker", ("--send-only",), "SendToolChecks.cs", ((
+        "return Accept(sent, authenticatedBroker);",
+        "return Accept(sent with { CreatedAt = Now }, authenticatedBroker);",
+    ),)),
+    Witness("bus-wait-returns-acknowledged", "tools", "worker", ("--wait-tools-only",), "WaitToolChecks.cs", ((
+        ".Where(receipt => receipt.Message.Recipient == session && receipt.Status == MessageStatus.Accepted)",
+        ".Where(receipt => receipt.Message.Recipient == session)",
+    ),)),
+    Witness("bus-wait-per-session-unbounded", "runtime", "worker", ("--wait-tools-only",), "WaitToolChecks.cs", ((
+        'if (!waits.TryAdd(session, 0)) throw new BrokerException("wait_in_progress", "This session already has an active wait.");',
+        "waits.TryAdd(session, 0);",
+    ),)),
+    Witness("bus-instructions-removed", "workerapp", "worker", ("--instructions-only",), "InstructionsChecks.cs", ((
+        "AddMcpServer(server => server.ServerInstructions = BrokerInstructions.Text)",
+        "AddMcpServer()",
+    ),)),
+    Witness("bus-polling-retained-renewal", "store", "worker", ("--polling-lease-only",), "PollingLeaseChecks.cs", ((
+        'session.Adapter != "mcp" || !Addressable(address))',
+        'session.Adapter != "mcp" || !Live(address))',
+    ),)),
+    Witness("bus-native-retained", "store", "worker", ("--polling-lease-only",), "PollingLeaseChecks.cs", (
+        ('            if (session.Adapter == "mcp") mailboxActivity[session.Address] = Now;\n'
+         '            else mailboxActivity.Remove(session.Address);',
+         "            mailboxActivity[session.Address] = Now;"),
+        ('private bool Retained(BrokerSession s) => s.Adapter == "mcp" && s.Activity',
+         "private bool Retained(BrokerSession s) => s.Activity"),
+    )),
 )
 
 

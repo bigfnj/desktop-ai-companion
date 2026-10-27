@@ -84,7 +84,8 @@ public sealed class WorkerApplication : IAsyncDisposable
             builder.Services.AddHttpContextAccessor();
             var mcpActivity = new McpActivityTracker();
             var mcpFilters = new McpActivityFilters(mcpActivity, store.BrokerId);
-            builder.Services.AddMcpServer().WithHttpTransport(transport =>
+            // The instructions card reaches HTTP clients directly and Codex through the verbatim stdio bridge.
+            builder.Services.AddMcpServer(server => server.ServerInstructions = BrokerInstructions.Text).WithHttpTransport(transport =>
                 transport.SessionMode = HttpServerSessionMode.Stateless).WithTools<BrokerTools>()
                 .WithMessageFilters(filters => filters.AddIncomingFilter(mcpFilters.Incoming()).AddOutgoingFilter(mcpFilters.Outgoing()))
                 .WithRequestFilters(filters => filters.AddListToolsFilter(mcpFilters.ListTools()).AddCallToolFilter(mcpFilters.CallTool()));
