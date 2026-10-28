@@ -396,8 +396,9 @@ try
         Check(adapter.Submissions == 1, "runtime submits once to the exact recipient after unmuting");
         Check(adapter.LastSender == new PeerSenderInfo("Synthetic sender", "local"),
             "LABEL_RUNTIME: the runtime hands the adapter the local sender's own label and scope");
+        var remoteBroker = Guid.NewGuid();
         Check(worker.Runtime.DescribeSender(sender.Address with { Incarnation = Guid.NewGuid() }) == new PeerSenderInfo(null, "local") &&
-            worker.Runtime.DescribeSender(new(Guid.NewGuid(), "remote", Guid.NewGuid())) == new PeerSenderInfo(null, "paired broker \"unknown\""),
+            worker.Runtime.DescribeSender(new(remoteBroker, "remote", Guid.NewGuid())) == new PeerSenderInfo(null, "paired broker \"unknown\" " + remoteBroker.ToString("D")),
             "LABEL_EXACT: a label comes only from the exact registered address; another incarnation or broker gets none");
         await Task.Delay(700);
         Check(adapter.Submissions == 1, "unconfirmed native submission is never blindly resent");

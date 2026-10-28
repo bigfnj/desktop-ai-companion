@@ -230,7 +230,8 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
     // is gone), or the name its paired broker advertised when the pairing was approved. Neither identifies or authorizes.
     public PeerSenderInfo DescribeSender(SessionAddress sender) => sender.BrokerId == store.BrokerId
         ? new(store.Directory().SingleOrDefault(session => session.Address == sender)?.Label, "local")
-        : new(null, "paired broker \"" + (store.Peers().SingleOrDefault(peer => peer.BrokerId == sender.BrokerId)?.Name ?? "unknown") + "\"");
+        : new(null, "paired broker \"" + (store.Peers().SingleOrDefault(peer => peer.BrokerId == sender.BrokerId)?.Name ?? "unknown") + "\" " +
+            sender.BrokerId.ToString("D"));
 
     private async Task DeliverAsync(MessageReceipt receipt, CancellationToken stop)
     {

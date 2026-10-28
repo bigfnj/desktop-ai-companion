@@ -48,6 +48,20 @@ try
         string codexText = codex.LastText ?? "";
         Check(labelledSubmit && JsonDocument.Parse(codexText[(codexText.IndexOf('\n') + 1)..]).RootElement.GetProperty("senderLabel").GetString() == "Synthetic Codex sender",
             "LABEL_CODEX_ADAPTER: the Codex adapter puts the sender description it is given into the envelope it submits");
+        // The size guard counts the whole envelope, label included (Codex 01a18357, review of c2df7f6). A Core-valid text
+        // sized so the unlabelled envelope is exactly 32,768 bytes is admitted; the same text with a long label is refused.
+        var sizedBase = Message(again);
+        int emptyBytes = System.Text.Encoding.UTF8.GetByteCount(PeerMessageFormatter.Format(sizedBase with { Text = "" }, null));
+        int room = 32 * 1024 - emptyBytes;
+        var atLimit = sizedBase with { Text = new string('\u0001', room / 6) + new string('x', room % 6) };
+        Check(System.Text.Encoding.UTF8.GetByteCount(PeerMessageFormatter.Format(atLimit, null)) == 32 * 1024 &&
+            System.Text.Encoding.UTF8.GetByteCount(atLimit.Text) <= 16 * 1024 &&
+            (await adapter.SubmitAsync(atLimit, null, default)).Outcome == AdapterAdmission.Submitted,
+            "LABEL_SIZE_AT_LIMIT: an envelope of exactly 32,768 bytes is still admitted");
+        int submitsBefore = codex.Submits;
+        var tooLong = await adapter.SubmitAsync(atLimit with { Id = Guid.NewGuid() }, new PeerSenderInfo(new string('L', 160), "local"), default);
+        Check(tooLong == new AdapterResult(AdapterAdmission.Refused, "native_message_too_large") && codex.Submits == submitsBefore,
+            "LABEL_SIZE_COUNTS_LABEL: a label that pushes the envelope past 32,768 bytes is refused before the provider is called");
         int beforeLarge = codex.Submits;
         Check((await adapter.SubmitAsync(Message(again) with { Text = new string('\u0001', 16 * 1024) }, default)).Outcome == AdapterAdmission.Refused && codex.Submits == beforeLarge,
             "Oversized escaped native Codex envelope is refused before model input without truncation.");
