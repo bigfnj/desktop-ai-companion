@@ -108,11 +108,20 @@ public sealed class BrokerTools(BrokerRuntime runtime, IHttpContextAccessor http
             ?? throw new McpException("The original message is unavailable.");
         CheckParticipant(original.Sender);
         RequireLocal();
-        // Wake at the message's own deadline too: the reread then ages it (FindReceipt), with no other commit needed. A
-        // deadline already past wakes nothing extra, so a record that cannot age (an in-flight claim) never spins.
+        // Wake at the message's own deadline too: the reread then ages it (FindReceipt), with no other commit needed. If the
+        // deadline passed between the reread and this check, one immediate reread ages it (Codex 01a18357, review of
+        // 5c0528f). Only one: a record that cannot age, such as an in-flight claim, must never make the loop spin.
+        bool rereadAfterDeadline = true;
         var answered = await WaitAsync(original.Sender, timeoutSeconds, () =>
             runtime.Store.FindReceipt(messageId) is { } receipt && Answered(receipt.Status) ? [receipt] : [], cancellationToken,
-            () => original.ExpiresAt - runtime.StoreNow is var until && until > TimeSpan.Zero ? until : null);
+            () =>
+            {
+                var until = original.ExpiresAt - runtime.StoreNow;
+                if (until > TimeSpan.Zero) return until;
+                if (!rereadAfterDeadline) return null;
+                rereadAfterDeadline = false;
+                return TimeSpan.Zero;
+            });
         return answered.Count > 0 ? answered[0] : runtime.Store.FindReceipt(messageId)
             ?? throw new McpException("The original message is unavailable.");
     }

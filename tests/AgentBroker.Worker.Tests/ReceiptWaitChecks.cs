@@ -116,6 +116,25 @@ internal static class ReceiptWaitChecks
                 $"RECEIPT_WAKES_AT_DEADLINE: a waiting wait_for_receipt wakes at the message's own deadline ({elapsed.Elapsed.TotalSeconds:F2} s for a 1.5 s deadline, request timeout 10 s)");
         }
 
+        // A deadline that passes between the wait's reread and its wake calculation still ends the wait at once. The clock jumps
+        // past the deadline on the first read that comes through the tools but not the store, which is exactly that wake
+        // calculation (Codex 01a18357's BoundaryClock, review of 5c0528f).
+        var boundary = new BoundaryClock();
+        await using (var straddle = new ToolFixture("receipt-wait-straddle", clock: boundary))
+        {
+            var from = straddle.Register("Synthetic straddle sender"); var to = straddle.Register("Synthetic straddle recipient");
+            var start = boundary.GetUtcNow();
+            var edge = new BrokerMessage(Guid.NewGuid(), Guid.NewGuid(), null, from.Address, to.Address,
+                "Synthetic message whose deadline passes inside one wait pass.", start, start.AddSeconds(1));
+            straddle.Store.Accept(edge, straddle.Store.BrokerId);
+            boundary.Arm(edge.ExpiresAt.AddTicks(1));
+            elapsed.Restart();
+            var straddled = await straddle.Tools.WaitForReceipt(edge.Id, default, timeoutSeconds: 5);
+            elapsed.Stop();
+            check(boundary.Advanced && straddled.Status == MessageStatus.Expired && elapsed.Elapsed < TimeSpan.FromSeconds(2),
+                $"RECEIPT_WAKE_STRADDLE: a deadline passing between the reread and the wake calculation ends the wait at once ({elapsed.Elapsed.TotalSeconds:F2} s, request timeout 5 s)");
+        }
+
         bool unknown = false;
         try { await tools.WaitForReceipt(Guid.NewGuid(), default, timeoutSeconds: 0); }
         catch (McpException error) { unknown = error.Message == "The original message is unavailable."; }
@@ -127,5 +146,32 @@ internal static class ReceiptWaitChecks
             catch (McpException) { }
         }
         check(ranges, "RECEIPT_WAIT_RANGE: timeoutSeconds outside 0..25 is refused");
+    }
+
+    // Holds a fixed time until armed, then jumps to the target on the first read made through BrokerTools but not
+    // BrokerStore: the wake calculation, which reads the runtime clock right after the store reread.
+    private sealed class BoundaryClock : TimeProvider
+    {
+        private long ticks = new DateTimeOffset(2026, 10, 28, 12, 0, 0, TimeSpan.Zero).Ticks;
+        private long target;
+        private bool armed;
+        public bool Advanced { get; private set; }
+        public void Arm(DateTimeOffset afterDeadline) { target = afterDeadline.Ticks; armed = true; }
+        public override DateTimeOffset GetUtcNow()
+        {
+            if (armed && !Advanced)
+            {
+                var frames = new StackTrace().GetFrames();
+                bool throughStore = frames.Any(frame => Within(frame.GetMethod()?.DeclaringType, typeof(BrokerStore)));
+                bool throughTools = frames.Any(frame => Within(frame.GetMethod()?.DeclaringType, typeof(AgentBroker.Worker.BrokerTools)));
+                if (throughTools && !throughStore) { Interlocked.Exchange(ref ticks, target); Advanced = true; }
+            }
+            return new(Interlocked.Read(ref ticks), TimeSpan.Zero);
+        }
+        private static bool Within(Type? type, Type expected)
+        {
+            while (type is not null) { if (type == expected) return true; type = type.DeclaringType; }
+            return false;
+        }
     }
 }
