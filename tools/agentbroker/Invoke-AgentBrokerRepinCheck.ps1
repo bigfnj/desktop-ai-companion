@@ -300,7 +300,7 @@ function Invoke-CheckPhase {
         $evidence = @()
         foreach ($member in $group) { $evidence += @(Get-Content -LiteralPath (Join-Path $member.CheckDirectory 'evidence.txt') -Encoding utf8) }
         $body = Join-Path $out ("pr-$id.md")
-        Set-Content -LiteralPath $body -Value (New-PullRequestBody $id $group $group[0].List $group[0].Entry $evidence) -Encoding utf8NoBOM -NoNewline
+        [IO.File]::WriteAllText($body, (New-PullRequestBody $id $group $group[0].List $group[0].Entry $evidence), [Text.UTF8Encoding]::new($false))
         $planned.Add([pscustomobject]@{ Id = $id; Branch = $script:BranchPrefix + $id; Title = (Get-PullRequestTitle $group); List = $group[0].List
             EntryFile = $group[0].EntryFile; BodyFile = $body; Packages = @($group | ForEach-Object { $_.Package }) })
     }
@@ -308,7 +308,7 @@ function Invoke-CheckPhase {
         results = @($results | ForEach-Object { [ordered]@{ package = $_.Package; name = $_.Name; version = $_.Version; verdict = $_.Verdict
             eligible = $_.Eligible; blockers = $_.Blockers; list = $_.List; entryFile = $_.EntryFile; error = $_.Error } })
         pullRequests = $planned.ToArray() }
-    Set-Content -LiteralPath (Join-Path $out 'results.json') -Value ($document | ConvertTo-Json -Depth 8) -Encoding utf8NoBOM
+    [IO.File]::WriteAllText((Join-Path $out 'results.json'), (($document | ConvertTo-Json -Depth 8) + [Environment]::NewLine), [Text.UTF8Encoding]::new($false))
 
     $summary = New-Object 'Collections.Generic.List[string]'
     $summary.Add('## AgentBroker re-pin check')
@@ -325,7 +325,7 @@ function Invoke-CheckPhase {
     }
     $summary.Add('')
     $summary.Add('No pin was applied. Builds that are NOT READY or have an UNPROVEN check are reported here only. The Codex desktop app is a Store package this check cannot fetch: re-pin it by hand with `tools/agentbroker/Test-AgentBrokerRepin.ps1`.')
-    Set-Content -LiteralPath (Join-Path $out 'summary.md') -Value (($summary -join "`n") + "`n") -Encoding utf8NoBOM -NoNewline
+    [IO.File]::WriteAllText((Join-Path $out 'summary.md'), (($summary -join "`n") + "`n"), [Text.UTF8Encoding]::new($false))
     $summary | ForEach-Object { Write-Output $_ }
 }
 
