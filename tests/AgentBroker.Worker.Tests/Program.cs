@@ -409,6 +409,14 @@ try
         Check(formatted.StartsWith("AgentBroker external agent message.", StringComparison.Ordinal) &&
             body.RootElement.GetProperty("text").GetString() == message.Text && body.RootElement.GetProperty("messageId").GetGuid() == message.Id,
             "foreign content stays quoted and retains exact receipt and reply routing metadata");
+        var notice = message with { Sender = new(worker.Runtime.Store.BrokerId, BrokerStore.NoticeSessionId, Guid.NewGuid()), RemainingReplies = 0 };
+        var noticeText = PeerMessageFormatter.Format(notice);
+        var noticeBody = JsonDocument.Parse(noticeText[(noticeText.IndexOf('\n') + 1)..]);
+        Check(noticeText.StartsWith("AgentBroker delivery notice.", StringComparison.Ordinal) &&
+            !noticeText.Contains("external agent message", StringComparison.Ordinal) && !noticeText.Contains("reply_to_message", StringComparison.Ordinal) &&
+            noticeBody.RootElement.GetProperty("kind").GetString() == "agentbroker.delivery_notice" &&
+            noticeBody.RootElement.GetProperty("text").GetString() == notice.Text && noticeBody.RootElement.GetProperty("messageId").GetGuid() == notice.Id,
+            "NOTICE_ENVELOPE: a broker notice is framed as the broker's own report, never as an agent request to reply to");
         var preferences = new SessionPreferences(scratch);
         Check(preferences.Apply(recipient).IsPrivate && !preferences.IsMuted(recipient.Address.SessionId),
             "privacy and mute preferences survive a fresh reader without discovering credentials");

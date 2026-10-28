@@ -15,6 +15,17 @@ void Refuses(string code, Action action)
     catch (BrokerException e) { Check(e.Code == code, "Expected " + code + ", got " + e.Code); }
 }
 var clock = new TestClock();
+// A refused or expired local message now gives its sender a delivery notice (SenderNoticeChecks). Assertions about
+// which PEER message a claim picks settle those notices first, so they keep meaning what they meant before notices.
+MessageReceipt? ClaimPeerMessage(BrokerStore store)
+{
+    while (store.BeginDelivery() is { } claimed)
+    {
+        if (claimed.Message.Sender.SessionId != BrokerStore.NoticeSessionId) return claimed;
+        store.CompleteDelivery(claimed.Message.Id, MessageStatus.Delivered);
+    }
+    return null;
+}
 BrokerSession Session(BrokerStore store, string id, bool isPrivate = false) => new(
     new(store.BrokerId, id, Guid.NewGuid()), "same label", "synthetic",
     SessionCapabilities.Receive | SessionCapabilities.WakeIdle | SessionCapabilities.Reply,
@@ -28,6 +39,12 @@ try
     {
         passed += ReplyLifetimeChecks.Run(root);
         Console.WriteLine($"AgentBroker reply lifetime smoke: {passed} assertions passed.");
+        return 0;
+    }
+    if (args.SequenceEqual(["--sender-notices-only"]))
+    {
+        passed += SenderNoticeChecks.Run(root);
+        Console.WriteLine($"AgentBroker sender notice smoke: {passed} assertions passed.");
         return 0;
     }
     Guid identity;
@@ -128,6 +145,7 @@ try
     AuditReceiptQueryFairness();
     AuditAtomicReplyRetries();
     passed += ReplyLifetimeChecks.Run(root);
+    passed += SenderNoticeChecks.Run(root);
     using (var receipts = new BrokerStore(Path.Combine(root, "explicit-receipts"), clock: clock))
     {
         var from = Session(receipts, "from"); var to = Session(receipts, "to");
@@ -284,7 +302,7 @@ void AuditQueueAndMutablePolicy()
     var remote = Session(store, "remote") with { Address = new(peer.BrokerId, "remote", Guid.NewGuid()) };
     var privateAfterAdmission = Message(remote, to); store.Accept(privateAfterAdmission, peer.BrokerId);
     store.Register(to with { IsPrivate = true });
-    Check(store.BeginDelivery() is null && store.Messages(to.Address).Single(r => r.Message.Id == privateAfterAdmission.Id).Reason == "private_session",
+    Check(ClaimPeerMessage(store) is null && store.Messages(to.Address).Single(r => r.Message.Id == privateAfterAdmission.Id).Reason == "private_session",
         "Becoming private after peer admission prevents the queued delivery.");
     var localPrivate = Message(from, to); store.Accept(localPrivate, store.BrokerId);
     Check(store.BeginDelivery()?.Message.Id == localPrivate.Id, "An explicitly allowed same-broker message can still reach a private local session.");
@@ -296,7 +314,7 @@ void AuditQueueAndMutablePolicy()
     store.BeginDelivery(); store.CompleteDelivery(muted.Id, MessageStatus.Refused);
     store.Register(to);
     var revokedInFlight = Message(remote, to); store.Accept(revokedInFlight, peer.BrokerId);
-    Check(store.BeginDelivery()?.Message.Id == revokedInFlight.Id, "Peer message is claimed for revocation race test.");
+    Check(ClaimPeerMessage(store)?.Message.Id == revokedInFlight.Id, "Peer message is claimed for revocation race test.");
     store.RevokePeer(peer.BrokerId);
     Check(store.Messages(to.Address).Single(r => r.Message.Id == revokedInFlight.Id).Status == MessageStatus.Uncertain,
         "Revoking an in-flight peer records uncertainty instead of claiming it never reached the adapter.");
