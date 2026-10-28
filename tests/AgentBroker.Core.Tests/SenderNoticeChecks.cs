@@ -241,28 +241,120 @@ internal static class SenderNoticeChecks
             Check(Notices(store, sender.Address).Count == 0, "NOTICE_OWED_GRACE: a notice still owed when its source is pruned is dropped, not sent late");
         }
 
-        // A full store: the commit that prunes a source hands its slot to that source's own notice.
-        clock = new Clock();
-        using (var full = new BrokerStore(Path.Combine(root, "sender-notice-capacity"), new(MaximumMessages: 3), clock))
+        // A full store defers a notice until a slot frees; one still deferred when its source's retention ends is dropped,
+        // even for a sender that stayed addressable (documented loss condition). Two messages from a paired peer fill the
+        // store without owing notices of their own.
+        foreach (bool freed in new[] { true, false })
         {
+            clock = new Clock();
+            using var full = new BrokerStore(Path.Combine(root, "sender-notice-capacity-" + freed), new(MaximumMessages: 3), clock);
             var peer = new PeerTrust(Guid.NewGuid(), "Synthetic peer", "https://192.0.2.9/", new string('D', 64), clock.GetUtcNow());
             full.AuthorizePeer(peer);
-            var sender = Mailbox(full, clock, "full-sender"); var local = Mailbox(full, clock, "full-local");
-            full.Register(sender); full.Register(local);
+            var sender = Mailbox(full, clock, "full-sender"); var local = Mailbox(full, clock, "full-local"); var filler = Mailbox(full, clock, "full-filler");
+            full.Register(sender); full.Register(local); full.Register(filler);
             var remote = new SessionAddress(peer.BrokerId, "remote", Guid.NewGuid());
-            for (int i = 0; i < 2; i++)
-                full.Accept(new BrokerMessage(Guid.NewGuid(), Guid.NewGuid(), null, remote, local.Address, "From a paired broker.",
-                    clock.GetUtcNow(), clock.GetUtcNow().AddHours(24)), peer.BrokerId);
+            full.Accept(new BrokerMessage(Guid.NewGuid(), Guid.NewGuid(), null, remote, local.Address, "From a paired broker.",
+                clock.GetUtcNow(), clock.GetUtcNow().AddHours(24)), peer.BrokerId);
+            var fill = Message(filler, local, clock, TimeSpan.FromHours(24));
+            full.Accept(fill, full.BrokerId);
             var squeezed = Message(sender, local, clock, TimeSpan.FromMinutes(1));
             full.Accept(squeezed, full.BrokerId);
             clock.Advance(TimeSpan.FromMinutes(2));
-            full.Register(Renewed(sender, clock));
+            full.Register(Renewed(sender, clock)); full.Register(Renewed(local, clock)); full.Register(Renewed(filler, clock));
             Check(Notices(full, sender.Address).Count == 0, "A full store defers the notice although its sender stays addressable.");
-            clock.Advance(TimeSpan.FromDays(1));   // the source (deadline plus one day) is pruned on the next commit
-            full.Register(Renewed(sender, clock));
+            if (freed)
+            {
+                full.RecordRecipientReceipt(fill.Id, local.Address, full.BrokerId, MessageStatus.Delivered);
+                Check(Notices(full, sender.Address).Count(n => About(n, squeezed)) == 1,
+                    "NOTICE_CAPACITY_DEFERRED: a notice deferred by a full store is admitted once a slot frees");
+                continue;
+            }
+            clock.Advance(TimeSpan.FromDays(1));   // the source's retention ends (deadline plus one day), freeing its slot
+            full.Register(Renewed(sender, clock)); full.Register(Renewed(local, clock));
             full.BeginDelivery();
-            Check(Notices(full, sender.Address).Count(n => About(n, squeezed)) == 1,
-                "NOTICE_GRACE_CAPACITY: the commit that prunes a source admits its notice into the slot it frees");
+            Check(Notices(full, sender.Address).Count(n => About(n, squeezed)) == 0,
+                "NOTICE_CAPACITY_LOSS: a notice still deferred when its source's retention ends is dropped, never sent late");
+        }
+
+        // The tombstone bound counts the tombstones this very commit writes: a refusal's own tombstone plus its notice must
+        // fit, or the store fails to reopen (Codex 01a18357's counterexample at MaximumTombstones 1).
+        foreach (int bound in new[] { 1, 3 })
+        {
+            clock = new Clock();
+            path = Path.Combine(root, "sender-notice-tombstone-bound-" + bound);
+            SessionAddress boundSender;
+            using (var store = new BrokerStore(path, new(MaximumTombstones: bound), clock))
+            {
+                var sender = Mailbox(store, clock, "bound-sender"); var recipient = Mailbox(store, clock, "bound-recipient");
+                store.Register(sender); store.Register(recipient); boundSender = sender.Address;
+                var refused = Message(sender, recipient, clock, TimeSpan.FromMinutes(30));
+                store.Accept(refused, store.BrokerId);
+                store.RecordRecipientReceipt(refused.Id, recipient.Address, store.BrokerId, MessageStatus.Refused);
+                var notices = Notices(store, sender.Address);
+                Check(notices.Count == (bound == 1 ? 0 : 1), "NOTICE_TOMBSTONE_BOUND: a notice is admitted only when it and this commit's tombstones fit the bound");
+                foreach (var notice in notices) store.RecordRecipientReceipt(notice.Message.Id, sender.Address, store.BrokerId, MessageStatus.Delivered);
+            }
+            bool reopened;
+            try { using var again = new BrokerStore(path, new(MaximumTombstones: bound), clock); reopened = Notices(again, boundSender).Count == (bound == 1 ? 0 : 1); }
+            catch (InvalidDataException) { reopened = false; }
+            Check(reopened, "NOTICE_TOMBSTONE_REOPEN: the store reopens after a refusal and its acknowledged notice at a small tombstone bound");
+        }
+
+        // A notice is held to the configured text bound, or the snapshot would not load again.
+        clock = new Clock();
+        path = Path.Combine(root, "sender-notice-text-bound");
+        SessionAddress textSender;
+        using (var store = new BrokerStore(path, new(MaximumTextBytes: 64), clock))
+        {
+            var sender = Mailbox(store, clock, "text-sender"); var recipient = Mailbox(store, clock, "text-recipient");
+            store.Register(sender); store.Register(recipient); textSender = sender.Address;
+            var refused = Message(sender, recipient, clock, TimeSpan.FromMinutes(30)) with { Text = "Short." };
+            store.Accept(refused, store.BrokerId);
+            store.RecordRecipientReceipt(refused.Id, recipient.Address, store.BrokerId, MessageStatus.Refused);
+            var notice = Notices(store, sender.Address).Single();
+            Check(System.Text.Encoding.UTF8.GetByteCount(notice.Message.Text) <= 64 && notice.Message.Text.StartsWith("AgentBroker delivery notice", StringComparison.Ordinal),
+                "NOTICE_TEXT_FITS: a notice is trimmed to the configured text bound, keeping its start");
+        }
+        bool textReopened;
+        try { using var again = new BrokerStore(path, new(MaximumTextBytes: 64), clock); textReopened = Notices(again, textSender).Count == 1; }
+        catch (InvalidDataException) { textReopened = false; }
+        Check(textReopened, "NOTICE_TEXT_REOPEN: the store reopens with a notice under a small text bound");
+
+        // Message IDs of version 8 are the broker's own, so no submitted message can take a notice's ID and suppress it.
+        clock = new Clock();
+        using (var store = new BrokerStore(Path.Combine(root, "sender-notice-reserved-id"), clock: clock))
+        {
+            var sender = Mailbox(store, clock, "id-sender"); var recipient = Mailbox(store, clock, "id-recipient");
+            store.Register(sender); store.Register(recipient);
+            // The squatter takes the exact ID the broker would give a notice about another message.
+            var original = Message(sender, recipient, clock, TimeSpan.FromMinutes(5));
+            var squatter = Message(sender, recipient, clock, TimeSpan.FromMinutes(5)) with { Id = BrokerStore.NoticeId(original.Id) };
+            Refuses("reserved_message_id", () => store.Accept(squatter, store.BrokerId), "NOTICE_RESERVED_ID: a submitted message holding a notice's ID is refused");
+            Refuses("reserved_message_id", () => store.Send(sender.Address, recipient.Address, squatter.Id, "Squatting.", null, 0, store.BrokerId),
+                "NOTICE_RESERVED_ID_SEND: send refuses a notice's ID too");
+            // Other version-8 IDs stay usable: the channel bridge derives its reply IDs that way.
+            var bytes = Guid.NewGuid().ToByteArray();
+            bytes[7] = (byte)(bytes[7] & 0x0F | 0x80);
+            var versionEight = Message(sender, recipient, clock, TimeSpan.FromMinutes(5)) with { Id = new Guid(bytes) };
+            Check(versionEight.Id.Version == 8 && !BrokerStore.IsNoticeId(versionEight.Id) && store.Accept(versionEight, store.BrokerId).Status == MessageStatus.Accepted,
+                "NOTICE_V8_ALLOWED: a version-8 ID without the notice marker is still accepted");
+        }
+
+        // A deferred notice is never sent after its source's retention, even when no commit ran in between.
+        clock = new Clock();
+        using (var store = new BrokerStore(Path.Combine(root, "sender-notice-late"), clock: clock))
+        {
+            var sender = Mailbox(store, clock, "late-sender"); var recipient = Mailbox(store, clock, "late-recipient");
+            store.Register(sender); store.Register(recipient);
+            var refused = Message(sender, recipient, clock, TimeSpan.FromMinutes(30));
+            store.Accept(refused, store.BrokerId);
+            store.Disconnect(sender.Address);
+            store.RecordRecipientReceipt(refused.Id, recipient.Address, store.BrokerId, MessageStatus.Refused);
+            clock.Advance(TimeSpan.FromDays(2));   // no store call at all in between
+            store.Register(Renewed(sender, clock)); store.Register(Renewed(recipient, clock));
+            store.BeginDelivery();
+            store.Accept(Message(recipient, sender, clock, TimeSpan.FromMinutes(30)), store.BrokerId);   // a commit after the return
+            Check(Notices(store, sender.Address).Count == 0, "NOTICE_LATE_NEVER: a notice whose source's retention ended is never sent late");
         }
 
         // A short configured default never shortens a notice, so it outlives an early-refused source with a long deadline.

@@ -330,6 +330,8 @@ public sealed class BrokerStore : IDisposable
             message!.Sender.Validate(); message.Recipient.Validate();
             // Notices never pass through here, so nothing a caller or a peer submits can claim to be one.
             if (message.Sender.SessionId == NoticeSessionId || message.Recipient.SessionId == NoticeSessionId) Fail("reserved_session");
+            // A submitted message holding a notice's ID could suppress that notice (see NoticeId).
+            if (IsNoticeId(message.Id)) Fail("reserved_message_id");
             if (authenticatedBroker != message.Sender.BrokerId) Fail("sender_mismatch");
             if (authenticatedBroker != state.BrokerId && !state.Peers.Any(p => p.BrokerId == authenticatedBroker))
                 Fail("unpaired_peer");
@@ -778,9 +780,9 @@ public sealed class BrokerStore : IDisposable
     // the store opens, and each commit adds what it ends, so neither a restart nor a deferral loses one. A notice is
     // admitted once its sender is addressable and able to receive, with room in its queue and in the store, and gets its
     // timestamps then, never when it became owed. After a restart, expirations commit before discovery re-registers
-    // native sessions, so their notices are admitted by the next delivery pass (BeginDelivery). An owed notice that
-    // cannot be admitted by the commit that prunes its source (ExpiresAt + RecordGrace, as in Expire) is dropped: its
-    // sender stayed unavailable, or the store or its queue stayed full, that long. A notice always gets the maximum
+    // native sessions, so their notices are admitted by the next delivery pass (BeginDelivery). A notice is admitted only
+    // while its source is retained (ExpiresAt + RecordGrace, as in Expire); one that cannot be admitted by then is
+    // dropped: its sender stayed unavailable, or the store or its queue stayed full, that long. A notice always gets the maximum
     // lifetime, so it outlives its source and an acknowledged one is never recreated. The owed set changes only once the
     // commit's write has succeeded. A notice never begets a notice: its sender can never register.
     private (State Next, Dictionary<Guid, MessageReceipt>? Owed) WithSenderNotices(State next)
@@ -794,27 +796,25 @@ public sealed class BrokerStore : IDisposable
         if ((owing ?? owed).Count == 0) return (next, owing);
         owing ??= new(owed);
         // Counts are taken once per pass, so senders that are still away cost one scan and never delay one that is back.
+        // Room is what this commit will leave: records keeping their text against MaximumMessages, and every record (those
+        // this commit turns into tombstones included) plus the existing tombstones against MaximumTombstones. Counting only
+        // the old tombstones let a refusal's own tombstone plus its notice pass the bound and the store fail to reopen.
         var ids = next.Messages.Select(r => r.Message.Id).ToHashSet();
-        int withText = next.Messages.Count(r => !Tombstoned(r));
+        int withText = next.Messages.Count(r => !Tombstoned(r)), records = next.Messages.Count + tombstones.Count;
         var pending = PendingByRecipient(next.Messages);
         List<MessageReceipt>? messages = null;
         foreach (var (id, source) in owing.OrderBy(p => p.Value.UpdatedAt).ToArray())
         {
-            if (ids.Contains(id) || tombstones.ContainsKey(id)) { owing.Remove(id); continue; }
+            // A notice is sent only while its source is retained, so it never arrives after its evidence has gone.
+            if (ids.Contains(id) || tombstones.ContainsKey(id) || source.Message.ExpiresAt + RecordGrace <= Now) { owing.Remove(id); continue; }
             var owner = source.Message.Sender;
-            // Admission comes before the pruning check, so a source pruned in this very commit can hand its own slot to
-            // its notice: a full store then loses no notice to a sender that stayed addressable.
-            if (!Admissible(owner, withText, pending))
-            {
-                if (source.Message.ExpiresAt + RecordGrace <= Now) owing.Remove(id);
-                continue;
-            }
+            if (!Admissible(owner, withText, records, pending)) continue;
             // Always the maximum lifetime, never the configurable default: a source lives at most that long plus RecordGrace,
             // so the notice's record or tombstone outlives every source it could be rebuilt from, and is never recreated.
             var now = Now;
             (messages ??= next.Messages.ToList()).Add(new(new(id, id, null, new(state.BrokerId, NoticeSessionId, NoticeIncarnation), owner,
-                NoticeText(source), now, now + BrokerLimits.MaximumLifetime, 0), MessageStatus.Accepted, now));
-            withText++;
+                FitText(NoticeText(source)), now, now + BrokerLimits.MaximumLifetime, 0), MessageStatus.Accepted, now));
+            withText++; records++;
             pending[owner] = pending.GetValueOrDefault(owner) + 1;
             owing.Remove(id);
         }
@@ -845,27 +845,49 @@ public sealed class BrokerStore : IDisposable
 
     // The exact sender address must be addressable and able to receive, and the notice must fit every bound an ordinary
     // message must: the store's text and tombstone bounds and the recipient's pending limit.
-    private bool Admissible(SessionAddress owner, int withText, Dictionary<SessionAddress, int> pending) =>
+    private bool Admissible(SessionAddress owner, int withText, int records, Dictionary<SessionAddress, int> pending) =>
         sessions.TryGetValue(owner, out var session) && Addressable(owner) && session.Capabilities.HasFlag(SessionCapabilities.Receive) &&
-        withText < limits.MaximumMessages && withText + tombstones.Count < limits.MaximumTombstones &&
+        withText < limits.MaximumMessages && records < limits.MaximumTombstones &&
         pending.GetValueOrDefault(owner) < limits.MaximumPendingPerSession;
 
-    // Whether a delivery pass should commit to admit an owed notice whose sender has come back or found room. A stale
-    // entry costs at most one such commit, which drops it.
+    // Whether a delivery pass should commit to admit an owed notice whose sender has come back or found room.
     private bool OwedReady(List<MessageReceipt> current)
     {
-        int withText = current.Count(r => !Tombstoned(r));
+        int withText = current.Count(r => !Tombstoned(r)), records = current.Count + tombstones.Count;
         var pending = PendingByRecipient(current);
-        return owed.Values.Any(source => Admissible(source.Message.Sender, withText, pending));
+        return owed.Values.Any(source => source.Message.ExpiresAt + RecordGrace > Now && Admissible(source.Message.Sender, withText, records, pending));
     }
 
-    // One notice per message, whichever commit sees it end: the ID is derived from the message's own.
-    private static Guid NoticeId(Guid messageId)
+    // A notice is held to the text bound every message is, or the snapshot would not load again. At the default 16 KiB a
+    // notice is never trimmed; a smaller configured bound keeps its start, which names the message.
+    private string FitText(string text)
+    {
+        if (Encoding.UTF8.GetByteCount(text) <= limits.MaximumTextBytes) return text;
+        int length = text.Length;
+        while (length > 1 && Encoding.UTF8.GetByteCount(text.AsSpan(0, length)) > limits.MaximumTextBytes) length--;
+        if (length > 1 && char.IsHighSurrogate(text[length - 1])) length--;
+        return text[..length];
+    }
+
+    // One notice per message, whichever commit sees it end: the ID is derived from the message's own. It is version 8 with a
+    // fixed 32-bit marker, and Accept refuses exactly that subspace (IsNoticeId), so no submitted message can take a
+    // notice's ID. The marker, not version 8 alone, is reserved: the channel bridge derives its own version-8 reply IDs
+    // (McpChannelBridge, "agentbroker-channel-reply"), and one carries the marker only with odds of 1 in 2^32.
+    private static readonly byte[] NoticeMarker = [0x41, 0x42, 0x4E, 0x31];
+    public static Guid NoticeId(Guid messageId)
     {
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes("agentbroker-notice-v1:" + messageId.ToString("D")))[..16];
+        NoticeMarker.CopyTo(bytes, 0);
         bytes[7] = (byte)(bytes[7] & 0x0F | 0x80); // version 8 (custom), in Guid's little-endian field layout
         bytes[8] = (byte)(bytes[8] & 0x3F | 0x80); // RFC 4122 variant
         return new Guid(bytes);
+    }
+
+    public static bool IsNoticeId(Guid id)
+    {
+        Span<byte> bytes = stackalloc byte[16];
+        id.TryWriteBytes(bytes);
+        return id.Version == 8 && bytes[..4].SequenceEqual(NoticeMarker);
     }
 
     private string NoticeText(MessageReceipt ended)
