@@ -87,7 +87,9 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
         finally { gate.Release(); }
     }
 
-    public async Task<AdapterResult> SubmitAsync(BrokerMessage message, CancellationToken token)
+    public Task<AdapterResult> SubmitAsync(BrokerMessage message, CancellationToken token) => SubmitAsync(message, null, token);
+
+    public async Task<AdapterResult> SubmitAsync(BrokerMessage message, PeerSenderInfo? sender, CancellationToken token)
     {
         await gate.WaitAsync(token);
         try
@@ -95,7 +97,7 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
             ObjectDisposedException.ThrowIf(disposed, this);
             // Under update tolerance an unmet guard reaches the binding check below and refuses with its reason.
             if (!enableDelivery || !provider.NativeIdleGuard && !updateTolerant) return new(AdapterAdmission.Refused, "native_delivery_disabled");
-            string formatted = PeerMessageFormatter.Format(message);
+            string formatted = PeerMessageFormatter.Format(message, sender);
             if (Encoding.UTF8.GetByteCount(formatted) > 32 * 1024) return new(AdapterAdmission.Refused, "native_message_too_large");
             if (!bindings.TryGetValue(message.Recipient, out var previous)) return Deferred("native_session_unavailable");
             // A publisher signature permits observation only. Refuse before owner rediscovery, transport or model input.

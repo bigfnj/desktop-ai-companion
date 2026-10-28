@@ -44,6 +44,10 @@ try
         codex.Outcome = new(DesktopSubmissionOutcome.Accepted, TurnId: "synthetic-turn");
         Check((await adapter.SubmitAsync(Message(again), default)).Outcome == AdapterAdmission.Submitted,
             "Native admission remains separate from explicit recipient delivery receipt.");
+        bool labelledSubmit = (await adapter.SubmitAsync(Message(again), new PeerSenderInfo("Synthetic Codex sender", "local"), default)).Outcome == AdapterAdmission.Submitted;
+        string codexText = codex.LastText ?? "";
+        Check(labelledSubmit && JsonDocument.Parse(codexText[(codexText.IndexOf('\n') + 1)..]).RootElement.GetProperty("senderLabel").GetString() == "Synthetic Codex sender",
+            "LABEL_CODEX_ADAPTER: the Codex adapter puts the sender description it is given into the envelope it submits");
         int beforeLarge = codex.Submits;
         Check((await adapter.SubmitAsync(Message(again) with { Text = new string('\u0001', 16 * 1024) }, default)).Outcome == AdapterAdmission.Refused && codex.Submits == beforeLarge,
             "Oversized escaped native Codex envelope is refused before model input without truncation.");
@@ -182,6 +186,9 @@ try
         using (var envelope = JsonDocument.Parse(formatted[(formatted.IndexOf('\n') + 1)..]))
             Check(envelope.RootElement.GetProperty("text").GetString() == escaped.Text && envelope.RootElement.GetProperty("messageId").GetGuid() == escaped.Id,
                 "Formatted external-agent envelope preserves exact quoted peer content and routing identity.");
+        Check((await enabled.SubmitAsync(message, new PeerSenderInfo("Synthetic Claude sender", "local"), default)).Outcome == AdapterAdmission.Submitted &&
+            JsonDocument.Parse(claude.LastMessage!.Text[(claude.LastMessage.Text.IndexOf('\n') + 1)..]).RootElement.GetProperty("senderLabel").GetString() == "Synthetic Claude sender",
+            "LABEL_CLAUDE_ADAPTER: the Claude adapter puts the sender description it is given into the envelope it submits");
         int before = claude.CredentialReads;
         claude.Current = claude.Current with { Target = target with { StartFileTime = target.StartFileTime + 1 } };
         Check((await enabled.SubmitAsync(message, default)).Outcome == AdapterAdmission.DeferredNotSubmitted && claude.CredentialReads == before,
@@ -205,13 +212,14 @@ sealed class FakeCodex(Guid thread, TimeProvider clock) : ICodexNativeProvider
     internal bool Atomic = true, BoundToRecipient = true, FailSubmit, TooLarge, Disposed;
     internal int Submits;
     internal Guid LastMessageId;
+    internal string? LastText;
     public bool NativeIdleGuard => Atomic;
     public bool IsDeliveryAuthorized(DesktopOwnerBinding binding) => Atomic && BoundToRecipient && binding.ConversationId == thread && binding.OwnerClientId == Binding.OwnerClientId;
     public Task<IReadOnlyList<DesktopDirectorySession>> ObserveAsync(CancellationToken token)
         => Task.FromResult<IReadOnlyList<DesktopDirectorySession>>([new(thread, DesktopSessionActivity.Unknown, clock.GetUtcNow(), null)]);
     public Task<DesktopOwnerBinding?> ResolveOwnerAsync(Guid id, CancellationToken token) => Task.FromResult<DesktopOwnerBinding?>(Binding);
     public Task<DesktopSubmissionResult> SubmitAsync(DesktopOwnerBinding binding, Guid id, string text, CancellationToken token)
-    { if (TooLarge) throw new DesktopAdapterException("message_frame_too_large"); Submits++; LastMessageId = id; if (FailSubmit) throw new IOException("Synthetic submit failure."); return Task.FromResult(Outcome); }
+    { if (TooLarge) throw new DesktopAdapterException("message_frame_too_large"); Submits++; LastMessageId = id; LastText = text; if (FailSubmit) throw new IOException("Synthetic submit failure."); return Task.FromResult(Outcome); }
     public ValueTask DisposeAsync() { Disposed = true; return ValueTask.CompletedTask; }
 }
 sealed class FakeClaude(ClaudeNativeCandidate initial) : IClaudeNativeProvider

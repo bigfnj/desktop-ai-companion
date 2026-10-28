@@ -79,7 +79,9 @@ public sealed class ClaudeNativeAdapter : ILocalAgentAdapter
         finally { gate.Release(); }
     }
 
-    public async Task<AdapterResult> SubmitAsync(BrokerMessage message, CancellationToken token)
+    public Task<AdapterResult> SubmitAsync(BrokerMessage message, CancellationToken token) => SubmitAsync(message, null, token);
+
+    public async Task<AdapterResult> SubmitAsync(BrokerMessage message, PeerSenderInfo? sender, CancellationToken token)
     {
         await gate.WaitAsync(token);
         try
@@ -99,7 +101,7 @@ public sealed class ClaudeNativeAdapter : ILocalAgentAdapter
             if (fresh.Status != "idle") return Deferred("native_recipient_not_idle");
             // Immediate metadata refresh occurred before any credential handling. The native gate is
             // authoritative for actual mode/settings and the idle snapshot can race with GUI activity.
-            var native = new NativeMessage(message.Id, fresh.Target.SessionId, PeerMessageFormatter.Format(message), RecipientMode.Unknown,
+            var native = new NativeMessage(message.Id, fresh.Target.SessionId, PeerMessageFormatter.Format(message, sender), RecipientMode.Unknown,
                 DelegateNativeAdmission: true, Activity: NativeActivity.Idle);
             try
             {

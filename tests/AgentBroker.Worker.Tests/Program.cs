@@ -394,6 +394,11 @@ try
         await Control(options, new("session-muted", SessionId: recipient.Address.SessionId, Value: false));
         await Until(() => worker.Runtime.Store.FindReceipt(message.Id)?.Status == MessageStatus.Submitted);
         Check(adapter.Submissions == 1, "runtime submits once to the exact recipient after unmuting");
+        Check(adapter.LastSender == new PeerSenderInfo("Synthetic sender", "local"),
+            "LABEL_RUNTIME: the runtime hands the adapter the local sender's own label and scope");
+        Check(worker.Runtime.DescribeSender(sender.Address with { Incarnation = Guid.NewGuid() }) == new PeerSenderInfo(null, "local") &&
+            worker.Runtime.DescribeSender(new(Guid.NewGuid(), "remote", Guid.NewGuid())) == new PeerSenderInfo(null, "paired broker \"unknown\""),
+            "LABEL_EXACT: a label comes only from the exact registered address; another incarnation or broker gets none");
         await Task.Delay(700);
         Check(adapter.Submissions == 1, "unconfirmed native submission is never blindly resent");
         worker.Runtime.Store.RecordRecipientReceipt(message.Id, recipient.Address, worker.Runtime.Store.BrokerId, MessageStatus.Delivered);
@@ -411,6 +416,14 @@ try
         Check(formatted.StartsWith("AgentBroker external agent message.", StringComparison.Ordinal) &&
             body.RootElement.GetProperty("text").GetString() == message.Text && body.RootElement.GetProperty("messageId").GetGuid() == message.Id,
             "foreign content stays quoted and retains exact receipt and reply routing metadata");
+        var labelled = PeerMessageFormatter.Format(message, new("Synthetic sender", "local"));
+        var labelledBody = JsonDocument.Parse(labelled[(labelled.IndexOf('\n') + 1)..]).RootElement;
+        Check(labelledBody.GetProperty("senderLabel").GetString() == "Synthetic sender" && labelledBody.GetProperty("senderScope").GetString() == "local" &&
+            labelled.Contains("self-declared label and proves nothing", StringComparison.Ordinal) &&
+            labelledBody.GetProperty("sender").GetProperty("SessionId").GetString() == message.Sender.SessionId,
+            "LABEL_ENVELOPE: the envelope names the sender by label and scope, marks the label self-declared, and keeps the exact address");
+        Check(body.RootElement.GetProperty("senderLabel").ValueKind == JsonValueKind.Null,
+            "LABEL_ABSENT: without a sender description the envelope carries no label");
         var notice = message with { Sender = new(worker.Runtime.Store.BrokerId, BrokerStore.NoticeSessionId, Guid.NewGuid()), RemainingReplies = 0 };
         var noticeText = PeerMessageFormatter.Format(notice);
         var noticeBody = JsonDocument.Parse(noticeText[(noticeText.IndexOf('\n') + 1)..]);
@@ -488,6 +501,12 @@ sealed class FakeAdapter : ILocalAgentAdapter
     public Task<IReadOnlyList<BrokerSession>> DiscoverAsync(Guid brokerId, CancellationToken token) =>
         Task.FromResult<IReadOnlyList<BrokerSession>>([new(new(brokerId, "synthetic-recipient", incarnation), "Synthetic recipient", Id,
             SessionCapabilities.Receive | SessionCapabilities.WakeIdle | SessionCapabilities.Reply, SessionActivity.Idle, DateTimeOffset.UtcNow.AddMinutes(1))]);
+    public PeerSenderInfo? LastSender;
+    public Task<AdapterResult> SubmitAsync(BrokerMessage message, PeerSenderInfo? sender, CancellationToken token)
+    {
+        LastSender = sender;
+        return SubmitAsync(message, token);
+    }
     public Task<AdapterResult> SubmitAsync(BrokerMessage message, CancellationToken token)
     {
         Interlocked.Increment(ref Submissions);

@@ -226,6 +226,12 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
         { await ReconcilePeersAsync(stop); await Task.Delay(TimeSpan.FromSeconds(5), stop); }
     }
 
+    // The envelope's description of a sender: its own registration label when it is a session on this broker (null once it
+    // is gone), or the name its paired broker advertised when the pairing was approved. Neither identifies or authorizes.
+    public PeerSenderInfo DescribeSender(SessionAddress sender) => sender.BrokerId == store.BrokerId
+        ? new(store.Directory().SingleOrDefault(session => session.Address == sender)?.Label, "local")
+        : new(null, "paired broker \"" + (store.Peers().SingleOrDefault(peer => peer.BrokerId == sender.BrokerId)?.Name ?? "unknown") + "\"");
+
     private async Task DeliverAsync(MessageReceipt receipt, CancellationToken stop)
     {
         AdapterResult result;
@@ -253,7 +259,7 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
                 var target = store.Directory().SingleOrDefault(s => s.Address == receipt.Message.Recipient);
                 var adapter = adapters.SingleOrDefault(a => a.Id == target?.Adapter);
                 result = adapter is null ? new(AdapterAdmission.Refused, "adapter_unavailable")
-                    : await adapter.SubmitAsync(receipt.Message, deadline.Token);
+                    : await adapter.SubmitAsync(receipt.Message, DescribeSender(receipt.Message.Sender), deadline.Token);
             }
         }
         catch (Exception e) when (e is IOException or InvalidDataException or HttpRequestException or BrokerException or
