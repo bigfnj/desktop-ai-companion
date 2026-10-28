@@ -100,6 +100,22 @@ internal static class ReceiptWaitChecks
             check(busy, "RECEIPT_WAIT_SLOT: a receipt wait beside another wait of the same sender is wait_in_progress");
         }
 
+        // The wait wakes at the message's own deadline. This fixture never starts the delivery loops and nothing else reads
+        // or commits, which is the state Codex 01a18357 reproduced with all four loops busy; only the wake can end the wait.
+        await using (var real = new ToolFixture("receipt-wait-real-clock", clock: TimeProvider.System))
+        {
+            var from = real.Register("Synthetic real-clock sender"); var to = real.Register("Synthetic real-clock recipient");
+            var now = DateTimeOffset.UtcNow;
+            var brief = new BrokerMessage(Guid.NewGuid(), Guid.NewGuid(), null, from.Address, to.Address,
+                "Synthetic message that expires during the wait.", now, now.AddMilliseconds(1500));
+            real.Store.Accept(brief, real.Store.BrokerId);
+            elapsed.Restart();
+            var woke = await real.Tools.WaitForReceipt(brief.Id, default, timeoutSeconds: 10);
+            elapsed.Stop();
+            check(woke.Status == MessageStatus.Expired && elapsed.Elapsed < TimeSpan.FromSeconds(4),
+                $"RECEIPT_WAKES_AT_DEADLINE: a waiting wait_for_receipt wakes at the message's own deadline ({elapsed.Elapsed.TotalSeconds:F2} s for a 1.5 s deadline, request timeout 10 s)");
+        }
+
         bool unknown = false;
         try { await tools.WaitForReceipt(Guid.NewGuid(), default, timeoutSeconds: 0); }
         catch (McpException error) { unknown = error.Message == "The original message is unavailable."; }

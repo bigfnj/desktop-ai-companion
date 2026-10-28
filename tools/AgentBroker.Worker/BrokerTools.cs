@@ -108,13 +108,17 @@ public sealed class BrokerTools(BrokerRuntime runtime, IHttpContextAccessor http
             ?? throw new McpException("The original message is unavailable.");
         CheckParticipant(original.Sender);
         RequireLocal();
+        // Wake at the message's own deadline too: the reread then ages it (FindReceipt), with no other commit needed. A
+        // deadline already past wakes nothing extra, so a record that cannot age (an in-flight claim) never spins.
         var answered = await WaitAsync(original.Sender, timeoutSeconds, () =>
-            runtime.Store.FindReceipt(messageId) is { } receipt && Answered(receipt.Status) ? [receipt] : [], cancellationToken);
+            runtime.Store.FindReceipt(messageId) is { } receipt && Answered(receipt.Status) ? [receipt] : [], cancellationToken,
+            () => original.ExpiresAt - runtime.StoreNow is var until && until > TimeSpan.Zero ? until : null);
         return answered.Count > 0 ? answered[0] : runtime.Store.FindReceipt(messageId)
             ?? throw new McpException("The original message is unavailable.");
     }
 
-    // Submitted is transport admission only; the recipient's own receipt, a refusal or the deadline is the answer.
+    // Submitted is transport admission only (a native adapter's, or a paired broker's); the recipient's own receipt, a
+    // refusal, or the deadline (Expired, or Uncertain after Submitted) is the answer.
     private static bool Answered(MessageStatus status) =>
         status is not (MessageStatus.Accepted or MessageStatus.Submitting or MessageStatus.Submitted);
 
@@ -145,7 +149,7 @@ public sealed class BrokerTools(BrokerRuntime runtime, IHttpContextAccessor http
     }
 
     [McpServerTool(Name = "get_message_receipt", ReadOnly = true, OpenWorld = false),
-     Description("Look up a message receipt involving your authenticated broker. A message past its deadline without a receipt reads as Expired. Once a message sent from this workstation is Delivered or Refused its receipt keeps the status, addresses and times with empty text. A delivered receipt does not establish that the agent completed the requested work. To wait for a receipt instead of polling, use wait_for_receipt.")]
+     Description("Look up a message receipt involving your authenticated broker. Once its deadline passes, an Accepted or Held message reads as Expired, and a Submitted one as Uncertain, at once. Once a message sent from this workstation is Delivered or Refused its receipt keeps the status, addresses and times with empty text. A delivered receipt does not establish that the agent completed the requested work. To wait for a receipt instead of polling, use wait_for_receipt.")]
     public MessageReceipt? GetMessageReceipt(Guid messageId)
     {
         var receipt = runtime.Store.FindReceipt(messageId);
@@ -173,7 +177,7 @@ public sealed class BrokerTools(BrokerRuntime runtime, IHttpContextAccessor http
     // The loop never holds the store lock or the runtime's session lock while it waits: the change
     // signal is captured under the lock and awaited after the lock is released.
     private async Task<IReadOnlyList<MessageReceipt>> WaitAsync(SessionAddress session, int timeoutSeconds,
-        Func<MessageReceipt[]> pending, CancellationToken cancellationToken)
+        Func<MessageReceipt[]> pending, CancellationToken cancellationToken, Func<TimeSpan?>? wakeWithin = null)
     {
         Guid caller = Caller;
         using var slot = Run(() => runtime.BeginWait(session));
@@ -197,8 +201,11 @@ public sealed class BrokerTools(BrokerRuntime runtime, IHttpContextAccessor http
                 runtime.RenewPollingAgent(session, caller);
                 return result;
             }
-            try { await changed.WaitAsync(TimeSpan.FromMilliseconds(remaining), cancellationToken); }
-            catch (TimeoutException) { /* The deadline passed; the next pass returns the final state. */ }
+            // A wait can also need to wake before the request deadline when nothing would commit and signal it, as when a
+            // receipt's own deadline passes while every delivery loop is busy (Codex 01a18357, review of 6c742da).
+            long sleep = wakeWithin?.Invoke() is TimeSpan wake ? Math.Min(remaining, Math.Max(1, (long)Math.Ceiling(wake.TotalMilliseconds))) : remaining;
+            try { await changed.WaitAsync(TimeSpan.FromMilliseconds(sleep), cancellationToken); }
+            catch (TimeoutException) { /* The deadline (or the wake) passed; the next pass rereads the state. */ }
         }
     }
 

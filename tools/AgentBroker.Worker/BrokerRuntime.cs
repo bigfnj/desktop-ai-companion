@@ -24,6 +24,8 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
     public event Action? FatalError;
     public bool IsMuted(string sessionId) => sessionPreferences?.IsMuted(sessionId) == true;
     private DateTimeOffset Now => (clock ?? TimeProvider.System).GetUtcNow();
+    // The store clock, for a tool that must wake at a message deadline (BrokerTools.WaitForReceipt).
+    internal DateTimeOffset StoreNow => Now;
 
     public void SetSessionPreference(string sessionId, bool? isPrivate, bool? isMuted)
     {
