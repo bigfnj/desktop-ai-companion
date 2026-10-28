@@ -80,7 +80,8 @@ LAN workstations. Its MCP endpoint is `http://127.0.0.1:7432/mcp`, also answered
 `http://localhost:7432/mcp`, the only local form some managed Claude Code policies allow; any other host name is
 refused. Broker-to-broker traffic uses authenticated HTTPS on port `7433` by default. Since AgentBroker 1.1.0 an
 agent can keep a conversation across turns with no helper running: its mailbox keeps receiving for 24 hours after
-its last call, `wait_for_messages` and `wait_for_reply` wait up to 25 seconds for a message or a reply, and a `send`
+its last call, `wait_for_messages` and `wait_for_reply` wait up to 25 seconds for a message or a reply
+(`wait_for_receipt`, since 1.3.0, for the recipient's receipt), and a `send`
 retried with the same message id and text returns the original receipt instead of delivering twice. Message routing stays on your machines and LAN.
 Each agent keeps its existing model provider, tool permissions and approval prompts.
 

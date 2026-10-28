@@ -533,7 +533,14 @@ public sealed class BrokerStore : IDisposable
     /// </summary>
     public MessageReceipt? FindReceipt(Guid messageId)
     {
-        lock (gate) { EnsureOpen(); return Stored(messageId, null, out _); }
+        lock (gate)
+        {
+            EnsureOpen();
+            // A passed deadline reads as Expired at once rather than after the next delivery pass, and owes its notice.
+            var messages = Expire(state.Messages);
+            if (!messages.SequenceEqual(state.Messages)) Commit(state with { Messages = messages });
+            return Stored(messageId, null, out _);
+        }
     }
 
     /// <summary>

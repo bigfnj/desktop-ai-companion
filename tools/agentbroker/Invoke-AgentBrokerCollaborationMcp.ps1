@@ -61,7 +61,7 @@ function Confirm-CollaborationRequest($Request) {
     }
     if ($method -ceq 'tools/call') {
         $params = Get-McpField $Request 'params'; $tool = Get-McpField $params 'name'; $args = Get-McpField $params 'arguments'
-        if ($tool -cnotin @('register_agent', 'list_sessions', 'read_inbox', 'send', 'send_message', 'wait_for_messages', 'wait_for_reply', 'reply_to_message', 'acknowledge_message', 'get_message_receipt')) { Refuse-Mcp 'tool_not_allowed' }
+        if ($tool -cnotin @('register_agent', 'list_sessions', 'read_inbox', 'send', 'send_message', 'wait_for_messages', 'wait_for_reply', 'wait_for_receipt', 'reply_to_message', 'acknowledge_message', 'get_message_receipt')) { Refuse-Mcp 'tool_not_allowed' }
         if ($args -isnot [Collections.IDictionary]) { Refuse-Mcp 'request_shape' }
         if ($tool -ceq 'send_message') { $message = Get-McpField $args 'message'; Confirm-GenericMcpAddress (Get-McpField $message 'sender'); Confirm-GenericMcpAddress (Get-McpField $message 'recipient') }
         if ($tool -ceq 'send') { Confirm-GenericMcpAddress (Get-McpField $args 'sender'); Confirm-GenericMcpAddress (Get-McpField $args 'recipient') }
@@ -71,7 +71,7 @@ function Confirm-CollaborationRequest($Request) {
     return [pscustomobject]@{ Method = $method; Tool = $tool; ExecuteAllowed = ($tool -cne 'reply_to_message') }
 }
 # A wait may block up to the broker's 25-second bound, so its request needs more than the usual 15.
-function Get-McpRequestSeconds([string]$Tool) { if ($Tool -cin @('wait_for_messages', 'wait_for_reply')) { return 40 }; return 15 }
+function Get-McpRequestSeconds([string]$Tool) { if ($Tool -cin @('wait_for_messages', 'wait_for_reply', 'wait_for_receipt')) { return 40 }; return 15 }
 function Assert-McpRequestPath([string]$Path, [string]$Root) {
     $full = [IO.Path]::GetFullPath($Path); $scope = [IO.Path]::GetFullPath($Root).TrimEnd('\')
     if (-not $full.StartsWith($scope + '\', [StringComparison]::OrdinalIgnoreCase) -or $full.StartsWith('\\') -or

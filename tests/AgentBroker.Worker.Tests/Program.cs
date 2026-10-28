@@ -48,7 +48,7 @@ if (args.Length == 1 && args[0] == "--polling-lease-only")
     catch (Exception ex) { Console.Error.WriteLine(ex); Console.WriteLine("RESULT=FAIL"); return 1; }
 }
 if (args.Length == 1 && args[0] is "--mailbox-only" or "--wait-tools-only" or "--send-only" or "--instructions-only" or
-    "--inbox-attribution-only" or "--lan-profile-only")
+    "--inbox-attribution-only" or "--lan-profile-only" or "--receipt-wait-only")
 {
     try
     {
@@ -56,6 +56,7 @@ if (args.Length == 1 && args[0] is "--mailbox-only" or "--wait-tools-only" or "-
         if (args[0] == "--lan-profile-only") await OnboardingChecks.LanProfileAsync(Check);
         if (args[0] == "--mailbox-only") await MailboxChecks.RunAsync(Check);
         if (args[0] == "--wait-tools-only") await WaitToolChecks.RunAsync(Check);
+        if (args[0] == "--receipt-wait-only") await ReceiptWaitChecks.RunAsync(Check);
         if (args[0] == "--send-only") await SendToolChecks.RunAsync(Check);
         if (args[0] == "--instructions-only") await InstructionsChecks.RunAsync(Check);
         Console.WriteLine($"RESULT=PASS assertions={assertions}");
@@ -280,6 +281,7 @@ try
         // Agent-to-agent bus: durable mailboxes, blocking waits, field-compared send, the instructions card.
         await MailboxChecks.RunAsync(Check);
         await WaitToolChecks.RunAsync(Check);
+        await ReceiptWaitChecks.RunAsync(Check);
         await SendToolChecks.RunAsync(Check);
         await InstructionsChecks.RunAsync(Check);
         // Client inbox attribution and the LAN network profile (lane feature/agentbroker-backlog-a).
@@ -350,9 +352,9 @@ try
         Check(initialize.GetProperty("result").TryGetProperty("protocolVersion", out _), "official MCP HTTP transport negotiates initialization");
         var tools = await Rpc(client, "tools/list", new { });
         var names = tools.GetProperty("result").GetProperty("tools").EnumerateArray().Select(t => t.GetProperty("name").GetString()).ToArray();
-        Check(names.Length == 10 && new[] { "list_sessions", "register_agent", "send", "send_message", "wait_for_messages", "wait_for_reply",
-                "read_inbox", "acknowledge_message", "get_message_receipt", "reply_to_message" }.All(names.Contains),
-            "MCP publishes exactly the ten real broker operations");
+        Check(names.Length == 11 && new[] { "list_sessions", "register_agent", "send", "send_message", "wait_for_messages", "wait_for_reply",
+                "wait_for_receipt", "read_inbox", "acknowledge_message", "get_message_receipt", "reply_to_message" }.All(names.Contains),
+            "MCP publishes exactly the eleven real broker operations");
         var stdioInput = new System.IO.Pipelines.Pipe();
         var stdioOutput = new System.IO.Pipelines.Pipe();
         using (var bridgeInput = stdioInput.Reader.AsStream())
@@ -363,7 +365,7 @@ try
             await stdioInput.Writer.WriteAsync("{\"jsonrpc\":\"2.0\",\"id\":77,\"method\":\"tools/list\",\"params\":{}}\n"u8.ToArray());
             string line = await bridgeReader.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(10)) ?? throw new IOException("Missing stdio response.");
             using var reply = JsonDocument.Parse(line);
-            Check(reply.RootElement.GetProperty("id").GetInt32() == 77 && reply.RootElement.GetProperty("result").GetProperty("tools").GetArrayLength() == 10,
+            Check(reply.RootElement.GetProperty("id").GetInt32() == 77 && reply.RootElement.GetProperty("result").GetProperty("tools").GetArrayLength() == 11,
                 "stdio bridge discovers authenticated broker tools without persisting a token");
             Check(!line.Contains(connection.BearerToken!, StringComparison.Ordinal), "stdio output never exposes the local bearer token");
             await stdioInput.Writer.CompleteAsync();

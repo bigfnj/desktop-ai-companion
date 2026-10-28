@@ -131,6 +131,8 @@ public static class AgentBrokerLocalInstallNative {
             "acknowledge_message", "get_message_receipt", "reply_to_message" };
         // 1.1.0: the agent-to-agent bus (durable mailboxes, blocking waits, field-compared send).
         if (version >= new Version(1, 1, 0)) tools.AddRange(new[] { "send", "wait_for_messages", "wait_for_reply" });
+        // 1.3.0: a sender waits for its message's receipt instead of polling get_message_receipt.
+        if (version >= new Version(1, 3, 0)) tools.Add("wait_for_receipt");
         return tools.ToArray();
     }
     public static void CreateTestHardLink(string link, string existing) {
@@ -971,6 +973,15 @@ if ($SelfTest) {
         if ($busVersion -cne '1.1.0' -or $busTools.Count -ne 10 -or
             @(Compare-Object $busTools ($sevenTools + @('send', 'wait_for_messages', 'wait_for_reply')) -CaseSensitive).Count -ne 0) {
             throw 'A 1.1.0 package did not require all ten MCP tools.'
+        }
+        $checks++
+        # 1.3.0 added wait_for_receipt; a 1.2.0 package must not be required to serve it.
+        $tenTools = $sevenTools + @('send', 'wait_for_messages', 'wait_for_reply')
+        $before = [AgentBrokerLocalInstallNative]::ExpectedTools('1.2.0')
+        $receiptTools = [AgentBrokerLocalInstallNative]::ExpectedTools('1.3.0')
+        if ($before.Count -ne 10 -or @(Compare-Object $before $tenTools -CaseSensitive).Count -ne 0 -or
+            $receiptTools.Count -ne 11 -or @(Compare-Object $receiptTools ($tenTools + @('wait_for_receipt')) -CaseSensitive).Count -ne 0) {
+            throw 'A 1.3.0 package did not require wait_for_receipt beside the ten 1.2.0 MCP tools.'
         }
         $checks++
         $refused = $false

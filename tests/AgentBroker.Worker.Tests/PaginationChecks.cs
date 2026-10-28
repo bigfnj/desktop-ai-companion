@@ -51,8 +51,8 @@ internal static class PaginationChecks
             check(initialized.GetProperty("result").TryGetProperty("protocolVersion", out _),
                 "pagination regression negotiates through the real authenticated HTTP-to-stdio bridge");
             var tools = await bridge.RpcAsync("tools/list", new { });
-            check(tools.GetProperty("result").GetProperty("tools").GetArrayLength() == 10,
-                "bounded collection tools preserve the ten-operation MCP contract");
+            check(tools.GetProperty("result").GetProperty("tools").GetArrayLength() == 11,
+                "bounded collection tools preserve the eleven-operation MCP contract");
 
             var first = await bridge.ArrayAsync("read_inbox", new { session = recipient });
             check(first.GetArrayLength() == 16 && bridge.LastFrameBytes < 8 * 1024 * 1024,

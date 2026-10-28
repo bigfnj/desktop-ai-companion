@@ -42,7 +42,10 @@ foreach ($native in @('claude:22222222-2222-4222-8222-222222222222', 'mcp:bad'))
 }
 $replyWait = @{ jsonrpc = '2.0'; id = 'wait-2'; method = 'tools/call'; params = @{ name = 'wait_for_reply'; arguments = @{ messageId = '44444444-4444-4444-8444-444444444444' } } }
 Check ((Confirm-CollaborationRequest $replyWait).ExecuteAllowed) 'wait_for_reply by message ID accepted'
-Check ((Get-McpRequestSeconds 'wait_for_messages') -eq 40 -and (Get-McpRequestSeconds 'wait_for_reply') -eq 40) 'the two wait tools get a 40-second request deadline'
+$receiptWait = @{ jsonrpc = '2.0'; id = 'wait-3'; method = 'tools/call'; params = @{ name = 'wait_for_receipt'; arguments = @{ messageId = '44444444-4444-4444-8444-444444444444' } } }
+Check ((Confirm-CollaborationRequest $receiptWait).ExecuteAllowed) 'wait_for_receipt by message ID accepted'
+Check ((Get-McpRequestSeconds 'wait_for_messages') -eq 40 -and (Get-McpRequestSeconds 'wait_for_reply') -eq 40 -and
+    (Get-McpRequestSeconds 'wait_for_receipt') -eq 40) 'the three wait tools get a 40-second request deadline'
 Check ((Get-McpRequestSeconds 'read_inbox') -eq 15 -and (Get-McpRequestSeconds 'send') -eq 15 -and (Get-McpRequestSeconds '') -eq 15) 'every other request keeps the 15-second deadline'
 foreach ($tool in @('register_agent', 'list_sessions', 'read_inbox', 'wait_for_messages', 'acknowledge_message', 'get_message_receipt', 'reply_to_message')) {
     $request = @{ jsonrpc = '2.0'; id = 'tool-1'; method = 'tools/call'; params = @{ name = $tool; arguments = @{ session = $address; recipient = $address } } }

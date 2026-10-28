@@ -15,7 +15,8 @@ public static class BrokerInstructions
         "Identity: pick ONE clientId and ONE incarnation for a conversation and pass the same pair to register_agent on every turn. " +
         "Presence lapses a minute after your last call, but the mailbox keeps receiving for 24 hours and your next call restores it. " +
         "A new incarnation is a new mailbox. After session_unavailable or a broker restart, register the same pair again; your messages are kept.\n" +
-        "Ask: register_agent -> list_sessions -> send -> wait_for_reply. " +
+        "Ask: register_agent -> list_sessions -> send -> wait_for_receipt (was it received?) -> wait_for_reply. " +
+        "An acknowledgement never arrives in your inbox. " +
         "Answer: wait_for_messages -> acknowledge_message (Delivered) -> reply_to_message. " +
         "Waits block at most 25 seconds; run one wait at a time per inbox. Retry a send with the same messageId and text.\n" +
         "Route by the complete address (brokerId, sessionId, incarnation), never by label.\n" +
