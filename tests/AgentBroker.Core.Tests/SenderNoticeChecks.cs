@@ -318,6 +318,38 @@ internal static class SenderNoticeChecks
             Check(Notices(many, away.Address).Count == 200, "NOTICE_ALL_ADMITTED: every owed notice is admitted in one pass when its sender is back");
         }
 
+        // Scale without a slow setup: one valid schema-1 snapshot holding 1,025 Expired sources from an absent sender and,
+        // newest, one from a present sender, opened by the real store. 1,025 is past the earlier 1,024 cap, so a truncated
+        // owed set or admission pass shows here; the absent prefix sorts first, so starvation would show too.
+        clock = new Clock();
+        path = Path.Combine(root, "sender-notice-scale");
+        System.IO.Directory.CreateDirectory(path);
+        var scaleBroker = Guid.NewGuid();
+        var awayAddress = new SessionAddress(scaleBroker, "claude:scale-away", Guid.NewGuid());
+        var presentAddress = new SessionAddress(scaleBroker, "mcp:scale-present", Guid.NewGuid());
+        var sinkAddress = new SessionAddress(scaleBroker, "mcp:scale-sink", Guid.NewGuid());
+        MessageReceipt Ended(SessionAddress from, int minutesAgo)
+        {
+            var deadline = clock.GetUtcNow().AddMinutes(-minutesAgo);
+            return new(new(Guid.NewGuid(), Guid.NewGuid(), null, from, sinkAddress, "A harmless synthetic source.", deadline.AddMinutes(-60), deadline),
+                MessageStatus.Expired, deadline, "expired");
+        }
+        var sources = Enumerable.Range(0, 1025).Select(index => Ended(awayAddress, 61 + index % 60)).Append(Ended(presentAddress, 1)).ToList();
+        File.WriteAllText(Path.Combine(path, "broker-state.json"), System.Text.Json.JsonSerializer.Serialize(
+            new { Version = 1, BrokerId = scaleBroker, Peers = Array.Empty<PeerTrust>(), Messages = sources }));
+        using (var store = new BrokerStore(path, new(MaximumPendingPerSession: 2000), clock))
+        {
+            store.Register(new(presentAddress, "Present", "mcp", SessionCapabilities.Receive | SessionCapabilities.Reply,
+                SessionActivity.Idle, clock.GetUtcNow().AddMinutes(1)));
+            store.BeginDelivery();
+            Check(Notices(store, presentAddress).Count == 1,
+                "NOTICE_SCALE_NO_STARVATION: past 1,024 owed notices to an absent sender, a present sender's notice is still admitted");
+            store.Register(new(awayAddress, "Away, back", "claude-native", SessionCapabilities.Receive | SessionCapabilities.WakeIdle | SessionCapabilities.Reply,
+                SessionActivity.Idle, clock.GetUtcNow().AddMinutes(2)));
+            store.BeginDelivery();
+            Check(Notices(store, awayAddress).Count == 1025, "NOTICE_SCALE_ALL: all 1,025 rebuilt notices are admitted when their sender is back");
+        }
+
         // Expiry during downtime: the first pass after a restart commits it before discovery re-registers the sender.
         clock = new Clock();
         path = Path.Combine(root, "sender-notice-restart");
