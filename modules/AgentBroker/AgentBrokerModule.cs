@@ -41,7 +41,16 @@ public sealed partial class AgentBrokerModule : IModule
     {
         Id = "agentbroker",
         Name = "AgentBroker",
-        Version = "1.2.0",   // 1.2.0: vendor re-pins as data (lane broker-pins, 2026-10-27). Every exact pin is one
+        Version = "1.3.0",   // 1.3.0: delivery feedback (2026-10-28, with Codex session 01a18357 as reviewer). A local
+                             //        sender whose message ends Expired or Refused gets one notice from the reserved
+                             //        agentbroker:notices address, owed to its exact address until it can be admitted
+                             //        and rebuilt from the durable receipts after a restart; a native sender is woken with
+                             //        it. A new wait_for_receipt tool returns a sent message's outcome instead of
+                             //        polling, and receipts show a passed deadline at once. The native envelope names
+                             //        the sender (senderLabel, senderScope), marked self-declared. Notice IDs are a
+                             //        reserved subspace (reserved_message_id). The installer expects eleven tools.
+                             //        MinHostVersion unchanged (1.6.1).
+                             // 1.2.0: vendor re-pins as data (lane broker-pins, 2026-10-27). Every exact pin is one
                              //        JSON document embedded in the worker's adapters and validated strictly at start;
                              //        a missing or malformed document fails closed (no wake, Codex discovery refused)
                              //        and the Native status says why. Claude Code 2.1.293 (npm CLI), 2.1.310, 2.1.311
