@@ -799,6 +799,9 @@ public sealed class BrokerStore : IDisposable
         // Room is what this commit will leave: records keeping their text against MaximumMessages, and every record (those
         // this commit turns into tombstones included) plus the existing tombstones against MaximumTombstones. Counting only
         // the old tombstones let a refusal's own tombstone plus its notice pass the bound and the store fail to reopen.
+        // Expired tombstones are pruned lazily (Stored, Accept); without this a delivery pass counted them as room taken, and a
+        // notice waited for some unrelated receipt read to prune them (Codex 01a18357, review of e0406c0).
+        PruneTombstones();
         var ids = next.Messages.Select(r => r.Message.Id).ToHashSet();
         int withText = next.Messages.Count(r => !Tombstoned(r)), records = next.Messages.Count + tombstones.Count;
         var pending = PendingByRecipient(next.Messages);
@@ -853,6 +856,7 @@ public sealed class BrokerStore : IDisposable
     // Whether a delivery pass should commit to admit an owed notice whose sender has come back or found room.
     private bool OwedReady(List<MessageReceipt> current)
     {
+        PruneTombstones();
         int withText = current.Count(r => !Tombstoned(r)), records = current.Count + tombstones.Count;
         var pending = PendingByRecipient(current);
         return owed.Values.Any(source => source.Message.ExpiresAt + RecordGrace > Now && Admissible(source.Message.Sender, withText, records, pending));

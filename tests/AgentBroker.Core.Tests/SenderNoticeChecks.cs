@@ -300,6 +300,32 @@ internal static class SenderNoticeChecks
             Check(reopened, "NOTICE_TOMBSTONE_REOPEN: the store reopens after a refusal and its acknowledged notice at a small tombstone bound");
         }
 
+        // Tombstones past their grace free room on the next delivery pass, not only after some unrelated receipt read
+        // (Codex 01a18357's witness against e0406c0). Observed through BeginDelivery alone: an inbox read would prune too.
+        clock = new Clock();
+        using (var store = new BrokerStore(Path.Combine(root, "sender-notice-tombstone-prune"), new(MaximumTombstones: 3), clock))
+        {
+            var mailbox = Mailbox(store, clock, "prune-sender"); var recipient = Mailbox(store, clock, "prune-recipient");
+            var absent = Native(store, clock, "claude:prune-absent");
+            store.Register(mailbox); store.Register(recipient); store.Register(absent);
+            foreach (var _ in Enumerable.Range(0, 2))
+            {
+                var shortLived = Message(mailbox, recipient, clock, TimeSpan.FromMinutes(1));
+                store.Accept(shortLived, store.BrokerId);
+                store.RecordRecipientReceipt(shortLived.Id, recipient.Address, store.BrokerId, MessageStatus.Delivered);
+            }
+            var refused = Message(absent, recipient, clock, TimeSpan.FromHours(24));
+            store.Accept(refused, store.BrokerId);
+            store.Disconnect(absent.Address);
+            store.RecordRecipientReceipt(refused.Id, recipient.Address, store.BrokerId, MessageStatus.Refused);
+            clock.Advance(TimeSpan.FromHours(25));   // the two Delivered tombstones are past grace; the refusal is not
+            store.Register(absent with { LeaseUntil = clock.GetUtcNow().AddMinutes(2) });
+            store.BeginDelivery();
+            var claimed = store.BeginDelivery();
+            Check(claimed?.Message.Sender.SessionId == BrokerStore.NoticeSessionId && claimed.Message.Recipient == absent.Address,
+                "NOTICE_TOMBSTONES_PRUNED: tombstones past their grace free room on the next delivery pass");
+        }
+
         // A notice is held to the configured text bound, or the snapshot would not load again.
         clock = new Clock();
         path = Path.Combine(root, "sender-notice-text-bound");
