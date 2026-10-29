@@ -56,6 +56,42 @@ See [CloseApplication schema](https://docs.firegiant.com/wix/schema/util/closeap
 [RemoveExistingProducts](https://learn.microsoft.com/en-us/windows/win32/msi/removeexistingproducts-action)
 and [MsiGetProductInfoEx](https://learn.microsoft.com/en-us/windows/win32/api/msi/nf-msi-msigetproductinfoexw).
 
+## A missing cached package
+
+Setup refuses with `cached_package_missing` when Windows Installer's cached copy
+of any registered Desktop AI Companion package is gone (the `LocalPackage` that
+MsiGetProductInfoEx returns). The action needs that file: it is where it reads
+whether the installed version carries the scoped-shutdown capability or the
+historical basename-wide action, and where it confirms the registration's
+ProductCode and UpgradeCode. It is also the package whose own uninstall
+RemoveExistingProducts runs. Without it neither answer can be proven, and
+assuming the scoped one would let a historical action close every
+`DesktopAICompanion.exe` unannounced, portable and test copies included. So a
+related product with no cache is refused rather than guessed at. This is
+deliberate, and not a defect to relax.
+
+The refusal stops repair, upgrade and uninstall alike. The action is immediate,
+unconditioned and runs before InstallValidate in each of them, ahead of
+InstallInitialize, where the actions that change the system begin. So a repair
+from the original package (`msiexec /fv`, whose `v` re-caches the local package)
+stops at the same check, and was seen to on 2026-10-29 (N-installer-tests-01).
+
+The recovery, which the error itself states, is to put the cached copy back. An
+administrator copies the exact .msi that installed that version, normally its
+release download, to the path Windows Installer recorded, under
+`%WINDIR%\Installer`, keeping that file name, and setup is run again. The action
+opens the restored file and checks its ProductCode and UpgradeCode before
+trusting it: any other package is refused as `cached_package_identity_mismatch`.
+To find the recorded path for a per-user installation:
+
+```powershell
+Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\*\Products\*\InstallProperties' |
+    Where-Object DisplayName -like 'Desktop AI Companion*' | Select-Object DisplayName, DisplayVersion, LocalPackage
+```
+
+The isolated lifecycle's cleanup recipe for N-measure-offline-01 (docs/BLOCKED.md)
+begins with this restore.
+
 ## Validation
 
 Run `pwsh -NoProfile -File tests/Test-InstallerCompilerEnvironment.ps1` to verify

@@ -81,6 +81,24 @@ DWORD AttributeError(const std::wstring& path) {
     return GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES ? GetLastError() : ERROR_SUCCESS;
 }
 
+// N-installer-tests-01 (lane feature/followups): the text a missing cached package's setup error shows, read from
+// ErrorText, the function the MSI entry point calls. No repair, upgrade or uninstall gets past that check, so the
+// error has to say the recovery that clears it; and only that code changes, which the witness holds.
+void ErrorTextChecks() {
+    const std::wstring missing = ErrorText("cached_package_missing");
+    const std::wstring tail = L"(cached_package_missing)";
+    Check(missing.find(L"To recover, an administrator copies the .msi that installed that version back to the cached path "
+                       L"Windows Installer recorded for it (its LocalPackage, in %WINDIR%\\Installer); then run setup again.") != std::wstring::npos &&
+          missing.find(L"a repair from the original .msi included") != std::wstring::npos &&
+          missing.size() > tail.size() && missing.compare(missing.size() - tail.size(), tail.size(), tail) == 0,
+        "the missing cached package's error says how an administrator restores it");
+    Check(missing.find(L"Close its windows") == std::wstring::npos && missing.find(L"retry") == std::wstring::npos,
+        "the missing cached package's error gives no close-and-retry advice");
+    Check(ErrorText("installation_path_unavailable") == L"Setup could not safely identify or close the installed Desktop AI Companion. "
+                                                        L"Close its windows and retry setup. (installation_path_unavailable)",
+        "WITNESS other failure codes keep the generic close-and-retry text");
+}
+
 // The MSI entry point is not linked here, so the cached-package lookup it calls
 // is checked directly. Metadata only: nothing is created beside the checker.
 void CachedPackageChecks() {
@@ -101,6 +119,7 @@ void CachedPackageChecks() {
         "a folder registered as the cached package is not reported as a missing package");
     Check(SamePath(CanonicalCachedPackage(image), CanonicalFile(image)),
         "WITNESS an existing cached package canonicalizes like any other file");
+    ErrorTextChecks();
 }
 
 void PathChecks() {

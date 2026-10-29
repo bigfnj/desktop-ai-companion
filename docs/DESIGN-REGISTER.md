@@ -6546,6 +6546,12 @@ would go stale. What is left: WinForms' SetVisibleCore focuses a TopMost form it
 is focused as it comes back, where before the setter's call activated it a line later (one activation either way on
 that path; none now on the others). Closing that means taking the pet off Form.TopMost everywhere, as the bubble was.
 
+**A related installation with no cached package stays refused (N-installer-tests-01).** Only the error's words changed:
+`cached_package_missing` now says the recovery (an administrator restores the cached .msi to the path Windows Installer
+recorded), and docs/installer-scoped-shutdown.md says why closing such a product is refused. The installer allows
+exactly what it allowed. The text lives in `scoped_shutdown::ErrorText` (ShutdownPolicy.cpp), moved out of MsiEntry.cpp
+so the native checks read the words a user sees; MsiEntry.cpp needs msi.lib and is linked into the DLL alone.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of
