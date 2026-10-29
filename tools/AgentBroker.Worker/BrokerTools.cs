@@ -115,9 +115,9 @@ public sealed class BrokerTools(BrokerRuntime runtime, IHttpContextAccessor http
         ValidateLimit(limit);
         CheckParticipant(session);
         RequireLocal();
-        return WaitAsync(session, timeoutSeconds, () => runtime.Store.Messages(session)
-            .Where(receipt => receipt.Message.Recipient == session && receipt.Status == MessageStatus.Accepted)
-            .OrderBy(receipt => receipt.Message.CreatedAt).ThenBy(receipt => receipt.Message.Id).Take(limit).ToArray(), cancellationToken);
+        // The store's bounded query, not a filter over Messages: a wait wants only Accepted incoming records, which are
+        // never tombstones, so each pass skips rebuilding the session's acknowledged history (N-broker-e-02).
+        return WaitAsync(session, timeoutSeconds, () => runtime.Store.AcceptedIncoming(session, limit).ToArray(), cancellationToken);
     }
 
     [McpServerTool(Name = "wait_for_reply", Destructive = false, Idempotent = true, OpenWorld = false),

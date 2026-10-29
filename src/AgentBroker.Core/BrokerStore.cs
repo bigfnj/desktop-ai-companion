@@ -507,6 +507,25 @@ public sealed class BrokerStore : IDisposable
         }
     }
 
+    // What one wait_for_messages pass needs: this recipient's records still Accepted, oldest first, at most `limit`. A
+    // tombstone is only ever Delivered or Refused (Tombstoned), so none can qualify, and this never renders the
+    // participant's tombstone history the way Messages does for every read_inbox page (N-broker-e-02: at the 65,536
+    // bound each wait pass rebuilt the whole retained history only to discard it). The expire-and-commit step is the
+    // one Messages runs, so a record past its deadline reads Expired here as well, and is never returned.
+    public IReadOnlyList<MessageReceipt> AcceptedIncoming(SessionAddress recipient, int limit)
+    {
+        lock (gate)
+        {
+            EnsureOpen();
+            recipient.Validate();
+            if (limit < 1) throw new ArgumentOutOfRangeException(nameof(limit));
+            var messages = Expire(state.Messages);
+            if (!messages.SequenceEqual(state.Messages)) Commit(state with { Messages = messages });
+            return state.Messages.Where(r => r.Message.Recipient == recipient && r.Status == MessageStatus.Accepted)
+                .OrderBy(r => r.Message.CreatedAt).ThenBy(r => r.Message.Id).Take(limit).ToArray();
+        }
+    }
+
     public MessageReceipt? BeginDelivery(IReadOnlySet<Guid>? excludedMessageIds = null)
     {
         lock (gate)
