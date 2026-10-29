@@ -6,6 +6,7 @@ using System.Text;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
+using DesktopAICompanion.Modules;   // IHostCredentials, for the shared sign-in's checks (host 1.8.0)
 
 // The coding-agent CLI runner's own self-check (lane feature/cli-backend), compiled into both modules beside the runner
 // and run by both modules' self-tests, so each payload proves the copy it ships. NO CLI IS EVER STARTED: every call goes
@@ -419,6 +420,8 @@ namespace DesktopAICompanion.CodingAgent
             Guard(check, "Codex's real effort refusal", CheckCodexEffortRefusal);
             Guard(check, "a Codex model at capacity", CheckCodexModelAtCapacity);
             Guard(check, "a details read's landing", CheckDetailsReadLanded);
+            // Lane feature/host-abi-180.
+            Guard(check, "the shared Claude Code sign-in", SharedSignInSelfCheck.Check);
         }
 
         private static void Guard(Action<string, bool> check, string group, Action<Action<string, bool>> run)
@@ -4395,5 +4398,394 @@ namespace DesktopAICompanion.CodingAgent
         /// second key: the call's own key on the notice's second line.</summary>
         internal static readonly string IgnoredOwnSecondKeyStdout =
             CodexRefusalCaptures.IgnoredTwoKeysStdout.Replace("zz_top_level_key", "project_doc_max_bytes");
+    }
+
+    /// <summary>
+    /// The host's shared Claude Code sign-in store in miniature (IHostCredentials, host 1.8.0), for the runner's and the
+    /// modules' checks: the host's rules in memory (a store never used, saved, removed; an import only while never used or
+    /// holding nothing usable; Remove closing the store), with switches for what a check needs to put in front of the
+    /// runner: the user's grant, a store that cannot be read, a saved value that is unusable, and the change event raised
+    /// at once or held until the check releases it. The host's own store is checked by --module-host-selftest.
+    /// </summary>
+    internal sealed class FakeHostCredentials : IHostCredentials
+    {
+        private readonly object _sync = new object();
+        internal bool Allowed = true;
+        internal bool Unavailable;
+        /// <summary>Reads answer, but an import cannot be committed (the disk refused it between the read and the import).</summary>
+        internal bool ImportFails;
+        /// <summary>Unreadable or NotAToken for a saved value that cannot be used; null for a usable one.</summary>
+        internal HostCredentialState? SavedContent;
+        internal long Revision;
+        internal bool Used;
+        internal bool Removed;
+        internal string Value;
+        internal int Imports, Saves, RemovesCommitted, Reads;
+        /// <summary>When set, a commit's event waits in Held until ReleaseHeld (a host posting it to the UI thread later).</summary>
+        internal bool HoldEvents;
+        internal readonly List<long> Held = new List<long>();
+
+        public event Action<HostCredentialId, long> CredentialChanged;
+
+        internal void Raise(long revision)
+        {
+            Action<HostCredentialId, long> changed = CredentialChanged;
+            if (changed != null) changed(HostCredentialId.ClaudeCodeSignIn, revision);
+        }
+
+        internal void ReleaseHeld()
+        {
+            List<long> pending;
+            lock (_sync) { pending = new List<long>(Held); Held.Clear(); }
+            foreach (long revision in pending) Raise(revision);
+        }
+
+        internal bool HasSubscribers { get { return CredentialChanged != null; } }
+
+        /// <summary>Another window of the app saving a token: a new revision, and no event in this process.</summary>
+        internal void SaveElsewhere(string value)
+        {
+            lock (_sync) { Used = true; Removed = false; SavedContent = null; Value = value; Revision++; }
+        }
+
+        private void Committed(long revision)
+        {
+            if (HoldEvents) { lock (_sync) Held.Add(revision); return; }
+            Raise(revision);
+        }
+
+        public HostCredentialReading ReadCredential(string moduleId, HostCredentialId credential)
+        {
+            lock (_sync)
+            {
+                Reads++;
+                if (Unavailable) return new HostCredentialReading { State = HostCredentialState.Unavailable, Revision = -1 };
+                if (!Allowed) return new HostCredentialReading { State = HostCredentialState.ConsentRequired, Revision = -1 };
+                if (!Used || Removed) return new HostCredentialReading { State = HostCredentialState.None, Revision = Revision };
+                if (SavedContent.HasValue) return new HostCredentialReading { State = SavedContent.Value, Revision = Revision };
+                return new HostCredentialReading { State = HostCredentialState.Saved, Value = Value, Revision = Revision };
+            }
+        }
+
+        private HostCredentialCommit Refusal()
+        {
+            if (Unavailable) return new HostCredentialCommit { Outcome = HostCredentialOutcome.Unavailable, Revision = -1, Problem = "held elsewhere" };
+            if (!Allowed) return new HostCredentialCommit { Outcome = HostCredentialOutcome.ConsentRequired, Revision = -1, Problem = "" };
+            return null;
+        }
+
+        public HostCredentialCommit TrySaveCredential(string moduleId, HostCredentialId credential, string value)
+        {
+            long committed;
+            lock (_sync)
+            {
+                HostCredentialCommit refused = Refusal();
+                if (refused != null) return refused;
+                Used = true; Removed = false; SavedContent = null; Value = value; Saves++;
+                committed = ++Revision;
+            }
+            Committed(committed);
+            return new HostCredentialCommit { Outcome = HostCredentialOutcome.Saved, Revision = committed, Problem = "" };
+        }
+
+        public HostCredentialCommit ImportCredentialIfUnset(string moduleId, HostCredentialId credential, string value)
+        {
+            long committed;
+            lock (_sync)
+            {
+                HostCredentialCommit refused = Refusal();
+                if (refused != null) return refused;
+                if (ImportFails) return new HostCredentialCommit { Outcome = HostCredentialOutcome.Unavailable, Revision = -1, Problem = "the disk refused" };
+                bool allows = !Used || (!Removed && SavedContent.HasValue);
+                if (!allows) return new HostCredentialCommit { Outcome = HostCredentialOutcome.NotImported, Revision = Revision, Problem = "" };
+                Used = true; Removed = false; SavedContent = null; Value = value; Imports++;
+                committed = ++Revision;
+            }
+            Committed(committed);
+            return new HostCredentialCommit { Outcome = HostCredentialOutcome.Imported, Revision = committed, Problem = "" };
+        }
+
+        public HostCredentialCommit RemoveCredential(string moduleId, HostCredentialId credential)
+        {
+            long committed;
+            bool held;
+            lock (_sync)
+            {
+                HostCredentialCommit refused = Refusal();
+                if (refused != null) return refused;
+                if (Used && Removed) return new HostCredentialCommit { Outcome = HostCredentialOutcome.NothingToRemove, Revision = Revision, Problem = "" };
+                held = Used;
+                Used = true; Removed = true; Value = null; SavedContent = null; RemovesCommitted++;
+                committed = ++Revision;
+            }
+            Committed(committed);
+            return new HostCredentialCommit { Outcome = held ? HostCredentialOutcome.Removed : HostCredentialOutcome.NothingToRemove, Revision = committed, Problem = "" };
+        }
+    }
+
+    /// <summary>
+    /// Lane feature/host-abi-180, BACKLOG N-cli-token-02 and the binding design review of 2026-10-29: the runner on the
+    /// host's shared Claude Code sign-in. Every migration state (none, one, both, the store already holding one, removed,
+    /// unusable on either side, the old copy deleted only after the store committed), a refusal never answered from the
+    /// module's own file, Remove's outcomes, a save's revision adopted so its own late event does not drop the Validate it
+    /// ran for, and a change in another window of the app caught by the revision before a cached reading is served. No CLI
+    /// is started: every call goes to the fake.
+    /// </summary>
+    internal static class SharedSignInSelfCheck
+    {
+        private const string LocalToken = "sk-ant-oat01-SELFTEST-shared-local-0123456789";
+        private const string SharedToken = "sk-ant-oat01-SELFTEST-shared-store-0123456789";
+        private const string TypedToken = "sk-ant-oat01-SELFTEST-shared-typed-0123456789";
+
+        private static T Wait<T>(Task<T> task)
+        {
+            if (!task.Wait(TimeSpan.FromSeconds(20))) throw new TimeoutException("a fake CLI call did not end");
+            return task.Result;
+        }
+
+        private static string Carried(FakeCliProcess fake)
+        {
+            FakeCliCall last = null;
+            foreach (FakeCliCall call in fake.Calls) if (call.IsModelCall && !call.IsCodex) last = call;
+            string value;
+            return last != null && last.Environment.TryGetValue("CLAUDE_CODE_OAUTH_TOKEN", out value) ? value : null;
+        }
+
+        private static int ModelCalls(FakeCliProcess fake)
+        {
+            return fake.Calls.FindAll(delegate(FakeCliCall x) { return x.IsModelCall; }).Count;
+        }
+
+        private static CliRequest Remark()
+        {
+            return new CliRequest { Agent = CodingAgentKind.Claude, SystemPrompt = "s", Prompt = "p", Timeout = TimeSpan.FromSeconds(20), Purpose = "remark" };
+        }
+
+        private static string LocalFile(FakeCliScratch scratch)
+        {
+            return Path.Combine(scratch.Data, "cli", CodingAgentCli.ClaudeTokenFileName);
+        }
+
+        /// <summary>This module's old token file, sealed as the runner seals one, holding <paramref name="value"/>.</summary>
+        private static void WriteLocal(FakeCliScratch scratch, string value)
+        {
+            string file = LocalFile(scratch);
+            Directory.CreateDirectory(Path.GetDirectoryName(file));
+            File.WriteAllText(file, Convert.ToBase64String(System.Security.Cryptography.ProtectedData.Protect(
+                Encoding.UTF8.GetBytes(value), CodingAgentCli.ClaudeTokenEntropy, System.Security.Cryptography.DataProtectionScope.CurrentUser)));
+        }
+
+        private static CodingAgentCli NewRunner(FakeCliScratch scratch, FakeCliProcess fake, List<string> log, FakeHostCredentials store)
+        {
+            var runner = new CodingAgentCli(Path.Combine(scratch.Data, "cli"), delegate(string line) { lock (log) log.Add(line); }, store, "selftest");
+            runner.RunProcess = fake.RunAsync;
+            CliEnvironment environment = scratch.PathOnly;
+            runner.EnvironmentSource = delegate { return environment; };
+            return runner;
+        }
+
+        internal static void Check(Action<string, bool> check)
+        {
+            var log = new List<string>();
+            string read;
+
+            // NONE: no old copy, a store never used. Nothing is imported, and a call runs on Claude Code's own sign-in.
+            using (var scratch = new FakeCliScratch())
+            {
+                var fake = new FakeCliProcess { Respond = FakeCliProcess.Answering("OK") };
+                var store = new FakeHostCredentials();
+                CodingAgentCli runner = NewRunner(scratch, fake, log, store);
+                CliAnswer none = Wait(runner.AskAsync(Remark(), CancellationToken.None));
+                check("cli runner: shared sign-in: with no token anywhere nothing is imported and a call runs on Claude Code's own sign-in",
+                    runner.SharedSignIn && runner.ReadClaudeToken(out read) == CodingAgentCli.ClaudeTokenState.None && none.Ok &&
+                    !none.UsedSavedToken && Carried(fake) == null && store.Imports == 0 && !store.Used);
+            }
+
+            // ONE: an old copy and a store never used. It moves, and the copy is deleted after the store committed it.
+            using (var scratch = new FakeCliScratch())
+            {
+                var fake = new FakeCliProcess { Respond = FakeCliProcess.Answering("OK") };
+                var store = new FakeHostCredentials { Unavailable = true };
+                WriteLocal(scratch, LocalToken);
+                CodingAgentCli runner = NewRunner(scratch, fake, log, store);
+                int before = ModelCalls(fake);
+                CliAnswer blocked = Wait(runner.AskAsync(Remark(), CancellationToken.None));
+                check("cli runner: shared sign-in: while the store cannot be read the old copy stays where it is and a call stops before it starts (" +
+                    blocked.Outcome + ")",
+                    blocked.Outcome == CliOutcome.TokenStoreUnavailable && File.Exists(LocalFile(scratch)) && store.Imports == 0 &&
+                    ModelCalls(fake) == before &&
+                    CodingAgentCliText.Describe(CodingAgentKind.Claude, blocked, null) == CodingAgentCliText.TokenStoreUnavailableSentence);
+                store.Unavailable = false;
+                store.ImportFails = true;
+                int beforeFailed = ModelCalls(fake);
+                CliAnswer failedImport = Wait(runner.AskAsync(Remark(), CancellationToken.None));
+                check("cli runner: shared sign-in: an import the store could not commit leaves the old copy where it is, and a call stops rather than run on another sign-in (" +
+                    failedImport.Outcome + ")",
+                    failedImport.Outcome == CliOutcome.TokenStoreUnavailable && File.Exists(LocalFile(scratch)) && store.Imports == 0 &&
+                    ModelCalls(fake) == beforeFailed);
+                store.ImportFails = false;
+                CodingAgentCli.ClaudeTokenState moved = runner.ReadClaudeToken(out read);
+                CliAnswer onShared = Wait(runner.AskAsync(Remark(), CancellationToken.None));
+                check("cli runner: shared sign-in: an old copy moves into a store never used, and is deleted once the store took it",
+                    moved == CodingAgentCli.ClaudeTokenState.Saved && read == LocalToken && store.Imports == 1 && store.Value == LocalToken &&
+                    !File.Exists(LocalFile(scratch)) && onShared.Ok && onShared.UsedSavedToken && onShared.TokenShared && Carried(fake) == LocalToken);
+                check("cli runner: shared sign-in: the move is logged by outcome, never with the token",
+                    log.Contains("cli: claude sign-in token moved to the shared store; this module's copy deleted") &&
+                    !log.Exists(delegate(string l) { return l.Contains("SELFTEST"); }));
+            }
+
+            // BOTH: the store already holds a token (the other module's): the old copy is deleted, not imported.
+            using (var scratch = new FakeCliScratch())
+            {
+                var fake = new FakeCliProcess { Respond = FakeCliProcess.Answering("OK") };
+                var store = new FakeHostCredentials();
+                store.SaveElsewhere(SharedToken);
+                WriteLocal(scratch, LocalToken);
+                CodingAgentCli runner = NewRunner(scratch, fake, log, store);
+                check("cli runner: shared sign-in: with the store already holding one, the old copy is deleted and the store's token is the one used",
+                    runner.ReadClaudeToken(out read) == CodingAgentCli.ClaudeTokenState.Saved && read == SharedToken &&
+                    store.Imports == 0 && store.Value == SharedToken && !File.Exists(LocalFile(scratch)));
+            }
+
+            // REMOVED: a store the user removed the sign-in from is never filled again by an old copy.
+            using (var scratch = new FakeCliScratch())
+            {
+                var fake = new FakeCliProcess { Respond = FakeCliProcess.Answering("OK") };
+                var store = new FakeHostCredentials();
+                store.SaveElsewhere(SharedToken);
+                store.RemoveCredential("other", HostCredentialId.ClaudeCodeSignIn);
+                WriteLocal(scratch, LocalToken);
+                CodingAgentCli runner = NewRunner(scratch, fake, log, store);
+                check("cli runner: shared sign-in: after a Remove an old copy is deleted and never brings the removed sign-in back",
+                    runner.ReadClaudeToken(out read) == CodingAgentCli.ClaudeTokenState.None && store.Imports == 0 && store.Value == null &&
+                    !File.Exists(LocalFile(scratch)));
+            }
+
+            // UNUSABLE OLD COPY: never moved; its state stands while the store was never used, so no call runs on another
+            // account; deleted once the store holds a token.
+            using (var scratch = new FakeCliScratch())
+            {
+                var fake = new FakeCliProcess { Respond = FakeCliProcess.Answering("OK") };
+                var store = new FakeHostCredentials();
+                string file = LocalFile(scratch);
+                Directory.CreateDirectory(Path.GetDirectoryName(file));
+                File.WriteAllText(file, Convert.ToBase64String(Encoding.UTF8.GetBytes("sealed for some other account")));
+                CodingAgentCli runner = NewRunner(scratch, fake, log, store);
+                int before = ModelCalls(fake);
+                CliAnswer unreadable = Wait(runner.AskAsync(Remark(), CancellationToken.None));
+                check("cli runner: shared sign-in: an old copy this account cannot read is never moved, and stops a call while the store was never used",
+                    runner.ReadClaudeToken(out read) == CodingAgentCli.ClaudeTokenState.Unreadable && store.Imports == 0 && !store.Used &&
+                    File.Exists(file) && unreadable.Outcome == CliOutcome.TokenUnreadable && ModelCalls(fake) == before);
+                WriteLocal(scratch, "https://example.invalid/not/a/token");
+                check("cli runner: shared sign-in: an old copy that is no token is never moved either",
+                    runner.ReadClaudeToken(out read) == CodingAgentCli.ClaudeTokenState.NotAToken && store.Imports == 0 && File.Exists(file));
+                store.SaveElsewhere(SharedToken);
+                check("cli runner: shared sign-in: once the store holds a token the unusable old copy is deleted and the store's token used",
+                    runner.ReadClaudeToken(out read) == CodingAgentCli.ClaudeTokenState.Saved && read == SharedToken && !File.Exists(file));
+            }
+
+            // AN UNUSABLE SHARED COPY counts as nothing saved for an import (the review's P2).
+            using (var scratch = new FakeCliScratch())
+            {
+                var fake = new FakeCliProcess { Respond = FakeCliProcess.Answering("OK") };
+                var store = new FakeHostCredentials();
+                store.SaveElsewhere("x");
+                store.SavedContent = HostCredentialState.Unreadable;
+                WriteLocal(scratch, LocalToken);
+                CodingAgentCli runner = NewRunner(scratch, fake, log, store);
+                check("cli runner: shared sign-in: a valid old copy replaces a shared copy this account cannot read",
+                    runner.ReadClaudeToken(out read) == CodingAgentCli.ClaudeTokenState.Saved && read == LocalToken && store.Imports == 1 &&
+                    !File.Exists(LocalFile(scratch)));
+            }
+
+            // NOT ALLOWED: never answered from the module's own file, and nothing moves.
+            using (var scratch = new FakeCliScratch())
+            {
+                var fake = new FakeCliProcess { Respond = FakeCliProcess.Answering("OK") };
+                var store = new FakeHostCredentials { Allowed = false };
+                WriteLocal(scratch, LocalToken);
+                CodingAgentCli runner = NewRunner(scratch, fake, log, store);
+                int before = ModelCalls(fake);
+                CliAnswer waiting = Wait(runner.AskAsync(Remark(), CancellationToken.None));
+                check("cli runner: shared sign-in: not allowed, with an old copy waiting: the call stops, the copy is neither used nor moved (" + waiting.Outcome + ")",
+                    runner.ReadClaudeToken(out read) == CodingAgentCli.ClaudeTokenState.NotAllowed && read == null &&
+                    waiting.Outcome == CliOutcome.TokenNotAllowed && ModelCalls(fake) == before && File.Exists(LocalFile(scratch)) &&
+                    store.Imports == 0 && CodingAgentCliText.Describe(CodingAgentKind.Claude, waiting, null) == CodingAgentCliText.TokenNotAllowedSentence());
+                string error;
+                check("cli runner: shared sign-in: not allowed, a typed token is not saved, and the reason says where to allow it",
+                    !runner.TrySetClaudeToken(TypedToken, out error) && error == CodingAgentCliText.SharedSignInNotAllowedForSave() && store.Saves == 0);
+                check("cli runner: shared sign-in: not allowed, Remove token removes nothing and says why",
+                    runner.RemoveClaudeToken() == CodingAgentCliText.SharedSignInNotAllowedForRemove() && File.Exists(LocalFile(scratch)) &&
+                    store.RemovesCommitted == 0);
+                File.Delete(LocalFile(scratch));
+                CliAnswer own = Wait(runner.AskAsync(Remark(), CancellationToken.None));
+                fake.Respond = delegate(FakeCliCall call, CancellationToken cancel)
+                {
+                    if (call.Is("auth", "status")) return Task.FromResult(FakeCliProcess.Result(0, "{\"loggedIn\":true,\"email\":\"someone@example.invalid\"}", ""));
+                    return FakeCliProcess.Answering("OK")(call, cancel);
+                };
+                CodingAgentCli.CliDetails row = Wait(runner.RefreshDetailsAsync(CodingAgentKind.Claude, CancellationToken.None));
+                check("cli runner: shared sign-in: WITNESS not allowed and nothing waiting, a call runs on Claude Code's own sign-in and the card says why (" +
+                    row.SignedIn + ")",
+                    own.Ok && !own.UsedSavedToken && Carried(fake) == null &&
+                    row.SignedIn == CodingAgentCliText.NotAllowedOwnSignInPrefix() + "someone@example.invalid");
+            }
+
+            // SAVE, REMOVE, AND THE REVISION.
+            using (var scratch = new FakeCliScratch())
+            {
+                var fake = new FakeCliProcess();
+                var store = new FakeHostCredentials { HoldEvents = true };
+                // The store's own event for the save reaches the runner WHILE the Validate that saved is reading the card's
+                // details (a host posting it to the UI thread later): the review's origin-event case.
+                fake.Respond = delegate(FakeCliCall call, CancellationToken cancel)
+                {
+                    if (call.Is("auth", "status"))
+                    {
+                        store.ReleaseHeld();
+                        return Task.FromResult(FakeCliProcess.Result(0, "{\"loggedIn\":true,\"authMethod\":\"oauth_token\"}", ""));
+                    }
+                    return FakeCliProcess.Answering("OK")(call, cancel);
+                };
+                CodingAgentCli runner = NewRunner(scratch, fake, log, store);
+                store.CredentialChanged += delegate(HostCredentialId id, long revision) { runner.NoteSharedSignInChanged(revision); };
+                CliAnswer typed = Wait(runner.ValidateAsync(CodingAgentKind.Claude, CancellationToken.None, TypedToken));
+                check("cli runner: shared sign-in: Validate saves a typed token that answers into the shared store, and says it is the shared one",
+                    typed.Ok && typed.TypedTokenSaved && store.Value == TypedToken && store.Saves == 1 &&
+                    CodingAgentCliText.Describe(CodingAgentKind.Claude, typed, null).EndsWith(CodingAgentCliText.SharedTypedTokenSavedSentence, StringComparison.Ordinal));
+                check("cli runner: shared sign-in: the save's own event, landing while Validate reads the card, does not drop that Validate's Status line",
+                    store.Held.Count == 0 && (runner.LastValidation(CodingAgentKind.Claude) ?? "").StartsWith("✓ Claude Code: answered at ", StringComparison.Ordinal));
+                check("cli runner: shared sign-in: WITNESS an event for a revision the runner already holds changes nothing, one it does not hold drops the readings",
+                    !runner.NoteSharedSignInChanged(store.Revision) && runner.LastValidation(CodingAgentKind.Claude) != null &&
+                    runner.NoteSharedSignInChanged(store.Revision + 100) && runner.LastValidation(CodingAgentKind.Claude) == null);
+                // Back to the store's revision, then a Validate to cache a line again.
+                runner.NoteSharedSignInChanged(store.Revision);
+                Wait(runner.ValidateAsync(CodingAgentKind.Claude, CancellationToken.None));
+                bool cached = runner.LastValidation(CodingAgentKind.Claude) != null;
+                store.SaveElsewhere(SharedToken);
+                check("cli runner: shared sign-in: a token saved in another window of the app, with no event here, drops the cached readings before they are served",
+                    cached && runner.LastValidation(CodingAgentKind.Claude) == null && runner.LatestValidation() == null);
+                CodingAgentCli.CliDetails details = Wait(runner.RefreshDetailsAsync(CodingAgentKind.Claude, CancellationToken.None));
+                check("cli runner: shared sign-in: the card names the shared token as the sign-in",
+                    details.SignedIn == CodingAgentCliText.SharedTokenSignInLine);
+
+                string removed = runner.RemoveClaudeToken();
+                check("cli runner: shared sign-in: Remove token removes the shared token, says so, and calls run on Claude Code's own sign-in after",
+                    removed == CodingAgentCliText.SharedTokenRemovedSentence && store.Removed &&
+                    runner.ReadClaudeToken(out read) == CodingAgentCli.ClaudeTokenState.None);
+                check("cli runner: shared sign-in: a second Remove token finds nothing to remove",
+                    runner.RemoveClaudeToken() == CodingAgentCliText.SharedNothingToRemoveSentence);
+                WriteLocal(scratch, LocalToken);
+                store.SaveElsewhere(SharedToken);
+                store.Unavailable = true;
+                string notNow = runner.RemoveClaudeToken();
+                store.Unavailable = false;
+                string both = runner.RemoveClaudeToken();
+                check("cli runner: shared sign-in: Remove token while the store is held elsewhere removes nothing and says to press again; then it clears the shared copy and this module's own (" +
+                    notNow + ")",
+                    notNow.StartsWith("✗ The shared Claude Code sign-in token could not be removed", StringComparison.Ordinal) &&
+                    both == CodingAgentCliText.SharedTokenRemovedSentence && store.Removed && !File.Exists(LocalFile(scratch)));
+            }
+        }
     }
 }

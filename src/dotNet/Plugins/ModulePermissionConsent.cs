@@ -65,13 +65,44 @@ namespace DesktopAICompanion.Plugins
         internal static string PromptText(string displayName, string version, ModulePermissions added)
         {
             string name = string.IsNullOrEmpty(displayName) ? "This module" : displayName;
+            // The one flag the app DOES enforce on its own store (ClaudeCodeSignIn, host 1.8.0) gets its own sentence, and
+            // a yes is the user's grant of it (ModulesPaneControl.ConfirmUpdatePermissions records it). The sentence about
+            // the rest keeps its words when that flag is not asked for, and names "the others" when it is.
+            bool signIn = (added & ModulePermissions.ClaudeCodeSignIn) == ModulePermissions.ClaudeCodeSignIn;
+            bool others = (added & ~ModulePermissions.ClaudeCodeSignIn) != ModulePermissions.None;
             string body = name + " v" + (version ?? "?") + " is asking for access it did not have before:"
                           + Environment.NewLine + Environment.NewLine
                           + "    " + Describe(added)
-                          + Environment.NewLine + Environment.NewLine
-                          + "Nothing in the app enforces these, so they are a statement of what the module"
-                          + " does rather than a restriction on what it can do. Update anyway?";
+                          + Environment.NewLine + Environment.NewLine;
+            if (signIn)
+                body += SignInGrantSentence(name) + Environment.NewLine + Environment.NewLine;
+            if (!signIn)
+                body += "Nothing in the app enforces these, so they are a statement of what the module"
+                        + " does rather than a restriction on what it can do. Update anyway?";
+            else
+                body += (others ? "Nothing in the app enforces the others, so they are a statement of what the module does. " : "")
+                        + "Update, and allow it?";
             return body;
+        }
+
+        /// <summary>What a grant of the shared Claude Code sign-in allows, said the same way by the update question and by
+        /// the Allow on a module's row (<see cref="GrantPromptText"/>): reading, replacing and removing the one token every
+        /// allowed module's Claude Code calls run on. The review of 2026-10-29 asked for the cross-module effect to be on
+        /// the screen, since the flag's name alone does not say it.</summary>
+        internal static string SignInGrantSentence(string name)
+        {
+            string who = string.IsNullOrEmpty(name) ? "This module" : name;
+            return "ClaudeCodeSignIn lets " + who + " read, replace and remove the Claude Code sign-in token the app keeps for"
+                   + " every module you allow, which their Claude Code calls run on. The app enforces this one: " + who
+                   + " gets the token only while you allow it, and you can take that back on its row in Settings, Modules.";
+        }
+
+        /// <summary>The question the Allow on a module's row asks before it records the grant (host 1.8.0).</summary>
+        internal static string GrantPromptText(string displayName)
+        {
+            string name = string.IsNullOrEmpty(displayName) ? "This module" : displayName;
+            return "Allow " + name + " to use the shared Claude Code sign-in?" + Environment.NewLine + Environment.NewLine
+                   + SignInGrantSentence(name);
         }
     }
 }

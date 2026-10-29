@@ -410,6 +410,12 @@ namespace DesktopAICompanion.Wpf
 
         private ModuleInfo LoadedInfo(string id) { return _seams.LoadedInfo(id); }
 
+        /// <summary>The shipped grant record's log line, by module id (HostCredentialStore.SetGrant): what changed, never a value.</summary>
+        internal static void LogGrant(string moduleId, string line)
+        {
+            try { DiagnosticLog.Write(LogCategory.Modules, "info", moduleId, "[" + (moduleId ?? "module") + "] " + line); } catch { }
+        }
+
         // The live ModuleInfo for a currently-loaded module id, or null when it's on disk but not (yet)
         // loaded -- e.g. just installed, still waiting on the restart prompt. The shipped seam for LoadedInfo.
         internal static ModuleInfo LiveLoadedInfo(string id)
@@ -566,6 +572,37 @@ namespace DesktopAICompanion.Wpf
                 });
             }
 
+            // THE SHARED CLAUDE CODE SIGN-IN (host 1.8.0, BACKLOG N-cli-token-02): for a loaded module that declares
+            // ModulePermissions.ClaudeCodeSignIn, whether the user allows it, and the button that changes that. The host's
+            // credential store answers such a module only while this says allowed (SetSignInAllowed says how it is asked).
+            if (info != null && _seams.SignInGranted != null &&
+                (info.Permissions & ModulePermissions.ClaudeCodeSignIn) == ModulePermissions.ClaudeCodeSignIn)
+            {
+                bool allowed = _seams.SignInGranted(id);
+                nameStack.Children.Add(new TextBlock
+                {
+                    Text = allowed ? "Allowed the shared Claude Code sign-in." : "Not allowed the shared Claude Code sign-in.",
+                    FontSize = 11,
+                    Foreground = Brushes.Gray,
+                    TextWrapping = TextWrapping.Wrap,
+                });
+                var signIn = new Button
+                {
+                    Content = allowed ? "Revoke sign-in" : "Allow sign-in",
+                    MinWidth = 100,
+                    Padding = new Thickness(8, 1, 8, 1),
+                    Margin = new Thickness(0, 0, 6, 0),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    IsEnabled = !_updatingAll,
+                    ToolTip = allowed
+                        ? "Stop this module using the Claude Code sign-in token the app keeps for the modules you allow."
+                        : "Let this module read, replace and remove the Claude Code sign-in token the app keeps for the modules you allow.",
+                };
+                string signInName = info.Name;
+                signIn.Click += delegate { SetSignInAllowed(id, signInName, !allowed); };
+                sp.Children.Add(signIn);
+            }
+
             // Not while Update all runs: the run's own MarkForUpdate of the same module forgets a pending removal
             // (F352), so an uninstall pressed mid-run would be silently undone, after asking for a restart of
             // its own halfway through the run.
@@ -690,10 +727,59 @@ namespace DesktopAICompanion.Wpf
             added = DesktopAICompanion.Plugins.ModulePermissionConsent.NewlyRequested(
                 installed != null ? installed.Permissions : ModulePermissions.None, module.Permissions);
             if (added == ModulePermissions.None) return true;
+            // The one flag the app enforces with a grant of its own (host 1.8.0): a yes to this question IS the grant.
+            if ((added & ModulePermissions.ClaudeCodeSignIn) == ModulePermissions.ClaudeCodeSignIn)
+                return ConfirmAndAllowSignIn(module, added);
             return _seams.AskYesNo(
                 DesktopAICompanion.Plugins.ModulePermissionConsent.PromptText(module.Name, module.Version, added),
                 "Update " + (module.Name ?? module.Id) + "?",
                 MessageBoxImage.Warning);
+        }
+
+        /// <summary>
+        /// The update question when the update adds ModulePermissions.ClaudeCodeSignIn (host 1.8.0, BACKLOG N-cli-token-02):
+        /// the same question, whose text then says what the grant allows (ModulePermissionConsent.SignInGrantSentence), and
+        /// a yes records the user's grant for the module, which the host's credential store requires beside the declaration
+        /// (the design review of 2026-10-29: a declared bit alone is no grant). A grant that cannot be written leaves the
+        /// update going ahead and the module's row offering Allow sign-in, as for a module never allowed.
+        /// </summary>
+        private bool ConfirmAndAllowSignIn(CatalogModule module, ModulePermissions added)
+        {
+            bool yes = _seams.AskYesNo(
+                DesktopAICompanion.Plugins.ModulePermissionConsent.PromptText(module.Name, module.Version, added),
+                "Update " + (module.Name ?? module.Id) + "?",
+                MessageBoxImage.Warning);
+            if (yes && _seams.SetSignInGrant != null) _seams.SetSignInGrant(module.Id, true);
+            return yes;
+        }
+
+        /// <summary>
+        /// The installed row's Allow sign-in / Revoke sign-in (host 1.8.0): the visible place a grant of the shared Claude
+        /// Code sign-in is given or taken back, for a module installed from the catalog, one built locally, or one whose
+        /// update the user said yes to. Allow asks first, in the words the update question uses; Revoke does not, since it
+        /// only narrows. Neither touches the saved token: revoking one module leaves it for the others.
+        /// </summary>
+        private void SetSignInAllowed(string id, string name, bool allow)
+        {
+            if (_seams.SetSignInGrant == null) return;
+            string display = string.IsNullOrEmpty(name) ? id : name;
+            if (allow && !_seams.AskYesNo(
+                    DesktopAICompanion.Plugins.ModulePermissionConsent.GrantPromptText(display),
+                    "Allow the shared Claude Code sign-in?",
+                    MessageBoxImage.Question))
+            {
+                _status.Text = display + " is still not allowed the shared Claude Code sign-in.";
+                return;
+            }
+            if (!_seams.SetSignInGrant(id, allow))
+            {
+                _status.Text = "Couldn't record that for " + display + ": the app's data folder could not be written.";
+                return;
+            }
+            _status.Text = allow
+                ? display + " may now use the shared Claude Code sign-in."
+                : display + " no longer gets the shared Claude Code sign-in. A token saved there stays for the other modules you allow.";
+            if (IsUp) Reload();
         }
 
         /// <summary>
@@ -1116,8 +1202,10 @@ namespace DesktopAICompanion.Wpf
                 FontStyle = FontStyles.Italic,
                 Foreground = Brushes.Gray,
                 ToolTip = "What the module declares it does. The app enforces Audio, Network, Voice and Companions on its own " +
-                          "verbs; the other flags (Animation, Speech, ScreenContext, Storage, Hotkey, LaunchProcess, " +
-                          "AgentTranscripts) are statements the module makes, not restrictions the app applies.",
+                          "verbs, and ClaudeCodeSignIn on the shared Claude Code sign-in only while you allow it (Allow sign-in, " +
+                          "on its row once installed); the other flags (Animation, Speech, ScreenContext, Storage, Hotkey, " +
+                          "LaunchProcess, AgentTranscripts, MicrophoneUsage) are statements the module makes, not restrictions " +
+                          "the app applies.",
             });
             sp.Children.Add(nameStack);
 
@@ -1347,6 +1435,10 @@ namespace DesktopAICompanion.Wpf
         internal Func<CancellationToken, Task<RemoteCatalog>> RefreshCatalog;
         /// <summary>Where the problem panel's Copy details puts its text: the clipboard, shipped.</summary>
         internal Action<string> CopyText;
+        /// <summary>Whether the user allows a module the shared Claude Code sign-in, and recording an Allow or a Revoke
+        /// (host 1.8.0): the host's grants file, shipped. Null in a probe that sets neither, which then shows no sign-in row.</summary>
+        internal Func<string, bool> SignInGranted;
+        internal Func<string, bool, bool> SetSignInGrant;
 
         internal static ModulesPaneSeams Live()
         {
@@ -1370,6 +1462,15 @@ namespace DesktopAICompanion.Wpf
                 // Pressing Check is an explicit "check NOW": the shared copy is dropped and REFILLED (F286).
                 RefreshCatalog = delegate (CancellationToken token) { return RemoteCatalogClient.RefreshSharedAsync(token); },
                 CopyText = Clipboard.SetText,
+                SignInGranted = delegate (string id)
+                {
+                    return DesktopAICompanion.Plugins.HostCredentialStore.IsGranted(DesktopAICompanion.Plugins.HostCredentialStore.DefaultDirectory, id);
+                },
+                SetSignInGrant = delegate (string id, bool allowed)
+                {
+                    return DesktopAICompanion.Plugins.HostCredentialStore.SetGrant(DesktopAICompanion.Plugins.HostCredentialStore.DefaultDirectory,
+                        id, allowed, ModulesPaneControl.LogGrant);
+                },
             };
         }
     }

@@ -3497,8 +3497,9 @@ CASES = (
     (
         "abi-pane-actions: the host stops implementing ICatalogListing",
         COMPANION_HOST_CS,
-        b"    internal sealed class CompanionHost : IHost, ICompanionStandDown, ITrayQuestions, ICatalogListing\n",
-        b"    internal sealed class CompanionHost : IHost, ICompanionStandDown, ITrayQuestions\n",
+        # Re-pointed by lane feature/host-abi-180: IHostCredentials now follows ICatalogListing on the class line.
+        b"    internal sealed class CompanionHost : IHost, ICompanionStandDown, ITrayQuestions, ICatalogListing, IHostCredentials\n",
+        b"    internal sealed class CompanionHost : IHost, ICompanionStandDown, ITrayQuestions, IHostCredentials\n",
         "abi-pane-actions: ICatalogListing is its own interface",
     ),
     (
@@ -3508,6 +3509,72 @@ CASES = (
         b"        System.Threading.Tasks.Task<byte[]> DownloadCatalogItemAsync(string kind, string id);\n"
         b"        System.Threading.Tasks.Task<CatalogListing> FetchCatalogListingAsync(string kind);\n",
         "abi-pane-actions: ICatalogListing is its own interface",
+    ),
+    # ---- lane feature/host-abi-180 ----
+    # The shared Claude Code sign-in (IHostCredentials, host 1.8.0; BACKLOG N-cli-token-02). Each case is a shape the
+    # invariants hold the store and the runner to: the interface on RecordingHost or off the host, the disk touched before
+    # the gate, the grant read before the declaration, a change announced inside the lock, the old token deleted before the
+    # import is answered, the token sent from the module's own file, and the token put on this process (the widened scan).
+    # "abi180:" for one --only.
+    (
+        "abi180: RecordingHost grows IHostCredentials, changing every module's payload",
+        RECORDING_HOST_CS,
+        b"    public class RecordingHost : IHost\n",
+        b"    public class RecordingHost : IHost, DesktopAICompanion.Modules.IHostCredentials\n",
+        "abi180: IHostCredentials is its own interface",
+    ),
+    (
+        "abi180: the host stops implementing IHostCredentials",
+        COMPANION_HOST_CS,
+        b"    internal sealed class CompanionHost : IHost, ICompanionStandDown, ITrayQuestions, ICatalogListing, IHostCredentials\n",
+        b"    internal sealed class CompanionHost : IHost, ICompanionStandDown, ITrayQuestions, ICatalogListing\n",
+        "abi180: IHostCredentials is its own interface",
+    ),
+    (
+        "abi180: the store reads its file before the gate",
+        os.path.join(REPO, "src", "dotNet", "Plugins", "HostCredentialStore.cs"),
+        b"        internal HostCredentialReading Read(string moduleId, HostCredentialId credential)\n        {\n            string reason;\n",
+        b"        internal HostCredentialReading Read(string moduleId, HostCredentialId credential)\n        {\n            Envelope early = ReadEnvelope();\n            string reason;\n",
+        "abi180: every verb of the credential store refuses before it touches the disk",
+    ),
+    (
+        "abi180: the store reads the grant before the declaration",
+        os.path.join(REPO, "src", "dotNet", "Plugins", "HostCredentialStore.cs"),
+        b"            bool declared;\n",
+        b"            if (!IsGranted(_directory, moduleId)) { reason = \"not-allowed\"; return HostCredentialState.ConsentRequired; }\n"
+        b"            bool declared;\n",
+        "abi180: every verb of the credential store refuses before it touches the disk",
+    ),
+    (
+        "abi180: the store announces a save while it still holds the lock",
+        os.path.join(REPO, "src", "dotNet", "Plugins", "HostCredentialStore.cs"),
+        b"                outcome = import ? HostCredentialOutcome.Imported : HostCredentialOutcome.Saved;\n",
+        b"                outcome = import ? HostCredentialOutcome.Imported : HostCredentialOutcome.Saved;\n"
+        b"                Announce(credential, committed);\n",
+        "abi180: the credential store announces a change only after its lock is released",
+    ),
+    (
+        "abi180: the runner deletes its old token before the import is answered",
+        os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCli.cs"),
+        b"                    HostCredentialCommit import;\n",
+        b"                    DeleteLocalClaudeToken(path);\n"
+        b"                    HostCredentialCommit import;\n",
+        "abi180: the runner deletes its old token only after the shared store answered the import",
+    ),
+    (
+        "abi180: the runner sends the module's own token when it has a shared store",
+        os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCli.cs"),
+        b"                        ClaudeTokenState local = ReadLocalClaudeToken(out ignored);\n",
+        b"                        ClaudeTokenState local = ReadLocalClaudeToken(out token);\n",
+        "abi180: a runner with a shared store never takes the token it sends from the module's own file",
+    ),
+    (
+        "abi180: the host store puts the token on this process",
+        os.path.join(REPO, "src", "dotNet", "Plugins", "HostCredentialStore.cs"),
+        b"            string problem = ValueProblem(value);\n",
+        b"            Environment.SetEnvironmentVariable(\"CLAUDE_CODE_OAUTH_TOKEN\", value);\n"
+        b"            string problem = ValueProblem(value);\n",
+        "the sign-in token is put on a Claude Code child in ApplyClaudeToken alone",
     ),
 )
 

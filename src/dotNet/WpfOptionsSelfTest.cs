@@ -1696,6 +1696,7 @@ namespace DesktopAICompanion
                 ok &= AbiPaneActions(sb);
                 // ---- lane feature/host-abi-180 ----
                 ok &= AbiVisibleWhen(sb);
+                ok &= AbiSignInGrant(sb);
             }
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message); }
 
@@ -3556,10 +3557,22 @@ namespace DesktopAICompanion
                         return Refresh != null ? Refresh() : Task.FromResult(Catalog);
                     },
                     CopyText = delegate (string text) { Copied.Add(text); },
+                    // The shared Claude Code sign-in's grants (host 1.8.0): in memory, never the data folder's file.
+                    SignInGranted = delegate (string id) { return Granted.Contains(id); },
+                    SetSignInGrant = delegate (string id, bool allowed)
+                    {
+                        GrantCalls.Add(id + "=" + (allowed ? "allow" : "revoke") + " after " + Downloads.Count + " downloads");
+                        if (allowed) Granted.Add(id); else Granted.Remove(id);
+                        return true;
+                    },
                 };
                 Pane = new DesktopAICompanion.Wpf.ModulesPaneControl(seams);
                 Pane.ShowCatalog(Catalog);
             }
+
+            /// <summary>The module ids allowed the shared Claude Code sign-in, and each Allow or Revoke the pane recorded.</summary>
+            internal readonly HashSet<string> Granted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            internal readonly List<string> GrantCalls = new List<string>();
 
             /// <summary>What a check-now returns, when a case sets it; the probe's own catalog otherwise.</summary>
             internal Func<Task<RemoteCatalog>> Refresh;
@@ -5596,6 +5609,94 @@ namespace DesktopAICompanion
             {
                 ok = false;
                 sb.AppendLine("FAIL: the host-abi-180 VisibleWhen probe threw " + ex.GetType().Name + ": " + ex.Message);
+            }
+            return ok;
+        }
+
+        /// <summary>
+        /// Lane feature/host-abi-180, BACKLOG N-cli-token-02 and the binding design review of 2026-10-29 (P1: a declared bit
+        /// is no grant): where the user gives and takes back a module's grant of the shared Claude Code sign-in. An update
+        /// that adds ClaudeCodeSignIn says what the grant allows and a yes records it before anything is fetched, a no
+        /// records nothing and fetches nothing; a loaded module declaring the flag has a row line and an Allow sign-in that
+        /// asks first, then a Revoke sign-in that does not. A module that does not declare it shows neither (the WITNESS),
+        /// and an update adding only a disclosure flag keeps its old words.
+        /// </summary>
+        private static bool AbiSignInGrant(StringBuilder sb)
+        {
+            bool ok = true;
+            string root = DesktopAICompanion.Plugins.SelfTestScratch.Create("abi180-grant");
+            SynchronizationContext previousContext = SynchronizationContext.Current;
+            SynchronizationContext.SetSynchronizationContext(
+                new System.Windows.Threading.DispatcherSynchronizationContext(System.Windows.Threading.Dispatcher.CurrentDispatcher));
+            try
+            {
+                // ---- the update question ----
+                var update = new ModulesPaneProbe(root, "update");
+                update.Offer("aibrain", "AI Brain", "1.0.0", "1.1.0", ModulePermissions.Speech, ModulePermissions.Speech | ModulePermissions.ClaudeCodeSignIn);
+                update.Build();
+                ModulesPaneProbe.Press(ModulesPaneProbe.Find(update.Buttons(), "Update to v1.1.0"));
+                string asked = update.Asked.Count > 0 ? update.Asked[0] : "";
+                ok &= Check(sb, "abi180: grant: an update adding ClaudeCodeSignIn says what the grant allows, and a no records nothing and fetches nothing (" +
+                    update.GrantCalls.Count + " grants, " + update.Downloads.Count + " downloads)",
+                    asked.Contains(DesktopAICompanion.Plugins.ModulePermissionConsent.SignInGrantSentence("AI Brain")) &&
+                    asked.EndsWith("Update, and allow it?", StringComparison.Ordinal) && update.GrantCalls.Count == 0 &&
+                    update.Downloads.Count == 0 && !update.Granted.Contains("aibrain"));
+                update.Answer = delegate (string caption, string text) { return caption.StartsWith("Update ", StringComparison.Ordinal); };
+                ModulesPaneProbe.Press(ModulesPaneProbe.Find(update.Buttons(), "Update to v1.1.0"));
+                PumpUntil(delegate { return update.Downloads.Count == 1 && !update.Pane.IsBusy; }, 20000);
+                ok &= Check(sb, "abi180: grant: a yes to that update records the module's grant, before anything is fetched (" +
+                    string.Join("; ", update.GrantCalls.ToArray()) + ")",
+                    update.Granted.Contains("aibrain") && update.GrantCalls.Count == 1 && update.GrantCalls[0] == "aibrain=allow after 0 downloads");
+
+                var plainUpdate = new ModulesPaneProbe(root, "plain-update");
+                plainUpdate.Offer("beta", "Beta", "1.0.0", "1.1.0", ModulePermissions.None, ModulePermissions.Speech);
+                plainUpdate.Build();
+                ModulesPaneProbe.Press(ModulesPaneProbe.Find(plainUpdate.Buttons(), "Update to v1.1.0"));
+                string plainAsked = plainUpdate.Asked.Count > 0 ? plainUpdate.Asked[0] : "";
+                ok &= Check(sb, "abi180: grant: WITNESS an update adding only a disclosure flag keeps its words and records no grant",
+                    plainAsked.EndsWith("Nothing in the app enforces these, so they are a statement of what the module does rather than a restriction on what it can do. Update anyway?", StringComparison.Ordinal) &&
+                    plainUpdate.GrantCalls.Count == 0);
+
+                // ---- the installed row ----
+                var row = new ModulesPaneProbe(root, "row");
+                row.Installed("aibrain", "AI Brain", "1.8.0");
+                row.Loaded["aibrain"].Permissions = ModulePermissions.Speech | ModulePermissions.ClaudeCodeSignIn;
+                row.Installed("beta", "Beta", "1.0.0");
+                row.Build();
+                List<System.Windows.Controls.Button> buttons = row.Buttons();
+                List<string> texts = TextOf(row.Pane);
+                ok &= Check(sb, "abi180: grant: a loaded module declaring ClaudeCodeSignIn says it is not allowed and offers one Allow sign-in; one not declaring it offers none (" +
+                    ModulesPaneProbe.Captions(buttons) + ")",
+                    texts.Contains("Not allowed the shared Claude Code sign-in.") && ModulesPaneProbe.Find(buttons, "Allow sign-in") != null &&
+                    buttons.FindAll(delegate (System.Windows.Controls.Button b) { return (b.Content as string) == "Allow sign-in" || (b.Content as string) == "Revoke sign-in"; }).Count == 1);
+                ModulesPaneProbe.Press(ModulesPaneProbe.Find(buttons, "Allow sign-in"));
+                ok &= Check(sb, "abi180: grant: Allow sign-in asks first, in the grant's words, and a no leaves it not allowed (" + row.Pane.StatusText + ")",
+                    row.Asked.Count == 1 && row.Asked[0] == "Allow the shared Claude Code sign-in? | " +
+                        DesktopAICompanion.Plugins.ModulePermissionConsent.GrantPromptText("AI Brain") &&
+                    !row.Granted.Contains("aibrain") && row.GrantCalls.Count == 0);
+                row.Answer = delegate { return true; };
+                ModulesPaneProbe.Press(ModulesPaneProbe.Find(row.Buttons(), "Allow sign-in"));
+                List<System.Windows.Controls.Button> afterAllow = row.Buttons();
+                ok &= Check(sb, "abi180: grant: a yes records the grant, and the row then says allowed and offers Revoke sign-in (" + row.Pane.StatusText + ")",
+                    row.Granted.Contains("aibrain") && TextOf(row.Pane).Contains("Allowed the shared Claude Code sign-in.") &&
+                    ModulesPaneProbe.Find(afterAllow, "Revoke sign-in") != null && ModulesPaneProbe.Find(afterAllow, "Allow sign-in") == null);
+                int askedBeforeRevoke = row.Asked.Count;
+                ModulesPaneProbe.Press(ModulesPaneProbe.Find(afterAllow, "Revoke sign-in"));
+                ok &= Check(sb, "abi180: grant: Revoke sign-in takes the grant back without a question, and says the token stays for the others (" + row.Pane.StatusText + ")",
+                    !row.Granted.Contains("aibrain") && row.Asked.Count == askedBeforeRevoke &&
+                    row.Pane.StatusText.Contains("stays for the other modules you allow") &&
+                    ModulesPaneProbe.Find(row.Buttons(), "Allow sign-in") != null);
+            }
+            catch (Exception ex)
+            {
+                ok = false;
+                sb.AppendLine("FAIL: the host-abi-180 grant probe threw " + ex.GetType().Name + ": " + ex.Message);
+            }
+            finally
+            {
+                SynchronizationContext.SetSynchronizationContext(previousContext);
+                string releaseDetail;
+                DesktopAICompanion.Plugins.SelfTestScratch.TryRelease(root, out releaseDetail);
             }
             return ok;
         }

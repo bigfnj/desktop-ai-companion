@@ -3390,7 +3390,10 @@ pressed"). The token is therefore the card's one value that does not wait for Ap
 The host behaviour itself is BACKLOG N-cli-token-04. Validate tests a token typed and
 not yet applied, as it tests the CLI chosen on screen. Remove token deletes the file at once and logs the delete either
 way, under the delete-logging rule above. Each module keeps its own token, because a module cannot read another's
-folder, so a user who runs both on Claude Code pastes it twice.
+folder, so a user who runs both on Claude Code pastes it twice. *(2026-10-29, lane feature/host-abi-180: since host 1.8.0
+the token is the ONE the host keeps for every module the user allows, IHostCredentials, and each module's old file moves
+into it once. The checks, the child-only environment and Remove token's logged delete above are unchanged; the sealing
+is the host's now, DPAPI for the current user with an entropy string of its own.)*
 
 **What a token can and cannot tell the card.** Measured 2026-10-07 with a FAKE token on Claude Code 2.1.292: `auth
 status` answers `authMethod: oauth_token` and names no account, so the Signed in as row says the card's token is in
@@ -6171,7 +6174,10 @@ on, widening each module's access to another's sign-in to save one paste, which 
 not contained (see `docs/module-ecosystem-roadmap.md`), so this is about what the ABI offers, not a sandbox it would
 breach. What would change it: a store whose every read is a per-module, per-credential grant the user sees on the consent
 screen, or the host making the Claude Code calls itself so that no module ever holds the token; either is a design of its
-own, not this one, and the owner's say-so.
+own, not this one, and the owner's say-so. *(2026-10-29: REVERSED by the owner, "build the shared credential store",
+with "keep only 1 token, I don't care which". Built by lane feature/host-abi-180 on the first of the two conditions:
+every read, save and remove needs the module's declared `ModulePermissions.ClaudeCodeSignIn` AND a grant the user gives
+on the Modules pane or by saying yes to the update that adds the flag. See `#### feature/host-abi-180` below.)*
 
 #### feature/agentbroker-backlog-e
 
@@ -6465,8 +6471,73 @@ entries are drafted for a person's re-read instead.
 
 #### feature/host-abi-180
 
-Host 1.8.0's additive ABI (lane abi180, campaign 2026-10-29): `SettingField.VisibleWhen` (BACKLOG N-coordinator-02), and
-the 1.6.1 versioning exception written down (N-abi-01).
+Host 1.8.0's additive ABI (lane abi180, campaign 2026-10-29): `SettingField.VisibleWhen` (BACKLOG N-coordinator-02), the
+shared Claude Code sign-in store (N-cli-token-02, the owner's decision of 2026-10-29), and the 1.6.1 versioning exception
+written down (N-abi-01). The store's design was reviewed by Codex before it was built; every finding of that review is
+answered below, and its P1s and P2s were binding.
+
+**One token, held by the host, behind a grant the user gives (IHostCredentials).** A sibling interface after
+`ICatalogListing`, for the reason every sibling gives: `RecordingHost` ships in every module's zip. One fixed credential
+id, no free-form keys; Codex is out, since its refresh tokens are single-use. `ModulePermissions.ClaudeCodeSignIn` (1 << 16)
+is the first flag the host enforces with a GRANT and not the declaration alone: the review's P1 was that `ModuleDeclares`
+reads only a module's own `Info.Permissions`, so a locally loaded module that declares the bit would pass with no consent
+anyone saw. So the store answers a caller only when it is a loaded module declaring the flag AND the user has allowed it,
+on every read, save, import and remove; otherwise `Denied` or `ConsentRequired`, and nothing is read, written or moved. The
+grant is recorded by the host in `<data folder>\credentials\grants.json` (module ids), given by a yes to the update
+question when an update adds the flag (the question then says what the grant allows, `ModulePermissionConsent.
+SignInGrantSentence`) and by **Allow sign-in** on the module's row in the Modules pane, which asks first; **Revoke sign-in**
+takes it back without asking. An uninstall drops the module's grant when the removal is applied, so a module installed
+later under the same id is asked again. No flag the host only discloses was given a grant record: they gate nothing, so a
+grant would record a consent to nothing. Refused: declaration-only consent, which the 2026-10-26 condition did not allow;
+and a host that makes the Claude Code calls itself, the review's other option, a larger change than centralising the
+token the two trusted modules already hold.
+
+**The store's life is durable, and every change is one transaction.** One envelope file, `credentials\claude-code-signin.json`
+(schema, revision, state, and the DPAPI-sealed value when saved), replaced whole by `AtomicFile`, so the state, the
+revision and the value cannot disagree after a crash. (The first design named it `.dpapi`; the DPAPI blob is now one
+member of it.) No file is a store never used; "saved"; "removed". Save, import and remove each take the store's
+`CrossSessionLock` (a Global mutex and a file lease, so a second window of the app on the same data folder waits too),
+re-read the envelope under it, decide, commit and release, on one thread with nothing awaited inside. An import commits
+only if the envelope read UNDER the lock still allows one, the compare-and-set the review asked for (P1: A reads empty, B
+saves Y, A imports X over Y), and it allows one only while the store has never been used or holds nothing usable: once
+anything has been saved, imported or removed it answers `NotImported` (P1: a Remove through one module was undone by the
+other module's first-use import). A Remove on a store never used still writes "removed", so it closes the store too.
+Remove's outcomes are `Removed`, `NothingToRemove` and `Unavailable` (nothing committed); the caller's own old copy is the
+caller's, and the runner says a shared removal whose local delete failed as its own answer ("the shared sign-in token was
+removed, but this module's old copy could not be deleted"). A lock held elsewhere answers `Unavailable` after 5 s.
+
+**Saved means usable-looking, not working, and one token is kept whichever it is.** The owner's "keep only 1 token, I don't
+care which" is taken as written, with the review's P2 accepted and said: a store that already holds a token keeps it and
+the other module's old copy is deleted, so the token kept can be an expired one while the deleted copy worked. The repair
+is to paste a working token and press Validate. A shared copy that is `Unreadable` or `NotAToken` never counts as present:
+a valid old copy is imported over it, and a save replaces it.
+
+**The migration (decided).** Each module's old `claude-token.dpapi` moves once, on the runner's first use and never in its
+constructor (a module's Init runs before the host publishes it, and the store refuses an unpublished module). A valid old
+token is imported, and deleted only after the store committed the import or answered that it holds one; a refusal or an
+unavailable store changes nothing and the next use tries again. An old copy that cannot be read, or is no token, is never
+moved: it is deleted once the store holds a token or was removed, and until then its state is the module's, so a call
+still stops rather than run on an account the user did not choose; a valid old copy whose import could not be committed
+stops calls the same way (`TokenStoreUnavailable`). A store that refuses the module (not allowed) is never answered from
+the module's own file: calls run on Claude Code's own sign-in as with no token, and the card says why, unless the old copy
+is still waiting to move, when they stop (`TokenNotAllowed`).
+
+**Revisions are the authority; the event is a hint.** Every commit has a new revision; a reading carries the one it
+describes. The runner ties every Claude Code reading it keeps (the details, the last Validate, the model that last
+answered) to the revision it was learnt under: its own commit adopts its revision at once, and the host's
+`CredentialChanged` or a fresh read before a cached reading is served, an old Validate records its line, a call records
+the model that answered or a details read is kept, drops them when the revision moved (P2: an ID-only in-process event
+cannot reach a second window of the app, and the origin's own late event dropped the Validate it ran for). A call or a
+child already started keeps what it was given; nothing is cancelled or replayed. The event is raised after the commit and
+after the lock is released, posted to the UI thread, each handler on its own (`RaiseEach`), ledgered like the other host
+events so a failed Init leaves no handler; the modules take theirs off in Shutdown, which is not Remove token.
+
+**Old and new modules side by side.** `MinHostVersion` 1.8.0 keeps the new modules off older hosts; it does not stop an
+older AI Brain or Remembrance running beside a new one on host 1.8.0, and that older copy keeps its own token (it neither
+imports, nor sees the shared removal, nor takes the lock). So no word promises one sign-in for the whole app: the shared
+sentences say "for every module you allow it", and Remove token's answer says that a module still on a version from before
+the shared sign-in keeps a token of its own until it is updated. The new module never reaches into another module's
+folder; the other module's old copy moves when that module is updated.
 
 **`VisibleWhen` hides a row; `EnabledWhen` still greys and never hides.** They answer two different rows. A setting that
 does not apply now stays on screen greyed, so the user can see it is there and what would make it live; a row that only
@@ -6487,7 +6558,9 @@ cli-followups entry above recorded. AI Brain needs host 1.8.0 for it.
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of
-these is scheduled, and neither is an oversight.
+these is scheduled, and neither is an oversight. (A store shared across modules for a sign-in was one, declined on
+2026-10-26; host 1.8.0's `IHostCredentials` holds the Claude Code sign-in, one fixed credential behind a user's grant, and
+holds nothing else: a second credential is a design of its own.)
 
 - 📌 **A module cannot draw on or near the companion.** No ABI for overlay/decoration. Nothing
   planned needs it yet; noted so it is not mistaken for an oversight if something does.

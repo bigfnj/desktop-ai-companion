@@ -1116,6 +1116,29 @@ CASES = [
      "            if (!string.IsNullOrEmpty(f.VisibleWhen))\n",
      "            if (true)\n",
      "wpf", "abi180: WITNESS a row with no VisibleWhen keeps the Visibility it was built with"),
+    # The shared Claude Code sign-in's grant (host 1.8.0, BACKLOG N-cli-token-02), graded by the "abi180: grant:" checks:
+    # a yes that records nothing, a question that does not say what the grant allows, an Allow that does not ask, and the
+    # row's button missing or offered to a module that does not declare the flag.
+    ("abi180: a yes to an update adding ClaudeCodeSignIn records no grant", MODULESPANE,
+     "            if (yes && _seams.SetSignInGrant != null) _seams.SetSignInGrant(module.Id, true);\n",
+     "",
+     "wpf", "abi180: grant: a yes to that update records the module's grant"),
+    ("abi180: the update question says nothing of what the grant allows", "src/dotNet/Plugins/ModulePermissionConsent.cs",
+     "                body += SignInGrantSentence(name) + Environment.NewLine + Environment.NewLine;\n",
+     "                body += \"\" + Environment.NewLine + Environment.NewLine;\n",
+     "wpf", "abi180: grant: an update adding ClaudeCodeSignIn says what the grant allows"),
+    ("abi180: Allow sign-in records the grant without asking", MODULESPANE,
+     "            if (allow && !_seams.AskYesNo(\n",
+     "            if (allow && id == null && !_seams.AskYesNo(\n",
+     "wpf", "abi180: grant: Allow sign-in asks first"),
+    ("abi180: the installed row offers no sign-in button", MODULESPANE,
+     "            if (info != null && _seams.SignInGranted != null &&\n",
+     "            if (info != null && info == null && _seams.SignInGranted != null &&\n",
+     "wpf", "abi180: grant: a loaded module declaring ClaudeCodeSignIn says it is not allowed and offers one Allow sign-in"),
+    ("abi180: a module not declaring ClaudeCodeSignIn is offered the button too", MODULESPANE,
+     "                (info.Permissions & ModulePermissions.ClaudeCodeSignIn) == ModulePermissions.ClaudeCodeSignIn)\n",
+     "                true)\n",
+     "wpf", "abi180: grant: a loaded module declaring ClaudeCodeSignIn says it is not allowed and offers one Allow sign-in"),
 ]
 
 

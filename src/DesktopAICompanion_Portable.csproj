@@ -195,6 +195,7 @@
     <Compile Include="dotNet\Plugins\SelfTestScratch.cs" />
     <Compile Include="dotNet\Plugins\ModuleHostSelfTest.cs" />
     <Compile Include="dotNet\Plugins\CompanionHost.cs" />
+    <Compile Include="dotNet\Plugins\HostCredentialStore.cs" />
     <Compile Include="dotNet\Plugins\FortunesModuleSelfTest.cs" />
     <Compile Include="dotNet\Plugins\FortunesEngineSelfTest.cs" />
     <Compile Include="dotNet\Plugins\AiBrainModuleSelfTest.cs" />

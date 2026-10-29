@@ -4382,6 +4382,9 @@ $cliScanFiles = @((Join-Path $repoRoot 'shared\CodingAgentCli\CodingAgentCliSelf
         Where-Object { $_.FullName -notmatch '\\(obj|bin)\\' } | ForEach-Object { $_.FullName }) +
     @(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'modules\Remembrance') -Filter '*.cs' -Recurse -File |
         Where-Object { $_.FullName -notmatch '\\(obj|bin)\\' } | ForEach-Object { $_.FullName })
+# Widened by lane feature/host-abi-180 (host 1.8.0): the host now keeps the token (HostCredentialStore, behind CompanionHost's
+# IHostCredentials), so its code is scanned with the runner's, and the host may no more put it on this process than they may.
+$cliScanFiles += @((Join-Path $repoRoot 'src\dotNet\Plugins\HostCredentialStore.cs'), (Join-Path $repoRoot 'src\dotNet\Plugins\CompanionHost.cs'))
 $cliScanCode = $cliRunnerCode + "`n" + (@($cliScanFiles | ForEach-Object { Remove-LineComments (Get-Content -LiteralPath $_ -Raw) }) -join "`n")
 Assert-True ($cliScanFiles.Count -ge 20 -and $cliRunnerCode.Contains('new[] { "debug", "models" }')) (
     "WITNESS Codex's model is picked from its own catalog call, debug models ($($cliScanFiles.Count) files scanned besides the runner)")
@@ -5160,6 +5163,59 @@ Assert-True ($tqContracts -cmatch 'public interface ICatalogListing\s*\{\s*Syste
     $tqHost -cmatch 'internal sealed class CompanionHost : IHost,[^{]*\bICatalogListing\b' -and
     $tqHost -cmatch 'public async System\.Threading\.Tasks\.Task<CatalogListing> FetchCatalogListingAsync\(string kind\)') (
     'abi-pane-actions: ICatalogListing is its own interface, not on IHost and not on RecordingHost, and the host implements it')
+
+# ---- lane feature/host-abi-180 ----
+# THE SHARED CLAUDE CODE SIGN-IN (IHostCredentials, host 1.8.0; BACKLOG N-cli-token-02 and the binding design review of
+# 2026-10-29). --module-host-selftest drives the store through a real CompanionHost and the modules' self-tests drive the
+# runner through a fake store; these are the wiring and the ORDERS no run can see: the interface where ICatalogListing's
+# is (its own, never on IHost or RecordingHost); every verb of the store refusing before it touches the disk, the
+# declaration checked before the grant; a change announced only after its lock is released; the runner deleting its old
+# token only after the store answered the import; and a runner with a shared store never reading the token it sends from
+# the module's own file. Comment-stripped, -cmatch, method-scoped.
+$abiStore = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\Plugins\HostCredentialStore.cs') -Raw)
+$abiStops = @("`n        private ", "`n        internal ", "`n        public ")
+$abiRefusal = Get-MethodBody $abiStore 'private HostCredentialState? Refusal(' $abiStops
+$abiRead = Get-MethodBody $abiStore 'internal HostCredentialReading Read(' $abiStops
+$abiChange = Get-MethodBody $abiStore 'private HostCredentialCommit Change(' $abiStops
+$abiRemove = Get-MethodBody $abiStore 'internal HostCredentialCommit Remove(' $abiStops
+$abiMigrate = Get-MethodBody $cliRunnerCode 'private void MigrateLocalClaudeToken()' $abiStops
+$abiReadToken = Get-MethodBody $cliRunnerCode 'internal ClaudeTokenState ReadClaudeToken(out string token)' $abiStops
+$abiReadShared = Get-MethodBody $cliRunnerCode 'private ClaudeTokenState ReadSharedClaudeToken(out string token)' $abiStops
+Assert-True ($abiRefusal.Length -gt 0 -and $abiRead.Length -gt 0 -and $abiChange.Length -gt 0 -and $abiRemove.Length -gt 0 -and
+    $abiMigrate.Length -gt 0 -and $abiReadToken.Length -gt 0 -and $abiReadShared.Length -gt 0) (
+    'abi180: the store''s gate and three verbs, and the runner''s migration and two token reads, were sliced')
+Assert-True ($tqContracts -cmatch 'public interface IHostCredentials\s*\{\s*HostCredentialReading ReadCredential\(string moduleId, HostCredentialId credential\);' -and
+    $tqIHost -cnotmatch 'ReadCredential' -and $tqIHost -cnotmatch 'IHostCredentials' -and $tqRecordingHost -cnotmatch 'IHostCredentials' -and
+    $tqHost -cmatch 'internal sealed class CompanionHost : IHost,[^{]*\bIHostCredentials\b' -and
+    $tqHost -cmatch 'public HostCredentialReading ReadCredential\(string moduleId, HostCredentialId credential\)\s*\{\s*return CredentialStore\.Read\(moduleId, credential\);') (
+    'abi180: IHostCredentials is its own interface, not on IHost and not on RecordingHost, and the host implements it through its store')
+$abiDeclaredAt = $abiRefusal.IndexOf('_declares((moduleId ?? "").Trim())', [StringComparison]::Ordinal)
+$abiGrantedAt = $abiRefusal.IndexOf('if (!IsGranted(_directory, moduleId))', [StringComparison]::Ordinal)
+$abiGateFirst = $true
+foreach ($abiVerb in @(@($abiRead, 'ReadEnvelope()'), @($abiChange, 'TryLock()'), @($abiRemove, 'TryLock()'))) {
+    $abiGateAt = $abiVerb[0].IndexOf('Refusal(moduleId, credential, out reason)', [StringComparison]::Ordinal)
+    $abiDiskAt = $abiVerb[0].IndexOf($abiVerb[1], [StringComparison]::Ordinal)
+    if (-not ($abiGateAt -ge 0 -and $abiDiskAt -gt $abiGateAt -and $abiVerb[0] -cmatch 'if \(refused\.HasValue\)\s*\{[^}]*return ')) { $abiGateFirst = $false }
+}
+Assert-True ($abiDeclaredAt -ge 0 -and $abiGrantedAt -gt $abiDeclaredAt -and $abiGateFirst) (
+    "abi180: every verb of the credential store refuses before it touches the disk, the declaration checked before the grant (declared $abiDeclaredAt, granted $abiGrantedAt)")
+$abiAnnounceAfter = $true
+foreach ($abiVerb in @($abiChange, $abiRemove)) {
+    $abiReleaseAt = $abiVerb.IndexOf('finally { lease.Dispose(); }', [StringComparison]::Ordinal)
+    $abiAnnounceAt = $abiVerb.IndexOf('Announce(credential, committed);', [StringComparison]::Ordinal)
+    if (-not ($abiReleaseAt -ge 0 -and $abiAnnounceAt -gt $abiReleaseAt)) { $abiAnnounceAfter = $false }
+}
+Assert-True ($abiAnnounceAfter) 'abi180: the credential store announces a change only after its lock is released, in save, import and remove'
+$abiImportAt = $abiMigrate.IndexOf('ImportCredentialIfUnset(_moduleId, HostCredentialId.ClaudeCodeSignIn, local)', [StringComparison]::Ordinal)
+$abiOutcomeAt = $abiMigrate.IndexOf('import.Outcome != HostCredentialOutcome.Imported && import.Outcome != HostCredentialOutcome.NotImported', [StringComparison]::Ordinal)
+$abiDeleteAt = $abiMigrate.IndexOf('DeleteLocalClaudeToken(path)', [StringComparison]::Ordinal)
+Assert-True ($abiImportAt -ge 0 -and $abiOutcomeAt -gt $abiImportAt -and $abiDeleteAt -gt $abiOutcomeAt) (
+    "abi180: the runner deletes its old token only after the shared store answered the import (import $abiImportAt, outcome $abiOutcomeAt, delete $abiDeleteAt)")
+$abiSharedAt = $abiReadToken.IndexOf('if (_sharedSignIn != null) return ReadSharedClaudeToken(out token);', [StringComparison]::Ordinal)
+$abiLocalAt = $abiReadToken.IndexOf('return ReadLocalClaudeToken(out token);', [StringComparison]::Ordinal)
+Assert-True ($abiSharedAt -ge 0 -and $abiLocalAt -gt $abiSharedAt -and $abiReadShared -cnotmatch 'ReadLocalClaudeToken\(out token\)' -and
+    $abiReadShared.Contains('ReadLocalClaudeToken(out ignored)')) (
+    'abi180: a runner with a shared store never takes the token it sends from the module''s own file (WITNESS: it reads that file''s state alone)')
 
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
