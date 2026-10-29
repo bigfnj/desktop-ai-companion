@@ -617,6 +617,10 @@ namespace DesktopAICompanion.Plugins
                     ok &= Check(sb, "rollback: WITNESS a healthy Init contributes tray items, a pane and a subscription",
                         loaded == 1 && healthy.TrayItems.Count >= 1 && healthy.OptionsPanes.Count == 1 &&
                         healthy.LifecycleSubscriberCount >= 1);
+                    // The test module subscribes to CompanionPoked and to CredentialChanged (the 2026-10-29 audit,
+                    // A-host-04), so both are in the count the rollback check below reads as zero.
+                    ok &= Check(sb, "audit-host: rollback: WITNESS a healthy Init's CredentialChanged subscription is counted (" +
+                        healthy.LifecycleSubscriberCount + " subscribers)", healthy.LifecycleSubscriberCount >= 2);
                     loader.ShutdownAll(delegate { });
                 }
 

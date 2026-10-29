@@ -15832,6 +15832,21 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--module-host-selftest", "dp-module-host-selftest.txt",
      "audit-host: modules row: a grants record held or damaged is no answer"),
+    # N-audit-20261029-11: the test module now subscribes to CredentialChanged in Init, so a leaked handler on it is seen.
+    ("audit-host: CredentialChanged's add is not ledgered",
+     COMPANION_HOST,
+     b'            add { _credentialChanged += value; Ledger(delegate { _credentialChanged -= value; }); }\n',
+     b'            add { _credentialChanged += value; }\n',
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "rollback: ...and the failed module holds no tray item, no pane and no event subscription in the host"),
+    ("audit-host: the rollback's subscriber count leaves CredentialChanged out",
+     COMPANION_HOST,
+     b'_hostShutdown, _fullscreenChanged, _contextChanged, _credentialChanged })\n',
+     b'_hostShutdown, _fullscreenChanged, _contextChanged })\n',
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "audit-host: rollback: WITNESS a healthy Init's CredentialChanged subscription is counted"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
