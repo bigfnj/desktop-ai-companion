@@ -1071,6 +1071,26 @@ CASES = [
      "                    DimGreyed(actionRow, !actionLive && (cardLive == null || cardLive()));\n",
      "                    DimGreyed(actionRow, !actionLive);\n",
      "wpf", "abi: an action greyed by its own EnabledWhen inside a greyed card is dimmed once"),
+    # ---- lane feature/host-fixes ----
+    # N-settings-accessibility-01: the expanders' header toggles. The walk in SettingsWindowNamesEveryControl now judges
+    # an Expander's header toggle (a template part it used to skip), so each defect fails the per-pane line; the
+    # help-text one fails only the toggle line. "host-fixes:" for one --only.
+    ("host-fixes: a collapsible card's header toggle is left unnamed", OPTIONSWINDOW,
+     "            System.Windows.Automation.AutomationProperties.SetName(toggle, System.Windows.Automation.AutomationProperties.GetName(this));\n",
+     "",
+     "wpf", "every interactive control has an automation name, pane Every kind"),
+    ("host-fixes: a collapsible card is a plain Expander again", OPTIONSWINDOW,
+     "                var expander = new CardExpander { Header = header, Content = body, IsExpanded = IsCardOpen(key, collapsibleLead) };\n",
+     "                var expander = new Expander { Header = header, Content = body, IsExpanded = IsCardOpen(key, collapsibleLead) };\n",
+     "wpf", "every interactive control has an automation name, pane Every kind"),
+    ("host-fixes: a list group is a plain Expander again", OPTIONSWINDOW,
+     "                        var expander = new CardExpander\n",
+     "                        var expander = new Expander\n",
+     "wpf", "every interactive control has an automation name, pane Every kind"),
+    ("host-fixes: a collapsible card's header toggle loses the count", OPTIONSWINDOW,
+     "            if (!string.IsNullOrEmpty(help)) System.Windows.Automation.AutomationProperties.SetHelpText(toggle, help);\n",
+     "",
+     "wpf", "each expander's header toggle is reached by the walk and named after its card, a collapsible card's count as its help text"),
 ]
 
 

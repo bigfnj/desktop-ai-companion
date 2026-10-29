@@ -5051,11 +5051,22 @@ namespace DesktopAICompanion
             checkedCount = 0;
             foreach (AutomationEntry e in found)
             {
-                if (e.TemplatePart || Array.IndexOf(NamedTypes, e.Type) < 0) continue;
+                // A template part is its control's own business, EXCEPT the header toggle an Expander's template draws
+                // (N-settings-accessibility-01): it is a Button of its own to UI Automation, the one a user presses to
+                // open or close the card, and skipping every template part is how three unnamed ones went unseen.
+                if (e.TemplatePart && !IsExpanderHeaderToggle(e.Owner)) continue;
+                if (Array.IndexOf(NamedTypes, e.Type) < 0) continue;
                 checkedCount++;
                 if (e.Name.Trim().Length == 0) unnamed.Add(e.Type + " " + (e.Owner != null ? e.Owner.GetType().Name : "?"));
             }
             return unnamed;
+        }
+
+        /// <summary>Whether an automation owner is the ToggleButton an Expander's template draws its header with.</summary>
+        private static bool IsExpanderHeaderToggle(object owner)
+        {
+            var toggle = owner as System.Windows.Controls.Primitives.ToggleButton;
+            return toggle != null && toggle.TemplatedParent is System.Windows.Controls.Expander;
         }
 
         /// <summary>One row of every kind, a path of each kind, a collapsible card, the untitled card, an action and a
@@ -5216,6 +5227,23 @@ namespace DesktopAICompanion
                 }
                 ok &= Check(sb, "host-options: UIA: every card is a Group named after its title, the untitled one after its pane (" + string.Join("; ", cardNames.ToArray()) + ")",
                     groups && string.Join("; ", cardNames.ToArray()) == "Rows; Paths; Collapsible card; Every kind; Packs");
+
+                // N-settings-accessibility-01: the header toggle of every expander on this pane, the collapsible card's and
+                // the list card's two groups', is REACHED by the walk (so the per-pane check above judges it, rather than
+                // passing because it never saw one) and named after its card, a collapsible card's count as its help text.
+                var walked = new List<AutomationEntry>();
+                CollectAutomation(probe.Root, walked);
+                var toggles = new List<string>();
+                foreach (AutomationEntry e in walked)
+                {
+                    if (!e.TemplatePart || !IsExpanderHeaderToggle(e.Owner)) continue;
+                    string help;
+                    try { help = e.Peer.GetHelpText() ?? ""; } catch (Exception) { help = ""; }
+                    toggles.Add(e.Type + " '" + e.Name + "'" + (help.Length > 0 ? " help '" + help + "'" : ""));
+                }
+                ok &= Check(sb, "host-fixes: UIA: each expander's header toggle is reached by the walk and named after its card, a collapsible card's count as its help text (" +
+                    string.Join("; ", toggles.ToArray()) + ")",
+                    string.Join("; ", toggles.ToArray()) == "Button 'Collapsible card' help '1 setting'; Button 'Clean'; Button 'Spicy'");
 
                 var navs = new List<System.Windows.Controls.ListBox>();
                 CollectAll(probe.Root, navs);
