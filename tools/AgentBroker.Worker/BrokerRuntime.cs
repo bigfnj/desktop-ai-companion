@@ -277,7 +277,9 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
                     MessageStatus.Refused or MessageStatus.Expired => AdapterAdmission.Refused,
                     MessageStatus.Uncertain => AdapterAdmission.Uncertain,
                     _ => AdapterAdmission.Submitted,
-                }, "peer_receipt");
+                // A paired broker that answers the forward itself with Expired: the same peer_expired reason and notice as
+                // the receipt loop's BrokerStore.RecordPeerReceipt (Codex 01a1855c's review of 3f6c2a3).
+                }, remote.Status == MessageStatus.Expired ? "peer_expired" : "peer_receipt");
             }
             else
             {

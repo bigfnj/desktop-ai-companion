@@ -10,10 +10,12 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
     private readonly Func<CancellationToken, Task<ICodexOwnerConnection>> connect;
     private readonly Action verifyProfiles;
     private readonly Action verifyProfilesByPublisher;
-    // Discovery passes may reuse a success for the same running engine processes (VsCodeCompatibilityProfile's discovery
-    // variants); submission always uses the two fresh verifiers above.
+    // Discovery passes may reuse a publisher success for the same running engine processes (VsCodeCompatibilityProfile's
+    // discovery variant); the exact-profile check stays fresh. Submission always uses the two fresh verifiers above, and a
+    // failed fresh check forgets the reused success.
     private readonly Action verifyProfilesForDiscovery;
     private readonly Action verifyByPublisherForDiscovery;
+    private readonly Action forgetDiscovery;
     private readonly Func<CancellationToken, Task<IReadOnlyList<DesktopDirectorySession>>> observe;
     private readonly Func<CancellationToken, Task<ICodexDirectoryObserver>> connectDirectory;
     private ICodexOwnerConnection? adapter;
@@ -32,15 +34,16 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
                 { AllowPublisherSignedRouter = true, EnableUpdateTolerantDelivery = enableDelivery && updateTolerantDelivery }, token)),
             () => VsCodeCompatibilityProfile.VerifyRunningClients(),
             null, null, updateTolerantDelivery, () => VsCodeCompatibilityProfile.VerifyRunningClientsByPublisher(),
-            () => VsCodeCompatibilityProfile.VerifyRunningClientsForDiscovery(),
-            () => VsCodeCompatibilityProfile.VerifyRunningClientsByPublisherForDiscovery()) { }
+            () => VsCodeCompatibilityProfile.VerifyRunningClients(),
+            () => VsCodeCompatibilityProfile.VerifyRunningClientsByPublisherForDiscovery(),
+            VsCodeCompatibilityProfile.ForgetDiscoveryVerification) { }
 
     internal CodexNativeProvider(bool enableDelivery,
         Func<CancellationToken, Task<ICodexOwnerConnection>> connect, Action verifyProfiles,
         Func<CancellationToken, Task<IReadOnlyList<DesktopDirectorySession>>>? observe,
         Func<CancellationToken, Task<ICodexDirectoryObserver>>? connectDirectory = null,
         bool updateTolerantDelivery = false, Action? verifyProfilesByPublisher = null,
-        Action? verifyProfilesForDiscovery = null, Action? verifyByPublisherForDiscovery = null)
+        Action? verifyProfilesForDiscovery = null, Action? verifyByPublisherForDiscovery = null, Action? forgetDiscovery = null)
     {
         this.enableDelivery = enableDelivery; this.connect = connect; this.verifyProfiles = verifyProfiles;
         // Update-tolerant delivery is meaningless without delivery, so it cannot be on by itself.
@@ -49,6 +52,7 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
             (() => throw new DesktopAdapterException("unsupported_running_vscode_profile"));
         this.verifyProfilesForDiscovery = verifyProfilesForDiscovery ?? verifyProfiles;
         this.verifyByPublisherForDiscovery = verifyByPublisherForDiscovery ?? this.verifyProfilesByPublisher;
+        this.forgetDiscovery = forgetDiscovery ?? (() => { });
         this.observe = observe ?? ObservePersistentAsync;
         this.connectDirectory = connectDirectory ?? (async token => new CodexDirectoryObserver(
             await DesktopDirectoryObserver.ConnectAsync(allowPublisherSignedRouter: true, token)));
@@ -166,11 +170,15 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
             // The same fresh check under the opt-in policy: Windows-verified OpenAI engines, or no input at all.
             profileTrust = VerifyProfilesByPublisher(error, diagnostics: null, verifyProfilesByPublisher);
             if (!IsDeliveryAuthorized(binding))
+            {
+                forgetDiscovery(); // A fresh refusal disproves any reused discovery success.
                 return new(DesktopSubmissionOutcome.Rejected, ErrorCode: "native_client_profile_unverified");
+            }
         }
         catch (Exception error) when (error is DesktopAdapterException or IOException or UnauthorizedAccessException)
         {
             profileTrust = DesktopRouterTrust.Unverified;
+            forgetDiscovery();
             return new(DesktopSubmissionOutcome.Rejected, ErrorCode: "native_client_profile_unverified");
         }
         try { return await adapter.SubmitAsync(binding, messageId, text, token); }

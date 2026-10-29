@@ -213,6 +213,36 @@ try
             freshPublisher == 1 && discoveryPublisher == 1,
             "SUBMIT_FRESH_PUBLISHER: an unpinned build's submission verifies its publisher fresh, never through the discovery verifier");
     }
+    // Codex 01a1855c's review of 2c94f79: a fresh refusal at submission must forget a reused discovery success, or the next
+    // pass advertises the refused profile again.
+    int tolerantForgets = 0;
+    var forgettingOwner = new FakeCodexOwnerConnection(new(thread, Guid.NewGuid(), Guid.NewGuid(), 12345, 134000000000000000, true) { RouterTrust = DesktopRouterTrust.PublisherSigned });
+    await using (var provider = new CodexNativeProvider(true, _ => Task.FromResult<ICodexOwnerConnection>(forgettingOwner),
+        () => throw new DesktopAdapterException("running_vscode_image_mismatch"),
+        _ => Task.FromResult<IReadOnlyList<DesktopDirectorySession>>([new(thread, DesktopSessionActivity.Unknown, clock.GetUtcNow(), null)]),
+        null, updateTolerantDelivery: true, verifyProfilesByPublisher: () => throw new DesktopAdapterException("public_image_publisher_mismatch"),
+        verifyProfilesForDiscovery: () => throw new DesktopAdapterException("running_vscode_image_mismatch"),
+        verifyByPublisherForDiscovery: () => { }, forgetDiscovery: () => tolerantForgets++))
+    {
+        await provider.ObserveAsync(default);
+        var binding = (await provider.ResolveOwnerAsync(thread, default))!;
+        Check((await provider.SubmitAsync(binding, Guid.NewGuid(), "synthetic", default)).Outcome == DesktopSubmissionOutcome.Rejected &&
+            tolerantForgets == 1 && forgettingOwner.SubmissionCount == 0,
+            "SUBMIT_FAILURE_FORGETS_PUBLISHER: a fresh publisher refusal at submission forgets the reused discovery success");
+    }
+    int strictForgets = 0;
+    var strictOwner = new FakeCodexOwnerConnection(new(thread, Guid.NewGuid(), Guid.NewGuid(), 12345, 134000000000000000, true) { RouterTrust = DesktopRouterTrust.ExactPinned });
+    await using (var provider = new CodexNativeProvider(true, _ => Task.FromResult<ICodexOwnerConnection>(strictOwner),
+        () => throw new DesktopAdapterException("vscode_image_mismatch"),
+        _ => Task.FromResult<IReadOnlyList<DesktopDirectorySession>>([new(thread, DesktopSessionActivity.Unknown, clock.GetUtcNow(), null)]),
+        verifyProfilesForDiscovery: () => { }, forgetDiscovery: () => strictForgets++))
+    {
+        await provider.ObserveAsync(default);
+        var binding = (await provider.ResolveOwnerAsync(thread, default))!;
+        Check((await provider.SubmitAsync(binding, Guid.NewGuid(), "synthetic", default)).Outcome == DesktopSubmissionOutcome.Rejected &&
+            strictForgets == 1 && strictOwner.SubmissionCount == 0,
+            "SUBMIT_FAILURE_FORGETS_EXACT: a fresh exact-profile refusal at submission forgets the reused discovery success");
+    }
 
     var profile = EngineProfile.Verified.Single(pin => pin.Version == "2.1.304");
     string session = "11111111-2222-4333-8444-555555555555";

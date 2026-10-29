@@ -587,6 +587,10 @@ if (!args.SequenceEqual(new[] { "--existing-tests-only" })) PinDocumentChecks.Ru
     Check(verifications == 2, "DISCOVERY_REUSE_NEW_ENGINE: a restarted engine (new creation time) is verified in full");
     reuse.Verify([engine, engine with { Image = engine.Image.Replace("0.0.0", "0.0.1") }], Count);
     Check(verifications == 3, "DISCOVERY_REUSE_ADDED_ENGINE: an added engine changes the set and is verified in full");
+    var same = new[] { engine, engine with { Image = engine.Image.Replace("0.0.0", "0.0.1") } };
+    reuse.Verify(same, Count);
+    reuse.Forget(); reuse.Verify(same, Count);
+    Check(verifications == 4, "DISCOVERY_REUSE_FORGET: after Forget, the same engines are verified in full again");
     var failing = new DiscoveryReuse();
     int failures = 0;
     for (int attempt = 0; attempt < 2; attempt++)

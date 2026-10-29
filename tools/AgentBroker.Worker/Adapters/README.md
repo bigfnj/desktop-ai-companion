@@ -18,7 +18,7 @@ rediscovery. The separate `codexUpdateTolerantDelivery` opt-in lets such a build
 check in the compatibility document passes; otherwise the refusal is `unsupported_capability`. The adapter also
 checks each binding's own router trust, so a provider verdict cannot lend the exact path to a publisher-signed
 router. Native owner discovery exposes opaque client IDs rather than trusted Desktop/VS Code host-version labels.
-Installed profile verification alone never enables wake. A discovery pass reuses a profile or publisher verification while the same engine processes run (image path and OS creation time of each engine and its Code.exe parent; `DiscoveryReuse`), because Windows refuses writes to a running process's mapped image; a failure or an empty set is never reused, and every submission still verifies fresh.
+Installed profile verification alone never enables wake. A discovery pass reuses a publisher verification while the same engine processes run (image path and OS creation time of each engine and its Code.exe parent; `DiscoveryReuse`): that check covers only the running engines' signed images, which Windows will not let anyone write while their processes run. The exact-profile check is never reused, because it also covers `package.json` and unsigned extension JavaScript that can change while the engine runs. A failure or an empty set is never reused, every submission still verifies fresh, and a fresh refusal at submission forgets the reused success.
 
 Claude production discovery examines at most 32 processes named `claude`, public executable identities,
 and exact default-home numeric registry JSON files. It never lists credentials or follows log paths.

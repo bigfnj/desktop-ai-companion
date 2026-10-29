@@ -45,8 +45,10 @@ public sealed partial class AgentBrokerModule : IModule
                              //        reason peer_expired and its notice says so, instead of "refused by its recipient".
                              //        send adds a second content block when the recipient is a local mailbox that
                              //        nothing can wake; the receipt stays the first block.
-                             //        Codex discovery reuses a verification while the same engine processes run
-                             //        (measured: 824 MB/min of reads to 0); submission still verifies fresh.
+                             //        Codex discovery reuses the publisher check while the same engine processes run
+                             //        (measured: 824 MB/min of reads to 0); the exact-profile check and every
+                             //        submission stay fresh, and a fresh refusal forgets the reused success. A paired
+                             //        broker's Expired answer to the forward itself is peer_expired too.
                              //        MinHostVersion unchanged (1.6.1).
                              // 1.4.0: first contact (2026-10-29), from agents on a second workstation who registered
                              //        mailboxes and ran pollers despite native rows, started fresh threads at the eighth

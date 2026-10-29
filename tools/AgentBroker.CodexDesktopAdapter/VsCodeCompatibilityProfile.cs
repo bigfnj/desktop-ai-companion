@@ -136,19 +136,17 @@ public static class VsCodeCompatibilityProfile
     /// with a Windows-verified OpenAI signature. Extension JavaScript is unsigned, so this mode cannot verify it;
     /// the compatibility document records that gap. It never stands in for the exact profile on its own.
     /// </summary>
-    // Discovery-only reuse (O-agentbroker-02, measured 2026-10-29): every discovery pass re-verified the running engine,
-    // codex.exe at 354 MB on extension 26.1021.22027, about 1 GB of reads and 5% of a core a minute on the owner's
-    // workstation. Windows refuses writes to a running process's mapped image, so a success for the exact same engine
-    // processes is reused for discovery only. Submission still calls VerifyRunningClients and
-    // VerifyRunningClientsByPublisher, which never reuse anything, so model input keeps fresh full verification.
-    private static readonly DiscoveryReuse ExactDiscovery = new(), PublisherDiscovery = new();
+    // Discovery-only reuse of the PUBLISHER check (O-agentbroker-02, measured 2026-10-29): every discovery pass ran
+    // Authenticode over the running engine, codex.exe at 354 MB on extension 26.1021.22027, about 1 GB of reads and 5% of
+    // a core a minute on the owner's workstation. That check covers only the running engines' signed images, which
+    // Windows will not let anyone write while their processes run, and a replaced file at the path runs only in a new
+    // process, which is a new key. The exact-profile check is NOT reused: it also covers package.json and unsigned
+    // extension JavaScript, which can change while the engine runs (Codex 01a1855c's review of 2c94f79). A failed fresh
+    // check at submission forgets the reused success. Submission always calls the fresh checks, so model input keeps
+    // full verification.
+    private static readonly DiscoveryReuse PublisherDiscovery = new();
 
-    public static int VerifyRunningClientsForDiscovery()
-    {
-        if (!OperatingSystem.IsWindows()) throw new DesktopAdapterException("native_windows_required");
-        var engines = WindowsClientProcesses.ReadCodeOwnedEngines();
-        return ExactDiscovery.Verify(engines, () => VerifyRunningClients(engines, VerifyInstalled));
-    }
+    public static void ForgetDiscoveryVerification() => PublisherDiscovery.Forget();
 
     public static int VerifyRunningClientsByPublisherForDiscovery()
     {
@@ -220,6 +218,8 @@ internal sealed class DiscoveryReuse
         lock (gate) verified = engines.Count > 0 ? key : null;
         return count;
     }
+
+    internal void Forget() { lock (gate) verified = null; }
 
     internal static string KeyOf(IReadOnlyList<CodeOwnedEngine> engines) => string.Join("\n", engines
         .Select(engine => $"{engine.Image}|{engine.CreationFileTime}|{engine.ParentImage}|{engine.ParentCreationFileTime}|{engine.SameUser}")
