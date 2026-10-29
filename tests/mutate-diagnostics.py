@@ -1159,6 +1159,15 @@ CASES = [
      "                (info.Permissions & ModulePermissions.ClaudeCodeSignIn) == ModulePermissions.ClaudeCodeSignIn)\n",
      "                true)\n",
      "wpf", "abi180: grant: a loaded module declaring ClaudeCodeSignIn says it is not allowed and offers one Allow sign-in"),
+    # ---- lane feature/audit-host ----
+    # N-audit-20261029-13 (the 2026-10-29 host audit, A-host-06): the installed row reads the grants record two ways again,
+    # so a record that cannot be read says "Not allowed" and offers an Allow. Run by hand on 2026-10-29 (FIRED, restored
+    # byte-identical) because this harness refuses a disconnected session's red pixel baseline; --module-host-selftest's
+    # "audit-host: modules row:" checks grade the seam and the words in tests/mutate-selftest-guards.py.
+    ("audit-host: the installed row reads an unreadable grants record as not allowed", MODULESPANE,
+     "                    Text = SignInRowText(granted, out signInCaption),\n",
+     "                    Text = SignInRowText(granted == true, out signInCaption),\n",
+     "wpf", "audit-host: modules row: a grants record that cannot be read is said so"),
 ]
 
 

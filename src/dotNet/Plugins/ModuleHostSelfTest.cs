@@ -2181,6 +2181,32 @@ namespace DesktopAICompanion.Plugins
                     readAfterOther.State + ", " + (readLetGo ? "nothing held" : "the token held") + ")",
                     readAfterOther.State == HostCredentialState.None && readLetGo);
 
+                // THE MODULES ROW'S READ OF THE GRANT (the 2026-10-29 audit, A-host-06, BACKLOG N-audit-20261029-13): the
+                // shipped seam and the row's words, pixel-free. A grants record held or damaged is no answer (null), as the
+                // store's gate reads it, and the row then says it cannot be read and offers no button; it said "Not allowed"
+                // and offered an Allow that failed.
+                bool? rowAllowed = DesktopAICompanion.Wpf.ModulesPaneControl.SignInGrantAnswer(dir, "aibrain");
+                bool? rowNotAllowed = DesktopAICompanion.Wpf.ModulesPaneControl.SignInGrantAnswer(dir, "ungranted");
+                bool? rowWhileHeld;
+                using (new FileStream(grants, FileMode.Open, FileAccess.Read, FileShare.None))
+                    rowWhileHeld = DesktopAICompanion.Wpf.ModulesPaneControl.SignInGrantAnswer(dir, "aibrain");
+                byte[] rowGoodGrants = File.ReadAllBytes(grants);
+                File.WriteAllText(grants, "{ damaged");
+                bool? rowWhileDamaged = DesktopAICompanion.Wpf.ModulesPaneControl.SignInGrantAnswer(dir, "aibrain");
+                File.WriteAllBytes(grants, rowGoodGrants);
+                string allowCaption, revokeCaption, heldCaption;
+                string notAllowedLine = DesktopAICompanion.Wpf.ModulesPaneControl.SignInRowText(rowNotAllowed, out allowCaption);
+                DesktopAICompanion.Wpf.ModulesPaneControl.SignInRowText(rowAllowed, out revokeCaption);
+                string heldLine = DesktopAICompanion.Wpf.ModulesPaneControl.SignInRowText(rowWhileHeld, out heldCaption);
+                ok &= Check(sb, "audit-host: modules row: WITNESS a grants record that can be read answers allowed and not allowed, offering Revoke and Allow (" +
+                    revokeCaption + ", " + allowCaption + ")",
+                    rowAllowed == true && rowNotAllowed == false && revokeCaption == "Revoke sign-in" && allowCaption == "Allow sign-in" &&
+                    notAllowedLine == "Not allowed the shared Claude Code sign-in.");
+                ok &= Check(sb, "audit-host: modules row: a grants record held or damaged is no answer, said as unreadable, with no button (" +
+                    (rowWhileHeld.HasValue ? rowWhileHeld.ToString() : "no answer") + ", " + (rowWhileDamaged.HasValue ? rowWhileDamaged.ToString() : "no answer") +
+                    ", " + (heldCaption ?? "no button") + ")",
+                    !rowWhileHeld.HasValue && !rowWhileDamaged.HasValue && heldCaption == null && heldLine.Contains("can't be read just now"));
+
                 // P3-5: the start question for a long name still fits, and names the module's id beside it.
                 string longName = new string('N', 120);
                 TrayQuestion longQuestion = SignInGrantQuestion.For(longName, "longmodule");
