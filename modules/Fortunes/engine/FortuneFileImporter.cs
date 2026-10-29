@@ -1137,18 +1137,35 @@ namespace DesktopAICompanion.Ai
             }
             finally
             {
-                try
-                {
-                    if (Directory.Exists(root)) Directory.Delete(root, true);
-                }
-                catch (Exception ex)
-                {
-                    ok = false;
-                    output.AppendLine("IMPORT CLEANUP EXC: " + ex.Message);
-                }
+                ok = ReleaseSelfTestScratch(root, ok, output) && ok;
             }
             output.AppendLine("custom_import=" + (ok ? "PASS" : "FAIL"));
             return ok;
+        }
+
+        /// <summary>
+        /// The end of <see cref="RunSelfTest"/>: delete its scratch folder after a run that passed, and KEEP it after one
+        /// that failed or threw, named on an "IMPORT SCRATCH KEPT: " line (N-test-infra-03). It was deleted in a finally
+        /// whatever the result, so a failed check lost the very packs and folders that produced it. False only when the
+        /// delete after a pass failed, which fails the run, as it did. Internal so the probe checks both outcomes.
+        /// </summary>
+        internal static bool ReleaseSelfTestScratch(string root, bool passed, StringBuilder output)
+        {
+            if (!passed)
+            {
+                if (Directory.Exists(root)) output.AppendLine("IMPORT SCRATCH KEPT: " + root);
+                return true;
+            }
+            try
+            {
+                if (Directory.Exists(root)) Directory.Delete(root, true);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                output.AppendLine("IMPORT CLEANUP EXC: " + ex.Message);
+                return false;
+            }
         }
 
         private static bool TestPortableReplacementFallback(

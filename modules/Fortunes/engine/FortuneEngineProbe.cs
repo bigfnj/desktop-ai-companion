@@ -396,6 +396,21 @@ namespace DesktopAICompanion.FortunesModule
                         stuckBackup != null && File.Exists(stuckBackup) &&
                         File.ReadAllText(stuckBackup, utf8).StartsWith("The stuck pack's original line", StringComparison.Ordinal));
 
+                    // N-test-infra-03: the importer's own self-test (FortuneFileImporter.RunSelfTest) keeps its scratch
+                    // folder after a failure, and says where, so the input that produced the failure can be read.
+                    string importScratch = Path.Combine(folder, "import-selftest-scratch");
+                    Directory.CreateDirectory(importScratch);
+                    File.WriteAllText(Path.Combine(importScratch, "evidence.txt"), "The input a failed check left.\n", utf8);
+                    var failedRun = new StringBuilder();
+                    bool keptReleased = FortuneFileImporter.ReleaseSelfTestScratch(importScratch, false, failedRun);
+                    ok &= Check(sb, "importer self-test scratch: a failed run keeps its scratch folder and names it on an IMPORT SCRATCH KEPT line",
+                        keptReleased && File.Exists(Path.Combine(importScratch, "evidence.txt")) &&
+                        failedRun.ToString().Contains("IMPORT SCRATCH KEPT: " + importScratch));
+                    var passedRun = new StringBuilder();
+                    bool deletedReleased = FortuneFileImporter.ReleaseSelfTestScratch(importScratch, true, passedRun);
+                    ok &= Check(sb, "WITNESS importer self-test scratch: a passing run deletes it and names nothing",
+                        deletedReleased && !Directory.Exists(importScratch) && passedRun.Length == 0);
+
                     ok = ImportDeleteLogChecks(sb, folder, utf8, retried, refused, torn) && ok;
 
                     // R-030, pinned: F132's decode-then-validate order admits a tagged row whose text column

@@ -14850,6 +14850,18 @@ CASES = (
      FORTUNES_CSPROJ, FORTUNES_DLL,
      "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
      "...and the batch says its rollback could not be fully verified"),
+    # N-test-infra-03: the importer's self-test keeps its scratch folder after a failure.
+    ('modules-fixes: fortunes: the importer self-test deletes its scratch after a failure again',
+     FORTUNE_IMPORTER,
+     b'            if (!passed)\n'
+     b'            {\n'
+     b'                if (Directory.Exists(root)) output.AppendLine("IMPORT SCRATCH KEPT: " + root);\n'
+     b'                return true;\n'
+     b'            }\n',
+     b'',
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "importer self-test scratch: a failed run keeps its scratch folder"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
