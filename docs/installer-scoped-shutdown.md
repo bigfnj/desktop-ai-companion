@@ -83,6 +83,11 @@ path. Exact source backups precede all builds, each witness proves its checker
 was rebuilt, and restoration plus the complete healthy suite (the count the
 wrapper expects) finish the run.
 
+`tests/Invoke-OfflineScriptChecks.ps1` runs the checks that need no compiler,
+install, elevation or network: the fake-caller, path-safety, checker-timeout and
+log-observation checks, and `tests/Test-PublicCommitPrivacy.ps1 -SelfTest` in
+PowerShell 7. `tests/run-gate.ps1` and the build workflow both call it.
+
 `packaging/Test-MsiSurface.ps1` checks the built package's Binary action,
 capability, absence of the old broad action and shutdown/removal ordering.
 Isolated lifecycle tests use unique product identities and ordinary workspace
