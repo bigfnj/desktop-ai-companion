@@ -573,6 +573,33 @@ if (!args.SequenceEqual(new[] { "--existing-tests-only" })) DesktopPackageProfil
 if (!args.SequenceEqual(new[] { "--existing-tests-only" })) await CodexObservationChecks.RunAsync(Check);
 // The embedded pin document (lane broker-pins), after the --existing-tests-only cut-off.
 if (!args.SequenceEqual(new[] { "--existing-tests-only" })) PinDocumentChecks.Run(Check);
+
+// O-agentbroker-02 (2026-10-29): discovery reuses a success only for the exact same running engine processes.
+{
+    var reuse = new DiscoveryReuse();
+    int verifications = 0;
+    var engine = new CodeOwnedEngine(@"C:\SyntheticUser\.vscode\extensions\openai.chatgpt-0.0.0-win32-x64\bin\windows-x86_64\codex.exe",
+        134000000000000100, @"C:\SyntheticPrograms\Microsoft VS Code\Code.exe", 134000000000000000, true);
+    int Count() { verifications++; return 1; }
+    reuse.Verify([engine], Count); reuse.Verify([engine], Count);
+    Check(verifications == 1, "DISCOVERY_REUSE_SAME_ENGINES: the same running engine processes are verified once across discovery passes");
+    reuse.Verify([engine with { CreationFileTime = engine.CreationFileTime + 1 }], Count);
+    Check(verifications == 2, "DISCOVERY_REUSE_NEW_ENGINE: a restarted engine (new creation time) is verified in full");
+    reuse.Verify([engine, engine with { Image = engine.Image.Replace("0.0.0", "0.0.1") }], Count);
+    Check(verifications == 3, "DISCOVERY_REUSE_ADDED_ENGINE: an added engine changes the set and is verified in full");
+    var failing = new DiscoveryReuse();
+    int failures = 0;
+    for (int attempt = 0; attempt < 2; attempt++)
+    {
+        try { failing.Verify([engine], () => { failures++; throw new DesktopAdapterException("running_vscode_image_mismatch"); }); }
+        catch (DesktopAdapterException) { }
+    }
+    Check(failures == 2, "DISCOVERY_REUSE_NO_FAILURE: a failed verification is never remembered, so the next pass verifies again");
+    var empty = new DiscoveryReuse();
+    int emptyVerifications = 0;
+    empty.Verify([], () => { emptyVerifications++; return 0; }); empty.Verify([], () => { emptyVerifications++; return 0; });
+    Check(emptyVerifications == 2, "DISCOVERY_REUSE_EMPTY: an empty engine set is never remembered");
+}
 Console.WriteLine($"AgentBroker desktop synthetic checks passed: {passed}");
 return 0;
 

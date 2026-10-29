@@ -136,6 +136,28 @@ public static class VsCodeCompatibilityProfile
     /// with a Windows-verified OpenAI signature. Extension JavaScript is unsigned, so this mode cannot verify it;
     /// the compatibility document records that gap. It never stands in for the exact profile on its own.
     /// </summary>
+    // Discovery-only reuse (O-agentbroker-02, measured 2026-10-29): every discovery pass re-verified the running engine,
+    // codex.exe at 354 MB on extension 26.1021.22027, about 1 GB of reads and 5% of a core a minute on the owner's
+    // workstation. Windows refuses writes to a running process's mapped image, so a success for the exact same engine
+    // processes is reused for discovery only. Submission still calls VerifyRunningClients and
+    // VerifyRunningClientsByPublisher, which never reuse anything, so model input keeps fresh full verification.
+    private static readonly DiscoveryReuse ExactDiscovery = new(), PublisherDiscovery = new();
+
+    public static int VerifyRunningClientsForDiscovery()
+    {
+        if (!OperatingSystem.IsWindows()) throw new DesktopAdapterException("native_windows_required");
+        var engines = WindowsClientProcesses.ReadCodeOwnedEngines();
+        return ExactDiscovery.Verify(engines, () => VerifyRunningClients(engines, VerifyInstalled));
+    }
+
+    public static int VerifyRunningClientsByPublisherForDiscovery()
+    {
+        if (!OperatingSystem.IsWindows()) throw new DesktopAdapterException("native_windows_required");
+        var engines = WindowsClientProcesses.ReadCodeOwnedEngines();
+        return PublisherDiscovery.Verify(engines, () => ValidateRunningClientsByPublisher(engines,
+            image => WindowsPublisherImageTrust.Verify(image, WindowsPublisherImageTrust.OpenAIPublisher, false)));
+    }
+
     public static int VerifyRunningClientsByPublisher()
     {
         if (!OperatingSystem.IsWindows()) throw new DesktopAdapterException("native_windows_required");
@@ -178,4 +200,28 @@ public static class VsCodeCompatibilityProfile
         return System.Version.TryParse(version, out var parsed) && parsed.Revision == -1 && parsed.Build >= 0 &&
             parsed.ToString() == version ? version : null;
     }
+}
+
+/// <summary>
+/// Remembers the last engine process set that passed one verification, for discovery only. The key is every engine's
+/// image path and OS creation time with its Code.exe parent's: a restarted, added or replaced engine is a different key and
+/// is verified in full. A failure is never remembered, and neither is an empty set.
+/// </summary>
+internal sealed class DiscoveryReuse
+{
+    private readonly object gate = new();
+    private string? verified;
+
+    internal int Verify(IReadOnlyList<CodeOwnedEngine> engines, Func<int> verify)
+    {
+        string key = KeyOf(engines);
+        lock (gate) { if (verified == key) return engines.Count; }
+        int count = verify();
+        lock (gate) verified = engines.Count > 0 ? key : null;
+        return count;
+    }
+
+    internal static string KeyOf(IReadOnlyList<CodeOwnedEngine> engines) => string.Join("\n", engines
+        .Select(engine => $"{engine.Image}|{engine.CreationFileTime}|{engine.ParentImage}|{engine.ParentCreationFileTime}|{engine.SameUser}")
+        .Order(StringComparer.OrdinalIgnoreCase));
 }

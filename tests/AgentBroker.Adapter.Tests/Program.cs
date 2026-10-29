@@ -181,6 +181,39 @@ try
             "A client profile change between discovery and send removes capability and prevents model input.");
     }
 
+    // O-agentbroker-02 (2026-10-29): a discovery pass may reuse a success for the same running engines, so it verifies through
+    // the discovery verifiers; a submission always verifies through the fresh ones, on the exact and the publisher path alike.
+    int freshExact = 0, discoveryExact = 0;
+    var routedOwner = new FakeCodexOwnerConnection(new(thread, Guid.NewGuid(), Guid.NewGuid(), 12345, 134000000000000000, true) { RouterTrust = DesktopRouterTrust.ExactPinned });
+    await using (var provider = new CodexNativeProvider(true, _ => Task.FromResult<ICodexOwnerConnection>(routedOwner), () => freshExact++,
+        _ => Task.FromResult<IReadOnlyList<DesktopDirectorySession>>([new(thread, DesktopSessionActivity.Unknown, clock.GetUtcNow(), null)]),
+        verifyProfilesForDiscovery: () => discoveryExact++))
+    {
+        await provider.ObserveAsync(default);
+        var binding = (await provider.ResolveOwnerAsync(thread, default))!;
+        Check(discoveryExact == 1 && freshExact == 0, "DISCOVERY_REUSE_ROUTED: a discovery pass verifies through the discovery verifier only");
+        Check((await provider.SubmitAsync(binding, Guid.NewGuid(), "synthetic", default)).Outcome == DesktopSubmissionOutcome.Accepted &&
+            freshExact == 1 && discoveryExact == 1,
+            "SUBMIT_FRESH_VERIFY: a submission verifies through the fresh verifier, never the discovery one");
+    }
+    int freshPublisher = 0, discoveryPublisher = 0;
+    var tolerantOwner = new FakeCodexOwnerConnection(new(thread, Guid.NewGuid(), Guid.NewGuid(), 12345, 134000000000000000, true) { RouterTrust = DesktopRouterTrust.PublisherSigned });
+    await using (var provider = new CodexNativeProvider(true, _ => Task.FromResult<ICodexOwnerConnection>(tolerantOwner),
+        () => throw new DesktopAdapterException("running_vscode_image_mismatch"),
+        _ => Task.FromResult<IReadOnlyList<DesktopDirectorySession>>([new(thread, DesktopSessionActivity.Unknown, clock.GetUtcNow(), null)]),
+        null, updateTolerantDelivery: true, verifyProfilesByPublisher: () => freshPublisher++,
+        verifyProfilesForDiscovery: () => throw new DesktopAdapterException("running_vscode_image_mismatch"),
+        verifyByPublisherForDiscovery: () => discoveryPublisher++))
+    {
+        await provider.ObserveAsync(default);
+        var binding = (await provider.ResolveOwnerAsync(thread, default))!;
+        Check(discoveryPublisher == 1 && freshPublisher == 0,
+            "DISCOVERY_REUSE_PUBLISHER_ROUTED: an unpinned build's discovery pass uses the discovery publisher verifier only");
+        Check((await provider.SubmitAsync(binding, Guid.NewGuid(), "synthetic", default)).Outcome == DesktopSubmissionOutcome.Accepted &&
+            freshPublisher == 1 && discoveryPublisher == 1,
+            "SUBMIT_FRESH_PUBLISHER: an unpinned build's submission verifies its publisher fresh, never through the discovery verifier");
+    }
+
     var profile = EngineProfile.Verified.Single(pin => pin.Version == "2.1.304");
     string session = "11111111-2222-4333-8444-555555555555";
     var target = new NativeTarget(@"\\.\pipe\cc-msg-0123456789abcdef0123456789abcdef", 12345,

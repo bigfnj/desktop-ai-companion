@@ -10,6 +10,10 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
     private readonly Func<CancellationToken, Task<ICodexOwnerConnection>> connect;
     private readonly Action verifyProfiles;
     private readonly Action verifyProfilesByPublisher;
+    // Discovery passes may reuse a success for the same running engine processes (VsCodeCompatibilityProfile's discovery
+    // variants); submission always uses the two fresh verifiers above.
+    private readonly Action verifyProfilesForDiscovery;
+    private readonly Action verifyByPublisherForDiscovery;
     private readonly Func<CancellationToken, Task<IReadOnlyList<DesktopDirectorySession>>> observe;
     private readonly Func<CancellationToken, Task<ICodexDirectoryObserver>> connectDirectory;
     private ICodexOwnerConnection? adapter;
@@ -27,19 +31,24 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
                 new(MaximumMessageBytes: 32 * 1024, EnableExternalPeerDelivery: enableDelivery)
                 { AllowPublisherSignedRouter = true, EnableUpdateTolerantDelivery = enableDelivery && updateTolerantDelivery }, token)),
             () => VsCodeCompatibilityProfile.VerifyRunningClients(),
-            null, null, updateTolerantDelivery, () => VsCodeCompatibilityProfile.VerifyRunningClientsByPublisher()) { }
+            null, null, updateTolerantDelivery, () => VsCodeCompatibilityProfile.VerifyRunningClientsByPublisher(),
+            () => VsCodeCompatibilityProfile.VerifyRunningClientsForDiscovery(),
+            () => VsCodeCompatibilityProfile.VerifyRunningClientsByPublisherForDiscovery()) { }
 
     internal CodexNativeProvider(bool enableDelivery,
         Func<CancellationToken, Task<ICodexOwnerConnection>> connect, Action verifyProfiles,
         Func<CancellationToken, Task<IReadOnlyList<DesktopDirectorySession>>>? observe,
         Func<CancellationToken, Task<ICodexDirectoryObserver>>? connectDirectory = null,
-        bool updateTolerantDelivery = false, Action? verifyProfilesByPublisher = null)
+        bool updateTolerantDelivery = false, Action? verifyProfilesByPublisher = null,
+        Action? verifyProfilesForDiscovery = null, Action? verifyByPublisherForDiscovery = null)
     {
         this.enableDelivery = enableDelivery; this.connect = connect; this.verifyProfiles = verifyProfiles;
         // Update-tolerant delivery is meaningless without delivery, so it cannot be on by itself.
         updateTolerant = enableDelivery && updateTolerantDelivery;
         this.verifyProfilesByPublisher = verifyProfilesByPublisher ??
             (() => throw new DesktopAdapterException("unsupported_running_vscode_profile"));
+        this.verifyProfilesForDiscovery = verifyProfilesForDiscovery ?? verifyProfiles;
+        this.verifyByPublisherForDiscovery = verifyByPublisherForDiscovery ?? this.verifyProfilesByPublisher;
         this.observe = observe ?? ObservePersistentAsync;
         this.connectDirectory = connectDirectory ?? (async token => new CodexDirectoryObserver(
             await DesktopDirectoryObserver.ConnectAsync(allowPublisherSignedRouter: true, token)));
@@ -64,12 +73,12 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
         profileTrust = DesktopRouterTrust.Unverified;
         if (enableDelivery)
         {
-            try { verifyProfiles(); profileTrust = DesktopRouterTrust.ExactPinned; }
+            try { verifyProfilesForDiscovery(); profileTrust = DesktopRouterTrust.ExactPinned; }
             catch (DesktopAdapterException error)
             {
                 profileTrust = DesktopRouterTrust.Unverified;
                 diagnostics.Add(CodexNativeAdapter.DescribeDiscoveryFailure(error));
-                profileTrust = VerifyProfilesByPublisher(error, diagnostics);
+                profileTrust = VerifyProfilesByPublisher(error, diagnostics, verifyByPublisherForDiscovery);
             }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException)
             {
@@ -101,10 +110,10 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
 
     // Strict mode stops at the exact refusal. Update-tolerant mode may stand in Windows-verified OpenAI engines for
     // an exact-pin mismatch only, never for an unverifiable process snapshot or identity failure.
-    private DesktopRouterTrust VerifyProfilesByPublisher(DesktopAdapterException exact, List<AdapterDiscoveryDiagnostic>? diagnostics)
+    private DesktopRouterTrust VerifyProfilesByPublisher(DesktopAdapterException exact, List<AdapterDiscoveryDiagnostic>? diagnostics, Action verify)
     {
         if (!updateTolerant || !DesktopCompatibilityProfile.IsExactPinMismatch(exact.Code)) return DesktopRouterTrust.Unverified;
-        try { verifyProfilesByPublisher(); return DesktopRouterTrust.PublisherSigned; }
+        try { verify(); return DesktopRouterTrust.PublisherSigned; }
         catch (DesktopAdapterException error)
         {
             diagnostics?.Add(CodexNativeAdapter.DescribeDiscoveryFailure(error));
@@ -155,7 +164,7 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
         catch (DesktopAdapterException error) when (updateTolerant && DesktopCompatibilityProfile.IsExactPinMismatch(error.Code))
         {
             // The same fresh check under the opt-in policy: Windows-verified OpenAI engines, or no input at all.
-            profileTrust = VerifyProfilesByPublisher(error, diagnostics: null);
+            profileTrust = VerifyProfilesByPublisher(error, diagnostics: null, verifyProfilesByPublisher);
             if (!IsDeliveryAuthorized(binding))
                 return new(DesktopSubmissionOutcome.Rejected, ErrorCode: "native_client_profile_unverified");
         }
