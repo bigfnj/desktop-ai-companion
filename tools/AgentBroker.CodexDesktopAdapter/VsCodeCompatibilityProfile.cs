@@ -138,9 +138,11 @@ public static class VsCodeCompatibilityProfile
     /// </summary>
     // Discovery-only reuse of the PUBLISHER check (O-agentbroker-02, measured 2026-10-29): every discovery pass ran
     // Authenticode over the running engine, codex.exe at 354 MB on extension 26.1021.22027, about 1 GB of reads and 5% of
-    // a core a minute on the owner's workstation. That check covers only the running engines' signed images, which
-    // Windows will not let anyone write while their processes run, and a replaced file at the path runs only in a new
-    // process, which is a new key. The exact-profile check is NOT reused: it also covers package.json and unsigned
+    // a core a minute on the owner's workstation. It reuses a prior publisher-verification result while the engine
+    // processes' metadata (image path and creation time, with their Code.exe parents) is unchanged. It does not prove the
+    // file now at the path is the image a process mapped: Verify checks the on-disk path under a held handle, and the
+    // initial process/file binding gap predates this reuse. A restarted engine is a new key, and fresh verification at
+    // submission remains the input boundary. The exact-profile check is NOT reused: it also covers package.json and unsigned
     // extension JavaScript, which can change while the engine runs (Codex 01a1855c's review of 2c94f79). A failed fresh
     // check at submission forgets the reused success. Submission always calls the fresh checks, so model input keeps
     // full verification.
