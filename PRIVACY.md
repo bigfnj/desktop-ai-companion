@@ -147,7 +147,8 @@ DesktopAICompanion sends data only when a network feature is used:
   saved there yet, and is deleted from the module's folder; if one is already there, or you removed it, the
   module's old copy is deleted and not used, so one token is kept (not necessarily the newer one: if the one
   kept no longer works, paste a working one). **Remove token** in either module removes the shared one for every
-  allowed module. A module still on a version from before 1.8.0 keeps a token of its own, which neither the
+  allowed module; in a module you have not allowed it, it deletes only the token that module kept before, and the shared
+  one is not touched. A module still on a version from before 1.8.0 keeps a token of its own, which neither the
   shared one nor its Remove touches, until it is updated. Removing it takes the app's copy away; it does not
   revoke the token at Anthropic. The log records which module saved, moved or removed the token, and never the
   token.

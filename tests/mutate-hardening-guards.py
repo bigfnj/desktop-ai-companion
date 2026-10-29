@@ -3541,7 +3541,8 @@ CASES = (
         "abi180: the store reads the grant before the declaration",
         os.path.join(REPO, "src", "dotNet", "Plugins", "HostCredentialStore.cs"),
         b"            bool declared;\n",
-        b"            if (!IsGranted(_directory, moduleId)) { reason = \"not-allowed\"; return HostCredentialState.ConsentRequired; }\n"
+        # Re-pointed by the review fixes: the gate's grant read is the three-outcome one.
+        b"            bool granted = IsGranted(_directory, moduleId, out readable);\n"
         b"            bool declared;\n",
         "abi180: every verb of the credential store refuses before it touches the disk",
     ),

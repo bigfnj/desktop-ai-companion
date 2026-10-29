@@ -5179,8 +5179,8 @@ $abiRead = Get-MethodBody $abiStore 'internal HostCredentialReading Read(' $abiS
 $abiChange = Get-MethodBody $abiStore 'private HostCredentialCommit Change(' $abiStops
 $abiRemove = Get-MethodBody $abiStore 'internal HostCredentialCommit Remove(' $abiStops
 $abiMigrate = Get-MethodBody $cliRunnerCode 'private void MigrateLocalClaudeToken()' $abiStops
-$abiReadToken = Get-MethodBody $cliRunnerCode 'internal ClaudeTokenState ReadClaudeToken(out string token)' $abiStops
-$abiReadShared = Get-MethodBody $cliRunnerCode 'private ClaudeTokenState ReadSharedClaudeToken(out string token)' $abiStops
+$abiReadToken = Get-MethodBody $cliRunnerCode 'private ClaudeTokenState ReadClaudeToken(out string token, out bool ownLeftover)' $abiStops
+$abiReadShared = Get-MethodBody $cliRunnerCode 'private ClaudeTokenState ReadSharedClaudeToken(out string token, out bool ownLeftover)' $abiStops
 Assert-True ($abiRefusal.Length -gt 0 -and $abiRead.Length -gt 0 -and $abiChange.Length -gt 0 -and $abiRemove.Length -gt 0 -and
     $abiMigrate.Length -gt 0 -and $abiReadToken.Length -gt 0 -and $abiReadShared.Length -gt 0) (
     'abi180: the store''s gate and three verbs, and the runner''s migration and two token reads, were sliced')
@@ -5190,7 +5190,7 @@ Assert-True ($tqContracts -cmatch 'public interface IHostCredentials\s*\{\s*Host
     $tqHost -cmatch 'public HostCredentialReading ReadCredential\(string moduleId, HostCredentialId credential\)\s*\{\s*return CredentialStore\.Read\(moduleId, credential\);') (
     'abi180: IHostCredentials is its own interface, not on IHost and not on RecordingHost, and the host implements it through its store')
 $abiDeclaredAt = $abiRefusal.IndexOf('_declares((moduleId ?? "").Trim())', [StringComparison]::Ordinal)
-$abiGrantedAt = $abiRefusal.IndexOf('if (!IsGranted(_directory, moduleId))', [StringComparison]::Ordinal)
+$abiGrantedAt = $abiRefusal.IndexOf('bool granted = IsGranted(_directory, moduleId, out readable);', [StringComparison]::Ordinal)
 $abiGateFirst = $true
 foreach ($abiVerb in @(@($abiRead, 'ReadEnvelope()'), @($abiChange, 'TryLock()'), @($abiRemove, 'TryLock()'))) {
     $abiGateAt = $abiVerb[0].IndexOf('Refusal(moduleId, credential, out reason)', [StringComparison]::Ordinal)
@@ -5211,7 +5211,7 @@ $abiOutcomeAt = $abiMigrate.IndexOf('import.Outcome != HostCredentialOutcome.Imp
 $abiDeleteAt = $abiMigrate.IndexOf('DeleteLocalClaudeToken(path)', [StringComparison]::Ordinal)
 Assert-True ($abiImportAt -ge 0 -and $abiOutcomeAt -gt $abiImportAt -and $abiDeleteAt -gt $abiOutcomeAt) (
     "abi180: the runner deletes its old token only after the shared store answered the import (import $abiImportAt, outcome $abiOutcomeAt, delete $abiDeleteAt)")
-$abiSharedAt = $abiReadToken.IndexOf('if (_sharedSignIn != null) return ReadSharedClaudeToken(out token);', [StringComparison]::Ordinal)
+$abiSharedAt = $abiReadToken.IndexOf('if (_sharedSignIn != null) return ReadSharedClaudeToken(out token, out ownLeftover);', [StringComparison]::Ordinal)
 $abiLocalAt = $abiReadToken.IndexOf('return ReadLocalClaudeToken(out token);', [StringComparison]::Ordinal)
 Assert-True ($abiSharedAt -ge 0 -and $abiLocalAt -gt $abiSharedAt -and $abiReadShared -cnotmatch 'ReadLocalClaudeToken\(out token\)' -and
     $abiReadShared.Contains('ReadLocalClaudeToken(out ignored)')) (

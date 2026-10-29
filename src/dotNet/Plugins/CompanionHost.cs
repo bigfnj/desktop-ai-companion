@@ -933,15 +933,21 @@ namespace DesktopAICompanion.Plugins
 
         private async System.Threading.Tasks.Task AskOneSignInGrantAsync(string directory, string id, string name)
         {
-            TrayAnswer answer = null;
+            TrayAnswer answer = await AskSignInQuestionAsync(id, SignInGrantQuestion.For(name, id)).ConfigureAwait(false);
+            if (SignInGrantQuestion.Apply(directory, id, answer, Log) != SignInGrantQuestion.NotRecorded) return;
+            // The user pressed Allow and it could not be written: said on a second card, with one try again.
+            TrayAnswer retry = await AskSignInQuestionAsync(id, SignInGrantQuestion.RetryFor(name, id)).ConfigureAwait(false);
+            SignInGrantQuestion.ApplyRetry(directory, id, retry, Log);
+        }
+
+        private async System.Threading.Tasks.Task<TrayAnswer> AskSignInQuestionAsync(string id, TrayQuestion question)
+        {
             try
             {
-                TrayQuestion question = SignInGrantQuestion.For(name);
                 Func<string, TrayQuestion, System.Threading.Tasks.Task<TrayAnswer>> ask = SignInAskForDiagnostics;
-                answer = await (ask != null ? ask(id, question) : AskAsync(id, question, CancellationToken.None)).ConfigureAwait(false);
+                return await (ask != null ? ask(id, question) : AskAsync(id, question, CancellationToken.None)).ConfigureAwait(false);
             }
-            catch { answer = null; }
-            SignInGrantQuestion.Apply(directory, id, answer, Log);
+            catch { return null; }
         }
 
         /// <summary>The store's commit callback: after the commit reached the disk and its lock was released (the store calls

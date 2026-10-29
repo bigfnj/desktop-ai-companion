@@ -4676,12 +4676,46 @@ namespace DesktopAICompanion.CodingAgent
                 check("cli runner: shared sign-in: an old copy this account cannot read is never moved, and stops a call while the store was never used",
                     runner.ReadClaudeToken(out read) == CodingAgentCli.ClaudeTokenState.Unreadable && store.Imports == 0 && !store.Used &&
                     File.Exists(file) && unreadable.Outcome == CliOutcome.TokenUnreadable && ModelCalls(fake) == before);
+                // The independent review's P3-10: the words name this module's own copy, not the shared token.
+                check("cli runner: shared sign-in: an unreadable old copy is said to be this module's own, not the shared token: " +
+                    CodingAgentCliText.Describe(CodingAgentKind.Claude, unreadable, null),
+                    unreadable.TokenOwnLeftover &&
+                    CodingAgentCliText.Describe(CodingAgentKind.Claude, unreadable, null) == CodingAgentCliText.OwnLeftoverUnreadableSentence());
                 WriteLocal(scratch, "https://example.invalid/not/a/token");
                 check("cli runner: shared sign-in: an old copy that is no token is never moved either",
                     runner.ReadClaudeToken(out read) == CodingAgentCli.ClaudeTokenState.NotAToken && store.Imports == 0 && File.Exists(file));
                 store.SaveElsewhere(SharedToken);
                 check("cli runner: shared sign-in: once the store holds a token the unusable old copy is deleted and the store's token used",
                     runner.ReadClaudeToken(out read) == CodingAgentCli.ClaudeTokenState.Saved && read == SharedToken && !File.Exists(file));
+            }
+
+            // P3-10: Remove token on an unusable old copy beside a store never used deletes that copy and does NOT close the
+            // store, which would cost another module's valid old token its import at that module's next use.
+            using (var scratch = new FakeCliScratch())
+            {
+                var fake = new FakeCliProcess { Respond = FakeCliProcess.Answering("OK") };
+                var store = new FakeHostCredentials();
+                string file = LocalFile(scratch);
+                Directory.CreateDirectory(Path.GetDirectoryName(file));
+                File.WriteAllText(file, Convert.ToBase64String(Encoding.UTF8.GetBytes("sealed for some other account")));
+                CodingAgentCli runner = NewRunner(scratch, fake, log, store);
+                string cleared = runner.RemoveClaudeToken();
+                check("cli runner: shared sign-in: Remove token on its own unreadable old copy deletes that copy and leaves a store never used open: " + cleared,
+                    cleared == CodingAgentCliText.OwnCopyDeletedSentence() && !File.Exists(file) && !store.Used && store.RemovesCommitted == 0 &&
+                    runner.ReadClaudeToken(out read) == CodingAgentCli.ClaudeTokenState.None);
+            }
+
+            // P3-9: a value the store holds that this runner will not send never costs the module its valid old copy.
+            using (var scratch = new FakeCliScratch())
+            {
+                var fake = new FakeCliProcess { Respond = FakeCliProcess.Answering("OK") };
+                var store = new FakeHostCredentials();
+                store.SaveElsewhere("sk-ant-api03-SELFTEST-an-api-key-not-a-token");
+                WriteLocal(scratch, LocalToken);
+                CodingAgentCli runner = NewRunner(scratch, fake, log, store);
+                check("cli runner: shared sign-in: a shared value this runner will not send never costs the module its valid old copy",
+                    runner.ReadClaudeToken(out read) == CodingAgentCli.ClaudeTokenState.NotAToken && File.Exists(LocalFile(scratch)) &&
+                    store.Imports == 0);
             }
 
             // AN UNUSABLE SHARED COPY counts as nothing saved for an import (the review's P2).
@@ -4714,10 +4748,16 @@ namespace DesktopAICompanion.CodingAgent
                 string error;
                 check("cli runner: shared sign-in: not allowed, a typed token is not saved, and the reason says where to allow it",
                     !runner.TrySetClaudeToken(TypedToken, out error) && error == CodingAgentCliText.SharedSignInNotAllowedForSave() && store.Saves == 0);
-                check("cli runner: shared sign-in: not allowed, Remove token removes nothing and says why",
-                    runner.RemoveClaudeToken() == CodingAgentCliText.SharedSignInNotAllowedForRemove() && File.Exists(LocalFile(scratch)) &&
-                    store.RemovesCommitted == 0);
-                File.Delete(LocalFile(scratch));
+                // Flipped by the independent review's P2-2: Remove token answered "nothing was removed" and left the copy, so a
+                // declined module's calls stopped for good.
+                string ownRemoved = runner.RemoveClaudeToken();
+                CliAnswer afterOwnRemoved = Wait(runner.AskAsync(Remark(), CancellationToken.None));
+                check("cli runner: shared sign-in: not allowed, Remove token deletes this module's waiting copy and touches nothing shared, and calls run again: " +
+                    ownRemoved,
+                    ownRemoved == CodingAgentCliText.OwnCopyDeletedNotAllowedSentence() && !File.Exists(LocalFile(scratch)) &&
+                    store.RemovesCommitted == 0 && store.Saves == 0 && store.Imports == 0 && afterOwnRemoved.Ok && Carried(fake) == null);
+                check("cli runner: shared sign-in: WITNESS not allowed with no copy waiting, Remove token removes nothing and says why",
+                    runner.RemoveClaudeToken() == CodingAgentCliText.SharedSignInNotAllowedForRemove() && store.RemovesCommitted == 0);
                 CliAnswer own = Wait(runner.AskAsync(Remark(), CancellationToken.None));
                 fake.Respond = delegate(FakeCliCall call, CancellationToken cancel)
                 {
@@ -4755,11 +4795,14 @@ namespace DesktopAICompanion.CodingAgent
                     CodingAgentCliText.Describe(CodingAgentKind.Claude, typed, null).EndsWith(CodingAgentCliText.SharedTypedTokenSavedSentence, StringComparison.Ordinal));
                 check("cli runner: shared sign-in: the save's own event, landing while Validate reads the card, does not drop that Validate's Status line",
                     store.Held.Count == 0 && (runner.LastValidation(CodingAgentKind.Claude) ?? "").StartsWith("✓ Claude Code: answered at ", StringComparison.Ordinal));
-                check("cli runner: shared sign-in: WITNESS an event for a revision the runner already holds changes nothing, one it does not hold drops the readings",
-                    !runner.NoteSharedSignInChanged(store.Revision) && runner.LastValidation(CodingAgentKind.Claude) != null &&
-                    runner.NoteSharedSignInChanged(store.Revision + 100) && runner.LastValidation(CodingAgentKind.Claude) == null);
-                // Back to the store's revision, then a Validate to cache a line again.
-                runner.NoteSharedSignInChanged(store.Revision);
+                // Ordered since the independent review's P3-3: an event for the revision held, or an older one (delivered
+                // late, or a read that began before a commit), changes nothing; only a newer one drops the readings.
+                long held = store.Revision;
+                bool sameOrOlder = !runner.NoteSharedSignInChanged(held) && !runner.NoteSharedSignInChanged(held - 1) &&
+                                   runner.LastValidation(CodingAgentKind.Claude) != null;
+                store.SaveElsewhere(SharedToken + "-newer");
+                check("cli runner: shared sign-in: an event for the revision held, or an older one, changes nothing; a newer one drops the readings",
+                    sameOrOlder && runner.NoteSharedSignInChanged(store.Revision) && runner.LastValidation(CodingAgentKind.Claude) == null);
                 Wait(runner.ValidateAsync(CodingAgentKind.Claude, CancellationToken.None));
                 bool cached = runner.LastValidation(CodingAgentKind.Claude) != null;
                 store.SaveElsewhere(SharedToken);

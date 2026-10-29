@@ -107,6 +107,13 @@ namespace DesktopAICompanion.Plugins
                    "the app keeps for the modules you allow. You can change this on its row in Settings, Modules.";
         }
 
+        /// <summary>The second card when an Allow on the start question could not be recorded (SignInGrantQuestion.RetryFor).</summary>
+        internal static string RetryQuestionText(string displayName)
+        {
+            string who = string.IsNullOrEmpty(displayName) ? "this module" : displayName;
+            return "Your Allow for " + who + " was not recorded: the app's data folder could not be written. Try again?";
+        }
+
         /// <summary>The question the Allow on a module's row asks before it records the grant (host 1.8.0).</summary>
         internal static string GrantPromptText(string displayName)
         {

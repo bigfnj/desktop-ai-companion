@@ -6509,6 +6509,37 @@ applied uninstall forgets both. Refused: granting on an MSI upgrade because the 
 silent grant the 2026-10-26 condition rules out; and asking only when a module first reaches the store, which would show
 the question first as a failed call.
 
+**The independent review of 2026-10-29 (no P1), and what changed for it.** An I/O error is never content: only a missing file
+or folder is "never used"; any other read failure is `Unavailable`, decides nothing under the lock (an import can no longer
+commit over a removed store because a scanner held the file), and reads say so ("could not be read just now") instead of
+"cannot be read by this Windows account"; `Damaged` is kept for a file that parses wrong. grants.json gets the same three
+outcomes: a record that cannot be read, or is damaged, is `Unavailable` to the gate (never "not allowed", which ran a call on
+Claude Code's own sign-in, another account), is never rewritten from what could be read, and no start question is asked
+while it stands. Readers share read, write and delete, so a reader never fails a commit's replace, and a grants write tries
+three times. The gate is checked again once the lock is held, so a Revoke during the wait refuses the change. The host's
+value rule is the runner's `CheckClaudeToken`, refusal for refusal, and a migration keeps its own valid copy when the
+store holds a value the runner will not send. Revisions are ordered (the highest seen is held, at or below it changes
+nothing, and a refusal is no reading rather than a revision), and a migration's import adopts its own revision. Remove
+token in a module not allowed the shared sign-in deletes that module's own waiting copy, so its calls run again (they
+stopped for good before), and touches nothing shared; beside a store never used, a module's own unusable leftover is
+named as that ("the token AI Brain saved before the shared sign-in"), and Remove token deletes it without closing the
+store, which would have cost the other module its valid old token. The start question names the module's id beside its
+name and shortens the name to fit the card, and an Allow that cannot be written puts up a second card with one Try again.
+A refused read is logged once per module and reason, and the same sealed value is unsealed once. The self-test that writes
+a token and processes pending removals runs only against its own proven scratch data root, and fails otherwise.
+
+**Accepted from that review, with the reason.** (1) `CredentialChanged` runs inline when the commit itself is on the UI
+thread (`OnUi`): the store's lock is released by then and no shipped path can deadlock; the origin's own event then costs
+one extra forget and pane refresh, and the ordered revisions make any later delivery of it a no-op. A module that held a
+non-reentrant lock around `TrySaveCredential` and took it again in its handler would deadlock itself; the contract says the
+event is raised on the UI thread. (2) The module id is self-declared, as every IHost verb's is: any in-process module could
+read the file and unseal it with DPAPI anyway, so the gate is the app's promise to the modules that play by it, not a wall,
+and PRIVACY.md says so. (3) The update question records the grant at the user's yes, before the update is fetched: an
+installed version that does not declare the flag gets nothing from it (the store needs the declaration too), and a later
+declaring build is the module the user said yes for. (4) A grants write can still fail; it is now rare (readers share
+delete, three tries), and it is said: the Modules row says "Couldn't record that", and the start question shows a second
+card.
+
 **The store's life is durable, and every change is one transaction.** One envelope file, `credentials\claude-code-signin.json`
 (schema, revision, state, and the DPAPI-sealed value when saved), replaced whole by `AtomicFile`, so the state, the
 revision and the value cannot disagree after a crash. (The first design named it `.dpapi`; the DPAPI blob is now one
