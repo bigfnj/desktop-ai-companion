@@ -5161,6 +5161,32 @@ Assert-True ($tqContracts -cmatch 'public interface ICatalogListing\s*\{\s*Syste
     $tqHost -cmatch 'public async System\.Threading\.Tasks\.Task<CatalogListing> FetchCatalogListingAsync\(string kind\)') (
     'abi-pane-actions: ICatalogListing is its own interface, not on IHost and not on RecordingHost, and the host implements it')
 
+# ---- lane feature/host-fixes ----
+# (invariants added by lane feature/host-fixes go directly below this line)
+
+# EACH PRODUCTION DOWNLOAD IS HANDED ITS OWN LIMITS (N-host-catalog-02). --security-selftest drives CatalogLimits and
+# AssetLimits through fake handlers, so it pins what each set DOES and never which one a production caller PASSES: the
+# catalog fetch takes the one 60 s deadline, and every asset the catalog lists takes the stall timer, the size-scaled
+# cap (N-catalog-insight-03) and the "Download" wording (N-host-catalog-01). Swapped, a module download fails a slow
+# link again, in the catalog's words, and no running check sees it. Comment-stripped and method-scoped; each call's
+# ARGUMENT is asserted, and the other set's absence beside it.
+$hfStops = @("`n        private ", "`n        internal ", "`n        public ")
+$hfSecureDownload = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\SecureDownload.cs') -Raw)
+$hfRemoteCatalog = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\RemoteCatalog.cs') -Raw)
+$hfCatalogEntry = Get-MethodBody $hfSecureDownload 'public static Task<byte[]> DownloadBytesAsync(Uri uri, int maximumBytes, CancellationToken ct)' $hfStops
+$hfCatalogFetch = Get-MethodBody $hfRemoteCatalog 'private static async Task<byte[]> FetchBytesAsync(CancellationToken cancellationToken)' $hfStops
+$hfAssetFetch = Get-MethodBody $hfRemoteCatalog 'internal static async Task<byte[]> DownloadVerifiedAsync(' $hfStops
+Assert-True ($hfCatalogEntry.Length -gt 0 -and $hfCatalogFetch.Length -gt 0 -and $hfAssetFetch.Length -gt 0) (
+    'host-fixes: the catalog download entry, FetchBytesAsync and the asset DownloadVerifiedAsync were located')
+Assert-True ($hfCatalogEntry -cmatch 'return DownloadBytesAsync\(uri, maximumBytes, CatalogLimits, null, ct\);' -and
+    $hfCatalogEntry -cnotmatch 'AssetLimits' -and
+    $hfCatalogFetch -cmatch 'SecureDownload\.DownloadBytesAsync\(\s*uri, MaximumCatalogBytes, cancellationToken\)' -and
+    $hfCatalogFetch -cnotmatch 'AssetLimits') (
+    'host-fixes: the catalog fetch goes through the entry that hands DownloadBytesAsync CatalogLimits, never AssetLimits')
+Assert-True ($hfAssetFetch -cmatch 'SecureDownload\.DownloadBytesAsync\(\s*uri, maximumBytes, SecureDownload\.AssetLimits, transport, cancellationToken\)' -and
+    $hfAssetFetch -cnotmatch 'CatalogLimits') (
+    'host-fixes: a catalog asset download hands DownloadBytesAsync AssetLimits, never CatalogLimits')
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever
