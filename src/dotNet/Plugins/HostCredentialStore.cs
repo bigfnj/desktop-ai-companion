@@ -216,14 +216,45 @@ namespace DesktopAICompanion.Plugins
         /// <summary>How many times a sealed value was handed to DPAPI: the self-test's view of the cache above.</summary>
         internal int UnsealsForDiagnostics;
 
+        /// <summary>Whether the cache above holds anything (a sealed text or its plaintext): the self-test's proof that a
+        /// commit let go of the token it replaced or removed (the 2026-10-29 audit, A-host-05).</summary>
+        internal bool HoldsUnsealedForDiagnostics
+        {
+            get { lock (_unsealSync) return _unsealedFrom != null || _unsealedValue != null; }
+        }
+
+        /// <summary>
+        /// Let go of the cached plaintext (the 2026-10-29 audit, A-host-05, BACKLOG N-audit-20261029-12). Called by every
+        /// commit, a save or an import before the new value is ever read, so the old token is not held beside the new one,
+        /// and a removal, after which every read answered None before reaching the cache, so nothing would ever have
+        /// replaced the removed token: it stayed referenced by this store, which CompanionHost keeps for the life of the
+        /// process, and a process or crash dump taken any time later held it. Called too by a read that finds the store
+        /// holding no saved value, which is how another window's Remove reaches this process. A revoked grant is not a
+        /// commit here and leaves the cache: a revoke keeps the token saved for the other modules (the Modules pane says
+        /// so), and clearing on every refused read would unseal again after each one, the churn P3-8 removed.
+        /// </summary>
+        private void ForgetUnsealed()
+        {
+            lock (_unsealSync)
+            {
+                _unsealedFrom = null;
+                _unsealedState = HostCredentialState.None;
+                _unsealedValue = null;
+            }
+        }
+
         /// <summary>What an envelope holds, and the value when Saved.</summary>
         private HostCredentialState Contents(Envelope envelope, out string value)
         {
             value = null;
-            if (!envelope.Exists) return HostCredentialState.None;
             if (envelope.Unavailable) return HostCredentialState.Unavailable;
-            if (envelope.Damaged) return HostCredentialState.Unreadable;
-            if (envelope.State == RemovedState) return HostCredentialState.None;
+            if (!envelope.Exists || envelope.Damaged || envelope.State == RemovedState)
+            {
+                // Nothing saved is held now (never, damaged, or removed, perhaps by another window of the app): the cached
+                // plaintext, if any, is of a token the store no longer holds.
+                ForgetUnsealed();
+                return envelope.Damaged ? HostCredentialState.Unreadable : HostCredentialState.None;
+            }
             lock (_unsealSync)
             {
                 if (_unsealedFrom != null && string.Equals(_unsealedFrom, envelope.Sealed, StringComparison.Ordinal))
@@ -443,6 +474,8 @@ namespace DesktopAICompanion.Plugins
                     Log(moduleId, verb + " failed: write");
                     return new HostCredentialCommit { Outcome = HostCredentialOutcome.Unavailable, Revision = envelope.Revision, Problem = "The sign-in token could not be written to the app's data folder." };
                 }
+                // The token this replaced goes from memory with the commit, before the new one is ever read (A-host-05).
+                ForgetUnsealed();
                 outcome = import ? HostCredentialOutcome.Imported : HostCredentialOutcome.Saved;
             }
             catch (Exception ex)
@@ -493,6 +526,8 @@ namespace DesktopAICompanion.Plugins
                 }
                 if (envelope.Exists && !envelope.Damaged && envelope.State == RemovedState)
                 {
+                    // Removed already, perhaps by another window of the app: whatever this process still held of it goes.
+                    ForgetUnsealed();
                     Log(moduleId, "remove: nothing to remove revision=" + envelope.Revision);
                     return new HostCredentialCommit { Outcome = HostCredentialOutcome.NothingToRemove, Revision = envelope.Revision, Problem = "" };
                 }
@@ -504,6 +539,9 @@ namespace DesktopAICompanion.Plugins
                     Log(moduleId, "remove failed: write");
                     return new HostCredentialCommit { Outcome = HostCredentialOutcome.Unavailable, Revision = envelope.Revision, Problem = "The sign-in store in the app's data folder could not be written." };
                 }
+                // The removed token's plaintext goes with the commit (A-host-05): no later read reaches the cache to replace
+                // it, so without this it stayed in this process for good. After the `held` test above, whose unseal filled it.
+                ForgetUnsealed();
                 outcome = held ? HostCredentialOutcome.Removed : HostCredentialOutcome.NothingToRemove;
             }
             catch (Exception ex)

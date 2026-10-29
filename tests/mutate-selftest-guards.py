@@ -15786,6 +15786,38 @@ CASES = (
      AGENTBROKER_CSPROJ, AGENTBROKER_DLL,
      "--module-selftest=agentbroker", "dp-module-agentbroker-selftest.txt",
      "the Client connection text says a session started while the broker was down needs its MCP reconnected"),
+    # ---- lane feature/audit-host ----
+    # The 2026-10-29 host audit's store, Modules row and Init-rollback findings (N-audit-20261029-11, -12, -13), graded by
+    # --module-host-selftest's "audit-host: ..." checks. Named "audit-host: ..." so --only=audit-host: runs the lane. Each
+    # is the defect put back: the unseal cache's four let-go sites, the row's three-way read, and the rollback's count.
+    ("audit-host: a save keeps the token it replaced in the unseal cache",
+     os.path.join(REPO, "src", "dotNet", "Plugins", "HostCredentialStore.cs"),
+     b'                ForgetUnsealed();\n                outcome = import ? HostCredentialOutcome.Imported : HostCredentialOutcome.Saved;\n',
+     b'                outcome = import ? HostCredentialOutcome.Imported : HostCredentialOutcome.Saved;\n',
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "audit-host: unseal cache: a save lets go of the token it replaced before the new one is read"),
+    ("audit-host: a Remove keeps the removed token in the unseal cache",
+     os.path.join(REPO, "src", "dotNet", "Plugins", "HostCredentialStore.cs"),
+     b'                ForgetUnsealed();\n                outcome = held ? HostCredentialOutcome.Removed : HostCredentialOutcome.NothingToRemove;\n',
+     b'                outcome = held ? HostCredentialOutcome.Removed : HostCredentialOutcome.NothingToRemove;\n',
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "audit-host: unseal cache: a Remove leaves no plaintext of the removed token in the store"),
+    ("audit-host: a Remove over another window's removal keeps what this store held",
+     os.path.join(REPO, "src", "dotNet", "Plugins", "HostCredentialStore.cs"),
+     b'                    ForgetUnsealed();\n                    Log(moduleId, "remove: nothing to remove revision=" + envelope.Revision);\n',
+     b'                    Log(moduleId, "remove: nothing to remove revision=" + envelope.Revision);\n',
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "audit-host: unseal cache: a Remove after another window's lets go of what this store held"),
+    ("audit-host: a read of a removed store keeps what this store held",
+     os.path.join(REPO, "src", "dotNet", "Plugins", "HostCredentialStore.cs"),
+     b'                ForgetUnsealed();\n                return envelope.Damaged ? HostCredentialState.Unreadable : HostCredentialState.None;\n',
+     b'                return envelope.Damaged ? HostCredentialState.Unreadable : HostCredentialState.None;\n',
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "audit-host: unseal cache: a read after another window's Remove lets go of what this store held"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

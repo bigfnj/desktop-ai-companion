@@ -2143,6 +2143,44 @@ namespace DesktopAICompanion.Plugins
                 ok &= Check(sb, "abi180: review: Remove of a saved value that is no token answers Removed, as the contract says (" + removedUnusable.Outcome + ")",
                     removedUnusable.Outcome == HostCredentialOutcome.Removed && removedUnusable.Revision == 41);
 
+                // THE UNSEAL CACHE LETS GO (the 2026-10-29 audit, A-host-05, BACKLOG N-audit-20261029-12). Read straight
+                // after each commit, before any read could replace what the cache holds: a save lets go of the token it
+                // replaced, and a Remove of the one it removed; a Remove made through another store on the same folder (a
+                // second window of the app) is let go by this store's own Remove, or by its next read.
+                store.TrySave("aibrain", HostCredentialId.ClaudeCodeSignIn, SyntheticToken);
+                bool cacheFilled = store.Read("aibrain", HostCredentialId.ClaudeCodeSignIn).Value == SyntheticToken && store.HoldsUnsealedForDiagnostics;
+                store.TrySave("aibrain", HostCredentialId.ClaudeCodeSignIn, SyntheticOther);
+                bool saveLetGo = !store.HoldsUnsealedForDiagnostics;
+                bool cacheRefilled = store.Read("aibrain", HostCredentialId.ClaudeCodeSignIn).Value == SyntheticOther && store.HoldsUnsealedForDiagnostics;
+                HostCredentialCommit cacheRemove = store.Remove("aibrain", HostCredentialId.ClaudeCodeSignIn);
+                bool removeLetGo = !store.HoldsUnsealedForDiagnostics;
+                var otherWindow = new HostCredentialStore(dir, delegate (string id) { return true; }, null);
+                store.TrySave("aibrain", HostCredentialId.ClaudeCodeSignIn, SyntheticToken);
+                store.Read("aibrain", HostCredentialId.ClaudeCodeSignIn);
+                HostCredentialCommit otherRemove = otherWindow.Remove("aibrain", HostCredentialId.ClaudeCodeSignIn);
+                bool heldAfterOtherRemove = store.HoldsUnsealedForDiagnostics;
+                HostCredentialCommit ownRemove = store.Remove("aibrain", HostCredentialId.ClaudeCodeSignIn);
+                bool ownRemoveLetGo = !store.HoldsUnsealedForDiagnostics;
+                store.TrySave("aibrain", HostCredentialId.ClaudeCodeSignIn, SyntheticOther);
+                store.Read("aibrain", HostCredentialId.ClaudeCodeSignIn);
+                otherWindow.Remove("aibrain", HostCredentialId.ClaudeCodeSignIn);
+                bool heldBeforeRead = store.HoldsUnsealedForDiagnostics;
+                HostCredentialReading readAfterOther = store.Read("aibrain", HostCredentialId.ClaudeCodeSignIn);
+                bool readLetGo = !store.HoldsUnsealedForDiagnostics;
+                ok &= Check(sb, "audit-host: unseal cache: WITNESS a read fills the cache, so the checks beside it are not vacuous",
+                    cacheFilled && cacheRefilled && heldAfterOtherRemove && heldBeforeRead);
+                ok &= Check(sb, "audit-host: unseal cache: a save lets go of the token it replaced before the new one is read (" +
+                    (saveLetGo ? "nothing held" : "the old token held") + ")", saveLetGo);
+                ok &= Check(sb, "audit-host: unseal cache: a Remove leaves no plaintext of the removed token in the store (" +
+                    cacheRemove.Outcome + ", " + (removeLetGo ? "nothing held" : "the token held") + ")",
+                    cacheRemove.Outcome == HostCredentialOutcome.Removed && removeLetGo);
+                ok &= Check(sb, "audit-host: unseal cache: a Remove after another window's lets go of what this store held (" +
+                    otherRemove.Outcome + ", " + ownRemove.Outcome + ", " + (ownRemoveLetGo ? "nothing held" : "the token held") + ")",
+                    otherRemove.Outcome == HostCredentialOutcome.Removed && ownRemove.Outcome == HostCredentialOutcome.NothingToRemove && ownRemoveLetGo);
+                ok &= Check(sb, "audit-host: unseal cache: a read after another window's Remove lets go of what this store held (" +
+                    readAfterOther.State + ", " + (readLetGo ? "nothing held" : "the token held") + ")",
+                    readAfterOther.State == HostCredentialState.None && readLetGo);
+
                 // P3-5: the start question for a long name still fits, and names the module's id beside it.
                 string longName = new string('N', 120);
                 TrayQuestion longQuestion = SignInGrantQuestion.For(longName, "longmodule");
