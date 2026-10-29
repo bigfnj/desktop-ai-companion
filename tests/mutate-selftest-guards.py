@@ -14077,6 +14077,13 @@ CASES = (
      AGENTBROKER_CSPROJ, AGENTBROKER_DLL,
      "--module-selftest=agentbroker", "dp-module-agentbroker-selftest.txt",
      "WITNESS: strict mode (the switch off) keeps the flag out"),
+    ("broker-batch-2: Status says nothing about dropped notices",
+     os.path.join(REPO, "modules", "AgentBroker", "AgentBrokerModule.Pairing.cs"),
+     b"        (pairingFailed ? \" \" + pairingStatus : \"\") + (settings.Enabled ? NoticeDropText(snapshot?.DroppedNotices) : \"\");\n",
+     b"        (pairingFailed ? \" \" + pairingStatus : \"\");\n",
+     AGENTBROKER_CSPROJ, AGENTBROKER_DLL,
+     "--module-selftest=agentbroker", "dp-module-agentbroker-selftest.txt",
+     "Status counts dropped delivery notices by reason"),
     # ---- lane feature/abi-pane-actions ----
     # Host 1.6.2's two additive members, each case putting back a shortcut the design refuses. Named "abi-pane-actions:"
     # for one --only. First, PaneAction.EnabledWhen's adopters (BACKLOG N-cli-model-effort-05): Remove token ungated
