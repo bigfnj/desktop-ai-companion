@@ -6486,6 +6486,25 @@ check refuses it as `UnexpectedPublisher`, and the Claude check lets the excepti
 would change one adapter's observable behaviour in a refactor that promised none, so it is kept and pinned by a check in
 each suite (`CodexObservationChecks.cs`, `ClaudeObservationChecks.cs`).
 
+**The collaboration helper may send as the caller's own Codex row (N-agentbroker-helper-native-sender-01; the owner's
+decision of 2026-10-29, design reviewed by Codex 01a1855c).** `Invoke-AgentBrokerCollaborationMcp.ps1` admits a native
+sender only as `send`'s `sender`, equal to `codex:` plus the canonical lowercase GUID in `CODEX_THREAD_ID` (a missing,
+empty, zero or non-canonical value refuses; nothing is repaired), and only after the helper itself finds, across every
+`list_sessions` page, exactly one fresh `codex-native` row with that session ID, the request's broker ID and incarnation,
+and `Receive` and `WakeIdle`. It is a routing convenience inside the existing same-user model, NOT per-thread
+authentication: no trusted per-thread operating-system marker exists, and `CODEX_THREAD_ID` and `CODEX_SESSION_ID` are
+self-asserted, so any process of the same user could claim any thread. That is the same reach such a process already has
+through the broker's unauthenticated loopback endpoint. The helper cannot learn the local broker ID without registering,
+so its "local" test is the directory's: the row names the broker ID the request names, and no other row anywhere has that
+session ID (a paired broker advertising one makes it ambiguous, which refuses); the broker's own `sender_mismatch` and
+`sender_unavailable` checks in `BrokerStore.Accept` still refuse a sender from another broker or one no longer
+addressable when the send arrives. Refused alternatives: trusting `whoami` (a Codex caller always gets
+`no_native_session`, because one Codex server hosts many chats), and rewriting a refused native send to the caller's
+mailbox (a retry must keep its `messageId` and sender, or the broker answers `message_id_collision`). `wait_for_reply` and
+`wait_for_receipt` take only a message ID and the broker waits as the original's sender, which would reach a native
+session's wait past every address guard, so the helper reads the original with `get_message_receipt` first and refuses
+unless its sender is a generic mailbox.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of
