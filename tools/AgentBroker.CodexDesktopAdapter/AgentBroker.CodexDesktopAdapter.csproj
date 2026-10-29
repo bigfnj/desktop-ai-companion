@@ -19,5 +19,8 @@
     <Compile Include="..\AgentBroker.Pins\PinDocument.cs" Link="Pins\PinDocument.cs" />
     <EmbeddedResource Include="..\AgentBroker.Pins\agentbroker-pins.json" Link="Pins\agentbroker-pins.json"
                       LogicalName="AgentBroker.Pins.agentbroker-pins.json" />
+    <!-- The WinVerifyTrust mechanics this adapter's publisher check shares with the worker's Claude check (N-broker-b-02).
+         Linked source, as above, because no shared project fits: AgentBroker.Core is not a Windows target. -->
+    <Compile Include="..\AgentBroker.Pins\WindowsAuthenticode.cs" Link="Pins\WindowsAuthenticode.cs" />
   </ItemGroup>
 </Project>

@@ -135,7 +135,25 @@ internal static class CodexQueueChecks
     private static async Task<JsonElement> RpcAsync(HttpClient client, string method, object parameters)
     {
         int id = Interlocked.Increment(ref nextRpcId);
-        using var response = await client.PostAsJsonAsync("", new { jsonrpc = "2.0", id, method, @params = parameters });
+        string call = method == "tools/call" && parameters.GetType().GetProperty("name")?.GetValue(parameters) is string tool ? tool : method;
+        var watch = Stopwatch.StartNew();
+        HttpResponseMessage posted;
+        // N-bus-03 (lane broker-next, test only): one run in 19 timed out here at get_message_receipt. The 5-second
+        // timeout is unchanged; a timeout now says which call, how long it ran, the thread pool's state and the last RPC
+        // timings, so the next one can be attributed instead of guessed at.
+        try { posted = await client.PostAsJsonAsync("", new { jsonrpc = "2.0", id, method, @params = parameters }); }
+        catch (TaskCanceledException timeout) when (!timeout.CancellationToken.IsCancellationRequested || timeout.InnerException is TimeoutException)
+        {
+            ThreadPool.GetAvailableThreads(out int workers, out int ports);
+            ThreadPool.GetMaxThreads(out int maxWorkers, out int maxPorts);
+            string recent;
+            lock (RecentRpcs) recent = string.Join(", ", RecentRpcs);
+            throw new TimeoutException($"N-bus-03 capture: {call} (RPC id {id}) timed out after {watch.ElapsedMilliseconds} ms; " +
+                $"thread pool busy {maxWorkers - workers} of {maxWorkers} workers, {maxPorts - ports} IO, {ThreadPool.ThreadCount} threads, " +
+                $"{ThreadPool.PendingWorkItemCount} queued; last RPCs: {recent}", timeout);
+        }
+        using var response = posted;
+        lock (RecentRpcs) { RecentRpcs.Enqueue(call + " " + watch.ElapsedMilliseconds + " ms"); while (RecentRpcs.Count > 6) RecentRpcs.Dequeue(); }
         response.EnsureSuccessStatusCode();
         string text = await response.Content.ReadAsStringAsync();
         if (response.Content.Headers.ContentType?.MediaType == "text/event-stream")
@@ -147,6 +165,7 @@ internal static class CodexQueueChecks
         return root.Clone();
     }
     private static int nextRpcId;
+    private static readonly Queue<string> RecentRpcs = new();
 
     private static async Task UntilAsync(Func<Task<bool>> condition)
     {

@@ -31,6 +31,12 @@ public sealed record DesktopAdapterOptions(bool EnableAuthorizedPlaintextDeliver
     public bool AllowPublisherSignedRouter { get; init; }
     /// <summary>Opt-in update-tolerant delivery through a publisher-signed router. Strict exact pins stay the default.</summary>
     public bool EnableUpdateTolerantDelivery { get; init; }
+    /// <summary>
+    /// A metadata-only connection (the directory observer's). Its publisher-signed router check may reuse the discovery
+    /// pass's publisher verification of the same running engines (O-agentbroker-02); it can never deliver, so Validate
+    /// refuses it together with any delivery switch. Every delivery connection keeps the fresh check.
+    /// </summary>
+    internal bool ObservationOnlyConnection { get; init; }
     internal TimeSpan Timeout => RequestTimeout ?? TimeSpan.FromSeconds(5);
     // Pinned VS Code routers can spend ten seconds discovering a recipient.
     // Leave time for that result without changing connect or submission limits.
@@ -39,7 +45,8 @@ public sealed record DesktopAdapterOptions(bool EnableAuthorizedPlaintextDeliver
     {
         if (Timeout < TimeSpan.FromMilliseconds(50) || Timeout > TimeSpan.FromSeconds(30)
             || MaximumMessageBytes < 1 || MaximumMessageBytes > 32 * 1024
-            || EnableUpdateTolerantDelivery && (!AllowPublisherSignedRouter || !EnableExternalPeerDelivery))
+            || EnableUpdateTolerantDelivery && (!AllowPublisherSignedRouter || !EnableExternalPeerDelivery)
+            || ObservationOnlyConnection && (EnableAuthorizedPlaintextDelivery || EnableExternalPeerDelivery || EnableUpdateTolerantDelivery))
             throw new DesktopAdapterException("invalid_options");
     }
 }

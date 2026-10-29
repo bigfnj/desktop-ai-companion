@@ -32,14 +32,27 @@ public static class VsCodeRouterCompatibilityProfile
     internal static bool IsExpectedImage(string image)
         => string.Equals(Path.GetFullPath(image), Path.GetFullPath(ExpectedImage), StringComparison.OrdinalIgnoreCase);
 
-    internal static void VerifyPublicImage(string image)
+    internal static void VerifyPublicImage(string image) => VerifyPublicImage(image, PinDocument.Current,
+        DesktopCompatibilityProfile.VerifyRegularPath, path => FileVersionInfo.GetVersionInfo(path).ProductVersion,
+        path => { using var stream = File.OpenRead(path); return Convert.ToHexString(SHA256.HashData(stream)); },
+        VsCodeCompatibilityProfile.VerifyRunningClients);
+
+    internal static void VerifyPublicImage(string image, PinDocument pins, Action<string> verifyRegularPath,
+        Func<string, string?> readVersion, Func<string, string> hash, Func<int> verifyRunningClients)
     {
         if (!IsExpectedImage(image)) throw new DesktopAdapterException("unsupported_vscode_router");
-        DesktopCompatibilityProfile.VerifyRegularPath(image);
-        using var stream = File.OpenRead(image);
-        ValidateMetadata(image, Convert.ToHexString(SHA256.HashData(stream)), FileVersionInfo.GetVersionInfo(image).ProductVersion);
+        verifyRegularPath(image);
+        // O-agentbroker-02: the version before the hash, so a Code.exe no pin names (every VS Code update until a re-pin)
+        // is refused without reading its 238 MB first. PinsOf first, so pin_document_invalid still comes before any other
+        // refusal. The version resource only ever REFUSES here: a version a pin names still has to match that pin's hash
+        // in ValidateMetadata, exactly as before, so no trust decision moves.
+        var routers = PinsOf(pins);
+        string? version = readVersion(image);
+        if (!routers.Any(pin => pin.ProductVersion == version))
+            throw new DesktopAdapterException("unsupported_vscode_router", installedVersion: version);
+        ValidateMetadata(image, hash(image), version, pins);
         // Public extension presence and actual running native engine must agree. A stale folder is insufficient.
-        if (VsCodeCompatibilityProfile.VerifyRunningClients() == 0)
+        if (verifyRunningClients() == 0)
             throw new DesktopAdapterException("vscode_router_engine_unverified");
     }
 

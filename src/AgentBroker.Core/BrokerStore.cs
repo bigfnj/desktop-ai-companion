@@ -66,6 +66,8 @@ public sealed class BrokerStore : IDisposable
     private readonly string tombstonePath;
     private readonly Dictionary<Guid, Tombstone> tombstones = new();
     private readonly Dictionary<SessionAddress, HashSet<Guid>> tombstonesByParticipant = new();
+    private readonly Dictionary<SessionAddress, SessionAddress> sharedParticipants = new();
+    private readonly Dictionary<string, string> sharedReasons = new(StringComparer.Ordinal);
     private readonly PriorityQueue<Guid, DateTimeOffset> tombstoneExpiry = new();
     private long journalLength;  // Bytes of complete lines. The next append starts here, dropping any torn tail.
     private long journalEntries; // Tombstone lines in the journal, live or dead; the header is not counted.
@@ -504,6 +506,25 @@ public sealed class BrokerStore : IDisposable
             if (tombstonesByParticipant.TryGetValue(participant, out var acknowledged))
                 history.AddRange(acknowledged.Select(id => Render(tombstones[id], "")));
             return history.ToArray();
+        }
+    }
+
+    // What one wait_for_messages pass needs: this recipient's records still Accepted, oldest first, at most `limit`. A
+    // tombstone is only ever Delivered or Refused (Tombstoned), so none can qualify, and this never renders the
+    // participant's tombstone history the way Messages does for every read_inbox page (N-broker-e-02: at the 65,536
+    // bound each wait pass rebuilt the whole retained history only to discard it). The expire-and-commit step is the
+    // one Messages runs, so a record past its deadline reads Expired here as well, and is never returned.
+    public IReadOnlyList<MessageReceipt> AcceptedIncoming(SessionAddress recipient, int limit)
+    {
+        lock (gate)
+        {
+            EnsureOpen();
+            recipient.Validate();
+            if (limit < 1) throw new ArgumentOutOfRangeException(nameof(limit));
+            var messages = Expire(state.Messages);
+            if (!messages.SequenceEqual(state.Messages)) Commit(state with { Messages = messages });
+            return state.Messages.Where(r => r.Message.Recipient == recipient && r.Status == MessageStatus.Accepted)
+                .OrderBy(r => r.Message.CreatedAt).ThenBy(r => r.Message.Id).Take(limit).ToArray();
         }
     }
 
@@ -1044,6 +1065,7 @@ public sealed class BrokerStore : IDisposable
     private void AddTombstone(Tombstone tombstone)
     {
         if (tombstones.Remove(tombstone.Id, out var previous)) Unindex(previous);
+        tombstone = Shared(tombstone);
         tombstones.Add(tombstone.Id, tombstone);
         foreach (var participant in new[] { tombstone.Sender, tombstone.Recipient })
         {
@@ -1053,11 +1075,36 @@ public sealed class BrokerStore : IDisposable
         tombstoneExpiry.Enqueue(tombstone.Id, tombstone.ExpiresAt);
     }
 
+    // N-broker-e-01 (lane broker-next): each tombstone kept its own copies of its two addresses and its reason, as the
+    // journal parser or the receipt made them. Equal values now share one instance per participant (dropped with the
+    // participant's last tombstone) and per reason; records compare by value, so nothing else changes. In memory only:
+    // the journal format is unchanged. The text hash stays a string: it is unique per message, so only a different
+    // in-memory type could shrink it, and that would touch the journal path (measured in DESIGN-REGISTER).
+    private Tombstone Shared(Tombstone tombstone)
+    {
+        SessionAddress SharedAddress(SessionAddress address)
+        {
+            if (sharedParticipants.TryGetValue(address, out var shared)) return shared;
+            sharedParticipants.Add(address, address);
+            return address;
+        }
+        string? reason = tombstone.Reason;
+        if (reason is not null)
+        {
+            if (sharedReasons.TryGetValue(reason, out var known)) reason = known;
+            else if (sharedReasons.Count < 64) sharedReasons.Add(reason, reason);
+        }
+        return tombstone with { Sender = SharedAddress(tombstone.Sender), Recipient = SharedAddress(tombstone.Recipient), Reason = reason };
+    }
+
     private void Unindex(Tombstone tombstone)
     {
         foreach (var participant in new[] { tombstone.Sender, tombstone.Recipient })
             if (tombstonesByParticipant.TryGetValue(participant, out var ids) && ids.Remove(tombstone.Id) && ids.Count == 0)
+            {
                 tombstonesByParticipant.Remove(participant);
+                sharedParticipants.Remove(participant);
+            }
     }
 
     // Retention ends RecordGrace after expiry, exactly when a full record's does (Expire). Pruning is memory only, so a

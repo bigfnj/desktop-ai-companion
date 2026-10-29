@@ -58,8 +58,11 @@ internal static class CodexProviderDiagnosticChecks
             check(sessions.Count == 1 && sessions[0].Capabilities == SessionCapabilities.None &&
                 diagnostic.Code == "vscode_profile_unavailable" && !diagnostic.ToStatusText().Contains(rejected.Message, StringComparison.Ordinal),
                 "CodexProviderDiagnosticChecks.cs: profile IO or access failure keeps observations and emits only a safe generic reason");
-            check((await adapter.SubmitAsync(Message(sessions[0]), default)).Outcome == AdapterAdmission.Refused && engine.Submissions == 0,
-                "CodexProviderDiagnosticChecks.cs: profile IO or access failure cannot reach native submission");
+            // Since AgentBroker 1.6.0 this defers instead of refusing (N-agentbroker-refusal-transience-01): the check could
+            // not complete, which is no verdict on the client. It still never reaches native submission.
+            var unverified = await adapter.SubmitAsync(Message(sessions[0]), default);
+            check(unverified is { Outcome: AdapterAdmission.DeferredNotSubmitted, Reason: "native_verification_unavailable" } && engine.Submissions == 0,
+                "CodexProviderDiagnosticChecks.cs: profile IO or access failure cannot reach native submission; it defers");
             failure = null;
             await adapter.DiscoverAsync(Guid.NewGuid(), default);
             check(adapter.DiscoveryDiagnostics.Count == 0,

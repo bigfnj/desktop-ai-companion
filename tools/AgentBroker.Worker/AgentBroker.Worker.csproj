@@ -19,4 +19,9 @@
     <ProjectReference Include="../AgentBroker.ClaudeAdapter/AgentBroker.ClaudeAdapter.csproj" />
     <PackageReference Include="ModelContextProtocol.AspNetCore" Version="2.2.0" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- The WinVerifyTrust mechanics the Claude public-image check shares with the Codex adapter's publisher check
+         (N-broker-b-02), compiled here as linked source; the adapter's own copy is internal to it. -->
+    <Compile Include="..\AgentBroker.Pins\WindowsAuthenticode.cs" Link="Pins\WindowsAuthenticode.cs" />
+  </ItemGroup>
 </Project>

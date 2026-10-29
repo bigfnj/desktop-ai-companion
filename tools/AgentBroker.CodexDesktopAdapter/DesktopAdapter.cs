@@ -36,7 +36,8 @@ public sealed partial class DesktopAdapter : IAsyncDisposable
     {
         options ??= new();
         options.Validate();
-        var connection = await WindowsDesktopConnection.ConnectAsync(options.Timeout, options.AllowPublisherSignedRouter, token);
+        var connection = await WindowsDesktopConnection.ConnectAsync(options.Timeout, options.AllowPublisherSignedRouter,
+            options.ObservationOnlyConnection, token);
         return await ConnectForTestAsync(connection, options, token);
     }
 

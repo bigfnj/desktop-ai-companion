@@ -68,8 +68,14 @@ ASSEMBLIES = {
 }
 # Worker 196 measured on 22b05e9 (feature/agentbroker-bus base): the folded 2026-10-26 preview put
 # peer diagnostics (24) and Claude observation (42) before the --existing-tests-only cut-off.
-EXISTING_COUNTS = {"worker": 196, "desktop": 148}
-FOCUSED_COUNTS = {"worker": 82, "desktop": 15}
+# Re-measured 2026-10-29 by lane feature/broker-next-160 (N-modules-fixes-01): later lanes had added checks before the
+# cut-off without moving these, so every --apply run failed its healthy baseline; both include that lane's two
+# malformed-subject checks (Claude observation, Codex observation). Worker 210 after the same lane's seven runtime
+# lifecycle checks (N-agentbroker-native-flicker-01). Worker 213 and focused 81 after the review fixes: three more lifecycle
+# checks (adapter failure recorded, owner_discovery_rejected per row), and owner_discovery_rejected during owner
+# resolution now checked as a skipped row (two checks) instead of a failed pass (three).
+EXISTING_COUNTS = {"worker": 213, "desktop": 157}
+FOCUSED_COUNTS = {"worker": 81, "desktop": 15}
 CLAUDE_SCENARIOS = ("early-reject", "unsupported-version", "hash-mismatch", "mixed", "recovery", "bounded-snapshot")
 
 
@@ -113,16 +119,18 @@ WITNESSES = (
         'throw new DesktopAdapterException("unsupported_vscode_router", version);',
         'throw new DesktopAdapterException("unsupported_vscode_router");',
     ),)),
+    # Both re-pointed by lane feature/broker-next-160 (N-agentbroker-native-flicker-01): the pass moved into one loop per
+    # adapter (BrokerRuntime.DiscoverLoopAsync), four spaces shallower; same bytes otherwise, same intent.
     Witness("runtime-completed-pass-reporting", "runtime", "worker", ("--runtime-pin-diagnostics-only",), "AdapterDiagnosticChecks.cs", ((
-        """                    var diagnostics = adapter.DiscoveryDiagnostics.Take(8).Select(item => item.ToStatusText()).Distinct().ToArray();
-                    if (diagnostics.Length == 0) adapterErrors.TryRemove(adapter.Id, out _);
-                    else adapterErrors[adapter.Id] = string.Join("; ", diagnostics);""",
-        "                    adapterErrors.TryRemove(adapter.Id, out _);",
+        """                var diagnostics = adapter.DiscoveryDiagnostics.Take(8).Select(item => item.ToStatusText()).Distinct().ToArray();
+                if (diagnostics.Length == 0) adapterErrors.TryRemove(adapter.Id, out _);
+                else adapterErrors[adapter.Id] = string.Join("; ", diagnostics);""",
+        "                adapterErrors.TryRemove(adapter.Id, out _);",
     ),)),
     Witness("runtime-specific-exception-reporting", "runtime", "worker", ("--codex-pin-diagnostics-only",), "CodexPinDiagnosticChecks.cs", ((
-        """                    adapterErrors[adapter.Id] = e is AdapterDiscoveryException diagnostic ? diagnostic.Diagnostic.ToStatusText()
-                        : e is BrokerException b ? b.Code : "adapter_unavailable";""",
-        '                    adapterErrors[adapter.Id] = e is BrokerException b ? b.Code : "adapter_unavailable";',
+        """                adapterErrors[adapter.Id] = e is AdapterDiscoveryException diagnostic ? diagnostic.Diagnostic.ToStatusText()
+                    : e is BrokerException b ? b.Code : "adapter_unavailable";""",
+        '                adapterErrors[adapter.Id] = e is BrokerException b ? b.Code : "adapter_unavailable";',
     ),)),
     Witness("deferred-claim-atomicity", "claims", "worker", ("--deferred-claim-only",), "DeferredClaimChecks.cs",
             (("        lock (gate)", "        _ = gate;"),), replacement_counts=(2,), kind="concurrency"),
@@ -144,9 +152,11 @@ WITNESSES = (
         "return Accept(sent, authenticatedBroker);",
         "return Accept(sent with { CreatedAt = Now }, authenticatedBroker);",
     ),)),
-    Witness("bus-wait-returns-acknowledged", "tools", "worker", ("--wait-tools-only",), "WaitToolChecks.cs", ((
-        ".Where(receipt => receipt.Message.Recipient == session && receipt.Status == MessageStatus.Accepted)",
-        ".Where(receipt => receipt.Message.Recipient == session)",
+    # Re-pointed by lane feature/broker-next-160 (N-broker-e-02): wait_for_messages now asks the store's AcceptedIncoming
+    # query, which holds the status filter; the mutation drops it there (same intent).
+    Witness("bus-wait-returns-acknowledged", "store", "worker", ("--wait-tools-only",), "WaitToolChecks.cs", ((
+        "            return state.Messages.Where(r => r.Message.Recipient == recipient && r.Status == MessageStatus.Accepted)",
+        "            return state.Messages.Where(r => r.Message.Recipient == recipient)",
     ),)),
     Witness("bus-wait-per-session-unbounded", "runtime", "worker", ("--wait-tools-only",), "WaitToolChecks.cs", ((
         'if (!waits.TryAdd(session, 0)) throw new BrokerException("wait_in_progress", "This session already has an active wait.");',
@@ -208,9 +218,11 @@ WITNESSES = (
     ),)),
     # ---- lane feature/agentbroker-backlog-b ----
     # Codex observation-only discovery: publisher trust, protected location, router fallback, adapter guards.
+    # Re-pointed by lane feature/broker-next-160 (N-broker-b-02): the subject parse moved into the linked
+    # tools/AgentBroker.Pins/WindowsAuthenticode.cs; the organization comparison stays in this adapter's own policy.
     Witness("codex-publisher-organization", "publishertrust", "desktop", ("--codex-observation-only",), "CodexObservationChecks.cs", ((
-        "            return commonName == expectedPublisher && organization == expectedPublisher;",
-        "            return commonName == expectedPublisher;",
+        "                commonName == expectedPublisher && organization == expectedPublisher;",
+        "                commonName == expectedPublisher;",
     ),)),
     Witness("codex-protected-location-owner", "publishertrust", "desktop", ("--codex-observation-only",), "CodexObservationChecks.cs", ((
         "        if (descriptor.Owner?.Value is not (LocalSystem or TrustedInstaller) || descriptor.DiscretionaryAcl is null) return false;",
@@ -276,8 +288,10 @@ WITNESSES = (
         "        if (!updateTolerant || !DesktopCompatibilityProfile.IsExactPinMismatch(exact.Code)) return DesktopRouterTrust.Unverified;",
         "        if (!DesktopCompatibilityProfile.IsExactPinMismatch(exact.Code)) return DesktopRouterTrust.Unverified;",
     ),)),
+    # Re-pointed by lane feature/broker-next-160 (N-modules-fixes-01): the submission-time publisher check now names its
+    # verifier (the fresh one) as a third argument, so the old two-argument bytes matched nothing.
     Witness("codex-worker-fresh-publisher-check", "provider", "worker", ("--codex-trust-policy-only",), "CodexTrustPolicyChecks.cs", ((
-        "            profileTrust = VerifyProfilesByPublisher(error, diagnostics: null);",
+        "            profileTrust = VerifyProfilesByPublisher(error, diagnostics: null, verifyProfilesByPublisher);",
         "            profileTrust = DesktopRouterTrust.PublisherSigned;",
     ),)),
     Witness("codex-worker-router-pin-diagnostic", "provider", "worker", ("--codex-trust-policy-only",), "CodexTrustPolicyChecks.cs", ((
@@ -383,8 +397,16 @@ WITNESSES = (
         "    private static MessageReceipt Render(Tombstone tombstone, string text) => new(new(tombstone.Id, tombstone.ConversationId,",
         "    private static MessageReceipt Render(Tombstone tombstone, string text) => new(new(tombstone.Id, tombstone.Id,",
     ),)),
+    # Re-pointed by lane feature/broker-next-160 (N-modules-fixes-01): wait_for_receipt now reads its original the same
+    # way, so the bare lookup line occurs twice; the anchor includes wait_for_reply's own signature (same intent).
     Witness("broker-e-wait-reply-skips-tombstone", "tools", "worker", ("--tombstone-case", "wait-reply"), "TombstoneChecks.cs", ((
+        "    public Task<IReadOnlyList<MessageReceipt>> WaitForReply(Guid messageId, CancellationToken cancellationToken, int timeoutSeconds = 20)\n"
+        "    {\n"
+        "        ValidateTimeout(timeoutSeconds);\n"
         "        var original = runtime.Store.FindReceipt(messageId)?.Message",
+        "    public Task<IReadOnlyList<MessageReceipt>> WaitForReply(Guid messageId, CancellationToken cancellationToken, int timeoutSeconds = 20)\n"
+        "    {\n"
+        "        ValidateTimeout(timeoutSeconds);\n"
         "        var original = runtime.Store.FindReceiptWithText(messageId)?.Message",
     ),)),
     Witness("broker-e-inbox-omits-acknowledged", "store", "worker", ("--tombstone-case", "inbox"), "TombstoneChecks.cs", ((

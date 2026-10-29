@@ -41,7 +41,18 @@ public sealed partial class AgentBrokerModule : IModule
     {
         Id = "agentbroker",
         Name = "AgentBroker",
-        Version = "1.5.0",   // 1.5.0: backlog batch 2 (2026-10-29). "Also wake updated Codex builds" is on by default
+        Version = "1.6.0",   // 1.6.0: backlog batch 3 (2026-10-29). A Codex check the broker could not complete (an
+                             //        engine read failing under load, or the owner connection dropped) defers as
+                             //        native_verification_unavailable instead of refusing, without reconnecting (the
+                             //        discovery loop does that); a missing capability or a verified mismatch is still
+                             //        refused. Adapters renew independently; one slow, failing or rejected Codex owner
+                             //        lookup skips only its own row; an unexpected adapter failure reads adapter_failed
+                             //        and discovery keeps trying. A worker start reads about half as
+                             //        much for Codex verification; tombstones share addresses (44% less heap); a wait
+                             //        reads only Accepted incoming records. The collaboration helper can send as the
+                             //        calling Codex agent's own codex:<CODEX_THREAD_ID> row. The Client connection
+                             //        text says a session started while the broker was down must reconnect its MCP.
+                             // 1.5.0: backlog batch 2 (2026-10-29). "Also wake updated Codex builds" is on by default
                              //        (the owner's decision): publisher trust plus the runtime checks; off is strict.
                              //        Status counts delivery notices dropped undelivered, by reason.
                              // 1.4.1: backlog batch (2026-10-29). A paired broker's Expired is recorded as Refused with
@@ -197,12 +208,16 @@ public sealed partial class AgentBrokerModule : IModule
         values["sharing"] = "Pair brokers from the tray. Pairing shares current and future sessions. Mark a session private to hide it, or mute it to stop peer messages. LAN connections always authenticate.";
         values["manualPeer"] = "";
         values["nativePrivacy"] = "The wake switches let messages reach existing idle client sessions automatically. MCP agents can still poll and reply without them. Claude wake-up requires an exactly verified client version. For Codex, \"Also wake updated Codex builds\" (on by default) accepts a valid OpenAI signature plus the native capability checks for a build that is not exactly pinned; turn it off to wake exactly verified builds only. Claude wake-up uses sensitive local peer credentials. Existing agent permission controls still apply.";
-        values["clientSetup"] = "Connect MCP once per client for receipt and reply tools. Claude Code uses the local HTTP endpoint when it needs no token; other connections use the stdio bridge. Client policy can require administrator approval. For Claude Code in VS Code, start a new conversation and check /mcp afterward.";
+        // N-agentbroker-client-reconnect-01: a session that started while the worker was down (every companion restart
+        // stops and starts it) keeps no broker tools, and neither client retries by itself.
+        values["clientSetup"] = "Connect MCP once per client for receipt and reply tools. Claude Code uses the local HTTP endpoint when it needs no token; other connections use the stdio bridge. Client policy can require administrator approval. For Claude Code in VS Code, start a new conversation and check /mcp afterward. " + ReconnectAdvice;
         values["nativeStatus"] = NativeStatusText();
         values["claudeClient"] = ClientDisplay("claude");
         values["codexClient"] = ClientDisplay("codex");
         return values;
     }
+
+    internal const string ReconnectAdvice = "A session that started while the broker was down, including during a companion restart, has no broker tools until you reconnect its MCP server (Claude Code: /mcp) or restart the session.";
 
     private string NativeStatusText() => snapshot is null ? "No worker status yet." : snapshot.AdapterErrors.Count == 0
         ? "No adapter errors reported."

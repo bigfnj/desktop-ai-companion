@@ -53,6 +53,18 @@ try
         Console.WriteLine($"AgentBroker delivery order smoke: {passed} assertions passed.");
         return 0;
     }
+    if (args.SequenceEqual(["--tombstone-sharing-only"]))
+    {
+        passed += TombstoneSharingChecks.Run(root);
+        Console.WriteLine($"AgentBroker tombstone sharing smoke: {passed} assertions passed.");
+        return 0;
+    }
+    if (args.SequenceEqual(["--accepted-incoming-only"]))
+    {
+        passed += AcceptedIncomingChecks.Run(root);
+        Console.WriteLine($"AgentBroker accepted-incoming smoke: {passed} assertions passed.");
+        return 0;
+    }
     if (args.SequenceEqual(["--sender-notices-only"]))
     {
         passed += SenderNoticeChecks.Run(root);
@@ -160,6 +172,8 @@ try
     passed += SenderNoticeChecks.Run(root);
     passed += DeliveryOrderChecks.Run(root);
     passed += PeerReceiptChecks.Run(root);
+    passed += AcceptedIncomingChecks.Run(root);
+    passed += TombstoneSharingChecks.Run(root);
     using (var receipts = new BrokerStore(Path.Combine(root, "explicit-receipts"), clock: clock))
     {
         var from = Session(receipts, "from"); var to = Session(receipts, "to");

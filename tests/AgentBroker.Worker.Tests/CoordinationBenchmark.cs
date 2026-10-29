@@ -160,10 +160,31 @@ internal static class CoordinationBenchmark
             // The control keeps every seeded record; the tombstone build keeps the journal's live lines as well.
             if (listed != acknowledged + CommitSamples && listed != acknowledged + tombstones + CommitSamples)
                 throw new InvalidDataException("The store did not list the expected history.");
+            // Lane broker-next (N-broker-e-02): one wait_for_messages pass for the sender, whose history every seeded record
+            // shares, timed six times (the first in the process is the cold one). It runs the store's AcceptedIncoming query
+            // where that method exists (this lane's build), else the filter over Messages that BrokerTools ran before (the
+            // control), so one source measures both builds. One message to the sender is Accepted first, so every pass has
+            // exactly that record to return, and it is checked.
+            var incoming = store.Send(recipient, sender, Guid.NewGuid(), text, null, 0, brokerId);
+            var query = typeof(BrokerStore).GetMethod("AcceptedIncoming");
+            Func<MessageReceipt[]> waitPass = query is not null
+                ? () => ((IReadOnlyList<MessageReceipt>)query.Invoke(store, [sender, 16])!).ToArray()
+                : () => store.Messages(sender).Where(receipt => receipt.Message.Recipient == sender && receipt.Status == MessageStatus.Accepted)
+                    .OrderBy(receipt => receipt.Message.CreatedAt).ThenBy(receipt => receipt.Message.Id).Take(16).ToArray();
+            List<double> waitPasses = [];
+            for (int index = 0; index < CommitSamples; index++)
+            {
+                var watch = Stopwatch.StartNew();
+                var found = waitPass();
+                waitPasses.Add(watch.Elapsed.TotalMilliseconds);
+                if (found.Length != 1 || found[0].Message.Id != incoming.Message.Id)
+                    throw new InvalidDataException("A benchmark wait pass did not return the one accepted message.");
+            }
             long Bytes(string name) => File.Exists(Path.Combine(storeDirectory, name)) ? new FileInfo(Path.Combine(storeDirectory, name)).Length : 0;
             return JsonSerializer.Serialize(new { scenario = "tombstone", acknowledged, tombstones, dead, textBytes, cap, warmed,
                 tombstoneStore = capProperty is not null, listed, stateBytes = Bytes("broker-state.json"),
-                journalBytes = Bytes("broker-tombstones.jsonl"), storeHeapBytes, loadMs, sendMs = sends, ackMs = acks, messagesMs });
+                journalBytes = Bytes("broker-tombstones.jsonl"), storeHeapBytes, loadMs, sendMs = sends, ackMs = acks, messagesMs,
+                waitPassQuery = query is not null ? "accepted-incoming" : "messages-filter", waitPassMs = waitPasses });
         }
         finally { DeleteTree(root); }
     }

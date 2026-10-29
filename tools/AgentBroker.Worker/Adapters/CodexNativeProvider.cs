@@ -22,8 +22,16 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
     // Exact when every running Code-owned engine matched its reviewed profile; PublisherSigned only under the
     // opt-in update-tolerant policy; Unverified otherwise. Strict mode never reaches PublisherSigned.
     private DesktopRouterTrust profileTrust;
+    // Unverified because the last engine check could not complete (an IO or access error), not because it found a
+    // mismatch: the one Unverified that a retry can clear (N-agentbroker-refusal-transience-01).
+    private bool profileUnavailable;
     private IReadOnlyList<AdapterDiscoveryDiagnostic> discoveryDiagnostics = Array.Empty<AdapterDiscoveryDiagnostic>();
     public bool NativeIdleGuard => enableDelivery && profileTrust != DesktopRouterTrust.Unverified && adapter?.NativeIdleGuard == true;
+    // Delivery is on and only the broker's own state stands in the way: the profile check could not complete, or (with
+    // a verified profile) the owner connection is down after a failed lookup, which the next lookup re-establishes. A
+    // verified mismatch is a verdict and never pending.
+    public bool VerificationPending => enableDelivery &&
+        (profileTrust == DesktopRouterTrust.Unverified ? profileUnavailable : adapter is null);
     public IReadOnlyList<AdapterDiscoveryDiagnostic> DiscoveryDiagnostics => discoveryDiagnostics;
 
     public CodexNativeProvider(bool enableDelivery = false, bool updateTolerantDelivery = false)
@@ -74,7 +82,7 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
     {
         token.ThrowIfCancellationRequested();
         var diagnostics = new List<AdapterDiscoveryDiagnostic>();
-        profileTrust = DesktopRouterTrust.Unverified;
+        profileTrust = DesktopRouterTrust.Unverified; profileUnavailable = false;
         if (enableDelivery)
         {
             try { verifyProfilesForDiscovery(); profileTrust = DesktopRouterTrust.ExactPinned; }
@@ -86,7 +94,7 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
             }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException)
             {
-                profileTrust = DesktopRouterTrust.Unverified;
+                profileTrust = DesktopRouterTrust.Unverified; profileUnavailable = true;
                 diagnostics.Add(new("vscode_profile_unavailable",
                     $"Codex VS Code compatibility verification could not complete; verified extension {VsCodeCompatibilityProfile.VerifiedVersions}."));
             }
@@ -124,7 +132,7 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
             return DesktopRouterTrust.Unverified;
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException)
-        { return DesktopRouterTrust.Unverified; }
+        { profileUnavailable = true; return DesktopRouterTrust.Unverified; }
     }
 
     public bool IsDeliveryAuthorized(DesktopOwnerBinding binding)
@@ -134,15 +142,22 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
     {
         // The reviewed path: exact router pin and exact running-client profiles, unchanged from strict mode.
         if (binding.RouterTrust == DesktopRouterTrust.ExactPinned && profileTrust == DesktopRouterTrust.ExactPinned)
-            return NativeIdleGuard && binding.SupportsUntrustedAppInput ? CodexDeliveryAuthority.ExactPinned : CodexDeliveryAuthority.None;
+            return NativeIdleGuard && binding.SupportsUntrustedAppInput ? CodexDeliveryAuthority.ExactPinned
+                : Pending(binding) ? CodexDeliveryAuthority.VerificationUnavailable : CodexDeliveryAuthority.None;
         if (binding.RouterTrust == DesktopRouterTrust.Unverified) return CodexDeliveryAuthority.None;
         if (!updateTolerant)
-            return binding.RouterTrust == DesktopRouterTrust.PublisherSigned ? CodexDeliveryAuthority.ObservationOnly : CodexDeliveryAuthority.None;
+            return binding.RouterTrust == DesktopRouterTrust.PublisherSigned ? CodexDeliveryAuthority.ObservationOnly
+                : Pending(binding) ? CodexDeliveryAuthority.VerificationUnavailable : CodexDeliveryAuthority.None;
         // Update-tolerant: every component is exactly pinned or publisher-verified, and the owner itself still
-        // advertises the native external-input capability. Anything less is an explicit unsupported capability.
+        // advertises the native external-input capability. Anything less is an explicit unsupported capability, except a
+        // broker-side check that could not complete for an owner that does advertise it, which is pending.
         return NativeIdleGuard && profileTrust != DesktopRouterTrust.Unverified && binding.SupportsUntrustedAppInput
-            ? CodexDeliveryAuthority.UpdateTolerant : CodexDeliveryAuthority.UnsupportedCapability;
+            ? CodexDeliveryAuthority.UpdateTolerant
+            : Pending(binding) ? CodexDeliveryAuthority.VerificationUnavailable : CodexDeliveryAuthority.UnsupportedCapability;
     }
+
+    // Pending only for an owner that advertises the native capability: its absence is the owner's own verdict.
+    private bool Pending(DesktopOwnerBinding binding) => binding.SupportsUntrustedAppInput && VerificationPending;
 
     public async Task<DesktopOwnerBinding?> ResolveOwnerAsync(Guid conversationId, CancellationToken token)
     {
@@ -164,6 +179,7 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
             return new(DesktopSubmissionOutcome.Rejected, ErrorCode: "native_client_profile_unverified");
         // Advertisement uses only the verification from this discovery pass. Actual model input
         // always gets fresh full hashes and running-client validation; no metadata/hash cache is trusted.
+        profileUnavailable = false;
         try { verifyProfiles(); profileTrust = DesktopRouterTrust.ExactPinned; }
         catch (DesktopAdapterException error) when (updateTolerant && DesktopCompatibilityProfile.IsExactPinMismatch(error.Code))
         {
@@ -172,14 +188,15 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
             if (!IsDeliveryAuthorized(binding))
             {
                 forgetDiscovery(); // A fresh refusal disproves any reused discovery success.
-                return new(DesktopSubmissionOutcome.Rejected, ErrorCode: "native_client_profile_unverified");
+                return Unverified();
             }
         }
         catch (Exception error) when (error is DesktopAdapterException or IOException or UnauthorizedAccessException)
         {
             profileTrust = DesktopRouterTrust.Unverified;
+            profileUnavailable = error is not DesktopAdapterException;
             forgetDiscovery();
-            return new(DesktopSubmissionOutcome.Rejected, ErrorCode: "native_client_profile_unverified");
+            return Unverified();
         }
         try { return await adapter.SubmitAsync(binding, messageId, text, token); }
         catch (DesktopAdapterException exception) when (exception.Code == "receipt_capacity")
@@ -193,6 +210,12 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
             return new(DesktopSubmissionOutcome.DeferredNotSubmitted, ErrorCode: "native_receipt_capacity_reconnect");
         }
     }
+
+    // Nothing was written either way. A fresh check that could not complete (IO or access) is transient and defers with its
+    // own reason; a verdict (a mismatch, a wrong publisher) refuses as before (N-agentbroker-refusal-transience-01).
+    private DesktopSubmissionResult Unverified() => profileUnavailable
+        ? new(DesktopSubmissionOutcome.DeferredNotSubmitted, ErrorCode: "native_verification_unavailable")
+        : new(DesktopSubmissionOutcome.Rejected, ErrorCode: "native_client_profile_unverified");
 
     public async ValueTask DisposeAsync()
     {
