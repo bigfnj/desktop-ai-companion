@@ -11,6 +11,11 @@ import unittest
 from unittest.mock import patch
 
 
+def synthetic_case(flag, marker="unused-marker.txt"):
+    """A case tuple in the harness's shape that names no product file anyone may read."""
+    return ("synthetic " + flag, "no-product-file", b"old", b"new", None, None, flag, marker, "unused")
+
+
 class MutationBaselineReportTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -29,13 +34,12 @@ class MutationBaselineReportTests(unittest.TestCase):
                           "additional compiler stderr: preserved \u96ea diagnostic\nRESULT=FAIL\n")
                 output = io.StringIO()
                 with (patch.object(self.harness, "RUN_TEMP", directory),
-                      patch.object(self.harness, "BASELINES", [(flag, "unused-marker.txt")]),
                       patch.object(self.harness, "build_all", return_value=(True, "")),
                       patch.object(self.harness, "selftest", return_value=(report, 1)),
                       patch.object(self.harness, "read", side_effect=AssertionError("no product-source read")),
                       patch.object(self.harness, "write", side_effect=AssertionError("no product-source mutation")),
                       contextlib.redirect_stdout(output)):
-                    result = self.harness.score(types.SimpleNamespace(cases=[]))
+                    result = self.harness.score(types.SimpleNamespace(cases=[synthetic_case(flag)], indices=[0]))
                 self.assertEqual(result, 2)
                 saved = list(Path(directory).iterdir())
                 self.assertEqual(len(saved), 1)
@@ -49,15 +53,45 @@ class MutationBaselineReportTests(unittest.TestCase):
             self.assertTrue(Path(directory).resolve().is_relative_to(root))
             output = io.StringIO()
             with (patch.object(self.harness, "RUN_TEMP", directory),
-                  patch.object(self.harness, "BASELINES", [("TEMPLATE", "unused-marker.txt")]),
                   patch.object(self.harness, "build_all", return_value=(True, "")),
                   patch.object(self.harness, "selftest", return_value=(None, "no synthetic marker written")),
                   patch.object(self.harness, "keep_report", side_effect=AssertionError("None is not a report")),
                   contextlib.redirect_stdout(output)):
-                result = self.harness.score(types.SimpleNamespace(cases=[]))
+                result = self.harness.score(types.SimpleNamespace(cases=[synthetic_case("TEMPLATE")], indices=[0]))
             self.assertEqual(result, 2)
             self.assertIn("BASELINE NOT GREEN for TEMPLATE -- no synthetic marker written", output.getvalue())
             self.assertEqual(list(Path(directory).iterdir()), [])
+
+    def test_baselines_are_derived_from_the_cases_given(self):
+        cases = [synthetic_case("--b-selftest", "b.txt"), synthetic_case("--a-selftest", "a.txt"),
+                 synthetic_case("--b-selftest", "b.txt")]
+        self.assertEqual(self.harness.baselines_for(cases), (("--a-selftest", "a.txt"), ("--b-selftest", "b.txt")))
+        self.assertEqual(self.harness.baselines_for([]), ())
+        # WITNESS: the full set is still the same derivation over every case.
+        self.assertEqual(self.harness.BASELINES, self.harness.baselines_for(self.harness.CASES))
+
+    def test_a_selected_run_grades_only_its_own_baselines(self):
+        # N-modules-small-02: score() ran every case's baseline whatever the plan selected. Select one real
+        # case on the flag that sorts LAST, so a full-set loop would have started on another flag.
+        flag = self.harness.BASELINES[-1][0]
+        case = next(case for case in self.harness.CASES if case[6] == flag)
+        # WITNESS: the harness grades more than one flag, so this selection is not the whole set.
+        self.assertNotEqual(self.harness.BASELINES[0][0], flag)
+        ran = []
+
+        def selftest(flag_run, marker):
+            ran.append(flag_run)
+            return None, "synthetic stop after the first baseline"
+
+        output = io.StringIO()
+        with (patch.object(self.harness, "build_all", return_value=(True, "")),
+              patch.object(self.harness, "selftest", side_effect=selftest),
+              patch.object(self.harness, "read", side_effect=AssertionError("no product-source read")),
+              patch.object(self.harness, "write", side_effect=AssertionError("no product-source mutation")),
+              contextlib.redirect_stdout(output)):
+            result = self.harness.score(types.SimpleNamespace(cases=[case], indices=[0]))
+        self.assertEqual(result, 2)
+        self.assertEqual(ran, [flag], "a selected run's first baseline is the selected case's own flag")
 
 
 if __name__ == "__main__":

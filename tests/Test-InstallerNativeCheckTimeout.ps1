@@ -9,7 +9,7 @@ pwsh -NoProfile -File tests/Test-InstallerNativeCheckTimeout.ps1
 param([ValidateSet('none', 'hang')][string]$CheckerFixture = 'none')
 if ($CheckerFixture -eq 'hang') {
     [Console]::OutputEncoding = New-Object Text.UTF8Encoding($false)
-    [Console]::WriteLine('PASS 52 checks')
+    [Console]::WriteLine('PASS 59 checks')
     [Console]::WriteLine('RESULT:PASS')
     [Console]::Error.WriteLine('owned synthetic checker is intentionally waiting')
     Start-Sleep -Seconds 60
@@ -38,7 +38,7 @@ function New-FakeReader([string]$Text, [switch]$NeverCompletes) {
     return $reader
 }
 function New-FakeChecker([string]$Mode) {
-    $out = New-FakeReader "PASS 52 checks`r`nRESULT:PASS`r`nUnicode: $([char]0x2603)"
+    $out = New-FakeReader "PASS 59 checks`r`nRESULT:PASS`r`nUnicode: $([char]0x2603)"
     $err = New-FakeReader 'stderr was drained concurrently' -NeverCompletes:($Mode -eq 'drain')
     $checker = [pscustomobject]@{
         Mode=$Mode; SafeHandle='owned-fake-handle'; Id=4321; ExitCode=0

@@ -75,10 +75,13 @@ Windows PowerShell 5.1. It never enumerates or sends input to a real application
 All fixture processes are retained children and cleaned through their own handles.
 
 Run `python -X utf8 tests/run_installer_shutdown_mutations.py --apply` in an
-exclusive native build window for four focused negative witnesses. They remove
-path selection, legacy refusal, owner prevalidation or fallback identity checks
-one at a time against in-memory fake processes. Exact source backups precede
-all builds; restoration and the complete 52-check healthy suite finish the run.
+exclusive native build window for its focused negative witnesses (`--only=<text>`
+selects by name). They remove path selection, legacy refusal, owner
+prevalidation, fallback identity or the missing-cached-package code one at a
+time, against in-memory fake processes or the metadata of an absent GUID-named
+path. Exact source backups precede all builds, each witness proves its checker
+was rebuilt, and restoration plus the complete healthy suite (the count the
+wrapper expects) finish the run.
 
 `packaging/Test-MsiSurface.ps1` checks the built package's Binary action,
 capability, absence of the old broad action and shutdown/removal ordering.
@@ -87,7 +90,7 @@ data, and require explicit application plus a fresh public-image preflight.
 That evidence is a safety check, never a substitute for user authorization.
 
 Both Windows build and release workflows run the compiler environment check,
-native build/import/reproducibility checks, the 78 fake/owned-process checks and
+native build/import/reproducibility checks, the fake/owned-process checks and
 the lifecycle harness's BuildOnly mode. BuildOnly builds four isolated packages
 and verifies their tables and embedded DLL without running MSI. Full lifecycle
 application remains an explicit local release check.
@@ -96,8 +99,12 @@ The fixture cache carries all three workspace directory defaults, because
 [`msiexec /f` ignores command-line property values](https://learn.microsoft.com/en-us/windows/win32/msi/command-line-options).
 It checks the owned image, shortcuts, generation and settings after maintenance,
 and verifies that the unique default program directory stays absent. Optional
-external shortcut-absence checks stop before following a reparse component and
-are reported as unproven separately from the owned lifecycle results.
+external shortcut-absence checks read each reparse component's tag without
+following it: a cloud-sync placeholder (a OneDrive Desktop) is walked with
+existence checks only and listed under `CloudPlaceholderWalks`, while a link or
+any other tag stops the check, which is reported as unproven separately from
+the owned lifecycle results. A failed rollback's registry errors are summarised,
+sanitised, under `RollbackRegistryFailures` in `lifecycle-result.json`.
 
 The first local qualification passed rollback, upgrade and reinstall with exact
 native shutdown receipts, foreign-process survival and preserved settings. Its

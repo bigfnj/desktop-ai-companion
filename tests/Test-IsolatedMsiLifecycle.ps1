@@ -401,6 +401,7 @@ $operations = New-Object 'Collections.Generic.List[object]'
 $primary = $null
 $script:installerState = New-ScopedMsiCallerState
 $script:unprovenChecks = New-Object 'Collections.Generic.List[string]'
+$script:cloudPlaceholderWalks = New-Object 'Collections.Generic.List[string]'
 function Product-State {
     param([string]$Code)
     $installer = $null
@@ -489,6 +490,68 @@ function Assert-Sentinels {
     Assert-Check ((Read-Utf8 (Join-Path $Installed 'modules\settings.txt')) -ceq 'module-settings-preserved') 'unmanaged installed module settings survive maintenance'
     Assert-Check ((Read-Utf8 (Join-Path $Data 'settings.txt')) -ceq 'data-settings-preserved') 'separate synthetic data settings survive maintenance'
 }
+function Get-FixturePathAttributes {
+    param([string]$Path)
+    # $null when the entry does not exist; any other metadata failure refuses.
+    try { return [IO.File]::GetAttributes($Path) }
+    catch {
+        $cause = $_.Exception
+        while ($null -ne $cause.InnerException) { $cause = $cause.InnerException }
+        if ($cause -is [IO.FileNotFoundException] -or $cause -is [IO.DirectoryNotFoundException]) { return $null }
+        throw 'fixture_default_path_metadata_unavailable'
+    }
+}
+function Test-FixturePathPresent {
+    param([string]$Path)
+    # Existence only: attribute metadata, never a listing or a read of the entry.
+    return [IO.File]::Exists($Path) -or [IO.Directory]::Exists($Path)
+}
+function Get-FixtureReparseTag {
+    param([string]$Path)
+    if ($Path.IndexOfAny([char[]]'*?') -ge 0) { throw 'fixture_default_path_wildcard_refused' }
+    # FindFirstFileExW answers from the PARENT's directory entry: the tag arrives in
+    # dwReserved0 without opening, following or hydrating the entry itself (N-measure-offline-03).
+    if (-not ('DesktopAICompanionFixtureReparse' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+public static class DesktopAICompanionFixtureReparse {
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    struct FindData {
+        public uint Attributes;
+        public uint CreatedLow, CreatedHigh, AccessedLow, AccessedHigh, WrittenLow, WrittenHigh;
+        public uint SizeHigh, SizeLow, Reserved0, Reserved1;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)] public string Name;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 14)] public string AlternateName;
+    }
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern IntPtr FindFirstFileExW(string name, int infoLevel, out FindData data, int searchOp, IntPtr filter, int flags);
+    [DllImport("kernel32.dll")]
+    static extern bool FindClose(IntPtr handle);
+    public static uint Tag(string path) {
+        FindData data;
+        // FindExInfoBasic (1), FindExSearchNameMatch (0): one exact name, no short-name lookup.
+        IntPtr handle = FindFirstFileExW(path, 1, out data, 0, IntPtr.Zero, 0);
+        if (handle == new IntPtr(-1)) throw new Win32Exception(Marshal.GetLastWin32Error());
+        FindClose(handle);
+        return (data.Attributes & 0x400) != 0 ? data.Reserved0 : 0;
+    }
+}
+'@
+    }
+    try { return [DesktopAICompanionFixtureReparse]::Tag($Path) }
+    catch { throw 'fixture_default_path_metadata_unavailable' }
+}
+function Test-FixtureCloudPlaceholderTag {
+    param([uint32]$Tag)
+    # IO_REPARSE_TAG_CLOUD and CLOUD_1..CLOUD_F are 0x9000x01A: a sync provider's
+    # placeholder (OneDrive's Desktop), an ordinary local entry rather than a link.
+    # The mask fixes bit 29, the name-surrogate bit, CLEAR, so a symlink
+    # (0xA000000C), a junction (0xA0000003) or any other surrogate never matches,
+    # and neither does an unrelated non-link tag: both stay refused.
+    return ([long]$Tag -band [Convert]::ToInt64('FFFF0FFF', 16)) -eq [Convert]::ToInt64('9000001A', 16)
+}
 function Assert-NoDefaultFixtureArtifacts {
     param($Family)
     $expectedName = 'Desktop AI Companion Scoped Shutdown Test ' + $tag + ' ' + $Family.Name
@@ -514,14 +577,16 @@ function Assert-NoDefaultFixtureArtifacts {
         $reparseRefused = $false
         foreach ($part in $full.Substring($current.Length).Split('\')) {
             $current = Join-Path $current $part
-            try { $attributes = [IO.File]::GetAttributes($current) }
-            catch {
-                $cause = $_.Exception
-                while ($null -ne $cause.InnerException) { $cause = $cause.InnerException }
-                if ($cause -is [IO.FileNotFoundException] -or $cause -is [IO.DirectoryNotFoundException]) { break }
-                throw 'fixture_default_path_metadata_unavailable'
-            }
+            $attributes = Get-FixturePathAttributes $current
+            if ($null -eq $attributes) { break } # Remaining components cannot exist either.
             if (($attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                # A cloud placeholder is walked: below it only existence is asked, never a
+                # listing, so nothing is enumerated or hydrated. Every other tag is refused.
+                if (Test-FixtureCloudPlaceholderTag (Get-FixtureReparseTag $current)) {
+                    $walk = $Family.Name + '-' + $candidate.Label + '-through-cloud-placeholder'
+                    if (-not $script:cloudPlaceholderWalks.Contains($walk)) { $script:cloudPlaceholderWalks.Add($walk) }
+                    continue
+                }
                 if (-not $candidate.Shortcut) { throw 'fixture_default_reparse_refused' }
                 $reparseRefused = $true
                 break # Never follow an external shortcut-folder link.
@@ -533,8 +598,84 @@ function Assert-NoDefaultFixtureArtifacts {
             Write-Host ('UNPROVEN ' + $code)
             continue
         }
-        Assert-Check (-not [IO.File]::Exists($full) -and -not [IO.Directory]::Exists($full)) 'exact GUID-named default user path contains no fixture artifact'
+        Assert-Check (-not (Test-FixturePathPresent $full)) 'exact GUID-named default user path contains no fixture artifact'
     }
+}
+function ConvertTo-SanitizedRegistryKey {
+    param([string]$Key, [string]$FixtureRegistryRoot)
+    # Evidence leaves this box in reports, so a key is shown relative to the fixture's own
+    # root, or as its hive and first two key names with any account SID replaced. Owner and
+    # Area are judged on the FULL path, and Area is a fixed template, never a raw key.
+    $sid = '^S-1-[0-9]+(-[0-9]+)+$'
+    $parts = @($Key.Split('\') | Where-Object { $_.Length -gt 0 })
+    $hive = if ($parts.Count -gt 0) { $parts[0] } else { '' }
+    $rest = @(if ($parts.Count -gt 1) { $parts[1..($parts.Count - 1)] })
+    $user = $rest
+    if ($hive -ceq 'HKEY_USERS' -and $rest.Count -gt 0 -and $rest[0] -match $sid) { $user = @(if ($rest.Count -gt 1) { $rest[1..($rest.Count - 1)] }) }
+    $relative = $user -join '\'
+    if ($hive -cin @('HKEY_CURRENT_USER', 'HKEY_USERS') -and -not [string]::IsNullOrEmpty($FixtureRegistryRoot) -and
+        ($relative -ieq $FixtureRegistryRoot -or $relative.StartsWith($FixtureRegistryRoot + '\', [StringComparison]::OrdinalIgnoreCase))) {
+        return [pscustomobject]@{ Owner = 'fixture'; Area = 'fixture registry root'; Key = '<fixture-root>' + $relative.Substring($FixtureRegistryRoot.Length) }
+    }
+    $owner = 'other'; $area = 'unclassified'
+    $machine = $rest -join '\'
+    if ($hive -cin @('HKEY_CURRENT_USER', 'HKEY_USERS') -and $relative -match '^(?i)Software\\Microsoft\\Installer\\(Products|Features|UpgradeCodes|Components|Patches)(\\[0-9A-F]{32})?(\\(SourceList(\\(Media|Net))?|Patches|Transforms))?$') {
+        $owner = 'windows-installer'
+        $area = 'per-user Installer\' + $matches[1] + $(if ($matches[2]) { '\<packed-code>' } else { '' }) + $(if ($matches[3]) { $matches[3] } else { '' })
+    } elseif ($hive -ceq 'HKEY_LOCAL_MACHINE' -and $machine -match '^(?i)Software\\Microsoft\\Windows\\CurrentVersion\\Installer\\UserData\\S-1-[0-9]+(-[0-9]+)+\\(Products|Components|Patches)(\\[0-9A-F]{32})?(\\(InstallProperties|Features|Patches|Usage|Transforms))?$') {
+        $owner = 'windows-installer'
+        $area = 'machine Installer\UserData\<sid>\' + $matches[2] + $(if ($matches[3]) { '\<packed-code>' } else { '' }) + $(if ($matches[4]) { $matches[4] } else { '' })
+    } elseif ($hive -ceq 'HKEY_LOCAL_MACHINE' -and $machine -match '^(?i)Software\\Microsoft\\Windows\\CurrentVersion\\Installer\\(UpgradeCodes|Rollback|TempPackages|InProgress|Folders|Managed|Products|Components)(\\|$)') {
+        $owner = 'windows-installer'; $area = 'machine Installer\' + $matches[1]
+    } elseif ($hive -cin @('HKEY_LOCAL_MACHINE', 'HKEY_CURRENT_USER', 'HKEY_USERS') -and
+        $(if ($hive -ceq 'HKEY_LOCAL_MACHINE') { $machine } else { $relative }) -match '^(?i)Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall(\\\{[0-9A-F-]{36}\})?$') {
+        $owner = 'windows-installer'; $area = 'Uninstall (Programs and Features)' + $(if ($matches[1]) { '\<product-code>' } else { '' })
+    } elseif ($hive -ceq 'UNKNOWN') {
+        $owner = 'windows-installer'; $area = 'Installer root not yet resolved (UNKNOWN)'
+    }
+    $shown = @($hive) + @($rest | Select-Object -First 2 | ForEach-Object { if ($_ -match $sid) { '<sid>' } else { $_ } })
+    return [pscustomobject]@{ Owner = $owner; Area = $area; Key = ($shown -join '\') }
+}
+function Get-MsiRegistryFailures {
+    param([string]$Text, [string]$FixtureRegistryRoot)
+    # A verbose log notes each registry failure as `Note: 1: <message> 2: <key> 3: <Win32 code>`:
+    # 1401 create key, 1402 open key, 1403 delete value, 1404 delete key, 1406 write value.
+    # Code 2 (not found) is Windows Installer's routine probing and is not a failure.
+    $groups = [ordered]@{}
+    foreach ($match in [regex]::Matches($Text, '(?m)Note: 1: (?<message>140[0-9]) 2: (?<key>[^\r\n]*?) 3: (?<code>[0-9]+)[ \t]*\r?$')) {
+        $code = [int]$match.Groups['code'].Value
+        if ($code -eq 2) { continue }
+        $entry = ConvertTo-SanitizedRegistryKey -Key $match.Groups['key'].Value -FixtureRegistryRoot $FixtureRegistryRoot
+        $id = $match.Groups['message'].Value + '|' + $code + '|' + $entry.Owner + '|' + $entry.Area + '|' + $entry.Key
+        if (-not $groups.Contains($id)) {
+            $groups[$id] = [pscustomobject]@{ Message = [int]$match.Groups['message'].Value; Win32Error = $code
+                Owner = $entry.Owner; Area = $entry.Area; Key = $entry.Key; Occurrences = 0 }
+        }
+        $groups[$id].Occurrences++
+    }
+    return [pscustomobject]@{
+        RollbackErrorsSkipped = [regex]::Matches($Text, 'Error in rollback skipped\.').Count
+        Owners = @($groups.Values | ForEach-Object { $_.Owner } | Sort-Object -Unique)
+        Failures = @($groups.Values)
+    }
+}
+function Get-RollbackRegistryEvidence {
+    # Read after the run, whatever its result: the failed rollback-v2 is the case it exists for
+    # (N-measure-offline-01). An extraction problem is reported, never thrown over the primary.
+    $found = New-Object 'Collections.Generic.List[object]'
+    foreach ($family in $manifest.Families) {
+        try {
+            $log = Fixture-Path ($family.Name + '\rollback-v2.log')
+            if (-not [IO.File]::Exists($log)) { continue }
+            $extracted = Get-MsiRegistryFailures -Text (Read-Utf8 $log) -FixtureRegistryRoot $family.RegistryRoot
+            $found.Add([pscustomobject]@{ Family = $family.Name; Log = $family.Name + '\rollback-v2.log'
+                RollbackErrorsSkipped = $extracted.RollbackErrorsSkipped; Owners = $extracted.Owners; Failures = $extracted.Failures })
+        } catch {
+            $found.Add([pscustomobject]@{ Family = $family.Name; ExtractionFailed = $_.Exception.Message })
+        }
+    }
+    # Unrolled on purpose: the report wraps this in @(), and a comma here nested the list.
+    return $found.ToArray()
 }
 function Assert-FixtureConfinement {
     param($Family)
@@ -652,6 +793,8 @@ $report = [ordered]@{
     InstallerCallerCreationFileTime = $script:installerState.CallerCreationFileTime
     RecoveryManifest = $(if ($script:installerState.Uncertain) { $manifestFile } else { $null })
     UnprovenChecks = @($script:unprovenChecks.ToArray())
+    CloudPlaceholderWalks = @($script:cloudPlaceholderWalks.ToArray())
+    RollbackRegistryFailures = @(Get-RollbackRegistryEvidence)
 }
 Write-Utf8 -Path (Join-Path $fixtureRoot 'lifecycle-result.json') -Text ($report | ConvertTo-Json -Depth 5)
 if ($null -ne $primary) { throw $primary }

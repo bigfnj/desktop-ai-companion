@@ -70,6 +70,39 @@ struct FakeProcess final : Process {
 
 std::shared_ptr<FakeProcess> Fake() { return std::make_shared<FakeProcess>(); }
 
+std::wstring CheckerImage() {
+    std::vector<wchar_t> buffer(32768);
+    const DWORD length = GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+    if (!length || length >= buffer.size()) throw std::runtime_error("checker image path unavailable");
+    return std::wstring(buffer.data(), length);
+}
+
+DWORD AttributeError(const std::wstring& path) {
+    return GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES ? GetLastError() : ERROR_SUCCESS;
+}
+
+// The MSI entry point is not linked here, so the cached-package lookup it calls
+// is checked directly. Metadata only: nothing is created beside the checker.
+void CachedPackageChecks() {
+    const auto image = CheckerImage();
+    const auto directory = image.substr(0, image.find_last_of(L'\\'));
+    const std::wstring name = L"6b1f4c2e9a374d588e0b2c7d3f5a9e14";
+    const auto absent = directory + L"\\" + name + L".msi";
+    const auto absentParent = directory + L"\\" + name + L"\\" + name + L".msi";
+    Check(AttributeError(absent) == ERROR_FILE_NOT_FOUND, "WITNESS the GUID-named cached package candidate is absent");
+    Check(AttributeError(absentParent) == ERROR_PATH_NOT_FOUND, "WITNESS the GUID-named cached package folder is absent");
+    Refuses([&] { CanonicalCachedPackage(absent); }, "cached_package_missing",
+        "a missing registered cached package is named as missing");
+    Refuses([&] { CanonicalCachedPackage(absentParent); }, "cached_package_missing",
+        "a cached package whose folder is missing is named as missing");
+    Refuses([&] { CanonicalFile(absent); }, "installation_path_unavailable",
+        "other missing files keep the installation path code");
+    Refuses([&] { CanonicalCachedPackage(directory); }, "installation_path_unavailable",
+        "a folder registered as the cached package is not reported as a missing package");
+    Check(SamePath(CanonicalCachedPackage(image), CanonicalFile(image)),
+        "WITNESS an existing cached package canonicalizes like any other file");
+}
+
 void PathChecks() {
     Check(SamePath(Installed().image, L"c:\\MANAGED\\desktopaicompanion.EXE"),
         "complete Windows image paths compare without case");
@@ -101,6 +134,8 @@ void PathChecks() {
     upper->identity.image = L"c:\\MANAGED\\desktopaicompanion.EXE";
     Check(CloseInstalled(Defaults(), {upper}).targets == 1,
         "case differences in a complete installed path preserve selection");
+
+    CachedPackageChecks();
 }
 
 void PrevalidationChecks() {

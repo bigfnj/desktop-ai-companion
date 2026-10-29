@@ -1563,9 +1563,13 @@ CASES = (
     # ---- lane burn/remembrance ----
 
     # RA-157: a Remembrance pane action discards a Save() result again -- the shape that answered "✓ storage"
-    # over a settings file that could not be written. The self-test drives the adopt path; this invariant is
-    # what covers the five actions that open a dialog or reach the network, so a bare `_settings.Save();`
-    # anywhere in the module has to fail it. Re-pointed by lane feature/layout-remembrance: the site it mutated,
+    # over a settings file that could not be written. The module self-test drives the adopt path
+    # (AdoptWhisperPaths, behind "Set up Whisper for me…" and the Whisper card's "Refresh local models"). The
+    # invariant is file-wide, so it also covers the callers the self-test cannot reach without the machine's own
+    # install or a server: the pane's first-open Whisper detection and model discovery, the Ollama card's
+    # "Refresh local models" and "Download that model", the cloud card's "Refresh cloud models", and the pane's
+    # own Save, which keeps its bool. A bare `_settings.Save();` anywhere in the module has to fail it.
+    # Re-pointed by lane feature/layout-remembrance: the site it mutated,
     # "Browse for a storage folder…", went with the module's own Browse buttons (the host's path fields do that
     # job), so the mutant is now the Ollama "Refresh local models", a pane action that reaches the network and
     # saves what it found.
