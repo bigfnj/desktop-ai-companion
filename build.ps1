@@ -190,6 +190,13 @@ Write-Host "dotnet  : $dotnet" -ForegroundColor DarkGray
 Write-Host "SDK     : $dotnetVersion" -ForegroundColor DarkGray
 
 if ($Clean) {
+    # Restore first. Clean reads obj\project.assets.json, which names the package folder of the restore that wrote it.
+    # An isolated gate keeps its packages in that run's private dotnet home and releases the home after a pass, so the
+    # next clean of the same tree found a folder that no longer existed and failed with NETSDK1064 before anything
+    # else ran (2026-10-29). A restore rewrites the assets for this run's own package folder.
+    Write-Host 'Restoring NuGet packages before clean...' -ForegroundColor Cyan
+    & $dotnet restore $projectPath '-p:Platform=x64' '--nologo' '-v:minimal'
+    if ($LASTEXITCODE -ne 0) { throw "restore before clean failed (exit $LASTEXITCODE)" }
     Write-Host 'Cleaning supported x64 output...' -ForegroundColor Cyan
     & $dotnet clean $projectPath @commonArguments
     if ($LASTEXITCODE -ne 0) { throw "clean failed (exit $LASTEXITCODE)" }
