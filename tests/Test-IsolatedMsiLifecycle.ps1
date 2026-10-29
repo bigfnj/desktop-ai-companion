@@ -401,6 +401,7 @@ $operations = New-Object 'Collections.Generic.List[object]'
 $primary = $null
 $script:installerState = New-ScopedMsiCallerState
 $script:unprovenChecks = New-Object 'Collections.Generic.List[string]'
+$script:cloudPlaceholderWalks = New-Object 'Collections.Generic.List[string]'
 function Product-State {
     param([string]$Code)
     $installer = $null
@@ -489,6 +490,68 @@ function Assert-Sentinels {
     Assert-Check ((Read-Utf8 (Join-Path $Installed 'modules\settings.txt')) -ceq 'module-settings-preserved') 'unmanaged installed module settings survive maintenance'
     Assert-Check ((Read-Utf8 (Join-Path $Data 'settings.txt')) -ceq 'data-settings-preserved') 'separate synthetic data settings survive maintenance'
 }
+function Get-FixturePathAttributes {
+    param([string]$Path)
+    # $null when the entry does not exist; any other metadata failure refuses.
+    try { return [IO.File]::GetAttributes($Path) }
+    catch {
+        $cause = $_.Exception
+        while ($null -ne $cause.InnerException) { $cause = $cause.InnerException }
+        if ($cause -is [IO.FileNotFoundException] -or $cause -is [IO.DirectoryNotFoundException]) { return $null }
+        throw 'fixture_default_path_metadata_unavailable'
+    }
+}
+function Test-FixturePathPresent {
+    param([string]$Path)
+    # Existence only: attribute metadata, never a listing or a read of the entry.
+    return [IO.File]::Exists($Path) -or [IO.Directory]::Exists($Path)
+}
+function Get-FixtureReparseTag {
+    param([string]$Path)
+    if ($Path.IndexOfAny([char[]]'*?') -ge 0) { throw 'fixture_default_path_wildcard_refused' }
+    # FindFirstFileExW answers from the PARENT's directory entry: the tag arrives in
+    # dwReserved0 without opening, following or hydrating the entry itself (N-measure-offline-03).
+    if (-not ('DesktopAICompanionFixtureReparse' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+public static class DesktopAICompanionFixtureReparse {
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    struct FindData {
+        public uint Attributes;
+        public uint CreatedLow, CreatedHigh, AccessedLow, AccessedHigh, WrittenLow, WrittenHigh;
+        public uint SizeHigh, SizeLow, Reserved0, Reserved1;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)] public string Name;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 14)] public string AlternateName;
+    }
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern IntPtr FindFirstFileExW(string name, int infoLevel, out FindData data, int searchOp, IntPtr filter, int flags);
+    [DllImport("kernel32.dll")]
+    static extern bool FindClose(IntPtr handle);
+    public static uint Tag(string path) {
+        FindData data;
+        // FindExInfoBasic (1), FindExSearchNameMatch (0): one exact name, no short-name lookup.
+        IntPtr handle = FindFirstFileExW(path, 1, out data, 0, IntPtr.Zero, 0);
+        if (handle == new IntPtr(-1)) throw new Win32Exception(Marshal.GetLastWin32Error());
+        FindClose(handle);
+        return (data.Attributes & 0x400) != 0 ? data.Reserved0 : 0;
+    }
+}
+'@
+    }
+    try { return [DesktopAICompanionFixtureReparse]::Tag($Path) }
+    catch { throw 'fixture_default_path_metadata_unavailable' }
+}
+function Test-FixtureCloudPlaceholderTag {
+    param([uint32]$Tag)
+    # IO_REPARSE_TAG_CLOUD and CLOUD_1..CLOUD_F are 0x9000x01A: a sync provider's
+    # placeholder (OneDrive's Desktop), an ordinary local entry rather than a link.
+    # The mask fixes bit 29, the name-surrogate bit, CLEAR, so a symlink
+    # (0xA000000C), a junction (0xA0000003) or any other surrogate never matches,
+    # and neither does an unrelated non-link tag: both stay refused.
+    return ([long]$Tag -band [Convert]::ToInt64('FFFF0FFF', 16)) -eq [Convert]::ToInt64('9000001A', 16)
+}
 function Assert-NoDefaultFixtureArtifacts {
     param($Family)
     $expectedName = 'Desktop AI Companion Scoped Shutdown Test ' + $tag + ' ' + $Family.Name
@@ -514,14 +577,16 @@ function Assert-NoDefaultFixtureArtifacts {
         $reparseRefused = $false
         foreach ($part in $full.Substring($current.Length).Split('\')) {
             $current = Join-Path $current $part
-            try { $attributes = [IO.File]::GetAttributes($current) }
-            catch {
-                $cause = $_.Exception
-                while ($null -ne $cause.InnerException) { $cause = $cause.InnerException }
-                if ($cause -is [IO.FileNotFoundException] -or $cause -is [IO.DirectoryNotFoundException]) { break }
-                throw 'fixture_default_path_metadata_unavailable'
-            }
+            $attributes = Get-FixturePathAttributes $current
+            if ($null -eq $attributes) { break } # Remaining components cannot exist either.
             if (($attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                # A cloud placeholder is walked: below it only existence is asked, never a
+                # listing, so nothing is enumerated or hydrated. Every other tag is refused.
+                if (Test-FixtureCloudPlaceholderTag (Get-FixtureReparseTag $current)) {
+                    $walk = $Family.Name + '-' + $candidate.Label + '-through-cloud-placeholder'
+                    if (-not $script:cloudPlaceholderWalks.Contains($walk)) { $script:cloudPlaceholderWalks.Add($walk) }
+                    continue
+                }
                 if (-not $candidate.Shortcut) { throw 'fixture_default_reparse_refused' }
                 $reparseRefused = $true
                 break # Never follow an external shortcut-folder link.
@@ -533,7 +598,7 @@ function Assert-NoDefaultFixtureArtifacts {
             Write-Host ('UNPROVEN ' + $code)
             continue
         }
-        Assert-Check (-not [IO.File]::Exists($full) -and -not [IO.Directory]::Exists($full)) 'exact GUID-named default user path contains no fixture artifact'
+        Assert-Check (-not (Test-FixturePathPresent $full)) 'exact GUID-named default user path contains no fixture artifact'
     }
 }
 function Assert-FixtureConfinement {
@@ -652,6 +717,7 @@ $report = [ordered]@{
     InstallerCallerCreationFileTime = $script:installerState.CallerCreationFileTime
     RecoveryManifest = $(if ($script:installerState.Uncertain) { $manifestFile } else { $null })
     UnprovenChecks = @($script:unprovenChecks.ToArray())
+    CloudPlaceholderWalks = @($script:cloudPlaceholderWalks.ToArray())
 }
 Write-Utf8 -Path (Join-Path $fixtureRoot 'lifecycle-result.json') -Text ($report | ConvertTo-Json -Depth 5)
 if ($null -ne $primary) { throw $primary }

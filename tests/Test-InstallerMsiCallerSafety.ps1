@@ -142,6 +142,111 @@ foreach ($scenario in @('success', 'nonzero', 'exit_code', 'dispose')) {
     Check (-not $installerState.Uncertain -and $fake.KillCalls -eq 0) ($scenario + ': cleanup remains a confirmed fake caller without termination')
     $cases.Add($scenario)
 }
+
+# DEFAULT-PATH PROBE THROUGH REPARSE POINTS (N-measure-offline-03). The actual
+# Assert-NoDefaultFixtureArtifacts walks a FAKE file system here: every attribute, tag and
+# existence read is a fake keyed by path, so no real user folder is read. A OneDrive
+# Desktop is a cloud placeholder (0x9000x01A), which used to leave the fixture shortcut's
+# absence UNPROVEN; links (name surrogates) and unknown tags must stay refused.
+$probe = @{}
+foreach ($name in @('Assert-NoDefaultFixtureArtifacts', 'Test-FixtureCloudPlaceholderTag', 'Get-FixtureReparseTag',
+    'Test-FixturePathPresent')) {
+    $found = @($ast.FindAll({ param($node)
+        $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
+    }, $true))
+    if ($found.Count -ne 1) { throw "Actual lifecycle function was not identified uniquely: $name" }
+    $probe[$name] = $found[0]
+}
+$walkText = $probe['Assert-NoDefaultFixtureArtifacts'].Extent.Text
+Check ($walkText.Contains('Test-FixturePathPresent $full') -and $walkText.Contains('Get-FixtureReparseTag $current')) 'WITNESS the default-path walk reads through its injectable metadata helpers'
+Check ($walkText -cnotmatch 'Get-ChildItem|Enumerate|GetFiles|GetDirectories|GetFileSystemEntries|\[IO\.(File|Directory)\]::') 'the default-path walk never lists a folder or reads the file system around its helpers'
+foreach ($name in @('Assert-NoDefaultFixtureArtifacts', 'Test-FixtureCloudPlaceholderTag')) {
+    . ([scriptblock]::Create($probe[$name].Extent.Text))
+}
+$realTagReader = $probe['Get-FixtureReparseTag'].Body.GetScriptBlock()
+$realPresence = $probe['Test-FixturePathPresent'].Body.GetScriptBlock()
+function Tag([string]$Hex) { return [Convert]::ToUInt32($Hex, 16) }
+function Get-FixturePathAttributes([string]$Path) {
+    if ($script:fakeAttributes.ContainsKey($Path)) { return $script:fakeAttributes[$Path] }
+    return $null
+}
+function Get-FixtureReparseTag([string]$Path) {
+    if (-not $script:fakeTags.ContainsKey($Path)) { throw 'Fake tag read for an entry that is not a reparse point.' }
+    return [uint32]$script:fakeTags[$Path]
+}
+function Test-FixturePathPresent([string]$Path) { $script:presenceAsked.Add($Path); return $script:fakeAttributes.ContainsKey($Path) }
+$tag = '0123456789abcdef0123456789abcdef'
+$probeFamily = [pscustomobject]@{ Name = 'main'; ProductName = 'Desktop AI Companion Scoped Shutdown Test ' + $tag + ' main' }
+$desktop = [Environment]::GetFolderPath('DesktopDirectory')
+$localData = [Environment]::GetFolderPath('LocalApplicationData')
+if ([string]::IsNullOrEmpty($desktop) -or [string]::IsNullOrEmpty($localData)) { throw 'The default-path probe needs a user profile with Desktop and local application data folders.' }
+$desktop = [IO.Path]::GetFullPath($desktop); $localData = [IO.Path]::GetFullPath($localData)
+$desktopShortcut = Join-Path $desktop ($probeFamily.ProductName + '.lnk')
+function Reset-Probe([string]$Folder, [uint32]$FolderTag, [switch]$ShortcutPresent) {
+    $script:fakeAttributes = @{}; $script:fakeTags = @{}
+    $script:presenceAsked = New-Object 'Collections.Generic.List[string]'
+    $script:unprovenChecks = New-Object 'Collections.Generic.List[string]'
+    $script:cloudPlaceholderWalks = New-Object 'Collections.Generic.List[string]'
+    # Every ancestor of the folder is an ordinary directory; the folder carries the tag.
+    $current = [IO.Path]::GetPathRoot($Folder)
+    foreach ($part in $Folder.Substring($current.Length).Split('\')) {
+        $current = Join-Path $current $part
+        $script:fakeAttributes[$current] = [IO.FileAttributes]::Directory
+    }
+    $script:fakeAttributes[$Folder] = [IO.FileAttributes]::Directory -bor [IO.FileAttributes]::ReparsePoint
+    $script:fakeTags[$Folder] = $FolderTag
+    if ($ShortcutPresent) { $script:fakeAttributes[$desktopShortcut] = [IO.FileAttributes]::Archive }
+}
+function Invoke-Probe {
+    try { Assert-NoDefaultFixtureArtifacts $probeFamily; return '' } catch { return $_.Exception.Message }
+}
+foreach ($cloud in @('9000001A', '9000701A', '9000601A')) {
+    Reset-Probe $desktop (Tag $cloud)
+    $message = Invoke-Probe
+    Check ($message.Length -eq 0 -and $unprovenChecks.Count -eq 0) ("cloud placeholder: the Desktop shortcut absence is proven, not left unproven (0x$cloud)")
+    Check ($presenceAsked.Contains($desktopShortcut) -and $cloudPlaceholderWalks.Contains('main-desktop-shortcut-through-cloud-placeholder')) (
+        "cloud placeholder: the walk continues below it to an existence check of the exact shortcut (0x$cloud)")
+}
+Reset-Probe $desktop (Tag '9000701A') -ShortcutPresent
+Check ((Invoke-Probe) -ceq 'exact GUID-named default user path contains no fixture artifact') 'a fixture shortcut present below a cloud placeholder fails the absence check'
+foreach ($refused in @('A0000003', 'A000000C', 'B000701A', '2000ABCD', '80000013', '00000000')) {
+    Reset-Probe $desktop (Tag $refused)
+    $message = Invoke-Probe
+    Check ($message.Length -eq 0 -and $unprovenChecks.Contains('main-desktop-shortcut-absence-unproven-reparse-refused') -and $cloudPlaceholderWalks.Count -eq 0) (
+        "a link or unknown reparse point leaves the Desktop shortcut absence unproven (0x$refused)")
+    Check (-not $presenceAsked.Contains($desktopShortcut)) ("nothing below a refused reparse point is probed (0x$refused)")
+}
+Reset-Probe $localData (Tag 'A0000003')
+Check ((Invoke-Probe) -ceq 'fixture_default_reparse_refused') 'a linked application-data folder still refuses the non-shortcut probe'
+Reset-Probe $localData (Tag '9000001A')
+Check ((Invoke-Probe).Length -eq 0 -and $cloudPlaceholderWalks.Contains('main-appdata-directory-through-cloud-placeholder')) 'a cloud placeholder application-data folder is walked, not refused'
+$cases.Add('default-path-reparse')
+
+# The REAL tag reader and existence probe, on entries this test owns: a junction it
+# creates (no privilege needed) and an ordinary folder and file beside it.
+$reparseScratch = Join-Path $repo ('build\msi-caller-safety\' + [Guid]::NewGuid().ToString('N') + '-reparse')
+[void](Assert-ScopedShutdownPath -Path $reparseScratch -TrustedRoot $repo)
+$reparseTarget = Join-Path $reparseScratch 'target'
+$reparseJunction = Join-Path $reparseScratch 'junction'
+$reparseFile = Join-Path $reparseScratch 'plain.txt'
+[void][IO.Directory]::CreateDirectory($reparseTarget)
+[IO.File]::WriteAllText($reparseFile, 'plain')
+try {
+    [void](New-Item -ItemType Junction -Path $reparseJunction -Value $reparseTarget)
+    $junctionTag = & $realTagReader -Path $reparseJunction
+    Check ($junctionTag -eq (Tag 'A0000003')) 'the real FindFirstFileExW reader reports a junction tag without following it'
+    Check (-not (Test-FixtureCloudPlaceholderTag $junctionTag)) 'the real junction tag is not walked as a cloud placeholder'
+    Check ((& $realTagReader -Path $reparseTarget) -eq 0) 'WITNESS the real reader reports no tag for an ordinary folder'
+    Check ((& $realPresence -Path $reparseFile) -and (& $realPresence -Path $reparseTarget) -and
+        -not (& $realPresence -Path (Join-Path $reparseScratch 'absent.lnk'))) 'the real existence probe sees a present file and folder and an absent name'
+} finally {
+    if ([IO.Directory]::Exists($reparseJunction)) { [IO.Directory]::Delete($reparseJunction) }
+    if ([IO.File]::Exists($reparseFile)) { [IO.File]::Delete($reparseFile) }
+    if ([IO.Directory]::Exists($reparseTarget)) { [IO.Directory]::Delete($reparseTarget) }
+    if ([IO.Directory]::Exists($reparseScratch)) { [IO.Directory]::Delete($reparseScratch) }
+}
+$cases.Add('real-reparse-reader')
+
 $scratch = Join-Path $repo ('build\msi-caller-safety\' + [Guid]::NewGuid().ToString('N'))
 [void](Assert-ScopedShutdownPath -Path $scratch -TrustedRoot $repo)
 [void][IO.Directory]::CreateDirectory($scratch)
