@@ -60,7 +60,7 @@
             "id": "agentbroker",
             "name": "AgentBroker",
             "desc": "Local MCP messaging with discovery, mutual LAN pairing, and opt-in native agent adapters.",
-            "version": "1.4.1",
+            "version": "1.5.0",
             "permissions": "Network, Storage, LaunchProcess, AgentTranscripts",
             "minHostVersion": "1.6.1"
         }
