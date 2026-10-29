@@ -99,8 +99,12 @@ The fixture cache carries all three workspace directory defaults, because
 [`msiexec /f` ignores command-line property values](https://learn.microsoft.com/en-us/windows/win32/msi/command-line-options).
 It checks the owned image, shortcuts, generation and settings after maintenance,
 and verifies that the unique default program directory stays absent. Optional
-external shortcut-absence checks stop before following a reparse component and
-are reported as unproven separately from the owned lifecycle results.
+external shortcut-absence checks read each reparse component's tag without
+following it: a cloud-sync placeholder (a OneDrive Desktop) is walked with
+existence checks only and listed under `CloudPlaceholderWalks`, while a link or
+any other tag stops the check, which is reported as unproven separately from
+the owned lifecycle results. A failed rollback's registry errors are summarised,
+sanitised, under `RollbackRegistryFailures` in `lifecycle-result.json`.
 
 The first local qualification passed rollback, upgrade and reinstall with exact
 native shutdown receipts, foreign-process survival and preserved settings. Its
