@@ -62,7 +62,8 @@ establishes publisher identity, not protocol compatibility, so the runtime check
 are required in addition to it.
 
 **Codex**: `codexUpdateTolerantDelivery` ("Also wake updated Codex builds (publisher
-verified)"), default off, effective only with `codexPeerMessages`. Required, all of:
+verified)"), on by default since AgentBroker 1.5.0 (the owner's decision of 2026-10-29), effective only
+with `codexPeerMessages`; turned off, delivery is the strict mode, exact pins only. Required, all of:
 
 1. Router: an exact pin, or the publisher branch above.
 2. Every running Code-owned engine: its exact extension profile, or a same-user
@@ -232,8 +233,8 @@ pinned 26.1007.21434: one of two windows around the busy-guard error is identica
 one of five around `inheritThreadSettings` and one of two around
 `supportsUntrustedAppInput`. Their REVIEW items (the renderer-bridge bundle and the
 idle-check order) need a person to re-read those changes. Their entries are
-drafted for that review. Until then, `codexUpdateTolerantDelivery` remains the
-opt-in for those builds.
+drafted for that review. Until then, `codexUpdateTolerantDelivery` (on by default
+since 1.5.0) is what delivers to those builds.
 
 The owner's live wake check follows the module publish. In the AgentBroker pane,
 tick "Wake existing Claude sessions" and Apply. Open a new, dedicated Claude Code

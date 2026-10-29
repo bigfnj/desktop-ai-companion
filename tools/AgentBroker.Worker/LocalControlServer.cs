@@ -103,8 +103,13 @@ public sealed class LocalControlServer(WorkerApplication worker) : IAsyncDisposa
                 s.Label, s.Adapter, s.Activity.ToString(), s.Capabilities.HasFlag(SessionCapabilities.Receive),
                 s.Capabilities.HasFlag(SessionCapabilities.WakeIdle), s.IsPrivate, runtime.IsMuted(s.Address.SessionId))).ToArray(),
             new Dictionary<string, string>(runtime.AdapterErrors, StringComparer.Ordinal),
-            worker.Options.EnableLan ? runtime.Federation.LocalAdvertisement.CertificateSha256 : null, mcp, LanProfile(lanEndpoint));
+            worker.Options.EnableLan ? runtime.Federation.LocalAdvertisement.CertificateSha256 : null, mcp, LanProfile(lanEndpoint),
+            DroppedNotices(runtime.Store.DroppedNotices()));
     }
+
+    // Absent while none was dropped, so the snapshot is unchanged for a worker that has nothing to report.
+    public static NoticeDropView? DroppedNotices(NoticeDrops drops) => drops.Total == 0 ? null
+        : new(drops.SenderUnavailable, drops.StoreFull, drops.QueueFull, drops.LastUtc);
     // The rule Allow LAN access creates names this executable and the advertised port. Hosted inside another
     // process (the test harnesses) the rule read is refused as unavailable; the category is still read.
     private LanProfileView? LanProfile(string? lanEndpoint) =>

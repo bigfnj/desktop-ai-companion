@@ -14062,13 +14062,21 @@ CASES = (
      AGENTBROKER_CSPROJ, AGENTBROKER_DLL,
      "--module-selftest=agentbroker", "dp-module-agentbroker-selftest.txt",
      "cli locator: a PATH entry that is not a drive-qualified local path is never trusted, even naming a real install"),
-    ("broker-d: update-tolerant Codex delivery defaults on",
+    # 1.5.0 (the owner's decision of 2026-10-29) turned the default round; each case puts the other side back.
+    ("broker-batch-2: update-tolerant Codex delivery defaults off again",
      os.path.join(REPO, "modules", "AgentBroker", "BrokerSettings.cs"),
-     b"        settings.GetBool(\"codexUpdateTolerantDelivery\", false));\n",
      b"        settings.GetBool(\"codexUpdateTolerantDelivery\", true));\n",
+     b"        settings.GetBool(\"codexUpdateTolerantDelivery\", false));\n",
      AGENTBROKER_CSPROJ, AGENTBROKER_DLL,
      "--module-selftest=agentbroker", "dp-module-agentbroker-selftest.txt",
-     "update-tolerant Codex delivery defaults off"),
+     "update-tolerant Codex delivery defaults on"),
+    ("broker-batch-2: strict mode still sends the update-tolerant flag",
+     os.path.join(REPO, "modules", "AgentBroker", "WorkerSupervisor.cs"),
+     b"        if (launch.Settings.CodexUpdateTolerantDelivery) Add(\"--codex-update-tolerant-delivery\", Bool(true));\n",
+     b"        Add(\"--codex-update-tolerant-delivery\", Bool(true));\n",
+     AGENTBROKER_CSPROJ, AGENTBROKER_DLL,
+     "--module-selftest=agentbroker", "dp-module-agentbroker-selftest.txt",
+     "WITNESS: strict mode (the switch off) keeps the flag out"),
     # ---- lane feature/abi-pane-actions ----
     # Host 1.6.2's two additive members, each case putting back a shortcut the design refuses. Named "abi-pane-actions:"
     # for one --only. First, PaneAction.EnabledWhen's adopters (BACKLOG N-cli-model-effort-05): Remove token ungated

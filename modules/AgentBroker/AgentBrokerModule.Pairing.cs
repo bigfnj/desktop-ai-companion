@@ -102,7 +102,23 @@ public sealed partial class AgentBrokerModule
     }
 
     private string DisplayedStatus() => status + (settings.Enabled ? " " + McpDisplay().Summary : "") +
-        (pairingFailed ? " " + pairingStatus : "");
+        (pairingFailed ? " " + pairingStatus : "") + (settings.Enabled ? NoticeDropText(snapshot?.DroppedNotices) : "");
+
+    // N-agentbroker-notice-loss-signal-01 (1.5.0): a delivery notice that could not be admitted before its message's
+    // record was pruned is dropped. Status counts them since the worker started, by why they were refused, and names no
+    // message or session. Empty while none was dropped.
+    internal static string NoticeDropText(NoticeDropView? drops)
+    {
+        if (drops is null) return "";
+        int total = drops.SenderUnavailable + drops.StoreFull + drops.QueueFull;
+        if (total <= 0) return "";
+        var reasons = new List<string>();
+        if (drops.SenderUnavailable > 0) reasons.Add(drops.SenderUnavailable + " while the sender was away");
+        if (drops.StoreFull > 0) reasons.Add(drops.StoreFull + " while the store was full");
+        if (drops.QueueFull > 0) reasons.Add(drops.QueueFull + " while the sender's queue was full");
+        return " Since the broker started, " + total + (total == 1 ? " delivery notice was" : " delivery notices were") +
+            " dropped undelivered (" + string.Join(", ", reasons) + ").";
+    }
 
     private void SetPairingStatus(string value, bool failed, PairingPeerIdentity? peer = null, bool clearFailure = false)
     {

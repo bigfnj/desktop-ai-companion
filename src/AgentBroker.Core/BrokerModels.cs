@@ -34,6 +34,13 @@ public sealed record BrokerMessage(Guid Id, Guid ConversationId, Guid? ReplyTo,
 public sealed record MessageReceipt(BrokerMessage Message, MessageStatus Status,
     DateTimeOffset UpdatedAt, string? Reason = null, int Attempts = 0);
 
+// Delivery notices this store dropped since it opened, by why the last admission check refused them when their source's
+// retention ended (BrokerStore.WithSenderNotices). In memory only: never persisted and never sent to a peer.
+public sealed record NoticeDrops(int SenderUnavailable, int StoreFull, int QueueFull, DateTimeOffset? LastUtc)
+{
+    public int Total => SenderUnavailable + StoreFull + QueueFull;
+}
+
 public sealed class BrokerException(string code, string message) : Exception(message)
 {
     public string Code { get; } = code;

@@ -146,7 +146,7 @@ internal sealed class WorkerSupervisor(IBrokerControlClient control, IWorkerChil
         Add("--claude-discovery", Bool(launch.Settings.ClaudeDiscovery));
         Add("--codex-peer-messages", Bool(launch.Settings.CodexPeerMessages));
         Add("--claude-peer-credentials", Bool(launch.Settings.ClaudePeerCredentials));
-        // Sent only when opted in, so the default launch contract stays the one every worker accepts.
+        // Sent only when the switch is on (the default since 1.5.0); off launches the worker in its strict default.
         if (launch.Settings.CodexUpdateTolerantDelivery) Add("--codex-update-tolerant-delivery", Bool(true));
         Add("--message-lifetime-minutes", launch.Settings.MessageLifetimeHours * 60);
     }

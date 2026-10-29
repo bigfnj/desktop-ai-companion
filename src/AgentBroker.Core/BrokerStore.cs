@@ -48,6 +48,13 @@ public sealed class BrokerStore : IDisposable
     // Notices owed but not yet admitted, by notice ID, each holding its source receipt without text. A cache, never the
     // authority: RebuildOwed derives it from the durable receipts when the store opens (see WithSenderNotices).
     private Dictionary<Guid, MessageReceipt> owed = new();
+    // Owed notices dropped since the store opened (N-agentbroker-notice-loss-signal-01), counted only once the commit that
+    // dropped them has written, as owed itself changes. Bounded: three counters and a time.
+    private NoticeDrops noticeDrops = new(0, 0, 0, null);
+    // Why each owed notice was last refused admission. The drop is counted under this reason, not the one at the moment
+    // of the drop: the commit that drops a notice is the one that prunes its source, which can free the very slot that
+    // kept it out. Trimmed to the owed set after each written commit, so it is bounded by owed.
+    private readonly Dictionary<Guid, string> owedRefusal = new();
     // A tombstone line stays far below this: two 160-character session IDs at six escaped bytes a character, plus
     // fixed-size fields. A longer line is corruption, never a record.
     private const int MaximumJournalLineBytes = 4096;
@@ -182,6 +189,9 @@ public sealed class BrokerStore : IDisposable
                 ? s with { Activity = SessionActivity.Unknown } : s).ToArray();
         }
     }
+
+    // What Status says about notices that never reached their sender (see WithSenderNotices).
+    public NoticeDrops DroppedNotices() { lock (gate) { EnsureOpen(); return noticeDrops; } }
 
     public IReadOnlyList<BrokerSession> Directory(bool forPeer = false)
     {
@@ -781,7 +791,7 @@ public sealed class BrokerStore : IDisposable
     }
     private void Commit(State next)
     {
-        (next, var owing) = WithSenderNotices(next);
+        (next, var owing, var dropped) = WithSenderNotices(next);
         // A Delivered or Refused message this broker sent leaves the snapshot as a tombstone. The tombstone is appended
         // durably FIRST: a crash between the two writes leaves the message in both files, the snapshot wins at load,
         // and the worst outcome is an acknowledgement the recipient repeats. The other order could lose both.
@@ -799,6 +809,8 @@ public sealed class BrokerStore : IDisposable
             ReplaceFile(temporary, path);
             state = next;
             if (owing is not null) owed = owing;
+            if (dropped is not null) noticeDrops = dropped;
+            foreach (var id in owedRefusal.Keys.Where(id => !owed.ContainsKey(id)).ToArray()) owedRefusal.Remove(id);
             foreach (var tombstone in added) AddTombstone(tombstone);
             // Continuations run asynchronously, so completing under gate never runs a waiter here.
             Interlocked.Exchange(ref changeSignal, NewSignal()).TrySetResult();
@@ -836,7 +848,9 @@ public sealed class BrokerStore : IDisposable
     // dropped: its sender stayed unavailable, or the store or its queue stayed full, that long. A notice always gets the maximum
     // lifetime, so it outlives its source and an acknowledged one is never recreated. The owed set changes only once the
     // commit's write has succeeded. A notice never begets a notice: its sender can never register.
-    private (State Next, Dictionary<Guid, MessageReceipt>? Owed) WithSenderNotices(State next)
+    // A notice dropped that way is counted, by why the admission check refused it at that moment, in DroppedNotices,
+    // which Status shows (N-agentbroker-notice-loss-signal-01); the third value is the new counts, or null when none.
+    private (State Next, Dictionary<Guid, MessageReceipt>? Owed, NoticeDrops? Dropped) WithSenderNotices(State next)
     {
         var open = state.Messages.Where(r => r.Status is not (MessageStatus.Delivered or MessageStatus.Refused or MessageStatus.Expired))
             .Select(r => r.Message.Id).ToHashSet();
@@ -844,7 +858,7 @@ public sealed class BrokerStore : IDisposable
         foreach (var ended in next.Messages.Where(r => r.Status is (MessageStatus.Expired or MessageStatus.Refused) &&
             open.Contains(r.Message.Id) && r.Message.Sender.BrokerId == state.BrokerId && r.Message.Sender.SessionId != NoticeSessionId))
             (owing ??= new(owed)).TryAdd(NoticeId(ended.Message.Id), Source(ended));
-        if ((owing ?? owed).Count == 0) return (next, owing);
+        if ((owing ?? owed).Count == 0) return (next, owing, null);
         owing ??= new(owed);
         // Counts are taken once per pass, so senders that are still away cost one scan and never delay one that is back.
         // Room is what this commit will leave: records keeping their text against MaximumMessages, and every record (those
@@ -857,12 +871,27 @@ public sealed class BrokerStore : IDisposable
         int withText = next.Messages.Count(r => !Tombstoned(r)), records = next.Messages.Count + tombstones.Count;
         var pending = PendingByRecipient(next.Messages);
         List<MessageReceipt>? messages = null;
+        NoticeDrops? dropped = null;
         foreach (var (id, source) in owing.OrderBy(p => p.Value.UpdatedAt).ToArray())
         {
-            // A notice is sent only while its source is retained, so it never arrives after its evidence has gone.
-            if (ids.Contains(id) || tombstones.ContainsKey(id) || source.Message.ExpiresAt + RecordGrace <= Now) { owing.Remove(id); continue; }
+            if (ids.Contains(id) || tombstones.ContainsKey(id)) { owing.Remove(id); continue; }
             var owner = source.Message.Sender;
-            if (!Admissible(owner, withText, records, pending)) continue;
+            // A notice is sent only while its source is retained, so it never arrives after its evidence has gone.
+            if (source.Message.ExpiresAt + RecordGrace <= Now)
+            {
+                owing.Remove(id);
+                var d = dropped ?? noticeDrops;
+                string reason = owedRefusal.TryGetValue(id, out var last) ? last
+                    : Refusal(owner, withText, records, pending) ?? "sender_unavailable";
+                dropped = reason switch
+                {
+                    "store_full" => d with { StoreFull = d.StoreFull + 1, LastUtc = Now },
+                    "queue_full" => d with { QueueFull = d.QueueFull + 1, LastUtc = Now },
+                    _ => d with { SenderUnavailable = d.SenderUnavailable + 1, LastUtc = Now },
+                };
+                continue;
+            }
+            if (Refusal(owner, withText, records, pending) is { } refused) { owedRefusal[id] = refused; continue; }
             // Always the maximum lifetime, never the configurable default: a source lives at most that long plus RecordGrace,
             // so the notice's record or tombstone outlives every source it could be rebuilt from, and is never recreated.
             var now = Now;
@@ -872,7 +901,7 @@ public sealed class BrokerStore : IDisposable
             pending[owner] = pending.GetValueOrDefault(owner) + 1;
             owing.Remove(id);
         }
-        return (messages is null ? next : next with { Messages = messages }, owing);
+        return (messages is null ? next : next with { Messages = messages }, owing, dropped);
     }
 
     // Every terminal message a local session sent (an Expired record, a Refused tombstone) whose notice exists in neither
@@ -900,9 +929,15 @@ public sealed class BrokerStore : IDisposable
     // The exact sender address must be addressable and able to receive, and the notice must fit every bound an ordinary
     // message must: the store's text and tombstone bounds and the recipient's pending limit.
     private bool Admissible(SessionAddress owner, int withText, int records, Dictionary<SessionAddress, int> pending) =>
-        sessions.TryGetValue(owner, out var session) && Addressable(owner) && session.Capabilities.HasFlag(SessionCapabilities.Receive) &&
-        withText < limits.MaximumMessages && records < limits.MaximumTombstones &&
-        pending.GetValueOrDefault(owner) < limits.MaximumPendingPerSession;
+        Refusal(owner, withText, records, pending) is null;
+
+    // Why a notice cannot be admitted now, or null when it can; the sender's own state is checked first.
+    private string? Refusal(SessionAddress owner, int withText, int records, Dictionary<SessionAddress, int> pending) =>
+        !sessions.TryGetValue(owner, out var session) || !Addressable(owner) || !session.Capabilities.HasFlag(SessionCapabilities.Receive)
+            ? "sender_unavailable"
+            : withText >= limits.MaximumMessages || records >= limits.MaximumTombstones ? "store_full"
+            : pending.GetValueOrDefault(owner) >= limits.MaximumPendingPerSession ? "queue_full"
+            : null;
 
     // Whether a delivery pass should commit to admit an owed notice whose sender has come back or found room.
     private bool OwedReady(List<MessageReceipt> current)

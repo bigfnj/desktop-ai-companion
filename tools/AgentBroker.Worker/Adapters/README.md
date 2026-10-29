@@ -14,7 +14,8 @@ Codex delivery needs the `codexPeerMessages` opt-in. In strict mode, the default
 admits a binding only when its router matched an exact reviewed image and every running Code-owned engine matched
 its exact extension profile. A router that fails its exact pin but passes Windows-verified publisher trust is
 observed read-only: its rows carry no capabilities, and submission refuses `codex_observation_only` before owner
-rediscovery. The separate `codexUpdateTolerantDelivery` opt-in lets such a build deliver only when every runtime
+rediscovery. The separate `codexUpdateTolerantDelivery` switch (the module's default since 1.5.0; a worker launched
+without `--codex-update-tolerant-delivery` stays strict) lets such a build deliver only when every runtime
 check in the compatibility document passes; otherwise the refusal is `unsupported_capability`. The adapter also
 checks each binding's own router trust, so a provider verdict cannot lend the exact path to a publisher-signed
 router. Native owner discovery exposes opaque client IDs rather than trusted Desktop/VS Code host-version labels.

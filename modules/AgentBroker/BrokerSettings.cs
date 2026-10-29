@@ -6,7 +6,7 @@ namespace DesktopAICompanion.AgentBroker;
 internal sealed record BrokerSettings(bool Enabled, string Name, int LoopbackPort, int LanPort,
     bool EnableLan, bool NoAuthLoopback, bool CodexDiscovery, bool ClaudeDiscovery,
     bool CodexPeerMessages, bool ClaudePeerCredentials, int MessageLifetimeHours = 24,
-    bool CodexUpdateTolerantDelivery = false)
+    bool CodexUpdateTolerantDelivery = true)
 {
     internal static BrokerSettings Read(IModuleSettings settings) => new(
         settings.GetBool("enabled", false), settings.Get("name", Environment.MachineName),
@@ -15,8 +15,9 @@ internal sealed record BrokerSettings(bool Enabled, string Name, int LoopbackPor
         settings.GetBool("codexDiscovery", true), settings.GetBool("claudeDiscovery", true),
         settings.GetBool("codexPeerMessages", false), settings.GetBool("claudePeerCredentials", false),
         settings.GetInt("messageLifetimeHours", 24),
-        // Opt-in on top of Codex delivery; strict exact pins stay the default.
-        settings.GetBool("codexUpdateTolerantDelivery", false));
+        // On by default since 1.5.0 (the owner's decision of 2026-10-29): publisher trust plus the runtime checks is the
+        // normal Codex policy once Codex delivery is on. Off is the strict mode, exact pins only.
+        settings.GetBool("codexUpdateTolerantDelivery", true));
 
     internal bool Valid => Name.Length is > 0 and <= 80 && !string.IsNullOrWhiteSpace(Name) &&
         !Name.Any(char.IsControl) && LoopbackPort is >= 1 and <= 65535 && LanPort is >= 1 and <= 65535 &&

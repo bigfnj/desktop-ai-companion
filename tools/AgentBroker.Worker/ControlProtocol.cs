@@ -35,10 +35,14 @@ public sealed record McpStatusView(bool EndpointReady, DateTimeOffset? LastSucce
 // reached the LAN listener from another private address since this worker started.
 public sealed record LanProfileView(string Category, string Rule, int RuleProfiles, DateTimeOffset? CheckedUtc,
     DateTimeOffset? LastInboundUtc);
+// Delivery notices the store dropped since the worker started, by why they could not be admitted (counts only).
+public sealed record NoticeDropView(int SenderUnavailable, int StoreFull, int QueueFull, DateTimeOffset? LastUtc);
 public sealed record BrokerSnapshot(Guid BrokerId, string Name, string LoopbackEndpoint, string? LanEndpoint,
     PeerView[] Discovered, PeerView[] Paired, PairingView[] PairingOffers, SessionView[] Sessions,
     IReadOnlyDictionary<string, string> AdapterErrors, string? CertificateSha256 = null, McpStatusView? Mcp = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] LanProfileView? Lan = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] LanProfileView? Lan = null,
+    // Absent while nothing was dropped, so that snapshot is exactly the one before this field existed.
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] NoticeDropView? DroppedNotices = null);
 public sealed record ControlRequest(string Operation, Guid Id = default, PeerView? Peer = null,
     string? SessionId = null, bool Value = false);
 public sealed record LocalConnection(string McpEndpoint, string? BearerToken);

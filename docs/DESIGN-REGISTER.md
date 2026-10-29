@@ -6458,6 +6458,21 @@ pinned 26.1007.21434, so its REVIEW items are open, and an exact pin would let t
 that today need the separate `codexUpdateTolerantDelivery` opt-in, whose accepted gaps are exactly those items. Their
 entries are drafted for a person's re-read instead.
 
+#### feature/broker-batch-2
+
+AgentBroker 1.5.0, from the owner's backlog decisions of 2026-10-29.
+
+**Update-tolerant Codex delivery is the default (the owner's decision of 2026-10-29).** `codexUpdateTolerantDelivery`
+defaults on, so once Codex delivery (`codexPeerMessages`, still off by default) is on, a publisher-verified updated
+Codex build is woken through the same runtime checks as before, without waiting for a re-pin. The owner accepts by
+default the gap `#### feature/agentbroker-backlog-b` names (what an unreviewed build does not re-prove: settings
+inheritance, the double idle check, the busy error's meaning, unsigned extension JavaScript), which is what that
+section's "why the switch is off by default" referred to. Turning the switch off is the strict mode, exact pins only.
+The status line still names the mode and the failed pin on every pass. The worker's own default stays strict: the
+module passes `--codex-update-tolerant-delivery true` while the switch is on, and a worker started without it (by hand)
+admits exact pins only. An install that has saved the AgentBroker pane keeps the value it saved, since the pane saves
+every switch; one that never saved it gets the new default. Claude is unchanged: it has no update-tolerant mode.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

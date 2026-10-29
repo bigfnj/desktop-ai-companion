@@ -62,13 +62,14 @@ public sealed partial class AgentBrokerModule
             WorkerSupervisor.AddArguments(start, launch);
             Check(start.ArgumentList.Contains("--parent-start") && start.ArgumentList.Contains("--codex-peer-messages") &&
                 !start.ArgumentList.Contains("--codex-mcp-app-source"), "worker args bounded typed values no fake app ID");
-            Check(defaults["codexUpdateTolerantDelivery"] == "false" && !start.ArgumentList.Contains("--codex-update-tolerant-delivery"),
-                "update-tolerant Codex delivery defaults off and stays out of the default worker launch");
-            var tolerantStart = new ProcessStartInfo("synthetic.exe");
-            WorkerSupervisor.AddArguments(tolerantStart, launch with { Settings = launch.Settings with { CodexUpdateTolerantDelivery = true } });
-            int tolerantFlag = tolerantStart.ArgumentList.IndexOf("--codex-update-tolerant-delivery");
-            Check(tolerantFlag >= 0 && tolerantStart.ArgumentList[tolerantFlag + 1] == "true",
-                "WITNESS: an explicit update-tolerant Codex opt-in reaches the worker launch");
+            // 1.5.0 (the owner's decision of 2026-10-29): update-tolerant Codex delivery is the default; off is strict.
+            int tolerantFlag = start.ArgumentList.IndexOf("--codex-update-tolerant-delivery");
+            Check(defaults["codexUpdateTolerantDelivery"] == "true" && tolerantFlag >= 0 && start.ArgumentList[tolerantFlag + 1] == "true",
+                "update-tolerant Codex delivery defaults on and reaches the default worker launch");
+            var strictStart = new ProcessStartInfo("synthetic.exe");
+            WorkerSupervisor.AddArguments(strictStart, launch with { Settings = launch.Settings with { CodexUpdateTolerantDelivery = false } });
+            Check(!strictStart.ArgumentList.Contains("--codex-update-tolerant-delivery"),
+                "WITNESS: strict mode (the switch off) keeps the flag out of the worker launch, so the worker admits exact pins only");
 
             var peer = new PeerView(Guid.NewGuid(), "Peer&\nName" + new string('P', 70), "https://example.invalid:7433", new string('A', 64));
             var session = new SessionView("synthetic-session", Guid.NewGuid(), "Synthetic", "codex", "Unknown", false, false, false, false);
@@ -112,6 +113,18 @@ public sealed partial class AgentBrokerModule
             Pump(() => !module.discoveryPromptOpen, dispatcher);
             Check(control.Requests.Count == beforeDiscovery, "unanswered discovery never creates a pairing request");
             module.ApplyStatus(new(true, false, "standby", view with { PairingOffers = [] }));
+
+            // N-agentbroker-notice-loss-signal-01 (1.5.0): dropped notices reach Status as counts by reason, naming nothing.
+            module.ApplyStatus(new(true, false, "standby", view with { PairingOffers = [], DroppedNotices = new(2, 0, 1, DateTimeOffset.UtcNow) }));
+            string dropStatus = pane.Load()["status"];
+            Check(dropStatus.Contains("Since the broker started, 3 delivery notices were dropped undelivered (2 while the sender " +
+                "was away, 1 while the sender's queue was full).", StringComparison.Ordinal), "Status counts dropped delivery notices by reason: " + dropStatus);
+            Check(AgentBrokerModule.NoticeDropText(new(0, 1, 0, null)) ==
+                " Since the broker started, 1 delivery notice was dropped undelivered (1 while the store was full).",
+                "one dropped notice reads in the singular and names the store");
+            module.ApplyStatus(new(true, false, "standby", view with { PairingOffers = [] }));
+            Check(!pane.Load()["status"].Contains("delivery notice", StringComparison.Ordinal),
+                "WITNESS: a snapshot with nothing dropped says nothing about notices");
 
             Check(pane.Load()["manualPeer"] == "", "broker invitation is not persisted");
             Check(module.PairInvitationAsync(new Dictionary<string, string> { ["manualPeer"] = "{" }).GetAwaiter().GetResult()

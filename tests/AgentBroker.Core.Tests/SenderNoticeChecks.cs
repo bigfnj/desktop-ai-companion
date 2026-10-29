@@ -239,6 +239,29 @@ internal static class SenderNoticeChecks
             store.Accept(Message(recipient, sender, clock, TimeSpan.FromMinutes(30)), store.BrokerId);
             store.BeginDelivery();
             Check(Notices(store, sender.Address).Count == 0, "NOTICE_OWED_GRACE: a notice still owed when its source is pruned is dropped, not sent late");
+            Check(store.DroppedNotices() is { SenderUnavailable: 1, StoreFull: 0, QueueFull: 0, LastUtc: not null },
+                "NOTICE_DROP_AWAY: a notice dropped while its sender stayed away is counted under that reason (" + store.DroppedNotices() + ")");
+        }
+
+        // A notice whose sender's queue stays full until its source's retention ends is dropped and counted as such, even
+        // though the commit that drops it also expires the message that filled the queue.
+        clock = new Clock();
+        using (var jammed = new BrokerStore(Path.Combine(root, "sender-notice-queue-loss"), new(MaximumPendingPerSession: 1), clock))
+        {
+            var sender = Mailbox(jammed, clock, "jammed"); var recipient = Mailbox(jammed, clock, "jammer");
+            jammed.Register(sender); jammed.Register(recipient);
+            jammed.Accept(Message(recipient, sender, clock, TimeSpan.FromHours(24)), jammed.BrokerId);
+            var expiring = Message(sender, recipient, clock, TimeSpan.FromMinutes(1));
+            jammed.Accept(expiring, jammed.BrokerId);
+            clock.Advance(TimeSpan.FromMinutes(2));
+            jammed.Register(Renewed(sender, clock));
+            jammed.Messages(recipient.Address);   // the expiry commits; the notice is owed and refused: queue full
+            clock.Advance(TimeSpan.FromDays(1));
+            jammed.Register(Renewed(sender, clock)); jammed.Register(Renewed(recipient, clock));
+            jammed.Messages(recipient.Address);   // the commit that prunes the source
+            Check(Notices(jammed, sender.Address).Count(n => About(n, expiring)) == 0 &&
+                jammed.DroppedNotices() is { QueueFull: 1, SenderUnavailable: 0, StoreFull: 0 },
+                "NOTICE_DROP_QUEUE: a notice kept out by its sender's full queue is counted under that reason (" + jammed.DroppedNotices() + ")");
         }
 
         // A full store defers a notice until a slot frees; one still deferred when its source's retention ends is dropped,
@@ -267,6 +290,7 @@ internal static class SenderNoticeChecks
                 full.RecordRecipientReceipt(fill.Id, local.Address, full.BrokerId, MessageStatus.Delivered);
                 Check(Notices(full, sender.Address).Count(n => About(n, squeezed)) == 1,
                     "NOTICE_CAPACITY_DEFERRED: a notice deferred by a full store is admitted once a slot frees");
+                Check(full.DroppedNotices().Total == 0, "WITNESS NOTICE_DROP_NONE: an admitted notice is never counted as dropped");
                 continue;
             }
             clock.Advance(TimeSpan.FromDays(1));   // the source's retention ends (deadline plus one day), freeing its slot
@@ -274,6 +298,9 @@ internal static class SenderNoticeChecks
             full.BeginDelivery();
             Check(Notices(full, sender.Address).Count(n => About(n, squeezed)) == 0,
                 "NOTICE_CAPACITY_LOSS: a notice still deferred when its source's retention ends is dropped, never sent late");
+            Check(full.DroppedNotices() is { StoreFull: 1, SenderUnavailable: 0, QueueFull: 0 },
+                "NOTICE_DROP_FULL: a notice kept out by a full store is counted under that reason, though its drop frees the slot (" +
+                full.DroppedNotices() + ")");
         }
 
         // The tombstone bound counts the tombstones this very commit writes: a refusal's own tombstone plus its notice must

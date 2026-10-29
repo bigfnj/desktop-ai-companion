@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text.Json;
 using AgentBroker.Core;
+using AgentBroker.Protocol;
 using AgentBroker.Worker;
 using ModelContextProtocol;
 
@@ -20,6 +21,20 @@ internal static class FirstContactChecks
         EnvelopeChecks(check);
         await MailboxActivityChecks(check);
         await ErrorCodeChecks(check);
+        NoticeDropSnapshotChecks(check);
+    }
+
+    // N-agentbroker-notice-loss-signal-01 (1.5.0): the store's dropped-notice counts reach the module's snapshot, and a
+    // worker with nothing dropped sends the snapshot exactly as before the field existed.
+    private static void NoticeDropSnapshotChecks(Action<bool, string> check)
+    {
+        var at = DateTimeOffset.UtcNow;
+        check(LocalControlServer.DroppedNotices(new(1, 2, 3, at)) is { SenderUnavailable: 1, StoreFull: 2, QueueFull: 3 } view && view.LastUtc == at,
+            "NOTICE_DROP_SNAPSHOT: each reason's count and the last drop's time reach the snapshot");
+        var empty = new BrokerSnapshot(Guid.NewGuid(), "Synthetic", "http://127.0.0.1:7432", null, [], [], [], [],
+            new Dictionary<string, string>(), DroppedNotices: LocalControlServer.DroppedNotices(new(0, 0, 0, null)));
+        check(!JsonSerializer.Serialize(empty, ControlProtocol.Json).Contains("droppedNotices", StringComparison.OrdinalIgnoreCase),
+            "NOTICE_DROP_ABSENT: a worker with nothing dropped leaves the field out of the snapshot");
     }
 
     // N-agentbroker-mailbox-activity-01: a mailbox lists as Idle only while its owner waits; otherwise Unknown.

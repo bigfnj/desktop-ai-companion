@@ -41,7 +41,10 @@ public sealed partial class AgentBrokerModule : IModule
     {
         Id = "agentbroker",
         Name = "AgentBroker",
-        Version = "1.4.1",   // 1.4.1: backlog batch (2026-10-29). A paired broker's Expired is recorded as Refused with
+        Version = "1.5.0",   // 1.5.0: backlog batch 2 (2026-10-29). "Also wake updated Codex builds" is on by default
+                             //        (the owner's decision): publisher trust plus the runtime checks; off is strict.
+                             //        Status counts delivery notices dropped undelivered, by reason.
+                             // 1.4.1: backlog batch (2026-10-29). A paired broker's Expired is recorded as Refused with
                              //        reason peer_expired and its notice says so, instead of "refused by its recipient".
                              //        send adds a second content block when the recipient is a local mailbox that
                              //        nothing can wake; the receipt stays the first block.
