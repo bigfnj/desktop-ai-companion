@@ -41,7 +41,16 @@ public sealed partial class AgentBrokerModule : IModule
     {
         Id = "agentbroker",
         Name = "AgentBroker",
-        Version = "1.5.0",   // 1.5.0: backlog batch 2 (2026-10-29). "Also wake updated Codex builds" is on by default
+        Version = "1.6.0",   // 1.6.0: backlog batch 3 (2026-10-29). A Codex check the broker could not complete (an
+                             //        engine read failing under load, or the owner connection dropped) defers as
+                             //        native_verification_unavailable instead of refusing; a missing capability or a
+                             //        verified mismatch is still refused. Adapters renew independently and one slow
+                             //        Codex owner lookup skips only its own row. A worker start reads about half as
+                             //        much for Codex verification; tombstones share addresses (44% less heap); a wait
+                             //        reads only Accepted incoming records. The collaboration helper can send as the
+                             //        calling Codex agent's own codex:<CODEX_THREAD_ID> row. The Client connection
+                             //        text says a session started while the broker was down must reconnect its MCP.
+                             // 1.5.0: backlog batch 2 (2026-10-29). "Also wake updated Codex builds" is on by default
                              //        (the owner's decision): publisher trust plus the runtime checks; off is strict.
                              //        Status counts delivery notices dropped undelivered, by reason.
                              // 1.4.1: backlog batch (2026-10-29). A paired broker's Expired is recorded as Refused with
