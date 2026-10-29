@@ -14829,6 +14829,27 @@ CASES = (
      None, None,
      MODULE_SELFTESTS, None,
      "remembrance : the real Documents\\Remembrance changed during its self-test"),
+    # N-modules-small-01: a torn replace whose backup cannot be moved back is a pack the batch could not undo, counted,
+    # and the batch's verdict says its rollback could not be verified.
+    ('modules-fixes: fortunes: a torn replace that cannot be put back is swallowed again',
+     FORTUNE_IMPORTER,
+     b'            catch (Exception ex)\n'
+     b'            {\n'
+     b'                if (report != null) report.RollbackNotUndone(ex);\n'
+     b'                return false;\n',
+     b'            catch (Exception)\n'
+     b'            {\n'
+     b'                return false;\n',
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a torn replace whose backup cannot be moved back is counted as a pack not undone"),
+    ('modules-fixes: fortunes: the batch verdict ignores a pack not undone',
+     FORTUNE_IMPORTER,
+     b'                            result) && result.RollbackFailed == 0;\n',
+     b'                            result);\n',
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "...and the batch says its rollback could not be fully verified"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
