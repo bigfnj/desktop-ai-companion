@@ -208,9 +208,11 @@ WITNESSES = (
     ),)),
     # ---- lane feature/agentbroker-backlog-b ----
     # Codex observation-only discovery: publisher trust, protected location, router fallback, adapter guards.
+    # Re-pointed by lane feature/broker-next-160 (N-broker-b-02): the subject parse moved into the linked
+    # tools/AgentBroker.Pins/WindowsAuthenticode.cs; the organization comparison stays in this adapter's own policy.
     Witness("codex-publisher-organization", "publishertrust", "desktop", ("--codex-observation-only",), "CodexObservationChecks.cs", ((
-        "            return commonName == expectedPublisher && organization == expectedPublisher;",
-        "            return commonName == expectedPublisher;",
+        "                commonName == expectedPublisher && organization == expectedPublisher;",
+        "                commonName == expectedPublisher;",
     ),)),
     Witness("codex-protected-location-owner", "publishertrust", "desktop", ("--codex-observation-only",), "CodexObservationChecks.cs", ((
         "        if (descriptor.Owner?.Value is not (LocalSystem or TrustedInstaller) || descriptor.DiscretionaryAcl is null) return false;",

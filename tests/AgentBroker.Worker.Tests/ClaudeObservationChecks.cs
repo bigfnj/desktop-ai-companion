@@ -67,6 +67,16 @@ internal static class ClaudeObservationChecks
         })
             check(!WindowsClaudePublicImageTrust.IsExpectedPublisher(new X500DistinguishedName(subject)),
                 "Claude signer policy: wrong, incomplete, substring or duplicate publisher attributes refuse");
+        // N-broker-b-02: the shared subject parse throws on malformed DER, and this policy lets it reach Observe, whose catch
+        // reads it as Unavailable; the Codex adapter's policy reads the same bytes as an unexpected publisher. Both are kept
+        // as they were before the WinVerifyTrust code moved into tools/AgentBroker.Pins/WindowsAuthenticode.cs.
+        byte[] valid = new X500DistinguishedName(@"CN=""Anthropic, PBC"", O=""Anthropic, PBC""").RawData;
+        bool malformedThrew = false;
+        try { _ = WindowsClaudePublicImageTrust.IsExpectedPublisher(new X500DistinguishedName([.. valid, 0x00])); }
+        catch (System.Formats.Asn1.AsnContentException) { malformedThrew = true; }
+        check(malformedThrew, "Claude signer policy: a malformed subject throws to Observe (Unavailable), not an unexpected publisher");
+        check(WindowsClaudePublicImageTrust.IsExpectedPublisher(new X500DistinguishedName(valid)),
+            "Claude signer policy: WITNESS the same subject without the trailing byte is the expected publisher");
     }
 
     private static async Task SignedObservationAsync(Action<bool, string> check)

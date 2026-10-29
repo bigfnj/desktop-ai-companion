@@ -98,6 +98,16 @@ internal static class CodexObservationChecks
         })
             check(!WindowsPublisherImageTrust.IsExpectedPublisher(new X500DistinguishedName(subject), openAI),
                 File + "OpenAI signer policy: wrong, incomplete, substring, duplicate or other-vendor attributes refuse");
+        // N-broker-b-02: the shared subject parse throws on malformed DER; this policy reads it as an unexpected publisher
+        // (the worker's Claude policy reads the same bytes as Unavailable). Both kept as they were before the move into
+        // tools/AgentBroker.Pins/WindowsAuthenticode.cs.
+        byte[] valid = new X500DistinguishedName(@"CN=""OpenAI OpCo, LLC"", O=""OpenAI OpCo, LLC""").RawData;
+        bool malformedRefused;
+        try { malformedRefused = !WindowsPublisherImageTrust.IsExpectedPublisher(new X500DistinguishedName([.. valid, 0x00]), openAI); }
+        catch (System.Formats.Asn1.AsnContentException) { malformedRefused = false; }
+        check(malformedRefused, File + "OpenAI signer policy: a malformed subject refuses as an unexpected publisher and never throws");
+        check(WindowsPublisherImageTrust.IsExpectedPublisher(new X500DistinguishedName(valid), openAI),
+            File + "WITNESS: the same subject without the trailing byte is the expected publisher");
     }
 
     private static void ProtectedDescriptors(Action<bool, string> check)

@@ -6473,6 +6473,19 @@ module passes `--codex-update-tolerant-delivery true` while the switch is on, an
 admits exact pins only. An install that has saved the AgentBroker pane keeps the value it saved, since the pane saves
 every switch; one that never saved it gets the new default. Claude is unchanged: it has no update-tolerant mode.
 
+#### feature/broker-next-160
+
+AgentBroker 1.6.0, the 2026-10-29 evening campaign's broker lane.
+
+**A malformed signer subject reads differently for Claude and for Codex, on purpose (N-broker-b-02).** The WinVerifyTrust
+call, the signer-subject parse and the held-path check now live once, in `tools/AgentBroker.Pins/WindowsAuthenticode.cs`,
+compiled as linked source into the Codex desktop adapter and the worker (no shared project fits: AgentBroker.Core is not a
+Windows target). The parse throws on malformed DER and each wrapper keeps the reading it had before the move: the Codex
+check refuses it as `UnexpectedPublisher`, and the Claude check lets the exception reach `Observe`, which reports
+`Unavailable`. Both refuse; neither grants anything. The difference is only which word a diagnostic shows, and unifying it
+would change one adapter's observable behaviour in a refactor that promised none, so it is kept and pinned by a check in
+each suite (`CodexObservationChecks.cs`, `ClaudeObservationChecks.cs`).
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of
