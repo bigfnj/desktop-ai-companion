@@ -84,11 +84,15 @@ class MutationBaselineReportTests(unittest.TestCase):
             return None, "synthetic stop after the first baseline"
 
         output = io.StringIO()
-        with (patch.object(self.harness, "build_all", return_value=(True, "")),
-              patch.object(self.harness, "selftest", side_effect=selftest),
-              patch.object(self.harness, "read", side_effect=AssertionError("no product-source read")),
-              patch.object(self.harness, "write", side_effect=AssertionError("no product-source mutation")),
-              contextlib.redirect_stdout(output)):
+        # score() checks its own Documents watch on scratch folders under RUN_TEMP before any baseline (lane
+        # modules-fixes), so this test gives it a private RUN_TEMP as the tests above do.
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(self.harness, "RUN_TEMP", directory), \
+             patch.object(self.harness, "build_all", return_value=(True, "")), \
+             patch.object(self.harness, "selftest", side_effect=selftest), \
+             patch.object(self.harness, "read", side_effect=AssertionError("no product-source read")), \
+             patch.object(self.harness, "write", side_effect=AssertionError("no product-source mutation")), \
+             contextlib.redirect_stdout(output):
             result = self.harness.score(types.SimpleNamespace(cases=[case], indices=[0]))
         self.assertEqual(result, 2)
         self.assertEqual(ran, [flag], "a selected run's first baseline is the selected case's own flag")

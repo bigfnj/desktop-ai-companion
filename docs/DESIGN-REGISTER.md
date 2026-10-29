@@ -6478,13 +6478,25 @@ every switch; one that never saved it gets the new default. Claude is unchanged:
 Module fixes of the 2026-10-29 evening campaign (Remembrance, AgentFlow, Fortunes).
 
 **The real Documents\Remembrance is watched from outside, and the installed app writing there also turns a run red.**
-`tests\Test-ModuleSelfTests.ps1` compares the folder's footprint (exists, file and folder counts, newest write time)
-before and after the remembrance run, and `tests\mutate-selftest-guards.py` around every child run, stopping on a change
-(N-remembrance-test-documents-01). Neither can tell a self-test's write from the owner's installed copy recording into
-the same folder during the run, so that also fails, and the message says it may be the cause. Accepted: the folder is
-inside OneDrive on the owner's workstation, a false stop costs a re-run, and a missed write uploads test recordings.
-The runner watches the remembrance run alone, the window in which a recording can be written; the harness watches every
-run because the host's own self-tests load modules too and the check is one folder stat.
+`tests\Test-ModuleSelfTests.ps1` watches the folder through the remembrance run, and `tests\mutate-selftest-guards.py`
+through every child run, stopping on a change (N-remembrance-test-documents-01). Neither can tell a self-test's write from
+the owner's installed copy recording into the same folder during the run, so that also fails, and the message says it may
+be the cause. Accepted: the folder is inside OneDrive on the owner's workstation, a false stop costs a re-run, and a missed
+write uploads test recordings. The runner watches the remembrance run alone, the window in which a recording can be
+written; the harness watches every run because the host's own self-tests load modules too.
+
+**Events first, the listing second, and a watch that could not see everything is a failure.** The first cut compared a
+footprint (exists, counts, newest write time) before and after, and a review on 2026-10-29 proved it blind: a run that
+creates the folder, writes and deletes reads "absent" both times, and an overwrite under a future-dated file moves
+neither the counts nor the newest time. Both runners now arm a change watch before the child starts (on Documents, not
+recursive, for the folder's own creation, deletion or rename; inside the folder, recursive, when it exists) and any event
+latches. A watcher error or a change queue that overflowed fails the watch rather than passing it, and so does a listing
+that could not be read whole: two partial listings that agree prove nothing. The listing stays as the second check, with
+a signature over each entry's path, size and write time. Each runner checks its own watch on scratch folders before every
+run, with the two inputs the footprint missed and a subfolder whose listing is denied. The PowerShell runner uses
+FileSystemWatcher, which delivers on the thread pool, so it reads one second after the child exits, and its self-check
+reads its own writes through that same wait. The Python harness needs no thread: the kernel queues changes from the
+first ReadDirectoryChangesW on, so draining after the child exits sees them all.
 
 **The swap mutants re-point a swap, they do not delete it.** The cases that prove SelfTest's two seam swaps point each
 at another folder inside the run's scratch. Deleting a swap would send any capture that falls back to the default into
