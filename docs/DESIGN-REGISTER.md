@@ -6538,6 +6538,14 @@ relative path is resolved as before; only the blank default is refused here.
 one forced sub-test after the real fourteen. The call site sees only the verdict, and the probe would then run the
 whole importer suite twice more on every Fortunes self-test.
 
+**The pet's Form.TopMost flag no longer follows its stand-down (N-host-fixes-02).** The two stand-down changes are one
+SetWindowPos with SWP_NOACTIVATE each, as the bubble's, decided by the window's own WS_EX_TOPMOST bit, so `pet.TopMost`
+can read true while a stood-down pet is not topmost; that is not a defect. Unlike the bubble, the pet still writes
+Form.TopMost elsewhere (Play, a grab, the per-animation raise, StartUp.TopMostSheeps), so a field of the stand-down's own
+would go stale. What is left: WinForms' SetVisibleCore focuses a TopMost form it shows, so a pet HIDDEN by a stand-down
+is focused as it comes back, where before the setter's call activated it a line later (one activation either way on
+that path; none now on the others). Closing that means taking the pet off Form.TopMost everywhere, as the bubble was.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

@@ -15102,6 +15102,32 @@ CASES = (
      FORTUNES_CSPROJ, FORTUNES_DLL,
      "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
      "importer self-test scratch: a run whose suite fails reports failure, keeps that run's scratch and names it"),
+
+    # N-host-fixes-02: the pet's stand-down z-order, graded by --hardening-selftest through its seam. No mutant here makes
+    # a real activating call: the seam makes the real call only when SWP_NOACTIVATE is among the flags, and the clear-branch
+    # mutant writes Form.TopMost on a form that has no window, where the setter makes no call at all. The blocked branch and
+    # the call's own flags are tests/mutate-hardening-guards.py's ("followups: 1029: host: ...").
+    ('followups: 1029: host: the pet\'s stand-down z-order may activate it',
+     os.path.join(REPO, "src", "dotNet", "FormCompanion.cs"),
+     b'        internal const uint StandDownZOrderFlags = FormSpeech.SwpNoMove | FormSpeech.SwpNoSize | FormSpeech.SwpNoActivate;\n',
+     b'        internal const uint StandDownZOrderFlags = FormSpeech.SwpNoMove | FormSpeech.SwpNoSize;\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "pet stand-down: five blocked ticks are one change below the topmost band that does not activate"),
+    ('followups: 1029: host: the pet re-applies its stand-down on every tick',
+     os.path.join(REPO, "src", "dotNet", "FormCompanion.cs"),
+     b'            return standDown == topMostNow;\n',
+     b'            return true;\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "pet stand-down: five blocked ticks are one change below the topmost band that does not activate"),
+    ('followups: 1029: host: the pet comes back from a stand-down through Form.TopMost again (runtime)',
+     os.path.join(REPO, "src", "dotNet", "FormCompanion.cs"),
+     b'                ApplyStandDownZOrder(false);   // back to the top of the topmost band, without activating\n',
+     b'                if (!TopMost) TopMost = true;\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "pet stand-down: leaving it clears the marker and never writes Form.TopMost"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
