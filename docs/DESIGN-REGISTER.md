@@ -6671,12 +6671,55 @@ Form.TopMost elsewhere (Play, a grab, the per-animation raise, StartUp.TopMostSh
 would go stale. What is left: WinForms' SetVisibleCore focuses a TopMost form it shows, so a pet HIDDEN by a stand-down
 is focused as it comes back, where before the setter's call activated it a line later (one activation either way on
 that path; none now on the others). Closing that means taking the pet off Form.TopMost everywhere, as the bubble was.
+(Closed by lane feature/followups2, N-followups-01, below: the pet never sets the flag now, so it reads false on every
+pet.)
 
 **A related installation with no cached package stays refused (N-installer-tests-01).** Only the error's words changed:
 `cached_package_missing` now says the recovery (an administrator restores the cached .msi to the path Windows Installer
 recorded), and docs/installer-scoped-shutdown.md says why closing such a product is refused. The installer allows
 exactly what it allowed. The text lives in `scoped_shutdown::ErrorText` (ShutdownPolicy.cpp), moved out of MsiEntry.cpp
 so the native checks read the words a user sees; MsiEntry.cpp needs msi.lib and is linked into the DLL alone.
+
+#### feature/followups2
+
+Follow-ups of the 2026-10-29 evening campaign (lane followups2) to lane followups and to the two Codex reviews.
+
+**The pet is off Form.TopMost everywhere (N-followups-01).** Every topmost write (Play's spawn, the per-animation raise,
+a grab, the tray click's TopMostSheeps) goes through `FormCompanion.ApplyTopMost`, and the stand-down through
+`ApplyStandDownZOrder`; both end in `ApplyZOrder`, one SetWindowPos with SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE. The
+window is topmost by its own style (CreateParams, while the `_topMost` policy says so) and the Designer no longer sets the
+flag, so `pet.TopMost` reads false on every pet, topmost or not; that is not a defect. Two things that look like waste
+are kept on purpose. `ApplyTopMost` calls SetWindowPos even when the window is topmost already, because each call is a
+RAISE (to the top of the band) as the setter's was, and the per-animation raise and the tray click exist to put the pet
+back over windows that came up since; only the stand-down skips an unchanged state, since it runs on every blocked tick.
+And a grab still makes the setter's two calls in its order (below the band, then back), so the z-order it leaves is the
+one it left. Refused: WS_EX_NOACTIVATE on the root pet, which its children have. It changes whether a click activates
+the pet at all, and its effect on a programmatic SetWindowPos is not documented, which is why the bubble refused it.
+
+**A Remembrance storage location that is not a full path is refused, never resolved (N-followups-02).** The pane's Apply
+refuses the WHOLE Apply when the typed location has no drive or share ("Recordings", "\Recordings", "C:Recordings"):
+nothing is saved, the box keeps what was typed, and the Status line at the top of the pane says why (the host's dialog
+only says the settings could not be saved), the shape the sign-in token's and the cloud key's refusals have. One saved
+before that, or by hand, is refused by the CaptureStore constructor at every capture, snapshot, purge and rename, and the
+purge, the Older recordings line, its button, the follow-up's newest summary and the earlier-roots list leave it alone.
+Refused: resolving it against a stated base (the data root, or Documents), for the reason the blank default refuses to fall
+back: a folder the user never chose. Refused too: saving the rest of the Apply and dropping only the location, which would
+leave the pane showing a value nothing saved.
+
+**A module marker that cannot be probed is unreadable, and so is a directory at its path (N-codex-review-01).** Both
+markers' ReadIds open the file and treat only FileNotFound and DirectoryNotFound as no marker. A directory where
+pending-module-removals.txt or pending-module-updates.txt should be therefore reads as unreadable, not as no marker: a
+launch removes and sweeps nothing and says so, and a mark or an Unmark throws. That is the fail-closed answer, not a
+regression; the RA-296 checks that used a directory as an unwritable marker use a read-only marker file now.
+
+**The scoped shutdown's cached-package identity is bound to the database it reads (N-codex-review-02, CLOSED-VERIFIED).**
+`ScopedPackage` canonicalises the registered LocalPackage, releases that handle and opens the same NAME with
+MsiOpenDatabaseW, but ProductCode, UpgradeCode, the capability marker and the Wix4CloseApplication table are all read
+through the handle that open returned, so a file replaced in between has to carry the registration's ProductCode and
+UpgradeCode to pass, and is then the package Windows Installer itself runs for that product's maintenance. What the
+interval leaves is only Canonical's reparse-point check, in %WINDIR%\Installer, which only Administrators and SYSTEM can
+write (Everyone has read and execute). Binding the open to Canonical's handle is not offered by MsiOpenDatabaseW, which
+takes a path. The reasoning is at the call site in MsiEntry.cpp.
 
 ## Known ABI gaps
 

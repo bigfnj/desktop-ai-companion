@@ -122,6 +122,11 @@ scoped_shutdown::Context ContextFor(MSIHANDLE install) {
         std::wstring cached;
         if (!ProductProperty(product, caller.userSid, INSTALLPROPERTY_LOCALPACKAGE, cached) || cached.empty())
             throw Failure("cached_package_metadata_unavailable");
+        // The identity ScopedPackage checks IS the database it reads: ProductCode, UpgradeCode, the capability marker and
+        // the legacy table are all queried through the one handle MsiOpenDatabaseW returns there, so a cache file replaced
+        // after Canonical released its own handle has to carry this registration's ProductCode and UpgradeCode to pass,
+        // and is then the package Windows Installer itself runs for the product. What that interval leaves is Canonical's
+        // reparse check, in a cache folder only administrators and SYSTEM can write (N-codex-review-02).
         context.legacyTransition |= !ScopedPackage(cached, product, upgrade);
         auto image = scoped_shutdown::CanonicalDirectory(location) + L"\\DesktopAICompanion.exe";
         if (std::find(context.installedImages.begin(), context.installedImages.end(), image) == context.installedImages.end())
