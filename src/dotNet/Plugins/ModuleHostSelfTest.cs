@@ -118,6 +118,7 @@ namespace DesktopAICompanion.Plugins
                 ok &= PendingRemovalRetry(sb);
                 // ---- lane feature/followups2 ----
                 ok &= UnprobeableMarkers(sb);
+                ok &= EmptiedUnprobeableMarker(sb);
                 ok &= InitRollback(sb, modulesRoot);
                 ok &= RefusalKeyedByFolder(sb, modulesRoot, scratch);
                 ok &= SelfTestFinder(sb);
@@ -479,6 +480,93 @@ namespace DesktopAICompanion.Plugins
             {
                 ok = false;
                 sb.AppendLine("EXC (unprobeable markers): " + ex.GetType().Name + ": " + ex.Message);
+            }
+            finally
+            {
+                if (denyRule != null && deniedInfo != null)
+                {
+                    try
+                    {
+                        System.Security.AccessControl.DirectorySecurity restore = FileSystemAclExtensions.GetAccessControl(deniedInfo);
+                        restore.RemoveAccessRule(denyRule);
+                        FileSystemAclExtensions.SetAccessControl(deniedInfo, restore);
+                    }
+                    catch (Exception restoreFailure) { sb.AppendLine("NOTE: the scratch folder's deny could not be lifted (" + restoreFailure.GetType().Name + ")"); }
+                }
+                string releaseDetail;
+                if (!SelfTestScratch.TryRelease(root, out releaseDetail))
+                    sb.AppendLine("NOTE: scratch left for the next sweep (" + releaseDetail + ")");
+            }
+            return ok;
+        }
+
+        /// <summary>
+        /// AN EMPTIED MARKER THIS ACCOUNT CANNOT PROBE IS DELETED OR REFUSED, NEVER LEFT IN SILENCE (N-followups2-01, the
+        /// write half of N-codex-review-01). WriteIds deleted an emptied removal marker only after File.Exists, which answers
+        /// false for a file whose attributes are refused, so the marker stayed, still naming the uninstalls just finished,
+        /// and the call returned as if it had deleted it. The same deny as UnprobeableMarkers (read-data and read-attributes
+        /// on a scratch folder this process owns, lifted in finally); the WITNESS proves the probe is defeated first. The
+        /// delete itself may succeed or be refused on this box; either is an answer, and only the quiet return is wrong.
+        /// </summary>
+        private static bool EmptiedUnprobeableMarker(StringBuilder sb)
+        {
+            string root = SelfTestScratch.Create("module-marker-emptied");
+            bool ok = true;
+            DirectoryInfo deniedInfo = null;
+            System.Security.AccessControl.FileSystemAccessRule denyRule = null;
+            try
+            {
+                string denied = Path.Combine(root, "denied");
+                Directory.CreateDirectory(denied);
+                string removalMarker = Path.Combine(denied, "pending-module-removals.txt");
+                File.WriteAllLines(removalMarker, new[] { "finished" });
+                bool existedBefore = File.Exists(removalMarker);
+                bool aclApplied = false;
+                try
+                {
+                    deniedInfo = new DirectoryInfo(denied);
+                    System.Security.AccessControl.DirectorySecurity acl = FileSystemAclExtensions.GetAccessControl(deniedInfo);
+                    denyRule = new System.Security.AccessControl.FileSystemAccessRule(
+                        System.Security.Principal.WindowsIdentity.GetCurrent().User,
+                        System.Security.AccessControl.FileSystemRights.ReadData | System.Security.AccessControl.FileSystemRights.ReadAttributes,
+                        System.Security.AccessControl.InheritanceFlags.ContainerInherit | System.Security.AccessControl.InheritanceFlags.ObjectInherit,
+                        System.Security.AccessControl.PropagationFlags.None,
+                        System.Security.AccessControl.AccessControlType.Deny);
+                    acl.AddAccessRule(denyRule);
+                    FileSystemAclExtensions.SetAccessControl(deniedInfo, acl);
+                    aclApplied = true;
+                }
+                catch (Exception aclException)
+                {
+                    denyRule = null;
+                    sb.AppendLine("NOTE: DEGRADED: this account could not be denied a scratch folder's read access (" +
+                        aclException.GetType().Name + "), so an emptied marker that cannot be probed was NOT exercised");
+                }
+                if (aclApplied)
+                {
+                    bool probeDefeated = !File.Exists(removalMarker);
+                    string outcome;
+                    try { PendingModuleRemovals.WriteIds(removalMarker, new string[0]); outcome = "returned"; }
+                    catch (UnauthorizedAccessException) { outcome = "refused"; }
+                    catch (IOException) { outcome = "refused"; }
+
+                    System.Security.AccessControl.DirectorySecurity lifted = FileSystemAclExtensions.GetAccessControl(deniedInfo);
+                    lifted.RemoveAccessRule(denyRule);
+                    FileSystemAclExtensions.SetAccessControl(deniedInfo, lifted);
+                    denyRule = null;
+                    bool stillThere = File.Exists(removalMarker);
+
+                    ok &= Check(sb, "marker: WITNESS an emptied removal marker in a folder that refuses this account its attributes is there, yet File.Exists answers false",
+                        existedBefore && probeDefeated);
+                    ok &= Check(sb, "removal: emptying a removal marker this account cannot probe deletes it or throws, never returns with it in place (" +
+                        outcome + ", " + (stillThere ? "marker kept" : "marker gone") + ")",
+                        (outcome == "returned" && !stillThere) || (outcome == "refused" && stillThere));
+                }
+            }
+            catch (Exception ex)
+            {
+                ok = false;
+                sb.AppendLine("EXC (emptied unprobeable marker): " + ex.GetType().Name + ": " + ex.Message);
             }
             finally
             {

@@ -2753,11 +2753,22 @@ CASES = (
     # RA-296: the removal marker's write swallows again, so a marker that cannot be written is silent success.
     ("burn/host-shell: a failed removal-marker write is swallowed again",
      PENDING_REMOVALS,
-     b"            if (kept.Count == 0) { if (File.Exists(markerPath)) File.Delete(markerPath); return; }\n"
+    # (Re-pointed by N-followups2-01, which dropped the File.Exists before the delete.)
+     b"            if (kept.Count == 0)\n"
+     b"            {\n"
+     b"                try { File.Delete(markerPath); }\n"
+     b"                catch (DirectoryNotFoundException) { }\n"
+     b"                return;\n"
+     b"            }\n"
      b"            File.WriteAllLines(markerPath, kept, new UTF8Encoding(false));\n",
      b"            try\n"
      b"            {\n"
-     b"                if (kept.Count == 0) { if (File.Exists(markerPath)) File.Delete(markerPath); return; }\n"
+     b"                if (kept.Count == 0)\n"
+     b"                {\n"
+     b"                    try { File.Delete(markerPath); }\n"
+     b"                    catch (DirectoryNotFoundException) { }\n"
+     b"                    return;\n"
+     b"                }\n"
      b"                File.WriteAllLines(markerPath, kept, new UTF8Encoding(false));\n"
      b"            }\n"
      b"            catch { }\n",
@@ -15647,6 +15658,15 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--module-host-selftest", "dp-module-host-selftest.txt",
      "update: a launch whose update marker cannot be probed sweeps nothing, so a marked payload past the age limit survives"),
+    # N-followups2-01, the write half: WriteIds deletes an emptied removal marker only after File.Exists again, so a
+    # marker this account cannot probe stays in place and the call returns as if it had deleted it.
+    ("coordinator-1029: host: an emptied removal marker is deleted only after File.Exists again",
+     PENDING_REMOVALS,
+     b"                try { File.Delete(markerPath); }\n",
+     b"                try { if (File.Exists(markerPath)) File.Delete(markerPath); }\n",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "removal: emptying a removal marker this account cannot probe deletes it or throws, never returns with it in place"),
 
     # N-followups-01: the pet off Form.TopMost, graded by --hardening-selftest through FormCompanion's z-order seam. No
     # mutant here makes a real activating call: the Designer mutant fails the flag check BEFORE any pet window is made (the

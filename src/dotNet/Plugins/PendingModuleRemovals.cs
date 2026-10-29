@@ -233,12 +233,22 @@ namespace DesktopAICompanion.Plugins
         }
 
         /// <summary>Write the id list, or delete the marker when it is empty. THROWS on a failed write or
-        /// delete (RA-296): the callers that face the user report it, the launch path catches and logs.</summary>
-        private static void WriteIds(string markerPath, IEnumerable<string> ids)
+        /// delete (RA-296): the callers that face the user report it, the launch path catches and logs.
+        ///
+        /// The delete is NOT guarded by File.Exists (N-followups2-01, the write half of N-codex-review-01): a probe this
+        /// account is refused answers false, so an emptied marker it could not probe stayed, naming uninstalls already
+        /// finished, and nothing said so. File.Delete of a file that is not there is already a no-op; only a missing
+        /// folder is "already gone", and every other failure throws to the callers above.</summary>
+        internal static void WriteIds(string markerPath, IEnumerable<string> ids)
         {
             var kept = new List<string>();
             foreach (string id in ids) if (!string.IsNullOrWhiteSpace(id)) kept.Add(id.Trim());
-            if (kept.Count == 0) { if (File.Exists(markerPath)) File.Delete(markerPath); return; }
+            if (kept.Count == 0)
+            {
+                try { File.Delete(markerPath); }
+                catch (DirectoryNotFoundException) { }
+                return;
+            }
             File.WriteAllLines(markerPath, kept, new UTF8Encoding(false));
         }
 
