@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using DesktopAICompanion.Modules;
 
 namespace DesktopAICompanion.RemembranceModule
@@ -41,7 +42,9 @@ namespace DesktopAICompanion.RemembranceModule
         /// <summary>
         /// The folder recordings go to now: the storage location saved; Documents\Remembrance while it is saved BLANK, which
         /// is what an Apply before 2.7.0 wrote for most installs and what "blank" has always meant; and for an install that
-        /// has never saved one, <see cref="FreshInstallRoot"/>'s folder, else Documents\Remembrance.
+        /// has never saved one, <see cref="FreshInstallRoot"/>'s folder, else Documents\Remembrance. NULL when the location
+        /// is blank or unsaved and Windows reports no Documents folder (N-modules-fixes-02): there is no folder then, and
+        /// every reader says so or skips rather than resolving a relative path (CaptureStore.NoDefaultRootReason).
         /// </summary>
         private string StorageRoot()
         {
@@ -109,6 +112,8 @@ namespace DesktopAICompanion.RemembranceModule
         private string StorageRootForCapture()
         {
             string root = StorageRoot();
+            // No folder at all (no Documents): nothing to save, and the CaptureStore built from it refuses the capture.
+            if (root == null) return null;
             if (_settings.Get("storageLocation", null) != null || SameFolder(root, DocumentsRoot())) return root;
             SetInBackground("storageLocation", root);
             string notPersisted;
@@ -128,12 +133,19 @@ namespace DesktopAICompanion.RemembranceModule
         // The storage folder's row, held so Load can set its hint (RefreshStorageHint).
         private SettingField _storageField;
 
+        /// <summary>What the storage folder's box says while blank when Windows reports no Documents folder, so blank means
+        /// nothing (N-modules-fixes-02); the Status line says why (CaptureStore.NoDefaultRootReason).</summary>
+        internal const string NoDocumentsEmptyHint = "No default here: Windows reports no Documents folder. Choose a folder";
+
         /// <summary>The storage folder box's hint while blank: the local folder's on an install whose unsaved default it is,
-        /// Documents\Remembrance's otherwise. Set by Load, before the host reads the schema.</summary>
+        /// <see cref="NoDocumentsEmptyHint"/> when blank stands for no folder, Documents\Remembrance's otherwise. Set by
+        /// Load, before the host reads the schema.</summary>
         private void RefreshStorageHint()
         {
             if (_storageField == null) return;
-            bool local = _settings.Get("storageLocation", null) == null && !SameFolder(StorageRoot(), DocumentsRoot());
+            string documents = DocumentsRoot();
+            if (documents == null) { _storageField.EmptyHint = NoDocumentsEmptyHint; return; }
+            bool local = _settings.Get("storageLocation", null) == null && !SameFolder(StorageRoot(), documents);
             _storageField.EmptyHint = local ? LocalStorageEmptyHint : StorageEmptyHint;
         }
 
@@ -564,6 +576,141 @@ namespace DesktopAICompanion.RemembranceModule
             {
                 DocumentsRoot = savedDocuments;
                 EnvironmentLookup = savedEnv;
+                try { if (Directory.Exists(scratch)) Directory.Delete(scratch, true); } catch (Exception) { }
+            }
+        }
+
+        /// <summary>
+        /// N-modules-fixes-02 (lane feature/followups): when Windows reports no Documents folder, a blank storage location
+        /// resolves to NO folder, never the relative "Remembrance" that GetFolderPath's "" used to make, and a recording is
+        /// refused with the reason on the Status line and nothing written. Both seams are pointed at exactly what production
+        /// gives a missing known folder, CaptureStore.RemembranceUnder(""), and the process's current directory at an empty
+        /// scratch folder for the duration: a relative root put back (a mutant) then records THERE, where the check sees it,
+        /// and nowhere else. A real folder through the same seams is the witness that the default still resolves.
+        /// </summary>
+        private static void SelfCheckNoDocumentsFolder(Action<string, bool> check)
+        {
+            string[] noFolder = { null, "", "   ", "Documents", @"C:Documents" };
+            check("no Documents: a known folder that names no folder gives no default root, never a relative one: " +
+                  string.Join(" | ", noFolder.Select(d => CaptureStore.RemembranceUnder(d) ?? "(none)")),
+                noFolder.All(d => CaptureStore.RemembranceUnder(d) == null));
+            check("WITNESS no Documents: a real Documents folder, a drive's or a share's, still resolves to Remembrance under it",
+                CaptureStore.RemembranceUnder(@"C:\Users\someone\Documents") == @"C:\Users\someone\Documents\Remembrance" &&
+                CaptureStore.RemembranceUnder(@"\\server\home\someone\Documents") == @"\\server\home\someone\Documents\Remembrance");
+
+            string scratch = Path.Combine(Path.GetTempPath(), "dp-remembrance-nodocs-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            string cwd = Path.Combine(scratch, "cwd");
+            string realDocuments = Path.Combine(scratch, "Documents");
+            Func<string> savedDocuments = DocumentsRoot;
+            Func<string> savedDefault = CaptureStore.DefaultRootSource;
+            string savedDirectory = Environment.CurrentDirectory;
+            try
+            {
+                Directory.CreateDirectory(cwd);
+                Directory.CreateDirectory(realDocuments);
+                Environment.CurrentDirectory = cwd;
+                Func<string> missing = delegate { return CaptureStore.RemembranceUnder(""); };
+                DocumentsRoot = missing;
+                CaptureStore.DefaultRootSource = missing;
+
+                string refused;
+                try { refused = "(not refused; its root is \"" + new CaptureStore("  ", FolderLayout.PerCapture).Root + "\")"; }
+                catch (InvalidOperationException ex) { refused = ex.Message; }
+                check("no Documents: a blank storage root with no default is refused by the store, with the reason: " + refused,
+                    refused == CaptureStore.NoDefaultRootReason);
+
+                using (new RecorderSelfCheck.FakeDevices())
+                {
+                    // Saved blank (what an Apply wrote on most installs) and never saved (a fresh install): both are the default.
+                    foreach (string saved in new[] { "", null })
+                    {
+                        string kind = saved == null ? "unsaved" : "saved blank";
+                        var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                        DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings s = host.SettingsFor(Id);
+                        if (saved != null) s.Set("storageLocation", saved);
+                        s.Set("summaryModelsCache", "alpha:1b");
+                        s.Set("whisperExe", @"c:\seeded\whisper-cli.exe");
+                        var module = new RemembranceModule();
+                        module.Init(host);
+                        try
+                        {
+                            OptionsPane pane = host.OptionsPanes[0];
+                            IReadOnlyDictionary<string, string> shown = pane.Load();
+                            SettingField box = FieldFor(pane, "storageLocation");
+                            string renamed;
+                            try
+                            {
+                                Task<string> press = module.RenameOlderForSelfTest(CopyOf(shown));
+                                renamed = press.Wait(TimeSpan.FromSeconds(10)) ? press.Result : "(no answer)";
+                            }
+                            catch (Exception ex) { renamed = "(threw " + ex.GetType().Name + ")"; }
+                            string olderLine;
+                            shown.TryGetValue(OlderRecordingsKey, out olderLine);
+                            check("no Documents (" + kind + "): the Older recordings line and its rename button say there is no folder: " +
+                                  olderLine + " / " + renamed,
+                                olderLine == CaptureStore.NoDefaultRootReason && renamed == CaptureStore.NoDefaultRootReason);
+                            string status = module.StatusLine();
+                            check("no Documents (" + kind + "): the Status line says there is no storage folder, and why: " + status,
+                                status.Contains("  |  storage: ✗ none. " + CaptureStore.NoDefaultRootReason + "  |  "));
+                            check("no Documents (" + kind + "): the blank storage box's hint says blank means no folder here: " +
+                                  (box == null ? "(no box)" : box.EmptyHint),
+                                box != null && box.EmptyHint == NoDocumentsEmptyHint);
+                            module.StartRecordingForSelfTest();
+                            CapturePaths paths = module.LastCaptureForSelfTest;
+                            if (paths != null) Thread.Sleep(80);
+                            string started = module.StatusLine();
+                            host.RaiseHostShutdown();
+                            check("no Documents (" + kind + "): a recording does not start, and the Status line says why: " +
+                                  (paths == null ? started : "recording to " + paths.Directory),
+                                paths == null && started.StartsWith("Could not start: " + CaptureStore.NoDefaultRootReason + "  |  ", StringComparison.Ordinal));
+                            check("no Documents (" + kind + "): the storage location is left as it was and no storage line is logged",
+                                s.Get("storageLocation", null) == saved &&
+                                !host.LoggedLines.Any(l => l.StartsWith(Id + ": storage", StringComparison.Ordinal)));
+                            bool ran = module.PurgeForSelfTest().Wait(TimeSpan.FromSeconds(10));
+                            List<string> purge = host.LoggedLines.Where(l => l.StartsWith(Id + ": purge", StringComparison.Ordinal)).ToList();
+                            check("no Documents (" + kind + "): the purge has no folder to walk and says nothing: " + string.Join(" | ", purge),
+                                ran && purge.Count == 0);
+                        }
+                        finally { module.Shutdown(); }
+                    }
+                    string[] written = Directory.GetFileSystemEntries(cwd);
+                    check("no Documents: nothing was written in the current directory, where a relative root resolves: " +
+                          written.Length.ToString(CultureInfo.InvariantCulture) + " entries",
+                        written.Length == 0);
+
+                    // ---- the witness: a Documents folder that exists, through the same two seams ----
+                    Func<string> present = delegate { return CaptureStore.RemembranceUnder(realDocuments); };
+                    DocumentsRoot = present;
+                    CaptureStore.DefaultRootSource = present;
+                    string expected = Path.Combine(realDocuments, "Remembrance");
+                    var realHost = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                    realHost.SettingsFor(Id).Set("storageLocation", "");
+                    realHost.SettingsFor(Id).Set("summaryModelsCache", "alpha:1b");
+                    realHost.SettingsFor(Id).Set("whisperExe", @"c:\seeded\whisper-cli.exe");
+                    var realModule = new RemembranceModule();
+                    realModule.Init(realHost);
+                    try
+                    {
+                        string realStatus = realModule.StatusLine();
+                        realModule.StartRecordingForSelfTest();
+                        CapturePaths realPaths = realModule.LastCaptureForSelfTest;
+                        Thread.Sleep(80);
+                        realHost.RaiseHostShutdown();
+                        check("WITNESS no Documents: with a Documents folder a blank location still records under Documents\\Remembrance: " +
+                              (realPaths == null ? "(no capture) " + realModule.StatusLine() : realPaths.Directory),
+                            realStatus.Contains("  |  storage: " + expected + "  |  ") && realPaths != null &&
+                            realPaths.Directory.StartsWith(expected + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
+                    }
+                    finally { realModule.Shutdown(); }
+                }
+            }
+            catch (Exception ex) { check("no Documents: the checks threw " + ex.GetType().Name + ": " + ex.Message, false); }
+            finally
+            {
+                try { Environment.CurrentDirectory = savedDirectory; } catch (Exception) { }
+                DocumentsRoot = savedDocuments;
+                CaptureStore.DefaultRootSource = savedDefault;
+                ClearReadOnly(scratch);
                 try { if (Directory.Exists(scratch)) Directory.Delete(scratch, true); } catch (Exception) { }
             }
         }

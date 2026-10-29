@@ -1114,20 +1114,7 @@ namespace DesktopAICompanion.Ai
             try
             {
                 Directory.CreateDirectory(root);
-                ok = TestPerFileBoundary(root, output) && ok;
-                ok = TestAggregateBoundary(root, output) && ok;
-                ok = TestReplacementAwareBatch(root, output) && ok;
-                ok = TestPortableReplacementFallback(root, output) && ok;
-                ok = TestClassicMaxPathInternalFiles(root, output) && ok;
-                ok = TestFileCountBoundary(root, output) && ok;
-                ok = TestEntryBoundary(root, output) && ok;
-                ok = TestContentAndNameRejections(root, output) && ok;
-                ok = TestDuplicateNames(root, output) && ok;
-                ok = TestLaterCandidateAfterAggregateRejection(root, output) && ok;
-                ok = TestFullDirectoryRejectsBeforeSourceOpen(root, output) && ok;
-                ok = TestReadFailurePreservesDestination(root, output) && ok;
-                ok = TestCommitFailureRollsBackBatch(root, output) && ok;
-                ok = TestCancellationCleanup(root, output) && ok;
+                ok = (SuiteForDiagnostics ?? RunSuite)(root, output);
             }
             catch (Exception ex)
             {
@@ -1140,6 +1127,39 @@ namespace DesktopAICompanion.Ai
                 ok = ReleaseSelfTestScratch(root, ok, output) && ok;
             }
             output.AppendLine("custom_import=" + (ok ? "PASS" : "FAIL"));
+            return ok;
+        }
+
+        /// <summary>
+        /// A stand-in for <see cref="RunSuite"/>, null outside the one probe check that sets it and puts it back
+        /// (N-modules-fixes-03, lane feature/followups). The call site in <see cref="RunSelfTest"/> that keeps the scratch
+        /// after a failure, <c>ReleaseSelfTestScratch(root, ok, output)</c>, was driven by no check: the helper is checked
+        /// directly, but making this suite fail meant breaking one of its fourteen sub-tests, so a mutant passing
+        /// <c>true</c> there survived. A suite that fails on demand drives it. A stand-in rather than one forced sub-test
+        /// after the real fourteen: the call site sees only the verdict, and the probe would otherwise pay for the whole
+        /// suite twice more (the failing run and its witness) on every self-test.
+        /// </summary>
+        internal static Func<string, StringBuilder, bool> SuiteForDiagnostics;
+
+        /// <summary>The fourteen sub-tests <see cref="RunSelfTest"/> runs in its scratch folder, every one whatever the
+        /// last returned.</summary>
+        private static bool RunSuite(string root, StringBuilder output)
+        {
+            bool ok = true;
+            ok = TestPerFileBoundary(root, output) && ok;
+            ok = TestAggregateBoundary(root, output) && ok;
+            ok = TestReplacementAwareBatch(root, output) && ok;
+            ok = TestPortableReplacementFallback(root, output) && ok;
+            ok = TestClassicMaxPathInternalFiles(root, output) && ok;
+            ok = TestFileCountBoundary(root, output) && ok;
+            ok = TestEntryBoundary(root, output) && ok;
+            ok = TestContentAndNameRejections(root, output) && ok;
+            ok = TestDuplicateNames(root, output) && ok;
+            ok = TestLaterCandidateAfterAggregateRejection(root, output) && ok;
+            ok = TestFullDirectoryRejectsBeforeSourceOpen(root, output) && ok;
+            ok = TestReadFailurePreservesDestination(root, output) && ok;
+            ok = TestCommitFailureRollsBackBatch(root, output) && ok;
+            ok = TestCancellationCleanup(root, output) && ok;
             return ok;
         }
 

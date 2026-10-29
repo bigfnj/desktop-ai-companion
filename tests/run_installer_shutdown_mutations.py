@@ -53,6 +53,17 @@ VARIANTS = (
      'std::wstring CanonicalCachedPackage(const std::wstring& path) { return Canonical(path, false, "cached_package_missing"); }',
      'std::wstring CanonicalCachedPackage(const std::wstring& path) { return Canonical(path, false, "installation_path_unavailable"); }',
      "a missing registered cached package is named as missing"),
+    # ---- lane feature/followups ----
+    # N-installer-tests-01: the missing cached package's setup error as it shipped, put back ahead of the new text, so it
+    # names the missing copy and says nothing about restoring it.
+    ("followups:cached-package-recovery", "paths", POLICY,
+     "    if (tag == L\"cached_package_missing\")\n"
+     "        return L\"Windows Installer's cached copy of an installed Desktop AI Companion package is missing, so setup cannot check how that version closes, \"",
+     "    if (tag == L\"cached_package_missing\")\n"
+     "        return L\"Windows Installer's cached copy of an installed Desktop AI Companion package is missing, so setup cannot check how that version closes. (\" + tag + L\")\";\n"
+     "    if (tag == L\"cached_package_missing\")\n"
+     "        return L\"Windows Installer's cached copy of an installed Desktop AI Companion package is missing, so setup cannot check how that version closes, \"",
+     "the missing cached package's error says how an administrator restores it"),
 )
 
 

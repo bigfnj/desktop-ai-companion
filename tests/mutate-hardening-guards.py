@@ -3640,6 +3640,39 @@ CASES = (
         b'            if (answer == null) word = "unanswered";\n',
         "abi180: the start question grants only behind the user's press of Allow",
     ),
+    # ---- lane feature/followups ----
+    # N-host-fixes-02: the pet's stand-down z-order, in the shapes --hardening-selftest cannot run. The blocked branch of
+    # CheckFullScreen needs a live monitor scan, and a build that makes the activating call with a window would activate one
+    # on the machine running it. Named "followups: 1029:" for one --only, as in tests/mutate-selftest-guards.py. Expected
+    # fragments are short for the console wrap noted above.
+    (
+        "followups: 1029: host: the pet stands down through Form.TopMost again",
+        os.path.join(REPO, "src", "dotNet", "FormCompanion.cs"),
+        b"            ApplyStandDownZOrder(true);\n",
+        b"            if (TopMost) TopMost = false;\n",
+        "followups: the pet stands down and comes back",
+    ),
+    (
+        "followups: 1029: host: the pet comes back from a stand-down through Form.TopMost again",
+        os.path.join(REPO, "src", "dotNet", "FormCompanion.cs"),
+        b"                ApplyStandDownZOrder(false);   // back to the top of the topmost band, without activating\n",
+        b"                if (!TopMost) TopMost = true;\n",
+        "followups: the pet stands down and comes back",
+    ),
+    (
+        "followups: 1029: host: the pet's z-order call takes flags that can activate",
+        os.path.join(REPO, "src", "dotNet", "FormCompanion.cs"),
+        b"            NativeMethods.SetWindowPos(Handle, insertAfter, 0, 0, 0, 0, StandDownZOrderFlags);\n",
+        b"            NativeMethods.SetWindowPos(Handle, insertAfter, 0, 0, 0, 0, 0x0003);\n",
+        "followups: the pet's one SetWindowPos passes",
+    ),
+    (
+        "followups: 1029: host: the pet's z-order call is made on an unchanged state",
+        os.path.join(REPO, "src", "dotNet", "FormCompanion.cs"),
+        b"            if (!StandDownZOrder(standDown, (DesktopWindows.ExtendedStyle(Handle) & FormSpeech.WsExTopMost) != 0, out insertAfter)) return;\n",
+        b"            StandDownZOrder(standDown, (DesktopWindows.ExtendedStyle(Handle) & FormSpeech.WsExTopMost) != 0, out insertAfter);\n",
+        "followups: the pet's one SetWindowPos passes",
+    ),
 )
 
 

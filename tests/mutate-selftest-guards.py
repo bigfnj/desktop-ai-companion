@@ -7829,11 +7829,12 @@ CASES = (
     # "delete-logging:" prefix so `--only=delete-logging:` runs the lane.
 
     # The purge's log call goes: the pass deletes and says nothing, as it shipped.
+    # Re-pointed by lane feature/followups: the line skips a storage root that is not there (N-modules-fixes-02).
     ("delete-logging: the purge's log call is removed",
      REMEMBRANCE_MODULE,
-     b"                    string purgeLine = PurgeLine(StorePurge(root, layout));\n"
+     b"                    string purgeLine = root == null ? null : PurgeLine(StorePurge(root, layout));\n"
      b"                    if (purgeLine != null) Log(purgeLine);\n",
-     b"                    StorePurge(root, layout);\n",
+     b"                    if (root != null) StorePurge(root, layout);\n",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "old files purged write exactly ONE line, with the count of each kind"),
@@ -14849,10 +14850,12 @@ CASES = (
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "scratch Documents: CaptureStore's default root, which a blank root resolves to, is this run's scratch folder"),
     # The WITNESS: the "fix" that moves the production default out of Documents instead of isolating the test.
+    # Re-pointed by lane feature/followups (N-modules-fixes-02): the known folder is read on a line of its own now, and
+    # RemembranceUnder refuses one that names no folder.
     ('modules-fixes: remembrance: the production default leaves Documents',
      CAPTURE_STORE,
-     b'            try { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "Remembrance"); }\n',
-     b'            try { return Path.Combine(Path.GetTempPath(), "Remembrance"); }\n',
+     b'            try { documents = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments); }\n',
+     b'            try { documents = Path.GetTempPath(); }\n',
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "WITNESS scratch Documents: outside the self-test both defaults are still Documents\\Remembrance"),
@@ -15381,6 +15384,107 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--module-host-selftest", "dp-module-host-selftest.txt",
      "abi180: start question: Allow on the row clears a recorded no, Revoke records one, and an uninstall forgets both"),
+    # ---- lane feature/followups ----
+    # The 2026-10-29 evening campaign's follow-ups to lanes modules-fixes, installer-tests and host-fixes. Names carry the
+    # "followups: 1029:" prefix, because lane fix/followups (2026-09, above) already holds "followups: ..." names:
+    # `--only=followups: 1029:` runs this lane alone.
+
+    # N-modules-fixes-02: a blank Remembrance storage location when Windows reports no Documents folder. The defect itself,
+    # put back first: the known folder's "" combines into the RELATIVE "Remembrance" again. The check runs with the current
+    # directory at an empty scratch folder, so this mutant's recording lands there, where the check sees it, and nowhere
+    # else; the harness's Documents watch brackets it as it does every run.
+    ('followups: 1029: remembrance: a missing Documents folder becomes the relative "Remembrance" again',
+     CAPTURE_STORE,
+     b'            if (!IsFullFolder(documents)) return null;\n',
+     b'            if (documents == null) return null;\n',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "no Documents: nothing was written in the current directory, where a relative root resolves"),
+    ('followups: 1029: remembrance: the store takes a blank root with no default',
+     CAPTURE_STORE,
+     b'                if (!IsFullFolder(fallback)) throw new InvalidOperationException(NoDefaultRootReason);\n',
+     b'',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "no Documents: a blank storage root with no default is refused by the store, with the reason"),
+    ('followups: 1029: remembrance: a capture with no storage folder saves one and says it went local',
+     os.path.join(REPO, "modules", "Remembrance", "RemembranceModule.Storage.cs"),
+     b'            if (root == null) return null;\n',
+     b'',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "no Documents (unsaved): the storage location is left as it was and no storage line is logged"),
+    ('followups: 1029: remembrance: the purge walks a storage folder that is not there',
+     REMEMBRANCE_MODULE,
+     b'                    string purgeLine = root == null ? null : PurgeLine(StorePurge(root, layout));\n',
+     b'                    string purgeLine = PurgeLine(StorePurge(root, layout));\n',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "no Documents (saved blank): the purge has no folder to walk and says nothing"),
+    ('followups: 1029: remembrance: the Status line shows a blank storage folder and no reason',
+     REMEMBRANCE_MODULE,
+     b'                + "  |  storage: " + (root == null ? ',
+     b'                + "  |  storage: " + (root == "" ? ',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "no Documents (saved blank): the Status line says there is no storage folder, and why"),
+    ('followups: 1029: remembrance: the storage box still offers Documents as the default',
+     os.path.join(REPO, "modules", "Remembrance", "RemembranceModule.Storage.cs"),
+     b'            if (documents == null) { _storageField.EmptyHint = NoDocumentsEmptyHint; return; }\n',
+     b'',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "no Documents (saved blank): the blank storage box's hint says blank means no folder here"),
+    ('followups: 1029: remembrance: the Older recordings line reads a folder that is not there',
+     os.path.join(REPO, "modules", "Remembrance", "RemembranceModule.Rename.cs"),
+     b'                if (root == null) return CaptureStore.NoDefaultRootReason;   // no folder to read (N-modules-fixes-02)\n',
+     b'',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "no Documents (saved blank): the Older recordings line and its rename button say there is no folder"),
+    ('followups: 1029: remembrance: the rename button throws on a folder that is not there',
+     os.path.join(REPO, "modules", "Remembrance", "RemembranceModule.Rename.cs"),
+     b'            if (root == null) return Task.FromResult(CaptureStore.NoDefaultRootReason);\n',
+     b'',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "no Documents (saved blank): the Older recordings line and its rename button say there is no folder"),
+
+    # N-modules-fixes-03: RunSelfTest's own call site hands the scratch helper "true" whatever the suite said, so a failed
+    # run's scratch is deleted again. Graded through the probe's stand-in suite (FortuneFileImporter.SuiteForDiagnostics).
+    ('followups: 1029: fortunes: the importer self-test call site deletes a failed run\'s scratch',
+     FORTUNE_IMPORTER,
+     b'                ok = ReleaseSelfTestScratch(root, ok, output) && ok;\n',
+     b'                ok = ReleaseSelfTestScratch(root, true, output) && ok;\n',
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "importer self-test scratch: a run whose suite fails reports failure, keeps that run's scratch and names it"),
+
+    # N-host-fixes-02: the pet's stand-down z-order, graded by --hardening-selftest through its seam. No mutant here makes
+    # a real activating call: the seam makes the real call only when SWP_NOACTIVATE is among the flags, and the clear-branch
+    # mutant writes Form.TopMost on a form that has no window, where the setter makes no call at all. The blocked branch and
+    # the call's own flags are tests/mutate-hardening-guards.py's ("followups: 1029: host: ...").
+    ('followups: 1029: host: the pet\'s stand-down z-order may activate it',
+     os.path.join(REPO, "src", "dotNet", "FormCompanion.cs"),
+     b'        internal const uint StandDownZOrderFlags = FormSpeech.SwpNoMove | FormSpeech.SwpNoSize | FormSpeech.SwpNoActivate;\n',
+     b'        internal const uint StandDownZOrderFlags = FormSpeech.SwpNoMove | FormSpeech.SwpNoSize;\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "pet stand-down: five blocked ticks are one change below the topmost band that does not activate"),
+    ('followups: 1029: host: the pet re-applies its stand-down on every tick',
+     os.path.join(REPO, "src", "dotNet", "FormCompanion.cs"),
+     b'            return standDown == topMostNow;\n',
+     b'            return true;\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "pet stand-down: five blocked ticks are one change below the topmost band that does not activate"),
+    ('followups: 1029: host: the pet comes back from a stand-down through Form.TopMost again (runtime)',
+     os.path.join(REPO, "src", "dotNet", "FormCompanion.cs"),
+     b'                ApplyStandDownZOrder(false);   // back to the top of the topmost band, without activating\n',
+     b'                if (!TopMost) TopMost = true;\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "pet stand-down: leaving it clears the marker and never writes Form.TopMost"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

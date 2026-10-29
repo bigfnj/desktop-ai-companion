@@ -249,6 +249,14 @@ try {
     try { & (Join-Path $repoRoot 'packaging\Test-StagingPathSafety.ps1') }
     catch { $failures.Add('Test-StagingPathSafety.ps1: ' + $_.Exception.Message) }
 
+    # The installer's fake-caller, path-safety, checker-timeout and log-observation checks and the public-commit
+    # privacy self-test (N-installer-tests-02): none needs a compiler, an install, elevation or the network, and until
+    # 2026-10-29 none ran anywhere but by hand. One runner, shared with build.yml's "Validate native installer shutdown"
+    # step so the two lists cannot drift; it runs all five and throws their failures together, collected here.
+    Write-Host '=== offline script checks (installer fake callers and paths, privacy self-test)' -ForegroundColor Cyan
+    try { & (Join-Path $repoRoot 'tests\Invoke-OfflineScriptChecks.ps1') }
+    catch { $failures.Add('Invoke-OfflineScriptChecks.ps1: ' + $_.Exception.Message) }
+
     Write-Host '=== catalog integrity' -ForegroundColor Cyan
     try { & (Join-Path $repoRoot 'packaging\Test-ContentCatalogIntegrity.ps1') }
     catch { $failures.Add('Test-ContentCatalogIntegrity.ps1: ' + $_.Exception.Message) }

@@ -51,4 +51,7 @@ std::wstring CanonicalFile(const std::wstring& path);
 std::wstring CanonicalDirectory(const std::wstring& path);
 // CanonicalFile, except an absent file or parent is cached_package_missing.
 std::wstring CanonicalCachedPackage(const std::wstring& path);
+// The setup error the MSI entry point shows for a Failure code. Here rather than in MsiEntry.cpp, which needs
+// msi.lib and is linked into the DLL alone, so the native checks read the very text a user sees.
+std::wstring ErrorText(const char* code);
 }

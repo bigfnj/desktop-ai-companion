@@ -2012,9 +2012,10 @@ namespace DesktopAICompanion
                 return;
             }
 
-            // Pet's monitor is blocked. Stop covering the game right away, then relocate or hide.
+            // Pet's monitor is blocked. Stop covering the game right away, then relocate or hide. Without activating
+            // the pet, and nothing at all on the ticks after the first (ApplyStandDownZOrder, N-host-fixes-02).
             hwndFullscreenWindow = FullscreenBlockedMarker;
-            if (TopMost) TopMost = false;
+            ApplyStandDownZOrder(true);
             if (_speech != null && !_speech.IsDisposed)
                 _speech.SetFullscreenSuppressed(true);
 
@@ -2070,17 +2071,70 @@ namespace DesktopAICompanion
         /// have done so was gated on the very marker relocation had just cleared, so a pet that relocated
         /// mid-sentence kept a non-TopMost bubble behind the windows on its new monitor.
         /// </summary>
+        /// <remarks>
+        /// The show above still goes through WinForms (N-host-fixes-02 changed the z-order only): Form.SetVisibleCore
+        /// focuses a form it shows whose Form.TopMost flag is set, and that flag no longer follows the stand-down
+        /// (ApplyStandDownZOrder), so a pet HIDDEN by a stand-down is focused as it comes back, where before the
+        /// activation came from the TopMost setter on the next line instead. One activation either way on that path,
+        /// none now on the others. Closing it means taking the pet off Form.TopMost everywhere, as the bubble was
+        /// (filed as N-followups-01).
+        /// </remarks>
         private void ClearFullscreenStandDown()
         {
             if (_fullscreenHidden) { _fullscreenHidden = false; if (!Visible) Visible = true; }
             if (hwndFullscreenWindow != IntPtr.Zero)
             {
                 hwndFullscreenWindow = IntPtr.Zero;
-                if (!TopMost) TopMost = true;
+                ApplyStandDownZOrder(false);   // back to the top of the topmost band, without activating
             }
             if (_speech != null && !_speech.IsDisposed) _speech.SetFullscreenSuppressed(false);
             ReplayDeferredSpeech();
         }
+
+        /// <summary>
+        /// THE STAND-DOWN'S Z-ORDER NEVER GOES THROUGH Form.TopMost (N-host-fixes-02, lane feature/followups): the speech
+        /// bubble's shape (FormSpeech.ApplyZOrder, N-cli-model-effort-16). WinForms' TopMost setter calls SetWindowPos
+        /// with SWP_NOMOVE | SWP_NOSIZE and no SWP_NOACTIVATE, so each stand-down change, when a fullscreen window took
+        /// this pet's monitor and when it let go, could take activation while the app owned the foreground (its tray
+        /// menu, Settings). Now each change is ONE SetWindowPos with SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE, and there
+        /// is none when the window already has the z-order asked for, which is every blocked tick after the first.
+        ///
+        /// Z-ORDER AS BEFORE. HWND_NOTOPMOST puts the pet above every non-topmost window and below the topmost band, and
+        /// HWND_TOPMOST at the top of the topmost band, which is where the setter's same two calls put it: a pet that
+        /// comes back from a stand-down is above other windows as it was. The activation the setter added moved nothing.
+        ///
+        /// "Already has it" is the WINDOW's own WS_EX_TOPMOST bit, not a field and not Form.TopMost. Play, a grab, the
+        /// per-animation raise and StartUp.TopMostSheeps still write topmost through the setter, so a field kept here
+        /// would go stale behind them, and Form.TopMost is WinForms' cached flag, which a SetWindowPos does not update.
+        /// So that flag no longer follows the stand-down and keeps what the last setter call wrote. Nothing in this app
+        /// reads it; WinForms reads it in CreateHandle, which re-applies a set flag (this form's CreateParams make every
+        /// handle topmost anyway), and in SetVisibleCore (ClearFullscreenStandDown's remarks).
+        /// </summary>
+        internal void ApplyStandDownZOrder(bool standDown)
+        {
+            if (IsDisposed || !IsHandleCreated) return;
+            IntPtr insertAfter;
+            if (!StandDownZOrder(standDown, (DesktopWindows.ExtendedStyle(Handle) & FormSpeech.WsExTopMost) != 0, out insertAfter)) return;
+            Func<IntPtr, IntPtr, uint, bool> seam = StandDownZOrderForSelfTest;
+            if (seam != null) { seam(Handle, insertAfter, StandDownZOrderFlags); return; }
+            NativeMethods.SetWindowPos(Handle, insertAfter, 0, 0, 0, 0, StandDownZOrderFlags);
+        }
+
+        /// <summary>Whether a stand-down change has anything to do, and where it puts the window: standing down from
+        /// topmost goes below the topmost band, coming back to it goes to its top, and a window already where the
+        /// stand-down wants it is left alone. Pure, for --hardening-selftest.</summary>
+        internal static bool StandDownZOrder(bool standDown, bool topMostNow, out IntPtr insertAfter)
+        {
+            insertAfter = standDown ? FormSpeech.HwndNoTopMost : FormSpeech.HwndTopMost;
+            return standDown == topMostNow;
+        }
+
+        /// <summary>The one stand-down z-order call's flags: no move, no size, NO ACTIVATION.</summary>
+        internal const uint StandDownZOrderFlags = FormSpeech.SwpNoMove | FormSpeech.SwpNoSize | FormSpeech.SwpNoActivate;
+
+        /// <summary>--hardening-selftest's seam: when set, receives (window, insert-after, flags) instead of SetWindowPos,
+        /// so the check sees each stand-down z-order call and its flags. Null in production.</summary>
+        internal Func<IntPtr, IntPtr, uint, bool> StandDownZOrderForSelfTest;
 
         /// <summary>Move the pet to <paramref name="target"/> and re-spawn there (a natural fall-in).</summary>
         private void RelocateToDisplay(int target)
@@ -3038,6 +3092,13 @@ namespace DesktopAICompanion
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
         internal static extern bool IsWindowVisible(IntPtr hWnd);
+
+            /// <summary>
+            /// Change a window's z-order: FormCompanion.ApplyStandDownZOrder's one call, always with SWP_NOACTIVATE.
+            /// </summary>
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
 
             /// <summary>
             /// Get the text present in the window title bar.

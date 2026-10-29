@@ -6647,6 +6647,37 @@ that row shows Haiku, applied or not; its `EnabledWhen` is now the radio's, as t
 Codex CLI on screen it greys with the model row it describes. With one condition it stayed live there, the cost the
 cli-followups entry above recorded. AI Brain needs host 1.8.0 for it.
 
+#### feature/followups
+
+Follow-ups of the 2026-10-29 evening campaign (lane followups) to lanes modules-fixes, installer-tests and host-fixes.
+
+**A blank Remembrance storage location with no Documents folder records nowhere (N-modules-fixes-02).** When Windows
+reports no Documents folder, `CaptureStore.RemembranceUnder` answers no folder instead of the relative "Remembrance"
+that `Path.Combine("", ...)` made, the CaptureStore constructor refuses a blank root with no default, and the Status
+line, the storage box's hint, the Older recordings line and its button say why. Refused: falling back to the app's data
+root. It would file recordings in a folder the user never chose, then split a blank location's recordings across two
+folders once Documents came back, with the purge walking only one of them. A storage location the user TYPED as a
+relative path is resolved as before; only the blank default is refused here.
+
+**The Fortunes importer's suite is stood in, not forced, to drive its scratch call site (N-modules-fixes-03).**
+`FortuneFileImporter.SuiteForDiagnostics` replaces the fourteen sub-tests for one probe check and its witness. Refused:
+one forced sub-test after the real fourteen. The call site sees only the verdict, and the probe would then run the
+whole importer suite twice more on every Fortunes self-test.
+
+**The pet's Form.TopMost flag no longer follows its stand-down (N-host-fixes-02).** The two stand-down changes are one
+SetWindowPos with SWP_NOACTIVATE each, as the bubble's, decided by the window's own WS_EX_TOPMOST bit, so `pet.TopMost`
+can read true while a stood-down pet is not topmost; that is not a defect. Unlike the bubble, the pet still writes
+Form.TopMost elsewhere (Play, a grab, the per-animation raise, StartUp.TopMostSheeps), so a field of the stand-down's own
+would go stale. What is left: WinForms' SetVisibleCore focuses a TopMost form it shows, so a pet HIDDEN by a stand-down
+is focused as it comes back, where before the setter's call activated it a line later (one activation either way on
+that path; none now on the others). Closing that means taking the pet off Form.TopMost everywhere, as the bubble was.
+
+**A related installation with no cached package stays refused (N-installer-tests-01).** Only the error's words changed:
+`cached_package_missing` now says the recovery (an administrator restores the cached .msi to the path Windows Installer
+recorded), and docs/installer-scoped-shutdown.md says why closing such a product is refused. The installer allows
+exactly what it allowed. The text lives in `scoped_shutdown::ErrorText` (ShutdownPolicy.cpp), moved out of MsiEntry.cpp
+so the native checks read the words a user sees; MsiEntry.cpp needs msi.lib and is linked into the DLL alone.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

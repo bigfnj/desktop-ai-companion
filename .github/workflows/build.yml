@@ -48,6 +48,10 @@ jobs:
           .\tests\Test-InstallerCompilerEnvironment.ps1
           .\installer\build-scoped-shutdown.ps1 -Tests -VerifyReproducibility
           .\tests\Test-InstallerShutdown.ps1 -SkipBuild
+          # The checks that need no compiler, install, elevation or network: the installer's fake callers, path
+          # safety, checker timeout and log observation, and the privacy self-test (N-installer-tests-02). The same
+          # runner tests\run-gate.ps1 calls; it throws on any failure, which fails this step.
+          .\tests\Invoke-OfflineScriptChecks.ps1
 
       - name: Build Release x64 and the portable ZIP
         # The id is read by the module self-test step's `if:` below (RA-001).

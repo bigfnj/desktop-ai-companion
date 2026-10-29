@@ -657,6 +657,80 @@ namespace DesktopAICompanion
                 }
                 finally { speech.Dispose(); }
 
+                // ---- the pet's stand-down z-order: once per change and never activating (N-host-fixes-02) ----
+                // The bubble's shape above, on FormCompanion's two stand-down changes. The decision is pure and checked
+                // first. Then a bare pet form (the constructor the child checks below use) gets a window, with
+                // Form.TopMost cleared BEFORE it has one: its Designer sets the flag, and WinForms' CreateHandle re-runs
+                // the activating setter for a form whose flag is set, so a pet window is never created here that way.
+                // Its own CreateParams still make the window topmost by style. Its z-order then goes through the seam,
+                // which records each call and makes it for real only with flags that cannot activate. Last, the clear
+                // branch runs on a second bare form that never gets a window: the old `if (!TopMost) TopMost = true;`
+                // only writes WinForms' flag there, no window and no call, and the check sees the flag change.
+                IntPtr petInsertAfter;
+                bool petDownFromTop = FormCompanion.StandDownZOrder(true, true, out petInsertAfter);
+                bool petDownBelowBand = petInsertAfter == FormSpeech.HwndNoTopMost;
+                bool petDownAlready = FormCompanion.StandDownZOrder(true, false, out petInsertAfter);
+                bool petBackToTop = FormCompanion.StandDownZOrder(false, false, out petInsertAfter);
+                bool petBackTopBand = petInsertAfter == FormSpeech.HwndTopMost;
+                bool petBackAlready = FormCompanion.StandDownZOrder(false, true, out petInsertAfter);
+                Check("pet stand-down: a z-order change is made only when the window's topmost bit is not yet the stand-down's, " +
+                      "down=" + petDownFromTop + "/" + petDownAlready + " back=" + petBackToTop + "/" + petBackAlready,
+                    petDownFromTop && petDownBelowBand && !petDownAlready && petBackToTop && petBackTopBand && !petBackAlready);
+                Check("pet stand-down: its z-order call neither moves, sizes nor activates the pet, flags=0x" +
+                      FormCompanion.StandDownZOrderFlags.ToString("X", System.Globalization.CultureInfo.InvariantCulture),
+                    FormCompanion.StandDownZOrderFlags == (FormSpeech.SwpNoMove | FormSpeech.SwpNoSize | FormSpeech.SwpNoActivate));
+
+                var standDownPet = new FormCompanion();
+                try
+                {
+                    if (standDownPet.IsHandleCreated)
+                        Check("pet stand-down: a bare pet form has no window until its check creates one", false);
+                    else
+                    {
+                        standDownPet.TopMost = false;   // no window yet: WinForms' flag only, no SetWindowPos
+                        var petZOrder = new System.Collections.Generic.List<string>();
+                        standDownPet.StandDownZOrderForSelfTest = delegate (IntPtr window, IntPtr insertAfter, uint flags)
+                        {
+                            bool cannotActivate = (flags & FormSpeech.SwpNoActivate) != 0;
+                            petZOrder.Add((insertAfter == FormSpeech.HwndTopMost ? "topmost" : insertAfter == FormSpeech.HwndNoTopMost ? "notopmost" : "other") +
+                                          (cannotActivate ? "/noactivate" : "/ACTIVATES"));
+                            return cannotActivate && PetSetWindowPos(window, insertAfter, 0, 0, 0, 0, flags);
+                        };
+                        IntPtr petHandle = standDownPet.Handle;
+                        bool petCreatedTopMost = (SpeechExStyle(petHandle) & FormSpeech.WsExTopMost) != 0;
+                        for (int i = 0; i < 5; i++) standDownPet.ApplyStandDownZOrder(true);
+                        bool petYielded = (SpeechExStyle(petHandle) & FormSpeech.WsExTopMost) == 0;
+                        Check("pet stand-down: five blocked ticks are one change below the topmost band that does not activate, created topmost=" +
+                              petCreatedTopMost + " yielded=" + petYielded + " calls=" + string.Join(",", petZOrder),
+                            petCreatedTopMost && petYielded && petZOrder.Count == 1 && petZOrder[0] == "notopmost/noactivate");
+                        petZOrder.Clear();
+                        for (int i = 0; i < 5; i++) standDownPet.ApplyStandDownZOrder(false);
+                        bool petRestored = (SpeechExStyle(petHandle) & FormSpeech.WsExTopMost) != 0;
+                        Check("pet stand-down: coming back is one change to the top of the topmost band that does not activate, restored=" +
+                              petRestored + " calls=" + string.Join(",", petZOrder),
+                            petRestored && petZOrder.Count == 1 && petZOrder[0] == "topmost/noactivate");
+                    }
+                }
+                finally { standDownPet.Dispose(); }
+
+                var clearingPet = new FormCompanion();
+                try
+                {
+                    if (clearingPet.IsHandleCreated)
+                        Check("pet stand-down: a bare pet form has no window until its check creates one", false);
+                    else
+                    {
+                        clearingPet.TopMost = false;
+                        FieldInfo petMarker = Require(typeof(FormCompanion).GetField("hwndFullscreenWindow", NpInstance), "FormCompanion.hwndFullscreenWindow (field)");
+                        petMarker.SetValue(clearingPet, new IntPtr(1));
+                        Require(typeof(FormCompanion).GetMethod("ClearFullscreenStandDown", NpInstance), "FormCompanion.ClearFullscreenStandDown()")
+                            .Invoke(clearingPet, new object[0]);
+                        Check("pet stand-down: leaving it clears the marker and never writes Form.TopMost, whose setter activates the pet",
+                            (IntPtr)petMarker.GetValue(clearingPet) == IntPtr.Zero && !clearingPet.TopMost && !clearingPet.IsHandleCreated);
+                    }
+                }
+                finally { clearingPet.Dispose(); }
+
                 // ---- FormCompanion.ChildBudget per-root + process-global caps, reuse, prune (reflection) ----
                 Type formT = asm.GetType("DesktopAICompanion.FormCompanion", true);
                 Type budgetT = Require(formT.GetNestedType("ChildBudget", BindingFlags.NonPublic), "FormCompanion.ChildBudget (nested type)");
@@ -2211,6 +2285,13 @@ namespace DesktopAICompanion
             const int GWL_EXSTYLE = -20;
             return GetWindowLong(window, GWL_EXSTYLE);
         }
+
+        /// <summary>The pet stand-down check's real z-order call, made from its seam only with SWP_NOACTIVATE among the
+        /// flags (N-host-fixes-02): the window's own topmost bit is what decides the next change, so the check has to
+        /// move it, and never with a call that could activate a window on the machine running this.</summary>
+        [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "SetWindowPos")]
+        [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+        private static extern bool PetSetWindowPos(IntPtr hWnd, IntPtr insertAfter, int x, int y, int cx, int cy, uint flags);
 
         private static object MemberValue(Type t, object instance, string name)
         {

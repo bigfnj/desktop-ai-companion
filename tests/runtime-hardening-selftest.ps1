@@ -5283,6 +5283,36 @@ Assert-True ($abiApply -cmatch 'if \(answer == null \|\| answer\.Outcome != Tray
     $abiGrantCalls -eq 1) (
     "abi180: the start question grants only behind the user's press of Allow, the one SetGrant in its answer code ($abiGrantCalls found)")
 
+# ---- lane feature/followups ----
+# THE PET'S STAND-DOWN Z-ORDER NEVER GOES THROUGH Form.TopMost (N-host-fixes-02), the bubble's shape above on FormCompanion.
+# --hardening-selftest checks the decision, the flags, ApplyStandDownZOrder against a real window and the clear branch on
+# a form with no window. What it cannot run is CheckFullScreen's blocked branch (it needs a live monitor scan) or a build
+# that makes the activating call with a window. So, on comment-stripped FormCompanion.cs: the blocked branch stands down
+# through ApplyStandDownZOrder(true) after setting the marker and before it relocates or hides, the clear branch comes
+# back through ApplyStandDownZOrder(false), and neither assigns TopMost; ApplyStandDownZOrder returns on an unchanged state
+# BEFORE its one SetWindowPos, which passes the flags that hold SWP_NOACTIVATE.
+$fuPet = Remove-LineComments $formPetSource
+$fuStops = @("`n        private ", "`n        internal ", "`n        public ")
+$fuCheckFs = Get-MethodBody $fuPet 'private void CheckFullScreen()' $fuStops
+$fuClear = Get-MethodBody $fuPet 'private void ClearFullscreenStandDown()' $fuStops
+$fuApply = Get-MethodBody $fuPet 'internal void ApplyStandDownZOrder(bool standDown)' $fuStops
+Assert-True ($fuCheckFs.Length -gt 0 -and $fuClear.Length -gt 0 -and $fuApply.Length -gt 0) (
+    'followups: CheckFullScreen, ClearFullscreenStandDown and ApplyStandDownZOrder were located')
+$fuMarkerAt = $fuCheckFs.IndexOf('hwndFullscreenWindow = FullscreenBlockedMarker;')
+$fuDownAt = $fuCheckFs.IndexOf('ApplyStandDownZOrder(true);')
+$fuRelocateAt = $fuCheckFs.IndexOf('DesktopGeometry.ChooseRelocationTarget(')
+Assert-True ($fuMarkerAt -ge 0 -and $fuDownAt -gt $fuMarkerAt -and $fuRelocateAt -gt $fuDownAt -and
+    $fuCheckFs -cnotmatch '(?<!\w)TopMost\s*=(?!=)' -and
+    $fuClear -cmatch 'hwndFullscreenWindow = IntPtr\.Zero;\s+ApplyStandDownZOrder\(false\);' -and
+    $fuClear -cnotmatch '(?<!\w)TopMost\s*=(?!=)') (
+    "followups: the pet stands down and comes back through ApplyStandDownZOrder, never Form.TopMost (found at $fuMarkerAt, $fuDownAt, $fuRelocateAt)")
+$fuUnchangedAt = $fuApply.IndexOf('if (!StandDownZOrder(standDown, (DesktopWindows.ExtendedStyle(Handle) & FormSpeech.WsExTopMost) != 0, out insertAfter)) return;')
+$fuCallAt = $fuApply.IndexOf('NativeMethods.SetWindowPos(Handle, insertAfter, 0, 0, 0, 0, StandDownZOrderFlags);')
+Assert-True ($fuUnchangedAt -ge 0 -and $fuCallAt -gt $fuUnchangedAt -and
+    $fuPet -cmatch 'internal const uint StandDownZOrderFlags = FormSpeech\.SwpNoMove \| FormSpeech\.SwpNoSize \| FormSpeech\.SwpNoActivate;' -and
+    [regex]::Matches($fuPet, 'SetWindowPos\(').Count -eq 2) (
+    "followups: the pet's one SetWindowPos passes SWP_NOACTIVATE, after the unchanged-state return (found at $fuUnchangedAt, $fuCallAt)")
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever

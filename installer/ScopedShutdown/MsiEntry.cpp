@@ -137,20 +137,7 @@ void Message(MSIHANDLE install, INSTALLMESSAGE kind, const std::wstring& text) {
         MsiProcessMessage(install, kind, record);
     }
 }
-std::wstring ErrorText(const char* code) {
-    std::wstring tag; for (const char* c = code; *c; ++c) tag += static_cast<wchar_t>(*c);
-    if (tag == L"legacy_foreign_companion_present")
-        return L"Close other portable or test copies of Desktop AI Companion, keep them closed for this upgrade, then retry. The previous installer has a legacy shutdown action. (" + tag + L")";
-    if (tag == L"installed_companion_other_session")
-        return L"Close Desktop AI Companion in your other Windows session, then retry setup. (" + tag + L")";
-    if (tag == L"related_installation_context_mismatch")
-        return L"A related installation belongs to a different installation context. Remove it with its own installer before retrying this per-user setup. (" + tag + L")";
-    // No retry advice: the generic "close its windows" text is wrong here, and a
-    // repair from the original package runs this same check and refuses too.
-    if (tag == L"cached_package_missing")
-        return L"Windows Installer's cached copy of an installed Desktop AI Companion package is missing, so setup cannot check how that version closes. (" + tag + L")";
-    return L"Setup could not safely identify or close the installed Desktop AI Companion. Close its windows and retry setup. (" + tag + L")";
-}
+// The setup error text is scoped_shutdown::ErrorText (ShutdownPolicy.cpp), where the native checks read it.
 }
 
 extern "C" UINT __stdcall CloseInstalledCompanion(MSIHANDLE install) noexcept {
@@ -166,7 +153,7 @@ extern "C" UINT __stdcall CloseInstalledCompanion(MSIHANDLE install) noexcept {
             (context.legacyTransition ? L"; legacy transition requires exclusive companion use throughout setup." : L"."));
         return ERROR_SUCCESS;
     } catch (const Failure& failure) {
-        try { Message(install, INSTALLMESSAGE_ERROR, ErrorText(failure.what())); } catch (...) { }
+        try { Message(install, INSTALLMESSAGE_ERROR, scoped_shutdown::ErrorText(failure.what())); } catch (...) { }
     } catch (...) {
         try { Message(install, INSTALLMESSAGE_ERROR, L"Setup could not safely close the installed companion. Close it and retry. (shutdown_unavailable)"); } catch (...) { }
     }

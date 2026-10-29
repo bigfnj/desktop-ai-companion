@@ -1625,7 +1625,9 @@ namespace DesktopAICompanion.RemembranceModule
             {
                 try
                 {
-                    string purgeLine = PurgeLine(StorePurge(root, layout));
+                    // No storage folder (a blank location and no Documents, N-modules-fixes-02) holds nothing to purge;
+                    // the earlier roots are folders of their own and are purged all the same.
+                    string purgeLine = root == null ? null : PurgeLine(StorePurge(root, layout));
                     if (purgeLine != null) Log(purgeLine);
                     PurgeEarlierRoots(earlier, layout);
                 }
@@ -2773,7 +2775,7 @@ namespace DesktopAICompanion.RemembranceModule
             else summary = "on (" + _settings.Get("summaryModel", "") + ")";
 
             string s = _lastStatus + "  |  devices: " + outs + " output, " + mics + " mic"
-                + "  |  storage: " + root + StorageNote(root)
+                + "  |  storage: " + (root == null ? "✗ none. " + CaptureStore.NoDefaultRootReason : root + StorageNote(root))
                 + "  |  Whisper: " + (whisper ? "configured" : "not set up — use \"Set up Whisper for me…\"")
                 + "  |  summary: " + summary;
             // 2.4.0: the storage folder inside OneDrive (recordings upload; deleted audio waits in its recycle bin), and a
@@ -4233,9 +4235,15 @@ namespace DesktopAICompanion.RemembranceModule
                 string.Equals(CaptureStore.DefaultRoot(), documents, StringComparison.Ordinal) &&
                 string.Equals(new CaptureStore("", FolderLayout.PerCapture).Root, documents, StringComparison.Ordinal) &&
                 string.Equals(new CaptureStore("  ", FolderLayout.ByDate).Root, documents, StringComparison.Ordinal));
-            string known;
-            try { known = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "Remembrance"); }
-            catch (Exception) { known = "Remembrance"; }
+            // The known folder read here, never through CaptureStore.RemembranceUnder, so the witness does not share the code
+            // it witnesses; a missing Documents is null on both sides (N-modules-fixes-02).
+            string known = null;
+            try
+            {
+                string knownDocuments = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+                if (!string.IsNullOrEmpty(knownDocuments)) known = System.IO.Path.Combine(knownDocuments, "Remembrance");
+            }
+            catch (Exception) { known = null; }
             check("WITNESS scratch Documents: outside the self-test both defaults are still Documents\\Remembrance, the known folder",
                 savedDocuments != null && savedDefault != null &&
                 string.Equals(savedDocuments(), known, StringComparison.Ordinal) &&
@@ -5055,6 +5063,8 @@ namespace DesktopAICompanion.RemembranceModule
             // storage folder when Documents is inside OneDrive (RemembranceModule.Storage.cs).
             SelfCheckEarlierRoots(check);
             SelfCheckFreshInstallRoot(check);
+            // Lane feature/followups (N-modules-fixes-02): a blank location with no Documents folder records nowhere.
+            SelfCheckNoDocumentsFolder(check);
             // Lane feature/cli-followups (2.7.0): the settings switch in the CLI card and the details read's landing
             // (RemembranceModule.CliFollowups.cs).
             SelfCheckCliFollowups(check);

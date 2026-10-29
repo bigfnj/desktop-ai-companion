@@ -411,6 +411,44 @@ namespace DesktopAICompanion.FortunesModule
                     ok &= Check(sb, "WITNESS importer self-test scratch: a passing run deletes it and names nothing",
                         deletedReleased && !Directory.Exists(importScratch) && passedRun.Length == 0);
 
+                    // N-modules-fixes-03 (lane feature/followups): ...and RunSelfTest's own call site hands the helper the
+                    // suite's verdict. The suite is stood in by one that fails on demand (SuiteForDiagnostics), so a call
+                    // site that passed "true" there would delete a failed run's scratch and be seen doing it. Each stand-in
+                    // leaves a file in the scratch it is given; the runs' own output stays in their own builders, so the
+                    // forced failure never reads as one of this self-test's.
+                    Func<string, StringBuilder, bool> savedSuite = FortuneFileImporter.SuiteForDiagnostics;
+                    string failedSuiteRoot = null, passedSuiteRoot = null;
+                    var failedSuite = new StringBuilder();
+                    var passedSuite = new StringBuilder();
+                    bool failedSuiteResult, passedSuiteResult;
+                    try
+                    {
+                        FortuneFileImporter.SuiteForDiagnostics = delegate(string suiteRoot, StringBuilder suiteOutput)
+                        {
+                            failedSuiteRoot = suiteRoot;
+                            File.WriteAllText(Path.Combine(suiteRoot, "evidence.txt"), "The input a failed sub-test left.\n", utf8);
+                            return false;
+                        };
+                        failedSuiteResult = FortuneFileImporter.RunSelfTest(failedSuite);
+                        FortuneFileImporter.SuiteForDiagnostics = delegate(string suiteRoot, StringBuilder suiteOutput)
+                        {
+                            passedSuiteRoot = suiteRoot;
+                            File.WriteAllText(Path.Combine(suiteRoot, "evidence.txt"), "A passing sub-test's input.\n", utf8);
+                            return true;
+                        };
+                        passedSuiteResult = FortuneFileImporter.RunSelfTest(passedSuite);
+                    }
+                    finally { FortuneFileImporter.SuiteForDiagnostics = savedSuite; }
+                    ok &= Check(sb, "importer self-test scratch: a run whose suite fails reports failure, keeps that run's scratch and names it",
+                        !failedSuiteResult && failedSuiteRoot != null && File.Exists(Path.Combine(failedSuiteRoot, "evidence.txt")) &&
+                        failedSuite.ToString().Contains("IMPORT SCRATCH KEPT: " + failedSuiteRoot) &&
+                        failedSuite.ToString().Contains("custom_import=FAIL"));
+                    ok &= Check(sb, "WITNESS importer self-test scratch: a run whose suite passes reports a pass, deletes its scratch and names nothing",
+                        passedSuiteResult && passedSuiteRoot != null && !Directory.Exists(passedSuiteRoot) &&
+                        !passedSuite.ToString().Contains("IMPORT SCRATCH KEPT") && passedSuite.ToString().Contains("custom_import=PASS"));
+                    try { if (failedSuiteRoot != null && Directory.Exists(failedSuiteRoot)) Directory.Delete(failedSuiteRoot, true); }
+                    catch (Exception) { }
+
                     ok = ImportDeleteLogChecks(sb, folder, utf8, retried, refused, torn) && ok;
 
                     // R-030, pinned: F132's decode-then-validate order admits a tagged row whose text column

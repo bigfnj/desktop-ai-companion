@@ -54,4 +54,25 @@ Result CloseInstalled(const Context& context, const std::vector<std::shared_ptr<
     }
     return result;
 }
+
+std::wstring ErrorText(const char* code) {
+    std::wstring tag; for (const char* c = code; *c; ++c) tag += static_cast<wchar_t>(*c);
+    if (tag == L"legacy_foreign_companion_present")
+        return L"Close other portable or test copies of Desktop AI Companion, keep them closed for this upgrade, then retry. The previous installer has a legacy shutdown action. (" + tag + L")";
+    if (tag == L"installed_companion_other_session")
+        return L"Close Desktop AI Companion in your other Windows session, then retry setup. (" + tag + L")";
+    if (tag == L"related_installation_context_mismatch")
+        return L"A related installation belongs to a different installation context. Remove it with its own installer before retrying this per-user setup. (" + tag + L")";
+    // No "close its windows and retry": nothing the user closes helps, and the custom action runs, unconditioned,
+    // before InstallValidate in every repair, upgrade and uninstall of these packages, so a repair from the original
+    // .msi stops at this same check before Windows Installer could re-cache anything. What clears it is the cached
+    // copy back where Windows Installer recorded it (N-installer-tests-01, docs/installer-scoped-shutdown.md): then
+    // ScopedPackage opens it and checks its ProductCode and UpgradeCode, so a wrong file is refused, never trusted.
+    if (tag == L"cached_package_missing")
+        return L"Windows Installer's cached copy of an installed Desktop AI Companion package is missing, so setup cannot check how that version closes, "
+               L"and repairing, upgrading or removing it stops here, a repair from the original .msi included. To recover, an administrator copies "
+               L"the .msi that installed that version back to the cached path Windows Installer recorded for it (its LocalPackage, in %WINDIR%\\Installer); "
+               L"then run setup again. The project's docs/installer-scoped-shutdown.md shows how to find that path. (" + tag + L")";
+    return L"Setup could not safely identify or close the installed Desktop AI Companion. Close its windows and retry setup. (" + tag + L")";
+}
 }
