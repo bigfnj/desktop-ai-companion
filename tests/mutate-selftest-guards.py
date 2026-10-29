@@ -37,10 +37,13 @@ Restore is byte-exact from a copy read into memory first, never from git.
 
 import argparse
 from mutation_caseplan import add_selection_arguments, plan_arguments
+import hashlib
 import io
 import os
 import re
 import shutil
+import stat
+import struct
 import subprocess
 from mutation_process import run_bytes, run_text, read_utf8_marker
 import sys
@@ -14821,14 +14824,40 @@ CASES = (
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "WITNESS scratch Documents: outside the self-test both defaults are still Documents\\Remembrance"),
     # The runner's own watch of the real folder: pointed at the children's TEMP, which the remembrance run writes its marker
-    # into, it must report the change by name.
+    # into, it must report the change by name. Re-pointed when the footprint became an event watch (the folder is now a
+    # parent and a name), same intent.
     ('modules-fixes: the module runner watches a folder the remembrance run writes into',
      MODULE_SELFTESTS_PS1,
-     b"if (-not [string]::IsNullOrWhiteSpace($documentsFolder)) { $realRemembrance = Join-Path $documentsFolder 'Remembrance' }\n",
-     b"if (-not [string]::IsNullOrWhiteSpace($documentsFolder)) { $realRemembrance = $runTemp }\n",
+     b"if (-not [string]::IsNullOrWhiteSpace($documentsFolder)) { $watchParent = $documentsFolder }\n",
+     b"if (-not [string]::IsNullOrWhiteSpace($documentsFolder)) { $watchParent = Split-Path -Parent $runTemp; "
+     b"$watchName = Split-Path -Leaf $runTemp }\n",
      None, None,
      MODULE_SELFTESTS, None,
      "remembrance : the real Documents\\Remembrance changed during its self-test"),
+    # ...and the watch's own check on scratch folders, one case per half of the watch: the folder's own creation (seen by the
+    # watcher on Documents), a change inside it that the listing cannot see (the watcher inside), and a listing that could not
+    # be read whole.
+    ('modules-fixes: the runner\'s Documents watch misses the folder\'s own creation',
+     MODULE_SELFTESTS_PS1,
+     b'        if (string.Equals(e.Name, _name, StringComparison.OrdinalIgnoreCase)) Latch("the folder itself " + e.ChangeType);\n',
+     b'        if (string.Equals(e.Name, _name + "-x", StringComparison.OrdinalIgnoreCase)) Latch("the folder itself " + e.ChangeType);\n',
+     None, None,
+     MODULE_SELFTESTS, None,
+     "the Documents watch failed its own check: create, write and delete in a folder that was absent"),
+    ('modules-fixes: the runner\'s Documents watch misses a change inside the folder',
+     MODULE_SELFTESTS_PS1,
+     b'    private void OnInsideEvent(object sender, FileSystemEventArgs e) { Latch("inside it " + e.ChangeType); }\n',
+     b'    private void OnInsideEvent(object sender, FileSystemEventArgs e) { }\n',
+     None, None,
+     MODULE_SELFTESTS, None,
+     "the Documents watch failed its own check: an in-place overwrite under a future-dated file"),
+    ('modules-fixes: the runner\'s Documents watch takes a partial listing as complete',
+     MODULE_SELFTESTS_PS1,
+     b'    try { $entries = @(Get-ChildItem -LiteralPath $root -Recurse -Force -ErrorAction Stop) }\n',
+     b'    try { $entries = @(Get-ChildItem -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue) }\n',
+     None, None,
+     MODULE_SELFTESTS, None,
+     "the Documents watch failed its own check: a subfolder that cannot be listed"),
     # N-modules-small-01: a torn replace whose backup cannot be moved back is a pack the batch could not undo, counted,
     # and the batch's verdict says its rollback could not be verified.
     ('modules-fixes: fortunes: a torn replace that cannot be put back is swallowed again',
@@ -14912,12 +14941,24 @@ def real_input_notice(environ):
 # override nor this harness's private TEMP redirects and which is often inside OneDrive, and 46 synthetic files from a test
 # run were found in a real one: the probable writer is a case here that sends recordings to the blank default. Remembrance's
 # SelfTest points its seams at a per-run scratch folder now; this watch does not depend on that. Every child run, the
-# baselines' and each case's, is bracketed by the folder's footprint (whether it exists, its file and folder counts and its
-# newest write time; never a name or a file's contents), on every flag rather than Remembrance's alone, since the host's own
-# self-tests load modules too and a stat of one folder costs nothing. A change STOPS the run on the spot, naming the run that
-# changed it, because every further case could write more. Said at the start, and said as well when the known folder cannot
-# be resolved, so a run that watched nothing does not read like one that saw nothing change.
+# baselines' and each case's, is watched, on every flag rather than Remembrance's alone, since the host's own self-tests load
+# modules too. A change STOPS the run on the spot, naming the run that changed it, because every further case could write
+# more. Said at the start, and said as well when the known folder cannot be resolved, so a run that watched nothing does not
+# read like one that saw nothing change.
+#
+# AN EVENT WATCH, THEN THE LISTING (the same design as tests\Test-ModuleSelfTests.ps1's, for the same review). A before/after
+# footprint was proved blind twice: a run that creates the folder, writes and deletes reads "absent" both times, and an
+# in-place overwrite under a future-dated file leaves the counts and the newest time alone. So ReadDirectoryChangesW is
+# armed on Documents (not recursive: the folder's own creation, deletion or rename) and, when the folder exists, inside it
+# (recursive: anything), before the child starts, and drained after it exits. No thread is needed: the kernel queues every
+# change from the first call on, and an overlapped read completes while this process waits on the child. A queue that
+# overflowed is a FAILED watch, never a clean one. The listing stays as the second check, with a signature over each
+# entry's path, size and write time (names and contents are never recorded), and a listing that could not be read whole is
+# a failure too. documents_watch_selfcheck() proves both halves on scratch folders before every run.
 DOCUMENTS_REMEMBRANCE = None
+# After the child exits, how long each drain waits for one more completion. The kernel has queued the changes by then, so
+# this only covers the completion's delivery; the self-check reads its own writes through the same drain.
+DOCUMENTS_WATCH_GRACE_MS = 100
 
 
 def documents_folder():
@@ -14933,22 +14974,194 @@ def documents_folder():
 
 
 def folder_footprint(path):
-    """'absent', or the counts and newest write time under `path`. Reads directory entries only, never a file."""
-    if path is None:
-        return None
-    if not os.path.isdir(path):
-        return "absent"
+    """(complete, text): 'absent', the counts and a signature, or why the folder could not be read whole.
+
+    Inaccessible is never 'absent': only FileNotFoundError means the folder is not there, and the walk stops at the first
+    folder or entry it cannot read (onerror raises, and a failed stat propagates)."""
+    try:
+        top = os.stat(path)
+    except FileNotFoundError:
+        return True, "absent"
+    except OSError as error:
+        return False, "could not be read (%s)" % type(error).__name__
+    if not stat.S_ISDIR(top.st_mode):
+        return True, "present as a file of %d bytes, written %d" % (top.st_size, top.st_mtime_ns)
+
+    def refuse(error):
+        raise error
+
+    entries = []
     files = folders = 0
-    newest = os.stat(path).st_mtime
-    for root, dirs, names in os.walk(path):
-        folders += len(dirs)
-        files += len(names)
-        for entry in dirs + names:
-            try:
-                newest = max(newest, os.stat(os.path.join(root, entry)).st_mtime)
-            except OSError:
-                pass
-    return "present, %d file(s) and %d folder(s), newest write %.6f" % (files, folders, newest)
+    try:
+        for root, dirs, names in os.walk(path, onerror=refuse):
+            for name in dirs:
+                folders += 1
+                entry = os.path.join(root, name)
+                entries.append("%s|dir|%d" % (os.path.relpath(entry, path), os.stat(entry).st_mtime_ns))
+            for name in names:
+                files += 1
+                entry = os.path.join(root, name)
+                info = os.stat(entry)
+                entries.append("%s|%d|%d" % (os.path.relpath(entry, path), info.st_size, info.st_mtime_ns))
+    except OSError as error:
+        return False, "could not be listed whole (%s)" % type(error).__name__
+    signature = hashlib.sha256("\n".join(sorted(entries)).encode("utf-8")).hexdigest()[:16]
+    return True, "present, %d file(s) and %d folder(s), signature %s" % (files, folders, signature)
+
+
+_FILE_LIST_DIRECTORY = 0x0001
+_FILE_SHARE_ALL = 0x0007
+_OPEN_EXISTING = 3
+_FILE_FLAG_BACKUP_SEMANTICS = 0x02000000
+_FILE_FLAG_OVERLAPPED = 0x40000000
+# File and directory names, attributes, size, last write, creation and security.
+_NOTIFY_FILTER = 0x0001 | 0x0002 | 0x0004 | 0x0008 | 0x0010 | 0x0040 | 0x0100
+_WAIT_OBJECT_0 = 0
+_WAIT_TIMEOUT = 0x102
+_ERROR_NOTIFY_ENUM_DIR = 1022
+_FILE_ACTION_NAMES = {1: "Created", 2: "Deleted", 3: "Changed", 4: "Renamed", 5: "Renamed"}
+
+
+def _kernel32():
+    import ctypes
+    from ctypes import wintypes
+
+    class Overlapped(ctypes.Structure):
+        _fields_ = [("Internal", ctypes.c_void_p), ("InternalHigh", ctypes.c_void_p), ("Offset", wintypes.DWORD),
+                    ("OffsetHigh", wintypes.DWORD), ("hEvent", wintypes.HANDLE)]
+
+    k = ctypes.WinDLL("kernel32", use_last_error=True)
+    k.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD,
+                              wintypes.DWORD, wintypes.HANDLE]
+    k.CreateFileW.restype = wintypes.HANDLE
+    k.CreateEventW.argtypes = [ctypes.c_void_p, wintypes.BOOL, wintypes.BOOL, wintypes.LPCWSTR]
+    k.CreateEventW.restype = wintypes.HANDLE
+    k.ResetEvent.argtypes = [wintypes.HANDLE]
+    k.ResetEvent.restype = wintypes.BOOL
+    k.ReadDirectoryChangesW.argtypes = [wintypes.HANDLE, ctypes.c_void_p, wintypes.DWORD, wintypes.BOOL, wintypes.DWORD,
+                                        ctypes.POINTER(wintypes.DWORD), ctypes.POINTER(Overlapped), ctypes.c_void_p]
+    k.ReadDirectoryChangesW.restype = wintypes.BOOL
+    k.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    k.WaitForSingleObject.restype = wintypes.DWORD
+    k.GetOverlappedResult.argtypes = [wintypes.HANDLE, ctypes.POINTER(Overlapped), ctypes.POINTER(wintypes.DWORD), wintypes.BOOL]
+    k.GetOverlappedResult.restype = wintypes.BOOL
+    k.CancelIoEx.argtypes = [wintypes.HANDLE, ctypes.POINTER(Overlapped)]
+    k.CancelIoEx.restype = wintypes.BOOL
+    k.CloseHandle.argtypes = [wintypes.HANDLE]
+    k.CloseHandle.restype = wintypes.BOOL
+    return ctypes, wintypes, k, Overlapped
+
+
+class _DirectoryChanges(object):
+    """One overlapped ReadDirectoryChangesW on `folder`, re-armed after each completion until closed."""
+
+    def __init__(self, folder, recursive):
+        self.ctypes, self.wintypes, self.k, self.Overlapped = _kernel32()
+        self.recursive = recursive
+        self.handle = self.k.CreateFileW(folder, _FILE_LIST_DIRECTORY, _FILE_SHARE_ALL, None, _OPEN_EXISTING,
+                                         _FILE_FLAG_BACKUP_SEMANTICS | _FILE_FLAG_OVERLAPPED, None)
+        if not self.handle or self.handle == self.ctypes.c_void_p(-1).value:
+            raise OSError(self.ctypes.get_last_error(), "the folder could not be opened for change notification")
+        self.event = self.k.CreateEventW(None, True, False, None)
+        self.buffer = self.ctypes.create_string_buffer(65536)
+        self.pending = False
+        self.overlapped = None
+        self._arm()
+
+    def _arm(self):
+        self.k.ResetEvent(self.event)
+        self.overlapped = self.Overlapped()
+        self.overlapped.hEvent = self.event
+        if not self.k.ReadDirectoryChangesW(self.handle, self.buffer, len(self.buffer), self.recursive, _NOTIFY_FILTER,
+                                            None, self.ctypes.byref(self.overlapped), None):
+            raise OSError(self.ctypes.get_last_error(), "ReadDirectoryChangesW refused")
+        self.pending = True
+
+    def drain(self, wait_ms):
+        """([(action, name)], failure or None): every completion queued so far, waiting `wait_ms` for each."""
+        changes = []
+        while True:
+            state = self.k.WaitForSingleObject(self.event, wait_ms)
+            if state == _WAIT_TIMEOUT:
+                return changes, None
+            if state != _WAIT_OBJECT_0:
+                return changes, "waiting for changes failed (%d)" % self.ctypes.get_last_error()
+            got = self.wintypes.DWORD()
+            completed = self.k.GetOverlappedResult(self.handle, self.ctypes.byref(self.overlapped), self.ctypes.byref(got), False)
+            self.pending = False
+            if not completed:
+                error = self.ctypes.get_last_error()
+                return changes, ("the change queue overflowed" if error == _ERROR_NOTIFY_ENUM_DIR
+                                 else "reading changes failed (Win32 error %d)" % error)
+            if got.value == 0:
+                return changes, "the change queue overflowed"
+            raw = self.buffer.raw[:got.value]
+            offset = 0
+            while True:
+                following, action, length = struct.unpack_from("<III", raw, offset)
+                changes.append((action, raw[offset + 12:offset + 12 + length].decode("utf-16-le")))
+                if following == 0:
+                    break
+                offset += following
+            self._arm()
+
+    def close(self):
+        if self.pending:
+            self.k.CancelIoEx(self.handle, self.ctypes.byref(self.overlapped))
+            got = self.wintypes.DWORD()
+            self.k.GetOverlappedResult(self.handle, self.ctypes.byref(self.overlapped), self.ctypes.byref(got), True)
+            self.pending = False
+        self.k.CloseHandle(self.handle)
+        self.k.CloseHandle(self.event)
+
+
+class DocumentsWatch(object):
+    """Armed on construction, before the child starts; finish() after it exits returns None, or why it is not clean."""
+
+    def __init__(self, target):
+        self.target = target
+        self.name = os.path.basename(target)
+        self.before = folder_footprint(target)
+        self.start_failure = None
+        self.readers = []
+        try:
+            # The parent first, so a folder created between the two is seen as created.
+            self.readers.append((_DirectoryChanges(os.path.dirname(target), False), False))
+            if os.path.isdir(target):
+                self.readers.append((_DirectoryChanges(target, True), True))
+        except OSError as error:
+            self.start_failure = "%s (Win32 error %s)" % (error.strerror or type(error).__name__, error.errno)
+
+    def finish(self):
+        found = []
+        events = 0
+        first = None
+        failure = None
+        try:
+            for reader, inside in self.readers:
+                changes, trouble = reader.drain(DOCUMENTS_WATCH_GRACE_MS)
+                failure = failure or trouble
+                for action, name in changes:
+                    if inside or name.lower() == self.name.lower():
+                        events += 1
+                        first = first or ("%s %s" % ("inside it" if inside else "the folder itself",
+                                                     _FILE_ACTION_NAMES.get(action, "action %d" % action)))
+        finally:
+            for reader, _inside in self.readers:
+                reader.close()
+        if self.start_failure:
+            found.append("the watch could not start (%s), so a change could have gone unseen" % self.start_failure)
+        if failure:
+            found.append("the watch failed (%s), so a change could have gone unseen" % failure)
+        if events:
+            found.append("a change was seen (%d event(s), the first: %s)" % (events, first))
+        after = folder_footprint(self.target)
+        if not self.before[0] or not after[0]:
+            found.append("the folder could not be listed whole (before: %s; after: %s), and two partial listings prove nothing"
+                         % (self.before[1], after[1]))
+        elif after[1] != self.before[1]:
+            found.append("its listing changed (before: %s; after: %s)" % (self.before[1], after[1]))
+        return "; ".join(found) or None
 
 
 def documents_watch_notice():
@@ -14956,19 +15169,103 @@ def documents_watch_notice():
     if DOCUMENTS_REMEMBRANCE is None:
         return ("DOCUMENTS WATCH: NOT WATCHED: the Documents known folder could not be resolved, so a run writing into a real "
                 "Documents\\Remembrance would go unseen")
-    return ("DOCUMENTS WATCH: %s is compared before and after every child run; it reads %s now"
-            % (DOCUMENTS_REMEMBRANCE, folder_footprint(DOCUMENTS_REMEMBRANCE)))
+    return ("DOCUMENTS WATCH: %s is watched for any change from before every child run starts until after it exits, then "
+            "listed again; it reads %s now" % (DOCUMENTS_REMEMBRANCE, folder_footprint(DOCUMENTS_REMEMBRANCE)[1]))
 
 
-def documents_leak(before):
-    """None while the watched folder reads as it did before the run, else what changed."""
-    if DOCUMENTS_REMEMBRANCE is None:
-        return None
-    after = folder_footprint(DOCUMENTS_REMEMBRANCE)
-    if after == before:
-        return None
-    return ("the real Documents\\Remembrance changed during this run (%s; before: %s; after: %s): a check or a mutant "
-            "recorded outside its scratch folder, or the installed app recorded there meanwhile" % (DOCUMENTS_REMEMBRANCE, before, after))
+def watched_selftest(flag, marker):
+    """(report, code, leak): selftest() inside the Documents watch. leak is None when nothing changed and all was seen."""
+    watch = DocumentsWatch(DOCUMENTS_REMEMBRANCE) if DOCUMENTS_REMEMBRANCE is not None else None
+    leak = None
+    try:
+        report, code = selftest(flag, marker)
+    finally:
+        if watch is not None:
+            change = watch.finish()
+            if change:
+                leak = ("the real Documents\\Remembrance changed during this run, or could not be watched (%s: %s): a check "
+                        "or a mutant recorded outside its scratch folder, or the installed app recorded there meanwhile"
+                        % (DOCUMENTS_REMEMBRANCE, change))
+    return report, code, leak
+
+
+def documents_watch_selfcheck(scratch):
+    """The failures of the watch's own check, on scratch folders and never the real Documents: the two inputs the footprint
+    missed, a subfolder that cannot be listed (a deny ACE set with icacls on a scratch folder), and two quiet runs that must
+    stay clean. The same five cases as Test-DocumentsWatch in tests\\Test-ModuleSelfTests.ps1."""
+    account = "%s\\%s" % (os.environ.get("USERDOMAIN", ""), os.environ.get("USERNAME", ""))
+
+    def write_text(path, text):
+        with io.open(path, "w", encoding="utf-8") as handle:
+            handle.write(text)
+
+    def act_transient(documents):
+        folder = os.path.join(documents, "Remembrance")
+        os.mkdir(folder)
+        write_text(os.path.join(folder, "synthetic.dat"), "a synthetic recording")
+        os.remove(os.path.join(folder, "synthetic.dat"))
+        os.rmdir(folder)
+
+    def prepare_masked(documents):
+        folder = os.path.join(documents, "Remembrance")
+        os.mkdir(folder)
+        write_text(os.path.join(folder, "older.dat"), "old text")
+        day = 86400
+        os.utime(os.path.join(folder, "older.dat"), (time.time() - day, time.time() - day))
+        write_text(os.path.join(folder, "future.dat"), "future")
+        os.utime(os.path.join(folder, "future.dat"), (time.time() + 365 * day, time.time() + 365 * day))
+
+    def act_masked(documents):
+        path = os.path.join(documents, "Remembrance", "older.dat")
+        kept = os.stat(path)
+        write_text(path, "new text")
+        os.utime(path, ns=(kept.st_atime_ns, kept.st_mtime_ns))
+
+    def prepare_locked(documents):
+        locked = os.path.join(documents, "Remembrance", "locked")
+        os.makedirs(locked)
+        write_text(os.path.join(locked, "inside.dat"), "unseen")
+        proc = subprocess.run(["icacls", locked, "/deny", account + ":(RD)"], capture_output=True)
+        if proc.returncode != 0:
+            raise OSError("icacls could not deny listing on the scratch subfolder (exit %d)" % proc.returncode)
+
+    def prepare_quiet(documents):
+        os.mkdir(os.path.join(documents, "Remembrance"))
+        write_text(os.path.join(documents, "Remembrance", "kept.dat"), "kept")
+
+    def act_beside(documents):
+        os.mkdir(os.path.join(documents, "Other"))
+        write_text(os.path.join(documents, "Other", "theirs.dat"), "theirs")
+
+    nothing = lambda documents: None
+    cases = (
+        ("create, write and delete in a folder that was absent", "a change was seen", nothing, act_transient),
+        ("an in-place overwrite under a future-dated file, its write time put back", "a change was seen", prepare_masked, act_masked),
+        ("a subfolder that cannot be listed", "could not be listed whole", prepare_locked, nothing),
+        ("WITNESS nothing happens", None, prepare_quiet, nothing),
+        ("WITNESS a change beside the folder, not in it", None, nothing, act_beside),
+    )
+    failed = []
+    for index, (label, expect, prepare, act) in enumerate(cases, 1):
+        documents = os.path.join(scratch, "case%d" % index, "Documents")
+        try:
+            os.makedirs(documents)
+            prepare(documents)
+            watch = DocumentsWatch(os.path.join(documents, "Remembrance"))
+            act(documents)
+            result = watch.finish()
+            ok = result is None if expect is None else (result is not None and expect in result)
+            if not ok:
+                failed.append("%s: expected %s, got %s" % (label, "'%s'" % expect if expect else "a clean watch",
+                                                          result or "a clean watch"))
+        except Exception as error:   # any of them, a struct.error from a misparsed record included, is a failed case
+            failed.append("%s: the case threw %s: %s" % (label, type(error).__name__, error))
+        finally:
+            locked = os.path.join(documents, "Remembrance", "locked")
+            if os.path.isdir(locked):
+                subprocess.run(["icacls", locked, "/remove:d", account], capture_output=True)
+    shutil.rmtree(scratch, ignore_errors=True)
+    return failed
 
 
 def read(path):
@@ -15353,6 +15650,13 @@ def score(plan):
     cases = plan.cases
     print(real_input_notice(os.environ))
     print(documents_watch_notice())
+    # Before anything is built: a watch that cannot see its own scratch writes cannot vouch for the real folder.
+    watch_failures = documents_watch_selfcheck(os.path.join(RUN_TEMP, "dp-watch-check"))
+    if watch_failures:
+        for failure in watch_failures:
+            print("DOCUMENTS WATCH SELF-CHECK FAILED: " + failure)
+        return 2
+    print("DOCUMENTS WATCH SELF-CHECK: 5 case(s) on scratch folders behaved as they must")
     print("baseline: build + every self-test in play must pass")
     ok, out = build_all()
     if not ok:
@@ -15360,9 +15664,7 @@ def score(plan):
         print(out[-800:])
         return 2
     for flag, marker in BASELINES:
-        watched = folder_footprint(DOCUMENTS_REMEMBRANCE)
-        report, code = selftest(flag, marker)
-        leak = documents_leak(watched)
+        report, code, leak = watched_selftest(flag, marker)
         if leak:
             print("STOPPED in the baseline run of %s: %s" % (flag, leak))
             return 2
@@ -15399,15 +15701,15 @@ def score(plan):
             # fresh module from the mutated template and asserts the DLL exists; there is no artefact here
             # whose timestamp could stand for that.
             before = os.path.getmtime(artifact) if artifact is not None else None
-            watched = folder_footprint(DOCUMENTS_REMEMBRANCE)
             write(path, base.replace(old_v, new_v))
             time.sleep(1.1)
             report = None
             code = None
             verdict = None
+            leak = None
             try:
                 if csproj is None:
-                    report, code = selftest(flag, marker)
+                    report, code, leak = watched_selftest(flag, marker)
                 else:
                     built, _ = build(csproj)
                     if not built:
@@ -15415,11 +15717,10 @@ def score(plan):
                     elif os.path.getmtime(artifact) <= before:
                         verdict = "BROKEN (%s not rebuilt)" % os.path.basename(artifact)
                     else:
-                        report, code = selftest(flag, marker)
+                        report, code, leak = watched_selftest(flag, marker)
             finally:
                 write(path, base)
 
-            leak = documents_leak(watched)
             if leak:
                 leaked = name
                 print("  %-52s LEAKED (%s)" % (name, leak))

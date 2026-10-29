@@ -377,32 +377,247 @@ $runFinished = $false
 # 2026-10-29). A blank storage location records into Documents\Remembrance, the Documents known folder, which neither
 # DESKTOP_AI_COMPANION_DATA_ROOT nor TEMP redirects and which is often inside OneDrive, and 46 synthetic files from a test
 # run were found in a real one. Remembrance's SelfTest now points both of its seams at a per-run scratch folder; this is the
-# check that does not depend on the module going through them. The folder's footprint (whether it exists, how many files
-# and folders it holds, the newest write time; never a name or a file's contents) is taken before and after the remembrance
-# run, and any change is a problem that names it. Said on every run with the path, and said as well when the known folder
-# cannot be resolved, so a run that watched nothing does not read like one that saw nothing change.
+# check that does not depend on the module going through them.
+#
+# AN EVENT WATCH FOR THE WHOLE RUN, THEN THE LISTING. The first cut compared a footprint (exists, counts, newest write time)
+# before and after, and a review proved it blind twice (2026-10-29): a run that creates the folder, writes a file and
+# deletes both reads "absent" both times, and an in-place overwrite under a future-dated file leaves the counts and the
+# newest time alone. So a watch is subscribed before the child starts and read after it exits: one FileSystemWatcher on
+# Documents itself, not recursive, for the folder's own creation, deletion or rename, and, when the folder exists, one
+# inside it, recursive, for anything at all. Any event latches. A watcher error (a buffer overflow among them) is a
+# FAILED watch, never a clean one. The listing stays as the second check, with the counts and a signature over each
+# entry's path, size and write time (names and contents are never recorded), and a listing that could not be read whole
+# is a failure too: two partial listings that agree prove nothing. Both halves are checked on scratch folders at the start
+# of every run (Test-DocumentsWatch), so a watch that cannot see is a problem before any module runs. Said on every run
+# with the path, and said as well when the known folder cannot be resolved, so a run that watched nothing does not read
+# like one that saw nothing change.
 $documentsFolder = [Environment]::GetFolderPath('MyDocuments')
-$realRemembrance = $null
-if (-not [string]::IsNullOrWhiteSpace($documentsFolder)) { $realRemembrance = Join-Path $documentsFolder 'Remembrance' }
+$watchParent = $null
+$watchName = 'Remembrance'
+if (-not [string]::IsNullOrWhiteSpace($documentsFolder)) { $watchParent = $documentsFolder }
 $realRemembranceWatched = @('remembrance')
+# How long after the child exits the watch is read: events are delivered on the thread pool, and the self-check below,
+# which reads its own writes through the same Stop-DocumentsWatch, is what shows this is long enough on the machine.
+$documentsWatchSettleMilliseconds = 1000
 
+$documentsWatchSource = @'
+using System;
+using System.IO;
+using System.Threading;
+
+public sealed class DpDocumentsWatch : IDisposable
+{
+    private readonly string _name;
+    private readonly FileSystemWatcher _parent;
+    private readonly FileSystemWatcher _inside;
+    private int _events;
+    private string _first;
+    private string _failure;
+
+    public DpDocumentsWatch(string parentFolder, string name)
+    {
+        _name = name;
+        // The parent first, so a folder created between the two is seen as created.
+        _parent = Watcher(parentFolder, false);
+        _parent.Created += OnParentEvent;
+        _parent.Changed += OnParentEvent;
+        _parent.Deleted += OnParentEvent;
+        _parent.Renamed += OnParentRenamed;
+        _parent.EnableRaisingEvents = true;
+        string target = Path.Combine(parentFolder, name);
+        if (Directory.Exists(target))
+        {
+            _inside = Watcher(target, true);
+            _inside.Created += OnInsideEvent;
+            _inside.Changed += OnInsideEvent;
+            _inside.Deleted += OnInsideEvent;
+            _inside.Renamed += OnInsideRenamed;
+            _inside.EnableRaisingEvents = true;
+        }
+    }
+
+    private FileSystemWatcher Watcher(string folder, bool recursive)
+    {
+        var watcher = new FileSystemWatcher(folder);
+        watcher.IncludeSubdirectories = recursive;
+        watcher.InternalBufferSize = 65536;
+        watcher.NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.Attributes |
+                               NotifyFilters.Size | NotifyFilters.LastWrite | NotifyFilters.CreationTime | NotifyFilters.Security;
+        watcher.Error += OnError;
+        return watcher;
+    }
+
+    private void Latch(string what)
+    {
+        Interlocked.Increment(ref _events);
+        Interlocked.CompareExchange(ref _first, what, null);
+    }
+
+    private void OnParentEvent(object sender, FileSystemEventArgs e)
+    {
+        if (string.Equals(e.Name, _name, StringComparison.OrdinalIgnoreCase)) Latch("the folder itself " + e.ChangeType);
+    }
+
+    private void OnParentRenamed(object sender, RenamedEventArgs e)
+    {
+        if (string.Equals(e.Name, _name, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(e.OldName, _name, StringComparison.OrdinalIgnoreCase)) Latch("the folder itself Renamed");
+    }
+
+    private void OnInsideEvent(object sender, FileSystemEventArgs e) { Latch("inside it " + e.ChangeType); }
+
+    private void OnInsideRenamed(object sender, RenamedEventArgs e) { Latch("inside it Renamed"); }
+
+    private void OnError(object sender, ErrorEventArgs e)
+    {
+        Exception error = e.GetException();
+        Interlocked.CompareExchange(ref _failure, error == null ? "an unnamed watcher error" : error.GetType().Name, null);
+    }
+
+    public int Events { get { return Interlocked.CompareExchange(ref _events, 0, 0); } }
+    public string First { get { return Interlocked.CompareExchange(ref _first, null, null); } }
+    public string Failure { get { return Interlocked.CompareExchange(ref _failure, null, null); } }
+
+    public void Dispose()
+    {
+        _parent.EnableRaisingEvents = false;
+        _parent.Dispose();
+        if (_inside != null) { _inside.EnableRaisingEvents = false; _inside.Dispose(); }
+    }
+}
+'@
+if (-not ('DpDocumentsWatch' -as [type])) { Add-Type -TypeDefinition $documentsWatchSource -Language CSharp }
+
+# The folder's listing: Complete says whether every entry could be read, and Text is 'absent', the counts with a signature,
+# or why it could not be read. Inaccessible is never 'absent': GetAttributes throws FileNotFound or DirectoryNotFound for a
+# folder that is not there and something else for one that cannot be reached, and the listing stops at the first entry it
+# cannot read.
 function Get-FolderFootprint([string]$Path) {
-    if (-not (Test-Path -LiteralPath $Path -PathType Container)) { return 'absent' }
-    $entries = @(Get-ChildItem -LiteralPath $Path -Recurse -Force -ErrorAction SilentlyContinue)
-    $files = @($entries | Where-Object { -not $_.PSIsContainer }).Count
-    $newest = (Get-Item -LiteralPath $Path -Force).LastWriteTimeUtc
-    foreach ($entry in $entries) { if ($entry.LastWriteTimeUtc -gt $newest) { $newest = $entry.LastWriteTimeUtc } }
-    return ('present, {0} file(s) and {1} folder(s), newest write {2}' -f $files, ($entries.Count - $files), $newest.ToString('o'))
+    $attributes = $null
+    try { $attributes = [IO.File]::GetAttributes($Path) }
+    catch {
+        $base = $_.Exception.GetBaseException()
+        if ($base -is [IO.FileNotFoundException] -or $base -is [IO.DirectoryNotFoundException]) {
+            return [pscustomobject]@{ Complete = $true; Text = 'absent' }
+        }
+        return [pscustomobject]@{ Complete = $false; Text = "could not be read ($($base.GetType().Name))" }
+    }
+    if (($attributes -band [IO.FileAttributes]::Directory) -eq 0) {
+        $file = Get-Item -LiteralPath $Path -Force
+        return [pscustomobject]@{ Complete = $true; Text = "present as a file of $($file.Length) bytes, written $($file.LastWriteTimeUtc.Ticks)" }
+    }
+    $root = [IO.Path]::GetFullPath($Path).TrimEnd('\')
+    $entries = $null
+    try { $entries = @(Get-ChildItem -LiteralPath $root -Recurse -Force -ErrorAction Stop) }
+    catch { return [pscustomobject]@{ Complete = $false; Text = "could not be listed whole ($($_.Exception.GetBaseException().GetType().Name))" } }
+    $files = 0
+    $lines = New-Object 'Collections.Generic.List[string]'
+    foreach ($entry in $entries) {
+        $relative = $entry.FullName.Substring($root.Length)
+        if ($entry.PSIsContainer) { $lines.Add("$relative|dir|$($entry.LastWriteTimeUtc.Ticks)") }
+        else { $files++; $lines.Add("$relative|$($entry.Length)|$($entry.LastWriteTimeUtc.Ticks)") }
+    }
+    $sorted = $lines.ToArray()
+    [Array]::Sort($sorted, [StringComparer]::Ordinal)
+    $sha = [Security.Cryptography.SHA256]::Create()
+    $digest = $sha.ComputeHash([Text.Encoding]::UTF8.GetBytes(($sorted -join "`n")))
+    $signature = (($digest[0..7] | ForEach-Object { $_.ToString('x2') }) -join '')
+    return [pscustomobject]@{ Complete = $true
+                              Text = "present, $files file(s) and $($entries.Count - $files) folder(s), signature $signature" }
 }
 
-if ($realRemembrance) {
-    Write-Host ("DOCUMENTS WATCH: $realRemembrance is compared before and after the $($realRemembranceWatched -join ', ') " +
-                "self-test; it reads $(Get-FolderFootprint $realRemembrance) now")
+# Subscribed BEFORE the child starts; the listing is taken first, so a change between the two is in the events.
+function Start-DocumentsWatch([string]$Parent, [string]$Name) {
+    $target = Join-Path $Parent $Name
+    $state = [pscustomobject]@{ Target = $target; Before = (Get-FolderFootprint $target); Watch = $null; StartFailure = $null }
+    try { $state.Watch = New-Object DpDocumentsWatch -ArgumentList $Parent, $Name }
+    catch { $state.StartFailure = $_.Exception.GetBaseException().GetType().Name }
+    return $state
+}
+
+# $null when nothing changed and everything could be seen; otherwise every reason it cannot be called clean.
+function Stop-DocumentsWatch($State) {
+    Start-Sleep -Milliseconds $documentsWatchSettleMilliseconds
+    $found = @()
+    if ($State.StartFailure) { $found += "the watch could not start ($($State.StartFailure)), so a change could have gone unseen" }
+    else {
+        try {
+            if ($State.Watch.Failure) { $found += "the watch failed ($($State.Watch.Failure)), so a change could have gone unseen" }
+            if ($State.Watch.Events -gt 0) { $found += "a change was seen ($($State.Watch.Events) event(s), the first: $($State.Watch.First))" }
+        }
+        finally { $State.Watch.Dispose() }
+    }
+    $after = Get-FolderFootprint $State.Target
+    if (-not $State.Before.Complete -or -not $after.Complete) {
+        $found += "the folder could not be listed whole (before: $($State.Before.Text); after: $($after.Text)), and two partial listings prove nothing"
+    }
+    elseif ($after.Text -cne $State.Before.Text) { $found += "its listing changed (before: $($State.Before.Text); after: $($after.Text))" }
+    if ($found.Count -eq 0) { return $null }
+    return ($found -join '; ')
+}
+
+# The watch's own check, on scratch folders under this run's TEMP and never the real Documents: the two inputs the
+# footprint missed, a folder that cannot be listed, and two quiet runs that must stay clean. Returns the failures.
+function Test-DocumentsWatch([string]$Scratch) {
+    $failed = @()
+    $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    $cases = @(
+        @{ Label = 'create, write and delete in a folder that was absent'; Expect = 'a change was seen'; Prepare = { param($d) }
+           Act = { param($d) $r = Join-Path $d 'Remembrance'; [void][IO.Directory]::CreateDirectory($r)
+                   [IO.File]::WriteAllText((Join-Path $r 'synthetic.dat'), 'a synthetic recording'); [IO.File]::Delete((Join-Path $r 'synthetic.dat'))
+                   [IO.Directory]::Delete($r) } },
+        @{ Label = 'an in-place overwrite under a future-dated file, its write time put back'; Expect = 'a change was seen'
+           Prepare = { param($d) $r = Join-Path $d 'Remembrance'; [void][IO.Directory]::CreateDirectory($r)
+                       [IO.File]::WriteAllText((Join-Path $r 'older.dat'), 'old text'); [IO.File]::SetLastWriteTimeUtc((Join-Path $r 'older.dat'), [DateTime]::UtcNow.AddDays(-1))
+                       [IO.File]::WriteAllText((Join-Path $r 'future.dat'), 'future'); [IO.File]::SetLastWriteTimeUtc((Join-Path $r 'future.dat'), [DateTime]::UtcNow.AddDays(365)) }
+           Act = { param($d) $f = Join-Path (Join-Path $d 'Remembrance') 'older.dat'; $t = [IO.File]::GetLastWriteTimeUtc($f)
+                   [IO.File]::WriteAllText($f, 'new text'); [IO.File]::SetLastWriteTimeUtc($f, $t) } },
+        @{ Label = 'a subfolder that cannot be listed'; Expect = 'could not be listed whole'
+           Prepare = { param($d) $l = Join-Path (Join-Path $d 'Remembrance') 'locked'; [void][IO.Directory]::CreateDirectory($l)
+                       [IO.File]::WriteAllText((Join-Path $l 'inside.dat'), 'unseen')
+                       & icacls $l /deny "*${sid}:(RD)" | Out-Null
+                       if ($LASTEXITCODE -ne 0) { throw "icacls could not deny listing on the scratch subfolder (exit $LASTEXITCODE)" } }
+           Act = { param($d) } },
+        @{ Label = 'WITNESS nothing happens'; Expect = $null
+           Prepare = { param($d) $r = Join-Path $d 'Remembrance'; [void][IO.Directory]::CreateDirectory($r); [IO.File]::WriteAllText((Join-Path $r 'kept.dat'), 'kept') }
+           Act = { param($d) } },
+        @{ Label = 'WITNESS a change beside the folder, not in it'; Expect = $null; Prepare = { param($d) }
+           Act = { param($d) $o = Join-Path $d 'Other'; [void][IO.Directory]::CreateDirectory($o); [IO.File]::WriteAllText((Join-Path $o 'theirs.dat'), 'theirs') } }
+    )
+    $index = 0
+    foreach ($case in $cases) {
+        $index++
+        $documents = Join-Path $Scratch "case$index\Documents"
+        try {
+            [void][IO.Directory]::CreateDirectory($documents)
+            & $case.Prepare $documents
+            $state = Start-DocumentsWatch $documents 'Remembrance'
+            & $case.Act $documents
+            $result = Stop-DocumentsWatch $state
+            $ok = if ($null -eq $case.Expect) { $null -eq $result } else { $null -ne $result -and $result.Contains($case.Expect) }
+            if (-not $ok) { $failed += "$($case.Label): expected $(if ($case.Expect) { "'$($case.Expect)'" } else { 'a clean watch' }), got $(if ($result) { $result } else { 'a clean watch' })" }
+        }
+        catch { $failed += "$($case.Label): the case threw $($_.Exception.GetBaseException().GetType().Name): $($_.Exception.GetBaseException().Message)" }
+        finally {
+            $locked = Join-Path $documents 'Remembrance\locked'
+            if (Test-Path -LiteralPath $locked) { & icacls $locked /remove:d "*$sid" | Out-Null }
+        }
+    }
+    try { [IO.Directory]::Delete($Scratch, $true) } catch { }
+    return $failed
+}
+
+if ($watchParent) {
+    $realStart = Get-FolderFootprint (Join-Path $watchParent $watchName)
+    Write-Host ("DOCUMENTS WATCH: $(Join-Path $watchParent $watchName) is watched for any change from before the " +
+                "$($realRemembranceWatched -join ', ') self-test starts until after it exits, then listed again; it reads $($realStart.Text) now")
 }
 else {
     Write-Host ('DOCUMENTS WATCH: NOT WATCHED: the Documents known folder could not be resolved, so a self-test writing into a ' +
                 'real Documents\Remembrance would go unseen in this run')
 }
+$documentsWatchSelfCheck = @(Test-DocumentsWatch (Join-Path $runTemp 'dp-watch-check'))
+if ($documentsWatchSelfCheck.Count -eq 0) { Write-Host 'DOCUMENTS WATCH SELF-CHECK: 5 case(s) on scratch folders behaved as they must' }
 
 # Said on every run that presses, before the first module runs, as tests\mutate-selftest-guards.py says it at its start:
 # a run without the variable makes Blinking LED's real presses, and until the final round of lane
@@ -414,18 +629,21 @@ if (-not $noRealInputRequested) {
 $problems = @()
 try {
     foreach ($id in $Covered) {
-        $footprintBefore = $null
-        if ($realRemembrance -and $realRemembranceWatched -contains $id) { $footprintBefore = Get-FolderFootprint $realRemembrance }
-        $r = Invoke-ModuleSelfTest $id
-        # Graded whatever the module's verdict, like the real-input rules below: it is about the owner's files, not the suite.
-        $documentsProblem = $null
-        if ($null -ne $footprintBefore) {
-            $footprintAfter = Get-FolderFootprint $realRemembrance
-            if ($footprintAfter -cne $footprintBefore) {
-                $documentsProblem = ("the real Documents\Remembrance changed during its self-test ($realRemembrance; before: " +
-                                     "$footprintBefore; after: $footprintAfter): a check or a mutant recorded outside its scratch " +
-                                     'folder, or the installed app recorded there during the run')
-                $problems += "$id : $documentsProblem"
+        $documentsWatch = $null
+        if ($watchParent -and $realRemembranceWatched -contains $id) { $documentsWatch = Start-DocumentsWatch $watchParent $watchName }
+        $r = $null
+        try { $r = Invoke-ModuleSelfTest $id }
+        finally {
+            # Graded whatever the module's verdict, like the real-input rules below: it is about the owner's files, not the suite.
+            $documentsProblem = $null
+            if ($null -ne $documentsWatch) {
+                $documentsChange = Stop-DocumentsWatch $documentsWatch
+                if ($documentsChange) {
+                    $documentsProblem = ("the real Documents\Remembrance changed during its self-test, or could not be watched " +
+                                         "($(Join-Path $watchParent $watchName): $documentsChange): a check or a mutant recorded " +
+                                         'outside its scratch folder, or the installed app recorded there during the run')
+                    $problems += "$id : $documentsProblem"
+                }
             }
         }
         # ANCHORED ON THE ASSERTION SHAPE, not on the substring 'PASS'.
@@ -541,6 +759,9 @@ try {
             Write-Host ("  gap  {0,-12} {1} known gap(s), unchanged" -f $id, $expected.Count)
         }
     }
+    # A watch that failed its own check (Test-DocumentsWatch, run before the first module) cannot vouch for the real folder,
+    # whatever it read during the run.
+    foreach ($selfCheckFailure in $documentsWatchSelfCheck) { $problems += "the Documents watch failed its own check: $selfCheckFailure" }
     $runFinished = $true
 }
 finally {
