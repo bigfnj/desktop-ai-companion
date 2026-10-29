@@ -1694,6 +1694,8 @@ namespace DesktopAICompanion
                 ok &= HostOptions(sb);
                 // ---- lane feature/abi-pane-actions ----
                 ok &= AbiPaneActions(sb);
+                // ---- lane feature/host-abi-180 ----
+                ok &= AbiVisibleWhen(sb);
             }
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message); }
 
@@ -5438,6 +5440,162 @@ namespace DesktopAICompanion
             {
                 ok = false;
                 sb.AppendLine("FAIL: the abi-pane-actions probe threw " + ex.GetType().Name + ": " + ex.Message);
+            }
+            return ok;
+        }
+
+        // ================= lane feature/host-abi-180: SettingField.VisibleWhen (host 1.8.0) =================
+
+        /// <summary>
+        /// AI Brain's Haiku note in miniature (BACKLOG N-coordinator-02): an Info row shown only while a model row shows
+        /// Haiku, a row carrying both VisibleWhen and EnabledWhen, a row with EnabledWhen alone (the WITNESS that it still
+        /// only greys), a field hidden on the radio whose value must survive, one row per way the condition can be read
+        /// wrongly (spaces and a '|' set in another case, a field in a LATER card, a display-only field), and an ungated
+        /// row. <paramref name="withVisibleWhen"/> false builds the same pane with no VisibleWhen anywhere, the twin a hidden
+        /// field's collected and saved values are compared against; <paramref name="saved"/> receives what Save is handed.
+        /// </summary>
+        private static OptionsPane AbiShownPane(bool withVisibleWhen, Dictionary<string, string> saved)
+        {
+            Func<string, string> shownOn = delegate (string condition) { return withVisibleWhen ? condition : null; };
+            return new OptionsPane
+            {
+                Title = "Shown",
+                Schema = new[]
+                {
+                    new SettingField { Id = "runsOn", Label = "Brain runs on", Kind = SettingKind.Radio, Options = new[] { "Local model", "Claude Code CLI", "Codex CLI" }, Group = "Engine" },
+                    new SettingField { Id = "status", Label = "Status", Kind = SettingKind.Info, Group = "Engine" },
+                    new SettingField { Id = "model", Label = "Claude Code model", Kind = SettingKind.Enum, Options = new[] { "Haiku", "Sonnet" }, Group = "CLI" },
+                    new SettingField { Id = "note", Label = "About Haiku", Kind = SettingKind.Info, Group = "CLI", VisibleWhen = shownOn("model=Haiku") },
+                    new SettingField { Id = "both", Label = "Both", Kind = SettingKind.Text, Group = "CLI", VisibleWhen = shownOn("model=Haiku"), EnabledWhen = "runsOn=Claude Code CLI" },
+                    new SettingField { Id = "greyOnly", Label = "Greyed only", Kind = SettingKind.Text, Group = "CLI", EnabledWhen = "runsOn=Claude Code CLI" },
+                    new SettingField { Id = "kept", Label = "Kept", Kind = SettingKind.Text, Group = "CLI", VisibleWhen = shownOn("runsOn=Claude Code CLI") },
+                    new SettingField { Id = "spaced", Label = "Spaced", Kind = SettingKind.Text, Group = "CLI", VisibleWhen = shownOn(" model = sonnet | HAIKU ") },
+                    new SettingField { Id = "early", Label = "Early", Kind = SettingKind.Text, Group = "CLI", VisibleWhen = shownOn("late=yes") },
+                    new SettingField { Id = "onNote", Label = "On a note", Kind = SettingKind.Text, Group = "CLI", VisibleWhen = shownOn("status=ready") },
+                    new SettingField { Id = "free", Label = "Free", Kind = SettingKind.Text, Group = "CLI" },
+                    new SettingField { Id = "late", Label = "Late", Kind = SettingKind.Enum, Options = new[] { "yes", "no" }, Group = "Zed" },
+                },
+                Load = delegate
+                {
+                    return new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        { "runsOn", "Codex CLI" }, { "status", "ready" }, { "model", "Haiku" }, { "note", "⚠ About Haiku." },
+                        { "both", "b" }, { "greyOnly", "g" }, { "kept", "stored" }, { "spaced", "s" }, { "early", "e" },
+                        { "onNote", "o" }, { "free", "f" }, { "late", "yes" },
+                    };
+                },
+                Save = delegate (IReadOnlyDictionary<string, string> v)
+                {
+                    saved.Clear();
+                    foreach (KeyValuePair<string, string> kv in v) saved[kv.Key] = kv.Value;
+                    return true;
+                },
+            };
+        }
+
+        /// <summary>Where two collected or saved dictionaries differ, key by key, or "" when they hold the same pairs.</summary>
+        private static string AbiDictionaryDifference(IReadOnlyDictionary<string, string> a, IReadOnlyDictionary<string, string> b)
+        {
+            var diff = new List<string>();
+            foreach (KeyValuePair<string, string> kv in a)
+            {
+                string other;
+                if (!b.TryGetValue(kv.Key, out other)) diff.Add(kv.Key + " only in the first");
+                else if (!string.Equals(kv.Value, other, StringComparison.Ordinal)) diff.Add(kv.Key + " " + kv.Value + " vs " + other);
+            }
+            foreach (KeyValuePair<string, string> kv in b)
+                if (!a.ContainsKey(kv.Key)) diff.Add(kv.Key + " only in the second");
+            return string.Join(", ", diff.ToArray());
+        }
+
+        private static bool AbiShownIs(DesktopAICompanion.Wpf.PaneView view, string id, System.Windows.Visibility visibility)
+        {
+            System.Windows.FrameworkElement row = view.RowFor(id);
+            return row != null && row.Visibility == visibility;
+        }
+
+        /// <summary>
+        /// Lane feature/host-abi-180, BACKLOG N-coordinator-02: SettingField.VisibleWhen hides its row while unmet (Collapsed,
+        /// so the card closes up), read by EnabledWhen's own parser (trimmed, '|' sets, any case, a later card, a display-only
+        /// field), live both ways; a hidden field's value is collected and saved exactly as its twin's without VisibleWhen, and
+        /// an edit made before it was hidden is kept and comes back with it; EnabledWhen still only greys; a row with neither
+        /// is untouched.
+        /// </summary>
+        private static bool AbiVisibleWhen(StringBuilder sb)
+        {
+            bool ok = true;
+            try
+            {
+                var saved = new Dictionary<string, string>(StringComparer.Ordinal);
+                var view = new DesktopAICompanion.Wpf.PaneView(AbiShownPane(true, saved));
+                var root = view.Build();
+                var twinSaved = new Dictionary<string, string>(StringComparer.Ordinal);
+                var twin = new DesktopAICompanion.Wpf.PaneView(AbiShownPane(false, twinSaved));
+                twin.Build();
+                System.Windows.Visibility shown = System.Windows.Visibility.Visible, gone = System.Windows.Visibility.Collapsed;
+                bool found = view.RowFor("kept") != null && view.RowFor("note") != null && view.RowFor("greyOnly") != null &&
+                             view.RowFor("free") != null && EditorOf(view.RowFor("kept")) is System.Windows.Controls.TextBox &&
+                             EditorOf(view.RowFor("model")) is System.Windows.Controls.ComboBox &&
+                             EditorOf(view.RowFor("late")) is System.Windows.Controls.ComboBox;
+                ok &= Check(sb, "abi180: the VisibleWhen probe rendered its rows", found);
+                if (!found) return ok;
+
+                // Codex CLI and Haiku on screen.
+                ok &= Check(sb, "abi180: an unmet VisibleWhen hides its row, label and all, and the card closes up over it (" + view.RowFor("kept").Visibility + ")",
+                    AbiShownIs(view, "kept", gone));
+                ok &= Check(sb, "abi180: a met VisibleWhen shows its row", AbiShownIs(view, "note", shown));
+                ok &= Check(sb, "abi180: WITNESS an unmet EnabledWhen still only greys: its row stays shown (" + view.RowFor("greyOnly").Visibility + ")",
+                    !view.RowFor("greyOnly").IsEnabled && AbiShownIs(view, "greyOnly", shown));
+                ok &= Check(sb, "abi180: a row carrying both is shown by its VisibleWhen and greyed by its EnabledWhen",
+                    AbiShownIs(view, "both", shown) && !view.RowFor("both").IsEnabled);
+                ok &= Check(sb, "abi180: VisibleWhen is read by EnabledWhen's parser: both sides trimmed, a '|' set, any case",
+                    AbiShownIs(view, "spaced", shown));
+                ok &= Check(sb, "abi180: VisibleWhen naming a field declared in a LATER card is still evaluated", AbiShownIs(view, "early", shown));
+                ok &= Check(sb, "abi180: VisibleWhen can name a display-only field, which has no reader of its own", AbiShownIs(view, "onNote", shown));
+                ok &= Check(sb, "abi180: WITNESS a row with no VisibleWhen keeps the Visibility it was built with, none set",
+                    view.RowFor("free").ReadLocalValue(System.Windows.UIElement.VisibilityProperty) == System.Windows.DependencyProperty.UnsetValue &&
+                    view.RowFor("greyOnly").ReadLocalValue(System.Windows.UIElement.VisibilityProperty) == System.Windows.DependencyProperty.UnsetValue);
+
+                // NOTHING LOST, NOTHING SAVED DIFFERENTLY: the hidden field is collected and saved as its twin without
+                // VisibleWhen is, every key and every value.
+                string collected = AbiDictionaryDifference(view.Collect(), twin.Collect());
+                bool bothSaved = view.Save() && twin.Save();
+                string savedDiff = AbiDictionaryDifference(saved, twinSaved);
+                ok &= Check(sb, "abi180: a hidden field is collected and saved exactly as without VisibleWhen, its stored value included (" +
+                    (collected.Length == 0 && savedDiff.Length == 0 ? "same" : collected + " / " + savedDiff) + ")",
+                    bothSaved && collected.Length == 0 && savedDiff.Length == 0 && saved.ContainsKey("kept") && saved["kept"] == "stored");
+
+                // LIVE, both ways, and an edit made while shown survives being hidden.
+                System.Windows.Controls.RadioButton claude = RadioFor(root, "Claude Code CLI"), codex = RadioFor(root, "Codex CLI");
+                if (claude != null && codex != null)
+                {
+                    claude.IsChecked = true;
+                    bool cameBack = AbiShownIs(view, "kept", shown);
+                    ((System.Windows.Controls.TextBox)EditorOf(view.RowFor("kept"))).Text = "typed";
+                    codex.IsChecked = true;
+                    bool hidAgain = AbiShownIs(view, "kept", gone);
+                    ok &= Check(sb, "abi180: a hidden row comes back LIVE when the field it names changes, and hides again when it moves away",
+                        cameBack && hidAgain);
+                    Dictionary<string, string> whileHidden = view.Collect();
+                    bool savedTyped = view.Save() && saved.ContainsKey("kept") && saved["kept"] == "typed";
+                    claude.IsChecked = true;
+                    string backWith = ((System.Windows.Controls.TextBox)EditorOf(view.RowFor("kept"))).Text;
+                    ok &= Check(sb, "abi180: an edit made before its row was hidden is collected and saved while hidden, and comes back with it (" + backWith + ")",
+                        whileHidden.ContainsKey("kept") && whileHidden["kept"] == "typed" && savedTyped && backWith == "typed" && AbiShownIs(view, "kept", shown));
+                }
+                else ok &= Check(sb, "abi180: the VisibleWhen probe rendered its radio buttons", false);
+
+                // The Haiku note's shape: hidden as soon as the model ON SCREEN is not Haiku, applied or not.
+                ((System.Windows.Controls.ComboBox)EditorOf(view.RowFor("model"))).SelectedItem = "Sonnet";
+                ok &= Check(sb, "abi180: the note hides as soon as the model on screen moves off Haiku, unapplied, and the '|' set keeps its row",
+                    AbiShownIs(view, "note", gone) && AbiShownIs(view, "both", gone) && AbiShownIs(view, "spaced", shown));
+                ((System.Windows.Controls.ComboBox)EditorOf(view.RowFor("late"))).SelectedItem = "no";
+                ok &= Check(sb, "abi180: a row shown on a field in a later card hides live as that field changes", AbiShownIs(view, "early", gone));
+            }
+            catch (Exception ex)
+            {
+                ok = false;
+                sb.AppendLine("FAIL: the host-abi-180 VisibleWhen probe threw " + ex.GetType().Name + ": " + ex.Message);
             }
             return ok;
         }

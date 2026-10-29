@@ -385,13 +385,14 @@ namespace DesktopAICompanion.AiBrainModule
                    rowValues.Count < cardValues.Count && rowValues.IsSubsetOf(cardValues);
         }
 
-        /// <summary>Lane feature/cli-followups: <paramref name="f"/> is an Info row whose own gate names one value of another
-        /// row in the same card (the Haiku note's shape), the one row gate CheckLayoutCards allows beside a narrower one.</summary>
+        /// <summary>Lane feature/cli-followups: <paramref name="f"/> is an Info row shown only on one value of another row in
+        /// the same card (the Haiku note's shape), the one VisibleWhen CheckLayoutCards allows. Its EnabledWhen until lane
+        /// feature/host-abi-180 (host 1.8.0), which made the gate a VisibleWhen and the note's EnabledWhen the radio's.</summary>
         internal static bool IsNoteOnARowOfItsCard(OptionsPane pane, SettingField f)
         {
             string field;
             HashSet<string> values;
-            if (f == null || f.Kind != SettingKind.Info || !SplitGate(f.EnabledWhen, out field, out values) || values.Count != 1) return false;
+            if (f == null || f.Kind != SettingKind.Info || !SplitGate(f.VisibleWhen, out field, out values) || values.Count != 1) return false;
             SettingField named = FieldOf(pane, field);
             return named != null && !ReferenceEquals(named, f) && string.Equals(named.Group, f.Group, StringComparison.Ordinal);
         }

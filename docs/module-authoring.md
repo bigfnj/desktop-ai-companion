@@ -305,6 +305,7 @@ You declare data; the host renders it. That is why a module needs no UI framewor
   | `SettingKind.FilePath`, `FolderPath` | **1.4.0** | the name in the box, the folder muted under it, the full path on hover, and a host-owned Browse (filtered by `FileExtensions`) whose choice is an unsaved edit. Stores the full path, exactly what `Text` stores; `EmptyHint` says what blank means |
   | `ListCard.MasterToggle` | **1.4.0** | an "All" row (`"All packs"`): tri-state, "N of M", and a click goes through each item's own box, so `SetChecked` and `DeferChanges` behave as for single ticks |
   | `PaneAction.EnabledWhen` | **1.6.2** | a button's own condition, in `EnabledWhen`'s syntax and read by the same parser: greys the action's row, its result line included, and the button refuses a click. For a button that serves one state of a card that is live; a card greyed whole still uses `CardEnabledWhen` |
+  | `VisibleWhen` | **1.8.0** | `EnabledWhen`'s syntax, read by the same parser: HIDES the row, label and all, while unmet, where `EnabledWhen` greys it. For a row with nothing to say in the other states (AI Brain's "About Haiku" note). The value is still collected and saved, an edit made before it hid comes back with it, and a row may carry both |
 
   Rendering only, nothing to set (1.4.0): a field greyed by either `EnabledWhen` LOOKS greyed in the dark theme
   too, a list item's `Detail` is a muted column on the right, a grouped list's headers count "12 of 18", and an

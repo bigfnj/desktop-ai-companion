@@ -864,9 +864,9 @@ namespace DesktopAICompanion.AiBrainModule
                     // tests what they show.
                     _cliClaudeModelField,
                     // The warning on the Haiku choice (lane feature/cli-followups, BACKLOG N-measure-model-03, the owner's
-                    // decision of 2026-10-27, "Warn on the Haiku choice"): right under the model row, live only while that row
-                    // shows Haiku (HaikuNoteWhen says why the gate names the model row and not the radio).
-                    new SettingField { Id = "cliClaudeHaikuNote", Label = "About Haiku", Kind = SettingKind.Info, Group = CliCardGroup, EnabledWhen = HaikuNoteWhen },
+                    // decision of 2026-10-27, "Warn on the Haiku choice"): right under the model row, SHOWN only while that row
+                    // shows Haiku and greyed with the Claude Code rows off Claude Code (HaikuNoteWhen says why the two gates).
+                    new SettingField { Id = "cliClaudeHaikuNote", Label = "About Haiku", Kind = SettingKind.Info, Group = CliCardGroup, VisibleWhen = HaikuNoteWhen, EnabledWhen = OnClaudeCliOnly },
                     _cliClaudeEffortField,
                     // The opt-in that keeps the user's own Claude Code settings files out of this module's calls (lane
                     // feature/cli-runner-aibrain, BACKLOG N-cli-home-files-01, the owner's decision: off by default).
@@ -1689,13 +1689,14 @@ namespace DesktopAICompanion.AiBrainModule
         // of that width holds the figure. Remembrance is left out on purpose: its summaries are meant to name the meeting's
         // participants.
         //
-        // Its gate names the MODEL row, the one condition SettingField.EnabledWhen takes, so the note is live exactly while
-        // the dropdown on screen shows Haiku, applied or not, and greyed under any other model. The cost of one condition:
-        // with Codex CLI on screen and Haiku still showing in the greyed Claude Code model row, the note stays live, and what
-        // it says is still true of that row's choice. Refused: gating it on the radio like the rows around it, which would
-        // leave it live under Opus; and an Info value that names Haiku only when it is SAVED, which says nothing of a choice
-        // on screen until Apply. The layout check's rule that a row's own gate narrows its card's on the same field has this
-        // row as its one exception (AiEngineProbe.Layout.cs), a display-only row gated on another row of its card.
+        // Two gates since host 1.8.0 (lane feature/host-abi-180, BACKLOG N-coordinator-02). SettingField.VisibleWhen names
+        // the MODEL row, so the note is SHOWN exactly while the dropdown on screen shows Haiku, applied or not, and gone
+        // under any other model; until 1.8.0 that was its EnabledWhen, the one condition a row could take, and the note sat
+        // on the card greyed under Sonnet and Opus. Its EnabledWhen is now the radio's, like the Claude Code rows around it,
+        // so with Codex CLI on screen and Haiku still showing in the greyed Claude Code model row the note greys with that
+        // row; with one condition it stayed live there. Refused: gating it on the radio alone, which would show it under
+        // Opus; and an Info value that names Haiku only when it is SAVED, which says nothing of a choice on screen until
+        // Apply. The layout check lets this row be the one shown only on another row of its card (AiEngineProbe.Layout.cs).
 
         /// <summary>The Haiku note's gate: the Claude Code model row showing Haiku's label (ClaudeModelChoices).</summary>
         internal const string HaikuNoteWhen = "cliClaudeModel=Haiku";

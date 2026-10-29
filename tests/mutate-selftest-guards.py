@@ -14394,7 +14394,7 @@ CASES = (
     # AI Brain: the Haiku note and the landing's wiring.
     ("cli-followups: AI Brain: no warning on the Haiku choice",
      AIBRAIN_MODULE,
-     b'                    new SettingField { Id = "cliClaudeHaikuNote", Label = "About Haiku", Kind = SettingKind.Info, Group = CliCardGroup, EnabledWhen = HaikuNoteWhen },\n',
+     b'                    new SettingField { Id = "cliClaudeHaikuNote", Label = "About Haiku", Kind = SettingKind.Info, Group = CliCardGroup, VisibleWhen = HaikuNoteWhen, EnabledWhen = OnClaudeCliOnly },\n',
      b'',
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
@@ -14406,9 +14406,11 @@ CASES = (
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "aibrain cli-followups: the note says Haiku may repeat names it reads on the screen, with the measured figures"),
+    # Re-pointed by lane feature/host-abi-180: the note's model gate is its VisibleWhen now (host 1.8.0), so "on every
+    # model" is the note with that gate gone and the radio's EnabledWhen kept.
     ("cli-followups: AI Brain: the Haiku note is live on every Claude Code model",
      AIBRAIN_MODULE,
-     b'Group = CliCardGroup, EnabledWhen = HaikuNoteWhen },\n',
+     b'Group = CliCardGroup, VisibleWhen = HaikuNoteWhen, EnabledWhen = OnClaudeCliOnly },\n',
      b'Group = CliCardGroup, EnabledWhen = OnClaudeCliOnly },\n',
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
@@ -14419,7 +14421,7 @@ CASES = (
      b'            return false;\n',
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
-     "WITNESS aibrain layout: the one display-only row gated on another row of its card is the Haiku note"),
+     "WITNESS aibrain layout: the one row shown only on another row of its card is the Haiku note"),
     ("cli-followups: AI Brain: a details read that lands tells the open pane nothing",
      AIBRAIN_MODULE,
      b'            _cli.DetailsRead = delegate { NotifyPaneInfoChanged(); };\n',
@@ -14790,6 +14792,30 @@ CASES = (
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "remembrance cli: the cards come in the approved mockup's order"),
+    # ---- lane feature/host-abi-180 ----
+    # Host 1.8.0's additive ABI: AI Brain's Haiku note on SettingField.VisibleWhen (BACKLOG N-coordinator-02), and the shared
+    # Claude Code sign-in store (N-cli-token-02). Names carry "abi180:" so one --only runs the lane.
+    ("abi180: AI Brain: the Haiku note greys under other models again (N-coordinator-02)",
+     AIBRAIN_MODULE,
+     b'Group = CliCardGroup, VisibleWhen = HaikuNoteWhen, EnabledWhen = OnClaudeCliOnly },\n',
+     b'Group = CliCardGroup, EnabledWhen = HaikuNoteWhen },\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "aibrain cli-followups: the CLI card warns on Haiku in an Info row right under the Claude Code model row, shown only"),
+    ("abi180: AI Brain: the Haiku note stays live under Codex CLI",
+     AIBRAIN_MODULE,
+     b'Group = CliCardGroup, VisibleWhen = HaikuNoteWhen, EnabledWhen = OnClaudeCliOnly },\n',
+     b'Group = CliCardGroup, VisibleWhen = HaikuNoteWhen },\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "aibrain cli-followups: the Haiku note greys with the Claude Code model row it describes"),
+    ("abi180: AI Brain: a second row shown on a VisibleWhen passes the layout check",
+     AIBRAIN_MODULE,
+     b'                    new SettingField { Id = "cliStatus", Label = "Status", Kind = SettingKind.Info, Group = CliCardGroup },\n',
+     b'                    new SettingField { Id = "cliStatus", Label = "Status", Kind = SettingKind.Info, Group = CliCardGroup, VisibleWhen = OnCliOnly },\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "WITNESS aibrain layout: the one row shown only on another row of its card is the Haiku note, and no other row has a VisibleWhen"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

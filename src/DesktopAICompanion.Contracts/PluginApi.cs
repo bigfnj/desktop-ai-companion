@@ -420,6 +420,24 @@ namespace DesktopAICompanion.Modules
         // "Documents\Remembrance (the default)" or "(found automatically)". It is also the blank box's tooltip.
         // Only the path kinds draw it; the other kinds ignore it. Added in host 1.4.0.
         public string EmptyHint { get; set; }
+
+        // ---- host 1.8.0 addition. Inert when unset, which is what every module before it relies on.
+
+        // "otherFieldId=value", read exactly as EnabledWhen is, by the same parser: '|' for several values, both sides
+        // trimmed, case-insensitive, against the value ON SCREEN, re-evaluated live as that field changes, and able to name
+        // a field declared later or a display-only one. Null or empty => always shown, which is every field before host
+        // 1.8.0. Added in host 1.8.0 (BACKLOG N-coordinator-02).
+        //
+        // While it is not met the host HIDES the row, label and all, and the card closes up over it. EnabledWhen greys and
+        // never hides, which is right for a setting the user should see is there but does not apply now; this is for a
+        // row with nothing to say in the other states, where a greyed copy is only clutter (AI Brain's "About Haiku" note,
+        // which greyed under every other model). Hiding changes what is SHOWN and nothing else: a hidden field's value is
+        // still collected and handed to Save unchanged, as a greyed one's is, and an edit made before it was hidden is
+        // kept and comes back with it. A row may carry both: while shown, its EnabledWhen greys it as before.
+        //
+        // A module that sets it raises its MinHostVersion to 1.8.0: an older Contracts.dll has no such property, so the
+        // method that builds the schema fails to bind its setter on an older host.
+        public string VisibleWhen { get; set; }
     }
 
     /// <summary>An action button on an options pane (e.g. "Test connection", "Clear history"). The host

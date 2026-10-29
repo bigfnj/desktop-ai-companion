@@ -1071,6 +1071,51 @@ CASES = [
      "                    DimGreyed(actionRow, !actionLive && (cardLive == null || cardLive()));\n",
      "                    DimGreyed(actionRow, !actionLive);\n",
      "wpf", "abi: an action greyed by its own EnabledWhen inside a greyed card is dimmed once"),
+    # ---- lane feature/host-abi-180 ----
+    # SettingField.VisibleWhen (host 1.8.0, BACKLOG N-coordinator-02), graded by --wpf-options-selftest's "abi180:" checks.
+    # Each case is a defect the member's contract rules out: never read, greying instead of hiding, a hidden row keeping
+    # its space, a parser of its own, settled once at build, a hidden field's value dropped, EnabledWhen hiding too, and
+    # a row that names none of it touched. "abi180:" for --only.
+    ("abi180: VisibleWhen is never read", OPTIONSWINDOW,
+     "            if (!string.IsNullOrEmpty(f.VisibleWhen))\n",
+     "            if (f.VisibleWhen == \"never set by anyone\")\n",
+     "wpf", "abi180: an unmet VisibleWhen hides its row, label and all"),
+    ("abi180: VisibleWhen greys its row instead of hiding it", OPTIONSWINDOW,
+     "                    shown.Visibility = IsSatisfied(visibleWhen) ? Visibility.Visible : Visibility.Collapsed;\n",
+     "                    shown.IsEnabled = IsSatisfied(visibleWhen);\n",
+     "wpf", "abi180: an unmet VisibleWhen hides its row, label and all"),
+    ("abi180: a hidden row keeps its space", OPTIONSWINDOW,
+     "IsSatisfied(visibleWhen) ? Visibility.Visible : Visibility.Collapsed;",
+     "IsSatisfied(visibleWhen) ? Visibility.Visible : Visibility.Hidden;",
+     "wpf", "abi180: an unmet VisibleWhen hides its row, label and all, and the card closes up over it"),
+    ("abi180: VisibleWhen is parsed by a split of its own", OPTIONSWINDOW,
+     "shown.Visibility = IsSatisfied(visibleWhen) ?",
+     "shown.Visibility = CurrentValueOf(visibleWhen.Split('=')[0]) == visibleWhen.Substring(visibleWhen.IndexOf('=') + 1) ?",
+     "wpf", "abi180: VisibleWhen is read by EnabledWhen's parser"),
+    ("abi180: VisibleWhen reads only fields with an editor", OPTIONSWINDOW,
+     "shown.Visibility = IsSatisfied(visibleWhen) ?",
+     "shown.Visibility = IsSatisfied(visibleWhen) && _readers.ContainsKey(visibleWhen.Split('=')[0].Trim()) ?",
+     "wpf", "abi180: VisibleWhen can name a display-only field"),
+    ("abi180: VisibleWhen is settled once and never again", OPTIONSWINDOW,
+     "                    shown.Visibility = IsSatisfied(visibleWhen) ? Visibility.Visible : Visibility.Collapsed;\n",
+     "                    if (shown.Tag != null) return;\n"
+     "                    shown.Tag = \"settled\";\n"
+     "                    shown.Visibility = IsSatisfied(visibleWhen) ? Visibility.Visible : Visibility.Collapsed;\n",
+     "wpf", "abi180: a hidden row comes back LIVE when the field it names changes"),
+    ("abi180: a hidden field's value is dropped from what Save is handed", OPTIONSWINDOW,
+     "                    shown.Visibility = IsSatisfied(visibleWhen) ? Visibility.Visible : Visibility.Collapsed;\n",
+     "                    shown.Visibility = IsSatisfied(visibleWhen) ? Visibility.Visible : Visibility.Collapsed;\n"
+     "                    if (shown.Visibility != Visibility.Visible) _readers.Remove(f.Id);\n",
+     "wpf", "abi180: a hidden field is collected and saved exactly as without VisibleWhen"),
+    ("abi180: EnabledWhen hides its row too", OPTIONSWINDOW,
+     "                    target.IsEnabled = live;\n",
+     "                    target.IsEnabled = live;\n"
+     "                    target.Visibility = live ? Visibility.Visible : Visibility.Collapsed;\n",
+     "wpf", "abi180: WITNESS an unmet EnabledWhen still only greys"),
+    ("abi180: every row gets a Visibility, VisibleWhen or not", OPTIONSWINDOW,
+     "            if (!string.IsNullOrEmpty(f.VisibleWhen))\n",
+     "            if (true)\n",
+     "wpf", "abi180: WITNESS a row with no VisibleWhen keeps the Visibility it was built with"),
 ]
 
 

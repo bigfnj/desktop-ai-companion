@@ -6316,7 +6316,9 @@ editor column, and no label that fits holds the figure. What one condition per r
 CLI on screen and Haiku still showing in the greyed Claude Code model row, the note stays live, and what it says is still
 true of that row. The layout check's rule that a row's own gate narrows its card's on the same field gains this one
 exception, a display-only row gated on another row of its own card (`IsNoteOnARowOfItsCard`). Remembrance is left out on
-purpose: its summaries are meant to name the meeting's participants.
+purpose: its summaries are meant to name the meeting's participants. *(2026-10-29, lane feature/host-abi-180: the model
+gate is the note's `VisibleWhen` since host 1.8.0, so it is hidden rather than greyed under another model, and its
+`EnabledWhen` is the radio's, so the cost above is gone; `IsNoteOnARowOfItsCard` now reads the `VisibleWhen`.)*
 
 **Remembrance's card has the settings switch (lane feature/cli-runner-aibrain's hand-off).** "Keep my Claude Code settings
 out of companion calls" after the Claude Code effort row, live only while Claude Code is the CLI on screen, stored as
@@ -6457,6 +6459,27 @@ so the REVIEW item has offline evidence. For Codex 26.1021.22027 the code around
 pinned 26.1007.21434, so its REVIEW items are open, and an exact pin would let the wake switch alone deliver to builds
 that today need the separate `codexUpdateTolerantDelivery` opt-in, whose accepted gaps are exactly those items. Their
 entries are drafted for a person's re-read instead.
+
+#### feature/host-abi-180
+
+Host 1.8.0's additive ABI (lane abi180, campaign 2026-10-29): `SettingField.VisibleWhen` (BACKLOG N-coordinator-02), and
+the 1.6.1 versioning exception written down (N-abi-01).
+
+**`VisibleWhen` hides a row; `EnabledWhen` still greys and never hides.** They answer two different rows. A setting that
+does not apply now stays on screen greyed, so the user can see it is there and what would make it live; a row that only
+explains one state had nothing to say in the others, and AI Brain's "About Haiku" note sat greyed under Sonnet and Opus.
+`VisibleWhen` is read by `EnabledWhen`'s own parser and settled by the same updater list, so a condition given to both
+cannot be read two ways, and it sets the row's `Visibility` and nothing else: a hidden field is still collected and handed
+to Save unchanged, for the reason a greyed one is, and an edit made before it hid comes back with it. Refused: making
+`EnabledWhen` hide when a flag says so, which changes a shipped member's meaning; `Visibility.Hidden`, which keeps the
+row's space and so the clutter; leaving the row out of the tree while unmet, which drops its reader and with it the
+value Save is handed; and a `VisibleWhen` on cards or `PaneAction`, which no module asked for (a hidden card would also
+hide the reason line `CardEnabledWhen` exists to show).
+
+**The Haiku note carries both conditions.** Its `VisibleWhen` names the Claude Code model row, so it is shown exactly while
+that row shows Haiku, applied or not; its `EnabledWhen` is now the radio's, as the Claude Code rows around it have, so with
+Codex CLI on screen it greys with the model row it describes. With one condition it stayed live there, the cost the
+cli-followups entry above recorded. AI Brain needs host 1.8.0 for it.
 
 ## Known ABI gaps
 
