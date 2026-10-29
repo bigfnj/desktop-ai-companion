@@ -365,6 +365,52 @@ namespace DesktopAICompanion.FortunesModule
                         File.ReadAllText(Path.Combine(lockedDest, "replace.txt"), utf8) == beforeTorn &&
                         Directory.GetFiles(lockedDest).Length == 1);
 
+                    // N-modules-small-01: the same torn replace, and then the move back fails too: a folder stands where
+                    // the pack was, so File.Move refuses. The backup is the only copy and stays. The batch said "all
+                    // earlier changes were rolled back" over it, and counted nothing, because the move-back's catch
+                    // returned in silence.
+                    string stuckTornDest = Path.Combine(folder, "torn-stuck-dest");
+                    Directory.CreateDirectory(stuckTornDest);
+                    File.WriteAllText(Path.Combine(stuckTornDest, "replace.txt"), "The stuck pack's original line, long enough.\n", utf8);
+                    string stuckBackup = null;
+                    FortuneImportBatchResult tornStuck = FortuneFileImporter.ImportForDiagnostics(
+                        new[] { replacementSource }, stuckTornDest, approved,
+                        delegate(string temporaryPath, string destinationPath, string backupPath, bool ignoreMetadataErrors)
+                        {
+                            stuckBackup = backupPath;
+                            File.Copy(destinationPath, backupPath, true);
+                            File.Delete(destinationPath);
+                            Directory.CreateDirectory(destinationPath);
+                            throw new UnauthorizedAccessException("fault-injected torn replace");
+                        });
+                    string tornStuckLine = FortunesModule.DescribeImportRollback(tornStuck);
+                    sb.AppendLine("    import torn replace that could not be put back: " + tornStuckLine);
+                    ok &= Check(sb, "a torn replace whose backup cannot be moved back is counted as a pack not undone, in the rollback line: " + tornStuckLine,
+                        tornStuck.ImportedCount == 0 && tornStuck.RollbackFailed == 1 &&
+                        tornStuckLine.StartsWith("import rolled back: removed=0 restored=0 failed=1 (", StringComparison.Ordinal));
+                    ok &= Check(sb, "...and the batch says its rollback could not be fully verified, never that every earlier change was rolled back",
+                        tornStuck.Items.Count == 1 && tornStuck.Items[0].Error != null &&
+                        tornStuck.Items[0].Error.IndexOf("rollback could not be fully verified", StringComparison.Ordinal) >= 0 &&
+                        tornStuck.Items[0].Error.IndexOf("all earlier changes were rolled back", StringComparison.Ordinal) < 0);
+                    ok &= Check(sb, "WITNESS ...and the backup, now the only copy of the pack, is kept with the pack's text",
+                        stuckBackup != null && File.Exists(stuckBackup) &&
+                        File.ReadAllText(stuckBackup, utf8).StartsWith("The stuck pack's original line", StringComparison.Ordinal));
+
+                    // N-test-infra-03: the importer's own self-test (FortuneFileImporter.RunSelfTest) keeps its scratch
+                    // folder after a failure, and says where, so the input that produced the failure can be read.
+                    string importScratch = Path.Combine(folder, "import-selftest-scratch");
+                    Directory.CreateDirectory(importScratch);
+                    File.WriteAllText(Path.Combine(importScratch, "evidence.txt"), "The input a failed check left.\n", utf8);
+                    var failedRun = new StringBuilder();
+                    bool keptReleased = FortuneFileImporter.ReleaseSelfTestScratch(importScratch, false, failedRun);
+                    ok &= Check(sb, "importer self-test scratch: a failed run keeps its scratch folder and names it on an IMPORT SCRATCH KEPT line",
+                        keptReleased && File.Exists(Path.Combine(importScratch, "evidence.txt")) &&
+                        failedRun.ToString().Contains("IMPORT SCRATCH KEPT: " + importScratch));
+                    var passedRun = new StringBuilder();
+                    bool deletedReleased = FortuneFileImporter.ReleaseSelfTestScratch(importScratch, true, passedRun);
+                    ok &= Check(sb, "WITNESS importer self-test scratch: a passing run deletes it and names nothing",
+                        deletedReleased && !Directory.Exists(importScratch) && passedRun.Length == 0);
+
                     ok = ImportDeleteLogChecks(sb, folder, utf8, retried, refused, torn) && ok;
 
                     // R-030, pinned: F132's decode-then-validate order admits a tagged row whose text column

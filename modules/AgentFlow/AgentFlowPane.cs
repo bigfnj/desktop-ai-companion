@@ -687,13 +687,51 @@ namespace DesktopAICompanion.AgentFlow
                     if (pending.TryGetValue(SettingAnimPet, out chosen) && !string.IsNullOrEmpty(chosen))
                         pet = PetTypeIdFor(chosen);
                 }
-                return LoadValues(pet);
+                return WithPendingEdits(LoadValues(pet), pending);
             }
             finally
             {
                 _installedForLoad = null;
                 _onScreenForLoad = null;
             }
+        }
+
+        /// <summary>
+        /// A cascade's answer: <paramref name="stored"/>, LoadValues' answer for the pending pet, with the screen's other
+        /// unapplied edits put back over it (N-host-options-01). Picking a pet rebuilds the pane (ReloadOnChange) and the
+        /// host shows this answer as it is, while LoadValues reads every field but the pet from storage, so a threshold
+        /// typed before the pet was changed came back as the stored one. Every field the user edits is carried, read off
+        /// the schema LoadValues has just built for the new pet. Not carried: the display-only rows (Info, Header), which
+        /// are rendered afresh; the pet, which LoadValues already answers as its row for the pending one; and an animation
+        /// the new pet does not have, since the list is that pet's now, so LoadValues' pick stands (the stored animation
+        /// if the pet has it, else its first). With nothing pending, which is also the stored read the host asks for
+        /// separately, the answer is storage's alone.
+        /// </summary>
+        private IReadOnlyDictionary<string, string> WithPendingEdits(IReadOnlyDictionary<string, string> stored,
+            IReadOnlyDictionary<string, string> pending)
+        {
+            IReadOnlyList<SettingField> schema = _pane != null ? _pane.Schema : null;
+            if (pending == null || pending.Count == 0 || schema == null) return stored;
+            var values = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (KeyValuePair<string, string> kv in stored) values[kv.Key] = kv.Value;
+            foreach (SettingField field in schema)
+            {
+                if (field == null || string.IsNullOrEmpty(field.Id) || field.Id == SettingAnimPet) continue;
+                if (field.Kind == SettingKind.Info || field.Kind == SettingKind.Header) continue;
+                string edit;
+                if (!pending.TryGetValue(field.Id, out edit) || edit == null) continue;
+                if (field.Id == SettingAnimName)
+                {
+                    // The new pet's own spelling of it, as StoredAnimName matches: case-insensitively.
+                    string offered = null;
+                    foreach (string option in field.Options ?? new string[0])
+                        if (string.Equals(option, edit, StringComparison.OrdinalIgnoreCase)) { offered = option; break; }
+                    if (offered == null) continue;
+                    edit = offered;
+                }
+                values[field.Id] = edit;
+            }
+            return values;
         }
 
         /// <summary>

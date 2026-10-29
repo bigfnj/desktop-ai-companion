@@ -4127,8 +4127,80 @@ namespace DesktopAICompanion.RemembranceModule
         /// exposes. (This summary promised "the pure decision logic only ... Deliberately NO audio" until
         /// R-039, some 330 lines after that stopped being true.) The live capture and download paths are
         /// verified by hand; this is the regression net around everything that can be checked deterministically.
+        ///
+        /// THE WHOLE RUN RECORDS INTO SCRATCH (N-remembrance-test-documents-01, 2026-10-29). Documents\Remembrance, what a
+        /// blank storage location means, is the Documents known folder, which neither DESKTOP_AI_COMPANION_DATA_ROOT nor
+        /// TEMP redirects and which is often inside OneDrive, so any check, or any mutant of one, whose capture fell back
+        /// to it wrote into the owner's real folder: 46 synthetic files were found there. Both seams that resolve it,
+        /// <see cref="DocumentsRoot"/> and CaptureStore.DefaultRootSource, point at a per-run folder under TEMP from the
+        /// first check to the last and are put back in a finally, here rather than in each check, so a check added later,
+        /// or a mutant that sends recordings to the default, cannot reach the real folder either. The production default
+        /// is unchanged, and a WITNESS says so. The runners watch the real folder from outside as well
+        /// (tests\Test-ModuleSelfTests.ps1, tests\mutate-selftest-guards.py), because a seam is only as good as the code
+        /// that goes through it.
         /// </summary>
         public static bool SelfTest(out string detail)
+        {
+            string documentsScratch = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "dp-remembrance-documents-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            string documents = System.IO.Path.Combine(documentsScratch, "Remembrance");
+            Func<string> savedDocuments = DocumentsRoot;
+            Func<string> savedDefault = CaptureStore.DefaultRootSource;
+            DocumentsRoot = delegate { return documents; };
+            CaptureStore.DefaultRootSource = delegate { return documents; };
+            try
+            {
+                var sb = new System.Text.StringBuilder();
+                bool ok = true;
+                Action<string, bool> check = (name, condition) =>
+                {
+                    sb.AppendLine((condition ? "PASS: " : "FAIL: ") + name);
+                    if (!condition) ok = false;
+                };
+                SelfCheckScratchDocuments(check, documents, savedDocuments, savedDefault);
+                string rest;
+                bool restOk = SelfTestInScratchDocuments(out rest);
+                sb.Append(rest);
+                detail = sb.ToString();
+                return ok && restOk;
+            }
+            finally
+            {
+                DocumentsRoot = savedDocuments;
+                CaptureStore.DefaultRootSource = savedDefault;
+                try { if (System.IO.Directory.Exists(documentsScratch)) System.IO.Directory.Delete(documentsScratch, true); }
+                catch { }
+            }
+        }
+
+        /// <summary>
+        /// N-remembrance-test-documents-01: for this run, both seams resolve to the per-run folder, and a blank CaptureStore
+        /// root with them; outside it, both are still Documents\Remembrance. The known folder is read for the witness and
+        /// nothing under it is touched.
+        /// </summary>
+        private static void SelfCheckScratchDocuments(Action<string, bool> check, string documents, Func<string> savedDocuments,
+            Func<string> savedDefault)
+        {
+            check("scratch Documents: the blank storage location's folder (DocumentsRoot) is this run's scratch folder: " +
+                  DocumentsRoot(),
+                string.Equals(DocumentsRoot(), documents, StringComparison.Ordinal));
+            check("scratch Documents: CaptureStore's default root, which a blank root resolves to, is this run's scratch folder: " +
+                  new CaptureStore("  ", FolderLayout.PerCapture).Root,
+                string.Equals(CaptureStore.DefaultRoot(), documents, StringComparison.Ordinal) &&
+                string.Equals(new CaptureStore("", FolderLayout.PerCapture).Root, documents, StringComparison.Ordinal) &&
+                string.Equals(new CaptureStore("  ", FolderLayout.ByDate).Root, documents, StringComparison.Ordinal));
+            string known;
+            try { known = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "Remembrance"); }
+            catch (Exception) { known = "Remembrance"; }
+            check("WITNESS scratch Documents: outside the self-test both defaults are still Documents\\Remembrance, the known folder",
+                savedDocuments != null && savedDefault != null &&
+                string.Equals(savedDocuments(), known, StringComparison.Ordinal) &&
+                string.Equals(savedDefault(), known, StringComparison.Ordinal) &&
+                !string.Equals(known, documents, StringComparison.OrdinalIgnoreCase));
+        }
+
+        /// <summary>Every check but the scratch-Documents ones, run inside <see cref="SelfTest"/>'s swap.</summary>
+        private static bool SelfTestInScratchDocuments(out string detail)
         {
             var sb = new System.Text.StringBuilder();
             bool ok = true;

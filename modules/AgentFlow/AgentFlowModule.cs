@@ -3616,6 +3616,7 @@ namespace DesktopAICompanion.AgentFlow
                         SelfCheckMultiPress,
                         SelfCheckCodexQueue,
                         SelfCheckTickBeat,
+                        SelfCheckPendingEditsSurvivePetChange,
                         SelfCheckCacheBound,
                     };
                     // Short-circuits on the first false, exactly as the && chain did. The result is
@@ -9504,10 +9505,17 @@ namespace DesktopAICompanion.AgentFlow
             public string CompanionsDirectory { get { return ""; } }
             public int MaxCompanions { get { return 8; } }
             public bool IsAtMax { get { return false; } }
+            /// <summary>A pet's own animations, by type id; a pet not listed has the one "walk" every pet had.</summary>
+            public Dictionary<string, string[]> AnimationsByType;
+
             public bool TryReadTypeXml(string typeId, out string animationsXml, out string error)
             {
-                animationsXml = "<animations><animations><animation><name>walk</name>"
-                                + "</animation></animations></animations>";
+                string[] own;
+                if (AnimationsByType == null || typeId == null || !AnimationsByType.TryGetValue(typeId, out own))
+                    own = new[] { "walk" };
+                var xml = new StringBuilder("<animations><animations>");
+                foreach (string name in own) xml.Append("<animation><name>").Append(name).Append("</name></animation>");
+                animationsXml = xml.Append("</animations></animations>").ToString();
                 error = null;
                 return true;
             }
@@ -9519,6 +9527,79 @@ namespace DesktopAICompanion.AgentFlow
             public bool InstallType(string typeId, string animationsXml, out string error)
             { error = null; return false; }
             public bool UninstallType(string typeId, out string error) { error = null; return false; }
+        }
+
+        /// <summary>
+        /// N-host-options-01: picking a pet rebuilds the pane through LoadPending, and the host shows the answer as it
+        /// is, so every unapplied edit on the screen has to come back in it. Only the pet did: the threshold typed and
+        /// the box unticked before the pet was changed came back as stored. Driven the way the host drives a cascade,
+        /// with the screen's values handed to LoadPending, and two pets whose animation lists differ.
+        /// </summary>
+        private static bool SelfCheckPendingEditsSurvivePetChange(SelfTestProbe probe)
+        {
+            var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+            using (var storage =
+                       new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-pending"))
+            {
+                host.UseStorage("agentflow", storage);
+                host.SettingsFor("agentflow").Set(SettingMode, AgentMode.Off);   // no scan at Init
+                host.SettingsFor("agentflow").Set(SettingThreshold, "30");
+                host.SettingsFor("agentflow").Set(SettingWatchCodex, "true");
+                host.SettingsFor("agentflow").Set(SettingAnimPet, "esheep64");
+                host.SettingsFor("agentflow").Set(SettingAnimName, "graze");
+                var fake = new FakePets(new[] { "esheep64", "Pearl", "shimeji-hornet-9b9d1d", "Hornet" },
+                                        new[] { "esheep64", "shimeji-hornet-9b9d1d" });
+                fake.AnimationsByType = new Dictionary<string, string[]>(StringComparer.Ordinal)
+                {
+                    { "esheep64", new[] { "graze", "walk" } },
+                    { "shimeji-hornet-9b9d1d", new[] { "fly", "walk" } },
+                };
+                host.CompanionManager = fake;
+                var module = new AgentFlowModule();
+                module.Init(host);
+                try
+                {
+                    OptionsPane pane = host.OptionsPanes[0];
+                    IReadOnlyDictionary<string, string> shown = Shown(pane);
+                    probe.Check("WITNESS pending edits: the pane opens on the stored pet, its animation and the stored threshold: " +
+                                shown[SettingAnimPet] + " / " + shown[SettingAnimName] + " / " + shown[SettingThreshold],
+                        shown[SettingAnimPet] == "Pearl" && shown[SettingAnimName] == "graze" && shown[SettingThreshold] == "30");
+
+                    // The screen after the user typed 45, unticked Codex and then picked Hornet, Pearl's animation still
+                    // selected; and a display-only row as the screen last rendered it.
+                    var screen = new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        { SettingAnimPet, "Hornet" }, { SettingThreshold, "45" }, { SettingWatchCodex, "false" },
+                        { SettingAnimName, "graze" }, { "hdrReads", "stale text the screen last showed" },
+                    };
+                    IReadOnlyDictionary<string, string> answer = pane.LoadPending(screen);
+                    probe.Check("pending edits: a pet change keeps the other unapplied edits: threshold " +
+                                answer[SettingThreshold] + ", watch Codex " + answer[SettingWatchCodex],
+                        answer[SettingThreshold] == "45" && answer[SettingWatchCodex] == "false" && answer[SettingAnimPet] == "Hornet");
+                    SettingField animations = null;
+                    foreach (SettingField field in pane.Schema) if (field.Id == SettingAnimName) animations = field;
+                    string[] offered = animations != null && animations.Options != null ? animations.Options : new string[0];
+                    probe.Check("WITNESS pending edits: the animation list follows the new pet: " + string.Join(", ", offered),
+                        Array.IndexOf(offered, "fly") >= 0 && Array.IndexOf(offered, "graze") < 0);
+                    probe.Check("pending edits: an animation the new pet does not have is not carried over: " + answer[SettingAnimName],
+                        answer[SettingAnimName] != "graze" && Array.IndexOf(offered, answer[SettingAnimName]) >= 0);
+                    // Not its first ("fly"), which LoadValues falls to on its own when the stored one is missing.
+                    screen[SettingAnimName] = "WALK";
+                    string kept = pane.LoadPending(screen)[SettingAnimName];
+                    probe.Check("WITNESS pending edits: ...while one it has is carried, in the new pet's spelling: " + kept, kept == "walk");
+                    probe.Check("pending edits: a display-only row is rendered afresh, never carried from the screen",
+                        answer["hdrReads"] != "stale text the screen last showed" && answer["hdrReads"] == shown["hdrReads"]);
+                    probe.Check("WITNESS pending edits: the rebuilds saved nothing: threshold " +
+                                host.SettingsFor("agentflow").Get(SettingThreshold, "") + ", pet " + host.SettingsFor("agentflow").Get(SettingAnimPet, ""),
+                        host.SettingsFor("agentflow").Get(SettingThreshold, "") == "30" &&
+                        host.SettingsFor("agentflow").Get(SettingWatchCodex, "") == "true" &&
+                        host.SettingsFor("agentflow").Get(SettingAnimPet, "") == "esheep64");
+                    probe.Check("WITNESS pending edits: with nothing pending the answer is storage's alone",
+                        Shown(pane)[SettingThreshold] == "30" && Shown(pane)[SettingAnimPet] == "Pearl");
+                }
+                finally { module.Shutdown(); }
+            }
+            return true;
         }
         /// <summary>
         /// The rule-match caches are bounded, and `CacheStats` says of itself that the bound "can

@@ -2499,6 +2499,30 @@ CASES = (
         "            long nowMs = Environment.TickCount64;",
         "folds a transcript that grows every tick only on the ten-second beat",
     ),
+    # ---- lane feature/modules-fixes ----
+    # N-host-options-01: a pet change rebuilds the pane through LoadPending, and the answer has to carry the screen's other
+    # unapplied edits. Names carry the "modules-fixes:" prefix so `--only=modules-fixes:` runs the lane.
+    (
+        "modules-fixes: a pet change drops the other unapplied edits again",
+        PANE,
+        "                return WithPendingEdits(LoadValues(pet), pending);",
+        "                return LoadValues(pet);",
+        "pending edits: a pet change keeps the other unapplied edits",
+    ),
+    (
+        "modules-fixes: an animation the new pet does not have is carried over",
+        PANE,
+        "                    if (offered == null) continue;\n                    edit = offered;",
+        "                    if (offered == null) offered = edit;\n                    edit = offered;",
+        "pending edits: an animation the new pet does not have is not carried over",
+    ),
+    (
+        "modules-fixes: a display-only row is carried from the screen",
+        PANE,
+        "                if (field.Kind == SettingKind.Info || field.Kind == SettingKind.Header) continue;\n                string edit;",
+        "                string edit;",
+        "pending edits: a display-only row is rendered afresh, never carried from the screen",
+    ),
 )
 
 

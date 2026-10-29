@@ -520,10 +520,12 @@ namespace DesktopAICompanion.Ai
                     }
                     else
                     {
+                        // AND nothing counted as not undone: a torn replace whose backup could not be moved back
+                        // is counted by CommitAtomic, and this rollback never saw it commit (N-modules-small-01).
                         bool rollbackComplete = RollBackCommittedImports(
                             committed,
                             replaceFile,
-                            result);
+                            result) && result.RollbackFailed == 0;
                         string error =
                             "Batch commit failed and " +
                             (rollbackComplete
@@ -996,24 +998,32 @@ namespace DesktopAICompanion.Ai
         /// <summary>After a failed replace: move a filled backup back over a missing destination, or delete
         /// the backup when the destination is still there. A backup that cannot be moved back stays where it
         /// is, because it is then the only copy. The delete is the user's earlier version of the pack, so it is
-        /// counted in <paramref name="report"/> (N-remembrance-delete-logging-04).</summary>
-        private static void RestoreTornReplace(string destinationPath, string backupPath, FortuneImportBatchResult report)
+        /// counted in <paramref name="report"/> (N-remembrance-delete-logging-04).
+        ///
+        /// False when the backup could not be moved back, and that is counted in <paramref name="report"/> as a pack
+        /// the batch could not undo (N-modules-small-01). It returned in silence, so the batch's verdict, which
+        /// asked only the rollback of the commits before this one, could still say every earlier change was rolled
+        /// back while the pack sat in its hidden backup. CommitAtomic rethrows either way; the count is what reaches
+        /// the verdict, which now also requires <see cref="FortuneImportBatchResult.RollbackFailed"/> to be 0.</summary>
+        private static bool RestoreTornReplace(string destinationPath, string backupPath, FortuneImportBatchResult report)
         {
-            if (string.IsNullOrEmpty(backupPath)) return;
+            if (string.IsNullOrEmpty(backupPath)) return true;
             try
             {
                 var backup = new FileInfo(backupPath);
                 if (!File.Exists(destinationPath) && backup.Exists && backup.Length > 0)
                 {
                     WithTransientRetry(delegate { File.Move(backupPath, destinationPath); });
-                    return;
+                    return true;
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                return;
+                if (report != null) report.RollbackNotUndone(ex);
+                return false;
             }
             DeleteBackup(backupPath, report);
+            return true;
         }
 
         /// <param name="report">Where the rollback's outcome is counted for the module's one line
@@ -1127,18 +1137,35 @@ namespace DesktopAICompanion.Ai
             }
             finally
             {
-                try
-                {
-                    if (Directory.Exists(root)) Directory.Delete(root, true);
-                }
-                catch (Exception ex)
-                {
-                    ok = false;
-                    output.AppendLine("IMPORT CLEANUP EXC: " + ex.Message);
-                }
+                ok = ReleaseSelfTestScratch(root, ok, output) && ok;
             }
             output.AppendLine("custom_import=" + (ok ? "PASS" : "FAIL"));
             return ok;
+        }
+
+        /// <summary>
+        /// The end of <see cref="RunSelfTest"/>: delete its scratch folder after a run that passed, and KEEP it after one
+        /// that failed or threw, named on an "IMPORT SCRATCH KEPT: " line (N-test-infra-03). It was deleted in a finally
+        /// whatever the result, so a failed check lost the very packs and folders that produced it. False only when the
+        /// delete after a pass failed, which fails the run, as it did. Internal so the probe checks both outcomes.
+        /// </summary>
+        internal static bool ReleaseSelfTestScratch(string root, bool passed, StringBuilder output)
+        {
+            if (!passed)
+            {
+                if (Directory.Exists(root)) output.AppendLine("IMPORT SCRATCH KEPT: " + root);
+                return true;
+            }
+            try
+            {
+                if (Directory.Exists(root)) Directory.Delete(root, true);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                output.AppendLine("IMPORT CLEANUP EXC: " + ex.Message);
+                return false;
+            }
         }
 
         private static bool TestPortableReplacementFallback(

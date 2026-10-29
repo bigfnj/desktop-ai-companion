@@ -6473,6 +6473,24 @@ module passes `--codex-update-tolerant-delivery true` while the switch is on, an
 admits exact pins only. An install that has saved the AgentBroker pane keeps the value it saved, since the pane saves
 every switch; one that never saved it gets the new default. Claude is unchanged: it has no update-tolerant mode.
 
+#### feature/modules-fixes
+
+Module fixes of the 2026-10-29 evening campaign (Remembrance, AgentFlow, Fortunes).
+
+**The real Documents\Remembrance is watched from outside, and the installed app writing there also turns a run red.**
+`tests\Test-ModuleSelfTests.ps1` compares the folder's footprint (exists, file and folder counts, newest write time)
+before and after the remembrance run, and `tests\mutate-selftest-guards.py` around every child run, stopping on a change
+(N-remembrance-test-documents-01). Neither can tell a self-test's write from the owner's installed copy recording into
+the same folder during the run, so that also fails, and the message says it may be the cause. Accepted: the folder is
+inside OneDrive on the owner's workstation, a false stop costs a re-run, and a missed write uploads test recordings.
+The runner watches the remembrance run alone, the window in which a recording can be written; the harness watches every
+run because the host's own self-tests load modules too and the check is one folder stat.
+
+**The swap mutants re-point a swap, they do not delete it.** The cases that prove SelfTest's two seam swaps point each
+at another folder inside the run's scratch. Deleting a swap would send any capture that falls back to the default into
+the real folder, which is the defect being guarded; the check compares each seam with the run's own folder, so either
+mutant fails it the same way.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of
