@@ -14812,6 +14812,16 @@ CASES = (
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "remembrance cli: the cards come in the approved mockup's order"),
+    # ---- lane feature/broker-next-160 ----
+    # AgentBroker 1.6.0, N-agentbroker-client-reconnect-01: the Client connection text tells a session that started while
+    # the broker was down how to get its tools back. Named "broker-next: ..." so --only=broker-next: runs the lane.
+    ("broker-next: the Client connection text drops the reconnect advice",
+     AGENTBROKER_MODULE,
+     b"start a new conversation and check /mcp afterward. \" + ReconnectAdvice;\n",
+     b"start a new conversation and check /mcp afterward.\";\n",
+     AGENTBROKER_CSPROJ, AGENTBROKER_DLL,
+     "--module-selftest=agentbroker", "dp-module-agentbroker-selftest.txt",
+     "the Client connection text says a session started while the broker was down needs its MCP reconnected"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

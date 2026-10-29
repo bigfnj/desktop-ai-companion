@@ -66,6 +66,12 @@ public sealed partial class AgentBrokerModule
             int tolerantFlag = start.ArgumentList.IndexOf("--codex-update-tolerant-delivery");
             Check(defaults["codexUpdateTolerantDelivery"] == "true" && tolerantFlag >= 0 && start.ArgumentList[tolerantFlag + 1] == "true",
                 "update-tolerant Codex delivery defaults on and reaches the default worker launch");
+            // N-agentbroker-client-reconnect-01 (1.6.0): the Client connection text says how a session started while the
+            // broker was down gets its tools back.
+            Check(defaults["clientSetup"].EndsWith(AgentBrokerModule.ReconnectAdvice, StringComparison.Ordinal) &&
+                AgentBrokerModule.ReconnectAdvice.Contains("(Claude Code: /mcp)", StringComparison.Ordinal) &&
+                AgentBrokerModule.ReconnectAdvice.Contains("restart the session", StringComparison.Ordinal),
+                "the Client connection text says a session started while the broker was down needs its MCP reconnected (/mcp) or a restart");
             Check(defaults["nativePrivacy"].Contains("(on by default)", StringComparison.Ordinal) &&
                 !defaults["nativePrivacy"].Contains("off by default", StringComparison.Ordinal),
                 "the pane says updated Codex builds are woken by default, and how to turn that off");

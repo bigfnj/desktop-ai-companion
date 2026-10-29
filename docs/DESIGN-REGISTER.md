@@ -6573,6 +6573,17 @@ unique per message, so only a different in-memory type could shrink it (about 12
 would have to be converted on every journal write and on compaction, the store's durability path, for a further 7.9 MB
 at most; declined on that trade.
 
+**A session started while the broker was down is told how to reconnect, rather than the gap being closed
+(N-agentbroker-client-reconnect-01).** Every companion restart stops the worker it supervises and starts a new one, and
+neither Claude Code nor Codex retries an MCP server that refused its first connection. The worker's own share of the gap
+is small: a fresh isolated worker accepted its first loopback connection 1,034 to 1,054 ms after its process started
+(five samples, polled every 25 ms); the supervisor's stop (up to 4 s, then a forced stop) and the companion's own exit,
+relaunch and module load come on top and were not measured without the real app. Since no length of gap is safe for a
+session that starts inside it, the Client connection text now ends with one sentence: a session started while the broker
+was down needs its MCP server reconnected (Claude Code: /mcp) or a restart. Keeping the worker serving across a
+companion restart would change the supervisor's ownership model (a worker outliving its parent is what the parent-PID
+watch prevents) and stays a backlog option.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of
