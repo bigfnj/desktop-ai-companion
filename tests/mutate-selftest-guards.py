@@ -15291,6 +15291,21 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--module-host-selftest", "dp-module-host-selftest.txt",
      "abi180: store: an applied uninstall drops that module's grant alone"),
+    # ---- coordinator 2026-10-29: the Modules pane's declarative-flag list (lane abi180's finding N-abi180-03) ----
+    ("coordinator: the tooltip's flag list leaves Microphone out",
+     os.path.join(REPO, "src", "Portable", "Wpf", "ModulesPaneControl.cs"),
+     b"                if (bits == 0 || (bits & (bits - 1)) != 0 || (EnforcedPermissions & flag) != 0) continue;",
+     b"                if (bits == 0 || (bits & (bits - 1)) != 0 || (EnforcedPermissions & flag) != 0 || flag == ModulePermissions.Microphone) continue;",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "modules pane: the tooltip names every declarative flag"),
+    ("coordinator: the shared sign-in grant is named as a statement",
+     os.path.join(REPO, "src", "Portable", "Wpf", "ModulesPaneControl.cs"),
+     b"            ModulePermissions.Voice | ModulePermissions.Companions | ModulePermissions.ClaudeCodeSignIn;",
+     b"            ModulePermissions.Voice | ModulePermissions.Companions;",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "WITNESS modules pane: no enforced flag is named as a statement"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

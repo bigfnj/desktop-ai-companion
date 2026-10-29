@@ -506,7 +506,7 @@ namespace DesktopAICompanion.FortunesModule
                 ok &= CatalogFailureChecks(sb);
                 ok &= CatalogBlockChecks(sb);
                 // ---- lane feature/abi-pane-actions ----
-                // A pack the host refused is named with why, not missing in silence (N-catalog-insight-05, host 1.6.2).
+                // A pack the host refused is named with why, not missing in silence (N-catalog-insight-05, host 1.7.0).
                 ok &= RefusedPackChecks(sb);
                 // The line logged at publish time says what is true THEN (F145).
                 string constructed = FortunesModule.DescribeSmartBuild(3214, SmartStandDownReason.None);
@@ -1312,7 +1312,7 @@ namespace DesktopAICompanion.FortunesModule
         {
             public Exception FetchFault;
 
-            /// <summary>The pack entries this double's listing reports the host refused (ICatalogListing, host 1.6.2).</summary>
+            /// <summary>The pack entries this double's listing reports the host refused (ICatalogListing, host 1.7.0).</summary>
             public readonly List<RefusedCatalogItem> RefusedPacks = new List<RefusedCatalogItem>();
 
             System.Threading.Tasks.Task<IReadOnlyList<CatalogItem>> IHost.FetchCatalogItemsAsync(string kind)
@@ -1340,7 +1340,7 @@ namespace DesktopAICompanion.FortunesModule
         /// Lane feature/abi-pane-actions (BACKLOG N-catalog-insight-05): a pack the host REFUSED is named in "Check online for
         /// packs"' answer with why, in this module's words by category; one already on disk is not; a whole pack list that
         /// could not be read says so; it is never a row to tick; and a host without the listing (a double, under
-        /// MinHostVersion 1.6.2) still lists the packs. The words first, pure; then the check through two doubles.
+        /// MinHostVersion 1.7.0) still lists the packs. The words first, pure; then the check through two doubles.
         /// </summary>
         private static bool RefusedPackChecks(StringBuilder sb)
         {

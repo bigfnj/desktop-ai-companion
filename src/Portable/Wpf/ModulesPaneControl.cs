@@ -34,6 +34,26 @@ namespace DesktopAICompanion.Wpf
     /// </summary>
     internal sealed class ModulesPaneControl : ContentControl, IBusyPane
     {
+        /// <summary>The flags the app enforces: on its own verbs (Audio, Network, Voice, Companions) or by a grant the user
+        /// gives (ClaudeCodeSignIn, host 1.8.0). Every other flag only states what a module does.</summary>
+        internal const ModulePermissions EnforcedPermissions = ModulePermissions.Audio | ModulePermissions.Network |
+            ModulePermissions.Voice | ModulePermissions.Companions | ModulePermissions.ClaudeCodeSignIn;
+
+        /// <summary>The declarative flags, named for the available-row tooltip. Derived from the enum, so a flag added
+        /// later is never left out: the hand-written list had already missed Microphone, SystemAudio, InputSynthesis and
+        /// InputMonitoring (2026-10-29, lane abi180's finding).</summary>
+        internal static string DeclarativePermissionNames()
+        {
+            var names = new List<string>();
+            foreach (ModulePermissions flag in Enum.GetValues(typeof(ModulePermissions)))
+            {
+                long bits = Convert.ToInt64(flag);
+                if (bits == 0 || (bits & (bits - 1)) != 0 || (EnforcedPermissions & flag) != 0) continue;
+                names.Add(flag.ToString());
+            }
+            return string.Join(", ", names);
+        }
+
         /// <summary>Installs and updates in flight. Read by the shell through <see cref="IBusyPane"/>, so a
         /// redirect by title is refused while one runs instead of cancelling it with the pane (RA-328). An
         /// Update all run counts from the press to its last prompt.</summary>
@@ -1203,9 +1223,8 @@ namespace DesktopAICompanion.Wpf
                 Foreground = Brushes.Gray,
                 ToolTip = "What the module declares it does. The app enforces Audio, Network, Voice and Companions on its own " +
                           "verbs, and ClaudeCodeSignIn on the shared Claude Code sign-in only while you allow it (Allow sign-in, " +
-                          "on its row once installed); the other flags (Animation, Speech, ScreenContext, Storage, Hotkey, " +
-                          "LaunchProcess, AgentTranscripts, MicrophoneUsage) are statements the module makes, not restrictions " +
-                          "the app applies.",
+                          "on its row once installed); the other flags (" + DeclarativePermissionNames() + ") are statements " +
+                          "the module makes, not restrictions the app applies.",
             });
             sp.Children.Add(nameStack);
 

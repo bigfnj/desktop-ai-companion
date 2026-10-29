@@ -123,6 +123,7 @@ namespace DesktopAICompanion.Plugins
                 ok &= ModuleDllDiscovery(sb);
                 // ---- lane feature/host-abi-180 ----
                 ok &= SharedSignInStore(sb);
+                ok &= DeclarativeFlagList(sb);
             }
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message); }
             finally
@@ -1741,6 +1742,30 @@ namespace DesktopAICompanion.Plugins
                 string releaseDetail;
                 SelfTestScratch.TryRelease(dir, out releaseDetail);
             }
+            return ok;
+        }
+
+        // The Modules pane's available-row tooltip names the declarative flags from the enum (2026-10-29): every single-bit
+        // flag is either enforced or named there, never both and never neither.
+        private static bool DeclarativeFlagList(StringBuilder sb)
+        {
+            var named = new HashSet<string>(DesktopAICompanion.Wpf.ModulesPaneControl.DeclarativePermissionNames()
+                .Split(new[] { ", " }, StringSplitOptions.RemoveEmptyEntries));
+            bool ok = true;
+            var missed = new List<string>();
+            var both = new List<string>();
+            foreach (ModulePermissions flag in Enum.GetValues(typeof(ModulePermissions)))
+            {
+                long bits = Convert.ToInt64(flag);
+                if (bits == 0 || (bits & (bits - 1)) != 0) continue;
+                bool enforced = (DesktopAICompanion.Wpf.ModulesPaneControl.EnforcedPermissions & flag) != 0;
+                if (enforced && named.Contains(flag.ToString())) both.Add(flag.ToString());
+                if (!enforced && !named.Contains(flag.ToString())) missed.Add(flag.ToString());
+            }
+            ok &= Check(sb, "modules pane: the tooltip names every declarative flag (" + string.Join(",", missed) + " missed)",
+                missed.Count == 0 && named.Contains("Microphone") && named.Contains("SystemAudio") && named.Contains("InputSynthesis"));
+            ok &= Check(sb, "WITNESS modules pane: no enforced flag is named as a statement (" + string.Join(",", both) + ")",
+                both.Count == 0 && !named.Contains("Network") && !named.Contains("ClaudeCodeSignIn"));
             return ok;
         }
 

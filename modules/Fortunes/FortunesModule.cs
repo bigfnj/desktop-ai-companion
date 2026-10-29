@@ -1736,9 +1736,9 @@ namespace DesktopAICompanion.FortunesModule
                 // immediately and can land mid-fetch. The network call itself still runs off the UI thread:
                 // that is the host's business, and it is the only blocking part.
                 //
-                // The listing (ICatalogListing, host 1.6.2; BACKLOG N-catalog-insight-05) is the same read plus the packs
+                // The listing (ICatalogListing, host 1.7.0; BACKLOG N-catalog-insight-05) is the same read plus the packs
                 // the host REFUSED, so a pack the user looks for and does not find is named, with why, rather than missing
-                // in silence. A host without it is only a test double now (MinHostVersion 1.6.2), and gets the old read.
+                // in silence. A host without it is only a test double now (MinHostVersion 1.7.0), and gets the old read.
                 IReadOnlyList<CatalogItem> items;
                 IReadOnlyList<RefusedCatalogItem> refused = new List<RefusedCatalogItem>();
                 ICatalogListing listing = host as ICatalogListing;
@@ -2119,7 +2119,7 @@ namespace DesktopAICompanion.FortunesModule
 
         /// <summary>
         /// What "Check online for packs" adds under its answer when the host REFUSED pack entries (ICatalogListing, host
-        /// 1.6.2; BACKLOG N-catalog-insight-05): each refused pack that is not on disk, named and with why, so a pack the
+        /// 1.7.0; BACKLOG N-catalog-insight-05): each refused pack that is not on disk, named and with why, so a pack the
         /// user looks for in Available online is accounted for rather than missing in silence. "" when nothing is.
         ///
         /// In the CHECK'S ANSWER, the line beside the button, and not as a row in the list. A list row is a checkbox (a
