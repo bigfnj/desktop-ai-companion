@@ -44,6 +44,14 @@ internal static class SendAdvisoryChecks
                 "SEND_ADVISORY_MAILBOX: a send to a generic mailbox returns a second block saying nothing can wake it");
             var toWakeable = await Send(wakeable);
             check(toWakeable.GetArrayLength() == 1, "SEND_ADVISORY_WAKEABLE: a send to a session with WakeIdle returns the receipt alone");
+            // A Codex row whose engine check could not complete lists Receive alone (N-broker-next-02); it is no mailbox.
+            var pendingNative = new BrokerSession(new(worker.Runtime.Store.BrokerId, "codex:" + Guid.NewGuid().ToString("D"), Guid.NewGuid()),
+                "Synthetic pending Codex row", "codex-native", SessionCapabilities.Receive, SessionActivity.Unknown, DateTimeOffset.UtcNow.AddMinutes(1));
+            worker.Runtime.Store.Register(pendingNative);
+            var toPending = await Send(pendingNative);
+            check(toPending.GetArrayLength() == 1,
+                "SEND_ADVISORY_PENDING_NATIVE: a native row listed with Receive alone gets the receipt alone, never the mailbox advisory (" +
+                toPending.GetArrayLength() + " blocks)");
 
             var now = DateTimeOffset.UtcNow;
             var legacy = (await Rpc(client, "tools/call", new

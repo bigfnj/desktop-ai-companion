@@ -41,6 +41,12 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
     // Conversations whose owner lookup failed or ran out of time on the last pass that reached them. They are looked up
     // last on the next pass, so one slow conversation cannot again hold up the renewal of every one after it.
     private readonly HashSet<Guid> slowLookups = [];
+    // When each row's engine check was first found unable to complete, in the current run of passes that did not complete
+    // it. A failed pass leaves it in place: it completed no check either, so the run is not broken.
+    private readonly Dictionary<SessionAddress, DateTimeOffset> pendingSince = [];
+    // How long a row whose check cannot complete keeps Receive (see DiscoverAsync). Past it the row is listed without
+    // capabilities and its queue refuses as it did before 1.6.1.
+    internal static readonly TimeSpan VerificationPendingBound = TimeSpan.FromMinutes(5);
     private int skippedLastPass;
     private bool disposed;
     public string Id => "codex-native";
@@ -75,6 +81,7 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
             // not reached before the deadline is not slow, and keeps its place).
             var skipped = new HashSet<Guid>();
             var slow = new HashSet<Guid>();
+            var pendingNow = new Dictionary<SessionAddress, DateTimeOffset>();
             // OrderBy is stable: last pass's slow lookups go last, everything else keeps the directory's order.
             var ordered = rows.DistinctBy(r => r.ConversationId).OrderBy(r => slowLookups.Contains(r.ConversationId)).ToArray();
             foreach (var row in ordered)
@@ -104,14 +111,35 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
                     Refusal(binding) is null;
                 var activity = row.ActivityObservedAt is { } observed && observed <= clock.GetUtcNow().AddSeconds(5) && observed > clock.GetUtcNow().AddMinutes(-2)
                     ? MapActivity(row.Activity) : SessionActivity.Unknown;
-                sessions.Add(new(address, row.DisplayLabel, Id, guarded
+                // An engine check that could not complete (IO or access) is not a verdict (N-broker-next-02). Listed without
+                // capabilities, the row made BrokerStore.BeginDelivery refuse its Accepted messages recipient_cannot_receive: a
+                // final refusal for the transience SubmitAsync defers. Such a row now keeps Receive alone, so its queue waits
+                // (Ready needs WakeIdle) and nothing is advertised that this pass did not verify: no wake, no idle guard,
+                // and every delivery still takes the full fresh checks. Only for an owner that would otherwise qualify
+                // (Pending: delivery on, the native capability advertised, no verdict found); an owner without the capability,
+                // a verified mismatch and a publisher refusal stay listed without capabilities. Bounded, because a waiting
+                // message holds its sender's later ones to this row behind it (per-pair order) and a check that never
+                // completes would hold them for the message lifetime: past VerificationPendingBound of unbroken incomplete
+                // checks for this row the row loses Receive and its queue refuses as before. Refused: keeping the earlier
+                // pass's verified capabilities, which would advertise a wake nobody verified this pass and claim (two state
+                // writes) every five seconds only for SubmitAsync to defer it.
+                bool pending = !guarded && enableDelivery && Pending(binding);
+                if (pending) pendingNow[address] = pendingSince.TryGetValue(address, out var since) ? since : clock.GetUtcNow();
+                var capabilities = guarded
                     ? SessionCapabilities.Receive | SessionCapabilities.WakeIdle | SessionCapabilities.Reply | SessionCapabilities.NativeIdleGuard
-                    : SessionCapabilities.None, activity, clock.GetUtcNow().AddSeconds(30)));
+                    : pending && clock.GetUtcNow() - pendingNow[address] < VerificationPendingBound ? SessionCapabilities.Receive
+                    : SessionCapabilities.None;
+                sessions.Add(new(address, row.DisplayLabel, Id, capabilities, activity, clock.GetUtcNow().AddSeconds(30)));
             }
-            // A skipped conversation keeps its earlier binding until its lease lapses, as it did when a failed pass left
-            // every binding in place; submission resolves the owner afresh before any input either way.
+            // A skipped conversation keeps its earlier binding for as long as it keeps being skipped, as it did when a failed
+            // pass left every binding in place; submission resolves the owner afresh before any input either way. Its
+            // pending-since time is kept with it, so a skip never restarts the bound.
             foreach (var pair in bindings)
                 if (skipped.Contains(pair.Value.ConversationId) && !found.ContainsKey(pair.Key)) found.Add(pair.Key, pair.Value);
+            foreach (var pair in pendingSince)
+                if (!pendingNow.ContainsKey(pair.Key) && Guid.TryParseExact(pair.Key.SessionId["codex:".Length..], "D", out var thread) &&
+                    skipped.Contains(thread)) pendingNow.Add(pair.Key, pair.Value);
+            pendingSince.Clear(); foreach (var pair in pendingNow) pendingSince.Add(pair.Key, pair.Value);
             bindings.Clear(); foreach (var pair in found) bindings.Add(pair.Key, pair.Value);
             slowLookups.Clear(); slowLookups.UnionWith(slow);
             skippedLastPass = skipped.Count;

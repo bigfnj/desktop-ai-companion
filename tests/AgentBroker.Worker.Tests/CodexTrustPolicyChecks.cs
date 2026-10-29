@@ -21,6 +21,104 @@ internal static class CodexTrustPolicyChecks
         await ProviderCannotLendExactTrustAsync(check);
         await DeliveryLockAsync(check);
         await TransientVerificationAsync(check);
+        await TransientDiscoveryAsync(check);
+    }
+
+    // N-broker-next-02: a discovery pass whose engine check could not complete listed the row without capabilities, and
+    // BrokerStore.BeginDelivery then refused that row's Accepted messages recipient_cannot_receive, a final refusal for the
+    // transience SubmitAsync defers. Through a real store on the adapter's clock: the message waits, is claimed once a pass
+    // completes the check, and past the bound the queue refuses as before. A verdict stays inert throughout.
+    private static async Task TransientDiscoveryAsync(Action<bool, string> check)
+    {
+        string scratch = Path.Combine(AppContext.BaseDirectory, "scratch", "transient-discovery-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            foreach (bool tolerant in new[] { true, false })
+            {
+                string mode = tolerant ? "update-tolerant" : "strict";
+                var clock = new ManualClock(DateTimeOffset.UtcNow);
+                bool ioFailure = true;
+                var owner = new Owner(tolerant ? DesktopRouterTrust.PublisherSigned : DesktopRouterTrust.ExactPinned);
+                var provider = new CodexNativeProvider(true, _ => Task.FromResult<ICodexOwnerConnection>(owner),
+                    () => { if (ioFailure) throw new IOException("Synthetic engine read failure."); },
+                    _ => Task.FromResult<IReadOnlyList<DesktopDirectorySession>>(
+                        [new(owner.Binding.ConversationId, DesktopSessionActivity.Unknown, clock.GetUtcNow(), null)]),
+                    null, tolerant, () => { });
+                using var store = new BrokerStore(Path.Combine(scratch, mode), clock: clock);
+                var sender = new BrokerSession(new(store.BrokerId, "claude:transient-sender", Guid.NewGuid()), "Synthetic sender", "claude-native",
+                    SessionCapabilities.Receive | SessionCapabilities.WakeIdle | SessionCapabilities.Reply, SessionActivity.Busy, clock.GetUtcNow().AddMinutes(2));
+                await using var adapter = new CodexNativeAdapter(provider, enableDelivery: true, clock: clock, updateTolerantDelivery: tolerant);
+                async Task<BrokerSession> PassAsync()
+                {
+                    var row = (await adapter.DiscoverAsync(store.BrokerId, default)).Single();
+                    store.Register(sender with { LeaseUntil = clock.GetUtcNow().AddMinutes(2) });
+                    store.Register(row);
+                    return row;
+                }
+                BrokerMessage Message(BrokerSession to, string text) => new(Guid.NewGuid(), Guid.NewGuid(), null, sender.Address, to.Address,
+                    text, clock.GetUtcNow(), clock.GetUtcNow().AddHours(1));
+
+                var pending = await PassAsync();
+                var waiting = Message(pending, "Synthetic message while the engine check cannot complete.");
+                // A row without Receive refuses the send itself (BrokerStore.Accept); that is this check's failure too.
+                string? refusedAtSend = null;
+                try { store.Accept(waiting, store.BrokerId); } catch (BrokerException error) { refusedAtSend = error.Code; }
+                var claimed = store.BeginDelivery();
+                var held = store.FindReceipt(waiting.Id);
+                check(refusedAtSend is null && pending.Capabilities == SessionCapabilities.Receive && claimed is null && held?.Status == MessageStatus.Accepted,
+                    File + "TRANSIENT_DISCOVERY_DEFERS: a row whose engine check could not complete keeps Receive alone and its message waits, never refused (" +
+                    mode + ", " + pending.Capabilities + ", " + (refusedAtSend is null ? held?.Status + " " + held?.Reason : "send refused " + refusedAtSend) + ")");
+                ioFailure = false;
+                var verified = await PassAsync();
+                check(verified.Capabilities.HasFlag(SessionCapabilities.WakeIdle | SessionCapabilities.NativeIdleGuard) &&
+                    store.BeginDelivery()?.Message.Id == waiting.Id,
+                    File + "TRANSIENT_DISCOVERY_DEFERS WITNESS: once a pass completes the check the waiting message is claimed (" + mode + ")");
+                store.CompleteDelivery(waiting.Id, MessageStatus.Submitted, "synthetic_submitted");
+
+                // The bound: an engine check that never completes must not hold the queue for the message lifetime.
+                ioFailure = true;
+                await PassAsync();
+                var bounded = Message(pending, "Synthetic message while the check stays incomplete.");
+                store.Accept(bounded, store.BrokerId);
+                clock.Advance(CodexNativeAdapter.VerificationPendingBound - TimeSpan.FromSeconds(10));
+                var inside = await PassAsync();
+                bool waitedInside = store.BeginDelivery() is null && store.FindReceipt(bounded.Id)?.Status == MessageStatus.Accepted;
+                // A pass that skipped the row (its lookup failed) must not restart the bound.
+                owner.DiscoverFailure = new IOException("Synthetic owner lookup failure.");
+                await adapter.DiscoverAsync(store.BrokerId, default);
+                owner.DiscoverFailure = null;
+                clock.Advance(TimeSpan.FromSeconds(20));
+                var past = await PassAsync();
+                store.BeginDelivery();
+                var refused = store.FindReceipt(bounded.Id);
+                check(inside.Capabilities == SessionCapabilities.Receive && waitedInside && past.Capabilities == SessionCapabilities.None &&
+                    refused is { Status: MessageStatus.Refused, Reason: "recipient_cannot_receive" },
+                    File + "TRANSIENT_DISCOVERY_BOUND: past the bound of unbroken incomplete checks the row loses Receive and its queue refuses as before (" +
+                    mode + ", " + inside.Capabilities + " then " + past.Capabilities + ", " + refused?.Status + " " + refused?.Reason + ")");
+            }
+
+            // A verdict stays inert while the engine check cannot complete: an owner without the native capability.
+            var noCapability = new Owner(DesktopRouterTrust.PublisherSigned, capability: false);
+            var inert = Provider(noCapability, updateTolerant: true, verify: () => throw new IOException("Synthetic engine read failure."));
+            await using (var adapter = new CodexNativeAdapter(inert, enableDelivery: true, updateTolerantDelivery: true))
+            {
+                var row = (await adapter.DiscoverAsync(Guid.NewGuid(), default)).Single();
+                check(row.Capabilities == SessionCapabilities.None,
+                    File + "TRANSIENT_DISCOVERY_VERDICT_INERT: an owner without the native capability is listed without capabilities even while the check cannot complete (" +
+                    row.Capabilities + ")");
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(scratch)) Directory.Delete(scratch, recursive: true);
+        }
+    }
+
+    private sealed class ManualClock(DateTimeOffset start) : TimeProvider
+    {
+        private DateTimeOffset now = start;
+        public override DateTimeOffset GetUtcNow() => now;
+        internal void Advance(TimeSpan by) => now += by;
     }
 
     private static async Task DeliveryLockAsync(Action<bool, string> check)

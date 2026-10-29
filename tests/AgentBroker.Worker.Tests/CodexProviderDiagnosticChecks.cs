@@ -55,7 +55,9 @@ internal static class CodexProviderDiagnosticChecks
             await using var adapter = new CodexNativeAdapter(provider, enableDelivery: true);
             var sessions = await adapter.DiscoverAsync(Guid.NewGuid(), default);
             var diagnostic = adapter.DiscoveryDiagnostics.Single();
-            check(sessions.Count == 1 && sessions[0].Capabilities == SessionCapabilities.None &&
+            // Since AgentBroker 1.6.1 the row keeps Receive alone while the check cannot complete, so its queue waits rather
+            // than being refused (N-broker-next-02, TRANSIENT_DISCOVERY_* in CodexTrustPolicyChecks.cs); never a wake.
+            check(sessions.Count == 1 && sessions[0].Capabilities == SessionCapabilities.Receive &&
                 diagnostic.Code == "vscode_profile_unavailable" && !diagnostic.ToStatusText().Contains(rejected.Message, StringComparison.Ordinal),
                 "CodexProviderDiagnosticChecks.cs: profile IO or access failure keeps observations and emits only a safe generic reason");
             // Since AgentBroker 1.6.0 this defers instead of refusing (N-agentbroker-refusal-transience-01): the check could
