@@ -138,7 +138,9 @@ DesktopAICompanion sends data only when a network feature is used:
   holds it, encrypted for your Windows account (DPAPI), in its data folder's `credentials` folder (outside every
   module's folder, so uninstalling one module leaves it for the others; a factory reset deletes it). A module
   gets it only while it declares **ClaudeCodeSignIn** and you allow it: you are asked when an update adds that
-  permission, and each such module's row in **Settings > Modules** has **Allow sign-in** and **Revoke sign-in**.
+  permission, and at start, once, for such a module that has no answer yet (one the installer put in place), on the app's
+  question card (**Allow**, **Not now**, **Don't ask again**; nobody answering is Not now, and only your press of Allow
+  allows it); each such module's row in **Settings > Modules** has **Allow sign-in** and **Revoke sign-in**.
   A module that is not allowed sends no saved token, and its Claude Code calls run on Claude Code's own sign-in,
   unless it still holds a token of its own from before 1.8.0: then they wait until you allow it or remove that token.
   The first time an allowed module runs, the token it kept before 1.8.0 moves into the shared one if none is

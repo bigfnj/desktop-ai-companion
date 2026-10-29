@@ -898,6 +898,52 @@ namespace DesktopAICompanion.Plugins
             remove { _credentialChanged -= value; }
         }
 
+        // THE START QUESTION (SignInGrantQuestion says why it exists): asked once per module per start, through the host's
+        // own question queue, for each loaded module that declares ClaudeCodeSignIn and holds no recorded answer.
+        private readonly HashSet<string> _signInAsked = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>The self-test's stand-in for the question card: handed each question, it answers as the user would.
+        /// Null in the app, where AskAsync puts the question on the card.</summary>
+        internal Func<string, TrayQuestion, System.Threading.Tasks.Task<TrayAnswer>> SignInAskForDiagnostics;
+
+        /// <summary>Ask the start question for each module in <paramref name="loaded"/> that needs it, and record what the
+        /// user answers; StartUp calls it once, after the modules load. Never throws; the Task completes when every question
+        /// this call asked has ended (the app does not wait on it).</summary>
+        internal System.Threading.Tasks.Task AskForSignInGrantsAsync(IEnumerable<ModuleInfo> loaded)
+        {
+            var asks = new List<System.Threading.Tasks.Task>();
+            try
+            {
+                string directory = CredentialStore.StoreDirectory;
+                var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                if (loaded != null)
+                    foreach (ModuleInfo info in loaded)
+                        if (info != null && !string.IsNullOrWhiteSpace(info.Id) && !names.ContainsKey(info.Id.Trim()))
+                            names[info.Id.Trim()] = string.IsNullOrWhiteSpace(info.Name) ? info.Id.Trim() : info.Name;
+                foreach (string id in SignInGrantQuestion.ModulesToAsk(loaded, directory))
+                {
+                    lock (_signInAsked) { if (!_signInAsked.Add(id)) continue; }
+                    string name;
+                    asks.Add(AskOneSignInGrantAsync(directory, id, names.TryGetValue(id, out name) ? name : id));
+                }
+            }
+            catch (Exception ex) { Log(null, "credentials: the start question could not be asked: " + ex.GetType().Name); }
+            return System.Threading.Tasks.Task.WhenAll(asks);
+        }
+
+        private async System.Threading.Tasks.Task AskOneSignInGrantAsync(string directory, string id, string name)
+        {
+            TrayAnswer answer = null;
+            try
+            {
+                TrayQuestion question = SignInGrantQuestion.For(name);
+                Func<string, TrayQuestion, System.Threading.Tasks.Task<TrayAnswer>> ask = SignInAskForDiagnostics;
+                answer = await (ask != null ? ask(id, question) : AskAsync(id, question, CancellationToken.None)).ConfigureAwait(false);
+            }
+            catch { answer = null; }
+            SignInGrantQuestion.Apply(directory, id, answer, Log);
+        }
+
         /// <summary>The store's commit callback: after the commit reached the disk and its lock was released (the store calls
         /// it only then), posted to the UI thread when it came from another, and raised per handler (RaiseEach), so a handler
         /// that throws is logged and skipped and never turns a committed change into a failure.</summary>

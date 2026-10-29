@@ -172,7 +172,8 @@ namespace DesktopAICompanion.Modules
         //
         // ENFORCED, unlike the disclosure flags above, and by more than the declaration: the host's credential store
         // answers a module only when it declares this flag AND the user has allowed it, a grant the host records per
-        // module and the user gives or takes back in the Modules pane (or by saying yes to an update that adds the flag).
+        // module and the user gives or takes back in the Modules pane (or by saying yes to an update that adds the flag, or
+        // Allow on the question the app asks at start for a module that declares it and has no answer yet).
         // A module that declares it without a grant is told ConsentRequired; one that does not declare it, Denied. Either
         // way nothing is read, written or moved. The grant is the condition DESIGN-REGISTER.md set in 2026-10-26 for
         // building a store shared across modules (N-cli-token-02 DECLINED, reversed by the owner on 2026-10-29).
@@ -1322,7 +1323,8 @@ namespace DesktopAICompanion.Modules
     // WHO MAY ASK. A caller passes its own module id (the same self-declared id every IHost verb takes; modules are not
     // contained, see docs/module-ecosystem-roadmap.md). The host answers only a LOADED module that declares
     // ModulePermissions.ClaudeCodeSignIn AND that the user has allowed: the grant is recorded per module by the host, given
-    // or taken back on the module's row in the Modules pane, and given by a yes to an update that adds the flag. Otherwise
+    // or taken back on the module's row in the Modules pane, and given by a yes to an update that adds the flag or by Allow
+    // on the question the app asks at start for a declaring module with no answer yet (one the MSI installed). Otherwise
     // the answer is Denied (not declared) or ConsentRequired (not allowed), and nothing is read, written or moved. A module
     // is published to the host only after its Init returns, so a call made from Init is refused the same way: ask later.
     //

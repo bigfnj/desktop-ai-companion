@@ -5216,6 +5216,20 @@ $abiLocalAt = $abiReadToken.IndexOf('return ReadLocalClaudeToken(out token);', [
 Assert-True ($abiSharedAt -ge 0 -and $abiLocalAt -gt $abiSharedAt -and $abiReadShared -cnotmatch 'ReadLocalClaudeToken\(out token\)' -and
     $abiReadShared.Contains('ReadLocalClaudeToken(out ignored)')) (
     'abi180: a runner with a shared store never takes the token it sends from the module''s own file (WITNESS: it reads that file''s state alone)')
+# THE START QUESTION (the coordinator's finding of 2026-10-29: an MSI-installed module never passes the update question).
+# --module-host-selftest drives the asking and the answers; these are what it cannot see: that the app asks at all, after
+# the modules load, and that the one grant in the answer code sits behind the user's press of Allow.
+$abiStartUp = Remove-LineComments $startUpSource
+$abiLoadAt = $abiStartUp.IndexOf('moduleHost.LoadFrom(modulesDir, Host,', [StringComparison]::Ordinal)
+$abiAskAt = $abiStartUp.IndexOf('AskForSignInGrants();', [StringComparison]::Ordinal)
+$abiAskBody = Get-MethodBody $abiStartUp 'private void AskForSignInGrants()' $abiStops
+$abiApply = Get-MethodBody $abiStore 'internal static string Apply(string directory, string moduleId, TrayAnswer answer, Action<string, string> log)' $abiStops
+$abiGrantCalls = [regex]::Matches($abiApply, 'SetGrant\(').Count
+Assert-True ($abiLoadAt -ge 0 -and $abiAskAt -gt $abiLoadAt -and $abiAskBody -cmatch 'host\.AskForSignInGrantsAsync\(infos\)') (
+    "abi180: the app asks the start question for the shared sign-in, after the modules load (load $abiLoadAt, ask $abiAskAt)")
+Assert-True ($abiApply -cmatch 'if \(answer == null \|\| answer\.Outcome != TrayQuestionOutcome\.Chosen\) word = "unanswered";\s*else if \(string\.Equals\(answer\.ChoiceId, AllowChoice, StringComparison\.Ordinal\)\)\s*word = HostCredentialStore\.SetGrant\(directory, moduleId, true, log\)' -and
+    $abiGrantCalls -eq 1) (
+    "abi180: the start question grants only behind the user's press of Allow, the one SetGrant in its answer code ($abiGrantCalls found)")
 
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that

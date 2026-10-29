@@ -123,6 +123,7 @@ namespace DesktopAICompanion.Plugins
                 ok &= ModuleDllDiscovery(sb);
                 // ---- lane feature/host-abi-180 ----
                 ok &= SharedSignInStore(sb);
+                ok &= SignInStartQuestion(sb);
             }
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message); }
             finally
@@ -1660,6 +1661,138 @@ namespace DesktopAICompanion.Plugins
             {
                 ok = false;
                 sb.AppendLine("EXC (shared sign-in store): " + ex.GetType().Name + ": " + ex.Message);
+            }
+            finally
+            {
+                string releaseDetail;
+                SelfTestScratch.TryRelease(dir, out releaseDetail);
+            }
+            return ok;
+        }
+
+        private static ModuleInfo SignInModule(string id, bool declares)
+        {
+            return new ModuleInfo
+            {
+                Id = id,
+                Name = id == "aibrain" ? "AI Brain" : id,
+                Version = "1.0.0",
+                Permissions = ModulePermissions.Speech | (declares ? ModulePermissions.ClaudeCodeSignIn : ModulePermissions.None),
+            };
+        }
+
+        /// <summary>
+        /// The coordinator's finding of 2026-10-29: a module the MSI installs, or one placed by hand, never passes the Modules
+        /// pane's update question, so it reached the shared sign-in with no grant and its Claude Code calls stopped. The start
+        /// question asks for each such module, through the host's question queue; checked here through CompanionHost's own
+        /// asking code, with a stand-in for the card answering as the user would, so no pixel is involved.
+        /// </summary>
+        private static bool SignInStartQuestion(StringBuilder sb)
+        {
+            bool ok = true;
+            string dir = SelfTestScratch.Create("credentials-start");
+            try
+            {
+                var store = new HostCredentialStore(dir, delegate (string id) { return true; }, null);
+                HostCredentialStore.SetGrant(dir, "already", true, null);
+                HostCredentialStore.SetNotAsked(dir, "declined", null);
+                var loaded = new List<ModuleInfo>
+                {
+                    SignInModule("aibrain", true), SignInModule("remembrance", true), SignInModule("fortunes", false),
+                    SignInModule("already", true), SignInModule("declined", true),
+                };
+                var answers = new Dictionary<string, TrayAnswer>(StringComparer.OrdinalIgnoreCase)
+                {
+                    { "aibrain", new TrayAnswer { Outcome = TrayQuestionOutcome.Chosen, ChoiceId = SignInGrantQuestion.AllowChoice, WasShown = true } },
+                    { "remembrance", new TrayAnswer { Outcome = TrayQuestionOutcome.TimedOut, ChoiceId = SignInGrantQuestion.NotNowChoice, WasShown = true } },
+                };
+                var asked = new List<string>();
+                var questions = new List<TrayQuestion>();
+                Func<string, TrayQuestion, System.Threading.Tasks.Task<TrayAnswer>> card = delegate (string id, TrayQuestion asking)
+                {
+                    lock (asked) { asked.Add(id); questions.Add(asking); }
+                    TrayAnswer a;
+                    return System.Threading.Tasks.Task.FromResult(answers.TryGetValue(id, out a) ? a : new TrayAnswer { Outcome = TrayQuestionOutcome.Cancelled });
+                };
+                var host = new CompanionHost(null, store) { SignInAskForDiagnostics = card };
+                bool ended = host.AskForSignInGrantsAsync(loaded).Wait(20000);
+                ok &= Check(sb, "abi180: start question: asked once for each loaded module declaring ClaudeCodeSignIn with no recorded answer, and for no other (" +
+                    string.Join(", ", asked.ToArray()) + ")",
+                    ended && string.Join(",", asked.ToArray()) == "aibrain,remembrance");
+                ok &= Check(sb, "abi180: start question: the user's press of Allow records the grant",
+                    HostCredentialStore.IsGranted(dir, "aibrain") && store.Read("aibrain", HostCredentialId.ClaudeCodeSignIn).State == HostCredentialState.None);
+                ok &= Check(sb, "abi180: start question: a question nobody answered records nothing, so it is asked again at the next start",
+                    !HostCredentialStore.IsGranted(dir, "remembrance") && !HostCredentialStore.IsNotAsked(dir, "remembrance"));
+
+                host.AskForSignInGrantsAsync(loaded).Wait(20000);
+                ok &= Check(sb, "abi180: start question: at most one question per module per start (" + asked.Count + " asked)", asked.Count == 2);
+                var nextStart = new CompanionHost(null, store) { SignInAskForDiagnostics = card };
+                nextStart.AskForSignInGrantsAsync(loaded).Wait(20000);
+                ok &= Check(sb, "abi180: start question: WITNESS the next start asks again for the one left unanswered, and only for it (" +
+                    string.Join(", ", asked.ToArray()) + ")",
+                    string.Join(",", asked.ToArray()) == "aibrain,remembrance,remembrance");
+
+                // NEVER A SILENT GRANT: anything but the user's press of Allow records nothing, even an answer carrying Allow's id.
+                var silent = new List<string>();
+                foreach (TrayQuestionOutcome outcome in new[] { TrayQuestionOutcome.TimedOut, TrayQuestionOutcome.Expired, TrayQuestionOutcome.Withdrawn,
+                                                                TrayQuestionOutcome.Cancelled, TrayQuestionOutcome.Refused })
+                {
+                    string id = "silent-" + outcome.ToString().ToLowerInvariant();
+                    SignInGrantQuestion.Apply(dir, id, new TrayAnswer { Outcome = outcome, ChoiceId = SignInGrantQuestion.AllowChoice }, null);
+                    if (HostCredentialStore.IsGranted(dir, id) || HostCredentialStore.IsNotAsked(dir, id)) silent.Add(outcome.ToString());
+                }
+                SignInGrantQuestion.Apply(dir, "silent-null", null, null);
+                ok &= Check(sb, "abi180: start question: never a silent grant: no answer but the user's press of Allow records one, even one carrying Allow's id" +
+                    (silent.Count > 0 ? " (granted on " + string.Join(", ", silent.ToArray()) + ")" : ""),
+                    silent.Count == 0 && !HostCredentialStore.IsGranted(dir, "silent-null"));
+
+                // DON'T ASK AGAIN: a no recorded, no grant, and not asked again; the row stays the place to change it.
+                string never = SignInGrantQuestion.Apply(dir, "remembrance",
+                    new TrayAnswer { Outcome = TrayQuestionOutcome.Chosen, ChoiceId = SignInGrantQuestion.NeverChoice }, null);
+                var afterNever = new CompanionHost(null, store) { SignInAskForDiagnostics = card };
+                int askedBefore = asked.Count;
+                afterNever.AskForSignInGrantsAsync(loaded).Wait(20000);
+                ok &= Check(sb, "abi180: start question: Don't ask again records a no and no grant, and the next start does not ask (" + never + ")",
+                    !HostCredentialStore.IsGranted(dir, "remembrance") && HostCredentialStore.IsNotAsked(dir, "remembrance") && asked.Count == askedBefore);
+                bool notNow = SignInGrantQuestion.Apply(dir, "pressed-not-now",
+                    new TrayAnswer { Outcome = TrayQuestionOutcome.Chosen, ChoiceId = SignInGrantQuestion.NotNowChoice }, null) == "not now";
+                ok &= Check(sb, "abi180: start question: WITNESS Not now records nothing",
+                    notNow && !HostCredentialStore.IsGranted(dir, "pressed-not-now") && !HostCredentialStore.IsNotAsked(dir, "pressed-not-now"));
+                HostCredentialStore.SetGrant(dir, "remembrance", true, null);
+                bool allowClears = HostCredentialStore.IsGranted(dir, "remembrance") && !HostCredentialStore.IsNotAsked(dir, "remembrance");
+                HostCredentialStore.SetGrant(dir, "remembrance", false, null);
+                bool revokeAnswers = !HostCredentialStore.IsGranted(dir, "remembrance") && HostCredentialStore.IsNotAsked(dir, "remembrance");
+                HostCredentialStore.ForgetGrant(dir, "remembrance", null);
+                bool forgotten = !HostCredentialStore.IsGranted(dir, "remembrance") && !HostCredentialStore.IsNotAsked(dir, "remembrance");
+                ok &= Check(sb, "abi180: start question: Allow on the row clears a recorded no, Revoke records one, and an uninstall forgets both",
+                    allowClears && revokeAnswers && forgotten);
+
+                // THE QUESTION ITSELF, as the host's queue takes it.
+                TrayQuestion q = questions.Count > 0 ? questions[0] : null;
+                QuestionEntry entry;
+                string reason = "(none asked)";
+                bool accepted = q != null && TrayQuestionRules.TryAccept(q, DateTimeOffset.UtcNow, out entry, out reason);
+                string choices = q == null ? "" : string.Join(", ", new List<TrayChoice>(q.Choices).ConvertAll<string>(delegate (TrayChoice c) { return c.Id + "=" + c.Label; }).ToArray());
+                ok &= Check(sb, "abi180: start question: the queue takes it; it names the module and says what the grant allows; Allow, Not now and Don't ask again; it times out to Not now and waits while held (" +
+                    (accepted ? choices : "refused: " + reason) + ")",
+                    accepted && q.Text.StartsWith("Allow AI Brain to use the shared Claude Code sign-in?", StringComparison.Ordinal) &&
+                    q.Text.Contains("read, replace and remove") && q.Text.Contains("on its row in Settings, Modules") &&
+                    choices == "allow=Allow, not-now=Not now, never=Don't ask again" &&
+                    q.TimeoutChoiceId == SignInGrantQuestion.NotNowChoice && !q.RunsWhileHeld);
+
+                // The shipped path, with no app behind it: AskAsync answers Refused and nothing is recorded.
+                string bareDir = SelfTestScratch.Create("credentials-start-bare");
+                var bare = new CompanionHost(null, new HostCredentialStore(bareDir, delegate (string id) { return true; }, null));
+                bool bareEnded = bare.AskForSignInGrantsAsync(new List<ModuleInfo> { SignInModule("aibrain", true) }).Wait(20000);
+                ok &= Check(sb, "abi180: start question: WITNESS with no question queue behind it the shipped ask is refused and records nothing",
+                    bareEnded && !HostCredentialStore.IsGranted(bareDir, "aibrain") && !HostCredentialStore.IsNotAsked(bareDir, "aibrain"));
+                string ignoredBare;
+                SelfTestScratch.TryRelease(bareDir, out ignoredBare);
+            }
+            catch (Exception ex)
+            {
+                ok = false;
+                sb.AppendLine("EXC (start question): " + ex.GetType().Name + ": " + ex.Message);
             }
             finally
             {

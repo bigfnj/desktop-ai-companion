@@ -396,24 +396,41 @@ namespace DesktopAICompanion.Plugins
 
         private static string GrantsPath(string directory) { return Path.Combine(directory ?? "", GrantsFileName); }
 
-        private static List<string> ReadGrants(string directory)
+        // Beside the grants, since the start question (SignInGrantQuestion), the modules the user ANSWERED no for: "Don't
+        // ask again" on that question, or Revoke sign-in on the Modules row. A refusal recorded, never a grant: the store
+        // reads only the grants, and this list only decides whether the start question is asked.
+        private const string NotAskedMember = "claudeCodeSignInNotAsked";
+
+        private static List<string> ReadList(string directory, string member)
         {
-            var granted = new List<string>();
+            var ids = new List<string>();
             try
             {
                 string path = GrantsPath(directory);
-                if (!File.Exists(path)) return granted;
+                if (!File.Exists(path)) return ids;
                 var o = JsonNode.Parse(File.ReadAllText(path)) as JsonObject;
-                var list = o == null ? null : o[GrantsMember] as JsonArray;
-                if (list == null) return granted;
+                var list = o == null ? null : o[member] as JsonArray;
+                if (list == null) return ids;
                 foreach (JsonNode item in list)
                 {
                     string id = item == null ? "" : (item.GetValue<string>() ?? "").Trim();
-                    if (id.Length > 0) granted.Add(id);
+                    if (id.Length > 0) ids.Add(id);
                 }
             }
-            catch { granted.Clear(); }   // a damaged record grants nothing
-            return granted;
+            catch { ids.Clear(); }   // a damaged record grants nothing
+            return ids;
+        }
+
+        private static List<string> ReadGrants(string directory)
+        {
+            return ReadList(directory, GrantsMember);
+        }
+
+        private static bool Contains(List<string> ids, string id)
+        {
+            foreach (string listed in ids)
+                if (string.Equals(listed, id, StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
         }
 
         /// <summary>Whether the user has allowed <paramref name="moduleId"/> the shared Claude Code sign-in.</summary>
@@ -421,14 +438,41 @@ namespace DesktopAICompanion.Plugins
         {
             string id = (moduleId ?? "").Trim();
             if (id.Length == 0 || string.IsNullOrWhiteSpace(directory)) return false;
-            foreach (string granted in ReadGrants(directory))
-                if (string.Equals(granted, id, StringComparison.OrdinalIgnoreCase)) return true;
-            return false;
+            return Contains(ReadGrants(directory), id);
+        }
+
+        /// <summary>Whether the user answered no for <paramref name="moduleId"/> (Don't ask again, or Revoke sign-in), so the
+        /// start question is not asked for it.</summary>
+        internal static bool IsNotAsked(string directory, string moduleId)
+        {
+            string id = (moduleId ?? "").Trim();
+            if (id.Length == 0 || string.IsNullOrWhiteSpace(directory)) return false;
+            return Contains(ReadList(directory, NotAskedMember), id);
         }
 
         /// <summary>Record the user's Allow (<paramref name="allowed"/> true) or Revoke for one module; false when the record
-        /// could not be written. Under its own lock, so two windows of the app cannot lose each other's change.</summary>
+        /// could not be written. A Revoke is an answer, so the start question is not asked for that module again; an Allow
+        /// clears that. Under its own lock, so two windows of the app cannot lose each other's change.</summary>
         internal static bool SetGrant(string directory, string moduleId, bool allowed, Action<string, string> log)
+        {
+            return Record(directory, moduleId, allowed, !allowed, log,
+                "claude-code-signin " + (allowed ? "allowed" : "no longer allowed") + " by the user");
+        }
+
+        /// <summary>The start question's "Don't ask again": no grant, and the question is not asked for it again.</summary>
+        internal static bool SetNotAsked(string directory, string moduleId, Action<string, string> log)
+        {
+            return Record(directory, moduleId, false, true, log, "claude-code-signin not allowed, and not to be asked again, by the user");
+        }
+
+        /// <summary>An uninstall applied: the module's grant AND its recorded no go, so a module installed later under the
+        /// same id is asked afresh.</summary>
+        internal static bool ForgetGrant(string directory, string moduleId, Action<string, string> log)
+        {
+            return Record(directory, moduleId, false, false, log, "claude-code-signin answer forgotten");
+        }
+
+        private static bool Record(string directory, string moduleId, bool granted, bool notAsked, Action<string, string> log, string line)
         {
             string id = (moduleId ?? "").Trim();
             if (id.Length == 0 || string.IsNullOrWhiteSpace(directory)) return false;
@@ -439,18 +483,101 @@ namespace DesktopAICompanion.Plugins
                 using (IDisposable lease = CrossSessionLock.TryAcquire(CrossSessionLock.BuildGlobalMutexName("credential-grants", path), path, LockTimeoutMilliseconds))
                 {
                     if (lease == null) return false;
-                    List<string> granted = ReadGrants(directory);
-                    granted.RemoveAll(delegate (string g) { return string.Equals(g, id, StringComparison.OrdinalIgnoreCase); });
-                    if (allowed) granted.Add(id.ToLowerInvariant());
-                    var list = new JsonArray();
-                    foreach (string g in granted) list.Add(JsonValue.Create(g));
-                    var o = new JsonObject { ["schema"] = Schema, [GrantsMember] = list };
+                    List<string> grants = ReadGrants(directory);
+                    List<string> declined = ReadList(directory, NotAskedMember);
+                    Predicate<string> same = delegate (string g) { return string.Equals(g, id, StringComparison.OrdinalIgnoreCase); };
+                    grants.RemoveAll(same);
+                    declined.RemoveAll(same);
+                    if (granted) grants.Add(id.ToLowerInvariant());
+                    if (notAsked) declined.Add(id.ToLowerInvariant());
+                    var grantList = new JsonArray();
+                    foreach (string g in grants) grantList.Add(JsonValue.Create(g));
+                    var declinedList = new JsonArray();
+                    foreach (string g in declined) declinedList.Add(JsonValue.Create(g));
+                    var o = new JsonObject { ["schema"] = Schema, [GrantsMember] = grantList, [NotAskedMember] = declinedList };
                     if (!AtomicFile.TryWriteAllText(path, o.ToJsonString(), null)) return false;
                 }
-                if (log != null) try { log(id, "credentials: claude-code-signin " + (allowed ? "allowed" : "no longer allowed") + " by the user"); } catch { }
+                if (log != null) try { log(id, "credentials: " + line); } catch { }
                 return true;
             }
             catch { return false; }
+        }
+    }
+
+    /// <summary>
+    /// The question the app asks at start for a module that declares ModulePermissions.ClaudeCodeSignIn and holds no
+    /// recorded answer (host 1.8.0; the coordinator's finding of 2026-10-29). The MSI installs AI Brain and Remembrance
+    /// itself, and a module placed in the modules folder by hand loads the same way: neither ever passes the Modules pane's
+    /// update question, the one other place a grant was given, so an upgrade from 1.7.1 left both modules with their old
+    /// token waiting and no grant, and their Claude Code calls stopped. Asked through the host's own question card
+    /// (ITrayQuestions' queue, attributed to the module by the host's record of it), once per module per start, and only
+    /// the user's press of Allow grants: a timeout, a held card that expired, a withdrawal, the app closing or a refused
+    /// question records nothing, and the question comes back at the next start. "Don't ask again" records a no, as Revoke
+    /// sign-in on the Modules row does; that row stays the place to change either answer.
+    /// </summary>
+    internal static class SignInGrantQuestion
+    {
+        internal const string Key = "claude-code-signin.grant";
+        internal const string AllowChoice = "allow";
+        internal const string NotNowChoice = "not-now";
+        internal const string NeverChoice = "never";
+
+        /// <summary>How long the card waits while it can be seen. Not RunsWhileHeld: a grant must be a press the user saw.</summary>
+        internal static readonly TimeSpan Wait = TimeSpan.FromMinutes(10);
+
+        /// <summary>The loaded modules the start question is for: each declares ClaudeCodeSignIn, holds no grant and has no
+        /// recorded no, in load order, ids once.</summary>
+        internal static List<string> ModulesToAsk(IEnumerable<ModuleInfo> loaded, string directory)
+        {
+            var ask = new List<string>();
+            if (loaded == null) return ask;
+            foreach (ModuleInfo info in loaded)
+            {
+                if (info == null || string.IsNullOrWhiteSpace(info.Id)) continue;
+                if ((info.Permissions & ModulePermissions.ClaudeCodeSignIn) != ModulePermissions.ClaudeCodeSignIn) continue;
+                string id = info.Id.Trim();
+                if (HostCredentialStore.IsGranted(directory, id) || HostCredentialStore.IsNotAsked(directory, id)) continue;
+                bool listed = false;
+                foreach (string a in ask) if (string.Equals(a, id, StringComparison.OrdinalIgnoreCase)) listed = true;
+                if (!listed) ask.Add(id);
+            }
+            return ask;
+        }
+
+        /// <summary>The question for one module, named as the host records it.</summary>
+        internal static TrayQuestion For(string displayName)
+        {
+            return new TrayQuestion
+            {
+                Key = Key,
+                Title = "Shared Claude Code sign-in",
+                Text = ModulePermissionConsent.StartQuestionText(displayName),
+                Choices = new[]
+                {
+                    new TrayChoice(AllowChoice, "Allow"),
+                    new TrayChoice(NotNowChoice, "Not now"),
+                    new TrayChoice(NeverChoice, "Don't ask again"),
+                },
+                TimeoutChoiceId = NotNowChoice,
+                Timeout = Wait,
+                RunsWhileHeld = false,
+            };
+        }
+
+        /// <summary>Act on the answer: the grant only for the user's press of Allow, the recorded no only for their press of
+        /// Don't ask again, and nothing for anything else. Returns the word logged.</summary>
+        internal static string Apply(string directory, string moduleId, TrayAnswer answer, Action<string, string> log)
+        {
+            string word;
+            if (answer == null || answer.Outcome != TrayQuestionOutcome.Chosen) word = "unanswered";
+            else if (string.Equals(answer.ChoiceId, AllowChoice, StringComparison.Ordinal))
+                word = HostCredentialStore.SetGrant(directory, moduleId, true, log) ? "allowed" : "allowed, not recorded";
+            else if (string.Equals(answer.ChoiceId, NeverChoice, StringComparison.Ordinal))
+                word = HostCredentialStore.SetNotAsked(directory, moduleId, log) ? "not allowed, not to be asked again" : "not recorded";
+            else word = "not now";
+            if (log != null)
+                try { log(moduleId, "credentials: the start question for the shared Claude Code sign-in ended " + (answer == null ? "with no answer" : answer.Outcome.ToString()) + ": " + word); } catch { }
+            return word;
         }
     }
 }

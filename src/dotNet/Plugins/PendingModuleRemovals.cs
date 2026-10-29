@@ -109,15 +109,16 @@ namespace DesktopAICompanion.Plugins
         {
             List<string> pending = ReadIds(FilePath);
             IReadOnlyList<string> unfinished = ProcessPending(modulesRoot, FilePath, DefaultModuleDataRoot, PendingModuleUpdates.DefaultStagingRoot, log);
-            // A removed module's grant of the shared Claude Code sign-in goes with it (host 1.8.0), so a module installed
-            // later under the same id is asked again; the saved token itself stays for the other modules allowed it, since
-            // uninstalling one module is not a Remove token. Only for the ids actually removed.
+            // A removed module's grant of the shared Claude Code sign-in goes with it (host 1.8.0), and so does a no the user
+            // recorded for it, so a module installed later under the same id is asked afresh; the saved token itself stays for
+            // the other modules allowed it, since uninstalling one module is not a Remove token. Only for the ids removed.
             foreach (string id in pending)
             {
                 bool left = false;
                 foreach (string u in unfinished) if (string.Equals(u, id, StringComparison.OrdinalIgnoreCase)) left = true;
-                if (!left && HostCredentialStore.IsGranted(HostCredentialStore.DefaultDirectory, id))
-                    HostCredentialStore.SetGrant(HostCredentialStore.DefaultDirectory, id, false,
+                if (!left && (HostCredentialStore.IsGranted(HostCredentialStore.DefaultDirectory, id) ||
+                              HostCredentialStore.IsNotAsked(HostCredentialStore.DefaultDirectory, id)))
+                    HostCredentialStore.ForgetGrant(HostCredentialStore.DefaultDirectory, id,
                         delegate (string moduleId, string line) { if (log != null) log(line + " ('" + moduleId + "' was uninstalled)"); });
             }
             return unfinished;
