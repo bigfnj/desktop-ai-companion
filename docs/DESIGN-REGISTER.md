@@ -6548,6 +6548,20 @@ Code 1.143.x, desktop 26.1016.x) is installed on this workstation to confirm it,
 build, so `DesktopAdapter.cs` keeps the refusal. Next step: read the same router function in a pinned image; if it
 matches, defer it on the external-peer path as the discovery miss already does.
 
+**The worker start reads about half as much, and no trust decision moved (O-agentbroker-02).** Two changes. The Code.exe
+version resource is read before its 238 MB hash and only ever refuses: a version no pin names refuses at once (with that
+version, as before), and a version a pin names must still match that pin's hash. The pin document is checked first, so
+`pin_document_invalid` keeps its precedence. And the directory connection, which is observation only
+(`DesktopAdapterOptions.ObservationOnlyConnection`, refused together with any delivery switch), takes the running engines'
+publisher result the discovery pass established for the same engine processes (`VerifyRunningClientsByPublisherForDiscovery`)
+instead of running Authenticode over every codex.exe again; the router image itself is still verified. The owner (delivery)
+connection is unchanged: fresh router and engine checks, nothing reused. Measured on this workstation, each sample a fresh
+isolated worker (own data directory and port, LAN and Claude discovery off, Codex discovery, delivery and update tolerance
+on), three interleaved rounds per build, reads from the process's ReadTransferCount once they stopped growing for five
+seconds: 1,168.7 MB per start before (each of three samples), 548.5 MB after (each of three), CPU 3.08 to 3.70 s before,
+2.20 to 2.47 s after. Time to the end of the reads varied from 3 to 19 s in both builds under the other lanes' disk load,
+so no time figure is claimed. Refused: reusing anything on the owner connection, which carries model input.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

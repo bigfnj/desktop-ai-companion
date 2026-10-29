@@ -18,8 +18,55 @@ internal static class CodexObservationChecks
         RouterFallback(check);
         PublisherRouter(check);
         RunningEngines(check);
+        StartupRead(check);
         await AdapterGateAsync(check);
         await TrustProbeAsync(check);
+    }
+
+    // O-agentbroker-02 (lane broker-next): the two startup-read savings that move no trust decision. The Code.exe version is
+    // read before its 238 MB hash and only ever refuses; the directory (observation-only) connection takes the discovery
+    // pass's engine verification, the owner connection keeps the fresh one.
+    private static void StartupRead(Action<bool, string> check)
+    {
+        string image = VsCodeRouterCompatibilityProfile.ExpectedImage;
+        var pin = VsCodeRouterCompatibilityProfile.Pins[0];
+        int hashes = 0, versions = 0, engines = 0;
+        string Hash(string _) { hashes++; return pin.ExecutableSha256; }
+        string? Version(string? version) { versions++; return version; }
+        void Verify(string? version, Func<string, string> hash, AgentBroker.Pins.PinDocument? pins = null)
+            => VsCodeRouterCompatibilityProfile.VerifyPublicImage(image, pins ?? AgentBroker.Pins.PinDocument.Current, _ => { },
+                _ => Version(version), hash, () => ++engines);
+        string Refusal(Action action)
+        {
+            try { action(); return "accepted"; }
+            catch (DesktopAdapterException error) { return error.Code + "/" + error.InstalledVersion; }
+        }
+        check(Refusal(() => Verify("9.9.9", Hash)) == "unsupported_vscode_router/9.9.9" && hashes == 0 && engines == 0,
+            File + "STARTUP_VERSION_BEFORE_HASH: a Code.exe version no pin names refuses, with its version, before the image is hashed");
+        check(Refusal(() => Verify(pin.ProductVersion, _ => { hashes++; return new string('0', 64); })) == "unsupported_vscode_router/" + pin.ProductVersion &&
+            hashes == 1 && engines == 0,
+            File + "STARTUP_VERSION_BEFORE_HASH: a pinned version with another image's hash still refuses on the hash");
+        versions = 0;
+        check(Refusal(() => Verify(pin.ProductVersion, Hash, AgentBroker.Pins.PinDocument.Refused("synthetic"))) == "pin_document_invalid/" && versions == 0,
+            File + "STARTUP_VERSION_BEFORE_HASH: a refused pin document refuses first, before the version is read");
+        hashes = 0;
+        check(Refusal(() => Verify(pin.ProductVersion, Hash)) == "accepted" && hashes == 1 && engines == 1,
+            File + "STARTUP_VERSION_BEFORE_HASH WITNESS: a pinned version and hash pass and still check the running engines");
+
+        int fresh = 0, reused = 0;
+        PublisherImageTrust Signed(string _, string __, bool ___) => PublisherImageTrust.ExpectedPublisher;
+        var directory = WindowsDesktopConnection.PublisherRouterCheck(true, Signed, _ => true, () => ++fresh, () => ++reused);
+        check(directory(image) == DesktopRouterProfile.VsCode && reused == 1 && fresh == 0,
+            File + "STARTUP_DIRECTORY_REUSES_DISCOVERY_ENGINES: the observation-only connection takes the discovery engine check");
+        var owner = WindowsDesktopConnection.PublisherRouterCheck(false, Signed, _ => true, () => ++fresh, () => ++reused);
+        check(owner(image) == DesktopRouterProfile.VsCode && fresh == 1 && reused == 1,
+            File + "STARTUP_OWNER_KEEPS_FRESH_ENGINES: a delivery connection keeps the fresh engine check");
+        bool refused = false;
+        try { new DesktopAdapterOptions(EnableExternalPeerDelivery: true) { ObservationOnlyConnection = true }.Validate(); }
+        catch (DesktopAdapterException error) { refused = error.Code == "invalid_options"; }
+        check(refused, File + "STARTUP_OBSERVATION_ONLY_CANNOT_DELIVER: an observation-only connection refuses any delivery switch");
+        new DesktopAdapterOptions { ObservationOnlyConnection = true, AllowPublisherSignedRouter = true }.Validate();
+        check(true, File + "STARTUP_OBSERVATION_ONLY_CANNOT_DELIVER WITNESS: the directory observer's own options validate");
     }
 
     private static async Task TrustProbeAsync(Action<bool, string> check)

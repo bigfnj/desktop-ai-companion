@@ -138,7 +138,11 @@ internal sealed class WindowsDesktopConnection : IVerifiedDesktopConnection
     internal static Task<IVerifiedDesktopConnection> ConnectAsync(TimeSpan timeout, CancellationToken token)
         => ConnectAsync(timeout, allowPublisherSigned: false, token);
 
-    internal static async Task<IVerifiedDesktopConnection> ConnectAsync(TimeSpan timeout, bool allowPublisherSigned, CancellationToken token)
+    internal static Task<IVerifiedDesktopConnection> ConnectAsync(TimeSpan timeout, bool allowPublisherSigned, CancellationToken token)
+        => ConnectAsync(timeout, allowPublisherSigned, observationOnly: false, token);
+
+    internal static async Task<IVerifiedDesktopConnection> ConnectAsync(TimeSpan timeout, bool allowPublisherSigned, bool observationOnly,
+        CancellationToken token)
     {
         if (!OperatingSystem.IsWindows()) throw new DesktopAdapterException("native_windows_required");
         // Fixed local endpoint only. Never create a router and never accept a remote/custom production endpoint.
@@ -154,7 +158,7 @@ internal sealed class WindowsDesktopConnection : IVerifiedDesktopConnection
             VerifyPipeAcl(pipe.SafePipeHandle);
             var verification = VerifyRouter(identity.ImagePath, allowPublisherSigned,
                 VsCodeRouterCompatibilityProfile.VerifyPublicImage, DesktopCompatibilityProfile.VerifyPublicImages,
-                VerifyPublisherSignedRouter);
+                PublisherRouterCheck(observationOnly));
             var connection = new WindowsDesktopConnection(pipe, identity, verification);
             connection.VerifyStillSameOwner();
             return connection;
@@ -185,6 +189,18 @@ internal sealed class WindowsDesktopConnection : IVerifiedDesktopConnection
     internal static DesktopRouterProfile VerifyPublisherSignedRouter(string image)
         => VerifyPublisherSignedRouter(image, WindowsPublisherImageTrust.Verify, WindowsPublisherImageTrust.IsProtectedFile,
             VsCodeCompatibilityProfile.VerifyRunningClientsByPublisher);
+
+    // O-agentbroker-02: the directory connection is observation only, so its Code router check may take the running engines'
+    // publisher result the discovery pass just established (VerifyRunningClientsByPublisherForDiscovery: the same engine
+    // processes, unchanged since), instead of running Authenticode over every codex.exe again. The router image itself is
+    // still verified fresh, and every delivery (owner) connection keeps the fresh engine check: nothing is reused there.
+    internal static Func<string, DesktopRouterProfile> PublisherRouterCheck(bool observationOnly)
+        => PublisherRouterCheck(observationOnly, WindowsPublisherImageTrust.Verify, WindowsPublisherImageTrust.IsProtectedFile,
+            VsCodeCompatibilityProfile.VerifyRunningClientsByPublisher, VsCodeCompatibilityProfile.VerifyRunningClientsByPublisherForDiscovery);
+
+    internal static Func<string, DesktopRouterProfile> PublisherRouterCheck(bool observationOnly,
+        Func<string, string, bool, PublisherImageTrust> verify, Func<string, bool> isProtectedFile, Func<int> freshEngines, Func<int> discoveryEngines)
+        => image => VerifyPublisherSignedRouter(image, verify, isProtectedFile, observationOnly ? discoveryEngines : freshEngines);
 
     internal static DesktopRouterProfile VerifyPublisherSignedRouter(string image,
         Func<string, string, bool, PublisherImageTrust> verify, Func<string, bool> isProtectedFile, Func<int> verifyRunningEngines)

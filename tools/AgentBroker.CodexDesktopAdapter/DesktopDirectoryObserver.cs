@@ -35,7 +35,9 @@ public sealed class DesktopDirectoryObserver : IAsyncDisposable
     /// </summary>
     public static async Task<DesktopDirectoryObserver> ConnectAsync(bool allowPublisherSignedRouter, CancellationToken token = default)
     {
-        var adapter = await DesktopAdapter.ConnectAsync(new() { AllowPublisherSignedRouter = allowPublisherSignedRouter }, token);
+        // Observation only: the router's publisher check may reuse the discovery pass's engine verification (O-agentbroker-02).
+        var adapter = await DesktopAdapter.ConnectAsync(new() { AllowPublisherSignedRouter = allowPublisherSignedRouter,
+            ObservationOnlyConnection = true }, token);
         return await WarmUpAsync(adapter.CreateDirectoryObserver(TimeSpan.FromSeconds(30)), TimeSpan.FromSeconds(1), token);
     }
 
