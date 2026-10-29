@@ -33,9 +33,16 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
     private readonly TimeProvider clock;
     private readonly SemaphoreSlim gate = new(1, 1);
     private readonly Dictionary<SessionAddress, DesktopOwnerBinding> bindings = [];
+    // Conversations whose owner lookup failed or ran out of time on the last pass that reached them. They are looked up
+    // last on the next pass, so one slow conversation cannot again hold up the renewal of every one after it.
+    private readonly HashSet<Guid> slowLookups = [];
+    private int skippedLastPass;
     private bool disposed;
     public string Id => "codex-native";
-    public IReadOnlyList<AdapterDiscoveryDiagnostic> DiscoveryDiagnostics => provider.DiscoveryDiagnostics;
+    // A pass that skipped conversations says so on every pass that does (a degraded pass is never silent).
+    public IReadOnlyList<AdapterDiscoveryDiagnostic> DiscoveryDiagnostics => skippedLastPass == 0 ? provider.DiscoveryDiagnostics
+        : [.. provider.DiscoveryDiagnostics, new("codex_owner_lookup_skipped", skippedLastPass + " Codex conversation" +
+            (skippedLastPass == 1 ? " was" : "s were") + " not renewed this pass: the owner lookup did not finish in time or failed.")];
 
     public CodexNativeAdapter(bool enableDelivery = false, bool updateTolerantDelivery = false)
         : this(new CodexNativeProvider(enableDelivery, updateTolerantDelivery), enableDelivery, updateTolerantDelivery: updateTolerantDelivery) { }
@@ -59,12 +66,28 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
             if (rows.Count > 256) throw new BrokerException("session_limit", "Native directory exceeded its bound.");
             var found = new Dictionary<SessionAddress, DesktopOwnerBinding>();
             var sessions = new List<BrokerSession>();
-            foreach (var row in rows.DistinctBy(r => r.ConversationId))
+            // skipped: not renewed this pass; slow: the lookups that themselves timed out or failed (a conversation merely
+            // not reached before the deadline is not slow, and keeps its place).
+            var skipped = new HashSet<Guid>();
+            var slow = new HashSet<Guid>();
+            // OrderBy is stable: last pass's slow lookups go last, everything else keeps the directory's order.
+            var ordered = rows.DistinctBy(r => r.ConversationId).OrderBy(r => slowLookups.Contains(r.ConversationId)).ToArray();
+            foreach (var row in ordered)
             {
-                token.ThrowIfCancellationRequested();
                 if (row.ConversationId == Guid.Empty || row.LastSeenAt > clock.GetUtcNow().AddSeconds(5) ||
                     row.LastSeenAt <= clock.GetUtcNow().AddMinutes(-2)) continue;
-                var binding = await provider.ResolveOwnerAsync(row.ConversationId, token);
+                // Past the pass deadline nothing more is looked up; what was resolved is still returned and renewed.
+                if (token.IsCancellationRequested) { skipped.Add(row.ConversationId); continue; }
+                DesktopOwnerBinding? binding;
+                // One conversation's lookup timing out (a pinned router can spend its whole discovery timeout, which
+                // outlasts the pass deadline) or its transport failing used to fail the whole pass, so no conversation was
+                // renewed and every Codex row lapsed while its chat was live (N-agentbroker-native-flicker-01). Now that
+                // conversation alone is skipped. A DesktopAdapterException still fails the pass below: it is the router's
+                // or profile's verdict, not one slow row. The provider has already discarded the owner connection, so
+                // the next lookup reconnects.
+                try { binding = await provider.ResolveOwnerAsync(row.ConversationId, token); }
+                catch (Exception error) when (error is OperationCanceledException or IOException)
+                { skipped.Add(row.ConversationId); slow.Add(row.ConversationId); continue; }
                 if (!ValidBinding(binding, row.ConversationId)) continue;
                 var address = new SessionAddress(brokerId, "codex:" + row.ConversationId.ToString("D"), binding!.NativeSessionIncarnation);
                 found.Add(address, binding);
@@ -76,7 +99,13 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
                     ? SessionCapabilities.Receive | SessionCapabilities.WakeIdle | SessionCapabilities.Reply | SessionCapabilities.NativeIdleGuard
                     : SessionCapabilities.None, activity, clock.GetUtcNow().AddSeconds(30)));
             }
+            // A skipped conversation keeps its earlier binding until its lease lapses, as it did when a failed pass left
+            // every binding in place; submission resolves the owner afresh before any input either way.
+            foreach (var pair in bindings)
+                if (skipped.Contains(pair.Value.ConversationId) && !found.ContainsKey(pair.Key)) found.Add(pair.Key, pair.Value);
             bindings.Clear(); foreach (var pair in found) bindings.Add(pair.Key, pair.Value);
+            slowLookups.Clear(); slowLookups.UnionWith(slow);
+            skippedLastPass = skipped.Count;
             return sessions;
         }
         catch (DesktopAdapterException error)

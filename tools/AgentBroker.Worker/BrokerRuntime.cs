@@ -184,32 +184,43 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
         }
     }
 
-    private async Task DiscoverAsync(CancellationToken stop)
+    // Discovery timing: each adapter's pass deadline and the pause after it. Internal so the lifecycle checks can scale
+    // them down; production keeps ten seconds each, inside the 30-second native leases a pass renews.
+    internal TimeSpan DiscoveryPassDeadline { get; init; } = TimeSpan.FromSeconds(10);
+    internal TimeSpan DiscoveryInterval { get; init; } = TimeSpan.FromSeconds(10);
+
+    // One discovery loop per adapter (N-agentbroker-native-flicker-01). The adapters used to run one after another in a
+    // single loop, so a slow pass in one (a Codex owner lookup can spend its router's whole discovery timeout, and a
+    // transport may outlive the pass deadline) postponed every other adapter's renewal by that long, and the next
+    // adapter's 30-second leases could lapse while its sessions were live. Each adapter now renews on its own schedule;
+    // a slow one delays only itself.
+    private Task DiscoverAsync(CancellationToken stop) => Task.WhenAll(adapters.Select(adapter => DiscoverLoopAsync(adapter, stop)));
+
+    private async Task DiscoverLoopAsync(ILocalAgentAdapter adapter, CancellationToken stop)
     {
         while (!stop.IsCancellationRequested)
         {
-            foreach (var adapter in adapters)
+            try
             {
-                try
-                {
-                    using var deadline = CancellationTokenSource.CreateLinkedTokenSource(stop);
-                    deadline.CancelAfter(TimeSpan.FromSeconds(10));
-                    var sessions = await adapter.DiscoverAsync(store.BrokerId, deadline.Token);
-                    if (sessions.Count > 256) throw new BrokerException("session_limit", "Adapter directory exceeded its bound.");
-                    foreach (var session in sessions) Register(session);
-                    var diagnostics = adapter.DiscoveryDiagnostics.Take(8).Select(item => item.ToStatusText()).Distinct().ToArray();
-                    if (diagnostics.Length == 0) adapterErrors.TryRemove(adapter.Id, out _);
-                    else adapterErrors[adapter.Id] = string.Join("; ", diagnostics);
-                }
-                catch (Exception e) when (e is IOException or InvalidDataException or BrokerException or
-                    UnauthorizedAccessException or System.ComponentModel.Win32Exception or OperationCanceledException)
-                {
-                    if (stop.IsCancellationRequested) throw;
-                    adapterErrors[adapter.Id] = e is AdapterDiscoveryException diagnostic ? diagnostic.Diagnostic.ToStatusText()
-                        : e is BrokerException b ? b.Code : "adapter_unavailable";
-                }
+                using var deadline = CancellationTokenSource.CreateLinkedTokenSource(stop);
+                deadline.CancelAfter(DiscoveryPassDeadline);
+                var sessions = await adapter.DiscoverAsync(store.BrokerId, deadline.Token);
+                // An adapter may now end a pass early with what it resolved (CodexNativeAdapter); at shutdown, nothing registers.
+                stop.ThrowIfCancellationRequested();
+                if (sessions.Count > 256) throw new BrokerException("session_limit", "Adapter directory exceeded its bound.");
+                foreach (var session in sessions) Register(session);
+                var diagnostics = adapter.DiscoveryDiagnostics.Take(8).Select(item => item.ToStatusText()).Distinct().ToArray();
+                if (diagnostics.Length == 0) adapterErrors.TryRemove(adapter.Id, out _);
+                else adapterErrors[adapter.Id] = string.Join("; ", diagnostics);
             }
-            await Task.Delay(TimeSpan.FromSeconds(10), stop);
+            catch (Exception e) when (e is IOException or InvalidDataException or BrokerException or
+                UnauthorizedAccessException or System.ComponentModel.Win32Exception or OperationCanceledException)
+            {
+                if (stop.IsCancellationRequested) throw;
+                adapterErrors[adapter.Id] = e is AdapterDiscoveryException diagnostic ? diagnostic.Diagnostic.ToStatusText()
+                    : e is BrokerException b ? b.Code : "adapter_unavailable";
+            }
+            await Task.Delay(DiscoveryInterval, stop);
         }
     }
 

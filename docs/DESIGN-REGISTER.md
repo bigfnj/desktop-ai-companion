@@ -6505,6 +6505,23 @@ mailbox (a retry must keep its `messageId` and sender, or the broker answers `me
 session's wait past every address guard, so the helper reads the original with `get_message_receipt` first and refuses
 unless its sender is a generic mailbox.
 
+**A slow Codex owner lookup costs only its own conversation's renewal (N-agentbroker-native-flicker-01).** On 2026-10-29
+at about 10:30, under heavy disk load, `send` to a live Codex chat answered `recipient_unavailable` and `list_sessions`
+showed no `codex:` row at all while the chat kept working. Two things made one slow lookup cost every row. The runtime
+ran its adapters one after another in one loop, so a slow pass in one postponed every other adapter's renewal; it now
+runs one loop per adapter (`BrokerRuntime.DiscoverLoopAsync`). And `CodexNativeAdapter.DiscoverAsync` looked owners up
+one conversation at a time, so a single lookup outliving the ten-second pass deadline (a pinned router may spend its
+twelve-second discovery timeout, `DesktopProtocol.cs`) failed the whole pass and no Codex row was renewed. Now a lookup
+that times out or fails with an IO error skips that conversation alone; past the pass deadline the pass returns what it
+resolved; the slow conversation goes last on the next pass; and the status names how many were skipped
+(`codex_owner_lookup_skipped`) on every pass that skipped one. A `DesktopAdapterException` still fails the pass: it is the
+router's or profile's verdict, not one slow row. A skipped conversation keeps its earlier binding until its lease lapses,
+as every binding did when a pass failed, and is not renewed. Refused: renewing a skipped row on its old binding (it would
+advertise an incarnation nobody verified this pass); a pass deadline longer than the router's discovery timeout (leases
+are registered when a pass ends, so a longer pass delays every row it resolved); and keeping the owner connection after a
+cancelled lookup (the adapter library closes the protocol on any failed request, because a late answer would be read as
+the next request's, `DesktopAdapter.RequestAsync`), so the next lookup still reconnects.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

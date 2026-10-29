@@ -31,6 +31,14 @@ internal static class WaitToolChecks
         elapsed.Stop();
         check(empty.Count == 0 && elapsed.Elapsed >= TimeSpan.FromMilliseconds(900) && elapsed.Elapsed < TimeSpan.FromSeconds(3),
             "wait_for_messages returns empty at its deadline once every message is acknowledged");
+        // Held is an acknowledgement too, and unlike Delivered it keeps its record (no tombstone), so only the wait's own
+        // status filter keeps it out (lane broker-next: the filter moved into BrokerStore.AcceptedIncoming, N-broker-e-02).
+        Guid held = Guid.NewGuid();
+        tools.Send(sender.Address, owner.Address, held, "Synthetic message the owner holds.");
+        tools.AcknowledgeMessage(held, owner.Address, MessageStatus.Held);
+        var afterHeld = await tools.WaitForMessages(owner.Address, default, timeoutSeconds: 0);
+        check(afterHeld.Count == 0, "wait_for_messages never returns a message its owner acknowledged as Held");
+        tools.AcknowledgeMessage(held, owner.Address, MessageStatus.Delivered);
 
         var ordered = new List<Guid>();
         for (int index = 0; index < 3; index++)

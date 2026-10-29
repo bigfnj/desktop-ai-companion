@@ -1,7 +1,9 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using AgentBroker.CodexDesktopAdapter;
 using AgentBroker.Core;
 using AgentBroker.Worker;
+using AgentBroker.Worker.Adapters;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 
@@ -58,6 +60,116 @@ internal static class RuntimeLifecycleChecks
             catch (AggregateException) { }
             check(failing.DisposeCalls == 1 && healthy.DisposeCalls == 1, "repeated runtime disposal shares the original cleanup task and never disposes adapters twice");
         }
+        await IndependentAdapterLoopsAsync(check, scratch);
+        await SlowCodexRowAsync(check);
+    }
+
+    // N-agentbroker-native-flicker-01, the runtime half: one adapter's slow pass (a transport that outlives the pass
+    // deadline and ignores it) must not let another adapter's leases lapse. Scaled down: pass deadline and pause 300 ms,
+    // the other adapter's lease 1.2 s, the slow pass 2 s. When the adapters ran one after another, the other adapter was
+    // renewed only every 2.3 s, and its row dropped out of the directory between renewals.
+    private static async Task IndependentAdapterLoopsAsync(Action<bool, string> check, string scratch)
+    {
+        using var store = new BrokerStore(Path.Combine(scratch, "independent-loops"));
+        await using var federation = new SlowDirectoryFederation(Guid.Empty);
+        var slow = new TimedAdapter("slow-native", store.BrokerId, TimeSpan.FromSeconds(2), ignoreCancellation: true);
+        var peer = new TimedAdapter("peer-native", store.BrokerId, TimeSpan.Zero);
+        var runtime = new BrokerRuntime(store, federation, [slow, peer])
+        { DiscoveryPassDeadline = TimeSpan.FromMilliseconds(300), DiscoveryInterval = TimeSpan.FromMilliseconds(300) };
+        await using (runtime)
+        {
+            runtime.Start(default);
+            var first = Stopwatch.StartNew();
+            while (!store.Directory().Any(session => session.Address == peer.Address) && first.Elapsed < TimeSpan.FromSeconds(5)) await Task.Delay(20);
+            int samples = 0, missing = 0;
+            var watch = Stopwatch.StartNew();
+            while (watch.Elapsed < TimeSpan.FromSeconds(4))
+            {
+                samples++;
+                if (!store.Directory().Any(session => session.Address == peer.Address)) missing++;
+                await Task.Delay(50);
+            }
+            check(samples >= 20 && missing == 0 && peer.Passes >= 6,
+                "RUNTIME_ADAPTERS_INDEPENDENT: a slow adapter's pass never lets another adapter's lease lapse (" + missing + " of " + samples + " samples missing)");
+            check(slow.Passes >= 1 && slow.Completed >= 1,
+                "RUNTIME_ADAPTERS_INDEPENDENT WITNESS: the slow adapter ran its long pass past the deadline");
+        }
+    }
+
+    // N-agentbroker-native-flicker-01, the Codex half: a conversation whose owner lookup outlives the pass deadline is
+    // skipped and goes last on the next pass, so every other conversation is still renewed; a lookup failing at once is
+    // skipped without ending the pass. The diagnostic says so on every pass that skipped one.
+    private static async Task SlowCodexRowAsync(Action<bool, string> check)
+    {
+        var provider = new SlowRowProvider(3);
+        await using var adapter = new CodexNativeAdapter(provider);
+        var brokerId = Guid.NewGuid();
+        async Task<IReadOnlyList<BrokerSession>> PassAsync()
+        {
+            using var deadline = new CancellationTokenSource(TimeSpan.FromMilliseconds(400));
+            return await adapter.DiscoverAsync(brokerId, deadline.Token);
+        }
+        string Ids(IReadOnlyList<BrokerSession> sessions) => string.Join(",", sessions.Select(session =>
+            Array.IndexOf(provider.Threads, Guid.Parse(session.Address.SessionId["codex:".Length..]))).Order());
+        provider.Slow = provider.Threads[1];
+        IReadOnlyList<BrokerSession>? firstPass = null;
+        try { firstPass = await PassAsync(); } catch (OperationCanceledException) { }
+        check(firstPass is not null && Ids(firstPass) == "0",
+            "CODEX_SLOW_ROW_PARTIAL: a lookup that outlives the pass deadline ends the pass with what was resolved, not a failure (" + (firstPass is null ? "failed" : Ids(firstPass)) + ")");
+        check(adapter.DiscoveryDiagnostics.Any(item => item.Code == "codex_owner_lookup_skipped" && item.Description.StartsWith("2 Codex conversations", StringComparison.Ordinal)),
+            "CODEX_SLOW_ROW_DIAGNOSTIC: the pass that skipped conversations names how many");
+        var second = await PassAsync();
+        check(Ids(second) == "0,2" && provider.Order[^3..].SequenceEqual(new[] { provider.Threads[0], provider.Threads[2], provider.Threads[1] }),
+            "CODEX_SLOW_ROW_LAST: the slow conversation goes last on the next pass, so every other one is renewed (" + Ids(second) + ")");
+        provider.Slow = null; provider.Failing = provider.Threads[0];
+        IReadOnlyList<BrokerSession>? third = null;
+        try { third = await PassAsync(); } catch (IOException) { }
+        check(third is not null && Ids(third) == "1,2",
+            "CODEX_SLOW_ROW_FAILING: a lookup that fails at once is skipped and the pass goes on (" + (third is null ? "failed" : Ids(third)) + ")");
+        provider.Failing = null;
+        var healthy = await PassAsync();
+        check(Ids(healthy) == "0,1,2" && !adapter.DiscoveryDiagnostics.Any(item => item.Code == "codex_owner_lookup_skipped"),
+            "CODEX_SLOW_ROW_DIAGNOSTIC WITNESS: a pass that resolves every conversation renews all and reports no skip");
+    }
+
+    private sealed class TimedAdapter(string id, Guid brokerId, TimeSpan pass, bool ignoreCancellation = false) : ILocalAgentAdapter
+    {
+        public string Id => id;
+        public SessionAddress Address { get; } = new(brokerId, id + ":" + Guid.NewGuid().ToString("D"), Guid.NewGuid());
+        internal int Passes, Completed;
+        public async Task<IReadOnlyList<BrokerSession>> DiscoverAsync(Guid broker, CancellationToken token)
+        {
+            Interlocked.Increment(ref Passes);
+            if (pass > TimeSpan.Zero) await Task.Delay(pass, ignoreCancellation ? CancellationToken.None : token);
+            Interlocked.Increment(ref Completed);
+            return [new BrokerSession(Address, "Synthetic " + id, id, SessionCapabilities.Receive | SessionCapabilities.WakeIdle,
+                SessionActivity.Idle, DateTimeOffset.UtcNow.AddMilliseconds(1200))];
+        }
+        public Task<AdapterResult> SubmitAsync(BrokerMessage message, CancellationToken token) => throw new NotSupportedException();
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    // A provider with three observed conversations; one may hang until the pass deadline or fail at once.
+    private sealed class SlowRowProvider(int count) : ICodexNativeProvider
+    {
+        internal Guid[] Threads { get; } = Enumerable.Range(0, count).Select(_ => Guid.NewGuid()).ToArray();
+        internal Guid? Slow, Failing;
+        internal List<Guid> Order { get; } = [];
+        public bool NativeIdleGuard => false;
+        public Task<IReadOnlyList<DesktopDirectorySession>> ObserveAsync(CancellationToken token)
+            => Task.FromResult<IReadOnlyList<DesktopDirectorySession>>(Threads.Select(thread =>
+                new DesktopDirectorySession(thread, DesktopSessionActivity.Idle, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)).ToArray());
+        public async Task<DesktopOwnerBinding?> ResolveOwnerAsync(Guid conversationId, CancellationToken token)
+        {
+            Order.Add(conversationId);
+            if (conversationId == Slow) await Task.Delay(Timeout.Infinite, token);
+            if (conversationId == Failing) throw new IOException("Synthetic owner connection failure.");
+            return new DesktopOwnerBinding(conversationId, Guid.NewGuid(), Guid.NewGuid(), 12345, 134000000000000000, true)
+            { RouterTrust = DesktopRouterTrust.ExactPinned };
+        }
+        public Task<DesktopSubmissionResult> SubmitAsync(DesktopOwnerBinding binding, Guid messageId, string text, CancellationToken token)
+            => throw new NotSupportedException();
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
     private sealed class LifecycleAdapter(string id, bool faultDiscovery = false, bool failDispose = false) : ILocalAgentAdapter

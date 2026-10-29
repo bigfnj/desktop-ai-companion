@@ -70,8 +70,9 @@ ASSEMBLIES = {
 # peer diagnostics (24) and Claude observation (42) before the --existing-tests-only cut-off.
 # Re-measured 2026-10-29 by lane feature/broker-next-160 (N-modules-fixes-01): later lanes had added checks before the
 # cut-off without moving these, so every --apply run failed its healthy baseline; both include that lane's two
-# malformed-subject checks (Claude observation, Codex observation).
-EXISTING_COUNTS = {"worker": 203, "desktop": 157}
+# malformed-subject checks (Claude observation, Codex observation). Worker 210 after the same lane's seven runtime
+# lifecycle checks (N-agentbroker-native-flicker-01).
+EXISTING_COUNTS = {"worker": 210, "desktop": 157}
 FOCUSED_COUNTS = {"worker": 82, "desktop": 15}
 CLAUDE_SCENARIOS = ("early-reject", "unsupported-version", "hash-mismatch", "mixed", "recovery", "bounded-snapshot")
 
@@ -116,16 +117,18 @@ WITNESSES = (
         'throw new DesktopAdapterException("unsupported_vscode_router", version);',
         'throw new DesktopAdapterException("unsupported_vscode_router");',
     ),)),
+    # Both re-pointed by lane feature/broker-next-160 (N-agentbroker-native-flicker-01): the pass moved into one loop per
+    # adapter (BrokerRuntime.DiscoverLoopAsync), four spaces shallower; same bytes otherwise, same intent.
     Witness("runtime-completed-pass-reporting", "runtime", "worker", ("--runtime-pin-diagnostics-only",), "AdapterDiagnosticChecks.cs", ((
-        """                    var diagnostics = adapter.DiscoveryDiagnostics.Take(8).Select(item => item.ToStatusText()).Distinct().ToArray();
-                    if (diagnostics.Length == 0) adapterErrors.TryRemove(adapter.Id, out _);
-                    else adapterErrors[adapter.Id] = string.Join("; ", diagnostics);""",
-        "                    adapterErrors.TryRemove(adapter.Id, out _);",
+        """                var diagnostics = adapter.DiscoveryDiagnostics.Take(8).Select(item => item.ToStatusText()).Distinct().ToArray();
+                if (diagnostics.Length == 0) adapterErrors.TryRemove(adapter.Id, out _);
+                else adapterErrors[adapter.Id] = string.Join("; ", diagnostics);""",
+        "                adapterErrors.TryRemove(adapter.Id, out _);",
     ),)),
     Witness("runtime-specific-exception-reporting", "runtime", "worker", ("--codex-pin-diagnostics-only",), "CodexPinDiagnosticChecks.cs", ((
-        """                    adapterErrors[adapter.Id] = e is AdapterDiscoveryException diagnostic ? diagnostic.Diagnostic.ToStatusText()
-                        : e is BrokerException b ? b.Code : "adapter_unavailable";""",
-        '                    adapterErrors[adapter.Id] = e is BrokerException b ? b.Code : "adapter_unavailable";',
+        """                adapterErrors[adapter.Id] = e is AdapterDiscoveryException diagnostic ? diagnostic.Diagnostic.ToStatusText()
+                    : e is BrokerException b ? b.Code : "adapter_unavailable";""",
+        '                adapterErrors[adapter.Id] = e is BrokerException b ? b.Code : "adapter_unavailable";',
     ),)),
     Witness("deferred-claim-atomicity", "claims", "worker", ("--deferred-claim-only",), "DeferredClaimChecks.cs",
             (("        lock (gate)", "        _ = gate;"),), replacement_counts=(2,), kind="concurrency"),
@@ -147,9 +150,11 @@ WITNESSES = (
         "return Accept(sent, authenticatedBroker);",
         "return Accept(sent with { CreatedAt = Now }, authenticatedBroker);",
     ),)),
-    Witness("bus-wait-returns-acknowledged", "tools", "worker", ("--wait-tools-only",), "WaitToolChecks.cs", ((
-        ".Where(receipt => receipt.Message.Recipient == session && receipt.Status == MessageStatus.Accepted)",
-        ".Where(receipt => receipt.Message.Recipient == session)",
+    # Re-pointed by lane feature/broker-next-160 (N-broker-e-02): wait_for_messages now asks the store's AcceptedIncoming
+    # query, which holds the status filter; the mutation drops it there (same intent).
+    Witness("bus-wait-returns-acknowledged", "store", "worker", ("--wait-tools-only",), "WaitToolChecks.cs", ((
+        "            return state.Messages.Where(r => r.Message.Recipient == recipient && r.Status == MessageStatus.Accepted)",
+        "            return state.Messages.Where(r => r.Message.Recipient == recipient)",
     ),)),
     Witness("bus-wait-per-session-unbounded", "runtime", "worker", ("--wait-tools-only",), "WaitToolChecks.cs", ((
         'if (!waits.TryAdd(session, 0)) throw new BrokerException("wait_in_progress", "This session already has an active wait.");',
