@@ -6458,6 +6458,19 @@ pinned 26.1007.21434, so its REVIEW items are open, and an exact pin would let t
 that today need the separate `codexUpdateTolerantDelivery` opt-in, whose accepted gaps are exactly those items. Their
 entries are drafted for a person's re-read instead.
 
+#### feature/host-fixes
+
+Host 1.8.0 fixes (lane host-fixes, 2026-10-29).
+
+**An uninstall marker that cannot be read refuses Unmark too, not only the mark (N-host-runtime-01).** MarkForRemoval
+re-reads a held `pending-module-removals.txt` as often as the update marker is re-read and then throws, as MarkForUpdate does.
+Unmark does the same rather than return quietly: it cannot know whether the marker names its id, and if it does, the
+next launch deletes the module the user just reinstalled or updated. So an install over a held marker says "A
+pending-uninstall marker could not be updated", and an update over one says it could not update; both read like a
+failure of the install when the marker is the cause, and that is deliberate. IsMarked answers false for an unreadable
+marker, so Update all tries the module, whose Unmark then refuses. The launch removes nothing on such a start and the
+modules it names load once more.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

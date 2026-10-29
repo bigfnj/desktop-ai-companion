@@ -270,6 +270,81 @@ namespace DesktopAICompanion.Plugins
                     File.Exists(marker) && File.ReadAllText(marker).Trim().Equals("other", StringComparison.OrdinalIgnoreCase));
                 PendingModuleRemovals.Unmark("other", marker);
                 ok &= Check(sb, "removal: Unmark of the last id removes the marker file", !File.Exists(marker));
+
+                // AN UNREADABLE REMOVAL MARKER (N-host-runtime-01), the update marker's held-file shape in
+                // PendingUpdateSwap, whose WITNESS proves on this box that such a hold refuses a read and lets a
+                // write through. MarkForRemoval took a held marker for an empty one and rewrote it with the one new
+                // id, dropping every uninstall marked before it. Each step below starts from the same two earlier
+                // uninstalls, so one broken rule fails its own line and not the steps after it: a launch removes
+                // nothing, rewrites nothing and does not throw, and IsMarked answers false; the mark throws after
+                // its re-reads and the earlier ids survive; Unmark throws rather than guess whether the marker
+                // names its id; a hold released at the first re-read loses nothing; readable, nothing is re-read.
+                string removalHeld = Path.Combine(root, "pending-module-removals-write-held.txt");
+                string[] earlierRemovals = { "first", "second" };
+                string heldModule = Path.Combine(modulesRoot, "first");
+                Directory.CreateDirectory(heldModule);
+                File.WriteAllText(Path.Combine(heldModule, "First.dll"), "not an assembly");
+
+                File.WriteAllLines(removalHeld, earlierRemovals);
+                bool heldIsMarked = true, heldLaunchThrew = false;
+                IReadOnlyList<string> heldLaunch = null;
+                using (new FileStream(removalHeld, FileMode.Open, FileAccess.Read, FileShare.Write))
+                {
+                    heldIsMarked = PendingModuleRemovals.IsMarked("first", removalHeld);
+                    try { heldLaunch = PendingModuleRemovals.ProcessPending(modulesRoot, removalHeld, dataRoot, stagingRoot, s => sb.AppendLine("  " + s)); }
+                    catch (Exception) { heldLaunchThrew = true; }
+                }
+                ok &= Check(sb, "removal: a launch that cannot read the removal marker removes nothing, rewrites nothing and does not throw",
+                    !heldLaunchThrew && heldLaunch != null && heldLaunch.Count == 0 && Directory.Exists(heldModule) &&
+                    MarkerIdsForSelfTest(removalHeld) == "first,second");
+                ok &= Check(sb, "removal: an unreadable removal marker answers not marked", !heldIsMarked);
+                ok &= Check(sb, "removal: WITNESS the same removal marker readable answers marked for an id it names",
+                    PendingModuleRemovals.IsMarked("first", removalHeld));
+
+                File.WriteAllLines(removalHeld, earlierRemovals);
+                bool removalHeldThrew = false;
+                int removalReReads = 0;
+                using (new FileStream(removalHeld, FileMode.Open, FileAccess.Read, FileShare.Write))
+                {
+                    try { PendingModuleRemovals.MarkForRemoval("third", removalHeld, delegate { removalReReads++; }); }
+                    catch (IOException) { removalHeldThrew = true; }
+                }
+                ok &= Check(sb, "removal: marking onto a removal marker that cannot be read throws and keeps the uninstalls marked before it, marker=" + MarkerIdsForSelfTest(removalHeld),
+                    removalHeldThrew && MarkerIdsForSelfTest(removalHeld) == "first,second");
+                ok &= Check(sb, "removal: an unreadable removal marker is read again before the mark gives up, re-reads=" + removalReReads,
+                    removalReReads == PendingModuleUpdates.MarkerReReads);
+
+                File.WriteAllLines(removalHeld, earlierRemovals);
+                bool unmarkHeldThrew = false;
+                using (new FileStream(removalHeld, FileMode.Open, FileAccess.Read, FileShare.Write))
+                {
+                    try { PendingModuleRemovals.Unmark("first", removalHeld, delegate { }); }
+                    catch (IOException) { unmarkHeldThrew = true; }
+                }
+                ok &= Check(sb, "removal: Unmark of a removal marker that cannot be read throws instead of leaving its uninstall in place unseen, marker=" + MarkerIdsForSelfTest(removalHeld),
+                    unmarkHeldThrew && MarkerIdsForSelfTest(removalHeld) == "first,second");
+
+                File.WriteAllLines(removalHeld, earlierRemovals);
+                FileStream removalTransient = new FileStream(removalHeld, FileMode.Open, FileAccess.Read, FileShare.Write);
+                int removalTransientReReads = 0;
+                try
+                {
+                    PendingModuleRemovals.MarkForRemoval("third", removalHeld, delegate
+                    {
+                        removalTransientReReads++;
+                        if (removalTransient != null) { removalTransient.Dispose(); removalTransient = null; }
+                    });
+                }
+                catch (IOException) { }
+                finally { if (removalTransient != null) removalTransient.Dispose(); }
+                ok &= Check(sb, "removal: a hold on the removal marker that ends before a re-read loses nothing, marker=" + MarkerIdsForSelfTest(removalHeld),
+                    removalTransientReReads == 1 && MarkerIdsForSelfTest(removalHeld) == "first,second,third");
+
+                File.WriteAllLines(removalHeld, earlierRemovals);
+                int removalReadableReReads = 0;
+                PendingModuleRemovals.MarkForRemoval("fourth", removalHeld, delegate { removalReadableReReads++; });
+                ok &= Check(sb, "removal: WITNESS a readable removal marker is marked on the first read, with no re-read",
+                    removalReadableReReads == 0 && MarkerIdsForSelfTest(removalHeld) == "first,fourth,second");
             }
             catch (Exception ex)
             {

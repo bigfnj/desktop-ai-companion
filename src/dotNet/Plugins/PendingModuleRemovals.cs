@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using System.Threading;
 
 namespace DesktopAICompanion.Plugins
 {
@@ -49,8 +50,28 @@ namespace DesktopAICompanion.Plugins
         /// is resolved once per process, so a test cannot redirect it by setting the override late.</summary>
         internal static void MarkForRemoval(string moduleId, string markerPath)
         {
+            MarkForRemoval(moduleId, markerPath, PauseBeforeReRead);
+        }
+
+        /// <summary>
+        /// FAIL CLOSED on a marker that exists and cannot be read (N-host-runtime-01), the way
+        /// <see cref="PendingModuleUpdates.MarkForUpdate(string, string, Action)"/> does since N-modules-update-all-03.
+        /// ReadIds answered an empty list for such a marker, and this took it for "nothing pending" and rewrote
+        /// the file with the one new id, so a scanner or sync client holding the file for one read dropped every
+        /// uninstall marked before it: those modules then loaded again at the next start as if never removed.
+        /// The read is tried again up to <see cref="PendingModuleUpdates.MarkerReReads"/> times (the same bound,
+        /// so the two markers cannot drift apart), <paramref name="beforeReRead"/> running before each; still
+        /// unreadable, it THROWS and leaves the file as it was, and the pane's "Couldn't uninstall" catch says
+        /// so. Refused alternative: write the one id anyway, which is the defect.
+        /// </summary>
+        internal static void MarkForRemoval(string moduleId, string markerPath, Action beforeReRead)
+        {
             if (string.IsNullOrWhiteSpace(moduleId)) return;
-            var ids = new HashSet<string>(ReadIds(markerPath), StringComparer.OrdinalIgnoreCase);
+            List<string> marked = ReadIdsReReading(markerPath, beforeReRead);
+            if (marked == null)
+                throw new IOException("The list of uninstalls waiting for the next start could not be read, so it was " +
+                    "left as it was. Try the uninstall again in a moment.");
+            var ids = new HashSet<string>(marked, StringComparer.OrdinalIgnoreCase);
             ids.Add(moduleId.Trim());
             WriteIds(markerPath, ids);
         }
@@ -58,8 +79,9 @@ namespace DesktopAICompanion.Plugins
         /// <summary>Whether an uninstall of <paramref name="moduleId"/> waits for the next launch. The Modules
         /// pane's Update all leaves such a module out and names it: its MarkForUpdate would Unmark the removal
         /// (F352) and silently undo an uninstall the user asked for. A marker that cannot be read answers
-        /// false, which is safe: Unmark then reads nothing and leaves the marker alone, and removals run first
-        /// at the next launch, so the uninstall still wins over the update.</summary>
+        /// false, which is safe: Update all then goes on to MarkForUpdate, whose Unmark cannot read the marker
+        /// either and THROWS (N-host-runtime-01), so that module is reported as not updated, the marker is left
+        /// alone, and removals run first at the next launch, so the uninstall still wins over the update.</summary>
         internal static bool IsMarked(string moduleId)
         {
             return IsMarked(moduleId, FilePath);
@@ -68,8 +90,10 @@ namespace DesktopAICompanion.Plugins
         internal static bool IsMarked(string moduleId, string markerPath)
         {
             if (string.IsNullOrWhiteSpace(moduleId)) return false;
+            List<string> marked = ReadIds(markerPath);
+            if (marked == null) return false;
             string wanted = moduleId.Trim();
-            foreach (string id in ReadIds(markerPath))
+            foreach (string id in marked)
                 if (string.Equals(id, wanted, StringComparison.OrdinalIgnoreCase)) return true;
             return false;
         }
@@ -89,8 +113,25 @@ namespace DesktopAICompanion.Plugins
 
         internal static void Unmark(string moduleId, string markerPath)
         {
+            Unmark(moduleId, markerPath, PauseBeforeReRead);
+        }
+
+        /// <summary>
+        /// A marker that exists and cannot be read THROWS here too, after the same bounded re-reads
+        /// (N-host-runtime-01), for the reason the write above throws: whether it names this id cannot be known,
+        /// and if it does, the next launch deletes the module the user just reinstalled or updated. It used to
+        /// read as an empty marker and return quietly, which is that outcome behind a success message. The
+        /// install path's catch already words this ("if the module is missing after the restart, install it
+        /// again"), and an update's catch reports the update as not done and discards its staged copy, so the
+        /// earlier uninstall wins exactly as it would have. Refused alternative: the silent no-op it was.
+        /// </summary>
+        internal static void Unmark(string moduleId, string markerPath, Action beforeReRead)
+        {
             if (string.IsNullOrWhiteSpace(moduleId)) return;
-            List<string> ids = ReadIds(markerPath);
+            List<string> ids = ReadIdsReReading(markerPath, beforeReRead);
+            if (ids == null)
+                throw new IOException("The list of uninstalls waiting for the next start could not be read, so an " +
+                    "uninstall of this module may still run at the next start.");
             string wanted = moduleId.Trim();
             int before = ids.Count;
             ids.RemoveAll(id => string.Equals(id, wanted, StringComparison.OrdinalIgnoreCase));
@@ -119,6 +160,15 @@ namespace DesktopAICompanion.Plugins
         {
             List<string> ids = ReadIds(markerPath);
             var unfinished = new List<string>();
+            if (ids == null)
+            {
+                // An UNREADABLE marker is not an empty one, and not a reason to fail the launch either
+                // (N-host-runtime-01): nothing is removed and nothing is rewritten, so every pending uninstall is
+                // still marked for the next launch. The modules it names load this once, as they did before the
+                // marker existed; a NullReferenceException here would instead cost the launch every module.
+                if (log != null) log("the removal marker could not be read; nothing is removed this launch, and it is tried again at the next");
+                return unfinished;
+            }
             if (ids.Count == 0) return unfinished;
             foreach (string id in ids)
             {
@@ -178,6 +228,9 @@ namespace DesktopAICompanion.Plugins
             File.WriteAllLines(markerPath, kept, new UTF8Encoding(false));
         }
 
+        /// <summary>The marked ids, an empty list for no marker, or NULL for a marker that exists but could not
+        /// be read (N-host-runtime-01, the shape PendingModuleUpdates took for RA-297): the two used to be one
+        /// answer, so a held marker was overwritten as if nothing had been pending.</summary>
         private static List<string> ReadIds(string markerPath)
         {
             try
@@ -188,7 +241,27 @@ namespace DesktopAICompanion.Plugins
                     if (!string.IsNullOrWhiteSpace(line)) result.Add(line.Trim());
                 return result;
             }
-            catch { return new List<string>(); }
+            catch { return null; }
+        }
+
+        /// <summary>ReadIds, read again up to <see cref="PendingModuleUpdates.MarkerReReads"/> times while it answers
+        /// null: a scanner's hold on a file just written usually ends within a few tens of milliseconds. Still
+        /// null after that means unreadable, and the caller refuses to write.</summary>
+        private static List<string> ReadIdsReReading(string markerPath, Action beforeReRead)
+        {
+            List<string> ids = ReadIds(markerPath);
+            for (int reRead = 0; ids == null && reRead < PendingModuleUpdates.MarkerReReads; reRead++)
+            {
+                if (beforeReRead != null) beforeReRead();
+                ids = ReadIds(markerPath);
+            }
+            return ids;
+        }
+
+        /// <summary>The shipped pause before each re-read: the update marker's, on the UI thread the pane calls from.</summary>
+        private static void PauseBeforeReRead()
+        {
+            Thread.Sleep(PendingModuleUpdates.MarkerReReadDelayMilliseconds);
         }
     }
 }
