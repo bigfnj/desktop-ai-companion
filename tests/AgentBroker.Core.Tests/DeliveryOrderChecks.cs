@@ -62,6 +62,70 @@ internal static class DeliveryOrderChecks
         store.Register(recipient with { LeaseUntil = clock.GetUtcNow().AddMinutes(2) });
         Check(store.BeginDelivery(staleOnly)?.Message.Id == fresh.Id && store.FindReceipt(stale.Id)?.Status == MessageStatus.Expired,
             "ORDER_EXPIRY_RELEASES: once the older message expires, its successor is claimed");
+        store.CompleteDelivery(fresh.Id, MessageStatus.Submitted, "synthetic_submitted");
+        passed += WaitReasons(store, clock, sender with { LeaseUntil = clock.GetUtcNow().AddMinutes(2) });
+        return passed;
+    }
+
+    // N-broker-next-01: a message waiting for a native recipient that is not Ready was never claimed and had no reason, so its
+    // sender could not tell busy from lost. The receipt now names the wait, derived when read; nothing is written or claimed.
+    private static int WaitReasons(BrokerStore store, Clock clock, BrokerSession sender)
+    {
+        int passed = 0;
+        void Check(bool condition, string label)
+        {
+            if (!condition) throw new InvalidOperationException(label);
+            passed++;
+        }
+        BrokerMessage Message(SessionAddress to, string text) => new(Guid.NewGuid(), Guid.NewGuid(), null, sender.Address, to, text,
+            clock.GetUtcNow(), clock.GetUtcNow().AddMinutes(30));
+        store.Register(sender);
+        // The expired message above owes its sender a notice; deliver what is claimable so only this section's records remain.
+        while (store.BeginDelivery() is { } owed) store.CompleteDelivery(owed.Message.Id, MessageStatus.Submitted, "synthetic_submitted");
+        var busy = new BrokerSession(new(store.BrokerId, "claude:wait-busy", Guid.NewGuid()), "Native busy", "claude-native",
+            SessionCapabilities.Receive | SessionCapabilities.WakeIdle | SessionCapabilities.Reply, SessionActivity.Busy, clock.GetUtcNow().AddMinutes(2));
+        store.Register(busy);
+        var waiting = Message(busy.Address, "Synthetic message to a busy session.");
+        store.Accept(waiting, store.BrokerId);
+        var claimed = store.BeginDelivery();
+        var receipt = store.FindReceipt(waiting.Id);
+        Check(claimed is null && receipt is { Status: MessageStatus.Accepted, Reason: "recipient_busy", Attempts: 0 },
+            "WAIT_REASON_BUSY: a message waiting for a busy native session reads Accepted with recipient_busy, unclaimed (" +
+            receipt?.Status + " " + receipt?.Reason + ")");
+        Check(store.FindReceiptWithText(waiting.Id)?.Reason is null,
+            "WAIT_REASON_BUSY WITNESS: the reason is derived when read; the stored record is unchanged, so no pass writes for it");
+        store.Register(busy with { Activity = SessionActivity.ApprovalRequired });
+        Check(store.FindReceipt(waiting.Id)?.Reason == "recipient_awaiting_approval",
+            "WAIT_REASON_FOLLOWS_STATE: the reason follows the recipient's present state (" + store.FindReceipt(waiting.Id)?.Reason + ")");
+        store.Register(busy with { Activity = SessionActivity.Idle });
+        Check(store.FindReceipt(waiting.Id)?.Reason is null && store.BeginDelivery()?.Message.Id == waiting.Id,
+            "WAIT_REASON_FOLLOWS_STATE WITNESS: a Ready recipient shows no wait and the message is claimed");
+        // A deferral's own reason is the better account of a message that was tried: it is kept.
+        store.ReleaseUnsubmittedClaim(waiting.Id, "native_recipient_not_idle");
+        store.Register(busy);
+        Check(store.FindReceipt(waiting.Id)?.Reason == "native_recipient_not_idle",
+            "WAIT_REASON_KEEPS_DEFERRAL: a message that was tried keeps its deferral reason (" + store.FindReceipt(waiting.Id)?.Reason + ")");
+        // A Codex row whose engine check could not complete lists Receive alone (N-broker-next-02).
+        var pending = new BrokerSession(new(store.BrokerId, "codex:wait-pending", Guid.NewGuid()), "Native pending", "codex-native",
+            SessionCapabilities.Receive, SessionActivity.Unknown, clock.GetUtcNow().AddSeconds(30));
+        store.Register(pending);
+        var toPending = Message(pending.Address, "Synthetic message to a row whose check is pending.");
+        store.Accept(toPending, store.BrokerId);
+        Check(store.FindReceipt(toPending.Id)?.Reason == "recipient_wake_unavailable",
+            "WAIT_REASON_WAKE_UNAVAILABLE: a native row with Receive alone reads recipient_wake_unavailable (" + store.FindReceipt(toPending.Id)?.Reason + ")");
+        // The row lapses (a flicker): the message is still Accepted, and now says why.
+        clock.Advance(TimeSpan.FromSeconds(40));
+        Check(store.FindReceipt(toPending.Id) is { Status: MessageStatus.Accepted, Reason: "recipient_unavailable" },
+            "WAIT_REASON_UNAVAILABLE: a message whose native recipient lapsed reads recipient_unavailable (" + store.FindReceipt(toPending.Id)?.Reason + ")");
+        // A generic mailbox's Accepted already means unread; its receipt is unchanged.
+        var mailbox = new BrokerSession(new(store.BrokerId, "mcp:" + Guid.NewGuid().ToString("D"), Guid.NewGuid()), "Mailbox", "mcp",
+            SessionCapabilities.Receive | SessionCapabilities.Reply, SessionActivity.Idle, clock.GetUtcNow().AddMinutes(1));
+        store.Register(sender with { LeaseUntil = clock.GetUtcNow().AddMinutes(2) });
+        store.Register(mailbox);
+        var toMailbox = Message(mailbox.Address, "Synthetic message to a mailbox.");
+        store.Accept(toMailbox, store.BrokerId);
+        Check(store.FindReceipt(toMailbox.Id) is { Status: MessageStatus.Accepted, Reason: null },
+            "WAIT_REASON_MAILBOX_UNCHANGED: a generic mailbox's Accepted receipt carries no wait reason (" + store.FindReceipt(toMailbox.Id)?.Reason + ")");
         return passed;
     }
 

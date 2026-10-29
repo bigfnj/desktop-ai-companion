@@ -604,8 +604,38 @@ public sealed class BrokerStore : IDisposable
             // A passed deadline reads as Expired at once rather than after the next delivery pass, and owes its notice.
             var messages = Expire(state.Messages);
             if (!messages.SequenceEqual(state.Messages)) Commit(state with { Messages = messages });
-            return Stored(messageId, null, out _);
+            return WithWaitReason(Stored(messageId, null, out _));
         }
+    }
+
+    // N-broker-next-01: BeginDelivery skips a message whose native recipient is not Ready without a word, so a message to a
+    // busy Claude session (or a Codex chat whose directory reports it busy) waited Accepted with no reason, and its sender's
+    // receipt could not tell busy from lost. Only a Codex chat of Unknown activity was claimed and came back with
+    // native_context_busy. The receipt now names the wait, derived when it is read from the recipient's present state: never
+    // written (a delivery pass makes no journal write for it, and it cannot go stale), never a claim, and the pick order is
+    // untouched. Only for a message never attempted (a deferral's own reason stays), and never for a present generic
+    // mailbox: its Accepted already means unread, which send's advisory says.
+    private MessageReceipt? WithWaitReason(MessageReceipt? receipt)
+    {
+        if (receipt is not { Status: MessageStatus.Accepted, Reason: null } || receipt.Message.Recipient.BrokerId != state.BrokerId) return receipt;
+        // A native row that lapsed (the Codex flicker) is what a lost-looking wait mostly is: say so. A mailbox the broker
+        // no longer holds (its retention ended, or a restart dropped its registration) reads the same, which is true: its
+        // owner registers again with the same clientId and incarnation to reach it.
+        bool present = sessions.TryGetValue(receipt.Message.Recipient, out var target);
+        if (present && target!.Adapter == "mcp") return receipt;
+        if (!present || !Live(target!)) return receipt with { Reason = "recipient_unavailable" };
+        // Without Receive the next delivery pass refuses it (recipient_cannot_receive); a Ready recipient is claimed next.
+        if (!target!.Capabilities.HasFlag(SessionCapabilities.Receive) || Ready(target.Address)) return receipt;
+        return receipt with
+        {
+            Reason = !target.Capabilities.HasFlag(SessionCapabilities.WakeIdle) ? "recipient_wake_unavailable" : target.Activity switch
+            {
+                SessionActivity.Busy => "recipient_busy",
+                SessionActivity.ApprovalRequired => "recipient_awaiting_approval",
+                SessionActivity.Interrupted => "recipient_interrupted",
+                _ => "recipient_activity_unknown",
+            }
+        };
     }
 
     /// <summary>
