@@ -6498,14 +6498,22 @@ through the broker's unauthenticated loopback endpoint. The helper cannot learn 
 so its "local" test is the directory's: the row names the broker ID the request names, and no other row anywhere has that
 session ID (a paired broker advertising one makes it ambiguous, which refuses); the broker's own `sender_mismatch` and
 `sender_unavailable` checks in `BrokerStore.Accept` still refuse a sender from another broker or one no longer
-addressable when the send arrives. Refused alternatives: trusting `whoami` (a Codex caller always gets
+addressable when the send arrives. The ambiguity rule is also a veto, recorded so it is not mistaken for a safety
+property alone: a paired broker sees this broker's directory, so it can learn `codex:<thread>` and advertise the same
+session ID, and that chat's native sends through the helper then refuse `native_sender_ambiguous` for as long as it does
+(locally a new incarnation displaces the old row, `BrokerStore.Register`, so only a peer can make the second row). It
+denies only the convenience: the chat's generic mailbox still works, and unpairing ends it. Kept because counting only
+the request's broker would let the scan stop proving that nothing else claims the ID (independent review of 1.6.0, P3-4).
+The page cursor is built from the JSON values as sent (`ConvertFrom-McpJsonElement`), so a date-shaped session ID from a
+peer cannot come back as a different cursor; 64 pages of 16 cover this broker and three full paired brokers, and a larger
+federated directory refuses `native_sender_directory_limit` (P3-3). Refused alternatives: trusting `whoami` (a Codex caller always gets
 `no_native_session`, because one Codex server hosts many chats), and rewriting a refused native send to the caller's
 mailbox (a retry must keep its `messageId` and sender, or the broker answers `message_id_collision`). `wait_for_reply` and
 `wait_for_receipt` take only a message ID and the broker waits as the original's sender, which would reach a native
 session's wait past every address guard, so the helper reads the original with `get_message_receipt` first and refuses
 unless its sender is a generic mailbox.
 
-**A slow Codex owner lookup costs only its own conversation's renewal (N-agentbroker-native-flicker-01).** On 2026-10-29
+**A slow Codex owner lookup no longer fails the whole pass (N-agentbroker-native-flicker-01).** On 2026-10-29
 at about 10:30, under heavy disk load, `send` to a live Codex chat answered `recipient_unavailable` and `list_sessions`
 showed no `codex:` row at all while the chat kept working. Two things made one slow lookup cost every row. The runtime
 ran its adapters one after another in one loop, so a slow pass in one postponed every other adapter's renewal; it now
@@ -6514,9 +6522,15 @@ one conversation at a time, so a single lookup outliving the ten-second pass dea
 twelve-second discovery timeout, `DesktopProtocol.cs`) failed the whole pass and no Codex row was renewed. Now a lookup
 that times out or fails with an IO error skips that conversation alone; past the pass deadline the pass returns what it
 resolved; the slow conversation goes last on the next pass; and the status names how many were skipped
-(`codex_owner_lookup_skipped`) on every pass that skipped one. A `DesktopAdapterException` still fails the pass: it is the
-router's or profile's verdict, not one slow row. A skipped conversation keeps its earlier binding until its lease lapses,
-as every binding did when a pass failed, and is not renewed. Refused: renewing a skipped row on its old binding (it would
+(`codex_owner_lookup_skipped`) on every pass that skipped one. The router's error answer for one conversation
+(`owner_discovery_rejected`) skips that row the same way (independent review of 1.6.0, P3-5); every other
+`DesktopAdapterException` still fails the pass: it is the router's or the profile's verdict, not one row. What this does
+NOT achieve: after a timed-out lookup the provider drops the owner connection, so the next conversation's lookup
+reconnects with full router verification inside what is left of the ten-second deadline, and under load the rest of
+that pass is skipped too (N-broker-next-03). A skipped conversation keeps its earlier binding for as long as it keeps
+being skipped, whatever its lease (harmless: `BrokerStore.Ready` claims nothing for a lapsed row, and submission
+re-resolves the owner), and is not renewed. An exception outside the discovery loop's list no longer ends that
+adapter's loop in silence: it is recorded as `adapter_failed` and the loop tries again (P3-7). Refused: renewing a skipped row on its old binding (it would
 advertise an incarnation nobody verified this pass); a pass deadline longer than the router's discovery timeout (leases
 are registered when a pass ends, so a longer pass delays every row it resolved); and keeping the owner connection after a
 cancelled lookup (the adapter library closes the protocol on any failed request, because a late answer would be read as
@@ -6529,9 +6543,15 @@ provider answer `UnsupportedCapability` (or, in strict mode, `native_delivery_di
 `native_client_profile_unverified`) for an owner that does advertise the native capability: the engine check failing
 with an IO or access error, and the owner connection being down after a failed lookup (`NativeIdleGuard` reads the live
 connection), which is what the slow lookups of N-agentbroker-native-flicker-01 leave behind. Neither says anything
-about the client. `CodexDeliveryAuthority.VerificationUnavailable` names that state; the adapter lets such a message go
-on to the fresh owner lookup, which reconnects, and then submits or defers with `native_verification_unavailable`; the
-provider's own fresh check at submission that cannot complete defers with the same reason. Verdicts stay refused: an
+about the client. `CodexDeliveryAuthority.VerificationUnavailable` names that state, and such a message defers at once
+with `native_verification_unavailable`, WITHOUT connecting: the discovery loop owns the reconnect. (The first version of
+this change reconnected inside the delivery, under the adapter's lock and with nothing able to cancel the router
+verification; a discovery pass waiting on that lock outlived its deadline and every Codex row lapsed, the flicker above.
+Independent review of 1.6.0, P2-1; TRANSIENT_DELIVERY_NEVER_HOLDS_THE_LOCK.) The provider's own fresh check at
+submission that cannot complete defers with the same reason. A deferred message holds the same sender's later messages
+to that recipient behind it (`BrokerStore.BeginDelivery`'s per-pair order) until it delivers or expires; today the next
+discovery pass usually ends the state, but if N-broker-next-02 is closed so rows keep their capabilities, that
+head-of-line wait could last the message's lifetime (24 hours by default) and wants a bound then. Verdicts stay refused: an
 owner that does not advertise `supportsUntrustedAppInput` (`unsupported_capability`), a verified profile mismatch, a
 publisher refusal. Not changed here: a discovery pass whose engine check could not complete still lists the row without
 capabilities, and `BrokerStore.BeginDelivery` refuses an Accepted message to such a row as `recipient_cannot_receive`
@@ -6547,6 +6567,14 @@ its role from it. That would make the answer provably unsubmitted, but none of t
 Code 1.143.x, desktop 26.1016.x) is installed on this workstation to confirm it, and delivery trust follows the pinned
 build, so `DesktopAdapter.cs` keeps the refusal. Next step: read the same router function in a pinned image; if it
 matches, defer it on the external-peer path as the discovery miss already does.
+
+**N-broker-e-02's other half, `read_inbox` and `wait_for_reply`, is DECLINED-MEASURED.** 867801f moved only the
+`wait_for_messages` pass to the bounded `AcceptedIncoming` query. A `read_inbox` page and each `wait_for_reply` pass still
+build the participant's whole history through `Messages`, tombstones included: `messagesMs` in the coordination
+benchmark's tombstone scenario at the 65,512-tombstone bound, each sample a fresh process, medians of three interleaved
+runs of six: 24.18, 25.59 and 27.91 ms. `read_inbox` must list acknowledged history (that is its contract), so only
+`wait_for_reply` could take a bounded query, and a reply wait wakes on store changes, not on a timer; at about 25 ms per
+pass at a bound no install has reached, it was left as it is (independent review of 1.6.0, P3-9).
 
 **The worker start reads about half as much, and no trust decision moved (O-agentbroker-02).** Two changes. The Code.exe
 version resource is read before its 238 MB hash and only ever refuses: a version no pin names refuses at once (with that
@@ -6575,7 +6603,9 @@ at most; declined on that trade.
 
 **A session started while the broker was down is told how to reconnect, rather than the gap being closed
 (N-agentbroker-client-reconnect-01).** Every companion restart stops the worker it supervises and starts a new one, and
-neither Claude Code nor Codex retries an MCP server that refused its first connection. The worker's own share of the gap
+on 2026-10-29 neither Claude Code (`ECONNREFUSED` on resume) nor a Codex chat in VS Code (`unknown MCP server`) recovered
+its broker tools until the session was restarted or reconnected (N-agentbroker-client-reconnect-01's observation); no
+client's retry policy was read for this. The worker's own share of the gap
 is small: a fresh isolated worker accepted its first loopback connection 1,034 to 1,054 ms after its process started
 (five samples, polled every 25 ms); the supervisor's stop (up to 4 s, then a forced stop) and the companion's own exit,
 relaunch and module load come on top and were not measured without the real app. Since no length of gap is safe for a

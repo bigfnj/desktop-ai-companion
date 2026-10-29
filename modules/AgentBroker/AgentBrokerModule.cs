@@ -43,9 +43,11 @@ public sealed partial class AgentBrokerModule : IModule
         Name = "AgentBroker",
         Version = "1.6.0",   // 1.6.0: backlog batch 3 (2026-10-29). A Codex check the broker could not complete (an
                              //        engine read failing under load, or the owner connection dropped) defers as
-                             //        native_verification_unavailable instead of refusing; a missing capability or a
-                             //        verified mismatch is still refused. Adapters renew independently and one slow
-                             //        Codex owner lookup skips only its own row. A worker start reads about half as
+                             //        native_verification_unavailable instead of refusing, without reconnecting (the
+                             //        discovery loop does that); a missing capability or a verified mismatch is still
+                             //        refused. Adapters renew independently; one slow, failing or rejected Codex owner
+                             //        lookup skips only its own row; an unexpected adapter failure reads adapter_failed
+                             //        and discovery keeps trying. A worker start reads about half as
                              //        much for Codex verification; tombstones share addresses (44% less heap); a wait
                              //        reads only Accepted incoming records. The collaboration helper can send as the
                              //        calling Codex agent's own codex:<CODEX_THREAD_ID> row. The Client connection
