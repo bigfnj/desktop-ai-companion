@@ -49,4 +49,6 @@ std::vector<unsigned long> CompanionProcessIds();
 Identity EffectiveCaller();
 std::wstring CanonicalFile(const std::wstring& path);
 std::wstring CanonicalDirectory(const std::wstring& path);
+// CanonicalFile, except an absent file or parent is cached_package_missing.
+std::wstring CanonicalCachedPackage(const std::wstring& path);
 }

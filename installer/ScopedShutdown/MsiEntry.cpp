@@ -73,7 +73,7 @@ bool ProductProperty(const std::wstring& product, const std::wstring& sid, const
 }
 
 bool ScopedPackage(const std::wstring& path, const std::wstring& product, const std::wstring& upgrade) {
-    const auto canonical = scoped_shutdown::CanonicalFile(path);
+    const auto canonical = scoped_shutdown::CanonicalCachedPackage(path);
     MSIHANDLE raw = 0;
     if (MsiOpenDatabaseW(canonical.c_str(), MSIDBOPEN_READONLY, &raw) != ERROR_SUCCESS)
         throw Failure("cached_package_metadata_unavailable");
@@ -145,6 +145,10 @@ std::wstring ErrorText(const char* code) {
         return L"Close Desktop AI Companion in your other Windows session, then retry setup. (" + tag + L")";
     if (tag == L"related_installation_context_mismatch")
         return L"A related installation belongs to a different installation context. Remove it with its own installer before retrying this per-user setup. (" + tag + L")";
+    // No retry advice: the generic "close its windows" text is wrong here, and a
+    // repair from the original package runs this same check and refuses too.
+    if (tag == L"cached_package_missing")
+        return L"Windows Installer's cached copy of an installed Desktop AI Companion package is missing, so setup cannot check how that version closes. (" + tag + L")";
     return L"Setup could not safely identify or close the installed Desktop AI Companion. Close its windows and retry setup. (" + tag + L")";
 }
 }

@@ -53,7 +53,7 @@ function Invoke-NativeCheck {
     [IO.File]::WriteAllLines((Join-Path $scratch ($Name + '.txt')), [string[]]$lines,
         (New-Object Text.UTF8Encoding($false)))
     if ($checkResult.TimedOut) { throw "Native shutdown check timed out: $Name." }
-    $expectedCounts = @{ unit = 52; graceful = 9; fallback = 9; 'legacy-refusal' = 8 }
+    $expectedCounts = @{ unit = 59; graceful = 9; fallback = 9; 'legacy-refusal' = 8 }
     if (-not $expectedCounts.ContainsKey($Name)) { throw 'Unknown native shutdown scenario.' }
     $expectedCountLine = 'PASS ' + $expectedCounts[$Name] + ' checks'
     if ($code -ne 0 -or -not ($lines -contains 'RESULT:PASS') -or -not ($lines -contains $expectedCountLine)) {

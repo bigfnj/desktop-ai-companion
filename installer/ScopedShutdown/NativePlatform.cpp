@@ -52,12 +52,19 @@ static std::wstring FullPath(const std::wstring& path) {
     return full;
 }
 
-static std::wstring Canonical(const std::wstring& path, bool directory) {
+// `absentFile` is the code a caller gets when a FILE is simply not there, so a
+// missing cached package is named as such rather than as an unreadable path.
+// Every other metadata failure keeps installation_path_unavailable.
+static std::wstring Canonical(const std::wstring& path, bool directory, const char* absentFile) {
     const auto full = FullPath(path);
     DWORD attributes = GetFileAttributesW(full.c_str());
-    if (attributes == INVALID_FILE_ATTRIBUTES && directory &&
-        (GetLastError() == ERROR_FILE_NOT_FOUND || GetLastError() == ERROR_PATH_NOT_FOUND))
-        return full; // Repair must also work when the entire registered folder is missing.
+    if (attributes == INVALID_FILE_ATTRIBUTES) {
+        const DWORD error = GetLastError();
+        if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND) {
+            if (directory) return full; // Repair must also work when the entire registered folder is missing.
+            throw Failure(absentFile);
+        }
+    }
     if (attributes == INVALID_FILE_ATTRIBUTES || !!(attributes & FILE_ATTRIBUTE_DIRECTORY) != directory)
         throw Failure("installation_path_unavailable");
     Handle file(CreateFileW(full.c_str(), FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
@@ -75,8 +82,12 @@ static std::wstring Canonical(const std::wstring& path, bool directory) {
     CheckPath(result);
     return result;
 }
-std::wstring CanonicalFile(const std::wstring& path) { return Canonical(path, false); }
-std::wstring CanonicalDirectory(const std::wstring& path) { return Canonical(path, true); }
+std::wstring CanonicalFile(const std::wstring& path) { return Canonical(path, false, "installation_path_unavailable"); }
+std::wstring CanonicalDirectory(const std::wstring& path) { return Canonical(path, true, "installation_path_unavailable"); }
+// Windows Installer's registered LocalPackage can be deleted out from under a
+// registration (cache cleaners, an interrupted rollback). Say so by name: the
+// generic path code sent the 2026-10-27 recovery looking at the install folder.
+std::wstring CanonicalCachedPackage(const std::wstring& path) { return Canonical(path, false, "cached_package_missing"); }
 
 static void TokenIdentity(HANDLE token, Identity& identity) {
     DWORD bytes = 0;
