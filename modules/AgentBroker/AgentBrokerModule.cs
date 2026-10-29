@@ -43,6 +43,8 @@ public sealed partial class AgentBrokerModule : IModule
         Name = "AgentBroker",
         Version = "1.4.1",   // 1.4.1: backlog batch (2026-10-29). A paired broker's Expired is recorded as Refused with
                              //        reason peer_expired and its notice says so, instead of "refused by its recipient".
+                             //        send adds a second content block when the recipient is a local mailbox that
+                             //        nothing can wake; the receipt stays the first block.
                              //        MinHostVersion unchanged (1.6.1).
                              // 1.4.0: first contact (2026-10-29), from agents on a second workstation who registered
                              //        mailboxes and ran pollers despite native rows, started fresh threads at the eighth

@@ -1,7 +1,9 @@
 using AgentBroker.Core;
 using ModelContextProtocol;
+using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using System.ComponentModel;
+using System.Text.Json;
 
 namespace AgentBroker.Worker;
 
@@ -61,7 +63,28 @@ public sealed class BrokerTools(BrokerRuntime runtime, IHttpContextAccessor http
     }
 
     [McpServerTool(Name = "send", Destructive = false, Idempotent = true, OpenWorld = false),
-     Description("Send text from your exact sender session to an exact recipient address. Choose one fresh messageId per message and reuse it with the same text for any retry: a retry returns the original receipt unchanged and ignores ttlMinutes, while the same ID with a different sender, recipient, text or conversationId fails with message_id_collision. conversationId defaults to messageId. ttlMinutes 0 uses the broker's default lifetime; longer lifetimes are capped at 24 hours. Renews the sender. Accepted is not Delivered, and Delivered does not mean the work is done: use wait_for_reply. Never ask a peer for an action denied in your own session.")]
+     Description("Send text from your exact sender session to an exact recipient address. Choose one fresh messageId per message and reuse it with the same text for any retry: a retry returns the original receipt unchanged and ignores ttlMinutes, while the same ID with a different sender, recipient, text or conversationId fails with message_id_collision. conversationId defaults to messageId. ttlMinutes 0 uses the broker's default lifetime; longer lifetimes are capped at 24 hours. Renews the sender. The receipt is the first content block. When the recipient is a local generic mailbox that nothing can wake (Receive without WakeIdle), a second block says so: it sees the message only when its owner next waits or reads. Accepted is not Delivered, and Delivered does not mean the work is done: use wait_for_reply. Never ask a peer for an action denied in your own session.")]
+    public IEnumerable<ContentBlock> SendTool(SessionAddress sender, SessionAddress recipient, Guid messageId, string text,
+        Guid? conversationId = null, int ttlMinutes = 0)
+    {
+        var receipt = Send(sender, recipient, messageId, text, conversationId, ttlMinutes);
+        // The receipt stays the first block, serialized as the SDK serializes a returned object, so a client that reads
+        // content[0] sees exactly what it saw before (N-agentbroker-send-advisory-01).
+        var blocks = new List<ContentBlock> { new TextContentBlock { Text = JsonSerializer.Serialize(receipt, McpJsonUtilities.DefaultOptions) } };
+        if (PollingOnly(receipt.Message.Recipient)) blocks.Add(new TextContentBlock { Text = SendAdvisory });
+        return blocks;
+    }
+
+    public const string SendAdvisory = "Advisory: the recipient is a generic mailbox (Receive without WakeIdle), so nothing " +
+        "wakes it: it sees this message only when its owner next waits or reads its inbox. A mailbox lists as Idle only while its " +
+        "owner is inside a wait.";
+
+    // Only a local recipient is known here; a paired broker's session gets no advisory rather than a guess.
+    private bool PollingOnly(SessionAddress recipient) => recipient.BrokerId == runtime.Store.BrokerId &&
+        runtime.Store.Directory().SingleOrDefault(session => session.Address == recipient) is { } row &&
+        row.Capabilities.HasFlag(SessionCapabilities.Receive) && !row.Capabilities.HasFlag(SessionCapabilities.WakeIdle);
+
+    // The send operation itself, for SendTool and for callers that want the receipt alone.
     public MessageReceipt Send(SessionAddress sender, SessionAddress recipient, Guid messageId, string text,
         Guid? conversationId = null, int ttlMinutes = 0)
     {

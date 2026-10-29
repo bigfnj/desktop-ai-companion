@@ -48,7 +48,7 @@ if (args.Length == 1 && args[0] == "--polling-lease-only")
     catch (Exception ex) { Console.Error.WriteLine(ex); Console.WriteLine("RESULT=FAIL"); return 1; }
 }
 if (args.Length == 1 && args[0] is "--mailbox-only" or "--wait-tools-only" or "--send-only" or "--instructions-only" or
-    "--inbox-attribution-only" or "--lan-profile-only" or "--receipt-wait-only" or "--first-contact-only")
+    "--inbox-attribution-only" or "--lan-profile-only" or "--receipt-wait-only" or "--first-contact-only" or "--send-advisory-only")
 {
     try
     {
@@ -58,6 +58,7 @@ if (args.Length == 1 && args[0] is "--mailbox-only" or "--wait-tools-only" or "-
         if (args[0] == "--wait-tools-only") await WaitToolChecks.RunAsync(Check);
         if (args[0] == "--receipt-wait-only") await ReceiptWaitChecks.RunAsync(Check);
         if (args[0] == "--first-contact-only") await FirstContactChecks.RunAsync(Check);
+        if (args[0] == "--send-advisory-only") await SendAdvisoryChecks.RunAsync(Check);
         if (args[0] == "--send-only") await SendToolChecks.RunAsync(Check);
         if (args[0] == "--instructions-only") await InstructionsChecks.RunAsync(Check);
         Console.WriteLine($"RESULT=PASS assertions={assertions}");
@@ -284,6 +285,7 @@ try
         await WaitToolChecks.RunAsync(Check);
         await ReceiptWaitChecks.RunAsync(Check);
         await FirstContactChecks.RunAsync(Check);
+        await SendAdvisoryChecks.RunAsync(Check);
         await SendToolChecks.RunAsync(Check);
         await InstructionsChecks.RunAsync(Check);
         // Client inbox attribution and the LAN network profile (lane feature/agentbroker-backlog-a).
