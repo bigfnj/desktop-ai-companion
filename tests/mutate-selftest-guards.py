@@ -12874,10 +12874,12 @@ CASES = (
      b"                return Deadline;\n",
      HOST_CSPROJ, EXE,
      SECURITY, None, "a slow asset download that keeps moving outlives the floor deadline"),
+    # Re-pointed 2026-10-29 (lane feature/host-fixes): N-host-catalog-01 gave DownloadLimits a subject as its first
+    # argument. Same defect, same line: the asset limits get the catalog's timing, the subject left as it is.
     ("host-catalog: an asset gets the catalog's limits",
      SECURE_DOWNLOAD_CS,
-     b"            new DownloadLimits(DownloadDeadline, TimeSpan.FromSeconds(30), 256 * 1024);\n",
-     b"            new DownloadLimits(DownloadDeadline, TimeSpan.Zero, 0);\n",
+     b"            new DownloadLimits(\"Download\", DownloadDeadline, TimeSpan.FromSeconds(30), 256 * 1024);\n",
+     b"            new DownloadLimits(\"Download\", DownloadDeadline, TimeSpan.Zero, 0);\n",
      HOST_CSPROJ, EXE,
      SECURITY, None, "the catalog keeps one 60 s deadline; an asset gets a 30 s stall timeout"),
     ("host-catalog: a hash mismatch keeps its old reason",
@@ -14852,6 +14854,29 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--module-host-selftest", "dp-module-host-selftest.txt",
      "an unreadable removal marker answers not marked"),
+
+    # N-host-catalog-01: each of the shared handler's three refusals goes back to the catalog's words for an asset,
+    # one site per mutant; the catalog's own words are WITNESSed and must stay green.
+    ("host-fixes: an asset's refused redirect is worded as the catalog's",
+     SECURE_DOWNLOAD_CS,
+     b"                            throw new HttpRequestException(limits.Subject + \" redirects are not permitted.\");\n",
+     b"                            throw new HttpRequestException(\"Catalog redirects are not permitted.\");\n",
+     HOST_CSPROJ, EXE,
+     SECURITY, None, "a refused redirect of an asset download says Download, not Catalog"),
+    ("host-fixes: an asset's declared length over the limit is worded as the catalog's",
+     SECURE_DOWNLOAD_CS,
+     b"                            throw new InvalidDataException(\n"
+     b"                                limits.Subject + \" response exceeds its size limit.\");\n",
+     b"                            throw new InvalidDataException(\n"
+     b"                                \"Catalog response exceeds its size limit.\");\n",
+     HOST_CSPROJ, EXE,
+     SECURITY, None, "an asset download whose declared length is over its limit says Download, not Catalog"),
+    ("host-fixes: an asset's counted length over the limit is worded as the catalog's",
+     SECURE_DOWNLOAD_CS,
+     b"                                        limits.Subject + \" response exceeds its size limit.\");\n",
+     b"                                        \"Catalog response exceeds its size limit.\");\n",
+     HOST_CSPROJ, EXE,
+     SECURITY, None, "an asset download that runs over its limit with no declared length says Download, not Catalog"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

@@ -1237,6 +1237,53 @@ namespace DesktopAICompanion
                 ref failures,
                 output);
 
+            // ---- N-host-catalog-01: the shared response handler names the request kind it refuses ----
+            // The catalog fetch and every asset download share one response handler, so a module download refused
+            // for a redirect or its size said "Catalog ...". The limits carry the subject; the catalog's own words
+            // are pinned by the WITNESS above and the one below.
+            var assetRedirected = new ScriptedHandler(delegate
+            {
+                return Answer(HttpStatusCode.Found, new MemoryStream(new byte[0]), -1);
+            });
+            string assetRedirectedOutcome = DownloadOutcome(DownloadThrough(assetRedirected, 1024, SecureDownload.AssetLimits));
+            Check(
+                assetRedirectedOutcome == "threw HttpRequestException: Download redirects are not permitted.",
+                "a refused redirect of an asset download says Download, not Catalog (" + assetRedirectedOutcome + ")",
+                ref failures,
+                output);
+            var assetDeclaredTooLarge = new ScriptedHandler(delegate
+            {
+                return Answer(HttpStatusCode.OK, new MemoryStream(new byte[2048]), 2048);
+            });
+            string assetDeclaredOutcome = DownloadOutcome(DownloadThrough(assetDeclaredTooLarge, 1024, SecureDownload.AssetLimits));
+            Check(
+                assetDeclaredOutcome == "threw InvalidDataException: Download response exceeds its size limit.",
+                "an asset download whose declared length is over its limit says Download, not Catalog (" + assetDeclaredOutcome + ")",
+                ref failures,
+                output);
+            // A PacedStream, not a MemoryStream: StreamContent over a seekable stream computes a Content-Length by
+            // itself, so a MemoryStream body takes the declared-length refusal above and never reaches the counting one.
+            var assetCountedTooLarge = new ScriptedHandler(delegate
+            {
+                return Answer(HttpStatusCode.OK, new PacedStream(1000, 2, 0, PaceEnd.End), -1);
+            });
+            string assetCountedOutcome = DownloadOutcome(DownloadThrough(assetCountedTooLarge, 1024, SecureDownload.AssetLimits));
+            Check(
+                assetCountedOutcome == "threw InvalidDataException: Download response exceeds its size limit.",
+                "an asset download that runs over its limit with no declared length says Download, not Catalog (" + assetCountedOutcome + ")",
+                ref failures,
+                output);
+            var catalogCountedTooLarge = new ScriptedHandler(delegate
+            {
+                return Answer(HttpStatusCode.OK, new PacedStream(1000, 2, 0, PaceEnd.End), -1);
+            });
+            string catalogCountedOutcome = DownloadOutcome(DownloadThrough(catalogCountedTooLarge, 1024, SecureDownload.CatalogLimits));
+            Check(
+                catalogCountedOutcome == "threw InvalidDataException: Catalog response exceeds its size limit.",
+                "WITNESS the catalog fetch over its size limit still says Catalog (" + catalogCountedOutcome + ")",
+                ref failures,
+                output);
+
             var unreachable = new ScriptedHandler(delegate (int send)
             {
                 throw new HttpRequestException("No such host is known. (attempt " + send + ")");
@@ -1281,7 +1328,7 @@ namespace DesktopAICompanion
             // The moving download's 100 ms pauses add up to more than the stall timer, so it finishes only if
             // every read that brings bytes restarts that timer.
             var paced = new SecureDownload.DownloadLimits(
-                TimeSpan.FromMilliseconds(300), TimeSpan.FromMilliseconds(500), 4000);
+                "Download", TimeSpan.FromMilliseconds(300), TimeSpan.FromMilliseconds(500), 4000);
             var moving = new ScriptedHandler(delegate
             {
                 return Answer(HttpStatusCode.OK, new PacedStream(1000, 8, 100, PaceEnd.End), 8000);
@@ -1313,7 +1360,7 @@ namespace DesktopAICompanion
                 return Answer(HttpStatusCode.OK, new PacedStream(1000, 1, 0, PaceEnd.Stall), -1);
             });
             string stallOutcome = DownloadOutcome(DownloadThrough(stalling, 1000000,
-                new SecureDownload.DownloadLimits(TimeSpan.FromSeconds(3), TimeSpan.FromMilliseconds(200), 4000)));
+                new SecureDownload.DownloadLimits("Download", TimeSpan.FromSeconds(3), TimeSpan.FromMilliseconds(200), 4000)));
             Check(
                 stallOutcome.StartsWith("timed out: No data arrived for ", StringComparison.Ordinal),
                 "WITNESS a stalled asset download still fails, with its own reason rather than the deadline's (" +
