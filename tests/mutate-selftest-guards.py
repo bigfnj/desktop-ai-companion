@@ -101,6 +101,9 @@ MODULE_HOST_SELFTEST = os.path.join(REPO, "src", "dotNet", "Plugins", "ModuleHos
 FORTUNES_ENGINE_SELFTEST = os.path.join(REPO, "src", "dotNet", "Plugins", "FortunesEngineSelfTest.cs")
 REMEMBRANCE_CSPROJ = os.path.join(REPO, "modules", "Remembrance", "Remembrance.csproj")
 REMEMBRANCE_DLL = os.path.join(BIN, "modules", "remembrance", "Remembrance.dll")
+# No case here mutates AgentFlow (tests/mutate-agentflow.py does), but the MODULE-SELFTESTS baseline runs
+# tests/Test-ModuleSelfTests.ps1, which refuses to run while a module it covers is not built. build_all builds it.
+AGENTFLOW_CSPROJ = os.path.join(REPO, "modules", "AgentFlow", "AgentFlow.csproj")
 REMEMBRANCE_MODULE = os.path.join(REPO, "modules", "Remembrance", "RemembranceModule.cs")
 AUDIO_RECORDER = os.path.join(REPO, "modules", "Remembrance", "AudioRecorder.cs")
 CAPTURE_STORE = os.path.join(REPO, "modules", "Remembrance", "CaptureStore.cs")
@@ -14853,9 +14856,12 @@ def build_all():
     a case whose project was not in it (Reminder, AiBrain) left its module DLL compiled from the LAST
     MUTATION after "restoring and rebuilding the clean tree": the source was byte-identical, the artefact
     was not, and the next self-test run against that build folder failed on the very assertion the case
-    had just proved. Building the union also makes the baseline trustworthy for those flags."""
+    had just proved. Building the union also makes the baseline trustworthy for those flags.
+    AgentFlow is in the fixed set although no case names it (2026-10-29): without a Release build.ps1 first, its
+    module folder did not exist, and Test-ModuleSelfTests failed the baseline with "modules that are not built:
+    agentflow" twice in one session."""
     fixed = [HOST_CSPROJ, FORTUNES_CSPROJ, BLINKINGLED_CSPROJ, PETSTUDIO_CSPROJ, REMEMBRANCE_CSPROJ,
-             CORETESTS_CSPROJ, TESTMODULE_CSPROJ]
+             CORETESTS_CSPROJ, TESTMODULE_CSPROJ, AGENTFLOW_CSPROJ]
     # A TEMPLATE case names no csproj (None): Test-ModuleTemplate.ps1 builds its own scaffold.
     for csproj in fixed + sorted(set(c[4] for c in CASES if c[4] is not None) - set(fixed)):
         ok, out = build(csproj)
