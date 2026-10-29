@@ -34,7 +34,7 @@ namespace DesktopAICompanion.Plugins
     /// </summary>
     internal static class PendingModuleRemovals
     {
-        private static string FilePath { get { return Path.Combine(AppPaths.DataRoot, "pending-module-removals.txt"); } }
+        internal static string FilePath { get { return Path.Combine(AppPaths.DataRoot, "pending-module-removals.txt"); } }
 
         /// <summary>Where every module's DATA directory lives: <c>&lt;data root&gt;\modules</c>.</summary>
         private static string DefaultModuleDataRoot { get { return Path.Combine(AppPaths.DataRoot, "modules"); } }
@@ -148,17 +148,22 @@ namespace DesktopAICompanion.Plugins
         /// </summary>
         internal static IReadOnlyList<string> ProcessPending(string modulesRoot, Action<string> log)
         {
-            List<string> pending = ReadIds(FilePath);
-            IReadOnlyList<string> unfinished = ProcessPending(modulesRoot, FilePath, DefaultModuleDataRoot, PendingModuleUpdates.DefaultStagingRoot, log);
+            var removed = new List<string>();
+            IReadOnlyList<string> unfinished = ProcessPending(modulesRoot, FilePath, DefaultModuleDataRoot, PendingModuleUpdates.DefaultStagingRoot, log, removed);
             // A removed module's grant of the shared Claude Code sign-in goes with it (host 1.8.0), and so does a no the user
             // recorded for it, so a module installed later under the same id is asked afresh; the saved token itself stays for
             // the other modules allowed it, since uninstalling one module is not a Remove token. Only for the ids removed.
-            foreach (string id in pending)
+            //
+            // THE MARKER IS READ ONCE, by the overload below, which hands back the ids it actually removed (the 2026-10-29
+            // audit, A-host-01). This used to read it a second time here, written against the ReadIds that never answered
+            // null: an unreadable marker then threw a NullReferenceException out of this foreach, StartUp's catch logged
+            // "module host init failed" and the launch loaded no module and applied no staged update, the very outcome the
+            // overload's own unreadable branch exists to prevent; and a read here that succeeded where the overload's failed
+            // forgot the grants of modules whose uninstall never ran.
+            foreach (string id in removed)
             {
-                bool left = false;
-                foreach (string u in unfinished) if (string.Equals(u, id, StringComparison.OrdinalIgnoreCase)) left = true;
-                if (!left && (HostCredentialStore.IsGranted(HostCredentialStore.DefaultDirectory, id) ||
-                              HostCredentialStore.IsNotAsked(HostCredentialStore.DefaultDirectory, id)))
+                if (HostCredentialStore.IsGranted(HostCredentialStore.DefaultDirectory, id) ||
+                    HostCredentialStore.IsNotAsked(HostCredentialStore.DefaultDirectory, id))
                     HostCredentialStore.ForgetGrant(HostCredentialStore.DefaultDirectory, id,
                         delegate (string moduleId, string line) { if (log != null) log(line + " ('" + moduleId + "' was uninstalled)"); });
             }
@@ -171,6 +176,19 @@ namespace DesktopAICompanion.Plugins
             string moduleDataRoot,
             string stagingRoot,
             Action<string> log)
+        {
+            return ProcessPending(modulesRoot, markerPath, moduleDataRoot, stagingRoot, log, null);
+        }
+
+        /// <summary>The removals, as above; <paramref name="removed"/>, when given, receives each id whose install folder,
+        /// data folder and staging copies all went this launch, and nothing for an unreadable marker.</summary>
+        internal static IReadOnlyList<string> ProcessPending(
+            string modulesRoot,
+            string markerPath,
+            string moduleDataRoot,
+            string stagingRoot,
+            Action<string> log,
+            List<string> removed)
         {
             List<string> ids = ReadIds(markerPath);
             var unfinished = new List<string>();
@@ -209,6 +227,7 @@ namespace DesktopAICompanion.Plugins
                         if (Directory.Exists(staged)) Directory.Delete(staged, true);
                     }
                     if (log != null) log("removed pending-uninstalled module '" + id + "'");
+                    if (removed != null) removed.Add(id);
                 }
                 catch (Exception ex)
                 {

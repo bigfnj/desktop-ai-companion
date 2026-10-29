@@ -1953,6 +1953,31 @@ namespace DesktopAICompanion.Plugins
                     ok &= Check(sb, "abi180: store: an applied uninstall drops that module's grant alone, and the saved token stays for the others",
                         !HostCredentialStore.IsGranted(shipped, "abi180-gone") && HostCredentialStore.IsGranted(shipped, "abi180-kept") &&
                         shippedStore.Read("abi180-kept", HostCredentialId.ClaudeCodeSignIn).Value == SyntheticToken);
+
+                    // THE LAUNCH PATH WITH A MARKER IT CANNOT READ (the 2026-10-29 audit, A-host-01): the same shipped
+                    // ProcessPending, its removal marker held open with no sharing (a scanner's hold at start). It must answer,
+                    // remove nothing and leave the grant; it threw a NullReferenceException, which cost the launch every module.
+                    PendingModuleRemovals.MarkForRemoval("abi180-held");
+                    HostCredentialStore.SetGrant(shipped, "abi180-held", true, null);
+                    string heldOutcome;
+                    IReadOnlyList<string> heldUnfinished = null;
+                    var heldLog = new List<string>();
+                    using (new FileStream(PendingModuleRemovals.FilePath, FileMode.Open, FileAccess.Read, FileShare.None))
+                    {
+                        try
+                        {
+                            heldUnfinished = PendingModuleRemovals.ProcessPending(removalRoot, delegate (string line) { heldLog.Add(line); });
+                            heldOutcome = "answered";
+                        }
+                        catch (Exception heldEx) { heldOutcome = heldEx.GetType().Name; }
+                    }
+                    ok &= Check(sb, "abi180: store: a launch whose removal marker cannot be read answers, removes nothing and keeps the module's grant (" +
+                        heldOutcome + "; " + string.Join(" | ", heldLog) + ")",
+                        heldOutcome == "answered" && heldUnfinished != null && heldUnfinished.Count == 0 &&
+                        HostCredentialStore.IsGranted(shipped, "abi180-held") && PendingModuleRemovals.IsMarked("abi180-held"));
+                    PendingModuleRemovals.ProcessPending(removalRoot, null);
+                    ok &= Check(sb, "abi180: store: WITNESS once the marker can be read the same launch path removes it and drops its grant",
+                        !HostCredentialStore.IsGranted(shipped, "abi180-held") && !PendingModuleRemovals.IsMarked("abi180-held"));
                     SelfTestScratch.TryRelease(removalRoot, out ignoredRelease);
                 }
 

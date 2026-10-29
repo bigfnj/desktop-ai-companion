@@ -15313,8 +15313,9 @@ CASES = (
     ("abi180: store: an uninstall keeps the removed module's grant",
      os.path.join(REPO, "src", "dotNet", "Plugins", "PendingModuleRemovals.cs"),
      # Re-pointed by the start question's commit: the condition reads a recorded no as well, and the call is ForgetGrant.
-     b'                if (!left && (HostCredentialStore.IsGranted(HostCredentialStore.DefaultDirectory, id) ||\n',
-     b'                if (id == null && !left && (HostCredentialStore.IsGranted(HostCredentialStore.DefaultDirectory, id) ||\n',
+     # Re-pointed again by A-host-01 (2026-10-29 audit): the loop walks only the ids actually removed, so no `left` test.
+     b'                if (HostCredentialStore.IsGranted(HostCredentialStore.DefaultDirectory, id) ||\n',
+     b'                if (id == null && HostCredentialStore.IsGranted(HostCredentialStore.DefaultDirectory, id) ||\n',
      HOST_CSPROJ, EXE,
      "--module-host-selftest", "dp-module-host-selftest.txt",
      "abi180: store: an applied uninstall drops that module's grant alone"),
@@ -15667,6 +15668,15 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--module-host-selftest", "dp-module-host-selftest.txt",
      "removal: emptying a removal marker this account cannot probe deletes it or throws, never returns with it in place"),
+    # A-host-01 (the 2026-10-29 audit): the launch path reads the removal marker a second time for the grant loop, as
+    # merge 4b9f0c2 left it, so an unreadable marker throws out of the foreach and the launch loads no module.
+    ("coordinator-1029: host: the launch path reads the removal marker again for the grant loop",
+     PENDING_REMOVALS,
+     b"            foreach (string id in removed)\n",
+     b"            foreach (string id in ReadIds(FilePath))\n",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "abi180: store: a launch whose removal marker cannot be read answers, removes nothing and keeps the module's grant"),
 
     # N-followups-01: the pet off Form.TopMost, graded by --hardening-selftest through FormCompanion's z-order seam. No
     # mutant here makes a real activating call: the Designer mutant fails the flag check BEFORE any pet window is made (the
