@@ -190,7 +190,8 @@ floor in an update leaves those users on the version they have.
 clean install means no host older than that exists to refuse anything. The shipped modules that raised it since
 each did so for a member they call, and the module's own `MinHostVersion` comment says which: AgentFlow `1.2.0`,
 Fortunes and Remembrance `1.4.0` (the settings primitives), AI Brain `1.5.0` (`ICompanionStandDown`), Reminder
-`1.1.6` (`FullWidth`/`PinTop`); Remembrance and Reminder move to `1.6.0` with `ITrayQuestions`. This paragraph used
+`1.1.6` (`FullWidth`/`PinTop`); Remembrance and Reminder move to `1.6.0` with `ITrayQuestions`; AI Brain and
+Remembrance to `1.8.0` with `IHostCredentials` (and AI Brain's `SettingField.VisibleWhen`). This paragraph used
 to say that only AI Brain had moved, to `1.1.0`, long after it stopped being true, which is how a list in a document
 goes stale: read the modules, not this list, before you rely on it. Pre-rebase numbers (1.4.x from before the rebase, 1.9.x) can be
 **above** the current host and are refused, so a version copied out of an older doc or an older module is worse
@@ -226,14 +227,14 @@ if (answer.ChoiceId == "stop") StopAndSave();   // Chosen, TimedOut and Expired 
   `StandDownHost` is the pattern), and validate what you ask against the rules above so a bad question fails your
   self-test rather than a user's screen. ModuleKit ships no double on purpose: changing it republishes every module.
 
-### The catalog's refused entries (host 1.6.2)
+### The catalog's refused entries (host 1.7.0)
 
 `FetchCatalogItemsAsync` answers what the catalog offers; an entry that breaks one of the host's rules is left out of it.
 `ICatalogListing` answers the same list from the same read, plus the refused entries of that kind, so a module can say
 that an item is in the catalog and why it is not offered:
 
 ```csharp
-var catalog = host as ICatalogListing;          // never null on 1.6.2+; declare MinHostVersion = "1.6.2"
+var catalog = host as ICatalogListing;          // never null on 1.7.0+; declare MinHostVersion = "1.7.0"
 CatalogListing listing = await catalog.FetchCatalogListingAsync(CatalogKinds.Pack);   // throws as FetchCatalogItemsAsync does
 foreach (RefusedCatalogItem refused in listing.Refused)
     ShowNotOffered(refused.Id.Length > 0 ? refused.Id : "entry " + refused.Position, refused.Reason);   // yours: your words per reason
@@ -243,6 +244,38 @@ A refusal is an id that passed the host's safe-id rule (`""` when the id itself 
 `CatalogRefusalReason`, never the catalog's own text: word each reason yourself, and read a value you do not know as
 `Other`. Fortunes' "Check online for packs" is the shipped example. Test it with a `RecordingHost` subclass that also
 implements `ICatalogListing`; ModuleKit ships none.
+
+### The shared Claude Code sign-in (host 1.8.0)
+
+`IHostCredentials` holds ONE `claude setup-token` token for every module the user allows, so a user running two modules
+on Claude Code pastes it once. One fixed credential (`HostCredentialId.ClaudeCodeSignIn`), no free-form keys; Codex is
+not offered, since its refresh tokens are single-use.
+
+```csharp
+var credentials = host as IHostCredentials;     // never null on 1.8.0+; declare MinHostVersion = "1.8.0"
+HostCredentialReading r = credentials.ReadCredential(Info.Id, HostCredentialId.ClaudeCodeSignIn);
+if (r.State == HostCredentialState.Saved) UseOnTheChildOnly(r.Value);   // never on this process, never in a log
+HostCredentialCommit c = credentials.TrySaveCredential(Info.Id, HostCredentialId.ClaudeCodeSignIn, typed);
+credentials.CredentialChanged += OnChanged;     // (id, revision); unsubscribe in Shutdown
+```
+
+- **It needs a grant, not just a flag.** Declare `ModulePermissions.ClaudeCodeSignIn`, and the user must allow your
+  module: a yes to the update that adds the flag records it, and the Modules pane's row offers **Allow sign-in** and
+  **Revoke sign-in**. Without the flag every call is `Denied`; without the grant, `ConsentRequired`. A refusal reads,
+  writes and moves nothing, and it is not `None`: say it, and do not fall back to a token of your own.
+- **Not from `Init`.** The host publishes a module after its `Init` returns, and refuses one it has not published yet.
+- **Revisions, not events.** Each reading carries the revision it describes and each commit returns the one it made.
+  `CredentialChanged` is a hint raised in this process only (a second window of the app on the same data folder
+  changes the store without it), so compare a fresh reading's revision before trusting anything learnt under an older
+  one, and ignore an event for a revision you already hold, your own commit's among them.
+- **Moving an old token in.** `ImportCredentialIfUnset` takes a token you kept before 1.8.0 only while the store has
+  never been used or holds nothing usable, in one host transaction: after any save, import or remove it answers
+  `NotImported`, and the old copy is yours to delete. Delete it only after the store answered.
+- **`Saved` is not "works".** It means unsealed and shaped like a token. Keep your own check of the value, too.
+- **Remove** takes the app's copy away for every allowed module. It does not revoke the token at Anthropic, and a module
+  still on a version from before 1.8.0 keeps a token of its own until it is updated.
+- AI Brain and Remembrance are the shipped adopters, through the shared runner (`shared/CodingAgentCli`). Test with a
+  `RecordingHost` subclass that also implements `IHostCredentials` (their `SharedSignInHost`); ModuleKit ships none.
 
 ### Rules the host relies on
 
@@ -285,7 +318,8 @@ Settings: use the host's `IModuleSettings` (`GetSettings`) for flat keys behind 
 as cleartext JSON in your data folder, with a plain write (no temp-and-replace, no lock). It does NOT encrypt
 `Secret` fields: that kind only controls how a value is displayed (write-only, "leave blank to keep it"), and the
 store never sees the schema. Keep a key in DPAPI yourself, as AI Brain does (`IModuleSettings` in
-`PluginApi.cs` says so). Reach for `JsonSettingsStore<T>` when the shape outgrows flat keys, and for
+`PluginApi.cs` says so); the Claude Code sign-in token is the one secret the host keeps for you, since host 1.8.0
+(`IHostCredentials`, above). Reach for `JsonSettingsStore<T>` when the shape outgrows flat keys, and for
 `ModuleKit.AtomicFile` when a torn write would matter.
 
 ---
@@ -311,7 +345,8 @@ You declare data; the host renders it. That is why a module needs no UI framewor
   | `Collapsible`, `StartCollapsed` | **1.4.0** | card-level, first field: the title becomes an expander with a count ("1 setting, 4 buttons"); `StartCollapsed` closes it on open. The card keeps the state it shows across every rebuild while the pane stays up. A card of buttons only carries the flag on a `Header` |
   | `SettingKind.FilePath`, `FolderPath` | **1.4.0** | the name in the box, the folder muted under it, the full path on hover, and a host-owned Browse (filtered by `FileExtensions`) whose choice is an unsaved edit. Stores the full path, exactly what `Text` stores; `EmptyHint` says what blank means |
   | `ListCard.MasterToggle` | **1.4.0** | an "All" row (`"All packs"`): tri-state, "N of M", and a click goes through each item's own box, so `SetChecked` and `DeferChanges` behave as for single ticks |
-  | `PaneAction.EnabledWhen` | **1.6.2** | a button's own condition, in `EnabledWhen`'s syntax and read by the same parser: greys the action's row, its result line included, and the button refuses a click. For a button that serves one state of a card that is live; a card greyed whole still uses `CardEnabledWhen` |
+  | `PaneAction.EnabledWhen` | **1.7.0** | a button's own condition, in `EnabledWhen`'s syntax and read by the same parser: greys the action's row, its result line included, and the button refuses a click. For a button that serves one state of a card that is live; a card greyed whole still uses `CardEnabledWhen` |
+  | `VisibleWhen` | **1.8.0** | `EnabledWhen`'s syntax, read by the same parser: HIDES the row, label and all, while unmet, where `EnabledWhen` greys it. For a row with nothing to say in the other states (AI Brain's "About Haiku" note). The value is still collected and saved, an edit made before it hid comes back with it, and a row may carry both |
 
   Rendering only, nothing to set (1.4.0): a field greyed by either `EnabledWhen` LOOKS greyed in the dark theme
   too, a list item's `Detail` is a muted column on the right, a grouped list's headers count "12 of 18", and an

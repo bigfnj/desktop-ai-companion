@@ -23,9 +23,11 @@ namespace DesktopAICompanion.AiBrainModule
             return ok;
         }
 
-        /// <summary>N-measure-model-03: an Info row right under the Claude Code model row, live only while that row shows
-        /// Haiku, saying with the measured figures that Haiku may repeat names it reads on the screen. The words are typed
-        /// here, so a change to them is a change here too. No other row is gated on a model row (the WITNESS).</summary>
+        /// <summary>N-measure-model-03: an Info row right under the Claude Code model row, SHOWN only while that row shows
+        /// Haiku (SettingField.VisibleWhen since lane feature/host-abi-180, N-coordinator-02; its EnabledWhen before, which
+        /// left it on the card greyed) and greyed with the Claude Code rows off Claude Code, saying with the measured figures
+        /// that Haiku may repeat names it reads on the screen. The words are typed here, so a change to them is a change here
+        /// too. No other row is shown or greyed on a model row (the WITNESS).</summary>
         private static bool CheckLaneHaikuNote(StringBuilder sb)
         {
             bool ok = true;
@@ -37,24 +39,40 @@ namespace DesktopAICompanion.AiBrainModule
                 SettingField note = FieldOf(pane, "cliClaudeHaikuNote");
                 int model = IndexOfField(pane, "cliClaudeModel");
                 ok &= Check(sb, "aibrain cli-followups: the CLI card warns on Haiku in an Info row right under the Claude Code model row, " +
-                                "live only while that row shows Haiku: " + (note == null ? "(no row)" : note.Label + " when " + note.EnabledWhen),
+                                "shown only while that row shows Haiku: " + (note == null ? "(no row)" : note.Label + " shown when " + note.VisibleWhen),
                     note != null && note.Kind == SettingKind.Info && note.Group == AiBrainModule.CliCardGroup && note.Label == "About Haiku" &&
                     model >= 0 && IndexOfField(pane, "cliClaudeHaikuNote") == model + 1 &&
-                    note.EnabledWhen == "cliClaudeModel=" + AiBrainModule.ClaudeModelLabel("haiku") && IsNoteOnARowOfItsCard(pane, note));
+                    note.VisibleWhen == "cliClaudeModel=" + AiBrainModule.ClaudeModelLabel("haiku") && IsNoteOnARowOfItsCard(pane, note));
+                // Lane feature/host-abi-180: with one condition the note stayed live under Codex CLI while the model row it
+                // describes greyed; its EnabledWhen is now that row's own, the radio on Claude Code.
+                ok &= Check(sb, "aibrain cli-followups: the Haiku note greys with the Claude Code model row it describes, off Claude Code: " +
+                                (note == null ? "(no row)" : note.EnabledWhen ?? "(no EnabledWhen)"),
+                    note != null && note.EnabledWhen == AiBrainModule.OnClaudeCliOnly && FieldOf(pane, "cliClaudeModel") != null &&
+                    FieldOf(pane, "cliClaudeModel").EnabledWhen == note.EnabledWhen);
                 string shown = pane.Load()["cliClaudeHaikuNote"];
                 ok &= Check(sb, "aibrain cli-followups: the note says Haiku may repeat names it reads on the screen, with the measured figures: " + shown,
                     shown == expected && shown == AiBrainModule.HaikuNote);
+                // Both gates read, since a model-row gate can sit on either (lane feature/host-abi-180).
                 var modelGated = new List<string>();
                 if (pane != null && pane.Schema != null)
                     foreach (SettingField f in pane.Schema)
-                        if (f != null && !string.IsNullOrEmpty(f.EnabledWhen) &&
-                            (f.EnabledWhen.StartsWith("cliClaudeModel=", StringComparison.Ordinal) || f.EnabledWhen.StartsWith("cliCodexModel=", StringComparison.Ordinal)))
-                            modelGated.Add(f.Id + " (" + f.EnabledWhen + ")");
+                    {
+                        if (f == null) continue;
+                        if (IsModelRowGate(f.VisibleWhen)) modelGated.Add(f.Id + " (shown when " + f.VisibleWhen + ")");
+                        if (IsModelRowGate(f.EnabledWhen)) modelGated.Add(f.Id + " (live when " + f.EnabledWhen + ")");
+                    }
                 ok &= Check(sb, "WITNESS aibrain cli-followups: the Haiku note is the one row gated on a model row, and on Haiku alone: " +
                                 string.Join(", ", modelGated),
-                    modelGated.Count == 1 && modelGated[0] == "cliClaudeHaikuNote (cliClaudeModel=Haiku)");
+                    modelGated.Count == 1 && modelGated[0] == "cliClaudeHaikuNote (shown when cliClaudeModel=Haiku)");
             }
             return ok;
+        }
+
+        /// <summary>Whether a row condition names one of the two CLI model rows.</summary>
+        private static bool IsModelRowGate(string gate)
+        {
+            return !string.IsNullOrEmpty(gate) &&
+                   (gate.StartsWith("cliClaudeModel=", StringComparison.Ordinal) || gate.StartsWith("cliCodexModel=", StringComparison.Ordinal));
         }
 
         /// <summary>N-remembrance-backlog-01 (AI Brain's wiring): a pane opened before the saved CLI's details were read shows

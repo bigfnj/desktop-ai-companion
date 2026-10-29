@@ -121,6 +121,8 @@ namespace DesktopAICompanion.Plugins
                 ok &= SelfTestFinder(sb);
                 ok &= ResponderChainDeclines(sb);
                 ok &= ModuleDllDiscovery(sb);
+                // ---- lane feature/host-abi-180 ----
+                ok &= SharedSignInStore(sb);
             }
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message); }
             finally
@@ -1477,6 +1479,267 @@ namespace DesktopAICompanion.Plugins
                 string releaseDetail;
                 if (!SelfTestScratch.TryRelease(root, out releaseDetail))
                     sb.AppendLine("NOTE: scratch left for the next sweep (" + releaseDetail + ")");
+            }
+            return ok;
+        }
+
+        // ================= lane feature/host-abi-180: the shared Claude Code sign-in store (host 1.8.0) =================
+
+        private const string SyntheticToken = "sk-ant-oat01-SYNTHETIC-abi180-first";
+        private const string SyntheticOther = "sk-ant-oat01-SYNTHETIC-abi180-other";
+
+        /// <summary>
+        /// BACKLOG N-cli-token-02 and the binding design review of 2026-10-29: the host's IHostCredentials, cast from a real
+        /// CompanionHost, over a scratch store. The gate (a declaration AND a recorded grant, on every verb; an unknown id),
+        /// the DPAPI round trip and the value never in the file or the log, the four content states, the store's life
+        /// (never used, saved, removed: an import only while never used or holding nothing usable, never after a save or a
+        /// removal, and the compare-and-set under the lock, with two threads racing an import), Remove's outcomes, a lock
+        /// held elsewhere, and the change event: once per commit, with the revision, after the commit, and a throwing
+        /// handler skipped while the others still run.
+        /// </summary>
+        private static bool SharedSignInStore(StringBuilder sb)
+        {
+            bool ok = true;
+            string dir = SelfTestScratch.Create("credentials");
+            try
+            {
+                // The shipped host with no app behind it: no module is loaded, so every caller is refused before any disk.
+                IHostCredentials bare = new CompanionHost(null) as IHostCredentials;
+                ok &= Check(sb, "abi180: store: the host's IHost is an IHostCredentials, as the ABI promises", bare != null);
+                if (bare == null) return ok;
+                HostCredentialReading bareRead = bare.ReadCredential("aibrain", HostCredentialId.ClaudeCodeSignIn);
+                HostCredentialCommit bareSave = bare.TrySaveCredential("aibrain", HostCredentialId.ClaudeCodeSignIn, SyntheticToken);
+                ok &= Check(sb, "abi180: store: with no loaded module behind it the shipped host refuses every caller, Denied, and writes nothing (" +
+                    bareRead.State + ", " + bareSave.Outcome + ")",
+                    bareRead.State == HostCredentialState.Denied && bareRead.Value == null && bareSave.Outcome == HostCredentialOutcome.Denied &&
+                    !File.Exists(Path.Combine(HostCredentialStore.DefaultDirectory, HostCredentialStore.ClaudeCodeSignInFileName)));
+
+                var log = new List<string>();
+                var store = new HostCredentialStore(dir,
+                    delegate (string id) { return id == "aibrain" || id == "remembrance" || id == "ungranted"; },
+                    delegate (string id, string line) { lock (log) log.Add((id ?? "") + ": " + line); });
+                var host = new CompanionHost(null, store);
+                IHostCredentials creds = host;
+                var events = new List<long>();
+                int throwingCalls = 0;
+                creds.CredentialChanged += delegate (HostCredentialId id, long revision) { throwingCalls++; throw new InvalidOperationException("a module's handler threw"); };
+                creds.CredentialChanged += delegate (HostCredentialId id, long revision) { lock (events) events.Add(id == HostCredentialId.ClaudeCodeSignIn ? revision : -999); };
+                string envelope = Path.Combine(dir, HostCredentialStore.ClaudeCodeSignInFileName);
+
+                // THE GATE. Not declared: Denied. Declared and not allowed: ConsentRequired. Neither writes, imports or moves.
+                var undeclared = new List<string>();
+                undeclared.Add(creds.ReadCredential("fortunes", HostCredentialId.ClaudeCodeSignIn).State.ToString());
+                undeclared.Add(creds.TrySaveCredential("fortunes", HostCredentialId.ClaudeCodeSignIn, SyntheticToken).Outcome.ToString());
+                undeclared.Add(creds.ImportCredentialIfUnset("fortunes", HostCredentialId.ClaudeCodeSignIn, SyntheticToken).Outcome.ToString());
+                undeclared.Add(creds.RemoveCredential("fortunes", HostCredentialId.ClaudeCodeSignIn).Outcome.ToString());
+                ok &= Check(sb, "abi180: store: a module that does not declare ClaudeCodeSignIn is refused Denied on every verb, and nothing is written (" +
+                    string.Join(", ", undeclared.ToArray()) + ")",
+                    string.Join(",", undeclared.ToArray()) == "Denied,Denied,Denied,Denied" && !File.Exists(envelope));
+                var ungranted = new List<string>();
+                ungranted.Add(creds.ReadCredential("ungranted", HostCredentialId.ClaudeCodeSignIn).State.ToString());
+                ungranted.Add(creds.TrySaveCredential("ungranted", HostCredentialId.ClaudeCodeSignIn, SyntheticToken).Outcome.ToString());
+                ungranted.Add(creds.ImportCredentialIfUnset("ungranted", HostCredentialId.ClaudeCodeSignIn, SyntheticToken).Outcome.ToString());
+                ungranted.Add(creds.RemoveCredential("ungranted", HostCredentialId.ClaudeCodeSignIn).Outcome.ToString());
+                ok &= Check(sb, "abi180: store: a module that declares it without the user's grant is refused ConsentRequired on every verb, and nothing is written (" +
+                    string.Join(", ", ungranted.ToArray()) + ")",
+                    string.Join(",", ungranted.ToArray()) == "ConsentRequired,ConsentRequired,ConsentRequired,ConsentRequired" && !File.Exists(envelope));
+                bool loggedRefusals = false;
+                lock (log) foreach (string line in log) if (line.StartsWith("ungranted: credentials: read refused: not-allowed", StringComparison.Ordinal)) loggedRefusals = true;
+                ok &= Check(sb, "abi180: store: a refusal is logged by module id and reason", loggedRefusals);
+                ok &= Check(sb, "abi180: store: an id this host does not know is Denied",
+                    creds.ReadCredential("aibrain", (HostCredentialId)99).State == HostCredentialState.Denied);
+
+                bool granted = HostCredentialStore.SetGrant(dir, "aibrain", true, null) && HostCredentialStore.SetGrant(dir, "Remembrance", true, null);
+                ok &= Check(sb, "abi180: store: WITNESS a recorded grant lets a declaring module in, ids compared as the loader compares them",
+                    granted && HostCredentialStore.IsGranted(dir, "AIBRAIN") && HostCredentialStore.IsGranted(dir, "remembrance") &&
+                    !HostCredentialStore.IsGranted(dir, "ungranted"));
+
+                // NEVER USED, then SAVED: DPAPI round trip, shared by every allowed module, one event with the revision.
+                HostCredentialReading virgin = creds.ReadCredential("aibrain", HostCredentialId.ClaudeCodeSignIn);
+                ok &= Check(sb, "abi180: store: a store never used reads None at revision 0",
+                    virgin.State == HostCredentialState.None && virgin.Revision == 0 && virgin.Value == null);
+                HostCredentialCommit saved = creds.TrySaveCredential("aibrain", HostCredentialId.ClaudeCodeSignIn, SyntheticToken);
+                HostCredentialReading other = creds.ReadCredential("remembrance", HostCredentialId.ClaudeCodeSignIn);
+                ok &= Check(sb, "abi180: store: a save is read back by every allowed module, the same token at the revision it committed (" +
+                    saved.Outcome + " " + saved.Revision + ", " + other.State + " " + other.Revision + ")",
+                    saved.Outcome == HostCredentialOutcome.Saved && saved.Revision == 1 && other.State == HostCredentialState.Saved &&
+                    other.Value == SyntheticToken && other.Revision == 1);
+                string onDisk = File.Exists(envelope) ? File.ReadAllText(envelope) : "";
+                bool unseals = false;
+                try
+                {
+                    var o = System.Text.Json.Nodes.JsonNode.Parse(onDisk) as System.Text.Json.Nodes.JsonObject;
+                    byte[] clear = System.Security.Cryptography.ProtectedData.Unprotect(Convert.FromBase64String(o["sealed"].GetValue<string>()),
+                        HostCredentialStore.Entropy, System.Security.Cryptography.DataProtectionScope.CurrentUser);
+                    unseals = Encoding.UTF8.GetString(clear) == SyntheticToken;
+                }
+                catch { unseals = false; }
+                ok &= Check(sb, "abi180: store: the file holds the token DPAPI-sealed for this user with the host's entropy, never in the clear",
+                    onDisk.Length > 0 && onDisk.IndexOf(SyntheticToken, StringComparison.Ordinal) < 0 && unseals &&
+                    dir.Length > 0 && Path.GetDirectoryName(envelope) == dir);
+                ok &= Check(sb, "abi180: store: a commit raises CredentialChanged once, with its revision, and a handler that throws is skipped while the next still runs (" +
+                    string.Join(",", events.ConvertAll<string>(delegate (long r) { return r.ToString(); }).ToArray()) + "; thrower " + throwingCalls + ")",
+                    events.Count == 1 && events[0] == 1 && throwingCalls == 1);
+
+                // NO RESURRECTION. An import over a saved store is refused; Remove closes the store; an import after it too.
+                HostCredentialCommit overSaved = creds.ImportCredentialIfUnset("remembrance", HostCredentialId.ClaudeCodeSignIn, SyntheticOther);
+                ok &= Check(sb, "abi180: store: an import over a saved token is NotImported, the saved one kept and nothing announced (" + overSaved.Outcome + ")",
+                    overSaved.Outcome == HostCredentialOutcome.NotImported && overSaved.Revision == 1 &&
+                    creds.ReadCredential("aibrain", HostCredentialId.ClaudeCodeSignIn).Value == SyntheticToken && events.Count == 1);
+                HostCredentialCommit removed = creds.RemoveCredential("remembrance", HostCredentialId.ClaudeCodeSignIn);
+                HostCredentialReading afterRemove = creds.ReadCredential("aibrain", HostCredentialId.ClaudeCodeSignIn);
+                ok &= Check(sb, "abi180: store: Remove through one module removes it for every module, at a new revision, announced once (" +
+                    removed.Outcome + " " + removed.Revision + ", " + afterRemove.State + ")",
+                    removed.Outcome == HostCredentialOutcome.Removed && removed.Revision == 2 && afterRemove.State == HostCredentialState.None &&
+                    afterRemove.Revision == 2 && events.Count == 2 && events[1] == 2);
+                HostCredentialCommit lateImport = creds.ImportCredentialIfUnset("aibrain", HostCredentialId.ClaudeCodeSignIn, SyntheticOther);
+                ok &= Check(sb, "abi180: store: an import after a Remove is NotImported, so another module's old copy never brings the removed sign-in back (" +
+                    lateImport.Outcome + ")",
+                    lateImport.Outcome == HostCredentialOutcome.NotImported &&
+                    creds.ReadCredential("aibrain", HostCredentialId.ClaudeCodeSignIn).State == HostCredentialState.None && events.Count == 2);
+                HostCredentialCommit again = creds.RemoveCredential("aibrain", HostCredentialId.ClaudeCodeSignIn);
+                ok &= Check(sb, "abi180: store: a second Remove is NothingToRemove at the same revision, and announces nothing (" + again.Outcome + " " + again.Revision + ")",
+                    again.Outcome == HostCredentialOutcome.NothingToRemove && again.Revision == 2 && events.Count == 2);
+                HostCredentialCommit pasted = creds.TrySaveCredential("aibrain", HostCredentialId.ClaudeCodeSignIn, SyntheticOther);
+                ok &= Check(sb, "abi180: store: WITNESS a save after a Remove is taken, the user's explicit paste (" + pasted.Outcome + " " + pasted.Revision + ")",
+                    pasted.Outcome == HostCredentialOutcome.Saved && pasted.Revision == 3 &&
+                    creds.ReadCredential("remembrance", HostCredentialId.ClaudeCodeSignIn).Value == SyntheticOther && events.Count == 3);
+
+                HostCredentialCommit refused = creds.TrySaveCredential("aibrain", HostCredentialId.ClaudeCodeSignIn, "has a space");
+                ok &= Check(sb, "abi180: store: a value no token can be is Refused with the reason, the saved one kept and nothing announced (" + refused.Problem + ")",
+                    refused.Outcome == HostCredentialOutcome.Refused && refused.Problem.Length > 0 &&
+                    creds.ReadCredential("aibrain", HostCredentialId.ClaudeCodeSignIn).Value == SyntheticOther && events.Count == 3);
+
+                // A STORE NEVER USED, closed by a Remove: nothing to remove, and no import afterwards either.
+                string closedDir = SelfTestScratch.Create("credentials-closed");
+                var closed = new CompanionHost(null, new HostCredentialStore(closedDir, delegate (string id) { return id == "aibrain"; }, null));
+                HostCredentialStore.SetGrant(closedDir, "aibrain", true, null);
+                HostCredentialCommit closeFirst = closed.RemoveCredential("aibrain", HostCredentialId.ClaudeCodeSignIn);
+                HostCredentialCommit afterClose = closed.ImportCredentialIfUnset("aibrain", HostCredentialId.ClaudeCodeSignIn, SyntheticToken);
+                ok &= Check(sb, "abi180: store: Remove on a store never used is NothingToRemove and still closes it, so a later import is NotImported (" +
+                    closeFirst.Outcome + ", " + afterClose.Outcome + ")",
+                    closeFirst.Outcome == HostCredentialOutcome.NothingToRemove && closeFirst.Revision == 1 &&
+                    afterClose.Outcome == HostCredentialOutcome.NotImported);
+                SelfTestScratch.TryRelease(closedDir, out string ignoredRelease);
+
+                // THE CONTENT STATES, and an import taken over each unusable one (the review's P2: shared Unreadable or
+                // NotAToken never counts as present).
+                string statesDir = SelfTestScratch.Create("credentials-states");
+                var states = new HostCredentialStore(statesDir, delegate (string id) { return id == "aibrain"; }, null);
+                HostCredentialStore.SetGrant(statesDir, "aibrain", true, null);
+                string statesEnvelope = Path.Combine(statesDir, HostCredentialStore.ClaudeCodeSignInFileName);
+                string notATokenSealed = Convert.ToBase64String(System.Security.Cryptography.ProtectedData.Protect(Encoding.UTF8.GetBytes("https://not a token"),
+                    HostCredentialStore.Entropy, System.Security.Cryptography.DataProtectionScope.CurrentUser));
+                var seen = new List<string>();
+                File.WriteAllText(statesEnvelope, "{\"schema\":1,\"revision\":4,\"state\":\"saved\",\"sealed\":\"" + notATokenSealed + "\"}");
+                seen.Add(states.Read("aibrain", HostCredentialId.ClaudeCodeSignIn).State + "/" + states.ImportIfUnset("aibrain", HostCredentialId.ClaudeCodeSignIn, SyntheticToken).Outcome);
+                File.WriteAllText(statesEnvelope, "{\"schema\":1,\"revision\":6,\"state\":\"saved\",\"sealed\":\"AAAA\"}");
+                seen.Add(states.Read("aibrain", HostCredentialId.ClaudeCodeSignIn).State + "/" + states.ImportIfUnset("aibrain", HostCredentialId.ClaudeCodeSignIn, SyntheticToken).Outcome);
+                File.WriteAllText(statesEnvelope, "{ this is not an envelope");
+                seen.Add(states.Read("aibrain", HostCredentialId.ClaudeCodeSignIn).State + "/" + states.ImportIfUnset("aibrain", HostCredentialId.ClaudeCodeSignIn, SyntheticToken).Outcome);
+                HostCredentialReading recovered = states.Read("aibrain", HostCredentialId.ClaudeCodeSignIn);
+                ok &= Check(sb, "abi180: store: a sealed value that is no token reads NotAToken, one this account cannot unseal or a damaged file Unreadable, and an import is taken over each (" +
+                    string.Join(", ", seen.ToArray()) + ")",
+                    string.Join(",", seen.ToArray()) == "NotAToken/Imported,Unreadable/Imported,Unreadable/Imported" &&
+                    recovered.State == HostCredentialState.Saved && recovered.Value == SyntheticToken && recovered.Revision > 0);
+
+                // THE COMPARE-AND-SET. A reads an empty store, B saves, A's import of its old copy is refused; and two
+                // threads racing an import into a store never used: exactly one is taken.
+                string casDir = SelfTestScratch.Create("credentials-cas");
+                var cas = new HostCredentialStore(casDir, delegate (string id) { return id == "aibrain" || id == "remembrance"; }, null);
+                HostCredentialStore.SetGrant(casDir, "aibrain", true, null);
+                HostCredentialStore.SetGrant(casDir, "remembrance", true, null);
+                HostCredentialReading aSawEmpty = cas.Read("aibrain", HostCredentialId.ClaudeCodeSignIn);
+                cas.TrySave("remembrance", HostCredentialId.ClaudeCodeSignIn, SyntheticOther);
+                HostCredentialCommit aImports = cas.ImportIfUnset("aibrain", HostCredentialId.ClaudeCodeSignIn, SyntheticToken);
+                ok &= Check(sb, "abi180: store: an import decided on an empty read that lost the race to another module's save is NotImported, the save kept (" +
+                    aSawEmpty.State + " then " + aImports.Outcome + ")",
+                    aSawEmpty.State == HostCredentialState.None && aImports.Outcome == HostCredentialOutcome.NotImported &&
+                    cas.Read("aibrain", HostCredentialId.ClaudeCodeSignIn).Value == SyntheticOther);
+                string raceDir = SelfTestScratch.Create("credentials-race");
+                var race = new HostCredentialStore(raceDir, delegate (string id) { return true; }, null);
+                HostCredentialStore.SetGrant(raceDir, "aibrain", true, null);
+                HostCredentialStore.SetGrant(raceDir, "remembrance", true, null);
+                var gate = new System.Threading.ManualResetEventSlim(false);
+                var outcomes = new HostCredentialOutcome[2];
+                var racers = new System.Threading.Thread[2];
+                for (int i = 0; i < 2; i++)
+                {
+                    int slot = i;
+                    racers[i] = new System.Threading.Thread(delegate ()
+                    {
+                        gate.Wait();
+                        outcomes[slot] = race.ImportIfUnset(slot == 0 ? "aibrain" : "remembrance", HostCredentialId.ClaudeCodeSignIn,
+                            slot == 0 ? SyntheticToken : SyntheticOther).Outcome;
+                    });
+                    racers[i].Start();
+                }
+                gate.Set();
+                bool joined = racers[0].Join(20000) & racers[1].Join(20000);
+                int taken = (outcomes[0] == HostCredentialOutcome.Imported ? 1 : 0) + (outcomes[1] == HostCredentialOutcome.Imported ? 1 : 0);
+                int left = (outcomes[0] == HostCredentialOutcome.NotImported ? 1 : 0) + (outcomes[1] == HostCredentialOutcome.NotImported ? 1 : 0);
+                ok &= Check(sb, "abi180: store: two imports racing into a store never used: exactly one is taken and the other is NotImported (" +
+                    outcomes[0] + ", " + outcomes[1] + ")", joined && taken == 1 && left == 1);
+
+                // A STORE HELD ELSEWHERE (a second window of the app mid-commit): Unavailable, nothing committed.
+                race.LockTimeout = 200;
+                string racePath = Path.Combine(raceDir, HostCredentialStore.ClaudeCodeSignInFileName);
+                HostCredentialOutcome whileHeld = HostCredentialOutcome.Saved;
+                long heldRevision = race.Read("aibrain", HostCredentialId.ClaudeCodeSignIn).Revision;
+                using (IDisposable held = DesktopAICompanion.ModuleKit.CrossSessionLock.TryAcquire(DesktopAICompanion.ModuleKit.CrossSessionLock.BuildGlobalMutexName("credentials", racePath), racePath, 2000))
+                {
+                    var holder = new System.Threading.Thread(delegate ()
+                    {
+                        whileHeld = race.TrySave("aibrain", HostCredentialId.ClaudeCodeSignIn, SyntheticToken + "x").Outcome;
+                    });
+                    holder.Start();
+                    holder.Join(20000);
+                    ok &= Check(sb, "abi180: store: a change while another window holds the store's lock answers Unavailable and commits nothing (" + whileHeld + ")",
+                        held != null && whileHeld == HostCredentialOutcome.Unavailable);
+                }
+                ok &= Check(sb, "abi180: store: WITNESS once the lock is free the same save commits",
+                    race.TrySave("aibrain", HostCredentialId.ClaudeCodeSignIn, SyntheticToken + "x").Revision == heldRevision + 1);
+
+                // REVOKED: the next call is refused at once; the grant is read on every call, never cached.
+                HostCredentialStore.SetGrant(dir, "remembrance", false, null);
+                ok &= Check(sb, "abi180: store: a revoked grant refuses the module's next call ConsentRequired, and leaves the token for the others",
+                    creds.ReadCredential("remembrance", HostCredentialId.ClaudeCodeSignIn).State == HostCredentialState.ConsentRequired &&
+                    creds.ReadCredential("aibrain", HostCredentialId.ClaudeCodeSignIn).Value == SyntheticOther);
+
+                // AN UNINSTALL drops the removed module's grant when the removal is applied, and only its own; the saved
+                // token stays (uninstalling is not Remove token). The shipped ProcessPending, against this run's data root.
+                string shipped = HostCredentialStore.DefaultDirectory;
+                var shippedStore = new HostCredentialStore(shipped, delegate (string id) { return true; }, null);
+                HostCredentialStore.SetGrant(shipped, "abi180-gone", true, null);
+                HostCredentialStore.SetGrant(shipped, "abi180-kept", true, null);
+                shippedStore.TrySave("abi180-kept", HostCredentialId.ClaudeCodeSignIn, SyntheticToken);
+                PendingModuleRemovals.MarkForRemoval("abi180-gone");
+                string removalRoot = SelfTestScratch.Create("credentials-uninstall");
+                PendingModuleRemovals.ProcessPending(removalRoot, null);
+                ok &= Check(sb, "abi180: store: an applied uninstall drops that module's grant alone, and the saved token stays for the others",
+                    !HostCredentialStore.IsGranted(shipped, "abi180-gone") && HostCredentialStore.IsGranted(shipped, "abi180-kept") &&
+                    shippedStore.Read("abi180-kept", HostCredentialId.ClaudeCodeSignIn).Value == SyntheticToken);
+                SelfTestScratch.TryRelease(removalRoot, out ignoredRelease);
+
+                var leaked = new List<string>();
+                lock (log)
+                    foreach (string line in log)
+                        if (line.IndexOf("SYNTHETIC", StringComparison.Ordinal) >= 0 || line.IndexOf("has a space", StringComparison.Ordinal) >= 0) leaked.Add(line);
+                ok &= Check(sb, "abi180: store: no log line carries a value (" + log.Count + " lines" + (leaked.Count > 0 ? "; leaked: " + leaked[0] : "") + ")",
+                    log.Count >= 8 && leaked.Count == 0);
+                SelfTestScratch.TryRelease(statesDir, out ignoredRelease);
+                SelfTestScratch.TryRelease(casDir, out ignoredRelease);
+                SelfTestScratch.TryRelease(raceDir, out ignoredRelease);
+            }
+            catch (Exception ex)
+            {
+                ok = false;
+                sb.AppendLine("EXC (shared sign-in store): " + ex.GetType().Name + ": " + ex.Message);
+            }
+            finally
+            {
+                string releaseDetail;
+                SelfTestScratch.TryRelease(dir, out releaseDetail);
             }
             return ok;
         }

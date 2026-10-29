@@ -78,7 +78,8 @@ DesktopAICompanion sends data only when a network feature is used:
   turn on the switch in the next paragraph. It
   switches off none of the controls an organisation manages: managed settings, managed instructions (a managed
   `CLAUDE.md`) and managed hooks still apply, and a managed hook can see what a call sends and what comes back.
-  The calls run on your Claude Code sign-in, or on a token saved in the module (below).
+  The calls run on your Claude Code sign-in, or on a saved sign-in token (below; since app 1.8.0 the one the app
+  keeps for the modules you allow).
 - **Since AI Brain 1.6.0 and Remembrance 2.7.0, each module's Coding-agent CLI card has a switch, "Keep my Claude Code
   settings out of companion calls", off by default.** With it on, that module's Claude Code calls read none of your own
   settings files: neither your user `settings.json` nor a project's or a local one. So their permission rules and
@@ -132,6 +133,22 @@ DesktopAICompanion sends data only when a network feature is used:
   module starts, as `CLAUDE_CODE_OAUTH_TOKEN`, and to nothing else; Claude Code sends it to Anthropic as
   the credential for those calls. **Remove token** deletes it. A token can only make model requests, and
   anyone who holds it can make them on your plan, so treat it like a password.
+- **Since app 1.8.0 the app keeps ONE Claude Code sign-in token for every module you allow**, so a token
+  pasted in AI Brain is the one Remembrance's Claude Code calls run on too, and the other way round. The app
+  holds it, encrypted for your Windows account (DPAPI), in its data folder's `credentials` folder (outside every
+  module's folder, so uninstalling one module leaves it for the others; a factory reset deletes it). A module
+  gets it only while it declares **ClaudeCodeSignIn** and you allow it: you are asked when an update adds that
+  permission, and each such module's row in **Settings > Modules** has **Allow sign-in** and **Revoke sign-in**.
+  A module that is not allowed sends no saved token, and its Claude Code calls run on Claude Code's own sign-in,
+  unless it still holds a token of its own from before 1.8.0: then they wait until you allow it or remove that token.
+  The first time an allowed module runs, the token it kept before 1.8.0 moves into the shared one if none is
+  saved there yet, and is deleted from the module's folder; if one is already there, or you removed it, the
+  module's old copy is deleted and not used, so one token is kept (not necessarily the newer one: if the one
+  kept no longer works, paste a working one). **Remove token** in either module removes the shared one for every
+  allowed module. A module still on a version from before 1.8.0 keeps a token of its own, which neither the
+  shared one nor its Remove touches, until it is updated. Removing it takes the app's copy away; it does not
+  revoke the token at Anthropic. The log records which module saved, moved or removed the token, and never the
+  token.
 - The explicit **Refresh model list** and connection-test controls contact the configured provider.
   Granting cloud-data consent by itself remains network-silent. Configured model warm-up and
   Ollama model-unload operations can also contact that provider.
@@ -297,6 +314,8 @@ drive-relative, and current-drive-rooted overrides are rejected or ignored. Data
   to review before attaching it to a bug report. A question a module asks you by the clock (app 1.6.0)
   is logged by the module, a short key the module chose, how it ended and which answer applied; its
   wording, which can carry a meeting title, is never written there.
+- since app 1.8.0, the shared Claude Code sign-in token (DPAPI-encrypted, in `credentials`) and the record
+  of which modules you allow it, both described above.
 
 Questions by the clock (app 1.6.0) keep nothing on disk: the tray's "No answer" list is held in memory
 for the session and is gone when the app closes. The question card is excluded from screen capture, so
@@ -304,7 +323,9 @@ it does not appear in a screen share, a screenshot or a screen recording, your o
 
 Older versions used `%APPDATA%\DesktopPet` (the pre-rename name, which the migration code deliberately
 still spells that way); a current version may migrate supported files from that location. API keys are encrypted at rest with Windows DPAPI for the current Windows user. DPAPI
-reduces accidental disclosure but does not protect against software already running as that user.
+reduces accidental disclosure but does not protect against software already running as that user. The same holds
+for the shared Claude Code sign-in: the app gives it only to the modules you allow, but modules run inside the app
+with your privileges, so the allow is a promise the app keeps, not a wall a module cannot climb.
 
 Temporary OCR images and self-test logs may be created in the Windows temporary directory. OCR
 images are deleted on a best-effort basis after processing.

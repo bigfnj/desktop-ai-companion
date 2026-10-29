@@ -668,10 +668,14 @@ namespace DesktopAICompanion.AiBrainModule
             // the consent screen (F226: the flag shipped in host 1.2.5 naming this module as a holder, and no
             // module declared it). A disclosure, not a gate, like every flag in the enum. Declaring an existing
             // flag needs no MinHostVersion raise.
+            // ClaudeCodeSignIn (host 1.8.0, lane feature/host-abi-180, BACKLOG N-cli-token-02): the Claude Code sign-in token
+            // is the one the host keeps for every module the user allows (IHostCredentials). Enforced, unlike the rest: the
+            // host's store answers this module only while the user allows it, on its row in the Modules pane or by saying
+            // yes to the update that adds the flag.
             Permissions = ModulePermissions.Speech | ModulePermissions.Animation |
                           ModulePermissions.ScreenContext | ModulePermissions.Network |
                           ModulePermissions.Hotkey | ModulePermissions.Storage |
-                          ModulePermissions.LaunchProcess,
+                          ModulePermissions.LaunchProcess | ModulePermissions.ClaudeCodeSignIn,
         };
 
         public void Init(IHost host)
@@ -719,17 +723,31 @@ namespace DesktopAICompanion.AiBrainModule
                     cliScratch = Path.Combine(cliStorage.DataDirectory, "cli");
             }
             catch { cliScratch = null; }
+            // The Claude Code sign-in token's store (host 1.8.0, BACKLOG N-cli-token-02): the host's shared one when it answers
+            // IHostCredentials, which every host this module loads on does (MinHostVersion), else the runner's own file in
+            // cliScratch, which a test double that answers none gets. Constructing the runner reads nothing: the first use
+            // moves this module's old token into the shared store, after the host has published the module.
+            IHostCredentials sharedSignIn = host as IHostCredentials;
             _cli = CliForDiagnostics ?? new CodingAgentCli(cliScratch, delegate(string line)
             {
                 IHost h = _host;
                 if (h == null) return;
                 try { h.Log(Info.Id, line); } catch { }
-            });
+            }, sharedSignIn, Info.Id);
             // A details read the CLI rows started behind the cache tells an open pane when it lands (lane
             // feature/cli-followups, BACKLOG N-remembrance-backlog-01): until then the saved CLI's row said "checking…
             // reopen this pane in a moment" and kept saying it while the pane stayed open. CodingAgentCli.DetailsRead says
             // why the reload this causes starts no read of its own.
             _cli.DetailsRead = delegate { NotifyPaneInfoChanged(); };
+            // Another module changed the shared sign-in (host 1.8.0): the runner drops its Claude Code readings when the
+            // revision is not one it holds already (its own save's is), and the open pane reads afresh. A hint only: the
+            // runner also checks the revision before it serves a cached reading. Unsubscribed in Shutdown.
+            if (sharedSignIn != null)
+            {
+                _sharedSignIn = sharedSignIn;
+                _sharedSignInChanged = OnSharedSignInChanged;
+                sharedSignIn.CredentialChanged += _sharedSignInChanged;
+            }
 
             // Track the current pet for the screen-context anchor; harmless while the brain is off.
             host.CompanionSpawned += OnPetSeen;
@@ -856,17 +874,19 @@ namespace DesktopAICompanion.AiBrainModule
                     new SettingField { Id = "cliAccountClaude", Label = "Claude Code signed in as", Kind = SettingKind.Info, Group = CliCardGroup, EnabledWhen = OnClaudeCliOnly },
                     new SettingField { Id = "cliAccountCodex", Label = "Codex signed in as", Kind = SettingKind.Info, Group = CliCardGroup, EnabledWhen = OnCodexCliOnly },
                     // The optional sign-in token (owner request, 2026-10-07; aibrain 1.3.1): a `claude setup-token` token that
-                    // this module's Claude Code calls run on instead of Claude Code's own sign-in. Sealed in the CLI runner's
-                    // folder, never in this module's settings, and Load hands back only "set"; blank keeps the saved one, and
-                    // Remove token below deletes it. Its own EnabledWhen inside the card, because Codex never reads it.
+                    // this module's Claude Code calls run on instead of Claude Code's own sign-in. Since host 1.8.0 it is the ONE
+                    // token the host keeps for every module the user allows (IHostCredentials, BACKLOG N-cli-token-02), sealed
+                    // there and never in this module's settings; before, the CLI runner's folder. Load hands back only "set";
+                    // blank keeps the saved one, and Remove token below removes it. Its own EnabledWhen inside the card,
+                    // because Codex never reads it.
                     new SettingField { Id = "cliToken", Label = "Claude sign-in token (optional)", Kind = SettingKind.Secret, Group = CliCardGroup, EnabledWhen = OnClaudeCliOnly },
                     // The model and effort each CLI runs on (lane feature/cli-model-effort), above Status because Validate
                     // tests what they show.
                     _cliClaudeModelField,
                     // The warning on the Haiku choice (lane feature/cli-followups, BACKLOG N-measure-model-03, the owner's
-                    // decision of 2026-10-27, "Warn on the Haiku choice"): right under the model row, live only while that row
-                    // shows Haiku (HaikuNoteWhen says why the gate names the model row and not the radio).
-                    new SettingField { Id = "cliClaudeHaikuNote", Label = "About Haiku", Kind = SettingKind.Info, Group = CliCardGroup, EnabledWhen = HaikuNoteWhen },
+                    // decision of 2026-10-27, "Warn on the Haiku choice"): right under the model row, SHOWN only while that row
+                    // shows Haiku and greyed with the Claude Code rows off Claude Code (HaikuNoteWhen says why the two gates).
+                    new SettingField { Id = "cliClaudeHaikuNote", Label = "About Haiku", Kind = SettingKind.Info, Group = CliCardGroup, VisibleWhen = HaikuNoteWhen, EnabledWhen = OnClaudeCliOnly },
                     _cliClaudeEffortField,
                     // The opt-in that keeps the user's own Claude Code settings files out of this module's calls (lane
                     // feature/cli-runner-aibrain, BACKLOG N-cli-home-files-01, the owner's decision: off by default).
@@ -1004,7 +1024,7 @@ namespace DesktopAICompanion.AiBrainModule
                     new PaneAction { Label = "Update CLI", InvokeWithPendingAsync = UpdateCliPendingAsync, Group = CliCardGroup, ReloadPaneAfter = true },
                     // Deletes the saved sign-in token at once (there is nothing to Apply), so Claude Code runs on its own
                     // sign-in again; the pane rebuilds so Signed in as says so. Live only while Claude Code is the CLI on
-                    // screen, like the token row it clears (PaneAction.EnabledWhen, host 1.6.2; BACKLOG
+                    // screen, like the token row it clears (PaneAction.EnabledWhen, host 1.7.0; BACKLOG
                     // N-cli-model-effort-05): it stayed pressable with Codex chosen while the row above it greyed, because a
                     // button could grey only with its whole card. It still deletes only the Claude Code token if a press
                     // reaches it anyway, and says so.
@@ -1689,13 +1709,14 @@ namespace DesktopAICompanion.AiBrainModule
         // of that width holds the figure. Remembrance is left out on purpose: its summaries are meant to name the meeting's
         // participants.
         //
-        // Its gate names the MODEL row, the one condition SettingField.EnabledWhen takes, so the note is live exactly while
-        // the dropdown on screen shows Haiku, applied or not, and greyed under any other model. The cost of one condition:
-        // with Codex CLI on screen and Haiku still showing in the greyed Claude Code model row, the note stays live, and what
-        // it says is still true of that row's choice. Refused: gating it on the radio like the rows around it, which would
-        // leave it live under Opus; and an Info value that names Haiku only when it is SAVED, which says nothing of a choice
-        // on screen until Apply. The layout check's rule that a row's own gate narrows its card's on the same field has this
-        // row as its one exception (AiEngineProbe.Layout.cs), a display-only row gated on another row of its card.
+        // Two gates since host 1.8.0 (lane feature/host-abi-180, BACKLOG N-coordinator-02). SettingField.VisibleWhen names
+        // the MODEL row, so the note is SHOWN exactly while the dropdown on screen shows Haiku, applied or not, and gone
+        // under any other model; until 1.8.0 that was its EnabledWhen, the one condition a row could take, and the note sat
+        // on the card greyed under Sonnet and Opus. Its EnabledWhen is now the radio's, like the Claude Code rows around it,
+        // so with Codex CLI on screen and Haiku still showing in the greyed Claude Code model row the note greys with that
+        // row; with one condition it stayed live there. Refused: gating it on the radio alone, which would show it under
+        // Opus; and an Info value that names Haiku only when it is SAVED, which says nothing of a choice on screen until
+        // Apply. The layout check lets this row be the one shown only on another row of its card (AiEngineProbe.Layout.cs).
 
         /// <summary>The Haiku note's gate: the Claude Code model row showing Haiku's label (ClaudeModelChoices).</summary>
         internal const string HaikuNoteWhen = "cliClaudeModel=Haiku";
@@ -2110,6 +2131,25 @@ namespace DesktopAICompanion.AiBrainModule
             try { pane.NotifyInfoChanged(); } catch { }
         }
 
+        // The shared Claude Code sign-in (host 1.8.0): the host's store and this module's handler on it, kept so Shutdown
+        // removes exactly what Init added.
+        private IHostCredentials _sharedSignIn;
+        private Action<HostCredentialId, long> _sharedSignInChanged;
+
+        /// <summary>The host's CredentialChanged, on its UI thread: the runner drops its Claude Code readings when the
+        /// revision is new to it, and only then does the open pane read afresh (through the host's coalescing InfoChanged
+        /// route, which marshals). A module shut down, or a runner gone, does nothing.</summary>
+        private void OnSharedSignInChanged(HostCredentialId credential, long revision)
+        {
+            if (credential != HostCredentialId.ClaudeCodeSignIn) return;
+            CodingAgentCli cli = _cli;
+            if (_host == null || cli == null) return;
+            if (cli.NoteSharedSignInChanged(revision)) NotifyPaneInfoChanged();
+        }
+
+        /// <summary>The handler Init added to the host's CredentialChanged, or null: the self-check's view.</summary>
+        internal bool SubscribedToSharedSignInForDiagnostics { get { return _sharedSignInChanged != null; } }
+
         internal string StatusRowLine(AiSettings s, string remembrancePhase)
         {
             string head = BrainStatusLine(s, remembrancePhase);
@@ -2223,7 +2263,7 @@ namespace DesktopAICompanion.AiBrainModule
                 d["cliAccountCodex"] = CliAccountLine(CodingAgentKind.Codex, cli);
                 // The saved sign-in token's presence and never the token: the host's Secret box shows "a value is saved".
                 string ignoredToken;
-                d["cliToken"] = _cli != null && _cli.ReadClaudeToken(out ignoredToken) != CodingAgentCli.ClaudeTokenState.None ? "set" : "";
+                d["cliToken"] = _cli != null && CodingAgentCli.ShowsAsSaved(_cli.ReadClaudeToken(out ignoredToken)) ? "set" : "";
                 // The four model and effort rows (feature/cli-model-effort): their Options first, so the label each value
                 // loads as is one the dropdown offers (Codex's labels are registered by the rebuild).
                 RefreshCliChoiceOptions(s);
@@ -3864,6 +3904,14 @@ namespace DesktopAICompanion.AiBrainModule
                 }
                 host.CompanionPoked -= OnPetPoked;
             }
+            // Unsubscribing is not Remove token: the shared sign-in stays for the other modules allowed it.
+            IHostCredentials sharedSignIn = _sharedSignIn;
+            if (sharedSignIn != null && _sharedSignInChanged != null)
+            {
+                try { sharedSignIn.CredentialChanged -= _sharedSignInChanged; } catch { }
+                _sharedSignInChanged = null;
+            }
+            _sharedSignIn = null;
             if (_dropResponder != null) { try { _dropResponder.Dispose(); } catch { } _dropResponder = null; }
             if (_pokeResponder != null) { try { _pokeResponder.Dispose(); } catch { } _pokeResponder = null; }
             if (_hotkey != null) { try { _hotkey.Dispose(); } catch { } _hotkey = null; }

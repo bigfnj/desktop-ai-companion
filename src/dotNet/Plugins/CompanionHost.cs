@@ -17,7 +17,7 @@ namespace DesktopAICompanion.Plugins
     /// Program.MyData; contributions are collected here (the tray/options renderer consumes them in the
     /// WPF-shell phase). Everything runs on the UI thread; a throwing module never breaks the host.
     /// </summary>
-    internal sealed class CompanionHost : IHost, ICompanionStandDown, ITrayQuestions, ICatalogListing
+    internal sealed class CompanionHost : IHost, ICompanionStandDown, ITrayQuestions, ICatalogListing, IHostCredentials
     {
         private readonly StartUp _startUp;
         private readonly ConditionalWeakTable<FormCompanion, CompanionHandle> _handles = new ConditionalWeakTable<FormCompanion, CompanionHandle>();
@@ -822,7 +822,7 @@ namespace DesktopAICompanion.Plugins
             return CatalogForModules.ListingFrom(catalog, kind).Items;
         }
 
-        // ICatalogListing (host 1.6.2, BACKLOG N-catalog-insight-05): the same read and the same conversion as the verb
+        // ICatalogListing (host 1.7.0, BACKLOG N-catalog-insight-05): the same read and the same conversion as the verb
         // above, plus the entries of the kind the parser refused, as id, position and category only (CatalogForModules
         // says why no rule text crosses). Throws where FetchCatalogItemsAsync throws, from the same shared copy.
         public async System.Threading.Tasks.Task<CatalogListing> FetchCatalogListingAsync(string kind)
@@ -831,6 +831,79 @@ namespace DesktopAICompanion.Plugins
                 .FetchSharedAsync(System.Threading.CancellationToken.None)
                 .ConfigureAwait(false);
             return CatalogForModules.ListingFrom(catalog, kind);
+        }
+
+        // ---- IHostCredentials (host 1.8.0, BACKLOG N-cli-token-02): the one Claude Code sign-in the allowed modules share ----
+        //
+        // HostCredentialStore holds the gate, the transactions and the grants; this is the wiring. Its declaration predicate
+        // is ModuleDeclares, so only a LOADED module declaring ModulePermissions.ClaudeCodeSignIn gets past the first check
+        // (a module is published after its Init returns, so a call from Init is refused, which the modules' lazy runner
+        // never makes), and the grant the Modules pane records is the second. Built on first use, over the data folder's
+        // credentials directory; the self-test hands its own over a scratch directory.
+
+        private HostCredentialStore _credentials;
+        private readonly object _credentialsSync = new object();
+
+        /// <summary>The self-test's host: a store over a scratch directory with a declaration predicate of its own.</summary>
+        internal CompanionHost(StartUp startUp, HostCredentialStore credentials) : this(startUp)
+        {
+            _credentials = WireCredentials(credentials);
+        }
+
+        internal HostCredentialStore CredentialStore
+        {
+            get
+            {
+                lock (_credentialsSync)
+                {
+                    if (_credentials == null)
+                        _credentials = WireCredentials(new HostCredentialStore(HostCredentialStore.DefaultDirectory,
+                            delegate (string id) { return ModuleDeclares(id, ModulePermissions.ClaudeCodeSignIn); }, Log));
+                    return _credentials;
+                }
+            }
+        }
+
+        private HostCredentialStore WireCredentials(HostCredentialStore store)
+        {
+            if (store != null) store.Committed = RaiseCredentialChanged;
+            return store;
+        }
+
+        public HostCredentialReading ReadCredential(string moduleId, HostCredentialId credential)
+        {
+            return CredentialStore.Read(moduleId, credential);
+        }
+
+        public HostCredentialCommit TrySaveCredential(string moduleId, HostCredentialId credential, string value)
+        {
+            return CredentialStore.TrySave(moduleId, credential, value);
+        }
+
+        public HostCredentialCommit ImportCredentialIfUnset(string moduleId, HostCredentialId credential, string value)
+        {
+            return CredentialStore.ImportIfUnset(moduleId, credential, value);
+        }
+
+        public HostCredentialCommit RemoveCredential(string moduleId, HostCredentialId credential)
+        {
+            return CredentialStore.Remove(moduleId, credential);
+        }
+
+        private Action<HostCredentialId, long> _credentialChanged;
+        public event Action<HostCredentialId, long> CredentialChanged
+        {
+            // Ledgered like FullscreenChanged, so a module whose Init throws after subscribing is not left subscribed.
+            add { _credentialChanged += value; Ledger(delegate { _credentialChanged -= value; }); }
+            remove { _credentialChanged -= value; }
+        }
+
+        /// <summary>The store's commit callback: after the commit reached the disk and its lock was released (the store calls
+        /// it only then), posted to the UI thread when it came from another, and raised per handler (RaiseEach), so a handler
+        /// that throws is logged and skipped and never turns a committed change into a failure.</summary>
+        private void RaiseCredentialChanged(HostCredentialId credential, long revision)
+        {
+            OnUi(delegate { RaiseEach<Action<HostCredentialId, long>>(_credentialChanged, "CredentialChanged", h => h(credential, revision)); });
         }
 
         public async System.Threading.Tasks.Task<byte[]> DownloadCatalogItemAsync(string kind, string id)

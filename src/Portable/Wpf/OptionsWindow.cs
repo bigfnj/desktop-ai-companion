@@ -851,7 +851,8 @@ namespace DesktopAICompanion.Wpf
         private readonly HashSet<string> _secretIds = new HashSet<string>(StringComparer.Ordinal);
 
         /// <summary>
-        /// One re-evaluation closure per <see cref="SettingField.EnabledWhen"/> dependent. Run once at the
+        /// One re-evaluation closure per <see cref="SettingField.EnabledWhen"/> dependent (and, since host 1.8.0, per
+        /// <see cref="SettingField.VisibleWhen"/> one, which hides where the other greys). Run once at the
         /// end of Build and again after every edit, rather than wired field-to-field: a dependent is allowed
         /// to name a field declared LATER in the schema, whose reader does not exist yet at the moment the
         /// dependent's row is built, and a module author has no reason to expect declaration order to matter.
@@ -2371,7 +2372,7 @@ namespace DesktopAICompanion.Wpf
             row.Children.Add(btn);
             row.Children.Add(status);
 
-            // PaneAction.EnabledWhen (host 1.6.2, BACKLOG N-cli-model-effort-05), read exactly the way a field's
+            // PaneAction.EnabledWhen (host 1.7.0, BACKLOG N-cli-model-effort-05), read exactly the way a field's
             // EnabledWhen is in BuildRow: the same parser (IsSatisfied), the same updater list, so it settles once at the
             // end of Build and again after every edit, and it greys the WHOLE row, the result line with the button. The
             // button refuses through the row: a disabled panel disables what it holds, which is the IsEnabled the click
@@ -2654,6 +2655,22 @@ namespace DesktopAICompanion.Wpf
                     // Dimmed ONCE: inside a card greyed as a whole the body already carries the dim, and a second
                     // one here would multiply to near-invisible.
                     DimGreyed(target, !live && (cardLive == null || cardLive()));
+                });
+            }
+
+            // VisibleWhen (host 1.8.0, BACKLOG N-coordinator-02) HIDES the row where EnabledWhen greys it, and is read the
+            // same way: the same parser (IsSatisfied) and the same updater list, so it settles at the end of the build, after
+            // every edit and after a live Info refresh, and may name a later field or a display-only one. It sets the row's
+            // Visibility and nothing else, so the reader registered above stays and a hidden field is collected and saved
+            // exactly as a shown one is. Collapsed rather than Hidden, so the card closes up over the row. Refused: leaving
+            // the row out of the tree while unmet, which drops its reader, and with it the value Save is handed.
+            if (!string.IsNullOrEmpty(f.VisibleWhen))
+            {
+                string visibleWhen = f.VisibleWhen;
+                FrameworkElement shown = row;
+                _enableUpdaters.Add(delegate
+                {
+                    shown.Visibility = IsSatisfied(visibleWhen) ? Visibility.Visible : Visibility.Collapsed;
                 });
             }
             return row;

@@ -148,7 +148,20 @@ namespace DesktopAICompanion.Plugins
         /// </summary>
         internal static IReadOnlyList<string> ProcessPending(string modulesRoot, Action<string> log)
         {
-            return ProcessPending(modulesRoot, FilePath, DefaultModuleDataRoot, PendingModuleUpdates.DefaultStagingRoot, log);
+            List<string> pending = ReadIds(FilePath);
+            IReadOnlyList<string> unfinished = ProcessPending(modulesRoot, FilePath, DefaultModuleDataRoot, PendingModuleUpdates.DefaultStagingRoot, log);
+            // A removed module's grant of the shared Claude Code sign-in goes with it (host 1.8.0), so a module installed
+            // later under the same id is asked again; the saved token itself stays for the other modules allowed it, since
+            // uninstalling one module is not a Remove token. Only for the ids actually removed.
+            foreach (string id in pending)
+            {
+                bool left = false;
+                foreach (string u in unfinished) if (string.Equals(u, id, StringComparison.OrdinalIgnoreCase)) left = true;
+                if (!left && HostCredentialStore.IsGranted(HostCredentialStore.DefaultDirectory, id))
+                    HostCredentialStore.SetGrant(HostCredentialStore.DefaultDirectory, id, false,
+                        delegate (string moduleId, string line) { if (log != null) log(line + " ('" + moduleId + "' was uninstalled)"); });
+            }
+            return unfinished;
         }
 
         internal static IReadOnlyList<string> ProcessPending(

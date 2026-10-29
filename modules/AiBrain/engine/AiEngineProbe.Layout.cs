@@ -85,22 +85,30 @@ namespace DesktopAICompanion.AiBrainModule
                 var stray = new List<string>();
                 var rowGates = new List<string>();
                 var narrowed = new List<string>();
-                // Lane feature/cli-followups: the one exception, a display-only row gated on another row of its own card (the
-                // Haiku note, live while the Claude Code model row shows Haiku; AiBrainModule.HaikuNoteWhen says why).
+                // Lane feature/cli-followups: the one row shown only on another row of its own card (the Haiku note, shown
+                // while the Claude Code model row shows Haiku; AiBrainModule.HaikuNoteWhen says why). Its EnabledWhen until
+                // lane feature/host-abi-180 made it a VisibleWhen (host 1.8.0), so a VisibleWhen of any other shape, or on
+                // any other row, is listed apart from it.
                 var notes = new List<string>();
+                var otherShown = new List<string>();
                 if (pane != null && pane.Schema != null)
                     foreach (SettingField f in pane.Schema)
                     {
                         if (f == null) continue;
                         if (!string.IsNullOrEmpty(f.CardEnabledWhen) && !ReferenceEquals(FirstFieldOfGroup(pane, f.Group), f)) stray.Add(f.Id);
+                        if (!string.IsNullOrEmpty(f.VisibleWhen))
+                        {
+                            if (IsNoteOnARowOfItsCard(pane, f)) notes.Add(f.Id);
+                            else otherShown.Add(f.Id + " (" + f.VisibleWhen + ")");
+                        }
                         if (string.IsNullOrEmpty(f.EnabledWhen)) continue;
                         SettingField lead = FirstFieldOfGroup(pane, f.Group);
                         if (IsStrictlyNarrower(f.EnabledWhen, lead == null ? null : lead.CardEnabledWhen)) narrowed.Add(f.Id);
-                        else if (IsNoteOnARowOfItsCard(pane, f)) notes.Add(f.Id);
                         else rowGates.Add(f.Id);
                     }
-                ok &= Check(sb, "WITNESS aibrain layout: the one display-only row gated on another row of its card is the Haiku note: " +
-                    string.Join(", ", notes), string.Join(",", notes) == "cliClaudeHaikuNote");
+                ok &= Check(sb, "WITNESS aibrain layout: the one row shown only on another row of its card is the Haiku note, and no other row has a VisibleWhen: " +
+                    string.Join(", ", notes) + (otherShown.Count > 0 ? "; also " + string.Join(", ", otherShown) : ""),
+                    string.Join(",", notes) == "cliClaudeHaikuNote" && otherShown.Count == 0);
                 ok &= Check(sb, "aibrain layout: no field but a card's first carries a CardEnabledWhen, which the host would ignore" +
                     (stray.Count > 0 ? ": " + string.Join(", ", stray) : ""), stray.Count == 0);
                 ok &= Check(sb, "aibrain layout: no row carries an EnabledWhen of its own unless it is strictly narrower than its card's gate" +
@@ -108,11 +116,12 @@ namespace DesktopAICompanion.AiBrainModule
                 // Re-pointed by lane feature/cli-model-effort (aibrain 1.5.0): the CLI card's model and effort rows are each
                 // read by one CLI alone, so they narrow the card's gate as the token row does; since its round 2 so do the
                 // signed-in and Goes through rows, one per CLI. Re-pointed by lane feature/cli-runner-aibrain: the CLI rows,
-                // one per CLI (N-cli-model-effort-15), and the settings opt-in (N-cli-home-files-01) narrow it too.
-                ok &= Check(sb, "WITNESS aibrain layout: the rows narrower than their card are the per-CLI CLI, signed-in and Goes through rows, the sign-in token, the four model and effort rows and the settings opt-in: " +
+                // one per CLI (N-cli-model-effort-15), and the settings opt-in (N-cli-home-files-01) narrow it too. Re-pointed by
+                // lane feature/host-abi-180: the Haiku note's EnabledWhen is the radio's now, so it narrows the card as well.
+                ok &= Check(sb, "WITNESS aibrain layout: the rows narrower than their card are the per-CLI CLI, signed-in and Goes through rows, the sign-in token, the four model and effort rows, the Haiku note and the settings opt-in: " +
                     string.Join(", ", narrowed),
                     string.Join(",", narrowed) ==
-                        "cliNameClaude,cliNameCodex,cliAccountClaude,cliAccountCodex,cliToken,cliClaudeModel,cliClaudeEffort,cliClaudeSettingsOut," +
+                        "cliNameClaude,cliNameCodex,cliAccountClaude,cliAccountCodex,cliToken,cliClaudeModel,cliClaudeHaikuNote,cliClaudeEffort,cliClaudeSettingsOut," +
                         "cliCodexModel,cliCodexEffort,cliSendsClaude,cliSendsCodex");
 
                 var gatedAlways = new List<string>();

@@ -564,7 +564,12 @@ namespace DesktopAICompanion.RemembranceModule
             Permissions = ModulePermissions.Speech
                 | ModulePermissions.Microphone | ModulePermissions.SystemAudio
                 | ModulePermissions.ScreenContext | ModulePermissions.Hotkey | ModulePermissions.Storage
-                | ModulePermissions.Network | ModulePermissions.LaunchProcess | ModulePermissions.MicrophoneUsage,
+                | ModulePermissions.Network | ModulePermissions.LaunchProcess | ModulePermissions.MicrophoneUsage
+                // ClaudeCodeSignIn (host 1.8.0, lane feature/host-abi-180, BACKLOG N-cli-token-02): the Claude Code sign-in
+                // token is the one the host keeps for every module the user allows (IHostCredentials), AI Brain's too.
+                // Enforced, unlike the rest: the host's store answers this module only while the user allows it, on its row
+                // in the Modules pane or by saying yes to the update that adds the flag.
+                | ModulePermissions.ClaudeCodeSignIn,
         };
 
         public void Init(IHost host)
@@ -610,8 +615,21 @@ namespace DesktopAICompanion.RemembranceModule
             // folder" rather than running anything from elsewhere. Its log lines carry outcome words, exit codes,
             // durations and model ids, never a prompt, a summary or an account (feature/cli-backend).
             string cliData = DataDirectory();
+            // The Claude Code sign-in token's store (host 1.8.0, BACKLOG N-cli-token-02): the host's shared one when it answers
+            // IHostCredentials, which every host this module loads on does (MinHostVersion), else the runner's own file, which
+            // a test double that answers none gets. Constructing the runner reads nothing: the first use moves this module's
+            // old token into the shared store, after the host has published the module.
+            IHostCredentials sharedSignIn = host as IHostCredentials;
             _cli = CliForDiagnostics ?? new CodingAgentCli(
-                string.IsNullOrWhiteSpace(cliData) ? null : System.IO.Path.Combine(cliData, "cli"), delegate(string line) { Log(line); });
+                string.IsNullOrWhiteSpace(cliData) ? null : System.IO.Path.Combine(cliData, "cli"), delegate(string line) { Log(line); },
+                sharedSignIn, Id);
+            // Another module changed the shared sign-in: AI Brain's wiring (OnSharedSignInChanged). Unsubscribed in Shutdown.
+            if (sharedSignIn != null)
+            {
+                _sharedSignIn = sharedSignIn;
+                _sharedSignInChanged = OnSharedSignInChanged;
+                try { sharedSignIn.CredentialChanged += _sharedSignInChanged; } catch { _sharedSignInChanged = null; }
+            }
             // A details read the CLI rows started behind the cache tells an open pane when it lands (lane
             // feature/cli-followups, BACKLOG N-remembrance-backlog-01), AI Brain's wiring: until then the saved CLI's row said
             // "checking… reopen this pane in a moment" while the pane stayed open. CodingAgentCli.DetailsRead says why the
@@ -658,9 +676,35 @@ namespace DesktopAICompanion.RemembranceModule
                 try { _host.HostShutdown -= _hostShutdownHandler; } catch { }
             }
             _hostShutdownHandler = null;
+            // The shared sign-in's event too, for the same two reasons. Unsubscribing is not Remove token: the token stays
+            // for the other modules allowed it.
+            IHostCredentials sharedSignIn = _sharedSignIn;
+            if (sharedSignIn != null && _sharedSignInChanged != null)
+            {
+                try { sharedSignIn.CredentialChanged -= _sharedSignInChanged; } catch { }
+            }
+            _sharedSignInChanged = null;
+            _sharedSignIn = null;
             _pane = null;
             _host = null;
         }
+
+        // The shared Claude Code sign-in (host 1.8.0): the host's store and this module's handler on it.
+        private IHostCredentials _sharedSignIn;
+        private Action<HostCredentialId, long> _sharedSignInChanged;
+
+        /// <summary>The host's CredentialChanged: the runner drops its Claude Code readings when the revision is new to it,
+        /// and only then does the open pane read afresh (NotifyInfoChanged, which marshals). Inert once shut down.</summary>
+        private void OnSharedSignInChanged(HostCredentialId credential, long revision)
+        {
+            if (credential != HostCredentialId.ClaudeCodeSignIn) return;
+            CodingAgentCli cli = _cli;
+            if (_host == null || cli == null) return;
+            if (cli.NoteSharedSignInChanged(revision)) NotifyInfoChanged();
+        }
+
+        /// <summary>Whether Init's handler is on the host's CredentialChanged: the self-check's view.</summary>
+        internal bool SubscribedToSharedSignInForDiagnostics { get { return _sharedSignInChanged != null; } }
 
         // The host raises this BEFORE it disposes the module host, so this is the last moment at which
         // a recording can still be saved. It asks for the synchronous path for that reason.
@@ -2523,7 +2567,7 @@ namespace DesktopAICompanion.RemembranceModule
                     new PaneAction { Label = "Update CLI", Group = SummaryRoute.CardGroup, ReloadPaneAfter = true,
                         InvokeWithPendingAsync = UpdateCliAsync },
                     // Deletes the saved sign-in token at once; the pane rebuilds so Signed in as says so. Live only while
-                    // Claude Code is the CLI on screen, like the token row it clears (PaneAction.EnabledWhen, host 1.6.2;
+                    // Claude Code is the CLI on screen, like the token row it clears (PaneAction.EnabledWhen, host 1.7.0;
                     // BACKLOG N-cli-model-effort-05, AI Brain's button the same): with Codex chosen it stayed pressable
                     // under a greyed token row. A press that reaches it anyway still deletes only the Claude Code token.
                     new PaneAction { Label = "Remove token", Group = SummaryRoute.CardGroup, ReloadPaneAfter = true,
@@ -3872,7 +3916,7 @@ namespace DesktopAICompanion.RemembranceModule
         {
             string ignored;
             CodingAgentCli cli = _cli;
-            return cli != null && cli.ReadClaudeToken(out ignored) != CodingAgentCli.ClaudeTokenState.None ? "set" : "";
+            return cli != null && CodingAgentCli.ShowsAsSaved(cli.ReadClaudeToken(out ignored)) ? "set" : "";
         }
 
         /// <summary>The CLI card's Update CLI: the CLI's own update, refused while a call of this module's runs. Not
@@ -5017,6 +5061,8 @@ namespace DesktopAICompanion.RemembranceModule
             // Lane feature/remembrance-next (2.8.0): the summary's prompt, built in or the user's file, and the follow-up after
             // the summary (RemembranceModule.FollowUpSelfCheck.cs).
             SelfCheckRemembranceNext(check);
+            // Lane feature/host-abi-180: the shared Claude Code sign-in (RemembranceModule.SharedSignIn.cs).
+            SelfCheckSharedSignIn(check);
 
             detail = sb.ToString();
             return ok;
@@ -7272,7 +7318,7 @@ namespace DesktopAICompanion.RemembranceModule
                     check("remembrance token: the CLI card has a Secret token row, live only while Claude Code is the CLI on screen, and a Remove token button that rebuilds the pane",
                         tokenRow != null && tokenRow.Kind == SettingKind.Secret && tokenRow.Group == SummaryRoute.CardGroup &&
                         tokenRow.EnabledWhen == "summaryRunsOn=Claude Code CLI" && removeToken != null && removeToken.ReloadPaneAfter);
-                    // Lane feature/abi-pane-actions (BACKLOG N-cli-model-effort-05, PaneAction.EnabledWhen, host 1.6.2): the button
+                    // Lane feature/abi-pane-actions (BACKLOG N-cli-model-effort-05, PaneAction.EnabledWhen, host 1.7.0): the button
                     // greys with the token row it clears, on the very same condition; Validate and Update CLI serve either CLI
                     // and carry none. The grey-out and the refusal themselves are --wpf-options-selftest's.
                     PaneAction cliValidate = PaneActionFor(pane, SummaryRoute.CardGroup, "Validate");

@@ -37,6 +37,8 @@ namespace DesktopAICompanion.AiBrainModule
             ok &= GuardedCheck(sb, "CheckCliRunnerLane", CheckCliRunnerLane);
             // Lane feature/cli-followups (AiEngineProbe.CliFollowups.cs).
             ok &= GuardedCheck(sb, "CheckCliFollowupsLane", CheckCliFollowupsLane);
+            // Lane feature/host-abi-180 (AiEngineProbe.SharedSignIn.cs).
+            ok &= GuardedCheck(sb, "CheckSharedSignInLane", CheckSharedSignInLane);
             return ok;
         }
 

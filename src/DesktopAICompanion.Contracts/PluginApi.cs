@@ -165,6 +165,22 @@ namespace DesktopAICompanion.Modules
         // without recording anything (Reminder), and a module that records does not by that alone
         // watch other applications.
         MicrophoneUsage = 1 << 15,
+
+        // Reads, replaces and removes the ONE Claude Code sign-in token the host keeps for every module the user allows
+        // (IHostCredentials, host 1.8.0; BACKLOG N-cli-token-02): a `claude setup-token` token that those modules' Claude
+        // Code calls run on. AI Brain and Remembrance declare it.
+        //
+        // ENFORCED, unlike the disclosure flags above, and by more than the declaration: the host's credential store
+        // answers a module only when it declares this flag AND the user has allowed it, a grant the host records per
+        // module and the user gives or takes back in the Modules pane (or by saying yes to an update that adds the flag).
+        // A module that declares it without a grant is told ConsentRequired; one that does not declare it, Denied. Either
+        // way nothing is read, written or moved. The grant is the condition DESIGN-REGISTER.md set in 2026-10-26 for
+        // building a store shared across modules (N-cli-token-02 DECLINED, reversed by the owner on 2026-10-29).
+        //
+        // MINOR, not the patch a disclosure flag is: it rides with IHostCredentials, which lets a module do something it
+        // could not do before. An older host drops the name it does not know, and the interface is what raises a module's
+        // MinHostVersion to 1.8.0.
+        ClaudeCodeSignIn = 1 << 16,
     }
 
     /// <summary>An on-screen pet, as seen by a module (opaque handle over the host's FormCompanion).</summary>
@@ -392,7 +408,7 @@ namespace DesktopAICompanion.Modules
         // One string per card rather than an EnabledWhen per PaneAction: every greyed card the approved
         // layouts draw greys all of its buttons together, and one condition cannot drift out of step with
         // itself the way a copy on each button can. A button that serves only ONE state of a card that is
-        // live has its own PaneAction.EnabledWhen since host 1.6.2; a card greyed whole still uses this.
+        // live has its own PaneAction.EnabledWhen since host 1.7.0; a card greyed whole still uses this.
         public string CardEnabledWhen { get; set; }
 
         // Card-level, read from the group's FIRST field. The card's title row becomes an expander (click it,
@@ -420,6 +436,24 @@ namespace DesktopAICompanion.Modules
         // "Documents\Remembrance (the default)" or "(found automatically)". It is also the blank box's tooltip.
         // Only the path kinds draw it; the other kinds ignore it. Added in host 1.4.0.
         public string EmptyHint { get; set; }
+
+        // ---- host 1.8.0 addition. Inert when unset, which is what every module before it relies on.
+
+        // "otherFieldId=value", read exactly as EnabledWhen is, by the same parser: '|' for several values, both sides
+        // trimmed, case-insensitive, against the value ON SCREEN, re-evaluated live as that field changes, and able to name
+        // a field declared later or a display-only one. Null or empty => always shown, which is every field before host
+        // 1.8.0. Added in host 1.8.0 (BACKLOG N-coordinator-02).
+        //
+        // While it is not met the host HIDES the row, label and all, and the card closes up over it. EnabledWhen greys and
+        // never hides, which is right for a setting the user should see is there but does not apply now; this is for a
+        // row with nothing to say in the other states, where a greyed copy is only clutter (AI Brain's "About Haiku" note,
+        // which greyed under every other model). Hiding changes what is SHOWN and nothing else: a hidden field's value is
+        // still collected and handed to Save unchanged, as a greyed one's is, and an edit made before it was hidden is
+        // kept and comes back with it. A row may carry both: while shown, its EnabledWhen greys it as before.
+        //
+        // A module that sets it raises its MinHostVersion to 1.8.0: an older Contracts.dll has no such property, so the
+        // method that builds the schema fails to bind its setter on an older host.
+        public string VisibleWhen { get; set; }
     }
 
     /// <summary>An action button on an options pane (e.g. "Test connection", "Clear history"). The host
@@ -481,7 +515,7 @@ namespace DesktopAICompanion.Modules
         // "otherFieldId=value", read exactly as SettingField.EnabledWhen is, by the same parser: '|' for several
         // values, both sides trimmed, case-insensitive, against the value ON SCREEN, re-evaluated live as that
         // field changes, and able to name a field declared later or a display-only one. Null or empty => always
-        // enabled, which is every action before host 1.6.2. Added in host 1.6.2.
+        // enabled, which is every action before host 1.7.0. Added in host 1.7.0.
         //
         // While it is not met the host greys the action's whole row, the button and the result line beside it,
         // and the button REFUSES a click as well as looking disabled, the way a button in a card greyed by
@@ -492,7 +526,7 @@ namespace DesktopAICompanion.Modules
         // For the button CardEnabledWhen cannot express: one that serves only one state of a card that is live.
         // AI Brain's and Remembrance's "Remove token" deletes the Claude Code sign-in token and stayed pressable
         // with Codex CLI chosen while the token row above it greyed (BACKLOG N-cli-model-effort-05). A module
-        // that sets it raises its MinHostVersion to 1.6.2: an older Contracts.dll has no such property, so the
+        // that sets it raises its MinHostVersion to 1.7.0: an older Contracts.dll has no such property, so the
         // method that builds the pane fails to bind its setter on an older host.
         public string EnabledWhen { get; set; }
     }
@@ -764,7 +798,8 @@ namespace DesktopAICompanion.Modules
     /// key was declared `SettingKind.Secret` -- the pane's Secret kind controls how a value is
     /// DISPLAYED (write-only, "leave blank to keep it"), not how it is stored. A value you put here
     /// is cleartext JSON on disk. The one module that stores an API key does its own DPAPI
-    /// (`modules/AiBrain`), which is the pattern to copy.
+    /// (`modules/AiBrain`), which is the pattern to copy. The Claude Code sign-in token is the one secret
+    /// the host keeps for modules, since host 1.8.0: IHostCredentials, behind a grant the user gives.
     ///
     /// Two rules every implementation follows (stated 2026-10-01, RA-213, when the ModuleKit doubles were
     /// found breaking both): keys are compared ORDINALLY, case included, and `Set(key, null)` stores "",
@@ -1212,7 +1247,7 @@ namespace DesktopAICompanion.Modules
         public string Reason { get; set; }
     }
 
-    // ---- the catalog as listed, refusals included (host 1.6.2+) ----
+    // ---- the catalog as listed, refusals included (host 1.7.0+) ----
     // IHost.FetchCatalogItemsAsync answers only the entries the host OFFERS. An entry that breaks one of the host's catalog
     // rules (a description past its bound, a download address that is not this project's, a pack format it does not
     // read) is refused alone and the rest of the catalog stays usable (feature/catalog-insight), so from a module's side
@@ -1227,7 +1262,7 @@ namespace DesktopAICompanion.Modules
     //
     // A separate interface rather than a member of IHost, for the reason ICompanionStandDown gives above: a new IHost
     // member changes RecordingHost and so every module's payload. The host's IHost implements this too, so a module asks
-    // with `host as ICatalogListing`, and a module that uses it declares MinHostVersion 1.6.2 (these types live in this
+    // with `host as ICatalogListing`, and a module that uses it declares MinHostVersion 1.7.0 (these types live in this
     // assembly, so code that names them fails to load against an older Contracts.dll). A module's self-test supplies its
     // own double, a RecordingHost subclass implementing this; ModuleKit carries none, on purpose.
     public interface ICatalogListing
@@ -1277,6 +1312,128 @@ namespace DesktopAICompanion.Modules
         BadChecksum = 7,        // the SHA-256 its download would be checked against is not 64 hex characters
         UntrustedAddress = 8,   // its download address is not this project's own file for that id
         OutOfBounds = 9,        // a size or count outside what the host loads (bytes, lines, animations, sounds)
+    }
+
+    // ---- one Claude Code sign-in for the modules that use it (host 1.8.0+) ----
+    // AI Brain and Remembrance each kept their own `claude setup-token` token, sealed in their own folder, so a user who ran
+    // both on Claude Code pasted it twice (BACKLOG N-cli-token-02; the owner's decision of 2026-10-29: build the shared
+    // store, and keep ONE token, either one). This is that store: the host keeps one sealed copy and hands it to the
+    // modules the user allows. Codex is out of scope on purpose: its refresh tokens are single-use, so a copy shared
+    // between two processes would sign one of them out.
+    //
+    // WHO MAY ASK. A caller passes its own module id (the same self-declared id every IHost verb takes; modules are not
+    // contained, see docs/module-ecosystem-roadmap.md). The host answers only a LOADED module that declares
+    // ModulePermissions.ClaudeCodeSignIn AND that the user has allowed: the grant is recorded per module by the host, given
+    // or taken back on the module's row in the Modules pane, and given by a yes to an update that adds the flag. Otherwise
+    // the answer is Denied (not declared) or ConsentRequired (not allowed), and nothing is read, written or moved. A module
+    // is published to the host only after its Init returns, so a call made from Init is refused the same way: ask later.
+    //
+    // ONE CREDENTIAL, BY A FIXED ID. HostCredentialId names it; there are no free-form keys, and an id this host does not
+    // know is Denied.
+    //
+    // THE STORE'S LIFE. Never used (nothing saved, nothing removed); then holding a token; then removed. A module moving a
+    // token it kept before 1.8.0 into the store calls ImportCredentialIfUnset, which takes it only while the store has
+    // never been used, or holds something unusable (Unreadable, NotAToken), in ONE host transaction under one lock: once
+    // anything has been saved, imported or removed, an import is refused (NotImported), so a token removed through one
+    // module is never brought back by another module's old copy. That old copy is the caller's to delete then.
+    //
+    // REVISIONS. Every committed change has a new revision; a reading carries the revision it describes, and each commit
+    // the revision it made. CredentialChanged is a HINT, raised in this process only: a second instance of the app on the
+    // same data folder changes the store without it, so compare the revision of a fresh reading before trusting anything
+    // you learnt under an older one, and ignore an event for a revision you already hold (your own commit's included).
+    //
+    // WHAT "Saved" MEANS. Unsealed and shaped like a token; never that it still signs in, which only a call can show. The
+    // owner's "keep one, either" means the token kept may be an expired one when two were saved; the fix is to paste a
+    // working one.
+    //
+    // REMOVE takes the app's saved copy away. It does not revoke the token at Anthropic, a Claude Code child already started
+    // keeps the environment it was given, and an older copy of a module that still keeps its own token is not touched.
+    //
+    // Storage: <data folder>\credentials, sealed with DPAPI for the current Windows user, outside every module's folder, so
+    // uninstalling one module leaves the sign-in for the others; a factory reset deletes it with the data folder. Values
+    // never reach the log, an event or an outcome.
+    //
+    // Callable from any thread; each member is short, synchronous file work. A separate interface rather than an IHost
+    // member, for the reason ICompanionStandDown gives: RecordingHost and every module's payload stay as they are. A module
+    // asks with `host as IHostCredentials` and declares MinHostVersion 1.8.0; a test double implements it on a RecordingHost
+    // subclass, and ModuleKit carries none.
+    public interface IHostCredentials
+    {
+        // The credential's state and, when Saved, its value; with the revision the reading describes.
+        HostCredentialReading ReadCredential(string moduleId, HostCredentialId credential);
+
+        // Replace whatever is saved with this value: Saved with the new revision, or Refused with the Problem, the saved
+        // one left as it was. The host checks only what no token can be (empty, longer than 4,096 characters, or holding a
+        // space, a control character or anything outside printable ASCII); the module's own check comes first.
+        HostCredentialCommit TrySaveCredential(string moduleId, HostCredentialId credential, string value);
+
+        // A token the module kept before 1.8.0: Imported while the store has never been used or holds nothing usable,
+        // otherwise NotImported with the store's current revision (see THE STORE'S LIFE above).
+        HostCredentialCommit ImportCredentialIfUnset(string moduleId, HostCredentialId credential, string value);
+
+        // Removed, or NothingToRemove when nothing usable was saved. Either way the store is closed to imports from then on.
+        HostCredentialCommit RemoveCredential(string moduleId, HostCredentialId credential);
+
+        // After a commit (Saved, Imported, Removed, or the NothingToRemove that closed a store never used) has reached the
+        // disk and every lock is released: which credential, and
+        // the revision now current. Raised on the UI thread, each handler on its own, so a handler that throws is logged and
+        // the others still run. Unsubscribe in Shutdown.
+        event Action<HostCredentialId, long> CredentialChanged;
+    }
+
+    /// <summary>The credentials the host keeps for modules (<see cref="IHostCredentials"/>). Fixed, so no module names a
+    /// path or a key.</summary>
+    public enum HostCredentialId
+    {
+        ClaudeCodeSignIn = 1,   // a `claude setup-token` token, for Claude Code children's CLAUDE_CODE_OAUTH_TOKEN
+    }
+
+    /// <summary>What a reading found. Numbered from 1, so a default value is none of them.</summary>
+    public enum HostCredentialState
+    {
+        None = 1,             // nothing saved: never, or removed
+        Saved = 2,            // unsealed and shaped like a token; not proof that it still signs in
+        Unreadable = 3,       // saved, but this Windows account cannot unseal it, or the store's file is damaged
+        NotAToken = 4,        // unsealed, but nothing a token can be
+        Denied = 5,           // the caller is not a loaded module declaring ModulePermissions.ClaudeCodeSignIn
+        ConsentRequired = 6,  // declared, but the user has not allowed it for this module
+        Unavailable = 7,      // the store could not be read now (its lock timed out, or the disk refused)
+    }
+
+    /// <summary>One reading of a host-kept credential.</summary>
+    public sealed class HostCredentialReading
+    {
+        public HostCredentialState State { get; set; }
+        // Saved only; null otherwise.
+        public string Value { get; set; }
+        // The committed revision this reading describes: 0 for a store never written, -1 when the state is a refusal or
+        // Unavailable and no revision was read.
+        public long Revision { get; set; }
+    }
+
+    /// <summary>How a change to a host-kept credential ended. Numbered from 1, so a default value is none of them.</summary>
+    public enum HostCredentialOutcome
+    {
+        Saved = 1,
+        Imported = 2,
+        NotImported = 3,      // the store has been used, so the caller's old copy is not taken (delete it)
+        Removed = 4,
+        NothingToRemove = 5,  // nothing usable was saved; the store is closed to imports all the same
+        Refused = 6,          // the value is nothing a token can be: see Problem
+        Denied = 7,
+        ConsentRequired = 8,
+        Unavailable = 9,      // nothing was committed: the lock timed out, or the disk or DPAPI refused
+    }
+
+    /// <summary>The end of a change to a host-kept credential.</summary>
+    public sealed class HostCredentialCommit
+    {
+        public HostCredentialOutcome Outcome { get; set; }
+        // The revision committed (Saved, Imported, Removed, and NothingToRemove when it had to close the store), or the
+        // current one when nothing was committed and it could be read; -1 when it could not.
+        public long Revision { get; set; }
+        // Refused and Unavailable: why, in a short sentence that never carries the value. "" otherwise.
+        public string Problem { get; set; }
     }
 
     /// <summary>A DesktopAICompanion plugin. Implemented by exactly one public class per module DLL.</summary>

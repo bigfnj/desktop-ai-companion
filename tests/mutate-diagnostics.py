@@ -1029,7 +1029,7 @@ CASES = [
      "",
      "wpf", "the nav entries are list items named after their panes"),
     # ---- lane feature/abi-pane-actions ----
-    # PaneAction.EnabledWhen (host 1.6.2, BACKLOG N-cli-model-effort-05), graded by --wpf-options-selftest's "abi:" checks.
+    # PaneAction.EnabledWhen (host 1.7.0, BACKLOG N-cli-model-effort-05), graded by --wpf-options-selftest's "abi:" checks.
     # Each case is the defect the member's contract rules out: never read, greyed in look only, a parser of its own,
     # settled once at build, group cards only, the message wiped, the dim lost or doubled. "abi-pane-actions:" for --only.
     ("abi-pane-actions: PaneAction.EnabledWhen is never read", OPTIONSWINDOW,
@@ -1091,6 +1091,74 @@ CASES = [
      "            if (!string.IsNullOrEmpty(help)) System.Windows.Automation.AutomationProperties.SetHelpText(toggle, help);\n",
      "",
      "wpf", "each expander's header toggle is reached by the walk and named after its card, a collapsible card's count as its help text"),
+    # ---- lane feature/host-abi-180 ----
+    # SettingField.VisibleWhen (host 1.8.0, BACKLOG N-coordinator-02), graded by --wpf-options-selftest's "abi180:" checks.
+    # Each case is a defect the member's contract rules out: never read, greying instead of hiding, a hidden row keeping
+    # its space, a parser of its own, settled once at build, a hidden field's value dropped, EnabledWhen hiding too, and
+    # a row that names none of it touched. "abi180:" for --only.
+    ("abi180: VisibleWhen is never read", OPTIONSWINDOW,
+     "            if (!string.IsNullOrEmpty(f.VisibleWhen))\n",
+     "            if (f.VisibleWhen == \"never set by anyone\")\n",
+     "wpf", "abi180: an unmet VisibleWhen hides its row, label and all"),
+    ("abi180: VisibleWhen greys its row instead of hiding it", OPTIONSWINDOW,
+     "                    shown.Visibility = IsSatisfied(visibleWhen) ? Visibility.Visible : Visibility.Collapsed;\n",
+     "                    shown.IsEnabled = IsSatisfied(visibleWhen);\n",
+     "wpf", "abi180: an unmet VisibleWhen hides its row, label and all"),
+    ("abi180: a hidden row keeps its space", OPTIONSWINDOW,
+     "IsSatisfied(visibleWhen) ? Visibility.Visible : Visibility.Collapsed;",
+     "IsSatisfied(visibleWhen) ? Visibility.Visible : Visibility.Hidden;",
+     "wpf", "abi180: an unmet VisibleWhen hides its row, label and all, and the card closes up over it"),
+    ("abi180: VisibleWhen is parsed by a split of its own", OPTIONSWINDOW,
+     "shown.Visibility = IsSatisfied(visibleWhen) ?",
+     "shown.Visibility = CurrentValueOf(visibleWhen.Split('=')[0]) == visibleWhen.Substring(visibleWhen.IndexOf('=') + 1) ?",
+     "wpf", "abi180: VisibleWhen is read by EnabledWhen's parser"),
+    ("abi180: VisibleWhen reads only fields with an editor", OPTIONSWINDOW,
+     "shown.Visibility = IsSatisfied(visibleWhen) ?",
+     "shown.Visibility = IsSatisfied(visibleWhen) && _readers.ContainsKey(visibleWhen.Split('=')[0].Trim()) ?",
+     "wpf", "abi180: VisibleWhen can name a display-only field"),
+    ("abi180: VisibleWhen is settled once and never again", OPTIONSWINDOW,
+     "                    shown.Visibility = IsSatisfied(visibleWhen) ? Visibility.Visible : Visibility.Collapsed;\n",
+     "                    if (shown.Tag != null) return;\n"
+     "                    shown.Tag = \"settled\";\n"
+     "                    shown.Visibility = IsSatisfied(visibleWhen) ? Visibility.Visible : Visibility.Collapsed;\n",
+     "wpf", "abi180: a hidden row comes back LIVE when the field it names changes"),
+    ("abi180: a hidden field's value is dropped from what Save is handed", OPTIONSWINDOW,
+     "                    shown.Visibility = IsSatisfied(visibleWhen) ? Visibility.Visible : Visibility.Collapsed;\n",
+     "                    shown.Visibility = IsSatisfied(visibleWhen) ? Visibility.Visible : Visibility.Collapsed;\n"
+     "                    if (shown.Visibility != Visibility.Visible) _readers.Remove(f.Id);\n",
+     "wpf", "abi180: a hidden field is collected and saved exactly as without VisibleWhen"),
+    ("abi180: EnabledWhen hides its row too", OPTIONSWINDOW,
+     "                    target.IsEnabled = live;\n",
+     "                    target.IsEnabled = live;\n"
+     "                    target.Visibility = live ? Visibility.Visible : Visibility.Collapsed;\n",
+     "wpf", "abi180: WITNESS an unmet EnabledWhen still only greys"),
+    ("abi180: every row gets a Visibility, VisibleWhen or not", OPTIONSWINDOW,
+     "            if (!string.IsNullOrEmpty(f.VisibleWhen))\n",
+     "            if (true)\n",
+     "wpf", "abi180: WITNESS a row with no VisibleWhen keeps the Visibility it was built with"),
+    # The shared Claude Code sign-in's grant (host 1.8.0, BACKLOG N-cli-token-02), graded by the "abi180: grant:" checks:
+    # a yes that records nothing, a question that does not say what the grant allows, an Allow that does not ask, and the
+    # row's button missing or offered to a module that does not declare the flag.
+    ("abi180: a yes to an update adding ClaudeCodeSignIn records no grant", MODULESPANE,
+     "            if (yes && _seams.SetSignInGrant != null) _seams.SetSignInGrant(module.Id, true);\n",
+     "",
+     "wpf", "abi180: grant: a yes to that update records the module's grant"),
+    ("abi180: the update question says nothing of what the grant allows", "src/dotNet/Plugins/ModulePermissionConsent.cs",
+     "                body += SignInGrantSentence(name) + Environment.NewLine + Environment.NewLine;\n",
+     "                body += \"\" + Environment.NewLine + Environment.NewLine;\n",
+     "wpf", "abi180: grant: an update adding ClaudeCodeSignIn says what the grant allows"),
+    ("abi180: Allow sign-in records the grant without asking", MODULESPANE,
+     "            if (allow && !_seams.AskYesNo(\n",
+     "            if (allow && id == null && !_seams.AskYesNo(\n",
+     "wpf", "abi180: grant: Allow sign-in asks first"),
+    ("abi180: the installed row offers no sign-in button", MODULESPANE,
+     "            if (info != null && _seams.SignInGranted != null &&\n",
+     "            if (info != null && info == null && _seams.SignInGranted != null &&\n",
+     "wpf", "abi180: grant: a loaded module declaring ClaudeCodeSignIn says it is not allowed and offers one Allow sign-in"),
+    ("abi180: a module not declaring ClaudeCodeSignIn is offered the button too", MODULESPANE,
+     "                (info.Permissions & ModulePermissions.ClaudeCodeSignIn) == ModulePermissions.ClaudeCodeSignIn)\n",
+     "                true)\n",
+     "wpf", "abi180: grant: a loaded module declaring ClaudeCodeSignIn says it is not allowed and offers one Allow sign-in"),
 ]
 
 

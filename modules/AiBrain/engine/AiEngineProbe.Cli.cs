@@ -385,13 +385,14 @@ namespace DesktopAICompanion.AiBrainModule
                    rowValues.Count < cardValues.Count && rowValues.IsSubsetOf(cardValues);
         }
 
-        /// <summary>Lane feature/cli-followups: <paramref name="f"/> is an Info row whose own gate names one value of another
-        /// row in the same card (the Haiku note's shape), the one row gate CheckLayoutCards allows beside a narrower one.</summary>
+        /// <summary>Lane feature/cli-followups: <paramref name="f"/> is an Info row shown only on one value of another row in
+        /// the same card (the Haiku note's shape), the one VisibleWhen CheckLayoutCards allows. Its EnabledWhen until lane
+        /// feature/host-abi-180 (host 1.8.0), which made the gate a VisibleWhen and the note's EnabledWhen the radio's.</summary>
         internal static bool IsNoteOnARowOfItsCard(OptionsPane pane, SettingField f)
         {
             string field;
             HashSet<string> values;
-            if (f == null || f.Kind != SettingKind.Info || !SplitGate(f.EnabledWhen, out field, out values) || values.Count != 1) return false;
+            if (f == null || f.Kind != SettingKind.Info || !SplitGate(f.VisibleWhen, out field, out values) || values.Count != 1) return false;
             SettingField named = FieldOf(pane, field);
             return named != null && !ReferenceEquals(named, f) && string.Equals(named.Group, f.Group, StringComparison.Ordinal);
         }
@@ -806,7 +807,7 @@ namespace DesktopAICompanion.AiBrainModule
                 ok &= Check(sb, "aibrain token: the CLI card has a Secret token row, live only while Claude Code is the CLI on screen, and a Remove token button that rebuilds the pane",
                     row != null && row.Kind == SettingKind.Secret && row.Group == AiBrainModule.CliCardGroup &&
                     row.EnabledWhen == AiBrainModule.OnClaudeCliOnly && remove != null && remove.ReloadPaneAfter);
-                // Lane feature/abi-pane-actions (BACKLOG N-cli-model-effort-05, PaneAction.EnabledWhen, host 1.6.2): the button
+                // Lane feature/abi-pane-actions (BACKLOG N-cli-model-effort-05, PaneAction.EnabledWhen, host 1.7.0): the button
                 // greys with the token row it clears, on the very same condition, and the card's two buttons that serve
                 // either CLI carry none of their own. The host half (the grey-out, the refusal) is --wpf-options-selftest's.
                 PaneAction updateCli = FindAction(pane, AiBrainModule.CliCardGroup, "Update CLI");
