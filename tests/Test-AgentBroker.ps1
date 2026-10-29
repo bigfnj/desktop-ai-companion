@@ -32,9 +32,23 @@ if ($connectExit -ne 0 -or $connectSummary.Count -ne 1 -or $connectOutput.Count 
 }
 $connectChecks = [int]([regex]::Match([string]$connectSummary[0], '"checks":([0-9]+)').Groups[1].Value)
 $connectSource = [IO.File]::ReadAllText($connectHelper)
-$connectThrown = @([regex]::Matches($connectSource, "new Error\('([a-z_]+)'\)") | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
+# Every Error the file constructs is classified (independent review of 1.6.0, P3-10): a single string literal in either
+# quote is a code and must be reportable; an empty new Error() is the self-test's fakes; anything else (a variable, an
+# expression, a template) could be a code this check cannot read, so it fails here.
+$connectThrown = New-Object 'Collections.Generic.List[string]'
+$connectUnclassified = New-Object 'Collections.Generic.List[string]'
+foreach ($construction in [regex]::Matches($connectSource, 'new Error\((?<inner>[^)]*)\)')) {
+    $inner = $construction.Groups['inner'].Value.Trim()
+    if ($inner.Length -eq 0) { continue }
+    $literal = [regex]::Match($inner, "^(['""])([^'""]+)\1$")
+    if ($literal.Success) { if (-not $connectThrown.Contains($literal.Groups[2].Value)) { $connectThrown.Add($literal.Groups[2].Value) } }
+    else { $connectUnclassified.Add($inner) }
+}
+if ($connectUnclassified.Count -gt 0) {
+    throw ('AgentBroker Claude connection helper constructs an Error the source check cannot classify: ' + ($connectUnclassified -join ', '))
+}
 $connectSet = [regex]::Match($connectSource, "const reportableErrors = new Set\(\[([^\]]+)\]\);")
-$connectReportable = @([regex]::Matches($connectSet.Groups[1].Value, "'([a-z_]+)'") | ForEach-Object { $_.Groups[1].Value })
+$connectReportable = @([regex]::Matches($connectSet.Groups[1].Value, "(['""])([^'""]+)\1") | ForEach-Object { $_.Groups[2].Value })
 if (-not $connectSet.Success -or $connectThrown.Count -eq 0 -or $connectReportable.Count -eq 0) {
     throw 'AgentBroker Claude connection helper source check found no thrown codes or no reportableErrors set.'
 }

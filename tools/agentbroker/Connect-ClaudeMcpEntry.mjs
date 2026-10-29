@@ -257,7 +257,8 @@ try {
     // thrown value that is not an Error, read diagnostic_unavailable.
     if (reportableReason(new Error('invalid_verification')) !== 'invalid_verification') throw new Error('invalid_verification');
     checks++;
-    for (const unlisted of [new Error('SYNTHETIC_UNLISTED_DETAIL'), new Error(''), 'invalid_verification', null]) {
+    // Built without an Error literal, so tests/Test-AgentBroker.ps1's source check does not take it for a thrown code.
+    for (const unlisted of [Object.assign(new Error(), { message: 'SYNTHETIC_UNLISTED_DETAIL' }), new Error(), 'invalid_verification', null]) {
       if (reportableReason(unlisted) !== 'diagnostic_unavailable') throw new Error('invalid_verification');
       checks++;
     }
