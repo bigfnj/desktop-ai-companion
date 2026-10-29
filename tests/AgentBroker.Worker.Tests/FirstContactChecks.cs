@@ -1,0 +1,163 @@
+using System.Diagnostics;
+using System.Net;
+using System.Net.Sockets;
+using System.Text.Json;
+using AgentBroker.Core;
+using AgentBroker.Worker;
+using ModelContextProtocol;
+
+// First contact (2026-10-29). Agents on another workstation registered mailboxes and ran pollers although they had native
+// rows, because nothing told them which row was theirs; they started fresh threads at the eighth reply; and they could not
+// order messages that arrived out of order. Each label names the rule a mutation of WhoAmI, the resolver, the reply refusal
+// or the envelope must break.
+internal static class FirstContactChecks
+{
+    internal static async Task RunAsync(Action<bool, string> check)
+    {
+        ResolverChecks(check);
+        await WhoAmIChecks(check);
+        await ReplyBudgetChecks(check);
+        EnvelopeChecks(check);
+    }
+
+    // The production resolver against real sockets in this process: the owner of a connection's client end is this process.
+    private static void ResolverChecks(Action<bool, string> check)
+    {
+        var resolver = WindowsCallerProcessResolver.Instance;
+        using var self = Process.GetCurrentProcess();
+        ulong selfStart = (ulong)self.StartTime.ToFileTimeUtc();
+        foreach (var (family, loopback, label) in new[] { (AddressFamily.InterNetwork, IPAddress.Loopback, "IPV4"), (AddressFamily.InterNetworkV6, IPAddress.IPv6Loopback, "IPV6") })
+        {
+            var listener = new TcpListener(loopback, 0);
+            listener.Start();
+            try
+            {
+                using var client = new TcpClient(family);
+                client.Connect(loopback, ((IPEndPoint)listener.LocalEndpoint).Port);
+                using var accepted = listener.AcceptTcpClient();
+                int clientPort = ((IPEndPoint)client.Client.LocalEndPoint!).Port, serverPort = ((IPEndPoint)listener.LocalEndpoint).Port;
+                var chain = resolver.Resolve(loopback, clientPort, serverPort);
+                check(chain.Count >= 2 && chain[0].ProcessId == Environment.ProcessId && chain[0].StartFileTime == selfStart &&
+                    chain.Skip(1).All(parent => parent.StartFileTime <= chain[0].StartFileTime),
+                    $"WHOAMI_RESOLVER_{label}: the resolver finds this process as the owner of a loopback connection's client end, then its parents");
+                // Both ends live in this process here, so only ports that match no connection can show exactness.
+                check(resolver.Resolve(loopback, clientPort, serverPort + 1).Count == 0 && resolver.Resolve(loopback, clientPort + 1, serverPort).Count == 0,
+                    $"WHOAMI_RESOLVER_EXACT_{label}: a wrong server port or a wrong client port finds no caller");
+            }
+            finally { listener.Stop(); }
+        }
+        check(resolver.Resolve(IPAddress.Parse("192.0.2.10"), 50000, 7432).Count == 0, "WHOAMI_RESOLVER_LOOPBACK_ONLY: a non-loopback address is never resolved");
+
+        // The walk on synthetic processes: 30's recorded parent 40 was created after 30, so 40 is a reused ID and not its parent.
+        var parents = new Dictionary<int, (int Parent, string Image)>
+        { [10] = (20, "pwsh.exe"), [20] = (30, "claude.exe"), [30] = (40, "Code.exe"), [40] = (50, "unrelated.exe"), [50] = (0, "explorer.exe") };
+        var starts = new Dictionary<int, ulong> { [10] = 900, [20] = 800, [30] = 700, [40] = 750, [50] = 100 };
+        var walked = WindowsCallerProcessResolver.Walk(10, parents, pid => starts.GetValueOrDefault(pid));
+        check(walked.Select(process => process.ProcessId).SequenceEqual(new[] { 10, 20, 30 }) && walked[1].ImageName == "claude.exe",
+            "WHOAMI_WALK_REUSED_PARENT: the parent walk stops at a recorded parent created after its child (a reused process ID)");
+        var cyclic = new Dictionary<int, (int Parent, string Image)> { [10] = (20, "a.exe"), [20] = (10, "b.exe") };
+        check(WindowsCallerProcessResolver.Walk(10, cyclic, _ => 500).Count == 2, "WHOAMI_WALK_CYCLE: a parent cycle ends the walk instead of looping");
+    }
+
+    private static async Task WhoAmIChecks(Action<bool, string> check)
+    {
+        var callers = new FakeCallers();
+        var adapter = new ProcessAdapter();
+        await using var fixture = new ToolFixture("first-contact", adapters: [adapter], callers: callers);
+        fixture.Context.Connection.RemoteIpAddress = IPAddress.Loopback;
+        fixture.Context.Connection.RemotePort = 50123;
+        fixture.Context.Connection.LocalPort = 7432;
+        var mine = fixture.Native("claude:11111111-2222-4333-8444-555555555555");
+        var parentAgent = fixture.Native("claude:66666666-7777-4888-9999-000000000000");
+        fixture.Store.Register(mine); fixture.Store.Register(parentAgent);
+
+        callers.Chain = [new(100, 1000, "pwsh.exe"), new(200, 900, "bash.exe"), new(300, 800, "claude.exe"), new(400, 700, "Code.exe")];
+        adapter.Owned[(300, 800UL)] = mine.Address;
+        var found = fixture.Tools.WhoAmI();
+        check(found.Address == mine.Address && callers.Calls.Last() == (IPAddress.Loopback, 50123, 7432),
+            "WHOAMI_NEAREST_AGENT: whoami returns the session the nearest claude parent owns, from the connection's exact endpoint");
+
+        adapter.Owned.Clear(); adapter.Owned[(300, 801UL)] = mine.Address;
+        check(ToolFixture.Refused(() => fixture.Tools.WhoAmI(), "no_native_session"),
+            "WHOAMI_START_TIME: a binding for the same process ID with another creation time is not the caller");
+
+        // An agent another agent started: the nearest claude process is no discovered session, and its parent's must not be claimed.
+        callers.Chain = [new(100, 1000, "pwsh.exe"), new(300, 800, "claude.exe"), new(500, 600, "claude.exe")];
+        adapter.Owned.Clear(); adapter.Owned[(500, 600UL)] = parentAgent.Address;
+        check(ToolFixture.Refused(() => fixture.Tools.WhoAmI(), "no_native_session"),
+            "WHOAMI_STOPS_AT_NEAREST_AGENT: a child agent is never told it is the agent that started it");
+
+        callers.Chain = [new(100, 1000, "pwsh.exe"), new(300, 800, "claude.exe")];
+        adapter.Owned.Clear(); adapter.Owned[(300, 800UL)] = new(fixture.Store.BrokerId, "claude:aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", Guid.NewGuid());
+        check(ToolFixture.Refused(() => fixture.Tools.WhoAmI(), "no_native_session"),
+            "WHOAMI_DIRECTORY_ROW: a binding whose address is not in the directory is not returned");
+
+        callers.Chain = [];
+        check(ToolFixture.Refused(() => fixture.Tools.WhoAmI(), "caller_unresolved"), "WHOAMI_UNRESOLVED: an unknown connection owner says so");
+
+        callers.Chain = [new(300, 800, "claude.exe")];
+        adapter.Owned.Clear(); adapter.Owned[(300, 800UL)] = mine.Address;
+        fixture.Context.Request.IsHttps = true;
+        check(ToolFixture.Refused(() => fixture.Tools.WhoAmI(), "whoami is a local operation."),
+            "WHOAMI_LOCAL_ONLY: a connection over the paired-broker HTTPS listener cannot ask whoami");
+        fixture.Context.Request.IsHttps = false;
+        fixture.Context.Items["agentbroker.identity"] = Guid.NewGuid();
+        check(ToolFixture.Refused(() => fixture.Tools.WhoAmI(), "whoami is a local operation."),
+            "WHOAMI_LOCAL_BROKER: a caller authenticated as another broker cannot ask whoami");
+        fixture.Context.Items["agentbroker.identity"] = fixture.Store.BrokerId;
+        check(fixture.Tools.WhoAmI().Address == mine.Address, "WHOAMI_RESTORED: the same caller resolves again once local");
+    }
+
+    private static async Task ReplyBudgetChecks(Action<bool, string> check)
+    {
+        await using var fixture = new ToolFixture("reply-budget");
+        var a = fixture.Register("Synthetic budget sender");
+        var b = fixture.Register("Synthetic budget recipient");
+        Guid first = Guid.NewGuid();
+        var current = fixture.Tools.Send(a.Address, b.Address, first, "Synthetic first message.").Message;
+        int hops = 0;
+        while (current.RemainingReplies > 0 && hops < 20)
+        { current = fixture.Tools.ReplyToMessage(current.Id, Guid.NewGuid(), "Synthetic hop " + hops).Message; hops++; }
+        check(hops == 8 && current.RemainingReplies == 0 && current.ConversationId == first,
+            "REPLY_BUDGET_HOPS: a send allows eight reply hops, each one fewer than the message it answers");
+        check(ToolFixture.Refused(() => fixture.Tools.ReplyToMessage(current.Id, Guid.NewGuid(), "Synthetic ninth hop."), "reply_budget_exhausted"),
+            "REPLY_BUDGET_NAMED: replying at remainingReplies 0 is refused as reply_budget_exhausted, not a generic invalid_reply");
+        var continued = fixture.Tools.Send(current.Recipient, current.Sender, Guid.NewGuid(), "Synthetic continuation.", conversationId: first).Message;
+        check(continued.RemainingReplies == 8 && continued.ConversationId == first,
+            "REPLY_BUDGET_CONTINUE: send with the same conversationId continues the conversation with a fresh budget");
+    }
+
+    private static void EnvelopeChecks(Action<bool, string> check)
+    {
+        var created = new DateTimeOffset(2026, 10, 29, 1, 2, 3, TimeSpan.Zero);
+        var message = new BrokerMessage(Guid.NewGuid(), Guid.NewGuid(), null, new(Guid.NewGuid(), "claude:synthetic", Guid.NewGuid()),
+            new(Guid.NewGuid(), "codex:synthetic", Guid.NewGuid()), "Synthetic envelope text.", created, created.AddMinutes(5), 3);
+        string formatted = PeerMessageFormatter.Format(message, new("Synthetic sender", "local"));
+        using var envelope = JsonDocument.Parse(formatted[(formatted.IndexOf('\n') + 1)..]);
+        check(envelope.RootElement.TryGetProperty("createdAt", out var createdAt) && createdAt.GetDateTimeOffset() == created &&
+            envelope.RootElement.TryGetProperty("remainingReplies", out var remaining) && remaining.GetInt32() == 3,
+            "ENVELOPE_CREATED_AT: the native envelope carries the message's createdAt beside remainingReplies");
+        string preamble = formatted[..formatted.IndexOf('\n')];
+        check(preamble.Contains("at 0, continue with send to the sender using the same conversationId", StringComparison.Ordinal) &&
+            preamble.Contains("createdAt order", StringComparison.Ordinal),
+            "ENVELOPE_GUIDANCE: the preamble says how to continue at remainingReplies 0 and to read one sender in createdAt order");
+    }
+
+    private sealed class FakeCallers : ICallerProcessResolver
+    {
+        internal IReadOnlyList<CallerProcess> Chain = [];
+        internal List<(IPAddress, int, int)> Calls { get; } = [];
+        public IReadOnlyList<CallerProcess> Resolve(IPAddress clientAddress, int clientPort, int serverPort)
+        { Calls.Add((clientAddress, clientPort, serverPort)); return Chain; }
+    }
+
+    private sealed class ProcessAdapter : ILocalAgentAdapter
+    {
+        internal Dictionary<(int, ulong), SessionAddress> Owned { get; } = [];
+        public string Id => "synthetic-native";
+        public Task<IReadOnlyList<BrokerSession>> DiscoverAsync(Guid brokerId, CancellationToken token) => Task.FromResult<IReadOnlyList<BrokerSession>>([]);
+        public Task<AdapterResult> SubmitAsync(BrokerMessage message, CancellationToken token) => Task.FromResult(new AdapterResult(AdapterAdmission.Refused));
+        public SessionAddress? FindSessionByProcess(int processId, ulong startFileTime) => Owned.GetValueOrDefault((processId, startFileTime));
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+}

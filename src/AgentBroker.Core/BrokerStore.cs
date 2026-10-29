@@ -495,8 +495,21 @@ public sealed class BrokerStore : IDisposable
                 if (refusal is not null) messages[i] = r with { Status = MessageStatus.Refused, Reason = refusal, UpdatedAt = Now };
             }
             var inflight = messages.Where(r => r.Status == MessageStatus.Submitting).Select(r => r.Message.Recipient).ToHashSet();
-            var index = messages.FindIndex(r => r.Status == MessageStatus.Accepted && excludedMessageIds?.Contains(r.Message.Id) != true && !inflight.Contains(r.Message.Recipient) &&
-                (r.Message.Recipient.BrokerId != state.BrokerId || Ready(r.Message.Recipient)));
+            // One sender's messages to one recipient go in the order this broker accepted them: list order, because Accept
+            // appends, while createdAt is the sender's own claim. A newer message waits while an older one for the same pair is
+            // still Accepted but cannot go now (backing off after a deferral, or its recipient busy); its expiry ends the wait.
+            // Other senders to the same recipient are not held. Agents on another workstation saw replies overtake earlier
+            // messages (2026-10-28), because the old pick took the first Accepted message outside the backoff set.
+            var waiting = new HashSet<(SessionAddress Sender, SessionAddress Recipient)>();
+            int index = -1;
+            for (int i = 0; i < messages.Count; i++)
+            {
+                var r = messages[i];
+                if (r.Status != MessageStatus.Accepted || waiting.Contains((r.Message.Sender, r.Message.Recipient))) continue;
+                if (excludedMessageIds?.Contains(r.Message.Id) != true && !inflight.Contains(r.Message.Recipient) &&
+                    (r.Message.Recipient.BrokerId != state.BrokerId || Ready(r.Message.Recipient))) { index = i; break; }
+                waiting.Add((r.Message.Sender, r.Message.Recipient));
+            }
             MessageReceipt? next = null;
             if (index >= 0)
             {

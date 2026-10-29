@@ -5,7 +5,8 @@ Validate one ordinary workspace JSON MCP request. Only -Execute sends it to loop
 .DESCRIPTION
 Fixed stateless endpoint/protocol; no credentials, proxy, redirects, cookies or native IPC.
 Allowed tools are the small collaboration set below. Addresses for sending, reading, waiting and
-acknowledging must be generic mcp:<GUID> sessions. Live reply_to_message is refused because
+acknowledging must be generic mcp:<GUID> sessions. whoami takes no address and only reads which
+native row, if any, owns the calling process. Live reply_to_message is refused because
 its implicit recipient cannot be verified from this one request. Use explicit generic send.
 The two blocking wait tools get a 40-second deadline (the broker bounds a wait at 25 seconds);
 every other request keeps 15 seconds. A registration's mailbox outlives its one-minute presence
@@ -61,7 +62,7 @@ function Confirm-CollaborationRequest($Request) {
     }
     if ($method -ceq 'tools/call') {
         $params = Get-McpField $Request 'params'; $tool = Get-McpField $params 'name'; $args = Get-McpField $params 'arguments'
-        if ($tool -cnotin @('register_agent', 'list_sessions', 'read_inbox', 'send', 'send_message', 'wait_for_messages', 'wait_for_reply', 'wait_for_receipt', 'reply_to_message', 'acknowledge_message', 'get_message_receipt')) { Refuse-Mcp 'tool_not_allowed' }
+        if ($tool -cnotin @('whoami', 'register_agent', 'list_sessions', 'read_inbox', 'send', 'send_message', 'wait_for_messages', 'wait_for_reply', 'wait_for_receipt', 'reply_to_message', 'acknowledge_message', 'get_message_receipt')) { Refuse-Mcp 'tool_not_allowed' }
         if ($args -isnot [Collections.IDictionary]) { Refuse-Mcp 'request_shape' }
         if ($tool -ceq 'send_message') { $message = Get-McpField $args 'message'; Confirm-GenericMcpAddress (Get-McpField $message 'sender'); Confirm-GenericMcpAddress (Get-McpField $message 'recipient') }
         if ($tool -ceq 'send') { Confirm-GenericMcpAddress (Get-McpField $args 'sender'); Confirm-GenericMcpAddress (Get-McpField $args 'recipient') }

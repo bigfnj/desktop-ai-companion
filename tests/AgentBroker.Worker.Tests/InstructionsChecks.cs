@@ -14,6 +14,14 @@ internal static class InstructionsChecks
     {
         check(BrokerInstructions.Text.Length is > 0 and <= BrokerInstructions.MaximumLength,
             "the server instructions card stays within 1,800 characters");
+        // First contact (2026-10-29): the identity line comes right after the opening sentence, before any flow.
+        string[] lines = BrokerInstructions.Text.Split('\n');
+        check(lines.Length > 2 && lines[1].StartsWith("Your address: call whoami first.", StringComparison.Ordinal) &&
+            lines[1].Contains("do not register a mailbox or poll", StringComparison.Ordinal),
+            "CARD_WHOAMI_FIRST: the card's first instruction is whoami, and a native row means no mailbox and no polling");
+        check(BrokerInstructions.Text.Contains("on recipient_unavailable, list_sessions again and resend", StringComparison.Ordinal) &&
+            BrokerInstructions.Text.Contains("at remainingReplies 0, continue with send and the same conversationId", StringComparison.Ordinal),
+            "CARD_CHURN_AND_BUDGET: the card says how to recover from a changed incarnation and from a spent reply budget");
         string scratch = Path.Combine(AppContext.BaseDirectory, "scratch", "instructions-" + Guid.NewGuid().ToString("N"));
         Guid brokerId;
         using (var seed = new BrokerStore(Path.Combine(scratch, "store"))) brokerId = seed.BrokerId;
@@ -58,6 +66,8 @@ internal static class InstructionsChecks
             var send = Shape(tools["send"]);
             var messages = Shape(tools["wait_for_messages"]);
             var replyShape = Shape(tools["wait_for_reply"]);
+            var whoami = Shape(tools["whoami"]);
+            check(whoami.Properties.Length == 0 && whoami.Required.Length == 0, "the whoami tool schema takes no parameters");
             check(send.Properties.SequenceEqual(new[] { "conversationId", "messageId", "recipient", "sender", "text", "ttlMinutes" }) &&
                 send.Required.SequenceEqual(new[] { "messageId", "recipient", "sender", "text" }) &&
                 messages.Properties.SequenceEqual(new[] { "limit", "session", "timeoutSeconds" }) && messages.Required.SequenceEqual(new[] { "session" }) &&

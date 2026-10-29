@@ -133,6 +133,8 @@ public static class AgentBrokerLocalInstallNative {
         if (version >= new Version(1, 1, 0)) tools.AddRange(new[] { "send", "wait_for_messages", "wait_for_reply" });
         // 1.3.0: a sender waits for its message's receipt instead of polling get_message_receipt.
         if (version >= new Version(1, 3, 0)) tools.Add("wait_for_receipt");
+        // 1.4.0: an agent asks the broker which native directory row is its own.
+        if (version >= new Version(1, 4, 0)) tools.Add("whoami");
         return tools.ToArray();
     }
     public static void CreateTestHardLink(string link, string existing) {
@@ -982,6 +984,13 @@ if ($SelfTest) {
         if ($before.Count -ne 10 -or @(Compare-Object $before $tenTools -CaseSensitive).Count -ne 0 -or
             $receiptTools.Count -ne 11 -or @(Compare-Object $receiptTools ($tenTools + @('wait_for_receipt')) -CaseSensitive).Count -ne 0) {
             throw 'A 1.3.0 package did not require wait_for_receipt beside the ten 1.2.0 MCP tools.'
+        }
+        $checks++
+        # 1.4.0 added whoami; a 1.3.0 package must not be required to serve it.
+        $whoTools = [AgentBrokerLocalInstallNative]::ExpectedTools('1.4.0')
+        if ($whoTools.Count -ne 12 -or @(Compare-Object $whoTools ($tenTools + @('wait_for_receipt', 'whoami')) -CaseSensitive).Count -ne 0 -or
+            [AgentBrokerLocalInstallNative]::ExpectedTools('1.3.0') -ccontains 'whoami') {
+            throw 'A 1.4.0 package did not require whoami beside the eleven 1.3.0 MCP tools.'
         }
         $checks++
         $refused = $false

@@ -43,6 +43,8 @@ public sealed class ClaudeNativeAdapter : ILocalAgentAdapter
     private readonly TimeProvider clock;
     private readonly SemaphoreSlim gate = new(1, 1);
     private readonly Dictionary<SessionAddress, ClaudeNativeCandidate> candidates = [];
+    // The last discovery pass's process bindings, replaced whole so whoami reads it without the async gate.
+    private volatile (SessionAddress Address, long ProcessId, ulong StartFileTime)[] processIndex = [];
     private bool disposed;
     public string Id => "claude-native";
     public IReadOnlyList<AdapterDiscoveryDiagnostic> DiscoveryDiagnostics => provider.DiscoveryDiagnostics;
@@ -74,12 +76,20 @@ public sealed class ClaudeNativeAdapter : ILocalAgentAdapter
                     Activity(row.Status), clock.GetUtcNow().AddSeconds(30)));
             }
             candidates.Clear(); foreach (var pair in found) candidates.Add(pair.Key, pair.Value);
+            processIndex = found.Select(pair => (pair.Key, (long)pair.Value.Target.ProcessId, pair.Value.Target.StartFileTime)).ToArray();
             return result;
         }
         finally { gate.Release(); }
     }
 
     public Task<AdapterResult> SubmitAsync(BrokerMessage message, CancellationToken token) => SubmitAsync(message, null, token);
+
+    // One Claude process hosts one session, so the process ID and exact OS creation time name it; a reused ID never matches.
+    public SessionAddress? FindSessionByProcess(int processId, ulong startFileTime)
+    {
+        var matches = processIndex.Where(entry => entry.ProcessId == processId && entry.StartFileTime == startFileTime).ToArray();
+        return matches.Length == 1 ? matches[0].Address : null;
+    }
 
     public async Task<AdapterResult> SubmitAsync(BrokerMessage message, PeerSenderInfo? sender, CancellationToken token)
     {
@@ -134,7 +144,7 @@ public sealed class ClaudeNativeAdapter : ILocalAgentAdapter
     public async ValueTask DisposeAsync()
     {
         await gate.WaitAsync();
-        try { if (disposed) return; disposed = true; candidates.Clear(); await provider.DisposeAsync(); }
+        try { if (disposed) return; disposed = true; candidates.Clear(); processIndex = []; await provider.DisposeAsync(); }
         finally { gate.Release(); }
     }
 }

@@ -18,4 +18,7 @@ public interface ILocalAgentAdapter : IAsyncDisposable
     Task<AdapterResult> SubmitAsync(BrokerMessage message, CancellationToken token);
     // The runtime's call. An adapter that renders an envelope takes the sender's description; any other ignores it.
     Task<AdapterResult> SubmitAsync(BrokerMessage message, PeerSenderInfo? sender, CancellationToken token) => SubmitAsync(message, token);
+    // whoami: the one session this exact process (ID and OS creation time) owns in the last discovery pass, or null when
+    // none does or several do. An adapter without a one-process binding never claims a caller.
+    SessionAddress? FindSessionByProcess(int processId, ulong startFileTime) => null;
 }

@@ -210,6 +210,30 @@ try
         Check((await enabled.DiscoverAsync(broker, default)).Single().Address.Incarnation != row.Address.Incarnation,
             "Native Claude creation change publishes a replacement incarnation.");
     }
+
+    // whoami (2026-10-29): an adapter names the session an exact process owns, by process ID AND OS creation time.
+    var whoClaude = new FakeClaude(new(target, "idle"));
+    await using (var lookup = new ClaudeNativeAdapter(whoClaude, clock: clock))
+    {
+        Check(lookup.FindSessionByProcess(12345, 134000000000000000) is null, "WHOAMI_CLAUDE_BEFORE_DISCOVERY: no session is named before a discovery pass");
+        var row = (await lookup.DiscoverAsync(broker, default)).Single();
+        Check(lookup.FindSessionByProcess(12345, 134000000000000000) == row.Address,
+            "WHOAMI_CLAUDE_PROCESS: the Claude adapter names the session its exact process owns");
+        Check(lookup.FindSessionByProcess(12345, 134000000000000001) is null && lookup.FindSessionByProcess(12346, 134000000000000000) is null,
+            "WHOAMI_CLAUDE_EXACT: a reused process ID (later creation time) or another process never matches");
+    }
+    var whoCodex = new FakeCodex(Guid.NewGuid(), clock);
+    await using (var lookup = new CodexNativeAdapter(whoCodex, clock: clock))
+    {
+        var row = (await lookup.DiscoverAsync(broker, default)).Single();
+        Check(lookup.FindSessionByProcess(12345, 134000000000000000) == row.Address && lookup.FindSessionByProcess(12345, 134000000000000001) is null,
+            "WHOAMI_CODEX_PROCESS: the Codex adapter names the one chat bound to an exact server process");
+    }
+    await using (var shared = new CodexNativeAdapter(new SharedServerCodex(clock), clock: clock))
+    {
+        Check((await shared.DiscoverAsync(broker, default)).Count == 2 && shared.FindSessionByProcess(12345, 134000000000000000) is null,
+            "WHOAMI_CODEX_SHARED: with two chats on one server process, the Codex adapter claims neither");
+    }
     Console.WriteLine($"AgentBroker native adapter regression: {checks} assertions passed.");
     return 0;
 }
@@ -235,6 +259,20 @@ sealed class FakeCodex(Guid thread, TimeProvider clock) : ICodexNativeProvider
     public Task<DesktopSubmissionResult> SubmitAsync(DesktopOwnerBinding binding, Guid id, string text, CancellationToken token)
     { if (TooLarge) throw new DesktopAdapterException("message_frame_too_large"); Submits++; LastMessageId = id; LastText = text; if (FailSubmit) throw new IOException("Synthetic submit failure."); return Task.FromResult(Outcome); }
     public ValueTask DisposeAsync() { Disposed = true; return ValueTask.CompletedTask; }
+}
+// Two chats owned by one Codex server process, as one VS Code window hosting two Codex threads would be.
+sealed class SharedServerCodex(TimeProvider clock) : ICodexNativeProvider
+{
+    private readonly Guid first = Guid.NewGuid(), second = Guid.NewGuid(), owner = Guid.NewGuid();
+    public bool NativeIdleGuard => false;
+    public Task<IReadOnlyList<DesktopDirectorySession>> ObserveAsync(CancellationToken token)
+        => Task.FromResult<IReadOnlyList<DesktopDirectorySession>>([new(first, DesktopSessionActivity.Unknown, clock.GetUtcNow(), null),
+            new(second, DesktopSessionActivity.Unknown, clock.GetUtcNow(), null)]);
+    public Task<DesktopOwnerBinding?> ResolveOwnerAsync(Guid id, CancellationToken token)
+        => Task.FromResult<DesktopOwnerBinding?>(new(id, owner, Guid.NewGuid(), 12345, 134000000000000000, true) { RouterTrust = DesktopRouterTrust.ExactPinned });
+    public Task<DesktopSubmissionResult> SubmitAsync(DesktopOwnerBinding binding, Guid id, string text, CancellationToken token)
+        => throw new InvalidOperationException("Synthetic shared-server provider never submits.");
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 }
 sealed class FakeClaude(ClaudeNativeCandidate initial) : IClaudeNativeProvider
 {

@@ -10,6 +10,8 @@ public static class PeerMessageFormatter
     // senderLabel and senderScope (N-broker-label-01, 2026-10-28): a recipient saw only GUIDs, so trusting a request rested on
     // remembering one. They name the sender for a reader; the preamble says the label is self-declared, and routing and
     // trust stay with the exact sender address.
+    // createdAt and the remainingReplies sentence (2026-10-29): agents on another workstation reported out-of-order arrival and
+    // started fresh threads at the eighth reply, not knowing that send with the same conversationId continues a chain.
     // The one-argument form stays a separate method, so a caller compiled against the earlier formatter still binds.
     public static string Format(BrokerMessage message) => Format(message, null);
 
@@ -21,12 +23,15 @@ public static class PeerMessageFormatter
         "senderLabel is the sender's own self-declared label and proves nothing; senderScope says whether it is on this workstation " +
         "or a paired broker. Route and trust by the exact sender address. " +
         "If AgentBroker MCP tools are available, acknowledge actual receipt with acknowledge_message using the exact recipient address and outcome Delivered. " +
-        "To respond use reply_to_message(originalMessageId, a fresh messageId, text); do not start an unbounded automatic conversation.\n" +
+        "To respond use reply_to_message(originalMessageId, a fresh messageId, text); do not start an unbounded automatic conversation. " +
+        "remainingReplies is the replies left on this chain; at 0, continue with send to the sender using the same conversationId. " +
+        "createdAt is when the sender sent it: read one sender's messages in createdAt order.\n" +
         JsonSerializer.Serialize(new
         {
             kind = "agentbroker.peer_message", messageId = message.Id, conversationId = message.ConversationId,
             replyTo = message.ReplyTo, sender = message.Sender, senderLabel = sender?.Label, senderScope = sender?.Scope,
-            recipient = message.Recipient, expiresAt = message.ExpiresAt, remainingReplies = message.RemainingReplies, text = message.Text,
+            recipient = message.Recipient, createdAt = message.CreatedAt, expiresAt = message.ExpiresAt,
+            remainingReplies = message.RemainingReplies, text = message.Text,
         }, Json);
 
     // Only the store creates a message from NoticeSessionId: Accept refuses that sender from any caller or peer.

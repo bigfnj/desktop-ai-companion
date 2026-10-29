@@ -33,6 +33,8 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
     private readonly TimeProvider clock;
     private readonly SemaphoreSlim gate = new(1, 1);
     private readonly Dictionary<SessionAddress, DesktopOwnerBinding> bindings = [];
+    // The last discovery pass's server-process bindings, replaced whole so whoami reads it without the async gate.
+    private volatile (SessionAddress Address, uint ServerPid, ulong ServerCreationFileTime)[] processIndex = [];
     private bool disposed;
     public string Id => "codex-native";
     public IReadOnlyList<AdapterDiscoveryDiagnostic> DiscoveryDiagnostics => provider.DiscoveryDiagnostics;
@@ -77,17 +79,27 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
                     : SessionCapabilities.None, activity, clock.GetUtcNow().AddSeconds(30)));
             }
             bindings.Clear(); foreach (var pair in found) bindings.Add(pair.Key, pair.Value);
+            processIndex = found.Select(pair => (pair.Key, pair.Value.ServerPid, pair.Value.ServerCreationFileTime)).ToArray();
             return sessions;
         }
         catch (DesktopAdapterException error)
         {
-            bindings.Clear();
+            bindings.Clear(); processIndex = [];
             throw new AdapterDiscoveryException(DescribeDiscoveryFailure(error), error);
         }
         finally { gate.Release(); }
     }
 
     public Task<AdapterResult> SubmitAsync(BrokerMessage message, CancellationToken token) => SubmitAsync(message, null, token);
+
+    // One Codex server process can host several chats. It names a caller only when exactly one discovered chat is bound to
+    // that exact process (ID and OS creation time); with two or more, which chat is asking cannot be told, so none is claimed.
+    public SessionAddress? FindSessionByProcess(int processId, ulong startFileTime)
+    {
+        if (processId <= 0) return null;
+        var matches = processIndex.Where(entry => entry.ServerPid == (uint)processId && entry.ServerCreationFileTime == startFileTime).ToArray();
+        return matches.Length == 1 ? matches[0].Address : null;
+    }
 
     public async Task<AdapterResult> SubmitAsync(BrokerMessage message, PeerSenderInfo? sender, CancellationToken token)
     {
@@ -198,7 +210,7 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
     public async ValueTask DisposeAsync()
     {
         await gate.WaitAsync();
-        try { if (disposed) return; disposed = true; bindings.Clear(); await provider.DisposeAsync(); }
+        try { if (disposed) return; disposed = true; bindings.Clear(); processIndex = []; await provider.DisposeAsync(); }
         finally { gate.Release(); }
     }
 }

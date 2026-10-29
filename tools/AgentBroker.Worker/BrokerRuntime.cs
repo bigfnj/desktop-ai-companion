@@ -6,7 +6,7 @@ namespace AgentBroker.Worker;
 
 public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
     IReadOnlyList<ILocalAgentAdapter> adapters, SessionPreferences? sessionPreferences = null,
-    TimeProvider? clock = null) : IAsyncDisposable
+    TimeProvider? clock = null, ICallerProcessResolver? callerProcesses = null) : IAsyncDisposable
 {
     private readonly ConcurrentDictionary<string, string> adapterErrors = new(StringComparer.Ordinal);
     private readonly DeferredDeliveryClaims claims = new(store);
@@ -225,6 +225,27 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
         while (!stop.IsCancellationRequested)
         { await ReconcilePeersAsync(stop); await Task.Delay(TimeSpan.FromSeconds(5), stop); }
     }
+
+    // whoami: the session owned by the nearest process in the caller's ancestry that an adapter binds to exactly one
+    // directory row. The walk ends at the nearest claude or codex process even when that process is no discovered session,
+    // so an agent another agent started (claude -p inside a Claude session) is never told that it is its parent.
+    public (BrokerSession? Session, string Code) WhoAmI(System.Net.IPAddress client, int clientPort, int serverPort)
+    {
+        var chain = (callerProcesses ?? WindowsCallerProcessResolver.Instance).Resolve(client, clientPort, serverPort);
+        if (chain.Count == 0) return (null, "caller_unresolved");
+        var directory = store.Directory();
+        foreach (var process in chain)
+        {
+            foreach (var adapter in adapters)
+                if (adapter.FindSessionByProcess(process.ProcessId, process.StartFileTime) is { } address)
+                    return directory.SingleOrDefault(session => session.Address == address) is { } row ? (row, "ok") : (null, "no_native_session");
+            if (IsAgentImage(process.ImageName)) break;
+        }
+        return (null, "no_native_session");
+    }
+
+    private static bool IsAgentImage(string image) => Path.GetFileNameWithoutExtension(image) is { } name &&
+        (name.Equals("claude", StringComparison.OrdinalIgnoreCase) || name.Equals("codex", StringComparison.OrdinalIgnoreCase));
 
     // The envelope's description of a sender: its own registration label when it is a session on this broker (null once it
     // is gone), or the name its paired broker advertised when the pairing was approved. Neither identifies or authorizes.

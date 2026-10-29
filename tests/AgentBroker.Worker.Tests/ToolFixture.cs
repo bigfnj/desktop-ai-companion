@@ -16,12 +16,14 @@ internal sealed class ToolFixture : IAsyncDisposable
     internal DefaultHttpContext Context { get; } = new();
     internal BrokerTools Tools { get; }
     // A real clock (TimeProvider.System) instead of the manual one, for checks that a wait wakes at a real deadline.
-    internal ToolFixture(string name, BrokerLimits? limits = null, TimeProvider? clock = null)
+    // Adapters and a caller resolver are for the whoami checks; every other check runs with neither.
+    internal ToolFixture(string name, BrokerLimits? limits = null, TimeProvider? clock = null,
+        IReadOnlyList<ILocalAgentAdapter>? adapters = null, ICallerProcessResolver? callers = null)
     {
         Root = Path.Combine(AppContext.BaseDirectory, "scratch", name + "-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Root);
         Store = new BrokerStore(Path.Combine(Root, "store"), limits, clock ?? Clock);
-        Runtime = new BrokerRuntime(Store, new NoPeers(), [], new SessionPreferences(Root), clock ?? Clock);
+        Runtime = new BrokerRuntime(Store, new NoPeers(), adapters ?? [], new SessionPreferences(Root), clock ?? Clock, callers);
         Context.Items["agentbroker.identity"] = Store.BrokerId;
         Tools = new BrokerTools(Runtime, new HttpContextAccessor { HttpContext = Context });
     }

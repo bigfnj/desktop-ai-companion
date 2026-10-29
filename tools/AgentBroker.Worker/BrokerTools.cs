@@ -39,6 +39,17 @@ public sealed class BrokerTools(BrokerRuntime runtime, IHttpContextAccessor http
             .OrderBy(session => session.Address, AddressOrder).Take(limit).ToArray();
     }
 
+    [McpServerTool(Name = "whoami", ReadOnly = true, Idempotent = true, OpenWorld = false),
+     Description("Return your own native claude: or codex: directory row, found from the process that opened this connection and its nearest claude or codex parent. Use that complete address as your sender and give it to peers: you are woken when idle, so do not register a mailbox or poll. Call it again after a restart or recipient_unavailable, because incarnations change when a client restarts or reconnects. no_native_session means no discovered session owns your process, or several Codex chats share it: find your row in list_sessions (Claude Code: claude:<CLAUDE_CODE_SESSION_ID>; Codex: codex:<your thread id>) or register a mailbox with register_agent. caller_unresolved means the connection's process could not be found. Local loopback connections only.")]
+    public BrokerSession WhoAmI()
+    {
+        var context = http.HttpContext ?? throw new McpException("The broker transport identity is unavailable.");
+        if (Caller != runtime.Store.BrokerId || context.Request.IsHttps || context.Connection.RemoteIpAddress is not { } address)
+            throw new McpException("whoami is a local operation.");
+        var (session, code) = runtime.WhoAmI(address, context.Connection.RemotePort, context.Connection.LocalPort);
+        return session ?? throw new McpException(code);
+    }
+
     [McpServerTool(Name = "register_agent", Destructive = false, Idempotent = true, OpenWorld = false),
      Description("Register or renew a generic MCP agent's inbox. Presence lasts one minute and every successful call that names this session renews it. Reuse the same clientId and incarnation on every turn: the mailbox then survives the presence lease for 24 hours after your last call, keeps receiving while listed as Away, and your next call restores presence. A new incarnation is a new mailbox. A broker restart drops registrations but keeps messages, which registering the same clientId and incarnation again finds. Generic inboxes wait or poll; normally opened GUI sessions use a native wake adapter.")]
     public BrokerSession RegisterAgent(Guid clientId, Guid incarnation, string label, bool isPrivate = false)
@@ -169,12 +180,14 @@ public sealed class BrokerTools(BrokerRuntime runtime, IHttpContextAccessor http
     }
 
     [McpServerTool(Name = "reply_to_message", Destructive = false, Idempotent = true, OpenWorld = false),
-     Description("Reply to a received peer message with one stable new messageId, reusing that ID and text for retries. The broker reverses the exact addresses and decrements the conversation reply budget; the original sender's wait_for_reply returns it. Never request an action denied in your own session.")]
+     Description("Reply to a received peer message with one stable new messageId, reusing that ID and text for retries. The broker reverses the exact addresses; the original sender's wait_for_reply returns it. The budget counts hops, not conversations: a reply's remainingReplies is one fewer than the message it answers, and a message at 0 refuses replies with reply_budget_exhausted. To keep talking, use send to the same peer with the same conversationId, which starts a fresh budget. Never request an action denied in your own session.")]
     public MessageReceipt ReplyToMessage(Guid originalMessageId, Guid messageId, string text)
     {
         var parent = runtime.Store.FindReceipt(originalMessageId)?.Message
             ?? throw new McpException("The original message is unavailable.");
         CheckParticipant(parent.Recipient);
+        // Named here because the store's refusal (invalid_reply) also covers malformed replies and says nothing about send.
+        if (parent.RemainingReplies <= 0) throw new McpException("reply_budget_exhausted");
         return Run(() =>
         {
             var receipt = runtime.Store.AcceptReply(originalMessageId, messageId, text, Caller);

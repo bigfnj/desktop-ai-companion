@@ -41,6 +41,12 @@ try
         Console.WriteLine($"AgentBroker reply lifetime smoke: {passed} assertions passed.");
         return 0;
     }
+    if (args.SequenceEqual(["--delivery-order-only"]))
+    {
+        passed += DeliveryOrderChecks.Run(root);
+        Console.WriteLine($"AgentBroker delivery order smoke: {passed} assertions passed.");
+        return 0;
+    }
     if (args.SequenceEqual(["--sender-notices-only"]))
     {
         passed += SenderNoticeChecks.Run(root);
@@ -146,6 +152,7 @@ try
     AuditAtomicReplyRetries();
     passed += ReplyLifetimeChecks.Run(root);
     passed += SenderNoticeChecks.Run(root);
+    passed += DeliveryOrderChecks.Run(root);
     using (var receipts = new BrokerStore(Path.Combine(root, "explicit-receipts"), clock: clock))
     {
         var from = Session(receipts, "from"); var to = Session(receipts, "to");
@@ -354,13 +361,21 @@ void AuditUnsubmittedClaims()
     store.Register(to with { Activity = SessionActivity.Busy, Capabilities = to.Capabilities | SessionCapabilities.NativeIdleGuard });
     Check(store.BeginDelivery() is null, "Known busy activity stays queued even with an atomic idle capability.");
     store.Register(to with { Activity = SessionActivity.Idle });
+    // Delivery order (2026-10-29): a later message from the same sender to the same recipient waits behind the deferred
+    // one instead of overtaking it, which agents reported as out-of-order arrival; another sender still makes progress.
     var later = Message(from, to); store.Accept(later, store.BrokerId);
-    Check(store.BeginDelivery(new HashSet<Guid> { message.Id })?.Message.Id == later.Id,
-        "A deferred earliest message can be excluded so later eligible messages still make progress.");
-    store.CompleteDelivery(later.Id, MessageStatus.Delivered);
+    Check(store.BeginDelivery(new HashSet<Guid> { message.Id }) is null,
+        "A deferred earliest message holds a later one from the same sender to the same recipient.");
+    var bystander = Session(store, "bystander"); store.Register(bystander);
+    var unrelated = Message(bystander, to); store.Accept(unrelated, store.BrokerId);
+    Check(store.BeginDelivery(new HashSet<Guid> { message.Id })?.Message.Id == unrelated.Id,
+        "A deferred earliest message can be excluded so another sender's eligible messages still make progress.");
+    store.CompleteDelivery(unrelated.Id, MessageStatus.Delivered);
     Check(store.BeginDelivery()?.Attempts == 1, "A proven unsubmitted claim can be retried once actual idle activity is observed.");
     store.CompleteDelivery(message.Id, MessageStatus.Uncertain);
     Refuses("message_not_submitting", () => store.ReleaseUnsubmittedClaim(message.Id));
+    Check(store.BeginDelivery()?.Message.Id == later.Id, "The held successor follows once the earlier message has gone.");
+    store.CompleteDelivery(later.Id, MessageStatus.Delivered);
     Check(store.BeginDelivery() is null, "An uncertain submission can never use the unsubmitted-release path.");
     var submitted = Message(from, to); store.Accept(submitted, store.BrokerId); store.BeginDelivery();
     store.CompleteDelivery(submitted.Id, MessageStatus.Submitted);
