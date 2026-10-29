@@ -6533,6 +6533,11 @@ root. It would file recordings in a folder the user never chose, then split a bl
 folders once Documents came back, with the purge walking only one of them. A storage location the user TYPED as a
 relative path is resolved as before; only the blank default is refused here.
 
+**The Fortunes importer's suite is stood in, not forced, to drive its scratch call site (N-modules-fixes-03).**
+`FortuneFileImporter.SuiteForDiagnostics` replaces the fourteen sub-tests for one probe check and its witness. Refused:
+one forced sub-test after the real fourteen. The call site sees only the verdict, and the probe would then run the
+whole importer suite twice more on every Fortunes self-test.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

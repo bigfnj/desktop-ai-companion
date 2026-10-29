@@ -15092,6 +15092,16 @@ CASES = (
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "no Documents (saved blank): the Older recordings line and its rename button say there is no folder"),
+
+    # N-modules-fixes-03: RunSelfTest's own call site hands the scratch helper "true" whatever the suite said, so a failed
+    # run's scratch is deleted again. Graded through the probe's stand-in suite (FortuneFileImporter.SuiteForDiagnostics).
+    ('followups: 1029: fortunes: the importer self-test call site deletes a failed run\'s scratch',
+     FORTUNE_IMPORTER,
+     b'                ok = ReleaseSelfTestScratch(root, ok, output) && ok;\n',
+     b'                ok = ReleaseSelfTestScratch(root, true, output) && ok;\n',
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "importer self-test scratch: a run whose suite fails reports failure, keeps that run's scratch and names it"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
