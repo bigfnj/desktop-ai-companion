@@ -66,6 +66,8 @@ public sealed class BrokerStore : IDisposable
     private readonly string tombstonePath;
     private readonly Dictionary<Guid, Tombstone> tombstones = new();
     private readonly Dictionary<SessionAddress, HashSet<Guid>> tombstonesByParticipant = new();
+    private readonly Dictionary<SessionAddress, SessionAddress> sharedParticipants = new();
+    private readonly Dictionary<string, string> sharedReasons = new(StringComparer.Ordinal);
     private readonly PriorityQueue<Guid, DateTimeOffset> tombstoneExpiry = new();
     private long journalLength;  // Bytes of complete lines. The next append starts here, dropping any torn tail.
     private long journalEntries; // Tombstone lines in the journal, live or dead; the header is not counted.
@@ -1063,6 +1065,7 @@ public sealed class BrokerStore : IDisposable
     private void AddTombstone(Tombstone tombstone)
     {
         if (tombstones.Remove(tombstone.Id, out var previous)) Unindex(previous);
+        tombstone = Shared(tombstone);
         tombstones.Add(tombstone.Id, tombstone);
         foreach (var participant in new[] { tombstone.Sender, tombstone.Recipient })
         {
@@ -1072,11 +1075,36 @@ public sealed class BrokerStore : IDisposable
         tombstoneExpiry.Enqueue(tombstone.Id, tombstone.ExpiresAt);
     }
 
+    // N-broker-e-01 (lane broker-next): each tombstone kept its own copies of its two addresses and its reason, as the
+    // journal parser or the receipt made them. Equal values now share one instance per participant (dropped with the
+    // participant's last tombstone) and per reason; records compare by value, so nothing else changes. In memory only:
+    // the journal format is unchanged. The text hash stays a string: it is unique per message, so only a different
+    // in-memory type could shrink it, and that would touch the journal path (measured in DESIGN-REGISTER).
+    private Tombstone Shared(Tombstone tombstone)
+    {
+        SessionAddress SharedAddress(SessionAddress address)
+        {
+            if (sharedParticipants.TryGetValue(address, out var shared)) return shared;
+            sharedParticipants.Add(address, address);
+            return address;
+        }
+        string? reason = tombstone.Reason;
+        if (reason is not null)
+        {
+            if (sharedReasons.TryGetValue(reason, out var known)) reason = known;
+            else if (sharedReasons.Count < 64) sharedReasons.Add(reason, reason);
+        }
+        return tombstone with { Sender = SharedAddress(tombstone.Sender), Recipient = SharedAddress(tombstone.Recipient), Reason = reason };
+    }
+
     private void Unindex(Tombstone tombstone)
     {
         foreach (var participant in new[] { tombstone.Sender, tombstone.Recipient })
             if (tombstonesByParticipant.TryGetValue(participant, out var ids) && ids.Remove(tombstone.Id) && ids.Count == 0)
+            {
                 tombstonesByParticipant.Remove(participant);
+                sharedParticipants.Remove(participant);
+            }
     }
 
     // Retention ends RecordGrace after expiry, exactly when a full record's does (Expire). Pruning is memory only, so a

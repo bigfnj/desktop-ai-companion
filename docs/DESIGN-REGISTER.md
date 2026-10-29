@@ -6562,6 +6562,17 @@ seconds: 1,168.7 MB per start before (each of three samples), 548.5 MB after (ea
 2.20 to 2.47 s after. Time to the end of the reads varied from 3 to 19 s in both builds under the other lanes' disk load,
 so no time figure is claimed. Refused: reusing anything on the owner connection, which carries model input.
 
+**Tombstones share their addresses and reason; the text hash stays a string (N-broker-e-01).** Measured with the
+coordination benchmark's tombstone scenario (`tombstone 0 65512 0 512 0`: 65,512 tombstones, the bound), each sample a
+fresh process, six interleaved repetitions per build, `storeHeapBytes` = the heap the open store keeps after a full
+collection: 55,611,656 to 55,640,088 bytes before (about 849 per tombstone), 31,004,744 to 31,017,080 after (about 473),
+a saving of about 24.6 MB at the bound; load time 1,154 ms against 1,196 ms (medians), inside the run's noise. Equal
+participant addresses share one instance per participant (released with its last tombstone), and reasons share one
+string (at most 64 distinct ones are kept). The journal format is unchanged. Not done: keeping the SHA-256 as bytes. It is
+unique per message, so only a different in-memory type could shrink it (about 120 of the remaining bytes), and that type
+would have to be converted on every journal write and on compaction, the store's durability path, for a further 7.9 MB
+at most; declined on that trade.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of
