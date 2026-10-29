@@ -191,11 +191,19 @@ def main() -> int:
         primary = str(error)
     finally:
         try:
+            # Restore every source this run owns before refusing anything: stopping at the first file someone else
+            # changed left a later source still mutated (Codex 01a1855c, review of the installer-tests lane). A file
+            # that is neither the original nor this run's mutation is never overwritten; it is named after the loop.
+            foreign = []
             for relative in sources:
                 path = ROOT / relative
                 if path.read_bytes() not in (original[relative], current[relative]):
-                    raise RuntimeError("Source differs from original and owned mutation; manual recovery required: " + relative)
+                    foreign.append(relative)
+                    continue
                 path.write_bytes(original[relative])
+            if foreign:
+                raise RuntimeError("Source differs from original and owned mutation; manual recovery required: " +
+                                   ", ".join(foreign))
             report["sourceRestoredExactly"] = all(
                 digest((ROOT / relative).read_bytes()) == digest(original[relative]) for relative in sources)
             build("after-build")
