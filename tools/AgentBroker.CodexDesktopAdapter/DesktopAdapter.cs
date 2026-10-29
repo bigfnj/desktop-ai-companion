@@ -136,7 +136,8 @@ public sealed partial class DesktopAdapter : IAsyncDisposable
             EnsureOpen();
             if (receipts.Count >= MaximumReceipts) throw new DesktopAdapterException("receipt_capacity");
             var current = await DiscoverCoreAsync(binding.ConversationId, binding.OwnerClientId, token);
-            // No frame is written and no receipt reserved yet, so an owner missing here proves nothing was submitted. On the
+            // No turn (model-input) frame is written and no receipt reserved yet; owner discovery above wrote only a control
+            // frame. So an owner missing here proves this call submitted nothing. On the
             // typed external-peer path that defers for a retry: it is usually a view reconnecting, and refusing it lost messages
             // to live chats (N-agentbroker-refusal-transience-01). The plaintext path keeps its refusal, as it never defers, and
             // the no-client-found answer to the start-turn request below stays final on both.

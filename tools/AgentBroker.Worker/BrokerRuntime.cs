@@ -92,6 +92,7 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
             Interlocked.Decrement(ref activeWaits); waits.TryRemove(session, out _);
             throw new BrokerException("wait_capacity", "The broker's concurrent wait capacity is in use.");
         }
+        store.SetListening(session, true);
         return new WaitSlot(this, session);
     }
 
@@ -101,6 +102,7 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
         public void Dispose()
         {
             if (Interlocked.Exchange(ref released, 1) != 0) return;
+            owner.Store.SetListening(session, false);
             Interlocked.Decrement(ref owner.activeWaits); owner.waits.TryRemove(session, out _);
         }
     }
@@ -123,13 +125,8 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
 
     public async Task<IReadOnlyList<BrokerSession>> DirectoryAsync(bool forPeer, CancellationToken token)
     {
-        var result = store.Directory(forPeer).ToList();
-        // A generic mailbox reads Idle only while its owner is inside a wait on this broker. Registering or renewing proves
-        // nobody reads it: one unread for hours looked live to its senders (N-agentbroker-mailbox-activity-01, 2026-10-28),
-        // so it reads Unknown. The store keeps Idle as its presence state; native rows are untouched.
-        for (int i = 0; i < result.Count; i++)
-            if (result[i].Adapter == "mcp" && result[i].Activity == SessionActivity.Idle && !waits.ContainsKey(result[i].Address))
-                result[i] = result[i] with { Activity = SessionActivity.Unknown };
+        // The presented view: a mailbox nobody is waiting on reads Unknown, here and in /federation/directory alike.
+        var result = store.PresentedDirectory(forPeer).ToList();
         if (!forPeer)
         {
             var peers = store.Peers();

@@ -354,7 +354,8 @@ foreach (bool guarded in new[] { false, true })
 }
 
 // Refusal transience (2026-10-29): an owner missing at the pre-write rediscovery is usually a view reconnecting, and no
-// frame was written, so the submission defers and the same message ID is delivered once the owner is back.
+// turn (model-input) frame was written, only discovery's control frame, so the submission defers and the same message ID
+// is delivered once the owner is back.
 {
     await using var connection = new FakeConnection();
     await using var adapter = await DesktopAdapter.ConnectForTestAsync(connection, options with { EnableExternalPeerDelivery = true });
@@ -363,7 +364,7 @@ foreach (bool guarded in new[] { false, true })
     Guid id = Guid.NewGuid();
     var missing = await adapter.SubmitExternalPeerAsync(binding!, id, "x");
     Check(missing.Outcome == DesktopSubmissionOutcome.DeferredNotSubmitted && missing.ErrorCode == "owner_unavailable" && connection.SubmissionCount == 0,
-        "TRANSIENT_OWNER_DEFERS: an owner missing before any write defers instead of refusing, with nothing submitted");
+        "TRANSIENT_OWNER_DEFERS: an owner missing before any turn frame is written defers instead of refusing, with nothing submitted");
     connection.NoOwner = false;
     var retry = await adapter.SubmitExternalPeerAsync(binding!, id, "x");
     Check(retry.Outcome == DesktopSubmissionOutcome.Accepted && connection.SubmissionCount == 1,

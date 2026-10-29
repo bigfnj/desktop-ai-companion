@@ -130,7 +130,7 @@ public sealed partial class PeerFederation : IPeerFederation
             }
         })));
         application.MapGet("/federation/directory", (Func<HttpContext, Task<IResult>>)((HttpContext c) => Handle(c, () => {
-            RequirePeer(c); return Task.FromResult<IResult>(Results.Json(new PeerDirectory(store.BrokerId, store.Directory(true)), Json));
+            RequirePeer(c); return Task.FromResult<IResult>(Results.Json(new PeerDirectory(store.BrokerId, store.PresentedDirectory(true)), Json));
         })));
         application.MapPost("/federation/messages", (Func<HttpContext, Task<IResult>>)((HttpContext c) => Handle(c, async () => {
             Guid caller = RequirePeer(c); var message = await Read<BrokerMessage>(c);

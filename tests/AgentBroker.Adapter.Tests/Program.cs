@@ -41,7 +41,7 @@ try
         codex.Outcome = new(DesktopSubmissionOutcome.DeferredNotSubmitted, ErrorCode: "owner_unavailable");
         var ownerGone = await adapter.SubmitAsync(Message(again), default);
         Check(ownerGone.Outcome == AdapterAdmission.DeferredNotSubmitted && ownerGone.Reason == "native_owner_unavailable",
-            "TRANSIENT_OWNER_REASON: an owner missing before any write defers as native_owner_unavailable, not as a busy context");
+            "TRANSIENT_OWNER_REASON: an owner missing before any turn frame defers as native_owner_unavailable, not as a busy context");
         codex.Outcome = new(DesktopSubmissionOutcome.Uncertain);
         Check((await adapter.SubmitAsync(Message(again), default)).Outcome == AdapterAdmission.Uncertain,
             "Generic native uncertainty never becomes safe retry.");

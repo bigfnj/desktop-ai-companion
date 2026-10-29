@@ -95,6 +95,25 @@ try
     var peerB = a.Store.Peers().Single(); var peerA = b.Store.Peers().Single();
     var directory = await a.Federation.GetDirectoryAsync(peerB, default);
     Check(directory.Sessions.Count == 1 && directory.Sessions[0].Address == sb.Address, "mutual TLS directory exports exact public sessions only");
+    // Mailbox activity reaches paired brokers (Codex 01a1855c's review of 6c84056): through the real /federation/directory and
+    // the receiving broker's own list, a mailbox nobody waits on reads Unknown, and Idle only while its owner is inside a wait.
+    var remoteMailbox = new BrokerSession(new(b.Store.BrokerId, "mcp:" + Guid.NewGuid().ToString("D"), Guid.NewGuid()), "Synthetic remote mailbox",
+        "mcp", SessionCapabilities.Receive | SessionCapabilities.Reply, SessionActivity.Idle, DateTimeOffset.UtcNow.AddMinutes(1));
+    b.Store.Register(remoteMailbox);
+    await using (var runtimeA = new BrokerRuntime(a.Store, a.Federation, []))
+    await using (var runtimeB = new BrokerRuntime(b.Store, b.Federation, []))
+    {
+        async Task<(SessionActivity? Served, SessionActivity? Listed)> Seen() => (
+            (await a.Federation.GetDirectoryAsync(peerB, default)).Sessions.SingleOrDefault(s => s.Address == remoteMailbox.Address)?.Activity,
+            (await runtimeA.DirectoryAsync(false, default)).SingleOrDefault(s => s.Address == remoteMailbox.Address)?.Activity);
+        Check(await Seen() == (SessionActivity.Unknown, SessionActivity.Unknown),
+            "MAILBOX_PEER_UNKNOWN: a paired broker sees a mailbox nobody waits on as Unknown, in the served directory and its own list");
+        using (runtimeB.BeginWait(remoteMailbox.Address))
+            Check(await Seen() == (SessionActivity.Idle, SessionActivity.Idle),
+                "MAILBOX_PEER_IDLE_WHILE_WAITING: a paired broker sees the mailbox as Idle while its owner is inside a wait");
+        Check(await Seen() == (SessionActivity.Unknown, SessionActivity.Unknown),
+            "MAILBOX_PEER_UNKNOWN_AFTER_WAIT: once the wait ends a paired broker sees Unknown again");
+    }
     var message = new BrokerMessage(Guid.NewGuid(), Guid.NewGuid(), null, sa.Address, sb.Address, "Synthetic federation message.", clock.GetUtcNow(), clock.GetUtcNow().AddMinutes(1));
     a.Store.Accept(message, a.Store.BrokerId);
     var receipt = await a.Federation.SubmitAsync(peerB, message, default);

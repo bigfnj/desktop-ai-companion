@@ -71,6 +71,9 @@ public sealed class BrokerStore : IDisposable
     // Generic MCP mailboxes only: when the owner last registered or renewed. Process-local like the
     // sessions themselves (never on the wire, never in State), so a worker restart still drops them.
     private readonly Dictionary<SessionAddress, DateTimeOffset> mailboxActivity = new();
+    // Generic mailboxes whose owner is inside a wait right now (the worker's BeginWait). In memory only, and read only by
+    // PresentedDirectory, so presence, retention and every routing check keep using the stored activity.
+    private readonly HashSet<SessionAddress> listening = [];
     private readonly Dictionary<Guid, Guid> peerAuthorizations = new();
     // Completed and replaced by every Commit. A waiter captures it BEFORE checking state, so a commit
     // between its check and its wait has already completed the task it awaits. Never awaited under gate.
@@ -160,6 +163,23 @@ public sealed class BrokerStore : IDisposable
             sessions[session.Address] = session;
             if (session.Adapter == "mcp") mailboxActivity[session.Address] = Now;
             else mailboxActivity.Remove(session.Address);
+        }
+    }
+
+    public void SetListening(SessionAddress address, bool value)
+    {
+        lock (gate) { if (value) listening.Add(address); else listening.Remove(address); }
+    }
+
+    // The directory as agents see it, through list_sessions and a paired broker's /federation/directory alike: a present
+    // generic mailbox reads Idle only while its owner is inside a wait, else Unknown, because registering or renewing
+    // proves nobody reads it (N-agentbroker-mailbox-activity-01). Native rows and the stored state are unchanged.
+    public IReadOnlyList<BrokerSession> PresentedDirectory(bool forPeer = false)
+    {
+        lock (gate)
+        {
+            return Directory(forPeer).Select(s => s.Adapter == "mcp" && s.Activity == SessionActivity.Idle && !listening.Contains(s.Address)
+                ? s with { Activity = SessionActivity.Unknown } : s).ToArray();
         }
     }
 
