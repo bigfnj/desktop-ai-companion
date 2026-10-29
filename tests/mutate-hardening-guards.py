@@ -3662,7 +3662,8 @@ CASES = (
     (
         "followups: 1029: host: the pet's z-order call takes flags that can activate",
         os.path.join(REPO, "src", "dotNet", "FormCompanion.cs"),
-        b"            NativeMethods.SetWindowPos(Handle, insertAfter, 0, 0, 0, 0, StandDownZOrderFlags);\n",
+        # Re-pointed by lane feature/followups2: the call is ApplyZOrder's now, every pet z-order write's (N-followups-01).
+        b"            NativeMethods.SetWindowPos(Handle, insertAfter, 0, 0, 0, 0, ZOrderFlags);\n",
         b"            NativeMethods.SetWindowPos(Handle, insertAfter, 0, 0, 0, 0, 0x0003);\n",
         "followups: the pet's one SetWindowPos passes",
     ),
@@ -3672,6 +3673,53 @@ CASES = (
         b"            if (!StandDownZOrder(standDown, (DesktopWindows.ExtendedStyle(Handle) & FormSpeech.WsExTopMost) != 0, out insertAfter)) return;\n",
         b"            StandDownZOrder(standDown, (DesktopWindows.ExtendedStyle(Handle) & FormSpeech.WsExTopMost) != 0, out insertAfter);\n",
         "followups: the pet's one SetWindowPos passes",
+    ),
+    # ---- lane feature/followups2 ----
+    # N-followups-01: the pet off Form.TopMost, in the callers --hardening-selftest cannot run (each needs a live pet). Named
+    # "followups2:" for one --only, as in tests/mutate-selftest-guards.py. Expected fragments are the labels' opening words,
+    # short for the console wrap noted above.
+    (
+        "followups2: host: the per-animation raise writes Form.TopMost again",
+        os.path.join(REPO, "src", "dotNet", "FormCompanion.cs"),
+        b"                    ApplyTopMost(true); // bring to top again on each new animation\n",
+        b"                    TopMost = true; // bring to top again on each new animation\n",
+        "followups2: the pet never assigns Form.TopMost",
+    ),
+    (
+        "followups2: host: the tray click writes Form.TopMost again",
+        os.path.join(REPO, "src", "dotNet", "StartUp.cs"),
+        b"                pet.ApplyTopMost(true);\n",
+        b"                pet.TopMost = true;\n",
+        "followups2: the pet never assigns Form.TopMost",
+    ),
+    (
+        "followups2: host: the tray click raises a pet before its stand-down skip",
+        os.path.join(REPO, "src", "dotNet", "StartUp.cs"),
+        b"                if (pet.IsFullscreenBlocked) continue;\n",
+        b"                pet.ApplyTopMost(true);\n                if (pet.IsFullscreenBlocked) continue;\n",
+        "followups2: the per-animation raise and the tray click",
+    ),
+    (
+        "followups2: host: the per-animation raise loses its stand-down guard",
+        os.path.join(REPO, "src", "dotNet", "FormCompanion.cs"),
+        b"                    hwndFullscreenWindow == IntPtr.Zero &&\n",
+        b"",
+        "followups2: the per-animation raise and the tray click",
+    ),
+    # The respawn block's two re-pointed clauses (it asserts ApplyTopMost's ARGUMENT since lane feature/followups2).
+    (
+        "followups2: host: a respawn raises the pet over a blocked monitor again",
+        os.path.join(REPO, "src", "dotNet", "FormCompanion.cs"),
+        b"            ApplyTopMost(!spawningOntoBlockedMonitor);  // new in 1.2.6; without activating (N-followups-01)\n",
+        b"            ApplyTopMost(true);  // new in 1.2.6; without activating (N-followups-01)\n",
+        "a respawning pet, a child, or a grabbed pet cannot",
+    ),
+    (
+        "followups2: host: a grab raises the pet over a blocked monitor again",
+        os.path.join(REPO, "src", "dotNet", "FormCompanion.cs"),
+        b"                ApplyTopMost(hwndFullscreenWindow == IntPtr.Zero);   // Set again the topmost\n",
+        b"                ApplyTopMost(true);   // Set again the topmost\n",
+        "a respawning pet, a child, or a grabbed pet cannot",
     ),
 )
 

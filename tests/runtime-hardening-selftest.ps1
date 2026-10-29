@@ -939,7 +939,8 @@ Assert-True (
 Assert-True (
     $formPetSource -match '(?s)private bool MonitorIsBlockedNow\([\s\S]{0,900}?FullscreenScan\.BlockedMonitors\(' -and
     $formPetSource -match 'Visible = !spawningOntoBlockedMonitor;' -and
-    $formPetSource -match 'TopMost = !spawningOntoBlockedMonitor;' -and
+    # Through ApplyTopMost since N-followups-01 (lane feature/followups2): the pet never writes Form.TopMost.
+    $formPetSource -cmatch 'ApplyTopMost\(!spawningOntoBlockedMonitor\);' -and
     $formPetSource -match '_fullscreenHidden = spawningOntoBlockedMonitor;' -and
     # A CHILD is a separate window shown by its own code path and inherits nothing from a hidden parent --
     # the UFO ship is one. It has to ask the same question.
@@ -947,7 +948,7 @@ Assert-True (
     # ...and grabbing a pet must not be a way to force it back over a game. Asserting the CONDITION is
     # present, not the absence of the old adjacent pair: a comment between the two lines defeats an
     # adjacency pattern, which is exactly how this assertion first came back silent under mutation.
-    $formPetSource -match 'TopMost = hwndFullscreenWindow == IntPtr\.Zero;'
+    $formPetSource -cmatch 'ApplyTopMost\(hwndFullscreenWindow == IntPtr\.Zero\);'
 ) 'a respawning pet, a child, or a grabbed pet cannot appear over a fullscreen app'
 
 # A pet pinned to a monitor must (a) spawn there rather than on a random screen, and (b) HIDE rather than
@@ -5290,14 +5291,16 @@ Assert-True ($abiApply -cmatch 'if \(answer == null \|\| answer\.Outcome != Tray
 # that makes the activating call with a window. So, on comment-stripped FormCompanion.cs: the blocked branch stands down
 # through ApplyStandDownZOrder(true) after setting the marker and before it relocates or hides, the clear branch comes
 # back through ApplyStandDownZOrder(false), and neither assigns TopMost; ApplyStandDownZOrder returns on an unchanged state
-# BEFORE its one SetWindowPos, which passes the flags that hold SWP_NOACTIVATE.
+# BEFORE its z-order call, ApplyZOrder (lane feature/followups2: the pet's one SetWindowPos, shared with ApplyTopMost),
+# which passes the flags that hold SWP_NOACTIVATE.
 $fuPet = Remove-LineComments $formPetSource
 $fuStops = @("`n        private ", "`n        internal ", "`n        public ")
 $fuCheckFs = Get-MethodBody $fuPet 'private void CheckFullScreen()' $fuStops
 $fuClear = Get-MethodBody $fuPet 'private void ClearFullscreenStandDown()' $fuStops
 $fuApply = Get-MethodBody $fuPet 'internal void ApplyStandDownZOrder(bool standDown)' $fuStops
-Assert-True ($fuCheckFs.Length -gt 0 -and $fuClear.Length -gt 0 -and $fuApply.Length -gt 0) (
-    'followups: CheckFullScreen, ClearFullscreenStandDown and ApplyStandDownZOrder were located')
+$fuZOrder = Get-MethodBody $fuPet 'private void ApplyZOrder(IntPtr insertAfter)' $fuStops
+Assert-True ($fuCheckFs.Length -gt 0 -and $fuClear.Length -gt 0 -and $fuApply.Length -gt 0 -and $fuZOrder.Length -gt 0) (
+    'followups: CheckFullScreen, ClearFullscreenStandDown, ApplyStandDownZOrder and ApplyZOrder were located')
 $fuMarkerAt = $fuCheckFs.IndexOf('hwndFullscreenWindow = FullscreenBlockedMarker;')
 $fuDownAt = $fuCheckFs.IndexOf('ApplyStandDownZOrder(true);')
 $fuRelocateAt = $fuCheckFs.IndexOf('DesktopGeometry.ChooseRelocationTarget(')
@@ -5307,11 +5310,38 @@ Assert-True ($fuMarkerAt -ge 0 -and $fuDownAt -gt $fuMarkerAt -and $fuRelocateAt
     $fuClear -cnotmatch '(?<!\w)TopMost\s*=(?!=)') (
     "followups: the pet stands down and comes back through ApplyStandDownZOrder, never Form.TopMost (found at $fuMarkerAt, $fuDownAt, $fuRelocateAt)")
 $fuUnchangedAt = $fuApply.IndexOf('if (!StandDownZOrder(standDown, (DesktopWindows.ExtendedStyle(Handle) & FormSpeech.WsExTopMost) != 0, out insertAfter)) return;')
-$fuCallAt = $fuApply.IndexOf('NativeMethods.SetWindowPos(Handle, insertAfter, 0, 0, 0, 0, StandDownZOrderFlags);')
+$fuCallAt = $fuApply.IndexOf('ApplyZOrder(insertAfter);')
 Assert-True ($fuUnchangedAt -ge 0 -and $fuCallAt -gt $fuUnchangedAt -and
-    $fuPet -cmatch 'internal const uint StandDownZOrderFlags = FormSpeech\.SwpNoMove \| FormSpeech\.SwpNoSize \| FormSpeech\.SwpNoActivate;' -and
+    $fuZOrder -cmatch 'NativeMethods\.SetWindowPos\(Handle, insertAfter, 0, 0, 0, 0, ZOrderFlags\);' -and
+    $fuPet -cmatch 'internal const uint ZOrderFlags = FormSpeech\.SwpNoMove \| FormSpeech\.SwpNoSize \| FormSpeech\.SwpNoActivate;' -and
     [regex]::Matches($fuPet, 'SetWindowPos\(').Count -eq 2) (
     "followups: the pet's one SetWindowPos passes SWP_NOACTIVATE, after the unchanged-state return (found at $fuUnchangedAt, $fuCallAt)")
+
+# ---- lane feature/followups2 ----
+# THE PET NEVER WRITES Form.TopMost (N-followups-01), the bubble's shape (d5115b2) on every topmost write the pet has: the
+# setter activates the window, Form.CreateHandle re-runs it for a set flag, and Form.SetVisibleCore focuses a form it shows
+# whose flag is set. --hardening-selftest checks the Designer's flag, ApplyTopMost against a real window and CreateParams'
+# policy. What it cannot run are the callers, which need a live pet: Play's spawn and a grab are pinned in the respawn block
+# above; here, on comment-stripped source, nothing in FormCompanion.cs or StartUp.cs assigns TopMost (the WITNESS proves the
+# pattern finds the old writes and not the policy field), and the per-animation raise and the tray click's TopMostSheeps
+# raise through ApplyTopMost, each AFTER its stand-down guard.
+$fu2Pet = Remove-LineComments $formPetSource
+$fu2StartUp = Remove-LineComments $startUpSource
+$fu2Stops = @("`n        private ", "`n        internal ", "`n        public ", "`n        protected ")
+$fu2Animation = Get-MethodBody $fu2Pet 'private void SetNewAnimationCore(int id)' $fu2Stops
+$fu2Sheeps = Get-MethodBody $fu2StartUp 'public void TopMostSheeps()' $fu2Stops
+Assert-True ($fu2Animation.Length -gt 0 -and $fu2Sheeps.Length -gt 0) 'followups2: SetNewAnimationCore and TopMostSheeps were located'
+$fu2Assigns = '(?<!\w)TopMost\s*=(?!=)'
+Assert-True ('pet.TopMost = true;' -cmatch $fu2Assigns -and 'TopMost = !spawningOntoBlockedMonitor;' -cmatch $fu2Assigns -and
+    '_topMost = topMost;' -cnotmatch $fu2Assigns -and 'if (TopMost == x)' -cnotmatch $fu2Assigns) (
+    'followups2: WITNESS the TopMost-assignment pattern finds the old writes and not the policy field or a comparison')
+Assert-True ($fu2Pet -cnotmatch $fu2Assigns -and $fu2StartUp -cnotmatch $fu2Assigns) (
+    'followups2: the pet never assigns Form.TopMost, in FormCompanion.cs or StartUp.cs')
+$fu2SkipAt = $fu2Sheeps.IndexOf('if (pet.IsFullscreenBlocked) continue;')
+$fu2SheepRaiseAt = $fu2Sheeps.IndexOf('pet.ApplyTopMost(true);')
+Assert-True ($fu2SkipAt -ge 0 -and $fu2SheepRaiseAt -gt $fu2SkipAt -and
+    $fu2Animation -cmatch 'hwndFullscreenWindow == IntPtr\.Zero &&[^{}]{0,200}\{\s*ApplyTopMost\(true\);') (
+    "followups2: the per-animation raise and the tray click raise the pet through ApplyTopMost, each after its stand-down guard (found at $fu2SkipAt, $fu2SheepRaiseAt)")
 
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that

@@ -1728,7 +1728,9 @@ namespace DesktopAICompanion
                 FormCompanion pet = sheeps[i];
                 if (pet == null || pet.IsDisposed) continue;
                 if (pet.IsFullscreenBlocked) continue;
-                pet.TopMost = true;
+                // A raise to the top of the topmost band that does not activate the pet (N-followups-01): through the
+                // TopMost setter each pet took the focus in turn from the click that brought it here.
+                pet.ApplyTopMost(true);
             }
         }
 

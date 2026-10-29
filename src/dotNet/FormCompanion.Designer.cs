@@ -80,7 +80,9 @@
 			this.ShowIcon = false;
 			this.ShowInTaskbar = false;
 			this.Text = "Sheep";
-			this.TopMost = true;
+			// No TopMost (N-followups-01): the window is topmost by its own style (CreateParams) and every change goes
+			// through FormCompanion.ApplyTopMost. A set flag makes Form.CreateHandle run its activating setter and
+			// Form.SetVisibleCore focus the pet each time it is shown.
 			this.TransparencyKey = System.Drawing.Color.Magenta;
 			this.FormClosed += new System.Windows.Forms.FormClosedEventHandler(this.Form2_FormClosed);
 			this.DragDrop += new System.Windows.Forms.DragEventHandler(this.Form2_DragDrop);

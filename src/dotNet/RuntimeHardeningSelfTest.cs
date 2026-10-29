@@ -659,13 +659,14 @@ namespace DesktopAICompanion
 
                 // ---- the pet's stand-down z-order: once per change and never activating (N-host-fixes-02) ----
                 // The bubble's shape above, on FormCompanion's two stand-down changes. The decision is pure and checked
-                // first. Then a bare pet form (the constructor the child checks below use) gets a window, with
-                // Form.TopMost cleared BEFORE it has one: its Designer sets the flag, and WinForms' CreateHandle re-runs
-                // the activating setter for a form whose flag is set, so a pet window is never created here that way.
-                // Its own CreateParams still make the window topmost by style. Its z-order then goes through the seam,
-                // which records each call and makes it for real only with flags that cannot activate. Last, the clear
-                // branch runs on a second bare form that never gets a window: the old `if (!TopMost) TopMost = true;`
-                // only writes WinForms' flag there, no window and no call, and the check sees the flag change.
+                // first. Then a bare pet form (the constructor the child checks below use) gets a window, but only once
+                // its Form.TopMost is seen clear BEFORE it has one (N-followups-01, lane feature/followups2: the Designer
+                // no longer sets the flag): WinForms' CreateHandle re-runs the activating setter for a form whose flag is
+                // set, so a build whose pet sets it fails there and no pet window is created. Its own CreateParams make
+                // the window topmost by style. Its z-order then goes through the seam, which records each call and makes
+                // it for real only with flags that cannot activate. Last, the clear branch runs on a second bare form
+                // that never gets a window: the old `if (!TopMost) TopMost = true;` only writes WinForms' flag there, no
+                // window and no call, and the check sees the flag change.
                 IntPtr petInsertAfter;
                 bool petDownFromTop = FormCompanion.StandDownZOrder(true, true, out petInsertAfter);
                 bool petDownBelowBand = petInsertAfter == FormSpeech.HwndNoTopMost;
@@ -677,19 +678,23 @@ namespace DesktopAICompanion
                       "down=" + petDownFromTop + "/" + petDownAlready + " back=" + petBackToTop + "/" + petBackAlready,
                     petDownFromTop && petDownBelowBand && !petDownAlready && petBackToTop && petBackTopBand && !petBackAlready);
                 Check("pet stand-down: its z-order call neither moves, sizes nor activates the pet, flags=0x" +
-                      FormCompanion.StandDownZOrderFlags.ToString("X", System.Globalization.CultureInfo.InvariantCulture),
-                    FormCompanion.StandDownZOrderFlags == (FormSpeech.SwpNoMove | FormSpeech.SwpNoSize | FormSpeech.SwpNoActivate));
+                      FormCompanion.ZOrderFlags.ToString("X", System.Globalization.CultureInfo.InvariantCulture),
+                    FormCompanion.ZOrderFlags == (FormSpeech.SwpNoMove | FormSpeech.SwpNoSize | FormSpeech.SwpNoActivate));
 
                 var standDownPet = new FormCompanion();
                 try
                 {
+                    bool petFlagClear = !standDownPet.TopMost;
+                    Check("pet z-order: a new pet form's Form.TopMost is clear, so WinForms never runs its activating setter for it nor focuses it as it shows",
+                        petFlagClear);
                     if (standDownPet.IsHandleCreated)
                         Check("pet stand-down: a bare pet form has no window until its check creates one", false);
+                    else if (!petFlagClear)
+                        sb.AppendLine("NOTE: the pet's z-order checks were not run, because a window whose Form.TopMost is set would be activated when its handle is created");
                     else
                     {
-                        standDownPet.TopMost = false;   // no window yet: WinForms' flag only, no SetWindowPos
                         var petZOrder = new System.Collections.Generic.List<string>();
-                        standDownPet.StandDownZOrderForSelfTest = delegate (IntPtr window, IntPtr insertAfter, uint flags)
+                        standDownPet.ZOrderForSelfTest = delegate (IntPtr window, IntPtr insertAfter, uint flags)
                         {
                             bool cannotActivate = (flags & FormSpeech.SwpNoActivate) != 0;
                             petZOrder.Add((insertAfter == FormSpeech.HwndTopMost ? "topmost" : insertAfter == FormSpeech.HwndNoTopMost ? "notopmost" : "other") +
@@ -709,9 +714,51 @@ namespace DesktopAICompanion
                         Check("pet stand-down: coming back is one change to the top of the topmost band that does not activate, restored=" +
                               petRestored + " calls=" + string.Join(",", petZOrder),
                             petRestored && petZOrder.Count == 1 && petZOrder[0] == "topmost/noactivate");
+
+                        // ---- lane feature/followups2: every other topmost write, off Form.TopMost (N-followups-01) ----
+                        // Play's spawn, the per-animation raise, a grab and the tray click's TopMostSheeps all go through
+                        // ApplyTopMost now. Each is a RAISE as well as a state, as the setter's call was, so it is made
+                        // when the window is topmost already: two raises are two calls. Then a write below the band and
+                        // back, for real through the seam: the window's own bit follows each, and Form.TopMost stays clear.
+                        petZOrder.Clear();
+                        standDownPet.ApplyTopMost(true);
+                        standDownPet.ApplyTopMost(true);
+                        Check("pet z-order: each raise to the top of the topmost band is one call that does not activate, made even when the pet is topmost already, calls=" +
+                              string.Join(",", petZOrder),
+                            petZOrder.Count == 2 && petZOrder[0] == "topmost/noactivate" && petZOrder[1] == "topmost/noactivate");
+                        petZOrder.Clear();
+                        standDownPet.ApplyTopMost(false);
+                        bool petLowered = (SpeechExStyle(petHandle) & FormSpeech.WsExTopMost) == 0;
+                        standDownPet.ApplyTopMost(true);
+                        bool petRaised = (SpeechExStyle(petHandle) & FormSpeech.WsExTopMost) != 0;
+                        Check("pet z-order: a write below the topmost band and back is one call each that does not activate, and the window follows, lowered=" +
+                              petLowered + " raised=" + petRaised + " calls=" + string.Join(",", petZOrder),
+                            petLowered && petRaised && petZOrder.Count == 2 && petZOrder[0] == "notopmost/noactivate" && petZOrder[1] == "topmost/noactivate");
+                        Check("pet z-order: WITNESS none of the writes above set Form.TopMost", !standDownPet.TopMost);
                     }
                 }
                 finally { standDownPet.Dispose(); }
+
+                // A pet whose policy is below the topmost band when its window is made is created without WS_EX_TOPMOST,
+                // as the bubble is mid-stand-down: the write before the window exists records the policy and calls
+                // nothing, and CreateParams reads it. Form.TopMost is seen clear first, for the reason above.
+                var lowPet = new FormCompanion();
+                try
+                {
+                    if (lowPet.TopMost || lowPet.IsHandleCreated)
+                        Check("pet z-order: a bare pet form has Form.TopMost clear and no window until its check creates one", false);
+                    else
+                    {
+                        int lowCalls = 0;
+                        lowPet.ZOrderForSelfTest = delegate { lowCalls++; return true; };
+                        lowPet.ApplyTopMost(false);
+                        bool lowCreatedTopMost = (SpeechExStyle(lowPet.Handle) & FormSpeech.WsExTopMost) != 0;
+                        Check("pet z-order: a pet window made while its policy is below the topmost band is not created topmost, and nothing was called before it existed, created topmost=" +
+                              lowCreatedTopMost + " calls=" + lowCalls,
+                            !lowCreatedTopMost && lowCalls == 0);
+                    }
+                }
+                finally { lowPet.Dispose(); }
 
                 var clearingPet = new FormCompanion();
                 try
@@ -720,7 +767,6 @@ namespace DesktopAICompanion
                         Check("pet stand-down: a bare pet form has no window until its check creates one", false);
                     else
                     {
-                        clearingPet.TopMost = false;
                         FieldInfo petMarker = Require(typeof(FormCompanion).GetField("hwndFullscreenWindow", NpInstance), "FormCompanion.hwndFullscreenWindow (field)");
                         petMarker.SetValue(clearingPet, new IntPtr(1));
                         Require(typeof(FormCompanion).GetMethod("ClearFullscreenStandDown", NpInstance), "FormCompanion.ClearFullscreenStandDown()")

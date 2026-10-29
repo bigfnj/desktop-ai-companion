@@ -15466,8 +15466,9 @@ CASES = (
     # the call's own flags are tests/mutate-hardening-guards.py's ("followups: 1029: host: ...").
     ('followups: 1029: host: the pet\'s stand-down z-order may activate it',
      os.path.join(REPO, "src", "dotNet", "FormCompanion.cs"),
-     b'        internal const uint StandDownZOrderFlags = FormSpeech.SwpNoMove | FormSpeech.SwpNoSize | FormSpeech.SwpNoActivate;\n',
-     b'        internal const uint StandDownZOrderFlags = FormSpeech.SwpNoMove | FormSpeech.SwpNoSize;\n',
+     # Re-pointed by lane feature/followups2: the flags are every pet z-order call's now (ZOrderFlags, N-followups-01).
+     b'        internal const uint ZOrderFlags = FormSpeech.SwpNoMove | FormSpeech.SwpNoSize | FormSpeech.SwpNoActivate;\n',
+     b'        internal const uint ZOrderFlags = FormSpeech.SwpNoMove | FormSpeech.SwpNoSize;\n',
      HOST_CSPROJ, EXE,
      "--hardening-selftest", "dp-hardening-selftest.txt",
      "pet stand-down: five blocked ticks are one change below the topmost band that does not activate"),
@@ -15509,6 +15510,43 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--module-host-selftest", "dp-module-host-selftest.txt",
      "update: a launch whose update marker cannot be probed sweeps nothing, so a marked payload past the age limit survives"),
+
+    # N-followups-01: the pet off Form.TopMost, graded by --hardening-selftest through FormCompanion's z-order seam. No
+    # mutant here makes a real activating call: the Designer mutant fails the flag check BEFORE any pet window is made (the
+    # check makes none then), and the others keep SWP_NOACTIVATE. The callers' shapes are tests/mutate-hardening-guards.py's.
+    ("followups2: host: the pet's Designer sets Form.TopMost again",
+     os.path.join(REPO, "src", "dotNet", "FormCompanion.Designer.cs"),
+     b"\t\t\t// No TopMost (N-followups-01): the window is topmost by its own style (CreateParams) and every change goes\n",
+     b"\t\t\tthis.TopMost = true;\n"
+     b"\t\t\t// No TopMost (N-followups-01): the window is topmost by its own style (CreateParams) and every change goes\n",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "pet z-order: a new pet form's Form.TopMost is clear"),
+    # ...a raise skips its call when the window is topmost already, so the per-animation raise and the tray click no longer
+    # put the pet back over windows that came up since (the setter's call was a raise as well as a state).
+    ("followups2: host: a raise to topmost is skipped when the pet is topmost already",
+     os.path.join(REPO, "src", "dotNet", "FormCompanion.cs"),
+     b"            ApplyZOrder(topMost ? FormSpeech.HwndTopMost : FormSpeech.HwndNoTopMost);\n",
+     b"            if (((DesktopWindows.ExtendedStyle(Handle) & FormSpeech.WsExTopMost) != 0) != topMost) ApplyZOrder(topMost ? FormSpeech.HwndTopMost : FormSpeech.HwndNoTopMost);\n",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "pet z-order: each raise to the top of the topmost band is one call that does not activate, made even when the pet is topmost already"),
+    # ...CreateParams makes every pet window topmost again, whatever the policy says when it is made.
+    ("followups2: host: the pet is created topmost whatever its policy",
+     os.path.join(REPO, "src", "dotNet", "FormCompanion.cs"),
+     b"                if (_topMost) cp.ExStyle |= FormSpeech.WsExTopMost;\n",
+     b"                cp.ExStyle |= FormSpeech.WsExTopMost;\n",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "pet z-order: a pet window made while its policy is below the topmost band is not created topmost"),
+    # ...a topmost write before the window exists records nothing, so the window is made with the policy it had before.
+    ("followups2: host: a topmost write before the window exists records no policy",
+     os.path.join(REPO, "src", "dotNet", "FormCompanion.cs"),
+     b"            _topMost = topMost;\n",
+     b"",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "pet z-order: a pet window made while its policy is below the topmost band is not created topmost"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

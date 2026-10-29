@@ -61,7 +61,7 @@ namespace DesktopAICompanion
         /// <summary>
         /// True while this pet's monitor is claimed by a fullscreen window, i.e. while the pet has
         /// been stood down. Exposed so StartUp.TopMostSheeps can ask the same question every
-        /// `TopMost = true` site inside this class already asks -- it was the only one that did not,
+        /// `ApplyTopMost(true)` site inside this class already asks -- it was the only one that did not,
         /// and it is reached by a left-click on the tray icon.
         /// </summary>
         internal bool IsFullscreenBlocked { get { return hwndFullscreenWindow != IntPtr.Zero; } }
@@ -274,7 +274,10 @@ namespace DesktopAICompanion
                 CreateParams cp = base.CreateParams;
 
                 cp.ExStyle |= 0x00000080; // WS_EX_TOOLWINDOW             <- remove from ALT-TAB list
-                cp.ExStyle |= 0x00000008; // WS_EX_TOPMOST                <- set on TopMost
+                // WS_EX_TOPMOST by the window's own style, never Form.TopMost (N-followups-01, see ApplyTopMost), and only
+                // while the pet's topmost policy says so: a handle created (or re-created) mid-stand-down comes up below
+                // the game, never above it, as the speech bubble's does.
+                if (_topMost) cp.ExStyle |= FormSpeech.WsExTopMost;
                 cp.ExStyle |= 0x00080000; // WS_EX_LAYERED                <- increase paint performance
                 //cp.ExStyle |= 0x00000020; // WS_EX_TRANSPARENT            <- Do not draw window -> unclickable
                 //cp.Style |= 0x80000000; // WS_POPUP
@@ -689,7 +692,7 @@ namespace DesktopAICompanion
             _fullscreenHidden = spawningOntoBlockedMonitor;
             SetPetOpacity(0.0);                         // do not show first frame (as it is undefined)
             timer1.Enabled = true;                      // Enable the timer (interval is well known now)
-            TopMost = !spawningOntoBlockedMonitor;      // new in 1.2.6
+            ApplyTopMost(!spawningOntoBlockedMonitor);  // new in 1.2.6; without activating (N-followups-01)
         }
 
 			/// <summary>
@@ -910,13 +913,15 @@ namespace DesktopAICompanion
                 if (string.Equals(CurrentAnimation.Sequence.Action, "faceCursor", StringComparison.OrdinalIgnoreCase))
                     FaceTheCursor();
 
-                // v.1.2.6: this will steal taskbar focus and the tray menu will disappear. So this should not be used too often.
+                // v.1.2.6, "Keep companion above the taskbar": raise the pet over the taskbar again. Through Form.TopMost this
+                // also took the focus, so the tray menu disappeared; ApplyTopMost raises it to the same place without
+                // activating it (N-followups-01).
                 if (Program.MyData.GetStealTaskbarFocus() &&
                     hwndFullscreenWindow == IntPtr.Zero &&
                     CurrentAnimation.Start.OffsetY != 0 &&
                     CurrentAnimation.Start.X.Value != 0)
                 {
-                    TopMost = true; // bring to top again on each new animation
+                    ApplyTopMost(true); // bring to top again on each new animation
                 }
 
                 // Check if animation ID has a child. If so, the child will be created.
@@ -2072,12 +2077,11 @@ namespace DesktopAICompanion
         /// mid-sentence kept a non-TopMost bubble behind the windows on its new monitor.
         /// </summary>
         /// <remarks>
-        /// The show above still goes through WinForms (N-host-fixes-02 changed the z-order only): Form.SetVisibleCore
-        /// focuses a form it shows whose Form.TopMost flag is set, and that flag no longer follows the stand-down
-        /// (ApplyStandDownZOrder), so a pet HIDDEN by a stand-down is focused as it comes back, where before the
-        /// activation came from the TopMost setter on the next line instead. One activation either way on that path,
-        /// none now on the others. Closing it means taking the pet off Form.TopMost everywhere, as the bubble was
-        /// (filed as N-followups-01).
+        /// The show above still goes through WinForms, and no longer activates the pet (N-followups-01, lane
+        /// feature/followups2): Form.SetVisibleCore focuses a form it shows whose Form.TopMost flag is set, and since
+        /// N-host-fixes-02 that flag had stopped following the stand-down, so a pet HIDDEN by one was focused as it came
+        /// back. The pet is off Form.TopMost everywhere now (ApplyTopMost), its flag is never set, and this show is
+        /// SW_SHOWNOACTIVATE alone (ShowWithoutActivation). The z-order call after it is the stand-down's own.
         /// </remarks>
         private void ClearFullscreenStandDown()
         {
@@ -2103,21 +2107,62 @@ namespace DesktopAICompanion
         /// HWND_TOPMOST at the top of the topmost band, which is where the setter's same two calls put it: a pet that
         /// comes back from a stand-down is above other windows as it was. The activation the setter added moved nothing.
         ///
-        /// "Already has it" is the WINDOW's own WS_EX_TOPMOST bit, not a field and not Form.TopMost. Play, a grab, the
-        /// per-animation raise and StartUp.TopMostSheeps still write topmost through the setter, so a field kept here
-        /// would go stale behind them, and Form.TopMost is WinForms' cached flag, which a SetWindowPos does not update.
-        /// So that flag no longer follows the stand-down and keeps what the last setter call wrote. Nothing in this app
-        /// reads it; WinForms reads it in CreateHandle, which re-applies a set flag (this form's CreateParams make every
-        /// handle topmost anyway), and in SetVisibleCore (ClearFullscreenStandDown's remarks).
+        /// "Already has it" is the WINDOW's own WS_EX_TOPMOST bit, not Form.TopMost, which the pet never sets
+        /// (ApplyTopMost), and not the policy field, which the other writes set without asking: the bit is what the
+        /// window has, whoever put it there. The policy follows the stand-down here too, for a window created later.
         /// </summary>
         internal void ApplyStandDownZOrder(bool standDown)
         {
-            if (IsDisposed || !IsHandleCreated) return;
+            if (IsDisposed) return;
+            _topMost = !standDown;
+            if (!IsHandleCreated) return;   // CreateParams creates the window to match
             IntPtr insertAfter;
             if (!StandDownZOrder(standDown, (DesktopWindows.ExtendedStyle(Handle) & FormSpeech.WsExTopMost) != 0, out insertAfter)) return;
-            Func<IntPtr, IntPtr, uint, bool> seam = StandDownZOrderForSelfTest;
-            if (seam != null) { seam(Handle, insertAfter, StandDownZOrderFlags); return; }
-            NativeMethods.SetWindowPos(Handle, insertAfter, 0, 0, 0, 0, StandDownZOrderFlags);
+            ApplyZOrder(insertAfter);
+        }
+
+        /// <summary>
+        /// THE PET'S TOPMOST WRITE, every one but the stand-down's, NEVER THROUGH Form.TopMost (N-followups-01, lane
+        /// feature/followups2; the speech bubble's shape, d5115b2). Play's spawn, the per-animation raise ("Keep companion
+        /// above the taskbar"), a grab and StartUp.TopMostSheeps (a left-click on the tray icon) all wrote the WinForms
+        /// setter, which calls SetWindowPos with SWP_NOMOVE | SWP_NOSIZE and no SWP_NOACTIVATE, so each could take
+        /// activation while the app owned the foreground: the tray menu closed, a Settings dropdown shut. And the flag it
+        /// leaves set is read by WinForms twice more, both activating: Form.CreateHandle re-runs the setter for a set flag,
+        /// and Form.SetVisibleCore focuses a form it shows whose flag is set, which is how a pet hidden by a stand-down
+        /// was focused as it came back (ClearFullscreenStandDown), and every new pet as it first showed.
+        ///
+        /// Now: the window is created topmost by its own style (CreateParams, while <see cref="_topMost"/> says so; the
+        /// Designer no longer sets the flag), and each write is ONE SetWindowPos with SWP_NOMOVE | SWP_NOSIZE |
+        /// SWP_NOACTIVATE. Z-ORDER AS BEFORE: every call the setter made, made here with the same insert-after
+        /// (HWND_TOPMOST to the top of the topmost band, HWND_NOTOPMOST to the top of the rest), and made on every call as
+        /// the setter's was, because each is a RAISE as well as a state: the per-animation raise and the tray click exist
+        /// to put the pet back over windows that came up since, the taskbar among them. Only the stand-down skips a call
+        /// that changes nothing (<see cref="ApplyStandDownZOrder"/>), since it runs on every blocked tick. Before the
+        /// window exists the policy is only recorded, and CreateParams creates it to match.
+        ///
+        /// Refused: WS_EX_NOACTIVATE on the root pet, as its children have. It changes more than z-order (whether a
+        /// click activates the pet at all, which its grab and its debug menu run under), and its effect on a programmatic
+        /// SetWindowPos is not documented, which is why the bubble refused it too.
+        /// </summary>
+        internal void ApplyTopMost(bool topMost)
+        {
+            if (IsDisposed) return;
+            _topMost = topMost;
+            if (!IsHandleCreated) return;   // CreateParams creates the window to match
+            ApplyZOrder(topMost ? FormSpeech.HwndTopMost : FormSpeech.HwndNoTopMost);
+        }
+
+        /// <summary>The pet's topmost policy: what CreateParams creates a window with, and what the last
+        /// <see cref="ApplyTopMost"/> or <see cref="ApplyStandDownZOrder"/> asked for. Never Form.TopMost.</summary>
+        private bool _topMost = true;
+
+        /// <summary>The pet's ONE z-order call, for every write above: no move, no size, NO ACTIVATION. A failure is
+        /// ignored, as the WinForms setter ignored it: the next write tries again.</summary>
+        private void ApplyZOrder(IntPtr insertAfter)
+        {
+            Func<IntPtr, IntPtr, uint, bool> seam = ZOrderForSelfTest;
+            if (seam != null) { seam(Handle, insertAfter, ZOrderFlags); return; }
+            NativeMethods.SetWindowPos(Handle, insertAfter, 0, 0, 0, 0, ZOrderFlags);
         }
 
         /// <summary>Whether a stand-down change has anything to do, and where it puts the window: standing down from
@@ -2129,12 +2174,12 @@ namespace DesktopAICompanion
             return standDown == topMostNow;
         }
 
-        /// <summary>The one stand-down z-order call's flags: no move, no size, NO ACTIVATION.</summary>
-        internal const uint StandDownZOrderFlags = FormSpeech.SwpNoMove | FormSpeech.SwpNoSize | FormSpeech.SwpNoActivate;
+        /// <summary>The pet's one z-order call's flags (<see cref="ApplyZOrder"/>): no move, no size, NO ACTIVATION.</summary>
+        internal const uint ZOrderFlags = FormSpeech.SwpNoMove | FormSpeech.SwpNoSize | FormSpeech.SwpNoActivate;
 
         /// <summary>--hardening-selftest's seam: when set, receives (window, insert-after, flags) instead of SetWindowPos,
-        /// so the check sees each stand-down z-order call and its flags. Null in production.</summary>
-        internal Func<IntPtr, IntPtr, uint, bool> StandDownZOrderForSelfTest;
+        /// so the check sees each of the pet's z-order calls and its flags. Null in production.</summary>
+        internal Func<IntPtr, IntPtr, uint, bool> ZOrderForSelfTest;
 
         /// <summary>Move the pet to <paramref name="target"/> and re-spawn there (a natural fall-in).</summary>
         private void RelocateToDisplay(int target)
@@ -2320,10 +2365,12 @@ namespace DesktopAICompanion
             if (e.Button == MouseButtons.Left && Name.IndexOf("child") < 0)
             {
                 hwndWindow = (IntPtr)0;             // Remove window handles
-                TopMost = false;
+                // The two calls the TopMost setter made here, in the same order and to the same places, without
+                // activating (N-followups-01): the click has already activated the pet, so nothing is lost.
+                ApplyTopMost(false);
                 // Re-assert topmost only when no fullscreen app owns this screen. Grabbing a pet must not be
                 // a way to force it back over a game; CheckFullScreen sets the marker while blocked.
-                TopMost = hwndFullscreenWindow == IntPtr.Zero;   // Set again the topmost
+                ApplyTopMost(hwndFullscreenWindow == IntPtr.Zero);   // Set again the topmost
 				IsDragging = true;                   // Flag it as dragging pet
                 SetNewAnimation(Animations.AnimationDrag);  // Set the dragging animation (if present)
             }
@@ -3094,7 +3141,7 @@ namespace DesktopAICompanion
         internal static extern bool IsWindowVisible(IntPtr hWnd);
 
             /// <summary>
-            /// Change a window's z-order: FormCompanion.ApplyStandDownZOrder's one call, always with SWP_NOACTIVATE.
+            /// Change a window's z-order: FormCompanion.ApplyZOrder's one call, the pet's every z-order write, always with SWP_NOACTIVATE.
             /// </summary>
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
