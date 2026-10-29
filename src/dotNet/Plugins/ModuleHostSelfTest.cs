@@ -122,7 +122,8 @@ namespace DesktopAICompanion.Plugins
                 ok &= ResponderChainDeclines(sb);
                 ok &= ModuleDllDiscovery(sb);
                 // ---- lane feature/host-abi-180 ----
-                ok &= SharedSignInStore(sb);
+                ok &= SharedSignInStore(sb, dataRootScratch);
+                ok &= StoreReviewFixes(sb);
                 ok &= DeclarativeFlagList(sb);
                 ok &= SignInStartQuestion(sb);
             }
@@ -1499,7 +1500,7 @@ namespace DesktopAICompanion.Plugins
         /// held elsewhere, and the change event: once per commit, with the revision, after the commit, and a throwing
         /// handler skipped while the others still run.
         /// </summary>
-        private static bool SharedSignInStore(StringBuilder sb)
+        private static bool SharedSignInStore(StringBuilder sb, string isolatedDataRoot)
         {
             bool ok = true;
             string dir = SelfTestScratch.Create("credentials");
@@ -1709,19 +1710,30 @@ namespace DesktopAICompanion.Plugins
                     creds.ReadCredential("aibrain", HostCredentialId.ClaudeCodeSignIn).Value == SyntheticOther);
 
                 // AN UNINSTALL drops the removed module's grant when the removal is applied, and only its own; the saved
-                // token stays (uninstalling is not Remove token). The shipped ProcessPending, against this run's data root.
-                string shipped = HostCredentialStore.DefaultDirectory;
-                var shippedStore = new HostCredentialStore(shipped, delegate (string id) { return true; }, null);
-                HostCredentialStore.SetGrant(shipped, "abi180-gone", true, null);
-                HostCredentialStore.SetGrant(shipped, "abi180-kept", true, null);
-                shippedStore.TrySave("abi180-kept", HostCredentialId.ClaudeCodeSignIn, SyntheticToken);
-                PendingModuleRemovals.MarkForRemoval("abi180-gone");
-                string removalRoot = SelfTestScratch.Create("credentials-uninstall");
-                PendingModuleRemovals.ProcessPending(removalRoot, null);
-                ok &= Check(sb, "abi180: store: an applied uninstall drops that module's grant alone, and the saved token stays for the others",
-                    !HostCredentialStore.IsGranted(shipped, "abi180-gone") && HostCredentialStore.IsGranted(shipped, "abi180-kept") &&
-                    shippedStore.Read("abi180-kept", HostCredentialId.ClaudeCodeSignIn).Value == SyntheticToken);
-                SelfTestScratch.TryRelease(removalRoot, out ignoredRelease);
+                // token stays (uninstalling is not Remove token). The shipped ProcessPending, against this run's data root,
+                // and ONLY there (the independent review's P3-11): it writes a token and grants and processes the pending
+                // removals, so against a data root that is not this run's own scratch it would replace a user's real token
+                // and delete a real module's data. Not run, and a FAIL, unless the isolation is proved here.
+                bool isolated = AppPaths.IsDataRootOverridden && !string.IsNullOrEmpty(isolatedDataRoot) &&
+                                SamePath(AppPaths.DataRoot, isolatedDataRoot);
+                if (!isolated)
+                    ok &= Check(sb, "abi180: store: the uninstall check runs only against this run's own data root; not run, nothing written (" +
+                        AppPaths.DataRoot + ")", false);
+                else
+                {
+                    string shipped = HostCredentialStore.DefaultDirectory;
+                    var shippedStore = new HostCredentialStore(shipped, delegate (string id) { return true; }, null);
+                    HostCredentialStore.SetGrant(shipped, "abi180-gone", true, null);
+                    HostCredentialStore.SetGrant(shipped, "abi180-kept", true, null);
+                    shippedStore.TrySave("abi180-kept", HostCredentialId.ClaudeCodeSignIn, SyntheticToken);
+                    PendingModuleRemovals.MarkForRemoval("abi180-gone");
+                    string removalRoot = SelfTestScratch.Create("credentials-uninstall");
+                    PendingModuleRemovals.ProcessPending(removalRoot, null);
+                    ok &= Check(sb, "abi180: store: an applied uninstall drops that module's grant alone, and the saved token stays for the others",
+                        !HostCredentialStore.IsGranted(shipped, "abi180-gone") && HostCredentialStore.IsGranted(shipped, "abi180-kept") &&
+                        shippedStore.Read("abi180-kept", HostCredentialId.ClaudeCodeSignIn).Value == SyntheticToken);
+                    SelfTestScratch.TryRelease(removalRoot, out ignoredRelease);
+                }
 
                 var leaked = new List<string>();
                 lock (log)
@@ -1767,6 +1779,185 @@ namespace DesktopAICompanion.Plugins
                 missed.Count == 0 && named.Contains("Microphone") && named.Contains("SystemAudio") && named.Contains("InputSynthesis"));
             ok &= Check(sb, "WITNESS modules pane: no enforced flag is named as a statement (" + string.Join(",", both) + ")",
                 both.Count == 0 && !named.Contains("Network") && !named.Contains("ClaudeCodeSignIn"));
+            return ok;
+        }
+
+        /// <summary>
+        /// The independent review of 2026-10-29: an I/O error is never content (a held envelope fails an import over a removed
+        /// store as Unavailable, the file untouched; a held or damaged grants.json is Unavailable, never "not allowed", and is
+        /// never rewritten), the gate is re-checked under the lock, a refused read is logged once, the same sealed value is
+        /// unsealed once, the host's token rule is the runner's, and Remove's answer for an unusable value matches the doc.
+        /// Pixel-free: held files are FileStreams opened with FileShare.None in this process.
+        /// </summary>
+        private static bool StoreReviewFixes(StringBuilder sb)
+        {
+            bool ok = true;
+            string dir = SelfTestScratch.Create("credentials-review");
+            try
+            {
+                var log = new List<string>();
+                var store = new HostCredentialStore(dir, delegate (string id) { return true; },
+                    delegate (string id, string line) { lock (log) log.Add((id ?? "") + ": " + line); });
+                HostCredentialStore.SetGrant(dir, "aibrain", true, null);
+                string envelope = Path.Combine(dir, HostCredentialStore.ClaudeCodeSignInFileName);
+                string grants = Path.Combine(dir, HostCredentialStore.GrantsFileName);
+                store.TrySave("aibrain", HostCredentialId.ClaudeCodeSignIn, SyntheticToken);
+                store.Remove("aibrain", HostCredentialId.ClaudeCodeSignIn);
+                byte[] removedBytes = File.ReadAllBytes(envelope);
+
+                // P2-1: an envelope another program holds without read sharing. Nothing is decided over it.
+                var held = new List<string>();
+                using (new FileStream(envelope, FileMode.Open, FileAccess.Read, FileShare.None))
+                {
+                    held.Add(store.Read("aibrain", HostCredentialId.ClaudeCodeSignIn).State.ToString());
+                    held.Add(store.ImportIfUnset("aibrain", HostCredentialId.ClaudeCodeSignIn, SyntheticOther).Outcome.ToString());
+                    held.Add(store.TrySave("aibrain", HostCredentialId.ClaudeCodeSignIn, SyntheticOther).Outcome.ToString());
+                    held.Add(store.Remove("aibrain", HostCredentialId.ClaudeCodeSignIn).Outcome.ToString());
+                }
+                ok &= Check(sb, "abi180: review: an envelope another program holds is Unavailable to every verb, and an import never lands over the removal in it (" +
+                    string.Join(", ", held.ToArray()) + ")",
+                    string.Join(",", held.ToArray()) == "Unavailable,Unavailable,Unavailable,Unavailable" &&
+                    Convert.ToBase64String(File.ReadAllBytes(envelope)) == Convert.ToBase64String(removedBytes));
+                ok &= Check(sb, "abi180: review: WITNESS once the file is free the same import is refused for the removal, not taken",
+                    store.ImportIfUnset("aibrain", HostCredentialId.ClaudeCodeSignIn, SyntheticOther).Outcome == HostCredentialOutcome.NotImported);
+
+                // P2-1 and P3-15: a grants record that cannot be read, or is damaged, is no answer: Unavailable, never "not
+                // allowed", and never rewritten from what could be read.
+                HostCredentialReading whileGrantsHeld;
+                bool recordedWhileHeld;
+                using (new FileStream(grants, FileMode.Open, FileAccess.Read, FileShare.None))
+                {
+                    whileGrantsHeld = store.Read("aibrain", HostCredentialId.ClaudeCodeSignIn);
+                    recordedWhileHeld = HostCredentialStore.SetGrant(dir, "remembrance", true, null);
+                }
+                ok &= Check(sb, "abi180: review: a grants record another program holds reads Unavailable, never not allowed, and records nothing (" +
+                    whileGrantsHeld.State + ")",
+                    whileGrantsHeld.State == HostCredentialState.Unavailable && !recordedWhileHeld && !HostCredentialStore.IsGranted(dir, "remembrance"));
+                byte[] goodGrants = File.ReadAllBytes(grants);
+                File.WriteAllText(grants, "{ damaged");
+                byte[] damagedGrants = File.ReadAllBytes(grants);
+                HostCredentialReading whileDamaged = store.Read("aibrain", HostCredentialId.ClaudeCodeSignIn);
+                bool recordedOverDamage = HostCredentialStore.SetGrant(dir, "remembrance", true, null);
+                List<string> asked = SignInGrantQuestion.ModulesToAsk(new List<ModuleInfo> { SignInModule("remembrance", true) }, dir);
+                ok &= Check(sb, "abi180: review: a damaged grants record reads Unavailable, is kept byte for byte rather than rewritten, and no start question is asked (" +
+                    whileDamaged.State + ", " + asked.Count + " asked)",
+                    whileDamaged.State == HostCredentialState.Unavailable && !recordedOverDamage && asked.Count == 0 &&
+                    Convert.ToBase64String(File.ReadAllBytes(grants)) == Convert.ToBase64String(damagedGrants));
+                File.WriteAllBytes(grants, goodGrants);
+
+                // P3-13: a Revoke while a change waits for the lock refuses that change.
+                store.LockTimeout = 5000;
+                HostCredentialOutcome waited = HostCredentialOutcome.Saved;
+                using (IDisposable lease = DesktopAICompanion.ModuleKit.CrossSessionLock.TryAcquire(
+                    DesktopAICompanion.ModuleKit.CrossSessionLock.BuildGlobalMutexName("credentials", envelope), envelope, 2000))
+                {
+                    var saver = new System.Threading.Thread(delegate ()
+                    {
+                        waited = store.TrySave("aibrain", HostCredentialId.ClaudeCodeSignIn, SyntheticToken).Outcome;
+                    });
+                    saver.Start();
+                    System.Threading.Thread.Sleep(400);
+                    HostCredentialStore.SetGrant(dir, "aibrain", false, null);
+                    lease.Dispose();
+                    saver.Join(20000);
+                }
+                ok &= Check(sb, "abi180: review: a Revoke made while a save waits for the lock refuses that save, and nothing is written (" + waited + ")",
+                    waited == HostCredentialOutcome.ConsentRequired &&
+                    Convert.ToBase64String(File.ReadAllBytes(envelope)) == Convert.ToBase64String(removedBytes));
+                HostCredentialStore.SetGrant(dir, "aibrain", true, null);
+
+                // P3-8: a refused read is logged once per module and reason; the same sealed value is unsealed once.
+                var refusing = new HostCredentialStore(dir, delegate (string id) { return true; },
+                    delegate (string id, string line) { lock (log) log.Add((id ?? "") + ": " + line); });
+                for (int i = 0; i < 5; i++) refusing.Read("ungranted", HostCredentialId.ClaudeCodeSignIn);
+                int refusedLines = 0;
+                lock (log) foreach (string line in log) if (line == "ungranted: credentials: read refused: not-allowed") refusedLines++;
+                store.TrySave("aibrain", HostCredentialId.ClaudeCodeSignIn, SyntheticToken);
+                int unsealsBefore = store.UnsealsForDiagnostics;
+                for (int i = 0; i < 5; i++) store.Read("aibrain", HostCredentialId.ClaudeCodeSignIn);
+                int unseals = store.UnsealsForDiagnostics - unsealsBefore;
+                ok &= Check(sb, "abi180: review: five refused reads log one line, and five reads of one saved value unseal it once (" +
+                    refusedLines + " lines, " + unseals + " unseals)",
+                    refusedLines == 1 && unseals == 1 && store.Read("aibrain", HostCredentialId.ClaudeCodeSignIn).Value == SyntheticToken);
+
+                // P3-9: the host's rule is the runner's: an API key, a web address and a character outside a bearer token are refused.
+                var refusedValues = new List<string>();
+                foreach (string bad in new[] { "sk-ant-api03-SYNTHETIC-key", "https://example.invalid/x", "www.example.invalid", "token!with?marks" })
+                    refusedValues.Add(store.TrySave("aibrain", HostCredentialId.ClaudeCodeSignIn, bad).Outcome.ToString());
+                ok &= Check(sb, "abi180: review: the host refuses an API key, a web address and a non-token character, as the runner does (" +
+                    string.Join(", ", refusedValues.ToArray()) + ")",
+                    string.Join(",", refusedValues.ToArray()) == "Refused,Refused,Refused,Refused" &&
+                    store.Read("aibrain", HostCredentialId.ClaudeCodeSignIn).Value == SyntheticToken);
+
+                // P3-14: Remove of an unusable value is Removed, as the contract now says ("nothing was saved" is NothingToRemove).
+                string unusable = Convert.ToBase64String(System.Security.Cryptography.ProtectedData.Protect(Encoding.UTF8.GetBytes("https://not a token"),
+                    HostCredentialStore.Entropy, System.Security.Cryptography.DataProtectionScope.CurrentUser));
+                File.WriteAllText(envelope, "{\"schema\":1,\"revision\":40,\"state\":\"saved\",\"sealed\":\"" + unusable + "\"}");
+                HostCredentialCommit removedUnusable = store.Remove("aibrain", HostCredentialId.ClaudeCodeSignIn);
+                ok &= Check(sb, "abi180: review: Remove of a saved value that is no token answers Removed, as the contract says (" + removedUnusable.Outcome + ")",
+                    removedUnusable.Outcome == HostCredentialOutcome.Removed && removedUnusable.Revision == 41);
+
+                // P3-5: the start question for a long name still fits, and names the module's id beside it.
+                string longName = new string('N', 120);
+                TrayQuestion longQuestion = SignInGrantQuestion.For(longName, "longmodule");
+                QuestionEntry entry;
+                string reason;
+                bool longAccepted = TrayQuestionRules.TryAccept(longQuestion, DateTimeOffset.UtcNow, out entry, out reason);
+                TrayQuestion plain = SignInGrantQuestion.For("AI Brain", "aibrain");
+                ok &= Check(sb, "abi180: review: a module name of 120 characters still gives a question the queue takes, shortened, with the id beside it (" +
+                    (longAccepted ? longQuestion.Text.Length + " characters" : "refused: " + reason) + ")",
+                    longAccepted && longQuestion.Text.Contains("… (longmodule)") && plain.Text.StartsWith("Allow AI Brain (aibrain) to use", StringComparison.Ordinal));
+
+                // The Allow that could not be recorded: a second card says so and offers one try again.
+                string retryDir = SelfTestScratch.Create("credentials-retry");
+                var retryStore = new HostCredentialStore(retryDir, delegate (string id) { return true; }, null);
+                var retryAsked = new List<string>();
+                string retryGrants = Path.Combine(retryDir, HostCredentialStore.GrantsFileName);
+                var retryHost = new CompanionHost(null, retryStore)
+                {
+                    SignInAskForDiagnostics = delegate (string id, TrayQuestion q)
+                    {
+                        lock (retryAsked) retryAsked.Add(q.Key + "|" + q.Text);
+                        // The record goes bad while the first card is on screen, so the Allow cannot be written.
+                        if (q.Key == SignInGrantQuestion.Key) File.WriteAllText(retryGrants, "{ damaged");
+                        return System.Threading.Tasks.Task.FromResult(new TrayAnswer
+                        {
+                            Outcome = TrayQuestionOutcome.Chosen,
+                            ChoiceId = q.Key == SignInGrantQuestion.Key ? SignInGrantQuestion.AllowChoice : SignInGrantQuestion.RetryChoice,
+                        });
+                    },
+                };
+                retryHost.AskForSignInGrantsAsync(new List<ModuleInfo> { SignInModule("aibrain", true) }).Wait(20000);
+                ok &= Check(sb, "abi180: review: an Allow that could not be recorded is said on a second card with one Try again, and nothing is granted (" +
+                    retryAsked.Count + " cards)",
+                    retryAsked.Count == 2 && retryAsked[1] == SignInGrantQuestion.RetryKey + "|" +
+                        ModulePermissionConsent.RetryQuestionText("AI Brain (aibrain)") && !HostCredentialStore.IsGranted(retryDir, "aibrain"));
+                File.Delete(retryGrants);
+                var retryOk = new List<string>();
+                var retryHost2 = new CompanionHost(null, retryStore)
+                {
+                    SignInAskForDiagnostics = delegate (string id, TrayQuestion q)
+                    {
+                        lock (retryOk) retryOk.Add(q.Key);
+                        return System.Threading.Tasks.Task.FromResult(new TrayAnswer { Outcome = TrayQuestionOutcome.Chosen, ChoiceId = SignInGrantQuestion.AllowChoice });
+                    },
+                };
+                retryHost2.AskForSignInGrantsAsync(new List<ModuleInfo> { SignInModule("aibrain", true) }).Wait(20000);
+                ok &= Check(sb, "abi180: review: WITNESS an Allow that is recorded asks no second card",
+                    retryOk.Count == 1 && HostCredentialStore.IsGranted(retryDir, "aibrain"));
+                string ignoredRetry;
+                SelfTestScratch.TryRelease(retryDir, out ignoredRetry);
+            }
+            catch (Exception ex)
+            {
+                ok = false;
+                sb.AppendLine("EXC (store review fixes): " + ex.GetType().Name + ": " + ex.Message);
+            }
+            finally
+            {
+                string releaseDetail;
+                SelfTestScratch.TryRelease(dir, out releaseDetail);
+            }
             return ok;
         }
 
@@ -1875,7 +2066,7 @@ namespace DesktopAICompanion.Plugins
                 string choices = q == null ? "" : string.Join(", ", new List<TrayChoice>(q.Choices).ConvertAll<string>(delegate (TrayChoice c) { return c.Id + "=" + c.Label; }).ToArray());
                 ok &= Check(sb, "abi180: start question: the queue takes it; it names the module and says what the grant allows; Allow, Not now and Don't ask again; it times out to Not now and waits while held (" +
                     (accepted ? choices : "refused: " + reason) + ")",
-                    accepted && q.Text.StartsWith("Allow AI Brain to use the shared Claude Code sign-in?", StringComparison.Ordinal) &&
+                    accepted && q.Text.StartsWith("Allow AI Brain (aibrain) to use the shared Claude Code sign-in?", StringComparison.Ordinal) &&
                     q.Text.Contains("read, replace and remove") && q.Text.Contains("on its row in Settings, Modules") &&
                     choices == "allow=Allow, not-now=Not now, never=Don't ask again" &&
                     q.TimeoutChoiceId == SignInGrantQuestion.NotNowChoice && !q.RunsWhileHeld);

@@ -225,6 +225,9 @@ namespace DesktopAICompanion.CodingAgent
         /// <summary>The token store was the host's shared Claude Code sign-in (host 1.8.0), so the answer's words say the
         /// token is the shared one and not one "in this card".</summary>
         internal bool TokenShared;
+        /// <summary>The unreadable or not-a-token state was this module's OWN old copy beside a shared store never used, so the
+        /// words name that copy (the independent review's P3-10).</summary>
+        internal bool TokenOwnLeftover;
         /// <summary>The model the call asked for: Claude Code's alias, or the Codex slug the user chose; "" when it asked
         /// for none (Claude Code's default, Codex's automatic pick). <see cref="Model"/> is the one that ran: for Claude
         /// Code the model its stream says answered, for Codex the slug it was sent (its stream names none).</summary>
@@ -938,7 +941,9 @@ namespace DesktopAICompanion.CodingAgent
                 }
                 else if (request.Agent == CodingAgentKind.Claude)
                 {
-                    ClaudeTokenState tokenState = ReadClaudeToken(out savedToken);
+                    bool ownLeftover;
+                    ClaudeTokenState tokenState = ReadClaudeToken(out savedToken, out ownLeftover);
+                    answer.TokenOwnLeftover = ownLeftover;
                     // The shared sign-in's two refusals (host 1.8.0). Unavailable stops the call, as an unreadable token
                     // does. Not allowed runs it on Claude Code's own sign-in, as with no token saved (the card's Signed in
                     // as row says why), unless this module's own old token is still waiting to move into the shared store:
@@ -1902,7 +1907,16 @@ namespace DesktopAICompanion.CodingAgent
         /// store when this runner has one (ReadSharedClaudeToken), else from this module's own file.</summary>
         internal ClaudeTokenState ReadClaudeToken(out string token)
         {
-            if (_sharedSignIn != null) return ReadSharedClaudeToken(out token);
+            bool ownLeftover;
+            return ReadClaudeToken(out token, out ownLeftover);
+        }
+
+        /// <param name="ownLeftover">The state is that of this module's OWN old copy, still in its folder beside a shared store
+        /// never used (the independent review's P3-10), so the words name that copy and not the shared token.</param>
+        private ClaudeTokenState ReadClaudeToken(out string token, out bool ownLeftover)
+        {
+            ownLeftover = false;
+            if (_sharedSignIn != null) return ReadSharedClaudeToken(out token, out ownLeftover);
             return ReadLocalClaudeToken(out token);
         }
 
@@ -2037,9 +2051,10 @@ namespace DesktopAICompanion.CodingAgent
             catch { return false; }
         }
 
-        private ClaudeTokenState ReadSharedClaudeToken(out string token)
+        private ClaudeTokenState ReadSharedClaudeToken(out string token, out bool ownLeftover)
         {
             token = null;
+            ownLeftover = false;
             MigrateLocalClaudeToken();
             HostCredentialReading reading = SharedRead();
             ObserveSharedRevision(reading == null ? -1 : reading.Revision);
@@ -2064,13 +2079,25 @@ namespace DesktopAICompanion.CodingAgent
                     {
                         string ignored;
                         ClaudeTokenState local = ReadLocalClaudeToken(out ignored);
-                        if (local == ClaudeTokenState.Unreadable || local == ClaudeTokenState.NotAToken) return local;
+                        if (local == ClaudeTokenState.Unreadable || local == ClaudeTokenState.NotAToken)
+                        {
+                            ownLeftover = true;
+                            return local;
+                        }
                         if (local == ClaudeTokenState.Saved) return ClaudeTokenState.Unavailable;
                     }
                     return ClaudeTokenState.None;
                 default:
                     return ClaudeTokenState.Unavailable;
             }
+        }
+
+        /// <summary>Whether the shared store holds a saved value that this runner's own rule (CheckClaudeToken) refuses.</summary>
+        private bool SharedHoldsAValueNotSent()
+        {
+            HostCredentialReading now = SharedRead();
+            string ignored;
+            return now != null && now.State == HostCredentialState.Saved && CheckClaudeToken(now.Value, out ignored) != null;
         }
 
         private void NoteMigration(string note)
@@ -2111,6 +2138,15 @@ namespace DesktopAICompanion.CodingAgent
                     if (import == null || (import.Outcome != HostCredentialOutcome.Imported && import.Outcome != HostCredentialOutcome.NotImported))
                     {
                         NoteMigration("not moved to the shared store: " + (import == null ? "Unavailable" : import.Outcome.ToString()));
+                        return;
+                    }
+                    // The import's own revision, held at once (the independent review's P3-3), so its event changes nothing.
+                    if (import.Outcome == HostCredentialOutcome.Imported) AdoptSharedRevision(import.Revision);
+                    // Not imported because the store holds a value: kept if that value is one this runner will not send
+                    // (P3-9: a host or a module with a looser rule wrote it), so the only token that works is not lost.
+                    if (import.Outcome == HostCredentialOutcome.NotImported && SharedHoldsAValueNotSent())
+                    {
+                        NoteMigration("not moved, and this module's copy kept: the shared store holds a value this module will not send");
                         return;
                     }
                     // Deleted only now, after the shared store committed the import or said it holds one already.
@@ -2165,15 +2201,26 @@ namespace DesktopAICompanion.CodingAgent
 
         /// <summary>Remove token with the shared store: the shared copy first, which closes the store to imports, then this
         /// module's own old copy if one is still here. Each outcome said: removed, nothing to remove, the shared copy removed
-        /// and this module's copy left (press again), not allowed (nothing removed), or the store unavailable.</summary>
+        /// and this module's copy left (press again), not allowed, or the store unavailable. Two cases touch this module's
+        /// own copy alone (the independent review): a store never used, where closing it from a leftover would cost another
+        /// module its working token at that module's next use (P3-10); and a module not allowed the shared sign-in, whose
+        /// calls otherwise stopped for good, since nothing removed its waiting copy (P2-2).</summary>
         private string RemoveSharedClaudeToken()
         {
+            if (LocalClaudeTokenWaiting())
+            {
+                HostCredentialReading reading = SharedRead();
+                if (reading != null && reading.State == HostCredentialState.None && reading.Revision == 0)
+                    return DeleteOwnCopy(CodingAgentCliText.OwnCopyDeletedSentence(), "the shared store was never used and is left as it is");
+            }
             HostCredentialCommit commit;
             try { commit = _sharedSignIn.RemoveCredential(_moduleId, HostCredentialId.ClaudeCodeSignIn); }
             catch { commit = null; }
             HostCredentialOutcome outcome = commit == null ? HostCredentialOutcome.Unavailable : commit.Outcome;
             if (outcome == HostCredentialOutcome.Denied || outcome == HostCredentialOutcome.ConsentRequired)
             {
+                if (LocalClaudeTokenWaiting())
+                    return DeleteOwnCopy(CodingAgentCliText.OwnCopyDeletedNotAllowedSentence(), "this module is not allowed the shared store, which is not touched");
                 Log("cli: claude sign-in token not removed: this module is not allowed the shared store");
                 return CodingAgentCliText.SharedSignInNotAllowedForRemove();
             }
@@ -2194,6 +2241,22 @@ namespace DesktopAICompanion.CodingAgent
             return outcome == HostCredentialOutcome.Removed ? CodingAgentCliText.SharedTokenRemovedSentence : CodingAgentCliText.SharedNothingToRemoveSentence;
         }
 
+        /// <summary>This module's own old copy deleted, and nothing else: <paramref name="done"/> is the answer, the log names
+        /// why the shared store was not touched.</summary>
+        private string DeleteOwnCopy(string done, string why)
+        {
+            Exception failure = DeleteLocalClaudeToken(ClaudeTokenPath);
+            if (failure != null)
+            {
+                Log("cli: claude sign-in token: this module's old copy not removed (" + why + "): " + failure.GetType().Name);
+                return "✗ The token " + CodingAgentModuleWords.Module + " saved before could not be deleted (" + failure.GetType().Name +
+                       "). Press Remove token again in a moment.";
+            }
+            ForgetClaudeReadings();
+            Log("cli: claude sign-in token: this module's old copy removed; " + why);
+            return done;
+        }
+
         /// <summary>The host said the shared sign-in changed (IHostCredentials.CredentialChanged): true when this runner's
         /// Claude Code readings were dropped, so the module refreshes its pane; false for a revision it already holds (its
         /// own commit's event among them) and for a runner with no shared store.</summary>
@@ -2211,14 +2274,34 @@ namespace DesktopAICompanion.CodingAgent
             ObserveSharedRevision(reading == null ? -1 : reading.Revision);
         }
 
+        // Whether the last reading of the store was no reading at all (a refusal, or the store unavailable): -1 is not a
+        // revision, so it never moves _sharedRevision, and the change in and out of it is what drops the readings.
+        private bool _sharedRefused;
+
+        /// <summary>
+        /// ORDERED, not equality (the independent review's P3-3): the highest revision seen is held, and a revision at or below
+        /// it changes nothing, so the origin's own late event, an older event delivered after a newer one, or a read that
+        /// began before a commit and lands after it, never drops a reading again. The move to and from "no reading" (a
+        /// refusal, or the store unavailable) drops them once: they described a sign-in this module could, or could not, see.
+        /// </summary>
         private bool ObserveSharedRevision(long revision)
         {
             if (_sharedSignIn == null) return false;
             lock (_detailsSync)
             {
-                if (_sharedRevision == long.MinValue) { _sharedRevision = revision; return false; }
-                if (_sharedRevision == revision) return false;
-                _sharedRevision = revision;
+                if (revision < 0)
+                {
+                    if (_sharedRefused) return false;
+                    _sharedRefused = true;
+                    if (_sharedRevision == long.MinValue) return false;
+                    ForgetClaudeReadings();
+                    return true;
+                }
+                bool wasRefused = _sharedRefused;
+                _sharedRefused = false;
+                if (_sharedRevision == long.MinValue && !wasRefused) { _sharedRevision = revision; return false; }
+                if (revision <= _sharedRevision && !wasRefused) return false;
+                if (revision > _sharedRevision) _sharedRevision = revision;
                 ForgetClaudeReadings();
                 return true;
             }
@@ -2230,7 +2313,8 @@ namespace DesktopAICompanion.CodingAgent
         {
             lock (_detailsSync)
             {
-                _sharedRevision = revision;
+                if (revision > _sharedRevision) _sharedRevision = revision;
+                _sharedRefused = false;
                 return ForgetClaudeReadings();
             }
         }
@@ -3774,13 +3858,16 @@ namespace DesktopAICompanion.CodingAgent
                     details.CodexModels = new List<CodexModelEntry>(pick.Models);
                 }
                 string ignored;
-                ClaudeTokenState tokenState = agent == CodingAgentKind.Claude ? ReadClaudeToken(out ignored) : ClaudeTokenState.None;
+                bool ownLeftover = false;
+                ClaudeTokenState tokenState = agent == CodingAgentKind.Claude ? ReadClaudeToken(out ignored, out ownLeftover) : ClaudeTokenState.None;
                 // One way out of the try, so the token check below sees every reading (round 3: these two returned from
                 // inside it, with whatever version a stopped probe had left).
                 if (tokenState == ClaudeTokenState.Unreadable)
-                    details.SignedIn = SharedSignIn ? CodingAgentCliText.SharedTokenUnreadableSentence : CodingAgentCliText.TokenUnreadableSentence;
+                    details.SignedIn = ownLeftover ? CodingAgentCliText.OwnLeftoverUnreadableSentence()
+                        : SharedSignIn ? CodingAgentCliText.SharedTokenUnreadableSentence : CodingAgentCliText.TokenUnreadableSentence;
                 else if (tokenState == ClaudeTokenState.NotAToken)
-                    details.SignedIn = SharedSignIn ? CodingAgentCliText.SharedTokenNotATokenSentence : CodingAgentCliText.TokenNotATokenSentence;
+                    details.SignedIn = ownLeftover ? CodingAgentCliText.OwnLeftoverNotATokenSentence()
+                        : SharedSignIn ? CodingAgentCliText.SharedTokenNotATokenSentence : CodingAgentCliText.TokenNotATokenSentence;
                 // The shared sign-in's refusals (host 1.8.0), said as AskAsync acts on them.
                 else if (tokenState == ClaudeTokenState.Unavailable)
                     details.SignedIn = CodingAgentCliText.TokenStoreUnavailableSentence;
@@ -4665,7 +4752,7 @@ namespace DesktopAICompanion.CodingAgent
             "✗ What is saved as the shared Claude Code sign-in token is not a sign-in token, so nothing is sent with it. Press Remove token, then paste the token claude setup-token prints and press Validate, which saves it once it answers.";
 
         internal const string SharedTokenUnreadableSentence =
-            "✗ The shared Claude Code sign-in token cannot be read by this Windows account (it was saved by another user, or on another machine). Paste it again, or press Remove token to use Claude Code's own sign-in.";
+            "✗ The shared Claude Code sign-in token cannot be read (it was saved by another Windows user or on another machine, or its file is damaged). Paste it again, or press Remove token to use Claude Code's own sign-in.";
 
         internal const string SharedTokenRefusedSentence =
             "✗ Claude Code refused the shared sign-in token. Make a new one with claude setup-token and paste it in, or press Remove token to use Claude Code's own sign-in.";
@@ -4705,6 +4792,37 @@ namespace DesktopAICompanion.CodingAgent
             string module = CodingAgentModuleWords.Module;
             return module + " is not allowed the shared Claude Code sign-in, so the token was not saved. Allow it on " + module +
                    "'s row in Settings, Modules, then paste it again.";
+        }
+
+        /// <summary>The card's row and a call's answer when the unreadable token is this module's own old copy, beside a shared
+        /// store never used (the independent review's P3-10): it is that copy, and Remove token deletes it alone.</summary>
+        internal static string OwnLeftoverUnreadableSentence()
+        {
+            string module = CodingAgentModuleWords.Module;
+            return "✗ The token " + module + " saved before the shared sign-in cannot be read by this Windows account (it was saved by another user, or on another machine), so nothing was started. Press Remove token to delete it; the shared sign-in is not touched.";
+        }
+
+        /// <summary>As above, for an old copy that is no token.</summary>
+        internal static string OwnLeftoverNotATokenSentence()
+        {
+            string module = CodingAgentModuleWords.Module;
+            return "✗ What " + module + " saved as its token before the shared sign-in is not a sign-in token, so nothing is sent with it. Press Remove token to delete it; the shared sign-in is not touched.";
+        }
+
+        /// <summary>Remove token's answer when it deleted this module's own old copy beside a shared store never used.</summary>
+        internal static string OwnCopyDeletedSentence()
+        {
+            string module = CodingAgentModuleWords.Module;
+            return "✓ Deleted the token " + module + " saved before the shared sign-in. The shared sign-in was not touched; Claude Code calls use Claude Code's own sign-in.";
+        }
+
+        /// <summary>Remove token's answer when the module is not allowed the shared sign-in and its own old copy was waiting
+        /// (the independent review's P2-2): that copy is deleted, so the calls run again, and the shared store is not read or
+        /// written.</summary>
+        internal static string OwnCopyDeletedNotAllowedSentence()
+        {
+            string module = CodingAgentModuleWords.Module;
+            return "✓ Deleted the token " + module + " saved before; its Claude Code calls use Claude Code's own sign-in. The shared sign-in was not touched (" + module + " is not allowed it).";
         }
 
         /// <summary>Remove token's answer when the module is not allowed the shared sign-in: nothing was removed.</summary>
@@ -4830,9 +4948,9 @@ namespace DesktopAICompanion.CodingAgent
                     return "✗ " + product + " is not installed: there is no " + CodingAgents.ExecutableName(agent) + " " +
                            LookedIn(agent) + " (a linked or network folder is not trusted). Install it, then press Validate again.";
                 case CliOutcome.TokenUnreadable:
-                    return a.TokenShared ? SharedTokenUnreadableSentence : TokenUnreadableSentence;
+                    return a.TokenOwnLeftover ? OwnLeftoverUnreadableSentence() : a.TokenShared ? SharedTokenUnreadableSentence : TokenUnreadableSentence;
                 case CliOutcome.TokenNotAToken:
-                    return a.TokenShared ? SharedTokenNotATokenSentence : TokenNotATokenSentence;
+                    return a.TokenOwnLeftover ? OwnLeftoverNotATokenSentence() : a.TokenShared ? SharedTokenNotATokenSentence : TokenNotATokenSentence;
                 case CliOutcome.TokenNotAllowed:
                     return TokenNotAllowedSentence();
                 case CliOutcome.TokenStoreUnavailable:

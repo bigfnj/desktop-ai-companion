@@ -1373,7 +1373,7 @@ namespace DesktopAICompanion.Modules
         // otherwise NotImported with the store's current revision (see THE STORE'S LIFE above).
         HostCredentialCommit ImportCredentialIfUnset(string moduleId, HostCredentialId credential, string value);
 
-        // Removed, or NothingToRemove when nothing usable was saved. Either way the store is closed to imports from then on.
+        // Removed (a value was saved, usable or not), or NothingToRemove when nothing was saved (never, or removed already).
         HostCredentialCommit RemoveCredential(string moduleId, HostCredentialId credential);
 
         // After a commit (Saved, Imported, Removed, or the NothingToRemove that closed a store never used) has reached the
@@ -1420,7 +1420,7 @@ namespace DesktopAICompanion.Modules
         Imported = 2,
         NotImported = 3,      // the store has been used, so the caller's old copy is not taken (delete it)
         Removed = 4,
-        NothingToRemove = 5,  // nothing usable was saved; the store is closed to imports all the same
+        NothingToRemove = 5,  // nothing was saved (never, or removed already); the store is closed to imports all the same
         Refused = 6,          // the value is nothing a token can be: see Problem
         Denied = 7,
         ConsentRequired = 8,

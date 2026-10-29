@@ -4,6 +4,7 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Nodes;
+using System.Threading;
 using DesktopAICompanion.ModuleKit;
 using DesktopAICompanion.Modules;
 
@@ -94,8 +95,25 @@ namespace DesktopAICompanion.Plugins
             try { declared = _declares != null && _declares((moduleId ?? "").Trim()); }
             catch { declared = false; }
             if (!declared) { reason = "not-declared"; return HostCredentialState.Denied; }
-            if (!IsGranted(_directory, moduleId)) { reason = "not-allowed"; return HostCredentialState.ConsentRequired; }
+            // A grants record that cannot be read, or is damaged, is Unavailable and never "not allowed" (the independent
+            // review's P2-1): read as not allowed, a module with no old token would run its calls on Claude Code's own
+            // sign-in, another account than the one the user saved a token for.
+            bool readable;
+            bool granted = IsGranted(_directory, moduleId, out readable);
+            if (!readable) { reason = "grants-unreadable"; return HostCredentialState.Unavailable; }
+            if (!granted) { reason = "not-allowed"; return HostCredentialState.ConsentRequired; }
             return null;
+        }
+
+        /// <summary>Each (module, verb, reason) refusal is logged once per store, not on every read: a module the user has
+        /// not allowed reads the store on every pane open and every call (the independent review's P3-8).</summary>
+        private readonly HashSet<string> _loggedRefusals = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        private void LogRefusal(string moduleId, string verb, string reason)
+        {
+            lock (_loggedRefusals)
+                if (!_loggedRefusals.Add((moduleId ?? "") + "|" + verb + "|" + reason)) return;
+            Log(moduleId, verb + " refused: " + reason);
         }
 
         private static HostCredentialOutcome OutcomeFor(HostCredentialState refusal)
@@ -117,21 +135,55 @@ namespace DesktopAICompanion.Plugins
         private sealed class Envelope
         {
             internal bool Exists;
+            /// <summary>The file is there and could not be read now (held by another process, access refused): neither
+            /// never used nor damaged, so nothing may be decided over it.</summary>
+            internal bool Unavailable;
             internal bool Damaged;
             internal long Revision;
             internal string State = "";
             internal string Sealed = "";
         }
 
+        internal enum FileRead { Missing, Read, Unavailable }
+
+        /// <summary>
+        /// A file's text, told apart three ways (the independent review's P2-1): Missing only for a file or folder that is not
+        /// there; Unavailable for every other failure (a sharing violation, access refused, a bad path), which before read as
+        /// "damaged" or "never used" and let an import commit over a removed store. Opened sharing read, write AND delete, so
+        /// a reader never makes a commit's atomic replace fail (P3-7).
+        /// </summary>
+        internal static FileRead TryReadShared(string path, out string text)
+        {
+            text = null;
+            try
+            {
+                using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                using (var reader = new StreamReader(stream, Encoding.UTF8))
+                    text = reader.ReadToEnd();
+                return FileRead.Read;
+            }
+            catch (FileNotFoundException) { return FileRead.Missing; }
+            catch (DirectoryNotFoundException) { return FileRead.Missing; }
+            catch (Exception) { return FileRead.Unavailable; }
+        }
+
         private Envelope ReadEnvelope()
         {
             var envelope = new Envelope();
             string path = EnvelopePath;
-            if (!File.Exists(path)) return envelope;   // never used: revision 0
+            string text;
+            FileRead read = TryReadShared(path, out text);
+            if (read == FileRead.Missing) return envelope;   // never used: revision 0
             envelope.Exists = true;
+            if (read == FileRead.Unavailable)
+            {
+                envelope.Unavailable = true;
+                envelope.Revision = -1;
+                return envelope;
+            }
             try
             {
-                var o = JsonNode.Parse(File.ReadAllText(path)) as JsonObject;
+                var o = JsonNode.Parse(text) as JsonObject;
                 long revision;
                 if (o == null || o["schema"] == null || o["schema"].GetValue<int>() != Schema ||
                     o["revision"] == null || !long.TryParse(o["revision"].ToString(), out revision))
@@ -153,31 +205,67 @@ namespace DesktopAICompanion.Plugins
             return envelope;
         }
 
+        // The last sealed value unsealed, and what it held (the independent review's P3-8): every revision check a runner makes
+        // reads the store, and unsealing the same blob again each time was wasted work, and a fresh plaintext copy each time.
+        // Keyed on the sealed text itself, so a new commit, whatever its revision, is unsealed afresh.
+        private readonly object _unsealSync = new object();
+        private string _unsealedFrom;
+        private HostCredentialState _unsealedState;
+        private string _unsealedValue;
+
+        /// <summary>How many times a sealed value was handed to DPAPI: the self-test's view of the cache above.</summary>
+        internal int UnsealsForDiagnostics;
+
         /// <summary>What an envelope holds, and the value when Saved.</summary>
-        private static HostCredentialState Contents(Envelope envelope, out string value)
+        private HostCredentialState Contents(Envelope envelope, out string value)
         {
             value = null;
             if (!envelope.Exists) return HostCredentialState.None;
+            if (envelope.Unavailable) return HostCredentialState.Unavailable;
             if (envelope.Damaged) return HostCredentialState.Unreadable;
             if (envelope.State == RemovedState) return HostCredentialState.None;
+            lock (_unsealSync)
+            {
+                if (_unsealedFrom != null && string.Equals(_unsealedFrom, envelope.Sealed, StringComparison.Ordinal))
+                {
+                    value = _unsealedValue;
+                    return _unsealedState;
+                }
+            }
+            HostCredentialState state;
+            string unsealedValue = null;
             try
             {
+                Interlocked.Increment(ref UnsealsForDiagnostics);
                 byte[] clear = ProtectedData.Unprotect(Convert.FromBase64String(envelope.Sealed), Entropy, DataProtectionScope.CurrentUser);
                 string unsealed = Encoding.UTF8.GetString(clear);
-                if (ValueProblem(unsealed) != null) return HostCredentialState.NotAToken;
-                value = unsealed;
-                return HostCredentialState.Saved;
+                if (ValueProblem(unsealed) != null) state = HostCredentialState.NotAToken;
+                else
+                {
+                    unsealedValue = unsealed;
+                    state = HostCredentialState.Saved;
+                }
             }
             catch
             {
-                return HostCredentialState.Unreadable;
+                state = HostCredentialState.Unreadable;
             }
+            lock (_unsealSync)
+            {
+                _unsealedFrom = envelope.Sealed;
+                _unsealedState = state;
+                _unsealedValue = unsealedValue;
+            }
+            value = unsealedValue;
+            return state;
         }
 
         /// <summary>Whether an import may commit over <paramref name="envelope"/>: the store was never used, or holds nothing
-        /// usable (a damaged file, a value this account cannot unseal, or one that is no token). Never after a removal.</summary>
-        private static bool AllowsImport(Envelope envelope)
+        /// usable (a damaged file, a value this account cannot unseal, or one that is no token). Never after a removal, and
+        /// never over a file that could not be read now (Change refuses that before it gets here).</summary>
+        private bool AllowsImport(Envelope envelope)
         {
+            if (envelope.Unavailable) return false;
             if (!envelope.Exists || envelope.Damaged) return true;
             if (envelope.State == RemovedState) return false;
             string ignored;
@@ -192,15 +280,30 @@ namespace DesktopAICompanion.Plugins
             return envelope.Revision >= 0 ? envelope.Revision + 1 : DateTime.UtcNow.Ticks;
         }
 
-        /// <summary>Null when <paramref name="value"/> could be a sign-in token as the HOST judges one: present, at most
-        /// <see cref="MaximumValueCharacters"/>, and printable ASCII with no space. The module's own, stricter check
-        /// (CodingAgentCli.CheckClaudeToken) runs before it ever calls.</summary>
+        /// <summary>Null when <paramref name="value"/> could be a sign-in token: present, at most
+        /// <see cref="MaximumValueCharacters"/>, printable ASCII with no space, not an Anthropic API key, not a web address,
+        /// and only RFC 6750's bearer-token characters (letters, digits and - . _ ~ + /, with = at the end). The shared
+        /// runner's CodingAgentCli.CheckClaudeToken rule, refusal for refusal (the independent review's P3-9): with a looser
+        /// host rule, a value the runner will never send counted as "the store holds one", and a module's migration then
+        /// deleted its own valid old token in its favour. The words are the host's; the module's own check comes first.</summary>
         internal static string ValueProblem(string value)
         {
             if (string.IsNullOrEmpty(value)) return "The value is empty.";
             if (value.Length > MaximumValueCharacters) return "The value is longer than a sign-in token can be.";
             foreach (char c in value)
                 if (c < '!' || c > '~') return "The value has a space or a character no sign-in token holds.";
+            if (value.StartsWith("sk-ant-api", StringComparison.Ordinal)) return "The value is an Anthropic API key, not a sign-in token.";
+            if (value.IndexOf("://", StringComparison.Ordinal) >= 0 || value.StartsWith("www.", StringComparison.OrdinalIgnoreCase))
+                return "The value is a web address, not a sign-in token.";
+            int equals = value.Length;
+            while (equals > 0 && value[equals - 1] == '=') equals--;
+            for (int i = 0; i < equals; i++)
+            {
+                char c = value[i];
+                bool tokenCharacter = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+                                      c == '-' || c == '.' || c == '_' || c == '~' || c == '+' || c == '/';
+                if (!tokenCharacter) return "The value has a character no sign-in token holds.";
+            }
             return null;
         }
 
@@ -229,6 +332,7 @@ namespace DesktopAICompanion.Plugins
         }
 
         private const string Busy = "The sign-in store is busy in another window of the app; try again in a moment.";
+        private const string Unreadable = "The sign-in store's file could not be read just now (another program may hold it); try again in a moment.";
 
         private void Announce(HostCredentialId credential, long revision)
         {
@@ -245,7 +349,7 @@ namespace DesktopAICompanion.Plugins
             HostCredentialState? refused = Refusal(moduleId, credential, out reason);
             if (refused.HasValue)
             {
-                Log(moduleId, "read refused: " + reason);
+                LogRefusal(moduleId, "read", reason);
                 return new HostCredentialReading { State = refused.Value, Revision = -1 };
             }
             try
@@ -253,7 +357,8 @@ namespace DesktopAICompanion.Plugins
                 Envelope envelope = ReadEnvelope();
                 string value;
                 HostCredentialState state = Contents(envelope, out value);
-                return new HostCredentialReading { State = state, Value = value, Revision = envelope.Revision };
+                if (state == HostCredentialState.Unavailable) LogRefusal(moduleId, "read", "file-unreadable-now");
+                return new HostCredentialReading { State = state, Value = value, Revision = envelope.Unavailable ? -1 : envelope.Revision };
             }
             catch (Exception ex)
             {
@@ -311,7 +416,21 @@ namespace DesktopAICompanion.Plugins
             }
             try
             {
+                // The gate again, now the lock is held (the independent review's P3-13): a Revoke made while this waited up to
+                // LockTimeout for another window's commit refuses this one too.
+                HostCredentialState? late = Refusal(moduleId, credential, out reason);
+                if (late.HasValue)
+                {
+                    Log(moduleId, verb + " refused under the lock: " + reason);
+                    return new HostCredentialCommit { Outcome = OutcomeFor(late.Value), Revision = -1, Problem = "" };
+                }
                 Envelope envelope = ReadEnvelope();
+                // A file that could not be read now decides nothing (P2-1): it may hold a removal an import must not undo.
+                if (envelope.Unavailable)
+                {
+                    Log(moduleId, verb + " failed: the store's file could not be read");
+                    return new HostCredentialCommit { Outcome = HostCredentialOutcome.Unavailable, Revision = -1, Problem = Unreadable };
+                }
                 if (import && !AllowsImport(envelope))
                 {
                     Log(moduleId, "import not taken: the store is already " + (envelope.State == RemovedState ? "removed" : "set") +
@@ -360,7 +479,18 @@ namespace DesktopAICompanion.Plugins
             HostCredentialOutcome outcome;
             try
             {
+                HostCredentialState? late = Refusal(moduleId, credential, out reason);
+                if (late.HasValue)
+                {
+                    Log(moduleId, "remove refused under the lock: " + reason);
+                    return new HostCredentialCommit { Outcome = OutcomeFor(late.Value), Revision = -1, Problem = "" };
+                }
                 Envelope envelope = ReadEnvelope();
+                if (envelope.Unavailable)
+                {
+                    Log(moduleId, "remove failed: the store's file could not be read");
+                    return new HostCredentialCommit { Outcome = HostCredentialOutcome.Unavailable, Revision = -1, Problem = Unreadable };
+                }
                 if (envelope.Exists && !envelope.Damaged && envelope.State == RemovedState)
                 {
                     Log(moduleId, "remove: nothing to remove revision=" + envelope.Revision);
@@ -401,29 +531,40 @@ namespace DesktopAICompanion.Plugins
         // reads only the grants, and this list only decides whether the start question is asked.
         private const string NotAskedMember = "claudeCodeSignInNotAsked";
 
-        private static List<string> ReadList(string directory, string member)
+        /// <summary>
+        /// Both lists of grants.json, told apart three ways (the independent review's P2-1 and P3-15): no file is an empty
+        /// record; a file that could not be read now, or that is damaged, is NO answer at all (false), never an empty list.
+        /// An empty list read the gate as "not allowed", so a module with no old token ran on Claude Code's own sign-in, and
+        /// the next Record wrote the file back from empty, dropping every other module's grant and recorded no.
+        /// </summary>
+        private static bool TryReadAnswers(string directory, out List<string> grants, out List<string> notAsked)
         {
-            var ids = new List<string>();
+            grants = new List<string>();
+            notAsked = new List<string>();
+            string text;
+            FileRead read = TryReadShared(GrantsPath(directory), out text);
+            if (read == FileRead.Missing) return true;
+            if (read == FileRead.Unavailable) return false;
             try
             {
-                string path = GrantsPath(directory);
-                if (!File.Exists(path)) return ids;
-                var o = JsonNode.Parse(File.ReadAllText(path)) as JsonObject;
-                var list = o == null ? null : o[member] as JsonArray;
-                if (list == null) return ids;
-                foreach (JsonNode item in list)
-                {
-                    string id = item == null ? "" : (item.GetValue<string>() ?? "").Trim();
-                    if (id.Length > 0) ids.Add(id);
-                }
+                var o = JsonNode.Parse(text) as JsonObject;
+                if (o == null || o["schema"] == null || o["schema"].GetValue<int>() != Schema) return false;
+                return ReadIds(o[GrantsMember], grants) && ReadIds(o[NotAskedMember], notAsked);
             }
-            catch { ids.Clear(); }   // a damaged record grants nothing
-            return ids;
+            catch { return false; }
         }
 
-        private static List<string> ReadGrants(string directory)
+        private static bool ReadIds(JsonNode node, List<string> ids)
         {
-            return ReadList(directory, GrantsMember);
+            if (node == null) return true;          // a record written before this list existed
+            var list = node as JsonArray;
+            if (list == null) return false;
+            foreach (JsonNode item in list)
+            {
+                string id = item == null ? "" : (item.GetValue<string>() ?? "").Trim();
+                if (id.Length > 0) ids.Add(id);
+            }
+            return true;
         }
 
         private static bool Contains(List<string> ids, string id)
@@ -433,12 +574,23 @@ namespace DesktopAICompanion.Plugins
             return false;
         }
 
-        /// <summary>Whether the user has allowed <paramref name="moduleId"/> the shared Claude Code sign-in.</summary>
+        /// <summary>Whether the user has allowed <paramref name="moduleId"/> the shared Claude Code sign-in; false too when the
+        /// record could not be read, which only the gate (the overload below) tells apart.</summary>
         internal static bool IsGranted(string directory, string moduleId)
         {
+            bool readable;
+            return IsGranted(directory, moduleId, out readable);
+        }
+
+        /// <param name="readable">False when grants.json is there and could not be read now, or is damaged: no answer.</param>
+        internal static bool IsGranted(string directory, string moduleId, out bool readable)
+        {
+            readable = true;
             string id = (moduleId ?? "").Trim();
             if (id.Length == 0 || string.IsNullOrWhiteSpace(directory)) return false;
-            return Contains(ReadGrants(directory), id);
+            List<string> grants, notAsked;
+            readable = TryReadAnswers(directory, out grants, out notAsked);
+            return readable && Contains(grants, id);
         }
 
         /// <summary>Whether the user answered no for <paramref name="moduleId"/> (Don't ask again, or Revoke sign-in), so the
@@ -447,7 +599,15 @@ namespace DesktopAICompanion.Plugins
         {
             string id = (moduleId ?? "").Trim();
             if (id.Length == 0 || string.IsNullOrWhiteSpace(directory)) return false;
-            return Contains(ReadList(directory, NotAskedMember), id);
+            List<string> grants, notAsked;
+            return TryReadAnswers(directory, out grants, out notAsked) && Contains(notAsked, id);
+        }
+
+        /// <summary>Whether grants.json can be read now (missing counts): the start question asks nothing while it cannot.</summary>
+        internal static bool AnswersReadable(string directory)
+        {
+            List<string> grants, notAsked;
+            return !string.IsNullOrWhiteSpace(directory) && TryReadAnswers(directory, out grants, out notAsked);
         }
 
         /// <summary>Record the user's Allow (<paramref name="allowed"/> true) or Revoke for one module; false when the record
@@ -472,6 +632,11 @@ namespace DesktopAICompanion.Plugins
             return Record(directory, moduleId, false, false, log, "claude-code-signin answer forgotten");
         }
 
+        /// <summary>How many tries a grants write gets, RecordRetryDelay apart (the independent review's P3-7: a write that
+        /// meets a passing reader, or an indexer, fails once and lands on the next try).</summary>
+        internal const int RecordAttempts = 3;
+        internal static readonly TimeSpan RecordRetryDelay = TimeSpan.FromMilliseconds(100);
+
         private static bool Record(string directory, string moduleId, bool granted, bool notAsked, Action<string, string> log, string line)
         {
             string id = (moduleId ?? "").Trim();
@@ -483,8 +648,14 @@ namespace DesktopAICompanion.Plugins
                 using (IDisposable lease = CrossSessionLock.TryAcquire(CrossSessionLock.BuildGlobalMutexName("credential-grants", path), path, LockTimeoutMilliseconds))
                 {
                     if (lease == null) return false;
-                    List<string> grants = ReadGrants(directory);
-                    List<string> declined = ReadList(directory, NotAskedMember);
+                    List<string> grants, declined;
+                    // A record that cannot be read now, or is damaged, is kept as it is and the answer refused: rewriting it
+                    // from what could be read would drop every other module's answer (P3-15).
+                    if (!TryReadAnswers(directory, out grants, out declined))
+                    {
+                        if (log != null) try { log(id, "credentials: the answer was not recorded: grants.json could not be read"); } catch { }
+                        return false;
+                    }
                     Predicate<string> same = delegate (string g) { return string.Equals(g, id, StringComparison.OrdinalIgnoreCase); };
                     grants.RemoveAll(same);
                     declined.RemoveAll(same);
@@ -495,7 +666,14 @@ namespace DesktopAICompanion.Plugins
                     var declinedList = new JsonArray();
                     foreach (string g in declined) declinedList.Add(JsonValue.Create(g));
                     var o = new JsonObject { ["schema"] = Schema, [GrantsMember] = grantList, [NotAskedMember] = declinedList };
-                    if (!AtomicFile.TryWriteAllText(path, o.ToJsonString(), null)) return false;
+                    string json = o.ToJsonString();
+                    bool written = false;
+                    for (int attempt = 1; attempt <= RecordAttempts && !written; attempt++)
+                    {
+                        written = AtomicFile.TryWriteAllText(path, json, null);
+                        if (!written && attempt < RecordAttempts) Thread.Sleep(RecordRetryDelay);
+                    }
+                    if (!written) return false;
                 }
                 if (log != null) try { log(id, "credentials: " + line); } catch { }
                 return true;
@@ -530,7 +708,8 @@ namespace DesktopAICompanion.Plugins
         internal static List<string> ModulesToAsk(IEnumerable<ModuleInfo> loaded, string directory)
         {
             var ask = new List<string>();
-            if (loaded == null) return ask;
+            // Nothing while grants.json cannot be read: every answer the user gave could be in it.
+            if (loaded == null || !HostCredentialStore.AnswersReadable(directory)) return ask;
             foreach (ModuleInfo info in loaded)
             {
                 if (info == null || string.IsNullOrWhiteSpace(info.Id)) continue;
@@ -544,14 +723,29 @@ namespace DesktopAICompanion.Plugins
             return ask;
         }
 
-        /// <summary>The question for one module, named as the host records it.</summary>
-        internal static TrayQuestion For(string displayName)
+        /// <summary>How the question names a module (the independent review's P3-5): its name AND its id, since the name is the
+        /// module's own choice and the id is what the grant is recorded under, shortened with an ellipsis so the text always
+        /// fits the 240 characters the card takes. A long name used to make the question refused, and the module never asked.</summary>
+        internal static string Who(string displayName, string moduleId, int room)
         {
+            string id = (moduleId ?? "").Trim();
+            string name = string.IsNullOrWhiteSpace(displayName) ? id : displayName.Trim();
+            string idPart = name.Equals(id, StringComparison.OrdinalIgnoreCase) || id.Length == 0 ? "" : " (" + id + ")";
+            string who = name + idPart;
+            if (who.Length <= room) return who;
+            if (idPart.Length + 2 > room) return who.Substring(0, Math.Max(1, room - 1)) + "…";
+            return name.Substring(0, Math.Max(1, room - idPart.Length - 1)) + "…" + idPart;
+        }
+
+        /// <summary>The question for one module, named as the host records it, with its id.</summary>
+        internal static TrayQuestion For(string displayName, string moduleId)
+        {
+            int room = TrayQuestionRules.MaxText - (ModulePermissionConsent.StartQuestionText("x").Length - 1);
             return new TrayQuestion
             {
                 Key = Key,
                 Title = "Shared Claude Code sign-in",
-                Text = ModulePermissionConsent.StartQuestionText(displayName),
+                Text = ModulePermissionConsent.StartQuestionText(Who(displayName, moduleId, room)),
                 Choices = new[]
                 {
                     new TrayChoice(AllowChoice, "Allow"),
@@ -571,12 +765,46 @@ namespace DesktopAICompanion.Plugins
             string word;
             if (answer == null || answer.Outcome != TrayQuestionOutcome.Chosen) word = "unanswered";
             else if (string.Equals(answer.ChoiceId, AllowChoice, StringComparison.Ordinal))
-                word = HostCredentialStore.SetGrant(directory, moduleId, true, log) ? "allowed" : "allowed, not recorded";
+                word = HostCredentialStore.SetGrant(directory, moduleId, true, log) ? "allowed" : NotRecorded;
             else if (string.Equals(answer.ChoiceId, NeverChoice, StringComparison.Ordinal))
                 word = HostCredentialStore.SetNotAsked(directory, moduleId, log) ? "not allowed, not to be asked again" : "not recorded";
             else word = "not now";
             if (log != null)
                 try { log(moduleId, "credentials: the start question for the shared Claude Code sign-in ended " + (answer == null ? "with no answer" : answer.Outcome.ToString()) + ": " + word); } catch { }
+            return word;
+        }
+
+        // THE ALLOW THAT WAS NOT RECORDED (the coordinator's condition for accepting the review's P3-7): when the user pressed
+        // Allow and the grant could not be written, the card has gone, so a second card says so and offers to try again, once.
+        // Only its press of Try again records anything; anything else leaves the start question for the next start.
+        internal const string RetryKey = "claude-code-signin.grant-retry";
+        internal const string RetryChoice = "retry";
+        internal const string NotRecorded = "allowed, not recorded";
+
+        internal static TrayQuestion RetryFor(string displayName, string moduleId)
+        {
+            int room = TrayQuestionRules.MaxText - (ModulePermissionConsent.RetryQuestionText("x").Length - 1);
+            return new TrayQuestion
+            {
+                Key = RetryKey,
+                Title = "Shared Claude Code sign-in",
+                Text = ModulePermissionConsent.RetryQuestionText(Who(displayName, moduleId, room)),
+                Choices = new[] { new TrayChoice(RetryChoice, "Try again"), new TrayChoice(NotNowChoice, "Not now") },
+                TimeoutChoiceId = NotNowChoice,
+                Timeout = Wait,
+                RunsWhileHeld = false,
+            };
+        }
+
+        /// <summary>The second card's answer: the grant only for the user's press of Try again. Returns the word logged.</summary>
+        internal static string ApplyRetry(string directory, string moduleId, TrayAnswer answer, Action<string, string> log)
+        {
+            string word;
+            if (answer == null || answer.Outcome != TrayQuestionOutcome.Chosen || !string.Equals(answer.ChoiceId, RetryChoice, StringComparison.Ordinal))
+                word = "not tried again";
+            else word = HostCredentialStore.SetGrant(directory, moduleId, true, log) ? "allowed" : NotRecorded;
+            if (log != null)
+                try { log(moduleId, "credentials: the retry of the shared Claude Code sign-in's Allow ended: " + word); } catch { }
             return word;
         }
     }
