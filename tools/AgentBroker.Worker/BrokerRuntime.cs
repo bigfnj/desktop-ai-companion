@@ -337,8 +337,7 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
                     var remote = await federation.GetReceiptAsync(peer, message.Message.Id, deadline.Token);
                     if (remote?.Message != message.Message || remote.Status is not
                         (MessageStatus.Delivered or MessageStatus.Held or MessageStatus.Refused or MessageStatus.Expired)) continue;
-                    store.RecordRecipientReceipt(message.Message.Id, message.Message.Recipient, peer.BrokerId,
-                        remote.Status == MessageStatus.Expired ? MessageStatus.Refused : remote.Status);
+                    store.RecordPeerReceipt(message.Message.Id, message.Message.Recipient, peer.BrokerId, remote.Status);
                 }
                 catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException or
                     HttpRequestException or BrokerException or OperationCanceledException)

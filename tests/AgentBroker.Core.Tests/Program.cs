@@ -41,6 +41,12 @@ try
         Console.WriteLine($"AgentBroker reply lifetime smoke: {passed} assertions passed.");
         return 0;
     }
+    if (args.SequenceEqual(["--peer-receipt-only"]))
+    {
+        passed += PeerReceiptChecks.Run(root);
+        Console.WriteLine($"AgentBroker peer receipt smoke: {passed} assertions passed.");
+        return 0;
+    }
     if (args.SequenceEqual(["--delivery-order-only"]))
     {
         passed += DeliveryOrderChecks.Run(root);
@@ -153,6 +159,7 @@ try
     passed += ReplyLifetimeChecks.Run(root);
     passed += SenderNoticeChecks.Run(root);
     passed += DeliveryOrderChecks.Run(root);
+    passed += PeerReceiptChecks.Run(root);
     using (var receipts = new BrokerStore(Path.Combine(root, "explicit-receipts"), clock: clock))
     {
         var from = Session(receipts, "from"); var to = Session(receipts, "to");

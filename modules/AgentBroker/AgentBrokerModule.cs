@@ -41,7 +41,10 @@ public sealed partial class AgentBrokerModule : IModule
     {
         Id = "agentbroker",
         Name = "AgentBroker",
-        Version = "1.4.0",   // 1.4.0: first contact (2026-10-29), from agents on a second workstation who registered
+        Version = "1.4.1",   // 1.4.1: backlog batch (2026-10-29). A paired broker's Expired is recorded as Refused with
+                             //        reason peer_expired and its notice says so, instead of "refused by its recipient".
+                             //        MinHostVersion unchanged (1.6.1).
+                             // 1.4.0: first contact (2026-10-29), from agents on a second workstation who registered
                              //        mailboxes and ran pollers despite native rows, started fresh threads at the eighth
                              //        reply and saw messages out of order. A new whoami tool returns a Claude caller's
                              //        own native row from the process that opened its loopback connection (a Codex

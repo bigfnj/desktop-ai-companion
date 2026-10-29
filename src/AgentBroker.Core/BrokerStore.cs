@@ -630,7 +630,18 @@ public sealed class BrokerStore : IDisposable
 
     /// <summary>Records an explicit recipient receipt. Transport admission alone is Submitted.</summary>
     public MessageReceipt RecordRecipientReceipt(Guid messageId, SessionAddress recipient,
-        Guid authenticatedBroker, MessageStatus outcome)
+        Guid authenticatedBroker, MessageStatus outcome) => RecordReceipt(messageId, recipient, authenticatedBroker, outcome, "recipient_receipt");
+
+    // A paired broker's verified receipt for a message this broker sent. Expired keeps its meaning as this broker's own
+    // deadline, so the peer's Expired is recorded as Refused with reason peer_expired: before, it was recorded as
+    // recipient_receipt and the sender's notice said its recipient refused a message that had expired unread
+    // (N-agentbroker-peer-expired-01).
+    public MessageReceipt RecordPeerReceipt(Guid messageId, SessionAddress recipient, Guid peerBroker, MessageStatus remoteStatus)
+        => remoteStatus == MessageStatus.Expired
+            ? RecordReceipt(messageId, recipient, peerBroker, MessageStatus.Refused, "peer_expired")
+            : RecordReceipt(messageId, recipient, peerBroker, remoteStatus, "recipient_receipt");
+
+    private MessageReceipt RecordReceipt(Guid messageId, SessionAddress recipient, Guid authenticatedBroker, MessageStatus outcome, string reason)
     {
         lock (gate)
         {
@@ -655,7 +666,7 @@ public sealed class BrokerStore : IDisposable
             if (previous.Status == outcome) return previous;
             if (previous.Status is MessageStatus.Delivered or MessageStatus.Refused or MessageStatus.Expired) Fail("receipt_final");
             if (previous.Status == MessageStatus.Accepted && previous.Message.ExpiresAt <= Now) Fail("message_expired");
-            var next = previous with { Status = outcome, UpdatedAt = Now, Reason = "recipient_receipt", Attempts = 1 };
+            var next = previous with { Status = outcome, UpdatedAt = Now, Reason = reason, Attempts = 1 };
             // The answer is what the store now holds: for a Delivered or Refused message this broker sent, a tombstone.
             messages[index] = next; Commit(state with { Messages = messages }); return Stored(messageId, null, out _)!;
         }
@@ -947,6 +958,9 @@ public sealed class BrokerStore : IDisposable
               "The broker cannot tell whether the recipient read it. A native claude: or codex: session is woken only while idle, and a " +
               "generic mcp: mailbox is read only while its owner polls; check with the recipient before sending it again."
             : ended.Reason == "recipient_receipt" ? "was refused by its recipient."
+            : ended.Reason == "peer_expired"
+                ? $"expired at the recipient's paired broker: it reached its {span} delivery deadline there without a Delivered " +
+                  "receipt (peer_expired). The broker cannot tell whether the recipient read it."
             : ended.Reason?.StartsWith("peer_", StringComparison.Ordinal) == true
                 ? $"ended at the recipient's paired broker without a Delivered receipt ({ended.Reason})."
                 : $"was refused by this broker before delivery ({ended.Reason ?? "refused"}).";
