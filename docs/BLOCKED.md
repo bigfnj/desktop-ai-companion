@@ -388,3 +388,15 @@ What clears it: Turn Windows Do Not Disturb on, ask a test question from the deb
 The entry as it stood:
 
 **N-tray-questions-03** [info/unmeasured] Whether Windows 11's Do Not Disturb reaches `SHQueryUserNotificationState` at all is unverified, so the question card may not hold for it (the card holds for presenting, fullscreen, locked and QUNS_QUIET_TIME). `modules/Reminder/PresentationState.cs` calls QUIET_TIME "Do Not Disturb", which it is not: QUIET_TIME is Windows' post-setup quiet hour. Turn Do Not Disturb on, ask a test question from the debug window, and read the `[question] held` line. Found by lane feature/tray-questions.
+
+---
+
+## N-measure-offline-01 (moved from BACKLOG.md 2026-10-29)
+
+**Blocker: Windows Installer itself gets ACCESS DENIED on its own registration keys during the rollback of a non-elevated per-user upgrade on this workstation; which security context is denied is not yet known, and the fix (relax the strict assertion or change the authoring) is then the owner's decision.**
+
+What clears it: Reproduced 3 of 3 (2026-10-27 twice, 2026-10-29 once). The 2026-10-29 run extracted 168 'Error in rollback skipped' lines and 237 failing notes, every one Win32 error 5 and every one on a Windows Installer registration key (per-user Installer\Products, Features and UpgradeCodes; machine UserData\<sid>\Products InstallProperties, Patches, Features, Usage; UpgradeCodes; TempPackages; Uninstall\<product>), never the fixture's own registry root. Clear it by finding the denied context: the Impersonating column of the 2026-10-26 Process Monitor capture, an elevated run, or a run on a second machine; then decide whether to relax the strict rollback-v2 assertion in tests/Test-IsolatedMsiLifecycle.ps1 or change the authoring. The harness now records the failing keys under RollbackRegistryFailures in lifecycle-result.json (4c02be6), and the cleanup recipe (restore the cached package elevated, then /x v2, /x v1, /i v1, /x v1) leaves no fixture state behind.
+
+The entry as it stood:
+
+**N-measure-offline-01** [medium/tests, blocks N-installer-close-scope-01's strict gate] The isolated MSI lifecycle failed rollback-v2 in both of the campaign's runs with ACCESS DENIED on the v2 registration keys during rollback, and `tests/Test-IsolatedMsiLifecycle.ps1:584-586` still requires the original registration restored. Not re-run since 2026-10-27; the recovery recipe is in that lane's report, outside the repository.

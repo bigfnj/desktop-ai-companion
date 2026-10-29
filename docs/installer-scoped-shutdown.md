@@ -109,7 +109,11 @@ sanitised, under `RollbackRegistryFailures` in `lifecycle-result.json`.
 The first local qualification passed rollback, upgrade and reinstall with exact
 native shutdown receipts, foreign-process survival and preserved settings. Its
 strict repair/uninstall receipt gate remains open because successful maintenance
-did not retain the requested verbose logs. This does not qualify the complete
+did not retain the requested verbose logs. Since then the isolated `rollback-v2`
+step has failed three times out of three on the same workstation (2026-10-27 twice,
+2026-10-29 once): during the rollback of a non-elevated per-user upgrade, Windows
+Installer gets ACCESS DENIED on its own registration keys (docs/BLOCKED.md,
+N-measure-offline-01), so that first pass does not hold today. This does not qualify the complete
 production-host lifecycle or the first historical cached-MSI transition. The
 remaining acceptance and exact local cleanup findings are tracked in BACKLOG.md.
 
