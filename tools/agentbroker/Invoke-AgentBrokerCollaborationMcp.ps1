@@ -46,8 +46,32 @@ function Convert-StrictMcpJson([string]$Text) {
                 foreach ($property in $item.EnumerateObject()) { if (-not $seen.Add($property.Name)) { Refuse-Mcp 'duplicate_json_key' }; $pending.Push($property.Value) }
             } elseif ($item.ValueKind -eq [Text.Json.JsonValueKind]::Array) { foreach ($element in $item.EnumerateArray()) { $pending.Push($element) } }
         }
-        return ConvertFrom-Json -InputObject $Text -AsHashtable -Depth 32
+        # The values come from the same parsed document, not ConvertFrom-Json, which rewrites an ISO-date-shaped string (or
+        # /Date(...)/) into a DateTime: a paired broker's session ID of that shape would come back as a different cursor
+        # (independent review of 1.6.0, P3-3). A top-level array is written element by element, as ConvertFrom-Json did.
+        $value = ConvertFrom-McpJsonElement $doc.RootElement
+        return $value
     } finally { $doc.Dispose() }
+}
+# One JSON value as sent: strings exactly as written, integers as Int64 (else Double), objects as ordered dictionaries,
+# arrays as object[]. Arrays and dictionaries return with the unary comma so the caller receives them whole.
+function ConvertFrom-McpJsonElement([Text.Json.JsonElement]$Element) {
+    $kind = $Element.ValueKind
+    if ($kind -eq [Text.Json.JsonValueKind]::Object) {
+        $map = [ordered]@{}
+        foreach ($property in $Element.EnumerateObject()) { $map[$property.Name] = ConvertFrom-McpJsonElement $property.Value }
+        return ,$map
+    }
+    if ($kind -eq [Text.Json.JsonValueKind]::Array) {
+        $items = [Collections.Generic.List[object]]::new()
+        foreach ($item in $Element.EnumerateArray()) { $items.Add((ConvertFrom-McpJsonElement $item)) }
+        return ,$items.ToArray()
+    }
+    if ($kind -eq [Text.Json.JsonValueKind]::String) { return $Element.GetString() }
+    if ($kind -eq [Text.Json.JsonValueKind]::Number) { $whole = 0L; if ($Element.TryGetInt64([ref]$whole)) { return $whole }; return $Element.GetDouble() }
+    if ($kind -eq [Text.Json.JsonValueKind]::True) { return $true }
+    if ($kind -eq [Text.Json.JsonValueKind]::False) { return $false }
+    return $null
 }
 function Get-McpField($Value, [string]$Name) {
     if ($Value -isnot [Collections.IDictionary] -or @($Value.Keys) -cnotcontains $Name) { Refuse-Mcp 'request_shape' }
@@ -161,7 +185,11 @@ function Confirm-NativeSenderRow($Sender, [scriptblock]$Invoke, [DateTime]$UtcNo
     $session = [string]$Sender['sessionId']; $broker = [guid]::Parse([string]$Sender['brokerId']); $incarnation = [guid]::Parse([string]$Sender['incarnation'])
     $matched = [Collections.Generic.List[object]]::new(); $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal); $cursor = $null
     for ($page = 1; ; $page++) {
-        # 64 pages of 16 is far past any directory the broker can list (256 rows per adapter or paired broker).
+        # 64 pages of 16 rows (1,024) covers this broker's own rows (at most 256) and three full paired brokers (256 each);
+        # a larger federated directory refuses native_sender_directory_limit, fail closed. In practice the 15-second
+        # lookup budget ends a scan first when a paired broker is slow: every page re-fetches each paired broker's
+        # directory under its own 5-second budget (BrokerRuntime.DirectoryAsync), so one slow peer allows about three
+        # pages before the scan refuses (independent review of 1.6.0, P3-3).
         if ($page -gt 64) { Refuse-Mcp 'native_sender_directory_limit' }
         $arguments = [ordered]@{ limit = 16 }; if ($null -ne $cursor) { $arguments['afterAddress'] = $cursor }
         $rows = @(& $Invoke 'list_sessions' $arguments)

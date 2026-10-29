@@ -134,8 +134,23 @@ foreach ($capabilities in @(15, 'WakeIdle, Receive')) {
 # The broker's JSON text, decoded the way Execute decodes it (ConvertFrom-Json turns leaseUntil into a DateTime).
 $pageText = ConvertTo-Json -InputObject @(New-Row $own.sessionId) -Depth 8 -Compress
 $decodedRows = @(Get-McpToolValue @{ content = @(@{ type = 'text'; text = $pageText }) })
-Check ($decodedRows.Count -eq 1 -and $decodedRows[0].leaseUntil -is [DateTime]) 'NATIVE_SENDER_DECODE: a one-row page decodes to one row with a DateTime lease'
+Check ($decodedRows.Count -eq 1 -and $decodedRows[0].leaseUntil -is [string] -and $decodedRows[0].leaseUntil -ceq $leaseAhead) 'NATIVE_SENDER_DECODE: a one-row page decodes to one row whose lease is the exact string sent'
 Accept { Confirm-NativeSenderRow $own { param([string]$Tool, $Arguments) $decodedRows } ([DateTime]::UtcNow) } 'NATIVE_SENDER_DECODE: a row decoded from the broker JSON text passes the row check'
+# Independent review of 1.6.0, P3-3: the page cursor is built from the values as sent. A paired broker's session ID shaped
+# like a date must reach the next page's afterAddress byte for byte (ConvertFrom-Json would have made it a DateTime).
+$dated = '2026-10-29T00:00:00Z'
+$jsonPages = [Collections.Generic.List[object]]::new()
+$jsonPages.Add(@(New-Filler 15) + @(New-Row $dated -Broker '99999999-9999-4999-8999-999999999999' -Adapter 'peer'))
+$jsonPages.Add(@(New-Row $own.sessionId))
+$jsonCursors = [Collections.Generic.List[object]]::new()
+$jsonDirectory = {
+    param([string]$Tool, $Arguments)
+    $jsonCursors.Add($(if ($Arguments.Contains('afterAddress')) { $Arguments['afterAddress'] } else { $null }))
+    $text = ConvertTo-Json -InputObject @($jsonPages[$jsonCursors.Count - 1]) -Depth 8 -Compress
+    Get-McpToolValue @{ content = @(@{ type = 'text'; text = $text }) }
+}
+Accept { Confirm-NativeSenderRow $own $jsonDirectory ([DateTime]::UtcNow) } 'NATIVE_SENDER_CURSOR_RAW: the scan over pages decoded from JSON finds the own row'
+Check ($jsonCursors.Count -eq 2 -and $jsonCursors[1].sessionId -is [string] -and $jsonCursors[1].sessionId -ceq $dated) 'NATIVE_SENDER_CURSOR_RAW: a date-shaped session ID reaches the next cursor exactly as sent'
 $structuredRows = @(Get-McpToolValue @{ structuredContent = @{ result = @((New-Row $own.sessionId), (New-Row 'mcp:00000000-0000-4000-8000-000000000001')) } })
 Check ($structuredRows.Count -eq 2) 'NATIVE_SENDER_DECODE: a structured result array decodes to its rows'
 Check (@(Get-McpToolValue @{ content = @() }).Count -eq 0) 'NATIVE_SENDER_DECODE: an empty content list decodes to nothing'
@@ -158,6 +173,23 @@ foreach ($waitTool in @('wait_for_reply', 'wait_for_receipt')) {
         RejectCode { Confirm-CollaborationRequest $wait $thread } 'request_shape' 'NATIVE_WAIT: a missing, malformed or zero message ID refuses before any lookup'
     }
 }
+# Independent review of 1.6.0, P3-1: Execute's own wiring, read from the parsed script body outside every function. The
+# request is posted only through Invoke-CheckedRequest with the lookups and the send scriptblock, never by invoking that
+# scriptblock directly, and Confirm-CollaborationRequest receives the calling agent's CODEX_THREAD_ID. The functions are
+# tested above and below; this is the one place their order could be bypassed.
+$functionAsts = @($ast.FindAll({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] }, $true))
+function Test-OutsideFunctions($Node) {
+    foreach ($function in $functionAsts) { if ($Node.Extent.StartOffset -ge $function.Extent.StartOffset -and $Node.Extent.EndOffset -le $function.Extent.EndOffset) { return $false } }
+    return $true
+}
+$bodyCommands = @($ast.FindAll({ param($node) $node -is [Management.Automation.Language.CommandAst] }, $true) | Where-Object { Test-OutsideFunctions $_ })
+Check ($bodyCommands.Count -gt 5) 'EXECUTE_WIRING WITNESS: the script body has commands to read'
+$checkedCalls = @($bodyCommands | Where-Object { $_.GetCommandName() -ceq 'Invoke-CheckedRequest' })
+Check ($checkedCalls.Count -eq 1 -and (@($checkedCalls[0].CommandElements | Select-Object -Skip 1 | ForEach-Object { $_.Extent.Text }) -join ' ') -ceq '$validated $lookupCall $sendRequest') 'EXECUTE_WIRING: the script body posts through exactly one Invoke-CheckedRequest $validated $lookupCall $sendRequest'
+$directSends = @($bodyCommands | Where-Object { $_.InvocationOperator -ne [Management.Automation.Language.TokenKind]::Unknown -and $_.CommandElements[0].Extent.Text -ceq '$sendRequest' })
+Check ($directSends.Count -eq 0) 'EXECUTE_WIRING: the script body never invokes $sendRequest itself, so no request skips the lookups'
+$confirmCalls = @($bodyCommands | Where-Object { $_.GetCommandName() -ceq 'Confirm-CollaborationRequest' })
+Check ($confirmCalls.Count -eq 1 -and $confirmCalls[0].CommandElements.Count -eq 3 -and $confirmCalls[0].CommandElements[2].Extent.Text -ceq '$env:CODEX_THREAD_ID') 'EXECUTE_WIRING: Confirm-CollaborationRequest receives the calling agent''s $env:CODEX_THREAD_ID'
 # Execute's order (Invoke-CheckedRequest): the lookups first, and nothing is posted when one refuses.
 $events = [Collections.Generic.List[string]]::new()
 $post = { $events.Add('post') }
