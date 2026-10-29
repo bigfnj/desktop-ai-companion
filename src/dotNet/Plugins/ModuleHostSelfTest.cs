@@ -116,6 +116,8 @@ namespace DesktopAICompanion.Plugins
                 ok &= SharedContextChannel(sb);
                 ok &= ContextRaisedOnUiThread(sb);
                 ok &= PendingRemovalRetry(sb);
+                // ---- lane feature/followups2 ----
+                ok &= UnprobeableMarkers(sb);
                 ok &= InitRollback(sb, modulesRoot);
                 ok &= RefusalKeyedByFolder(sb, modulesRoot, scratch);
                 ok &= SelfTestFinder(sb);
@@ -244,24 +246,29 @@ namespace DesktopAICompanion.Plugins
 
                 // A marker write that fails THROWS (RA-296): MarkForRemoval, Unmark and MarkForUpdate swallowed
                 // it, so the Modules pane announced the uninstall or update, prompted for the restart, and the
-                // user's one action vanished. A directory at the marker's path is a write that cannot succeed
-                // on any box; the pane's existing "Couldn't uninstall/update" handlers are what catch it.
-                string unwritable = Path.Combine(root, "marker-that-is-a-directory");
-                Directory.CreateDirectory(unwritable);
+                // user's one action vanished. A marker FILE marked read-only reads and cannot be written, on any
+                // box; the pane's existing "Couldn't uninstall/update" handlers are what catch it. (This was a
+                // directory at the marker's path until N-codex-review-01: a directory is an unreadable marker now,
+                // which throws at the READ, before the write these lines are about is reached.)
+                string unwritable = Path.Combine(root, "marker-that-is-read-only.txt");
+                File.WriteAllLines(unwritable, new[] { "kept" });
+                File.SetAttributes(unwritable, FileAttributes.ReadOnly);
                 bool removalThrew = false, updateThrew = false, unmarkThrew = false;
-                try { PendingModuleRemovals.MarkForRemoval("doomed", unwritable); } catch (Exception) { removalThrew = true; }
-                try { PendingModuleUpdates.MarkForUpdate("doomed", unwritable); } catch (Exception) { updateThrew = true; }
+                try
+                {
+                    try { PendingModuleRemovals.MarkForRemoval("doomed", unwritable); } catch (Exception) { removalThrew = true; }
+                    try { PendingModuleUpdates.MarkForUpdate("doomed", unwritable); } catch (Exception) { updateThrew = true; }
+                    // Unmark rewrites only when the id was present. This marker names "kept", so "stale" is absent and
+                    // Unmark returns before any write: the throwing write is Unmark's WriteIds too, asserted through
+                    // MarkForRemoval above, and this early return is the WITNESS that an id nobody marked costs nothing.
+                    try { PendingModuleRemovals.Unmark("stale", unwritable); }
+                    catch (Exception) { unmarkThrew = true; }
+                }
+                finally { File.SetAttributes(unwritable, FileAttributes.Normal); }
                 ok &= Check(sb, "removal: a removal marker that cannot be written throws instead of reporting success",
                     removalThrew);
                 ok &= Check(sb, "update: an update marker that cannot be written throws instead of reporting success",
                     updateThrew);
-                // Unmark rewrites only when the id was present. A directory at the marker's path reads as no
-                // marker (ReadIds answers empty), so the id is absent and Unmark returns before any write: the
-                // throwing write is Unmark's WriteIds too, asserted through MarkForRemoval above, and this
-                // early return is the WITNESS that an id nobody marked costs nothing.
-                Directory.CreateDirectory(Path.Combine(root, "unmark-marker-that-is-a-directory"));
-                try { PendingModuleRemovals.Unmark("stale", Path.Combine(root, "unmark-marker-that-is-a-directory")); }
-                catch (Exception) { unmarkThrew = true; }
                 ok &= Check(sb, "removal: WITNESS Unmark of an id no readable marker names is a quiet no-op", !unmarkThrew);
                 ok &= Check(sb, "removal: WITNESS a writable marker path still records the id",
                     MarkThenRead("witness", Path.Combine(root, "writable-marker.txt")));
@@ -359,6 +366,132 @@ namespace DesktopAICompanion.Plugins
             finally
             {
                 if (held != null) { try { held.Dispose(); } catch { } }
+                string releaseDetail;
+                if (!SelfTestScratch.TryRelease(root, out releaseDetail))
+                    sb.AppendLine("NOTE: scratch left for the next sweep (" + releaseDetail + ")");
+            }
+            return ok;
+        }
+
+        /// <summary>
+        /// A MARKER THIS ACCOUNT CANNOT PROBE IS UNREADABLE, NOT ABSENT (N-codex-review-01, lane feature/followups2). Both
+        /// markers' ReadIds began with File.Exists, which answers false for a file whose attributes are refused as well as
+        /// for one that is not there, so such a marker read as "nothing pending". The shape is a real deny ACL on this
+        /// process's own account, on a scratch folder it created and owns, inherited by the two markers in it and removed in
+        /// finally: read-data and read-attributes refused, which defeats the probe (GetFileAttributesEx and the
+        /// FindFirstFile it falls back on). Every open of such a file is refused, a write's included (CreateFile asks for
+        /// the attributes too), so the defect shows where the code reads and does not write: Unmark returned quietly over
+        /// an uninstall it could not see, a launch said nothing about the removal marker, and a launch swept a marked update
+        /// payload past the age limit as abandoned. The WITNESS proves the deny defeats File.Exists on this box before any
+        /// line relies on it; a deny that cannot be set is said as DEGRADED, and the axis is then not exercised.
+        /// </summary>
+        private static bool UnprobeableMarkers(StringBuilder sb)
+        {
+            string root = SelfTestScratch.Create("module-marker-unprobeable");
+            bool ok = true;
+            DirectoryInfo deniedInfo = null;
+            System.Security.AccessControl.FileSystemAccessRule denyRule = null;
+            try
+            {
+                string denied = Path.Combine(root, "denied");
+                string modulesRoot = Path.Combine(root, "modules");
+                string dataRoot = Path.Combine(root, "data", "modules");
+                string stagingRoot = Path.Combine(root, "module-staging");
+                Directory.CreateDirectory(denied);
+                string removalMarker = Path.Combine(denied, "pending-module-removals.txt");
+                string updateMarker = Path.Combine(denied, "pending-module-updates.txt");
+                File.WriteAllLines(removalMarker, new[] { "first", "second" });
+                File.WriteAllLines(updateMarker, new[] { "marked" });
+                // A module the removal marker names, and an installed module whose verified update the update marker names,
+                // staged longer ago than the age limit: what an "empty" update marker lets the strand sweep delete.
+                string firstModule = Path.Combine(modulesRoot, "first");
+                Directory.CreateDirectory(firstModule);
+                File.WriteAllText(Path.Combine(firstModule, "First.dll"), "not an assembly");
+                string markedModule = Path.Combine(modulesRoot, "marked");
+                Directory.CreateDirectory(markedModule);
+                File.WriteAllText(Path.Combine(markedModule, "Marked.dll"), "old");
+                string markedPayload = PendingModuleUpdates.PrepareStagingDirectory("marked", stagingRoot);
+                File.WriteAllText(Path.Combine(markedPayload, "Marked.dll"), "retrying");
+                Directory.SetLastWriteTimeUtc(markedPayload, DateTime.UtcNow - PendingModuleUpdates.AbandonedStagingAge - TimeSpan.FromMinutes(5));
+
+                bool aclApplied = false;
+                try
+                {
+                    deniedInfo = new DirectoryInfo(denied);
+                    System.Security.AccessControl.DirectorySecurity acl = FileSystemAclExtensions.GetAccessControl(deniedInfo);
+                    denyRule = new System.Security.AccessControl.FileSystemAccessRule(
+                        System.Security.Principal.WindowsIdentity.GetCurrent().User,
+                        System.Security.AccessControl.FileSystemRights.ReadData | System.Security.AccessControl.FileSystemRights.ReadAttributes,
+                        System.Security.AccessControl.InheritanceFlags.ContainerInherit | System.Security.AccessControl.InheritanceFlags.ObjectInherit,
+                        System.Security.AccessControl.PropagationFlags.None,
+                        System.Security.AccessControl.AccessControlType.Deny);
+                    acl.AddAccessRule(denyRule);
+                    FileSystemAclExtensions.SetAccessControl(deniedInfo, acl);
+                    aclApplied = true;
+                }
+                catch (Exception aclException)
+                {
+                    denyRule = null;
+                    sb.AppendLine("NOTE: DEGRADED: this account could not be denied a scratch folder's read access (" +
+                        aclException.GetType().Name + "), so a marker that cannot be probed was NOT exercised");
+                }
+                if (aclApplied)
+                {
+                    bool readRefused = false;
+                    try { File.ReadAllLines(removalMarker); } catch (UnauthorizedAccessException) { readRefused = true; }
+                    bool probeDefeated = !File.Exists(removalMarker) && !File.Exists(updateMarker) && readRefused;
+                    bool unmarkThrew = false;
+                    try { PendingModuleRemovals.Unmark("first", removalMarker, delegate { }); }
+                    catch (IOException) { unmarkThrew = true; }
+                    var removalLaunch = new List<string>();
+                    IReadOnlyList<string> unfinished = PendingModuleRemovals.ProcessPending(
+                        modulesRoot, removalMarker, dataRoot, stagingRoot, delegate (string line) { removalLaunch.Add(line); });
+                    var updateLaunch = new List<string>();
+                    PendingModuleUpdates.ProcessPending(modulesRoot, stagingRoot, updateMarker, delegate (string line) { updateLaunch.Add(line); });
+                    bool payloadSurvived = Directory.Exists(markedPayload);
+
+                    // The deny goes BEFORE the lines are judged, so the WITNESSes below read the markers as they are.
+                    System.Security.AccessControl.DirectorySecurity lifted = FileSystemAclExtensions.GetAccessControl(deniedInfo);
+                    lifted.RemoveAccessRule(denyRule);
+                    FileSystemAclExtensions.SetAccessControl(deniedInfo, lifted);
+                    denyRule = null;
+
+                    ok &= Check(sb, "marker: WITNESS a marker in a folder that refuses this account its attributes is there, yet File.Exists answers false and a read is refused",
+                        probeDefeated && File.Exists(removalMarker) && File.Exists(updateMarker));
+                    ok &= Check(sb, "removal: Unmark of a removal marker this account cannot probe throws instead of answering that nothing is pending",
+                        unmarkThrew);
+                    ok &= Check(sb, "removal: a launch whose removal marker cannot be probed says it could not be read and removes nothing, said=" +
+                        string.Join(" | ", removalLaunch),
+                        unfinished.Count == 0 && Directory.Exists(firstModule) && removalLaunch.Count == 1 &&
+                        removalLaunch[0].StartsWith("the removal marker could not be read", StringComparison.Ordinal));
+                    ok &= Check(sb, "update: a launch whose update marker cannot be probed sweeps nothing, so a marked payload past the age limit survives, said=" +
+                        string.Join(" | ", updateLaunch),
+                        payloadSurvived && updateLaunch.Count == 1 &&
+                        updateLaunch[0].StartsWith("the update marker could not be read", StringComparison.Ordinal));
+                    ok &= Check(sb, "removal: WITNESS the removal marker still names both uninstalls once it can be read, marker=" + MarkerIdsForSelfTest(removalMarker),
+                        MarkerIdsForSelfTest(removalMarker) == "first,second");
+                    PendingModuleUpdates.ProcessPending(modulesRoot, stagingRoot, updateMarker, delegate { });
+                    ok &= Check(sb, "update: WITNESS once the update marker can be read the same payload is applied, not swept",
+                        File.ReadAllText(Path.Combine(markedModule, "Marked.dll")) == "retrying" && !File.Exists(updateMarker));
+                }
+            }
+            catch (Exception ex)
+            {
+                ok = false;
+                sb.AppendLine("EXC (unprobeable markers): " + ex.GetType().Name + ": " + ex.Message);
+            }
+            finally
+            {
+                if (denyRule != null && deniedInfo != null)
+                {
+                    try
+                    {
+                        System.Security.AccessControl.DirectorySecurity restore = FileSystemAclExtensions.GetAccessControl(deniedInfo);
+                        restore.RemoveAccessRule(denyRule);
+                        FileSystemAclExtensions.SetAccessControl(deniedInfo, restore);
+                    }
+                    catch (Exception restoreFailure) { sb.AppendLine("NOTE: the scratch folder's deny could not be lifted (" + restoreFailure.GetType().Name + ")"); }
+                }
                 string releaseDetail;
                 if (!SelfTestScratch.TryRelease(root, out releaseDetail))
                     sb.AppendLine("NOTE: scratch left for the next sweep (" + releaseDetail + ")");

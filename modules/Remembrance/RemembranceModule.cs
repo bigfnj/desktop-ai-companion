@@ -51,6 +51,9 @@ namespace DesktopAICompanion.RemembranceModule
         private volatile bool _recording;
         private string _currentBase = "";
         private string _lastStatus = "Idle.";
+        // Why the last Apply was refused, said on the Status line until the next Apply gets past the refusal; null when
+        // it was not (N-followups-02, lane feature/followups2: a storage location that is not a full path). See Save.
+        private string _applyRefusal;
         // Interlocked single-flight gate for the snapshot's background capture; see TakeSnapshot.
         private int _snapshotInFlight;
         // Interlocked single-flight gate for the Ollama model pull; see StartRecommendedPull (RA-159).
@@ -90,8 +93,13 @@ namespace DesktopAICompanion.RemembranceModule
                                  //        1.8.0; a valid token saved before moves into it on the first start. A blank
                                  //        storage location on a machine with no Documents folder records nowhere and
                                  //        says why on the Status line, where it used to record into a path relative to
-                                 //        wherever the app was started (N-modules-fixes-02). The self-test records into
-                                 //        a scratch folder, never the real Documents\Remembrance
+                                 //        wherever the app was started (N-modules-fixes-02). A typed storage location
+                                 //        that is not a full path ("Recordings", "\Recordings", "C:Recordings") is
+                                 //        refused at Apply, nothing saved and the Status line saying why; one saved
+                                 //        before is never resolved, so a recording does not start and says why, and the
+                                 //        purge, Older recordings and the follow-up leave it alone (N-followups-02).
+                                 //        The self-test records into a scratch folder, never the real
+                                 //        Documents\Remembrance
                                  //        (N-remembrance-test-documents-01).
                                  // 2.9.0: the summary is saved as Markdown, "<name>.summary.md" (the owner's request of
                                  //        2026-10-29: its text is Markdown). Summaries saved before keep ".summary.txt";
@@ -1626,6 +1634,9 @@ namespace DesktopAICompanion.RemembranceModule
         {
             Interlocked.Increment(ref _purgesStarted);
             string root = StorageRoot();
+            // A storage location that is not a full path names no folder to purge, as none does (N-followups-02): the
+            // store would refuse it, and the pass would end at that throw every hour before the earlier roots below.
+            if (root != null && !CaptureStore.IsFullFolder(root)) root = null;
             string layout = CurrentFolderLayout();   // the purge walks every folder shape whatever the layout is now
             // The folders the storage location pointed to before, read here on the caller's thread with the root
             // (N-remembrance-delete-logging-06); each is purged by the same shapes, after the current root.
@@ -2705,6 +2716,22 @@ namespace DesktopAICompanion.RemembranceModule
                     // feature/remembrance-2 entry refused the diff for every field for that reason; the
                     // feature/remembrance-backlog entry records this narrower form.
                     //
+                    // A STORAGE LOCATION THAT IS NOT A FULL PATH refuses the whole Apply, before anything is written or
+                    // sealed (N-followups-02, lane feature/followups2): "Recordings" or "C:Recordings" was saved as typed and
+                    // resolved against the process's current directory at every capture and purge. Refused, never
+                    // resolved: the Status line at the top of this pane says why (the host's dialog says only that the
+                    // settings could not be saved), and the box keeps what was typed, so it can be corrected and applied.
+                    // The log line names no folder, the delete-logging rule's. Blank is still the default folder.
+                    _applyRefusal = null;
+                    string typedRoot;
+                    if (values != null && values.TryGetValue("storageLocation", out typedRoot) &&
+                        !string.IsNullOrWhiteSpace(typedRoot) && !CaptureStore.IsFullFolder(typedRoot))
+                    {
+                        _applyRefusal = CaptureStore.RelativeRootReason;
+                        Log("storage location not applied: it is not a full path");
+                        NotifyInfoChanged();
+                        return false;
+                    }
                     // The Claude sign-in token FIRST, before any setting is written (2.1.1): one that is not a token, or
                     // cannot be sealed, refuses the whole Apply, the reason in the log, which never carries the token. It is
                     // not one of PaneFieldIds, so it never reaches the settings file; the runner seals it in its own folder.
@@ -2783,7 +2810,8 @@ namespace DesktopAICompanion.RemembranceModule
             else if (string.IsNullOrWhiteSpace(_settings.Get("summaryModel", ""))) summary = "on but no model picked";
             else summary = "on (" + _settings.Get("summaryModel", "") + ")";
 
-            string s = _lastStatus + "  |  devices: " + outs + " output, " + mics + " mic"
+            string s = _lastStatus + (_applyRefusal == null ? "" : "  |  ✗ Not applied: " + _applyRefusal)
+                + "  |  devices: " + outs + " output, " + mics + " mic"
                 + "  |  storage: " + (root == null ? "✗ none. " + CaptureStore.NoDefaultRootReason : root + StorageNote(root))
                 + "  |  Whisper: " + (whisper ? "configured" : "not set up — use \"Set up Whisper for me…\"")
                 + "  |  summary: " + summary;
@@ -5074,6 +5102,9 @@ namespace DesktopAICompanion.RemembranceModule
             SelfCheckFreshInstallRoot(check);
             // Lane feature/followups (N-modules-fixes-02): a blank location with no Documents folder records nowhere.
             SelfCheckNoDocumentsFolder(check);
+            // Lane feature/followups2 (N-followups-02): a storage location that is not a full path is refused at Apply and
+            // never resolved.
+            SelfCheckRelativeStorage(check);
             // Lane feature/cli-followups (2.7.0): the settings switch in the CLI card and the details read's landing
             // (RemembranceModule.CliFollowups.cs).
             SelfCheckCliFollowups(check);

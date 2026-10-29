@@ -15480,8 +15480,9 @@ CASES = (
     # the call's own flags are tests/mutate-hardening-guards.py's ("followups: 1029: host: ...").
     ('followups: 1029: host: the pet\'s stand-down z-order may activate it',
      os.path.join(REPO, "src", "dotNet", "FormCompanion.cs"),
-     b'        internal const uint StandDownZOrderFlags = FormSpeech.SwpNoMove | FormSpeech.SwpNoSize | FormSpeech.SwpNoActivate;\n',
-     b'        internal const uint StandDownZOrderFlags = FormSpeech.SwpNoMove | FormSpeech.SwpNoSize;\n',
+     # Re-pointed by lane feature/followups2: the flags are every pet z-order call's now (ZOrderFlags, N-followups-01).
+     b'        internal const uint ZOrderFlags = FormSpeech.SwpNoMove | FormSpeech.SwpNoSize | FormSpeech.SwpNoActivate;\n',
+     b'        internal const uint ZOrderFlags = FormSpeech.SwpNoMove | FormSpeech.SwpNoSize;\n',
      HOST_CSPROJ, EXE,
      "--hardening-selftest", "dp-hardening-selftest.txt",
      "pet stand-down: five blocked ticks are one change below the topmost band that does not activate"),
@@ -15622,6 +15623,129 @@ CASES = (
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "cli runner: shared sign-in: an event for the revision held, or an older one, changes nothing"),
+
+    # ---- lane feature/followups2 ----
+    # Follow-ups of lanes followups and the Codex reviews. Names carry the "followups2:" prefix so `--only=followups2:` runs
+    # the lane. Every mutant keeps the build green under warnings-as-errors.
+
+    # N-codex-review-01: the removal marker is probed with File.Exists again before it is opened, so a marker this account
+    # cannot probe (a deny ACL on its folder, made and lifted by the check) reads as "nothing pending" and Unmark is quiet.
+    ("followups2: host: the removal marker is probed with File.Exists again",
+     PENDING_REMOVALS,
+     b"            try { lines = File.ReadAllLines(markerPath); }\n",
+     b"            if (!File.Exists(markerPath)) return new List<string>();\n"
+     b"            try { lines = File.ReadAllLines(markerPath); }\n",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "removal: Unmark of a removal marker this account cannot probe throws instead of answering that nothing is pending"),
+    # ...and the update marker's twin, so a launch sweeps a marked payload past the age limit as abandoned.
+    ("followups2: host: the update marker is probed with File.Exists again",
+     PENDING_UPDATES,
+     b"            try { lines = File.ReadAllLines(markerPath); }\n",
+     b"            if (!File.Exists(markerPath)) return new List<string>();\n"
+     b"            try { lines = File.ReadAllLines(markerPath); }\n",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "update: a launch whose update marker cannot be probed sweeps nothing, so a marked payload past the age limit survives"),
+
+    # N-followups-01: the pet off Form.TopMost, graded by --hardening-selftest through FormCompanion's z-order seam. No
+    # mutant here makes a real activating call: the Designer mutant fails the flag check BEFORE any pet window is made (the
+    # check makes none then), and the others keep SWP_NOACTIVATE. The callers' shapes are tests/mutate-hardening-guards.py's.
+    ("followups2: host: the pet's Designer sets Form.TopMost again",
+     os.path.join(REPO, "src", "dotNet", "FormCompanion.Designer.cs"),
+     b"\t\t\t// No TopMost (N-followups-01): the window is topmost by its own style (CreateParams) and every change goes\n",
+     b"\t\t\tthis.TopMost = true;\n"
+     b"\t\t\t// No TopMost (N-followups-01): the window is topmost by its own style (CreateParams) and every change goes\n",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "pet z-order: a new pet form's Form.TopMost is clear"),
+    # ...a raise skips its call when the window is topmost already, so the per-animation raise and the tray click no longer
+    # put the pet back over windows that came up since (the setter's call was a raise as well as a state).
+    ("followups2: host: a raise to topmost is skipped when the pet is topmost already",
+     os.path.join(REPO, "src", "dotNet", "FormCompanion.cs"),
+     b"            ApplyZOrder(topMost ? FormSpeech.HwndTopMost : FormSpeech.HwndNoTopMost);\n",
+     b"            if (((DesktopWindows.ExtendedStyle(Handle) & FormSpeech.WsExTopMost) != 0) != topMost) ApplyZOrder(topMost ? FormSpeech.HwndTopMost : FormSpeech.HwndNoTopMost);\n",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "pet z-order: each raise to the top of the topmost band is one call that does not activate, made even when the pet is topmost already"),
+    # ...CreateParams makes every pet window topmost again, whatever the policy says when it is made.
+    ("followups2: host: the pet is created topmost whatever its policy",
+     os.path.join(REPO, "src", "dotNet", "FormCompanion.cs"),
+     b"                if (_topMost) cp.ExStyle |= FormSpeech.WsExTopMost;\n",
+     b"                cp.ExStyle |= FormSpeech.WsExTopMost;\n",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "pet z-order: a pet window made while its policy is below the topmost band is not created topmost"),
+    # ...a topmost write before the window exists records nothing, so the window is made with the policy it had before.
+    ("followups2: host: a topmost write before the window exists records no policy",
+     os.path.join(REPO, "src", "dotNet", "FormCompanion.cs"),
+     b"            _topMost = topMost;\n",
+     b"",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "pet z-order: a pet window made while its policy is below the topmost band is not created topmost"),
+
+    # N-followups-02: a Remembrance storage location that is not a full path, refused at Apply and never resolved. Graded by
+    # SelfCheckRelativeStorage, whose current directory is a scratch folder for the run, so a mutant that resolves the path
+    # resolves it THERE; none of these changes where a blank location records, and the harness's Documents watch brackets
+    # every run as it does.
+    ("followups2: remembrance: the store takes a root that is not a full path",
+     CAPTURE_STORE,
+     b"                if (!IsFullFolder(root)) throw new InvalidOperationException(RelativeRootReason);\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "relative storage: the store refuses a root that is not a full path, with the reason"),
+    ("followups2: remembrance: Apply saves a storage location that is not a full path",
+     REMEMBRANCE_MODULE,
+     b"                        !string.IsNullOrWhiteSpace(typedRoot) && !CaptureStore.IsFullFolder(typedRoot))\n",
+     b"                        !string.IsNullOrWhiteSpace(typedRoot) && !CaptureStore.IsFullFolder(typedRoot) && typedRoot == null)\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     'relative storage: an Apply of "Recordings" is refused whole, saving nothing, and the Status line says why'),
+    ("followups2: remembrance: the purge walks a storage location that is not a full path",
+     REMEMBRANCE_MODULE,
+     b"            if (root != null && !CaptureStore.IsFullFolder(root)) root = null;\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "relative storage (saved): the purge has no folder to walk, says nothing and deletes nothing"),
+    ("followups2: remembrance: the Older recordings line reads a storage location that is not a full path",
+     os.path.join(REPO, "modules", "Remembrance", "RemembranceModule.Rename.cs"),
+     b"                if (!CaptureStore.IsFullFolder(root)) return CaptureStore.RelativeRootReason;   // nor here (N-followups-02)\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "relative storage (saved): the Older recordings line and its rename button say why"),
+    ("followups2: remembrance: the rename button throws on a storage location that is not a full path",
+     os.path.join(REPO, "modules", "Remembrance", "RemembranceModule.Rename.cs"),
+     b"            if (!CaptureStore.IsFullFolder(root)) return Task.FromResult(CaptureStore.RelativeRootReason);\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "relative storage (saved): the Older recordings line and its rename button say why"),
+    # The Status line's note starts with a non-ASCII mark, so the pattern stops before it.
+    ("followups2: remembrance: the Status line shows a storage location that is not a full path as a folder",
+     os.path.join(REPO, "modules", "Remembrance", "RemembranceModule.Storage.cs"),
+     b'            if (!CaptureStore.IsFullFolder(root)) return " ',
+     b'            if (root == null) return " ',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "relative storage (saved): the Status line names the location and says why it is no folder"),
+    ("followups2: remembrance: a move away from a location that is not a full path remembers it",
+     os.path.join(REPO, "modules", "Remembrance", "RemembranceModule.Storage.cs"),
+     b"            if (!CaptureStore.IsFullFolder(rootBefore)) rootBefore = null;\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "relative storage (saved): a move away from it applies and does not remember it for the purge"),
+    ("followups2: remembrance: the follow-up looks for its newest summary in a location that is not a full path",
+     os.path.join(REPO, "modules", "Remembrance", "RemembranceModule.FollowUp.cs"),
+     b"                if (CaptureStore.IsFullFolder(root) && System.IO.Directory.Exists(root))\n",
+     b"                if (System.IO.Directory.Exists(root))\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "relative storage (saved): the follow-up does not look for its newest summary there"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

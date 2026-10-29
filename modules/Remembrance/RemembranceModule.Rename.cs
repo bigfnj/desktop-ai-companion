@@ -31,6 +31,7 @@ namespace DesktopAICompanion.RemembranceModule
             {
                 string root = StorageRoot();
                 if (root == null) return CaptureStore.NoDefaultRootReason;   // no folder to read (N-modules-fixes-02)
+                if (!CaptureStore.IsFullFolder(root)) return CaptureStore.RelativeRootReason;   // nor here (N-followups-02)
                 var store = new CaptureStore(root, CurrentFolderLayout());
                 return DescribePlan(store.PlanRenames());
             }
@@ -127,6 +128,8 @@ namespace DesktopAICompanion.RemembranceModule
             // constructor would have thrown out of the button's press.
             string root = StorageRoot();
             if (root == null) return Task.FromResult(CaptureStore.NoDefaultRootReason);
+            // Nor in a location that is not a full path (N-followups-02), whose store would throw out of the press.
+            if (!CaptureStore.IsFullFolder(root)) return Task.FromResult(CaptureStore.RelativeRootReason);
             var store = new CaptureStore(root, CurrentFolderLayout());
             return Task.Run(() =>
             {
