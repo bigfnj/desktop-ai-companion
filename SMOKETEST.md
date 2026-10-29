@@ -544,7 +544,7 @@ Run the MSI **over a running app** — that is the path that used to fail.
       row (`✓ Codex: answered at ...`); an Apply of another model or effort for the CLI a Validate tested drops its
       tick. `Get Ollama (opens the site)`, `Download that model`, `Refresh
       local models` and the Ollama `Validate` cannot be pressed. Record a short synthetic meeting and stop: the
-      transcript appears, then the `.summary.txt` beside it, its header reading `Model: Claude Code CLI, <id> at
+      transcript appears, then the `.summary.md` beside it (Remembrance 2.9.0; `.summary.txt` before), its header reading `Model: Claude Code CLI, <id> at
       <effort> effort (the transcript was sent to Anthropic to be
       summarized; the recording and its transcription stayed on this machine)`, with the model that answered and the
       saved effort, and the Status line's summary part then ends `, last answered on <id>`. Once whisper has

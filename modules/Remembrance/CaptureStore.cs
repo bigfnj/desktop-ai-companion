@@ -163,7 +163,7 @@ namespace DesktopAICompanion.RemembranceModule
                 CreatedDirectory = created,
                 Audio = Path.Combine(dir, prefix + ".wav"),
                 Transcript = Path.Combine(dir, prefix + ".transcript.txt"),
-                Summary = Path.Combine(dir, prefix + ".summary.txt"),
+                Summary = Path.Combine(dir, prefix + SummarySuffix),
                 BaseName = baseName,
                 SnapshotPrefix = perCapture ? "snap" : baseName + " - snap",
                 StartedAt = now,
@@ -194,9 +194,20 @@ namespace DesktopAICompanion.RemembranceModule
             return string.IsNullOrEmpty(meeting) ? stamp : stamp + " " + meeting;
         }
 
+        // A summary is written as Markdown since 2.9.0 (2026-10-29, the owner's request: the summary text is Markdown, so it
+        // opens as Markdown). Summaries written before keep ".summary.txt", and everything that finds, keeps or names a
+        // summary accepts both endings.
+        internal const string SummarySuffix = ".summary.md";
+        internal const string LegacySummarySuffix = ".summary.txt";
+        internal static readonly string[] SummarySuffixes = { SummarySuffix, LegacySummarySuffix };
+
+        /// <summary>Whether a path is a summary's, either ending, any case.</summary>
+        internal static bool IsSummaryPath(string path) => !string.IsNullOrEmpty(path) &&
+            (path.EndsWith(SummarySuffix, StringComparison.OrdinalIgnoreCase) || path.EndsWith(LegacySummarySuffix, StringComparison.OrdinalIgnoreCase));
+
         // Everything one capture writes under its base name in a day folder; each must be free for the name to be.
         private static readonly string[] FlatSuffixes =
-            { ".wav", ".transcript.txt", ".summary.txt", AudioRecorder.SystemScratchSuffix, AudioRecorder.MicScratchSuffix };
+            { ".wav", ".transcript.txt", SummarySuffix, LegacySummarySuffix, AudioRecorder.SystemScratchSuffix, AudioRecorder.MicScratchSuffix };
 
         /// <summary>
         /// <paramref name="baseName"/> when nothing in <paramref name="folder"/> uses it, otherwise the first of
@@ -711,7 +722,7 @@ namespace DesktopAICompanion.RemembranceModule
             if (string.IsNullOrWhiteSpace(path)) return false;
             string lower = path.ToLowerInvariant();
             if (lower.EndsWith(".transcript.txt")) return false;
-            if (lower.EndsWith(".summary.txt")) return false;
+            if (IsSummaryPath(lower)) return false;
             // No .mp3. This module records .wav and screenshots .png; it has never written an .mp3, so that
             // extension could only ever match a file belonging to somebody else.
             return lower.EndsWith(".wav") || lower.EndsWith(".png");

@@ -215,7 +215,8 @@ namespace DesktopAICompanion.RemembranceModule
             return true;
         }
 
-        /// <summary>The newest summary there is: the one this session wrote last, or the newest ".summary.txt" in the storage
+        /// <summary>The newest summary there is: the one this session wrote last, or the newest ".summary.md" (or pre-2.9.0
+        /// ".summary.txt") in the storage
         /// folder, its capture folders and its day folders, whichever was written later. Null when there is none.</summary>
         private string LatestSummaryPath()
         {
@@ -237,9 +238,12 @@ namespace DesktopAICompanion.RemembranceModule
                 string root = StorageRoot();
                 if (System.IO.Directory.Exists(root))
                 {
-                    foreach (string f in System.IO.Directory.EnumerateFiles(root, "*.summary.txt")) consider(f);
-                    foreach (string sub in System.IO.Directory.EnumerateDirectories(root))
-                        foreach (string f in System.IO.Directory.EnumerateFiles(sub, "*.summary.txt")) consider(f);
+                    foreach (string ending in CaptureStore.SummarySuffixes)
+                    {
+                        foreach (string f in System.IO.Directory.EnumerateFiles(root, "*" + ending)) consider(f);
+                        foreach (string sub in System.IO.Directory.EnumerateDirectories(root))
+                            foreach (string f in System.IO.Directory.EnumerateFiles(sub, "*" + ending)) consider(f);
+                    }
                 }
             }
             catch (Exception ex) { Log("follow-up: the storage folder could not be listed (" + ex.GetType().Name + ")"); }
@@ -259,7 +263,8 @@ namespace DesktopAICompanion.RemembranceModule
             if (Interlocked.CompareExchange(ref _followUpPressInFlight, 1, 0) != 0)
                 return Task.FromResult("⚠ A follow-up is already running; its end shows in the Status line.");
             string name = System.IO.Path.GetFileName(latest);
-            name = name.Substring(0, name.Length - ".summary.txt".Length);
+            foreach (string ending in CaptureStore.SummarySuffixes)
+                if (name.EndsWith(ending, StringComparison.OrdinalIgnoreCase)) { name = name.Substring(0, name.Length - ending.Length); break; }
             Task.Run(async () =>
             {
                 try

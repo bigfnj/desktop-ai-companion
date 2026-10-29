@@ -344,7 +344,7 @@ namespace DesktopAICompanion.RemembranceModule
                             !followUpPrompt.Contains("Model: Claude Code CLI") && !followUpPrompt.Contains("orchard harvest moves") &&
                             followUpCall.InstructionsAtCall == FollowUp.SystemPrompt);
                         string summaryFile = null, followUpWritten = null;
-                        foreach (string f in System.IO.Directory.GetFiles(store, "*.summary.txt", System.IO.SearchOption.AllDirectories))
+                        foreach (string f in System.IO.Directory.GetFiles(store, "*.summary.md", System.IO.SearchOption.AllDirectories))
                         {
                             string followUpPath = FollowUp.PathFor(f);
                             if (System.IO.File.Exists(followUpPath)) { summaryFile = f; followUpWritten = followUpPath; }
@@ -364,7 +364,7 @@ namespace DesktopAICompanion.RemembranceModule
                         System.IO.File.WriteAllText(promptFile, "SENTINEL-EDITED-PROMPT-77ab the same, but shorter");
                         codexFails = true;
                         fake.Clear();
-                        var before = new HashSet<string>(System.IO.Directory.GetFiles(store, "*.summary.txt", System.IO.SearchOption.AllDirectories),
+                        var before = new HashSet<string>(System.IO.Directory.GetFiles(store, "*.summary.md", System.IO.SearchOption.AllDirectories),
                             StringComparer.OrdinalIgnoreCase);
                         recordOnce();
                         string failedLine = null;
@@ -373,7 +373,7 @@ namespace DesktopAICompanion.RemembranceModule
                             findCall("SENTINEL-EDITED-PROMPT-77ab") != null && findCall("SENTINEL-OWN-PROMPT") == null);
                         string failedSummary = null;
                         bool failedFollowUpWritten = false;
-                        foreach (string f in System.IO.Directory.GetFiles(store, "*.summary.txt", System.IO.SearchOption.AllDirectories))
+                        foreach (string f in System.IO.Directory.GetFiles(store, "*.summary.md", System.IO.SearchOption.AllDirectories))
                             if (!before.Contains(f))
                             {
                                 failedSummary = ReadWhenWritten(f);

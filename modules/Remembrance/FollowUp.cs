@@ -108,7 +108,8 @@ namespace DesktopAICompanion.RemembranceModule
             return settings != null && settings.GetBool(OnKey, false);
         }
 
-        /// <summary>The follow-up's file for a summary's: "&lt;name&gt; - follow-up.md" beside "&lt;name&gt;.summary.txt";
+        /// <summary>The follow-up's file for a summary's: "&lt;name&gt; - follow-up.md" beside "&lt;name&gt;.summary.md" (or a
+        /// pre-2.9.0 "&lt;name&gt;.summary.txt");
         /// null for a path that is no summary's.</summary>
         internal static string PathFor(string summaryPath)
         {
@@ -125,9 +126,11 @@ namespace DesktopAICompanion.RemembranceModule
 
         private static string StemOf(string summaryPath)
         {
-            const string Ending = ".summary.txt";
-            if (string.IsNullOrEmpty(summaryPath) || !summaryPath.EndsWith(Ending, StringComparison.OrdinalIgnoreCase)) return null;
-            return summaryPath.Substring(0, summaryPath.Length - Ending.Length);
+            if (string.IsNullOrEmpty(summaryPath)) return null;
+            foreach (string ending in CaptureStore.SummarySuffixes)
+                if (summaryPath.EndsWith(ending, StringComparison.OrdinalIgnoreCase))
+                    return summaryPath.Substring(0, summaryPath.Length - ending.Length);
+            return null;
         }
 
         /// <summary>A summary file's text without the header Remembrance wrote above it (the lines down to the rule of

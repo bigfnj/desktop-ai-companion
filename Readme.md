@@ -481,8 +481,10 @@ transcript only when **The follow-up reads** says so, to that CLI's vendor; **Ru
 summary** runs it by hand.
 
 Since Remembrance 2.6.0 a recording is named **date and time first**, to the minute, then the meeting, for example
-`2026-10-20 14-08 Design Review.summary.txt` (with a folder by date) or a folder `2026-10-20 14-08 Design Review`
-(with a folder per capture), so a folder lists the meetings in the order they happened. Two recordings
+`2026-10-20 14-08 Design Review.summary.md` (with a folder by date) or a folder `2026-10-20 14-08 Design Review`
+(with a folder per capture), so a folder lists the meetings in the order they happened. Since Remembrance 2.9.0 the
+summary is saved as Markdown (`.summary.md`), the format its text is written in; summaries saved before keep
+`.summary.txt`, and the follow-up, renaming and the purge treat both the same. Two recordings
 that start in the same minute with the same name get ` (2)`. Recordings made before keep their old names
 (`Design Review - 2026-10-20 14-08-25`) until you press **Rename older recordings to the new names** on the
 **Storage** card, whose **Older recordings** line says how many there are first. It renames every file of a recording

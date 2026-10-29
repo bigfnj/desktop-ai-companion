@@ -171,6 +171,19 @@ namespace DesktopAICompanion.RemembranceModule
                 logged.StartsWith("renamed older recordings: 5 of 5 (4 folders, 4 files, 1 suffixed)", StringComparison.Ordinal)
                 && logged.IndexOf("Standup", StringComparison.OrdinalIgnoreCase) < 0 && logged.IndexOf("Sprint", StringComparison.OrdinalIgnoreCase) < 0);
 
+            // 2.9.0: "Run summary" on an old-named transcript writes "<old base>.summary.md"; it moves with its capture.
+            string mdDay = Path.Combine(scratch, "rename-md", "2026-08-28");
+            Directory.CreateDirectory(mdDay);
+            foreach (string name in new[] { "Retro - 2026-08-28 16-00-00.transcript.txt", "Retro - 2026-08-28 16-00-00.summary.txt",
+                                            "Retro - 2026-08-28 16-00-00.summary.md" })
+                File.WriteAllText(Path.Combine(mdDay, name), name);
+            RenameReport mdReport = CaptureStore.ApplyRenames(new CaptureStore(Path.GetDirectoryName(mdDay), FolderLayout.ByDate).PlanRenames());
+            check("rename 2.9.0: a .summary.md beside an old-named transcript moves with it, and the .summary.txt too",
+                mdReport.Captures == 1 && mdReport.Files == 3
+                && File.Exists(Path.Combine(mdDay, "2026-08-28 16-00 Retro.summary.md"))
+                && File.Exists(Path.Combine(mdDay, "2026-08-28 16-00 Retro.summary.txt"))
+                && !Directory.EnumerateFiles(mdDay, "Retro - *").Any());
+
             // ---- one file failing puts the capture back; nothing is overwritten ----
             string failRoot = Path.Combine(scratch, "fail");
             string failDay = Path.Combine(failRoot, "2026-08-28");

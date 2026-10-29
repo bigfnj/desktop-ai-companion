@@ -84,7 +84,11 @@ namespace DesktopAICompanion.RemembranceModule
         {
             Id = Id,
             Name = "Remembrance",
-            Version = "2.8.0",   // 2.8.0: the summary's prompt is the built-in one, now asking for an overview, a part
+            Version = "2.9.0",   // 2.9.0: the summary is saved as Markdown, "<name>.summary.md" (the owner's request of
+                                 //        2026-10-29: its text is Markdown). Summaries saved before keep ".summary.txt";
+                                 //        the purge, the follow-up, the free-name check and "Rename older recordings"
+                                 //        treat both endings alike.
+                                 // 2.8.0: the summary's prompt is the built-in one, now asking for an overview, a part
                                  //        per topic, decisions with their reasoning, a table of action items and open
                                  //        questions, or the user's own .txt file ("Summary prompt"), read again for
                                  //        every summary; an unusable file falls back to the built-in prompt and the
@@ -3387,7 +3391,7 @@ namespace DesktopAICompanion.RemembranceModule
                 string name = System.IO.Path.GetFileNameWithoutExtension(transcriptPath);
                 if (name.EndsWith(".transcript", StringComparison.OrdinalIgnoreCase))
                     name = name.Substring(0, name.Length - ".transcript".Length);
-                string summaryPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(transcriptPath), name + ".summary.txt");
+                string summaryPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(transcriptPath), name + CaptureStore.SummarySuffix);
                 // The prompt as the card shows it (2.8.0), the file read now, for this summary.
                 SummaryPrompt.Resolved manualPrompt = ResolveSummaryPrompt(SummaryPrompt.UsesFile(shown), SummaryPrompt.FileOf(shown));
                 string manualInstructions = manualPrompt.Text;
@@ -4143,6 +4147,15 @@ namespace DesktopAICompanion.RemembranceModule
             check("snapshots are ephemeral", CaptureStore.IsEphemeral(@"c:\x\snap 1.png"));
             check("transcripts are NEVER purged", !CaptureStore.IsEphemeral(@"c:\x\recording.transcript.txt"));
             check("summaries are NEVER purged", !CaptureStore.IsEphemeral(@"c:\x\recording.summary.txt"));
+            // 2.9.0 (2026-10-29): summaries are written as Markdown; a pre-2.9.0 .summary.txt is still a summary everywhere.
+            check("summary: new summaries are .summary.md, and the purge keeps them",
+                CaptureStore.SummarySuffix == ".summary.md" && !CaptureStore.IsEphemeral(@"c:\x\recording.summary.md"));
+            check("summary: both endings are summaries, in any case; a plain .md note is not",
+                CaptureStore.IsSummaryPath(@"c:\x\old.summary.txt") && CaptureStore.IsSummaryPath(@"c:\x\new.Summary.MD") &&
+                !CaptureStore.IsSummaryPath(@"c:\x\notes.md"));
+            check("summary: a .summary.md and a pre-2.9.0 .summary.txt both name their follow-up and their transcript",
+                FollowUp.PathFor(@"c:\x\a.summary.md") == @"c:\x\a - follow-up.md" && FollowUp.PathFor(@"c:\x\b.summary.txt") == @"c:\x\b - follow-up.md" &&
+                FollowUp.TranscriptPathFor(@"c:\x\a.summary.md") == @"c:\x\a.transcript.txt" && FollowUp.PathFor(@"c:\x\notes.md") == null);
             check("an unknown file is left alone", !CaptureStore.IsEphemeral(@"c:\x\notes.docx"));
 
             // BOTH GATES, not just IsEphemeral. PurgeOneDirectory requires IsEphemeral AND
@@ -4256,7 +4269,7 @@ namespace DesktopAICompanion.RemembranceModule
                 check("a named capture uses '<date> <time> <meeting>', to the minute (2.6.0)", named.BaseName == "2026-08-27 09-30 Sprint Review");
                 check("folder-per-capture nests the files", named.Audio.Replace('/', '\\').Contains(named.BaseName));
                 check("transcript sits beside the audio", named.Transcript.EndsWith(".transcript.txt"));
-                check("summary sits beside the transcript", named.Summary.EndsWith(".summary.txt"));
+                check("summary sits beside the transcript", named.Summary.EndsWith(".summary.md"));
 
                 // The by-date layout replaced the flat one (2.0.0); its files keep the flat names.
                 var byDay = new CaptureStore(scratch, FolderLayout.ByDate);
@@ -6693,7 +6706,7 @@ namespace DesktopAICompanion.RemembranceModule
                 check("...under the capture's own name, so a file moved out of the folder still says what it is",
                     System.IO.Path.GetFileName(byDate.Audio) == "2026-08-27 09-30 Sprint Review.wav"
                     && System.IO.Path.GetFileName(byDate.Transcript) == "2026-08-27 09-30 Sprint Review.transcript.txt"
-                    && System.IO.Path.GetFileName(byDate.Summary) == "2026-08-27 09-30 Sprint Review.summary.txt"
+                    && System.IO.Path.GetFileName(byDate.Summary) == "2026-08-27 09-30 Sprint Review.summary.md"
                     && byDate.SnapshotPrefix == "2026-08-27 09-30 Sprint Review - snap");
                 string stem = System.IO.Path.GetFileNameWithoutExtension(byDate.Audio);
                 check("...each of which the purge reads in its day's folder: audio, both scratch tracks, a snapshot; never the transcript",
@@ -7415,7 +7428,7 @@ namespace DesktopAICompanion.RemembranceModule
                     string written = null;
                     pumpUntil(delegate
                     {
-                        foreach (string f in System.IO.Directory.GetFiles(System.IO.Path.Combine(scratch, "store"), "*.summary.txt", System.IO.SearchOption.AllDirectories))
+                        foreach (string f in System.IO.Directory.GetFiles(System.IO.Path.Combine(scratch, "store"), "*.summary.md", System.IO.SearchOption.AllDirectories))
                             written = ReadWhenWritten(f);
                         return written != null;
                     });
@@ -7509,7 +7522,7 @@ namespace DesktopAICompanion.RemembranceModule
                     holding = false;
                     string otherAnswered = FakeCliProcess.AnsweredModelFor(ClaudeModelOtherThan(screenModel));
                     hold.SetResult(FakeCliProcess.Result(0, FakeCliProcess.ClaudeStream("MANUAL CLI SUMMARY", false, otherAnswered, screenModel), ""));
-                    string manualSummary = System.IO.Path.Combine(scratch, "Planning.summary.txt");
+                    string manualSummary = System.IO.Path.Combine(scratch, "Planning.summary.md");
                     string manualText = null;
                     bool manualWritten = pumpUntil(delegate { manualText = ReadWhenWritten(manualSummary); return manualText != null; });
                     bool manualNotified = pumpUntil(delegate
@@ -8455,7 +8468,7 @@ namespace DesktopAICompanion.RemembranceModule
                     string written = null;
                     pumpUntil(delegate
                     {
-                        foreach (string f in System.IO.Directory.GetFiles(System.IO.Path.Combine(scratch, "store"), "*.summary.txt", System.IO.SearchOption.AllDirectories))
+                        foreach (string f in System.IO.Directory.GetFiles(System.IO.Path.Combine(scratch, "store"), "*.summary.md", System.IO.SearchOption.AllDirectories))
                             written = ReadWhenWritten(f);
                         return written != null;
                     });
@@ -8503,7 +8516,7 @@ namespace DesktopAICompanion.RemembranceModule
                     provider.Reply = "MANUAL CLOUD SUMMARY";
                     string started = Press(PaneActionFor(pane, TryItCard, "Summarize a transcript…"), CopyOf(pane.Load()), ui, TimeSpan.FromSeconds(10));
                     string manualText = null;
-                    bool manualWritten = pumpUntil(delegate { manualText = ReadWhenWritten(System.IO.Path.Combine(scratch, "Planning.summary.txt")); return manualText != null; });
+                    bool manualWritten = pumpUntil(delegate { manualText = ReadWhenWritten(System.IO.Path.Combine(scratch, "Planning.summary.md")); return manualText != null; });
                     check("remembrance cloud: Summarize a transcript goes to the cloud provider on screen and writes beside the file: " + started,
                         started != null && started.Contains("through Cloud provider (cloud.example.invalid)") && manualWritten &&
                         manualText.Contains("MANUAL CLOUD SUMMARY"));
