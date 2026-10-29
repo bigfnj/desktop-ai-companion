@@ -145,6 +145,17 @@ function policyReason(result) {
   if (/not allowed by enterprise policy/i.test(text)) return 'allowlist_miss';
   return 'unspecified';
 }
+// Only fixed local error codes are reported; anything else (a runtime or vendor error, whose message could carry a path
+// or CLI output) reads diagnostic_unavailable. Every code this file throws must be listed here: tests/Test-AgentBroker.ps1
+// compares the set with the file's Error literals, and the self-test checks both mappings (N-broker-d-01, where the
+// self-test's own invalid_verification was missing and read diagnostic_unavailable).
+const reportableErrors = new Set(['invalid_path', 'invalid_loopback_endpoint', 'protected_path_refused', 'public_tool_location_refused',
+  'linked_path', 'invalid_public_file', 'invalid_arguments', 'public_cli_changed', 'invalid_directory', 'invalid_retry',
+  'invalid_verification', 'legacy_configuration_present', 'entry_inspection_unavailable', 'existing_entry_refused',
+  'probe_entry_refused', 'project_override_refused', 'cli_start_failed']);
+function reportableReason(error) {
+  return typeof error?.message === 'string' && reportableErrors.has(error.message) ? error.message : 'diagnostic_unavailable';
+}
 
 try {
   if (mode === '--self-test' && process.argv.length === 3) {
@@ -242,7 +253,15 @@ try {
       if (!refused) throw new Error('invalid_verification');
       checks++;
     }
-    report('self_test_passed', { checks, publicFilesOpened: false, cliLaunched: false });
+    // N-broker-d-01: a listed code (this self-test's own failure code) is reported as itself; an unlisted message, and a
+    // thrown value that is not an Error, read diagnostic_unavailable.
+    if (reportableReason(new Error('invalid_verification')) !== 'invalid_verification') throw new Error('invalid_verification');
+    checks++;
+    for (const unlisted of [new Error('SYNTHETIC_UNLISTED_DETAIL'), new Error(''), 'invalid_verification', null]) {
+      if (reportableReason(unlisted) !== 'diagnostic_unavailable') throw new Error('invalid_verification');
+      checks++;
+    }
+    report('self_test_passed',{ checks, publicFilesOpened: false, cliLaunched: false });
     process.exit(0);
   }
   if (process.platform !== 'win32' || !['--apply', '--apply-http', '--verify-http'].includes(mode) || extra.length) throw new Error('invalid_arguments');
@@ -324,8 +343,6 @@ try {
   }
 } catch (error) {
   // Only fixed local error codes are permitted; never print vendor stdout/stderr or config.
-  const allowed = new Set(['invalid_path', 'invalid_loopback_endpoint', 'protected_path_refused', 'public_tool_location_refused', 'linked_path', 'invalid_public_file', 'invalid_arguments', 'public_cli_changed',
-    'invalid_directory', 'invalid_retry', 'legacy_configuration_present', 'entry_inspection_unavailable', 'existing_entry_refused', 'probe_entry_refused', 'project_override_refused', 'cli_start_failed']);
-  report('refused', { reason: allowed.has(error.message) ? error.message : 'diagnostic_unavailable' });
+  report('refused', { reason: reportableReason(error) });
   process.exitCode = 1;
 }

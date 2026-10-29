@@ -17,6 +17,32 @@ Set-StrictMode -Version Latest
 $repoRoot = [IO.Path]::GetFullPath((Split-Path $PSScriptRoot -Parent))
 Write-Host '=== AgentBroker payload source and packaging contracts'
 & (Join-Path $PSScriptRoot 'Test-AgentBrokerPackaging.ps1') -RepoRoot $repoRoot
+# N-broker-d-01: the Claude connection helper's --self-test (path policy, loopback endpoint, retry rule, connection fields,
+# reportable error codes) was run by nothing before AgentBroker 1.6.0. It needs node, as the pane's Connect Claude MCP
+# action does; a missing node fails here and is never skipped in silence. The source check after it catches a new thrown
+# code that was never added to the reportable set, which the self-test cannot see when no check throws that code.
+Write-Host '=== AgentBroker Claude connection helper self-test'
+$connectHelper = Join-Path $repoRoot 'tools\agentbroker\Connect-ClaudeMcpEntry.mjs'
+$connectOutput = @(& node $connectHelper --self-test)
+$connectExit = $LASTEXITCODE
+foreach ($line in $connectOutput) { Write-Host $line }
+$connectSummary = @($connectOutput | Where-Object { "$_" -cmatch '^\{"status":"self_test_passed","checks":[1-9][0-9]*,' })
+if ($connectExit -ne 0 -or $connectSummary.Count -ne 1 -or $connectOutput.Count -ne 1) {
+    throw "AgentBroker Claude connection helper self-test failed: tools/agentbroker/Connect-ClaudeMcpEntry.mjs --self-test (exit $connectExit)."
+}
+$connectChecks = [int]([regex]::Match([string]$connectSummary[0], '"checks":([0-9]+)').Groups[1].Value)
+$connectSource = [IO.File]::ReadAllText($connectHelper)
+$connectThrown = @([regex]::Matches($connectSource, "new Error\('([a-z_]+)'\)") | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
+$connectSet = [regex]::Match($connectSource, "const reportableErrors = new Set\(\[([^\]]+)\]\);")
+$connectReportable = @([regex]::Matches($connectSet.Groups[1].Value, "'([a-z_]+)'") | ForEach-Object { $_.Groups[1].Value })
+if (-not $connectSet.Success -or $connectThrown.Count -eq 0 -or $connectReportable.Count -eq 0) {
+    throw 'AgentBroker Claude connection helper source check found no thrown codes or no reportableErrors set.'
+}
+$connectUnreportable = @($connectThrown | Where-Object { $connectReportable -cnotcontains $_ })
+if ($connectUnreportable.Count -gt 0) {
+    throw ('AgentBroker Claude connection helper throws codes its reportable set lacks (they would read diagnostic_unavailable): ' + ($connectUnreportable -join ', '))
+}
+Write-Host "PASS: Claude connection helper self-test, $connectChecks checks; all $($connectThrown.Count) thrown codes reportable"
 # The collaboration helper is PowerShell 7 only, so it runs in its own pwsh child even when this
 # script runs under Windows PowerShell. Missing pwsh fails here; it is never skipped in silence.
 Write-Host '=== AgentBroker collaboration helper validation'
@@ -112,4 +138,4 @@ foreach ($harness in $harnesses) {
     catch { $failures.Add($harness.Name + ': ' + $_.Exception.Message) }
 }
 if ($failures.Count -gt 0) { throw ('AgentBroker checks failed: ' + ($failures -join '; ')) }
-Write-Host ("AgentBroker deterministic harnesses PASS: $($harnesses.Count) harnesses, $assertions assertions; collaboration helper $collaborationChecks checks; re-pin helper $repinChecks checks (PowerShell 7: $repin7Checks); scheduled re-pin check $repinCheckChecks checks.")
+Write-Host ("AgentBroker deterministic harnesses PASS: $($harnesses.Count) harnesses, $assertions assertions; Claude connection helper $connectChecks checks; collaboration helper $collaborationChecks checks; re-pin helper $repinChecks checks (PowerShell 7: $repin7Checks); scheduled re-pin check $repinCheckChecks checks.")
