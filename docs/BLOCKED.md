@@ -388,3 +388,15 @@ What clears it: Turn Windows Do Not Disturb on, ask a test question from the deb
 The entry as it stood:
 
 **N-tray-questions-03** [info/unmeasured] Whether Windows 11's Do Not Disturb reaches `SHQueryUserNotificationState` at all is unverified, so the question card may not hold for it (the card holds for presenting, fullscreen, locked and QUNS_QUIET_TIME). `modules/Reminder/PresentationState.cs` calls QUIET_TIME "Do Not Disturb", which it is not: QUIET_TIME is Windows' post-setup quiet hour. Turn Do Not Disturb on, ask a test question from the debug window, and read the `[question] held` line. Found by lane feature/tray-questions.
+
+---
+
+## N-agentbroker-refusal-transience-01 (moved from BACKLOG.md 2026-10-29)
+
+**Blocker: half 2 is fixed in AgentBroker 1.6.0 (e02cf5a, 0c90d91: a Codex check the broker could not complete defers as native_verification_unavailable). Half 1 needs a router build that matches a pin, and none is installed on this workstation: VS Code's openai.chatgpt is 26.1021.22027 (pin 26.1007.21434), Code.exe 1.144.0 (pins 1.143.0, 1.143.1), Codex desktop 26.1023.6123.0 (pins 26.1016.6573.0, 26.1016.8622.0)**
+
+What clears it: install the pinned builds, or re-pin to the installed ones (N-agentbroker-repin-01). Then re-read the router in that build as the 2026-10-29 audit did (extension.js handleRequest, findClientForRequest, sendClientDiscoveryRequest, forwardRequest; the same class in Codex desktop's app.asar): the audit of the installed, unpinned builds found handleRequest the only producer of no-client-found, inside one catch that covers the discovery and forwardRequest. If no-client-found can only be answered before the request frame is written, make it defer like native_owner_unavailable (TRANSIENT_OWNER_DEFERS is the template); if forwardRequest can throw after writing, the refusal stays final and this entry closes as DECLINED with that reading.
+
+The entry as it stood:
+
+**N-agentbroker-refusal-transience-01** [delivery policy, observed 2026-10-28] Two messages from a live Claude session to a live Codex session were refused as final: `native_admission_refused` and `unsupported_capability`; the same session accepted other messages minutes later. 1.4.0 fixed one cause: a Codex owner missing at the pre-write rediscovery (`owner_unavailable` before any turn frame or receipt; discovery writes only a control frame, `DesktopAdapter.cs`) now defers as `native_owner_unavailable` and retries on the external-peer path (TRANSIENT_OWNER_DEFERS, TRANSIENT_OWNER_REASON). Left: the `no-client-found` answer to the start-turn request stays a final refusal because a frame was written, and update-tolerant `unsupported_capability` refuses on a momentary capability check (`CodexNativeAdapter.cs`, `Refusal`). Decide whether either can be proved unsubmitted; keep a definite refusal final when the recipient's own policy refused it.
