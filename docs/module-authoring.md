@@ -260,8 +260,9 @@ credentials.CredentialChanged += OnChanged;     // (id, revision); unsubscribe i
 ```
 
 - **It needs a grant, not just a flag.** Declare `ModulePermissions.ClaudeCodeSignIn`, and the user must allow your
-  module: a yes to the update that adds the flag records it, and the Modules pane's row offers **Allow sign-in** and
-  **Revoke sign-in**. Without the flag every call is `Denied`; without the grant, `ConsentRequired`. A refusal reads,
+  module: a yes to the update that adds the flag records it, the app asks once per start for a declaring module that has
+  no answer yet (one the installer or a hand put in the modules folder), and the Modules pane's row offers **Allow
+  sign-in** and **Revoke sign-in**. Without the flag every call is `Denied`; without the grant, `ConsentRequired`. A refusal reads,
   writes and moves nothing, and it is not `None`: say it, and do not fall back to a token of your own.
 - **Not from `Init`.** The host publishes a module after its `Init` returns, and refuses one it has not published yet.
 - **Revisions, not events.** Each reading carries the revision it describes and each commit returns the one it made.

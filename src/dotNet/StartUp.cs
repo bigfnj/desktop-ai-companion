@@ -344,6 +344,12 @@ namespace DesktopAICompanion
             }
             catch (Exception moduleEx) { AddDebugInfo(DEBUG_TYPE.warning, "module host init failed: " + moduleEx.Message); }
 
+            // The shared Claude Code sign-in's grant (host 1.8.0): a module the MSI or a hand placed in the modules folder never
+            // passed the Modules pane's update question, so the user is asked here, once per start, for each loaded module
+            // that declares it and holds no answer (CompanionHost.AskForSignInGrantsAsync). After the load, so the modules
+            // are published and the card can name them; not awaited, so a launch never waits on the user.
+            AskForSignInGrants();
+
             // All three arm OUTSIDE the module try/catch. ArmModuleUpdateCheck used to sit inside it and
             // behind `loadedModules > 0`, which meant a module-host failure silently took the update check
             // with it. The pet check must run with zero modules installed, so it could never have lived
@@ -352,6 +358,23 @@ namespace DesktopAICompanion
             ArmAppUpdateCheck();
             ArmModuleUpdateCheck();
             ArmPetUpdateCheck();
+        }
+
+        /// <summary>The start question for the shared Claude Code sign-in, for the modules that loaded (see the call).</summary>
+        private void AskForSignInGrants()
+        {
+            try
+            {
+                var infos = new List<DesktopAICompanion.Modules.ModuleInfo>();
+                foreach (DesktopAICompanion.Modules.IModule m in LoadedModules)
+                {
+                    try { if (m != null && m.Info != null) infos.Add(m.Info); }
+                    catch { }
+                }
+                DesktopAICompanion.Plugins.CompanionHost host = Host;
+                if (host != null) _ = host.AskForSignInGrantsAsync(infos);
+            }
+            catch (Exception ex) { AddDebugInfo(DEBUG_TYPE.warning, "[credentials] the sign-in question could not be asked: " + ex.GetType().Name); }
         }
 
         /// <summary>

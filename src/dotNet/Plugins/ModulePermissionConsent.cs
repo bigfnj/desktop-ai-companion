@@ -97,6 +97,16 @@ namespace DesktopAICompanion.Plugins
                    + " gets the token only while you allow it, and you can take that back on its row in Settings, Modules.";
         }
 
+        /// <summary>The start question's words (SignInGrantQuestion, host 1.8.0): the grant sentence's three facts, what the
+        /// module may do, to which token, and where to change it, in the 240 characters a question card holds; the
+        /// sentence itself is longer than that.</summary>
+        internal static string StartQuestionText(string displayName)
+        {
+            string who = string.IsNullOrEmpty(displayName) ? "This module" : displayName;
+            return "Allow " + who + " to use the shared Claude Code sign-in? It could then read, replace and remove the one token " +
+                   "the app keeps for the modules you allow. You can change this on its row in Settings, Modules.";
+        }
+
         /// <summary>The question the Allow on a module's row asks before it records the grant (host 1.8.0).</summary>
         internal static string GrantPromptText(string displayName)
         {

@@ -3624,6 +3624,22 @@ CASES = (
         b"            string problem = ValueProblem(value);\n",
         "the sign-in token is put on a Claude Code child in ApplyClaudeToken alone",
     ),
+    # The start question for the shared sign-in (the coordinator's finding of 2026-10-29): never asked, and a grant on an
+    # answer that is not the user's press of Allow.
+    (
+        "abi180: the app never asks the start question",
+        os.path.join(REPO, "src", "dotNet", "StartUp.cs"),
+        b"            AskForSignInGrants();\n",
+        b"",
+        "abi180: the app asks the start question for the shared sign-in, after the modules load",
+    ),
+    (
+        "abi180: the start question grants on an answer that is not a press",
+        os.path.join(REPO, "src", "dotNet", "Plugins", "HostCredentialStore.cs"),
+        b'            if (answer == null || answer.Outcome != TrayQuestionOutcome.Chosen) word = "unanswered";\n',
+        b'            if (answer == null) word = "unanswered";\n',
+        "abi180: the start question grants only behind the user's press of Allow",
+    ),
 )
 
 

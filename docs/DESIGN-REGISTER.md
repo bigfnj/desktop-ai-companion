@@ -6567,6 +6567,23 @@ grant would record a consent to nothing. Refused: declaration-only consent, whic
 and a host that makes the Claude Code calls itself, the review's other option, a larger change than centralising the
 token the two trusted modules already hold.
 
+**The app asks at start, once per module, for a module that declares the flag and has no answer.** Found by the
+coordinator while planning the real-app check: the MSI installs AI Brain and Remembrance itself, and a module placed in
+the modules folder by hand loads the same way, so neither ever passes the Modules pane's update question
+(`ModulePermissionConsent` is called only from that pane's Update and Update all). An upgrade from 1.7.1 left both modules
+with their old token waiting and no grant, and their Claude Code calls stopped (`TokenNotAllowed`), the owner's own box
+among them. So after the modules load, the host asks through its own question card (the `ITrayQuestions` queue, the card
+naming the module from the host's record of it): "Allow <module> to use the shared Claude Code sign-in? It could then
+read, replace and remove the one token the app keeps for the modules you allow. You can change this on its row in
+Settings, Modules." (the grant sentence's three facts in the 240 characters a card holds), with Allow, Not now and Don't
+ask again. Only the user's press of Allow grants: a timeout (its default is Not now), a held card that expired, a
+withdrawal, the app closing or a refused question records nothing, and the question comes back at the next start; it
+waits while the card is held, never counting down unseen. Don't ask again records a no (`grants.json`'s
+`claudeCodeSignInNotAsked`), as Revoke sign-in on the row now does too, and the row stays the place to change either; an
+applied uninstall forgets both. Refused: granting on an MSI upgrade because the module held a token before, which is the
+silent grant the 2026-10-26 condition rules out; and asking only when a module first reaches the store, which would show
+the question first as a failed call.
+
 **The store's life is durable, and every change is one transaction.** One envelope file, `credentials\claude-code-signin.json`
 (schema, revision, state, and the DPAPI-sealed value when saved), replaced whole by `AtomicFile`, so the state, the
 revision and the value cannot disagree after a crash. (The first design named it `.dpapi`; the DPAPI blob is now one
