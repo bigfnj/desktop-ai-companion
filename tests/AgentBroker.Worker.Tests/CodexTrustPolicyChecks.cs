@@ -199,12 +199,12 @@ internal static class CodexTrustPolicyChecks
             File + "update-tolerant reconnect: a new connection lease to the same native owner keeps the stable address");
         owner.Binding = owner.Binding with { OwnerClientId = Guid.NewGuid() };
         var moved = await adapter.SubmitAsync(Message(row), default);
-        check(moved is { Outcome: AdapterAdmission.DeferredNotSubmitted, Reason: "native_owner_changed" } && owner.Submissions == 1,
-            File + "update-tolerant reconnect: a changed native owner never receives a message for the previous incarnation");
+        check(moved.Outcome == AdapterAdmission.Submitted && owner.Submissions == 2,
+            File + "update-tolerant reconnect: a changed owning view keeps the stable address and receives the message (codex-thread-v2)");
         owner.Failure = new DesktopAdapterException("connection_closed");
         var fresh = (await adapter.DiscoverAsync(Guid.NewGuid(), default)).Single();
         var unavailable = await adapter.SubmitAsync(Message(fresh), default);
-        check(unavailable is { Outcome: AdapterAdmission.Uncertain, Reason: "native_submission_uncertain" } && owner.Submissions == 2,
+        check(unavailable is { Outcome: AdapterAdmission.Uncertain, Reason: "native_submission_uncertain" } && owner.Submissions == 3,
             File + "update-tolerant reconnect: a transport failure after entering submission stays uncertain and is never replayed");
     }
 

@@ -52,12 +52,19 @@ public sealed record DesktopOwnerBinding(Guid ConversationId, Guid OwnerClientId
     /// connection and refuses a binding whose trust differs; the default grants no delivery authority.
     /// </summary>
     public DesktopRouterTrust RouterTrust { get; init; } = DesktopRouterTrust.Unverified;
-    /// <summary>Stable broker address identity while the same native GUI process/client owns this conversation.</summary>
+    /// <summary>
+    /// Stable broker address identity: this conversation on this exact running server process (PID and creation time). The
+    /// owning view's client ID is deliberately left out (codex-thread-v2, 2026-10-29, owner's decision on Codex session
+    /// 01a1855c's recommendation): with it, a view reconnecting or another view taking ownership changed the address, which
+    /// stranded queued messages and broke acknowledgements and replies to them. Delivery still targets the exact owner it
+    /// rediscovers for every attempt (OwnerClientId, Incarnation and the server checks are unchanged), and an owner change
+    /// after a turn write stays Uncertain.
+    /// </summary>
     public Guid NativeSessionIncarnation
     {
         get
         {
-            string identity = FormattableString.Invariant($"codex-owner-v1|{ServerPid}|{ServerCreationFileTime}|{OwnerClientId:D}|{ConversationId:D}");
+            string identity = FormattableString.Invariant($"codex-thread-v2|{ServerPid}|{ServerCreationFileTime}|{ConversationId:D}");
             byte[] digest = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(identity));
             return new Guid(digest.AsSpan(0, 16));
         }

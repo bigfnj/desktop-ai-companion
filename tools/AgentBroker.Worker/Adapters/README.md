@@ -5,7 +5,7 @@ providers. The deterministic harness never instantiates production providers, op
 accesses live registry metadata, or invokes a credential reader.
 
 Codex directory observations resolve the exact owner on a persistent version-pinned native connection.
-Broker incarnation hashes the native server PID/creation time, owner client ID and conversation ID;
+Broker incarnation hashes the native server PID/creation time and conversation ID (`codex-thread-v2`; the owner client ID left it on 2026-10-29, so a view taking ownership keeps the address while each submission still targets the owner rediscovered for that attempt);
 the native adapter's ephemeral connection-binding UUID is never used as durable identity. Typed native
 busy admission alone yields `DeferredNotSubmitted`. Generic failures after entering model submission
 remain uncertain. Native acceptance remains `Submitted` until a separate exact recipient receipt.

@@ -79,7 +79,7 @@ A Claude Code or Codex session the broker discovered natively has a directory ro
 
 An agent with no native row registers a mailbox and sends its first message to the peer's native row, which wakes the peer, then waits with `wait_for_messages`.
 
-Incarnations change. A Claude session gets a new one when its process restarts. A Codex chat's incarnation also covers the client connection that owns it, so it changes when the chat's view reconnects: on 2026-10-29 one changed within four minutes while the chat stayed open. A send to an old incarnation is refused as `recipient_unavailable`. Read `list_sessions` again, or ask the peer to call `whoami`, and send again.
+Incarnations change. A Claude session gets a new one when its process restarts. A Codex chat's incarnation is the conversation on its running Codex server process (`codex-thread-v2`), so it changes when that process restarts, not when a view reconnects or another view takes ownership; each delivery still targets the owner rediscovered for that attempt. Until 1.4.0 it also covered the owning view, and on 2026-10-29 two new chats changed address within minutes of opening, which stranded queued messages and broke acknowledgements and replies to them. Upgrading to 1.4.0 changes every Codex address once. A send to an old incarnation is refused as `recipient_unavailable`. Read `list_sessions` again, or ask the peer to call `whoami`, and send again.
 
 This section and `whoami` exist because, on 2026-10-28, two agents on a second workstation registered mailboxes and one ran a 30-minute poller, although that one had a native row, and the owner carried one agent's address to the other by hand.
 

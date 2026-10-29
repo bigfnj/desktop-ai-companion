@@ -84,11 +84,21 @@ try
         Check((await adapter.SubmitAsync(Message(again), default)).Outcome == AdapterAdmission.Uncertain,
             "An exception after entering native submit is conservatively uncertain.");
         codex.FailSubmit = false; int submittedBefore = codex.Submits;
-        codex.Binding = codex.Binding with { OwnerClientId = Guid.NewGuid() };
-        Check((await adapter.SubmitAsync(Message(again), default)).Outcome == AdapterAdmission.DeferredNotSubmitted && codex.Submits == submittedBefore,
-            "A changed native owner never receives a message addressed to the previous incarnation.");
-        Check((await adapter.DiscoverAsync(broker, default)).Single().Address.Incarnation != stable,
-            "Changing native owner changes the published broker incarnation.");
+        // codex-thread-v2 (2026-10-29): the address is the conversation on this server process, so a new owning view keeps it
+        // and the message goes to the owner rediscovered for this attempt.
+        var newOwner = Guid.NewGuid();
+        codex.Binding = codex.Binding with { OwnerClientId = newOwner };
+        Check((await adapter.SubmitAsync(Message(again), default)).Outcome == AdapterAdmission.Submitted && codex.Submits == submittedBefore + 1 &&
+            codex.LastOwner == newOwner,
+            "STABLE_ADDRESS_NEW_OWNER: a message to the stable address is submitted to the newly discovered owning view");
+        Check((await adapter.DiscoverAsync(broker, default)).Single().Address.Incarnation == stable,
+            "STABLE_ADDRESS_KEPT: a changed owning view keeps the published broker incarnation");
+        codex.Binding = codex.Binding with { ServerCreationFileTime = codex.Binding.ServerCreationFileTime + 1 };
+        int beforeRestart = codex.Submits;
+        var stale = await adapter.SubmitAsync(Message(again), default);
+        Check(stale is { Outcome: AdapterAdmission.DeferredNotSubmitted, Reason: "native_owner_changed" } && codex.Submits == beforeRestart &&
+            (await adapter.DiscoverAsync(broker, default)).Single().Address.Incarnation != stable,
+            "STABLE_ADDRESS_SERVER_RESTART: a restarted server process gets a new address, and nothing addressed to the old one is submitted");
         codex.Atomic = false;
         Check((await adapter.DiscoverAsync(broker, default)).Single().Capabilities == SessionCapabilities.None,
             "Loss of the verified native app/profile gate removes receive and wake capabilities.");
@@ -264,7 +274,7 @@ sealed class FakeCodex(Guid thread, TimeProvider clock) : ICodexNativeProvider
     internal DesktopSubmissionResult Outcome = new(DesktopSubmissionOutcome.Accepted, TurnId: "synthetic-turn");
     internal bool Atomic = true, BoundToRecipient = true, FailSubmit, TooLarge, Disposed;
     internal int Submits;
-    internal Guid LastMessageId;
+    internal Guid LastMessageId, LastOwner;
     internal string? LastText;
     public bool NativeIdleGuard => Atomic;
     public bool IsDeliveryAuthorized(DesktopOwnerBinding binding) => Atomic && BoundToRecipient && binding.ConversationId == thread && binding.OwnerClientId == Binding.OwnerClientId;
@@ -272,7 +282,7 @@ sealed class FakeCodex(Guid thread, TimeProvider clock) : ICodexNativeProvider
         => Task.FromResult<IReadOnlyList<DesktopDirectorySession>>([new(thread, DesktopSessionActivity.Unknown, clock.GetUtcNow(), null)]);
     public Task<DesktopOwnerBinding?> ResolveOwnerAsync(Guid id, CancellationToken token) => Task.FromResult<DesktopOwnerBinding?>(Binding);
     public Task<DesktopSubmissionResult> SubmitAsync(DesktopOwnerBinding binding, Guid id, string text, CancellationToken token)
-    { if (TooLarge) throw new DesktopAdapterException("message_frame_too_large"); Submits++; LastMessageId = id; LastText = text; if (FailSubmit) throw new IOException("Synthetic submit failure."); return Task.FromResult(Outcome); }
+    { if (TooLarge) throw new DesktopAdapterException("message_frame_too_large"); Submits++; LastMessageId = id; LastText = text; LastOwner = binding.OwnerClientId; if (FailSubmit) throw new IOException("Synthetic submit failure."); return Task.FromResult(Outcome); }
     public ValueTask DisposeAsync() { Disposed = true; return ValueTask.CompletedTask; }
 }
 // Two chats owned by one Codex server process, as one VS Code window hosting two Codex threads would be.

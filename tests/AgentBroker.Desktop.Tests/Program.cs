@@ -187,9 +187,13 @@ await using (var adapter = await DesktopAdapter.ConnectForTestAsync(connection, 
     Check(binding!.OwnerClientId == connection.OwnerId, "Discovery binds exact owner client.");
     Check(binding.NativeSessionIncarnation == (binding with { Incarnation = Guid.NewGuid() }).NativeSessionIncarnation,
         "Broker native incarnation survives observer/delivery connection changes.");
-    Check(binding.NativeSessionIncarnation != (binding with { OwnerClientId = Guid.NewGuid() }).NativeSessionIncarnation
-        && binding.NativeSessionIncarnation != (binding with { ServerCreationFileTime = binding.ServerCreationFileTime + 1 }).NativeSessionIncarnation,
-        "Native owner client/process restart changes broker incarnation.");
+    // codex-thread-v2 (2026-10-29): the owning view is not part of the address; the server process and conversation are.
+    Check(binding.NativeSessionIncarnation == (binding with { OwnerClientId = Guid.NewGuid() }).NativeSessionIncarnation,
+        "STABLE_ADDRESS_OWNER_IGNORED: the owning view's client ID is not part of the broker incarnation");
+    Check(binding.NativeSessionIncarnation != (binding with { ServerCreationFileTime = binding.ServerCreationFileTime + 1 }).NativeSessionIncarnation
+        && binding.NativeSessionIncarnation != (binding with { ServerPid = binding.ServerPid + 1 }).NativeSessionIncarnation
+        && binding.NativeSessionIncarnation != (binding with { ConversationId = Guid.NewGuid() }).NativeSessionIncarnation,
+        "STABLE_ADDRESS_IDENTITY: a server restart, a reused PID or another conversation changes the broker incarnation");
     var messageId = Guid.NewGuid();
     var sent = await adapter.SubmitAuthorizedPlaintextAsync(binding, messageId, "Synthetic benign input.");
     Check(sent.Outcome == DesktopSubmissionOutcome.Accepted && sent.TurnId == "synthetic-turn", "Accepted nested native result.");
