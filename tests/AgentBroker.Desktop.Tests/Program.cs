@@ -353,6 +353,23 @@ foreach (bool guarded in new[] { false, true })
         "Only proven unsubmitted receipt is evicted for a later same-ID retry.");
 }
 
+// Refusal transience (2026-10-29): an owner missing at the pre-write rediscovery is usually a view reconnecting, and no
+// frame was written, so the submission defers and the same message ID is delivered once the owner is back.
+{
+    await using var connection = new FakeConnection();
+    await using var adapter = await DesktopAdapter.ConnectForTestAsync(connection, options with { EnableExternalPeerDelivery = true });
+    var binding = await adapter.DiscoverAsync(thread);
+    connection.NoOwner = true;
+    Guid id = Guid.NewGuid();
+    var missing = await adapter.SubmitExternalPeerAsync(binding!, id, "x");
+    Check(missing.Outcome == DesktopSubmissionOutcome.DeferredNotSubmitted && missing.ErrorCode == "owner_unavailable" && connection.SubmissionCount == 0,
+        "TRANSIENT_OWNER_DEFERS: an owner missing before any write defers instead of refusing, with nothing submitted");
+    connection.NoOwner = false;
+    var retry = await adapter.SubmitExternalPeerAsync(binding!, id, "x");
+    Check(retry.Outcome == DesktopSubmissionOutcome.Accepted && connection.SubmissionCount == 1,
+        "TRANSIENT_OWNER_RETRY: the same message ID is delivered once the owner is back");
+}
+
 var metadataClock = new MetadataClock();
 var index = new DesktopDirectoryIndex(metadataClock);
 var source = Guid.NewGuid();

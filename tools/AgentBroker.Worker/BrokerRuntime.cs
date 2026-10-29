@@ -124,6 +124,12 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
     public async Task<IReadOnlyList<BrokerSession>> DirectoryAsync(bool forPeer, CancellationToken token)
     {
         var result = store.Directory(forPeer).ToList();
+        // A generic mailbox reads Idle only while its owner is inside a wait on this broker. Registering or renewing proves
+        // nobody reads it: one unread for hours looked live to its senders (N-agentbroker-mailbox-activity-01, 2026-10-28),
+        // so it reads Unknown. The store keeps Idle as its presence state; native rows are untouched.
+        for (int i = 0; i < result.Count; i++)
+            if (result[i].Adapter == "mcp" && result[i].Activity == SessionActivity.Idle && !waits.ContainsKey(result[i].Address))
+                result[i] = result[i] with { Activity = SessionActivity.Unknown };
         if (!forPeer)
         {
             var peers = store.Peers();

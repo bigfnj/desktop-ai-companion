@@ -136,7 +136,12 @@ public sealed partial class DesktopAdapter : IAsyncDisposable
             EnsureOpen();
             if (receipts.Count >= MaximumReceipts) throw new DesktopAdapterException("receipt_capacity");
             var current = await DiscoverCoreAsync(binding.ConversationId, binding.OwnerClientId, token);
-            if (current is null) return new(DesktopSubmissionOutcome.Rejected, ErrorCode: "owner_unavailable");
+            // No frame is written and no receipt reserved yet, so an owner missing here proves nothing was submitted. On the
+            // typed external-peer path that defers for a retry: it is usually a view reconnecting, and refusing it lost messages
+            // to live chats (N-agentbroker-refusal-transience-01). The plaintext path keeps its refusal, as it never defers, and
+            // the no-client-found answer to the start-turn request below stays final on both.
+            if (current is null)
+                return new(externalPeer ? DesktopSubmissionOutcome.DeferredNotSubmitted : DesktopSubmissionOutcome.Rejected, ErrorCode: "owner_unavailable");
             ValidateBinding(current);
             token.ThrowIfCancellationRequested();
             var uncertain = new DesktopSubmissionResult(DesktopSubmissionOutcome.Uncertain, ErrorCode: "submission_unconfirmed");

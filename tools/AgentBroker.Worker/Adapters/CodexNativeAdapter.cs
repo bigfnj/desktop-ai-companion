@@ -134,9 +134,9 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
                 return result.Outcome switch
                 {
                     DesktopSubmissionOutcome.Accepted => new(AdapterAdmission.Submitted, "native_admission_unconfirmed"),
-                    DesktopSubmissionOutcome.DeferredNotSubmitted => Deferred("native_context_busy"),
+                    DesktopSubmissionOutcome.DeferredNotSubmitted => Deferred(result.ErrorCode == "owner_unavailable" ? "native_owner_unavailable" : "native_context_busy"),
                     DesktopSubmissionOutcome.Rejected => new(AdapterAdmission.Refused, "native_admission_refused"),
-                    _ => new(AdapterAdmission.Uncertain, "native_submission_uncertain"),
+                    _ => new(AdapterAdmission.Uncertain, UncertainReason(result.ErrorCode)),
                 };
             }
             catch (DesktopAdapterException ex) when (ex.Code is "message_frame_too_large" or "invalid_message" or "frame_too_large")
@@ -146,6 +146,17 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
         }
         finally { gate.Release(); }
     }
+
+    // The library's typed cause of an uncertain submission, kept in the receipt so the next one can be diagnosed: two
+    // messages to a chat parked on a prompt ended with only the generic reason (N-agentbroker-uncertain-parked-01).
+    private static string UncertainReason(string? code) => code switch
+    {
+        "response_timeout_or_cancelled" => "native_uncertain_timeout",
+        "native_error_unconfirmed" => "native_uncertain_native_error",
+        "owner_changed_after_submission" => "native_uncertain_owner_changed",
+        "connection_io_unconfirmed" => "native_uncertain_connection",
+        _ => "native_submission_uncertain",
+    };
 
     // A publisher-signed owner stays observable without the native capability; an exact one never lacks it.
     private static bool ValidBinding(DesktopOwnerBinding? binding, Guid thread) => binding is not null && binding.ConversationId == thread &&

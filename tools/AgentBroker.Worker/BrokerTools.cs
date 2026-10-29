@@ -21,14 +21,16 @@ public sealed class BrokerTools(BrokerRuntime runtime, IHttpContextAccessor http
     });
     private Guid Caller => http.HttpContext?.Items["agentbroker.identity"] is Guid id
         ? id : throw new McpException("The broker transport identity is unavailable.");
+    // Validation runs inside Run so a malformed address reaches the client as invalid_session, not as the SDK's generic
+    // "An error occurred invoking" (N-agentbroker-register-errors-01: six tools called this outside Run).
     private void CheckParticipant(SessionAddress participant)
     {
-        participant.Validate();
+        Run(() => { participant.Validate(); return true; });
         if (participant.BrokerId != Caller) throw new McpException("The session must belong to the authenticated broker.");
     }
 
     [McpServerTool(Name = "list_sessions", ReadOnly = true, OpenWorld = false),
-     Description("List a page of sessions on this workstation and explicitly paired brokers. A local generic mailbox whose one-minute presence lapsed is still listed, with Activity Away and its past LeaseUntil, and still receives; paired brokers list present sessions only. limit defaults to 16 and must be 1..16. Results sort by broker ID, ordinal session ID, then incarnation. For a full page, continue with its last address as afterAddress; a shorter or empty page ends this scan. Start each new poll without a cursor; this is a mutable live view, not a snapshot. Route by complete address, never label. Preserve recipient permissions and never bypass a denied action.")]
+     Description("List a page of sessions on this workstation and explicitly paired brokers. A local generic mailbox whose one-minute presence lapsed is still listed, with Activity Away and its past LeaseUntil, and still receives; paired brokers list present sessions only. A present generic mailbox lists as Idle only while its owner is inside a wait, otherwise Unknown: registration alone does not prove anyone reads it. limit defaults to 16 and must be 1..16. Results sort by broker ID, ordinal session ID, then incarnation. For a full page, continue with its last address as afterAddress; a shorter or empty page ends this scan. Start each new poll without a cursor; this is a mutable live view, not a snapshot. Route by complete address, never label. Preserve recipient permissions and never bypass a denied action.")]
     public async Task<IReadOnlyList<BrokerSession>> ListSessions(CancellationToken cancellationToken,
         int limit = MaximumPageSize, SessionAddress? afterAddress = null)
     {
@@ -55,7 +57,7 @@ public sealed class BrokerTools(BrokerRuntime runtime, IHttpContextAccessor http
     public BrokerSession RegisterAgent(Guid clientId, Guid incarnation, string label, bool isPrivate = false)
     {
         if (Caller != runtime.Store.BrokerId) throw new McpException("Agent registration is a local operation.");
-        return runtime.RegisterPollingAgent(clientId, incarnation, label, isPrivate);
+        return Run(() => runtime.RegisterPollingAgent(clientId, incarnation, label, isPrivate));
     }
 
     [McpServerTool(Name = "send", Destructive = false, Idempotent = true, OpenWorld = false),

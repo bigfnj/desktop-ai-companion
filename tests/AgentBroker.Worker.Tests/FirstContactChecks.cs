@@ -18,6 +18,46 @@ internal static class FirstContactChecks
         await WhoAmIChecks(check);
         await ReplyBudgetChecks(check);
         EnvelopeChecks(check);
+        await MailboxActivityChecks(check);
+        await ErrorCodeChecks(check);
+    }
+
+    // N-agentbroker-mailbox-activity-01: a mailbox lists as Idle only while its owner waits; otherwise Unknown.
+    private static async Task MailboxActivityChecks(Action<bool, string> check)
+    {
+        await using var fixture = new ToolFixture("mailbox-activity");
+        var owner = fixture.Register("Synthetic listening mailbox");
+        var native = fixture.Native("codex:77777777-8888-4999-aaaa-bbbbbbbbbbbb");
+        fixture.Store.Register(native);
+        async Task<SessionActivity?> Listed(SessionAddress address) =>
+            (await fixture.Tools.ListSessions(default)).SingleOrDefault(session => session.Address == address)?.Activity;
+        check(await Listed(owner.Address) == SessionActivity.Unknown && fixture.Current(owner.Address)?.Activity == SessionActivity.Idle,
+            "MAILBOX_UNKNOWN_UNTIL_WAIT: a registered mailbox nobody is waiting on lists as Unknown, while the store keeps it present");
+        var waiting = fixture.Tools.WaitForMessages(owner.Address, default, timeoutSeconds: 2);
+        await Task.Delay(200);
+        check(!waiting.IsCompleted && await Listed(owner.Address) == SessionActivity.Idle,
+            "MAILBOX_IDLE_WHILE_WAITING: a mailbox whose owner is inside a wait lists as Idle");
+        await waiting.WaitAsync(TimeSpan.FromSeconds(10));
+        check(await Listed(owner.Address) == SessionActivity.Unknown, "MAILBOX_UNKNOWN_AFTER_WAIT: once the wait ends the mailbox lists as Unknown again");
+        check(await Listed(native.Address) == SessionActivity.Idle, "MAILBOX_NATIVE_UNTOUCHED: a native row's own activity is listed unchanged");
+    }
+
+    // N-agentbroker-register-errors-01: broker refusals reach the client as their code, not the SDK's generic error.
+    private static async Task ErrorCodeChecks(Action<bool, string> check)
+    {
+        await using var fixture = new ToolFixture("error-codes");
+        static string? Code(Action action)
+        {
+            try { action(); return null; }
+            catch (McpException error) { return error.Message; }
+            catch (Exception error) { return "unwrapped " + error.GetType().Name; }
+        }
+        check(Code(() => fixture.Tools.RegisterAgent(Guid.Empty, Guid.NewGuid(), "Synthetic bad registration")) == "invalid_session",
+            "ERRORS_REGISTER: register_agent reports invalid_session as its code");
+        var malformed = new SessionAddress(fixture.Store.BrokerId, "", Guid.NewGuid());
+        check(Code(() => fixture.Tools.ReadInbox(malformed)) == "invalid_session" &&
+            Code(() => fixture.Tools.AcknowledgeMessage(Guid.NewGuid(), malformed, MessageStatus.Delivered)) == "invalid_session",
+            "ERRORS_ADDRESS: a malformed address reports invalid_session from the tools that check participants");
     }
 
     // The production resolver against real sockets in this process: the owner of a connection's client end is this process.

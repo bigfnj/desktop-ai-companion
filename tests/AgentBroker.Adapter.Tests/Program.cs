@@ -38,9 +38,20 @@ try
         codex.Outcome = new(DesktopSubmissionOutcome.DeferredNotSubmitted);
         Check((await adapter.SubmitAsync(message, default)).Outcome == AdapterAdmission.DeferredNotSubmitted && codex.LastMessageId == message.Id,
             "The exact typed native busy guard defers with the original stable message UUID.");
+        codex.Outcome = new(DesktopSubmissionOutcome.DeferredNotSubmitted, ErrorCode: "owner_unavailable");
+        var ownerGone = await adapter.SubmitAsync(Message(again), default);
+        Check(ownerGone.Outcome == AdapterAdmission.DeferredNotSubmitted && ownerGone.Reason == "native_owner_unavailable",
+            "TRANSIENT_OWNER_REASON: an owner missing before any write defers as native_owner_unavailable, not as a busy context");
         codex.Outcome = new(DesktopSubmissionOutcome.Uncertain);
         Check((await adapter.SubmitAsync(Message(again), default)).Outcome == AdapterAdmission.Uncertain,
             "Generic native uncertainty never becomes safe retry.");
+        codex.Outcome = new(DesktopSubmissionOutcome.Uncertain, ErrorCode: "response_timeout_or_cancelled");
+        var timedOut = await adapter.SubmitAsync(Message(again), default);
+        codex.Outcome = new(DesktopSubmissionOutcome.Uncertain, ErrorCode: "submission_unconfirmed");
+        var unexplained = await adapter.SubmitAsync(Message(again), default);
+        Check(timedOut is { Outcome: AdapterAdmission.Uncertain, Reason: "native_uncertain_timeout" } &&
+            unexplained is { Outcome: AdapterAdmission.Uncertain, Reason: "native_submission_uncertain" },
+            "UNCERTAIN_REASON: an uncertain submission keeps the library's typed cause in its reason, and an unknown one stays generic");
         codex.Outcome = new(DesktopSubmissionOutcome.Accepted, TurnId: "synthetic-turn");
         Check((await adapter.SubmitAsync(Message(again), default)).Outcome == AdapterAdmission.Submitted,
             "Native admission remains separate from explicit recipient delivery receipt.");
