@@ -20,6 +20,13 @@ tag; `vX.Y.Z` must match it or `release.yml` refuses the tag.
 - **MINOR** — a new user-visible capability in the host, or an additive ABI member that lets a module
   DO something it could not do before.
 
+  **One release broke this rule: host 1.6.1.** It added `OptionsPane.InfoChanged` and
+  `OptionsPane.NotifyInfoChanged` (an open pane's Info rows refresh when a module says they changed), a capability
+  member by the rule above, and shipped as a PATCH. The number is history now and stays; the rule is unchanged,
+  and the next capability member, host 1.7.0's `PaneAction.EnabledWhen` and `ICatalogListing`, took the MINOR
+  step (BACKLOG N-abi-01). A module that uses `NotifyInfoChanged` declares `MinHostVersion = "1.6.1"`, the host
+  that introduced it, as the rule in section 3 says.
+
   The capability-versus-disclosure line is the one this file did not draw, and it matters because most
   of `ModulePermissions` is unenforced by design: the host performs no gating for `Speech`,
   `ScreenContext`, `Storage`, `Microphone`, `SystemAudio` or `AgentTranscripts`, so declaring one grants

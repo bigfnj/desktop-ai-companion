@@ -807,7 +807,7 @@ namespace DesktopAICompanion.AiBrainModule
                 ok &= Check(sb, "aibrain token: the CLI card has a Secret token row, live only while Claude Code is the CLI on screen, and a Remove token button that rebuilds the pane",
                     row != null && row.Kind == SettingKind.Secret && row.Group == AiBrainModule.CliCardGroup &&
                     row.EnabledWhen == AiBrainModule.OnClaudeCliOnly && remove != null && remove.ReloadPaneAfter);
-                // Lane feature/abi-pane-actions (BACKLOG N-cli-model-effort-05, PaneAction.EnabledWhen, host 1.6.2): the button
+                // Lane feature/abi-pane-actions (BACKLOG N-cli-model-effort-05, PaneAction.EnabledWhen, host 1.7.0): the button
                 // greys with the token row it clears, on the very same condition, and the card's two buttons that serve
                 // either CLI carry none of their own. The host half (the grey-out, the refusal) is --wpf-options-selftest's.
                 PaneAction updateCli = FindAction(pane, AiBrainModule.CliCardGroup, "Update CLI");

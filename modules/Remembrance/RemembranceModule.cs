@@ -2523,7 +2523,7 @@ namespace DesktopAICompanion.RemembranceModule
                     new PaneAction { Label = "Update CLI", Group = SummaryRoute.CardGroup, ReloadPaneAfter = true,
                         InvokeWithPendingAsync = UpdateCliAsync },
                     // Deletes the saved sign-in token at once; the pane rebuilds so Signed in as says so. Live only while
-                    // Claude Code is the CLI on screen, like the token row it clears (PaneAction.EnabledWhen, host 1.6.2;
+                    // Claude Code is the CLI on screen, like the token row it clears (PaneAction.EnabledWhen, host 1.7.0;
                     // BACKLOG N-cli-model-effort-05, AI Brain's button the same): with Codex chosen it stayed pressable
                     // under a greyed token row. A press that reaches it anyway still deletes only the Claude Code token.
                     new PaneAction { Label = "Remove token", Group = SummaryRoute.CardGroup, ReloadPaneAfter = true,
@@ -7200,7 +7200,7 @@ namespace DesktopAICompanion.RemembranceModule
                     check("remembrance token: the CLI card has a Secret token row, live only while Claude Code is the CLI on screen, and a Remove token button that rebuilds the pane",
                         tokenRow != null && tokenRow.Kind == SettingKind.Secret && tokenRow.Group == SummaryRoute.CardGroup &&
                         tokenRow.EnabledWhen == "summaryRunsOn=Claude Code CLI" && removeToken != null && removeToken.ReloadPaneAfter);
-                    // Lane feature/abi-pane-actions (BACKLOG N-cli-model-effort-05, PaneAction.EnabledWhen, host 1.6.2): the button
+                    // Lane feature/abi-pane-actions (BACKLOG N-cli-model-effort-05, PaneAction.EnabledWhen, host 1.7.0): the button
                     // greys with the token row it clears, on the very same condition; Validate and Update CLI serve either CLI
                     // and carry none. The grey-out and the refusal themselves are --wpf-options-selftest's.
                     PaneAction cliValidate = PaneActionFor(pane, SummaryRoute.CardGroup, "Validate");

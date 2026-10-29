@@ -392,7 +392,7 @@ namespace DesktopAICompanion.Modules
         // One string per card rather than an EnabledWhen per PaneAction: every greyed card the approved
         // layouts draw greys all of its buttons together, and one condition cannot drift out of step with
         // itself the way a copy on each button can. A button that serves only ONE state of a card that is
-        // live has its own PaneAction.EnabledWhen since host 1.6.2; a card greyed whole still uses this.
+        // live has its own PaneAction.EnabledWhen since host 1.7.0; a card greyed whole still uses this.
         public string CardEnabledWhen { get; set; }
 
         // Card-level, read from the group's FIRST field. The card's title row becomes an expander (click it,
@@ -499,7 +499,7 @@ namespace DesktopAICompanion.Modules
         // "otherFieldId=value", read exactly as SettingField.EnabledWhen is, by the same parser: '|' for several
         // values, both sides trimmed, case-insensitive, against the value ON SCREEN, re-evaluated live as that
         // field changes, and able to name a field declared later or a display-only one. Null or empty => always
-        // enabled, which is every action before host 1.6.2. Added in host 1.6.2.
+        // enabled, which is every action before host 1.7.0. Added in host 1.7.0.
         //
         // While it is not met the host greys the action's whole row, the button and the result line beside it,
         // and the button REFUSES a click as well as looking disabled, the way a button in a card greyed by
@@ -510,7 +510,7 @@ namespace DesktopAICompanion.Modules
         // For the button CardEnabledWhen cannot express: one that serves only one state of a card that is live.
         // AI Brain's and Remembrance's "Remove token" deletes the Claude Code sign-in token and stayed pressable
         // with Codex CLI chosen while the token row above it greyed (BACKLOG N-cli-model-effort-05). A module
-        // that sets it raises its MinHostVersion to 1.6.2: an older Contracts.dll has no such property, so the
+        // that sets it raises its MinHostVersion to 1.7.0: an older Contracts.dll has no such property, so the
         // method that builds the pane fails to bind its setter on an older host.
         public string EnabledWhen { get; set; }
     }
@@ -1228,7 +1228,7 @@ namespace DesktopAICompanion.Modules
         public string Reason { get; set; }
     }
 
-    // ---- the catalog as listed, refusals included (host 1.6.2+) ----
+    // ---- the catalog as listed, refusals included (host 1.7.0+) ----
     // IHost.FetchCatalogItemsAsync answers only the entries the host OFFERS. An entry that breaks one of the host's catalog
     // rules (a description past its bound, a download address that is not this project's, a pack format it does not
     // read) is refused alone and the rest of the catalog stays usable (feature/catalog-insight), so from a module's side
@@ -1243,7 +1243,7 @@ namespace DesktopAICompanion.Modules
     //
     // A separate interface rather than a member of IHost, for the reason ICompanionStandDown gives above: a new IHost
     // member changes RecordingHost and so every module's payload. The host's IHost implements this too, so a module asks
-    // with `host as ICatalogListing`, and a module that uses it declares MinHostVersion 1.6.2 (these types live in this
+    // with `host as ICatalogListing`, and a module that uses it declares MinHostVersion 1.7.0 (these types live in this
     // assembly, so code that names them fails to load against an older Contracts.dll). A module's self-test supplies its
     // own double, a RecordingHost subclass implementing this; ModuleKit carries none, on purpose.
     public interface ICatalogListing

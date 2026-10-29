@@ -14070,7 +14070,7 @@ CASES = (
      "--module-selftest=agentbroker", "dp-module-agentbroker-selftest.txt",
      "update-tolerant Codex delivery defaults off"),
     # ---- lane feature/abi-pane-actions ----
-    # Host 1.6.2's two additive members, each case putting back a shortcut the design refuses. Named "abi-pane-actions:"
+    # Host 1.7.0's two additive members, each case putting back a shortcut the design refuses. Named "abi-pane-actions:"
     # for one --only. First, PaneAction.EnabledWhen's adopters (BACKLOG N-cli-model-effort-05): Remove token ungated
     # again in AI Brain and in Remembrance, each graded by its own module self-test; the host half is
     # --wpf-options-selftest's, in tests/mutate-diagnostics.py.

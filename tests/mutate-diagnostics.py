@@ -1029,7 +1029,7 @@ CASES = [
      "",
      "wpf", "the nav entries are list items named after their panes"),
     # ---- lane feature/abi-pane-actions ----
-    # PaneAction.EnabledWhen (host 1.6.2, BACKLOG N-cli-model-effort-05), graded by --wpf-options-selftest's "abi:" checks.
+    # PaneAction.EnabledWhen (host 1.7.0, BACKLOG N-cli-model-effort-05), graded by --wpf-options-selftest's "abi:" checks.
     # Each case is the defect the member's contract rules out: never read, greyed in look only, a parser of its own,
     # settled once at build, group cards only, the message wiped, the dim lost or doubled. "abi-pane-actions:" for --only.
     ("abi-pane-actions: PaneAction.EnabledWhen is never read", OPTIONSWINDOW,

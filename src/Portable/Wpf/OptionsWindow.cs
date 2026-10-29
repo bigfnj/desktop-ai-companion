@@ -2317,7 +2317,7 @@ namespace DesktopAICompanion.Wpf
             row.Children.Add(btn);
             row.Children.Add(status);
 
-            // PaneAction.EnabledWhen (host 1.6.2, BACKLOG N-cli-model-effort-05), read exactly the way a field's
+            // PaneAction.EnabledWhen (host 1.7.0, BACKLOG N-cli-model-effort-05), read exactly the way a field's
             // EnabledWhen is in BuildRow: the same parser (IsSatisfied), the same updater list, so it settles once at the
             // end of Build and again after every edit, and it greys the WHOLE row, the result line with the button. The
             // button refuses through the row: a disabled panel disables what it holds, which is the IsEnabled the click

@@ -6116,7 +6116,10 @@ as a second path, so its broker-c witness (`broker-c-channel-renew-only-by-wait`
 #### feature/abi-pane-actions
 
 Two additive ABI members for host 1.6.2 (`src/DesktopAICompanion.Contracts/PluginApi.cs`), each adopted by the module that
-asked for it, and one refused. A module that uses either declares `MinHostVersion` 1.6.2.
+asked for it, and one refused. A module that uses either declares `MinHostVersion` 1.6.2. *(2026-10-29, lane
+feature/host-abi-180, BACKLOG N-abi-01: there was no host 1.6.2. Both members shipped in host 1.7.0, the MINOR step
+`docs/VERSIONING.md` gives a capability member, and a module that uses either declares 1.7.0; read 1.7.0 wherever this
+entry says 1.6.2.)*
 
 **`PaneAction.EnabledWhen` is read by the fields' own parser, and `CardEnabledWhen` keeps its "one string per card".** That
 comment refused an `EnabledWhen` per button because a greyed card greys all of its buttons together, and that still holds:

@@ -822,7 +822,7 @@ namespace DesktopAICompanion.Plugins
             return CatalogForModules.ListingFrom(catalog, kind).Items;
         }
 
-        // ICatalogListing (host 1.6.2, BACKLOG N-catalog-insight-05): the same read and the same conversion as the verb
+        // ICatalogListing (host 1.7.0, BACKLOG N-catalog-insight-05): the same read and the same conversion as the verb
         // above, plus the entries of the kind the parser refused, as id, position and category only (CatalogForModules
         // says why no rule text crosses). Throws where FetchCatalogItemsAsync throws, from the same shared copy.
         public async System.Threading.Tasks.Task<CatalogListing> FetchCatalogListingAsync(string kind)

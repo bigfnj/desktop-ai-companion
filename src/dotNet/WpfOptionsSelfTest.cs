@@ -5249,7 +5249,7 @@ namespace DesktopAICompanion
             return ok;
         }
 
-        // ================= lane feature/abi-pane-actions: PaneAction.EnabledWhen (host 1.6.2) =================
+        // ================= lane feature/abi-pane-actions: PaneAction.EnabledWhen (host 1.7.0) =================
 
         private const string AbiCliCard = "Coding-agent CLI";
 

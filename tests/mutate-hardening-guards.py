@@ -3485,7 +3485,7 @@ CASES = (
         "cli-runner-aibrain: BuildArguments and its Claude Code branch were sliced",
     ),
     # ---- lane feature/abi-pane-actions ----
-    # ICatalogListing (app 1.6.2) wired like ITrayQuestions: on RecordingHost, which would change every module's payload;
+    # ICatalogListing (app 1.7.0) wired like ITrayQuestions: on RecordingHost, which would change every module's payload;
     # off the host; and onto IHost, which would do both. "abi-pane-actions:" for one --only.
     (
         "abi-pane-actions: RecordingHost grows ICatalogListing, changing every module's payload",

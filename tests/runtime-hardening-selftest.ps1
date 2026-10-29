@@ -5149,10 +5149,10 @@ Assert-True ($crSettingSources -eq 1 -and
     "cli-runner-aibrain: --setting-sources is in BuildArguments' Claude Code branch alone, once, behind the opt-in's condition (found $crSettingSources)")
 
 # ---- lane feature/abi-pane-actions ----
-# THE CATALOG AS LISTED, REFUSALS INCLUDED (ICatalogListing, app 1.6.2; BACKLOG N-catalog-insight-05), wired the way
+# THE CATALOG AS LISTED, REFUSALS INCLUDED (ICatalogListing, app 1.7.0; BACKLOG N-catalog-insight-05), wired the way
 # ITrayQuestions is above: its own interface, never an IHost member, so RecordingHost -- in every module's zip -- does not
 # change and no other module republishes; and the host's IHost implements it, so `host as ICatalogListing` is never null on
-# 1.6.2+. --catalog-selftest asserts what the listing carries; this is the wiring it cannot see. The slices are the
+# 1.7.0+. --catalog-selftest asserts what the listing carries; this is the wiring it cannot see. The slices are the
 # tray-questions block's ($tqContracts, $tqIHost, $tqRecordingHost, $tqHost), whose positive control ran above.
 Assert-True ($tqContracts -cmatch 'public interface ICatalogListing\s*\{\s*System\.Threading\.Tasks\.Task<CatalogListing> FetchCatalogListingAsync\(string kind\);' -and
     $tqIHost.Contains('FetchCatalogItemsAsync(string kind)') -and $tqIHost -cnotmatch 'FetchCatalogListingAsync' -and

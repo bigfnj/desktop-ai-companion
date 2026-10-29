@@ -128,7 +128,7 @@ namespace DesktopAICompanion
         public string Version = "";
         /// <summary>The fixed category of <see cref="Rule"/>, set where the rule is chosen, never read back out of
         /// its words (a refused id is echoed into them, so they are partly the catalog's): the ONLY thing about the
-        /// refusal a module is told (ICatalogListing, host 1.6.2; <see cref="CatalogForModules"/>). Module entries
+        /// refusal a module is told (ICatalogListing, host 1.7.0; <see cref="CatalogForModules"/>). Module entries
         /// keep <see cref="CatalogRefusalReason.Other"/> for their own rules, since no module can browse them.</summary>
         public CatalogRefusalReason Category;
 
@@ -442,7 +442,7 @@ namespace DesktopAICompanion
     /// <summary>
     /// What a module is handed of one catalog read, for one <see cref="CatalogKinds"/> kind (lane
     /// feature/abi-pane-actions, BACKLOG N-catalog-insight-05). ONE conversion behind both IHost.FetchCatalogItemsAsync
-    /// and ICatalogListing.FetchCatalogListingAsync (host 1.6.2), so the offered list cannot differ between the two, and
+    /// and ICatalogListing.FetchCatalogListingAsync (host 1.7.0), so the offered list cannot differ between the two, and
     /// pure, so --catalog-selftest asserts it without a network.
     ///
     /// A refused entry crosses as its id, its position and <see cref="CatalogRejection.Category"/>, and as nothing
@@ -1078,7 +1078,7 @@ namespace DesktopAICompanion
         }
 
         /// <summary>A companion entry's own rules, in the old condition's order: the rule broken, or null. Each clause
-        /// sets <paramref name="category"/> beside its own words, the one place both are chosen (host 1.6.2).</summary>
+        /// sets <paramref name="category"/> beside its own words, the one place both are chosen (host 1.7.0).</summary>
         private static string PetRule(CatalogCompanion pet, out CatalogRefusalReason category)
         {
             category = CatalogRefusalReason.BadText;
@@ -1487,7 +1487,7 @@ namespace DesktopAICompanion
             }
 
             // ---- lane feature/abi-pane-actions ----
-            // WHAT A MODULE IS TOLD OF A REFUSAL (ICatalogListing, host 1.6.2; BACKLOG N-catalog-insight-05). Each rule of a
+            // WHAT A MODULE IS TOLD OF A REFUSAL (ICatalogListing, host 1.7.0; BACKLOG N-catalog-insight-05). Each rule of a
             // kind a module browses carries its own category, set beside the rule; a module entry's own rules stay Other.
             ModuleListingChecks(Check, catalogOf, validPet, validPack, validModule, moduleWithDescription);
 
