@@ -546,8 +546,9 @@ public sealed class BrokerStore : IDisposable
                 next = messages[index] with { Status = MessageStatus.Submitting, UpdatedAt = Now, Attempts = messages[index].Attempts + 1 };
                 messages[index] = next;
             }
-            // Also commit when an owed notice can now be admitted (its sender came back, or its queue has room); a pass with
-            // nothing else to write never writes for a notice that still cannot be admitted.
+            // Also commit when an owed notice can now be admitted (its sender came back, or its queue has room) or must be
+            // dropped (its source's retention ended); a pass with nothing else to write never writes for a notice that still
+            // cannot be admitted and is still within retention.
             if (!messages.SequenceEqual(state.Messages) || owed.Count > 0 && OwedReady(messages)) Commit(state with { Messages = messages });
             return next;
         }
@@ -939,13 +940,17 @@ public sealed class BrokerStore : IDisposable
             : pending.GetValueOrDefault(owner) >= limits.MaximumPendingPerSession ? "queue_full"
             : null;
 
-    // Whether a delivery pass should commit to admit an owed notice whose sender has come back or found room.
+    // Whether a delivery pass should commit: to admit an owed notice whose sender has come back or found room, or to drop
+    // and count one whose source's retention has ended. Without the second, a notice owed from a Refused tombstone on a
+    // broker with nothing else to write waited for some unrelated commit before it was counted (Codex 01a1855c, review of
+    // bc21fd5). Each such commit removes what it drops, so it writes once per drop, never once per pass.
     private bool OwedReady(List<MessageReceipt> current)
     {
         PruneTombstones();
         int withText = current.Count(r => !Tombstoned(r)), records = current.Count + tombstones.Count;
         var pending = PendingByRecipient(current);
-        return owed.Values.Any(source => source.Message.ExpiresAt + RecordGrace > Now && Admissible(source.Message.Sender, withText, records, pending));
+        return owed.Values.Any(source => source.Message.ExpiresAt + RecordGrace <= Now ||
+            Admissible(source.Message.Sender, withText, records, pending));
     }
 
     // A notice is held to the text bound every message is, or the snapshot would not load again. At the default 16 KiB a

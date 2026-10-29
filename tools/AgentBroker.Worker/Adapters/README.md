@@ -10,7 +10,8 @@ the native adapter's ephemeral connection-binding UUID is never used as durable 
 busy admission alone yields `DeferredNotSubmitted`. Generic failures after entering model submission
 remain uncertain. Native acceptance remains `Submitted` until a separate exact recipient receipt.
 
-Codex delivery needs the `codexPeerMessages` opt-in. In strict mode, the default, `CodexNativeProvider.Authorize`
+Codex delivery needs the `codexPeerMessages` opt-in. In strict mode (the worker's own default, and the module's when
+"Also wake updated Codex builds" is off), `CodexNativeProvider.Authorize`
 admits a binding only when its router matched an exact reviewed image and every running Code-owned engine matched
 its exact extension profile. A router that fails its exact pin but passes Windows-verified publisher trust is
 observed read-only: its rows carry no capabilities, and submission refuses `codex_observation_only` before owner

@@ -14084,6 +14084,13 @@ CASES = (
      AGENTBROKER_CSPROJ, AGENTBROKER_DLL,
      "--module-selftest=agentbroker", "dp-module-agentbroker-selftest.txt",
      "Status counts dropped delivery notices by reason"),
+    ("broker-batch-2: the pane says updated Codex delivery is off by default again",
+     os.path.join(REPO, "modules", "AgentBroker", "AgentBrokerModule.cs"),
+     b"For Codex, \\\"Also wake updated Codex builds\\\" (on by default) accepts",
+     b"For Codex, \\\"Also wake updated Codex builds\\\" (off by default) accepts",
+     AGENTBROKER_CSPROJ, AGENTBROKER_DLL,
+     "--module-selftest=agentbroker", "dp-module-agentbroker-selftest.txt",
+     "the pane says updated Codex builds are woken by default"),
     # ---- lane feature/abi-pane-actions ----
     # Host 1.6.2's two additive members, each case putting back a shortcut the design refuses. Named "abi-pane-actions:"
     # for one --only. First, PaneAction.EnabledWhen's adopters (BACKLOG N-cli-model-effort-05): Remove token ungated

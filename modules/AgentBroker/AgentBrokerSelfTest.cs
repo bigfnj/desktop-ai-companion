@@ -66,6 +66,9 @@ public sealed partial class AgentBrokerModule
             int tolerantFlag = start.ArgumentList.IndexOf("--codex-update-tolerant-delivery");
             Check(defaults["codexUpdateTolerantDelivery"] == "true" && tolerantFlag >= 0 && start.ArgumentList[tolerantFlag + 1] == "true",
                 "update-tolerant Codex delivery defaults on and reaches the default worker launch");
+            Check(defaults["nativePrivacy"].Contains("(on by default)", StringComparison.Ordinal) &&
+                !defaults["nativePrivacy"].Contains("off by default", StringComparison.Ordinal),
+                "the pane says updated Codex builds are woken by default, and how to turn that off");
             var strictStart = new ProcessStartInfo("synthetic.exe");
             WorkerSupervisor.AddArguments(strictStart, launch with { Settings = launch.Settings with { CodexUpdateTolerantDelivery = false } });
             Check(!strictStart.ArgumentList.Contains("--codex-update-tolerant-delivery"),

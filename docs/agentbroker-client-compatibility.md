@@ -55,8 +55,10 @@ is still a separate step.
 
 ### Update-tolerant native delivery contract
 
-Strict exact pins stay the default. The per-vendor opt-in below lets a build that
-is not exactly pinned deliver only when every listed runtime check passes. Any
+Since AgentBroker 1.5.0 the module turns the Codex setting below on by default (the
+owner's decision of 2026-10-29); a worker started without it, and the module with it
+turned off, keep strict exact pins. It lets a build that is not exactly pinned deliver
+only when every listed runtime check passes. Any
 unmet check refuses with `unsupported_capability` before transport. A signature
 establishes publisher identity, not protocol compatibility, so the runtime checks
 are required in addition to it.
@@ -76,8 +78,8 @@ with `codexPeerMessages`; turned off, delivery is the strict mode, exact pins on
    for the exact conversation returns the exact owner with
    `supportsUntrustedAppInput:true`, rechecked immediately before version-2
    `thread-follower-start-turn`.
-5. The native incarnation (server PID, creation FILETIME, owner client and
-   conversation) matches the recipient address. A changed owner defers as
+5. The native incarnation (router server PID, creation FILETIME and conversation;
+   `codex-thread-v2` leaves the owner client out) matches the recipient address. A changed owner defers as
    `native_owner_changed`.
 
 These stay exactly as in strict mode: recipient binding, recipient-native admission
@@ -91,10 +93,10 @@ checks are the same code.
 Not re-proven for an unreviewed build: that the owner still inherits thread
 settings, still checks idle twice before injection, and still uses the busy error
 to mean "not submitted"; and that the unsigned extension JavaScript still matches
-the reviewed renderer bridge and owner manager. Opting in accepts those gaps, which
-is why the setting is off by default and why status reports
-`codex_update_tolerant_delivery` and the failed exact pin on every pass while it is
-in effect. Synthetic checks cover a compatible updated build, wrong publisher,
+the reviewed renderer bridge and owner manager. Leaving the setting on (the module's
+default since 1.5.0) accepts those gaps, which were the reason it was off by default
+before, and is why status reports `codex_update_tolerant_delivery` and the failed
+exact pin on every pass while it is in effect. Synthetic checks cover a compatible updated build, wrong publisher,
 invalid signature, changed protocol, held and refused admission, busy and
 reconnect (`CodexTrustPolicyChecks.cs`, `CodexObservationChecks.cs`). Live native
 acceptance of an updated build has not been run.
@@ -552,7 +554,7 @@ The one-shot `DesktopDirectory.ObserveOpenSessionsAsync` remains a diagnostic th
 
 A live metadata-only probe automatically found the dedicated ordinary desktop conversation without registering its UUID: one observed conversation, the known test target present, and unknown activity. It printed only counts/booleans and sent no history or model request. This proves currently followed desktop discovery for that case. The VS Code extension and Code-hosted router now have separate public compatibility profiles, but their live discovery/delivery acceptance remains pending.
 
-For broker addressing, `DesktopOwnerBinding.NativeSessionIncarnation` derives from the native router process PID/creation FILETIME, owning client UUID and exact conversation UUID. It remains stable when a broker observer or delivery connection reconnects. The separate binding `Incarnation` is a per-adapter connection lease and must not be used as the persistent broker session address. A genuine native owner client/process change produces a new native incarnation.
+For broker addressing, `DesktopOwnerBinding.NativeSessionIncarnation` derives (`codex-thread-v2`, AgentBroker 1.4.0) from the native router process PID/creation FILETIME and the exact conversation UUID. The owning client is not part of it, so a changed owning view keeps the address and the owner is re-resolved for each submission. It remains stable when a broker observer or delivery connection reconnects. The separate binding `Incarnation` is a per-adapter connection lease and must not be used as the persistent broker session address. A new router process produces a new native incarnation.
 
 ## Codex VS Code
 

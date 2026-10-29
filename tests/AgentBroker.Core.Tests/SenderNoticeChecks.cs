@@ -264,6 +264,26 @@ internal static class SenderNoticeChecks
                 "NOTICE_DROP_QUEUE: a notice kept out by its sender's full queue is counted under that reason (" + jammed.DroppedNotices() + ")");
         }
 
+        // A quiet broker: a notice owed from a Refused tombstone whose sender stays away is counted by delivery passes alone
+        // once its source's retention ends, exactly once however many passes run (Codex 01a1855c, review of bc21fd5).
+        clock = new Clock();
+        using (var quiet = new BrokerStore(Path.Combine(root, "sender-notice-quiet-drop"), clock: clock))
+        {
+            var sender = Mailbox(quiet, clock, "quiet-sender"); var recipient = Mailbox(quiet, clock, "quiet-recipient");
+            quiet.Register(sender); quiet.Register(recipient);
+            var refused = Message(sender, recipient, clock, TimeSpan.FromMinutes(5));
+            quiet.Accept(refused, quiet.BrokerId);
+            quiet.Disconnect(sender.Address);
+            quiet.RecordRecipientReceipt(refused.Id, recipient.Address, quiet.BrokerId, MessageStatus.Refused);
+            clock.Advance(TimeSpan.FromDays(1) + TimeSpan.FromMinutes(10));
+            quiet.BeginDelivery();
+            Check(quiet.DroppedNotices() is { SenderUnavailable: 1, StoreFull: 0, QueueFull: 0 },
+                "NOTICE_DROP_QUIET: a delivery pass alone counts a notice whose Refused source's retention ended (" + quiet.DroppedNotices() + ")");
+            quiet.BeginDelivery(); quiet.BeginDelivery(); quiet.BeginDelivery();
+            Check(quiet.DroppedNotices().Total == 1, "WITNESS NOTICE_DROP_ONCE: later passes never count the same notice again (" +
+                quiet.DroppedNotices() + ")");
+        }
+
         // A full store defers a notice until a slot frees; one still deferred when its source's retention ends is dropped,
         // even for a sender that stayed addressable (documented loss condition). Two messages from a paired peer fill the
         // store without owing notices of their own.
