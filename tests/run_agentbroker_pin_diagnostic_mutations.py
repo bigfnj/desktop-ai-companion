@@ -68,7 +68,10 @@ ASSEMBLIES = {
 }
 # Worker 196 measured on 22b05e9 (feature/agentbroker-bus base): the folded 2026-10-26 preview put
 # peer diagnostics (24) and Claude observation (42) before the --existing-tests-only cut-off.
-EXISTING_COUNTS = {"worker": 196, "desktop": 148}
+# Re-measured 2026-10-29 by lane feature/broker-next-160 (N-modules-fixes-01): later lanes had added checks before the
+# cut-off without moving these, so every --apply run failed its healthy baseline; both include that lane's two
+# malformed-subject checks (Claude observation, Codex observation).
+EXISTING_COUNTS = {"worker": 203, "desktop": 157}
 FOCUSED_COUNTS = {"worker": 82, "desktop": 15}
 CLAUDE_SCENARIOS = ("early-reject", "unsupported-version", "hash-mismatch", "mixed", "recovery", "bounded-snapshot")
 
@@ -278,8 +281,10 @@ WITNESSES = (
         "        if (!updateTolerant || !DesktopCompatibilityProfile.IsExactPinMismatch(exact.Code)) return DesktopRouterTrust.Unverified;",
         "        if (!DesktopCompatibilityProfile.IsExactPinMismatch(exact.Code)) return DesktopRouterTrust.Unverified;",
     ),)),
+    # Re-pointed by lane feature/broker-next-160 (N-modules-fixes-01): the submission-time publisher check now names its
+    # verifier (the fresh one) as a third argument, so the old two-argument bytes matched nothing.
     Witness("codex-worker-fresh-publisher-check", "provider", "worker", ("--codex-trust-policy-only",), "CodexTrustPolicyChecks.cs", ((
-        "            profileTrust = VerifyProfilesByPublisher(error, diagnostics: null);",
+        "            profileTrust = VerifyProfilesByPublisher(error, diagnostics: null, verifyProfilesByPublisher);",
         "            profileTrust = DesktopRouterTrust.PublisherSigned;",
     ),)),
     Witness("codex-worker-router-pin-diagnostic", "provider", "worker", ("--codex-trust-policy-only",), "CodexTrustPolicyChecks.cs", ((
@@ -385,8 +390,16 @@ WITNESSES = (
         "    private static MessageReceipt Render(Tombstone tombstone, string text) => new(new(tombstone.Id, tombstone.ConversationId,",
         "    private static MessageReceipt Render(Tombstone tombstone, string text) => new(new(tombstone.Id, tombstone.Id,",
     ),)),
+    # Re-pointed by lane feature/broker-next-160 (N-modules-fixes-01): wait_for_receipt now reads its original the same
+    # way, so the bare lookup line occurs twice; the anchor includes wait_for_reply's own signature (same intent).
     Witness("broker-e-wait-reply-skips-tombstone", "tools", "worker", ("--tombstone-case", "wait-reply"), "TombstoneChecks.cs", ((
+        "    public Task<IReadOnlyList<MessageReceipt>> WaitForReply(Guid messageId, CancellationToken cancellationToken, int timeoutSeconds = 20)\n"
+        "    {\n"
+        "        ValidateTimeout(timeoutSeconds);\n"
         "        var original = runtime.Store.FindReceipt(messageId)?.Message",
+        "    public Task<IReadOnlyList<MessageReceipt>> WaitForReply(Guid messageId, CancellationToken cancellationToken, int timeoutSeconds = 20)\n"
+        "    {\n"
+        "        ValidateTimeout(timeoutSeconds);\n"
         "        var original = runtime.Store.FindReceiptWithText(messageId)?.Message",
     ),)),
     Witness("broker-e-inbox-omits-acknowledged", "store", "worker", ("--tombstone-case", "inbox"), "TombstoneChecks.cs", ((
