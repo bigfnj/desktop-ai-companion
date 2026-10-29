@@ -185,6 +185,47 @@ function Get-RangePrivacyFindings([string]$Range, [string[]]$Needles, [string]$R
     return [pscustomobject]@{ Protected = @(); Findings = $findings.ToArray(); Commits = $commits }
 }
 
+# The default mode reads the index. Listing names does not open their contents, so protected paths are
+# refused first, even when one was already tracked before this change, rather than silently declared safe.
+function Get-IndexedProtectedPaths([string]$Repository = $repoRoot) {
+    $listed = Invoke-IndexedGit @('ls-files', '--cached', '-z') $Repository
+    if ($listed.ExitCode -ne 0) { throw 'Could not enumerate indexed paths. No indexed contents were scanned.' }
+    $protected = @()
+    foreach ($path in $listed.Output.Split([char]0, [StringSplitOptions]::RemoveEmptyEntries)) {
+        $pattern = Get-ProtectedPattern $path
+        if ($pattern) { $protected += [pscustomobject]@{ Path = $path; Pattern = $pattern } }
+    }
+    return ,$protected
+}
+
+# The default mode's matcher is git grep, not Test-PrivacyText: case-insensitive fixed strings, names only,
+# NUL-separated, with every protected shape excluded again as a second line behind the refusal above.
+function Get-IndexedPrivacyOffenders([string[]]$Needles, [string]$Repository = $repoRoot) {
+    $arguments = @('grep', '--cached', '--no-textconv', '-n', '-i', '-I', '-l', '-F', '-z')
+    foreach ($needle in $Needles) { $arguments += @('-e', $needle) }
+    $arguments += @('--', '.')
+    foreach ($glob in @('*.env', '.env.*', '.npmrc', '*.pem', '*.key', '*.p12', '*.pfx',
+                         '*.keystore', 'privatekey*', '.git/credentials')) {
+        $arguments += ":(top,glob,icase,exclude)**/$glob"
+        $arguments += ":(top,glob,icase,exclude)**/$glob/**"
+    }
+    $result = Invoke-IndexedGit $arguments $Repository
+    if ($result.ExitCode -gt 1) { throw 'Indexed git grep failed. No matching contents were printed.' }
+    return [pscustomobject]@{
+        Matched = ($result.ExitCode -eq 0)
+        Offenders = @($result.Output.Split([char]0, [StringSplitOptions]::RemoveEmptyEntries) | Sort-Object -Unique)
+    }
+}
+
+function Get-IndexPrivacyFindings([string[]]$Needles, [string]$Repository = $repoRoot) {
+    $protected = Get-IndexedProtectedPaths $Repository
+    if (@($protected).Count -gt 0) {
+        return [pscustomobject]@{ Protected = $protected; Scanned = $false; Matched = $false; Offenders = @() }
+    }
+    $grep = Get-IndexedPrivacyOffenders $Needles $Repository
+    return [pscustomobject]@{ Protected = @(); Scanned = $true; Matched = $grep.Matched; Offenders = $grep.Offenders }
+}
+
 if ($SelfTest) {
     $count = 0
     foreach ($case in @(
@@ -227,12 +268,16 @@ if ($SelfTest) {
         if ((Test-PrivacyText $case[0] $needles) -ne $case[1]) { throw ('Public privacy matcher self-test failed: ' + $case[2] + '.') }
         $count++
     }
-    # Range mode on a synthetic repository this self-test creates and removes under build\.
-    $synthetic = Join-Path $repoRoot ('build\privacy-selftest\' + [Guid]::NewGuid().ToString('N'))
+    # Range mode, then the default index mode, each on a synthetic repository this self-test creates and
+    # removes under build\.
+    $fixtureRoot = Join-Path $repoRoot ('build\privacy-selftest\' + [Guid]::NewGuid().ToString('N'))
+    $synthetic = Join-Path $fixtureRoot 'range'
+    $indexRepo = Join-Path $fixtureRoot 'index'
     [void][IO.Directory]::CreateDirectory($synthetic)
+    [void][IO.Directory]::CreateDirectory($indexRepo)
     try {
-        function Step([string[]]$Arguments) {
-            $done = Invoke-IndexedGit $Arguments $synthetic
+        function Step([string[]]$Arguments, [string]$Repository = $synthetic) {
+            $done = Invoke-IndexedGit $Arguments $Repository
             if ($done.ExitCode -ne 0) { throw ('Synthetic repository step failed: git ' + ($Arguments -join ' ')) }
             return $done.Output.Trim()
         }
@@ -306,10 +351,59 @@ if ($SelfTest) {
             throw 'Public privacy range self-test failed: a protected path added only by a merge was not refused before reading.'
         }
         $count++
+        # The DEFAULT mode (N-audit-20261029-15). Its matcher is git grep, not Test-PrivacyText, so nothing
+        # above vouches for it. This index holds the identifier in another case (found only with -i), a
+        # profile path, a bare user name and clean text, and the identifier inside a path of each protected
+        # shape the grep excludes, in mixed case (icase) and once as a directory (the /** form). The policy
+        # refuses those paths before the grep runs, so the grep is also driven directly to prove its own
+        # exclusions. .git/credentials has no case: git refuses to index any path with a .git component.
+        $indexFiles = @(
+            @('docs/Notes.txt', 'Built for CONTOSO by its team', 'found'),
+            @('src/Cache.txt', 'cache at /c/Users/ExampleProfile/source', 'found'),
+            @('src/Role.txt', 'ExampleProfile can open the panel', 'clean'),
+            @('src/Clean.txt', 'nothing here identifies anyone', 'clean'),
+            @('config/LOCAL.ENV', 'owner=Contoso', 'protected'),
+            @('config/.Env.Production', 'owner=Contoso', 'protected'),
+            @('.NPMRC', 'owner=Contoso', 'protected'),
+            @('certs/Site.PEM', 'owner=Contoso', 'protected'),
+            @('certs/Site.KEY', 'owner=Contoso', 'protected'),
+            @('certs/Site.P12', 'owner=Contoso', 'protected'),
+            @('certs/Site.PFX', 'owner=Contoso', 'protected'),
+            @('certs/App.KeyStore', 'owner=Contoso', 'protected'),
+            @('certs/PrivateKey-Backup.txt', 'owner=Contoso', 'protected'),
+            @('vault/old.pem/readme.txt', 'owner=Contoso', 'protected')
+        )
+        [void](Step @('init', '-q') $indexRepo)
+        foreach ($entry in $indexFiles) {
+            $file = Join-Path $indexRepo $entry[0]
+            [void][IO.Directory]::CreateDirectory((Split-Path $file -Parent))
+            [IO.File]::WriteAllText($file, $entry[1] + "`n")
+            # -f: a global excludes file that ignores *.pem or .env must not shrink the fixture.
+            [void](Step @('add', '-f', '--', $entry[0]) $indexRepo)
+        }
+        $protectedFixture = @($indexFiles | Where-Object { $_[2] -ceq 'protected' } | ForEach-Object { $_[0] } | Sort-Object)
+        $foundFixture = (@($indexFiles | Where-Object { $_[2] -ceq 'found' } | ForEach-Object { $_[0] } | Sort-Object)) -join '|'
+        $blocked = Get-IndexPrivacyFindings $needles $indexRepo
+        if ($blocked.Scanned -or (@($blocked.Protected | ForEach-Object { $_.Path } | Sort-Object) -join '|') -cne ($protectedFixture -join '|')) {
+            throw 'Public privacy index self-test failed: the protected indexed paths were not all refused before the grep.'
+        }
+        $count++
+        $grep = Get-IndexedPrivacyOffenders $needles $indexRepo
+        if (-not $grep.Matched -or (@($grep.Offenders) -join '|') -cne $foundFixture) {
+            throw ('Public privacy index self-test failed: git grep did not report exactly the identifier in another case and the profile path, nothing excluded and no bare user name: ' +
+                (@($grep.Offenders) -join ', '))
+        }
+        $count++
+        [void](Step (@('rm', '-q', '--cached', '--') + $protectedFixture) $indexRepo)
+        $scanned = Get-IndexPrivacyFindings $needles $indexRepo
+        if (-not $scanned.Scanned -or @($scanned.Protected).Count -ne 0 -or -not $scanned.Matched -or (@($scanned.Offenders) -join '|') -cne $foundFixture) {
+            throw 'Public privacy index self-test failed: the default mode did not grep, and report the same two files, once nothing protected was indexed.'
+        }
+        $count++
     } finally {
-        if ([IO.Directory]::Exists($synthetic)) { Remove-Item -LiteralPath $synthetic -Recurse -Force }
+        if ([IO.Directory]::Exists($fixtureRoot)) { Remove-Item -LiteralPath $fixtureRoot -Recurse -Force }
     }
-    Write-Host "Public privacy self-test passed: $count cases (path policy, matchers, range mode with merges on a synthetic repository, removed again)."
+    Write-Host "Public privacy self-test passed: $count cases (path policy, matchers, range mode with merges and the default index mode on synthetic repositories, removed again)."
     exit 0
 }
 
@@ -340,35 +434,15 @@ if (-not [string]::IsNullOrWhiteSpace($Range)) {
     exit 0
 }
 
-# Listing names from the index does not open their contents. Refuse first, even when an excluded
-# protected path was already tracked before this change, rather than silently declaring it safe.
-$listed = Invoke-IndexedGit @('ls-files', '--cached', '-z')
-if ($listed.ExitCode -ne 0) { throw 'Could not enumerate indexed paths. No indexed contents were scanned.' }
-$protected = @()
-foreach ($path in $listed.Output.Split([char]0, [StringSplitOptions]::RemoveEmptyEntries)) {
-    $pattern = Get-ProtectedPattern $path
-    if ($pattern) { $protected += [pscustomobject]@{ Path = $path; Pattern = $pattern } }
-}
-if ($protected.Count -gt 0) {
-    Write-Host "Public privacy check blocked: $($protected.Count) protected indexed path(s). No indexed contents were scanned."
-    foreach ($entry in $protected) { Write-Host ($entry.Pattern + ' ' + ($entry.Path | ConvertTo-Json -Compress)) }
+$index = Get-IndexPrivacyFindings $needles
+if (@($index.Protected).Count -gt 0) {
+    Write-Host "Public privacy check blocked: $(@($index.Protected).Count) protected indexed path(s). No indexed contents were scanned."
+    foreach ($entry in $index.Protected) { Write-Host ($entry.Pattern + ' ' + ($entry.Path | ConvertTo-Json -Compress)) }
     exit 1
 }
-
-$arguments = @('grep', '--cached', '--no-textconv', '-n', '-i', '-I', '-l', '-F', '-z')
-foreach ($needle in $needles) { $arguments += @('-e', $needle) }
-$arguments += @('--', '.')
-foreach ($glob in @('*.env', '.env.*', '.npmrc', '*.pem', '*.key', '*.p12', '*.pfx',
-                     '*.keystore', 'privatekey*', '.git/credentials')) {
-    $arguments += ":(top,glob,icase,exclude)**/$glob"
-    $arguments += ":(top,glob,icase,exclude)**/$glob/**"
-}
-$result = Invoke-IndexedGit $arguments
-if ($result.ExitCode -gt 1) { throw 'Indexed git grep failed. No matching contents were printed.' }
-$offenders = @($result.Output.Split([char]0, [StringSplitOptions]::RemoveEmptyEntries) | Sort-Object -Unique)
-if ($result.ExitCode -eq 0) {
-    Write-Host "Public privacy check failed: $($offenders.Count) indexed text file(s) contain a workstation identifier."
-    foreach ($path in $offenders) { Write-Host ($path | ConvertTo-Json -Compress) }
+if ($index.Matched) {
+    Write-Host "Public privacy check failed: $(@($index.Offenders).Count) indexed text file(s) contain a workstation identifier."
+    foreach ($path in $index.Offenders) { Write-Host ($path | ConvertTo-Json -Compress) }
     exit 1
 }
 Write-Host "Public privacy check passed: $described checked across indexed text files."
