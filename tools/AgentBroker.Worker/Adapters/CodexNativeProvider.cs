@@ -159,16 +159,29 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
     // Pending only for an owner that advertises the native capability: its absence is the owner's own verdict.
     private bool Pending(DesktopOwnerBinding binding) => binding.SupportsUntrustedAppInput && VerificationPending;
 
+    // A reconnect's own budget, outside the discovery pass deadline (N-broker-next-03). The router verification inside a
+    // connect takes no token (WindowsDesktopConnection.ConnectAsync) and the library bounds the pipe connect and the
+    // initialize request with its own five-second timeouts, so this bounds only what those leave.
+    internal static readonly TimeSpan OwnerReconnectBudget = TimeSpan.FromSeconds(30);
+
     public async Task<DesktopOwnerBinding?> ResolveOwnerAsync(Guid conversationId, CancellationToken token)
     {
-        try
+        // A reconnect that outlasted the pass deadline used to fail at its initialize request on the expired pass token
+        // and be thrown away, so the next pass reconnected again; while a reconnect cost more than a pass (under disk load,
+        // the full router verification), no pass renewed a row (N-broker-next-03, reproduced offline by
+        // CODEX_RECONNECT_KEPT). The reconnect now runs on its own budget, and a connection no request has failed on is
+        // kept when the pass ran out meanwhile: no request was sent, so no late answer can exist. Every new connection is
+        // still fully verified; nothing here skips or reuses a verification. A lookup that fails still discards it below.
+        if (adapter is null)
         {
-            adapter ??= await connect(token);
-            return await adapter.DiscoverAsync(conversationId, token);
+            using var budget = new CancellationTokenSource(OwnerReconnectBudget);
+            adapter = await connect(budget.Token);
         }
+        token.ThrowIfCancellationRequested();
+        try { return await adapter.DiscoverAsync(conversationId, token); }
         catch
         {
-            if (adapter is not null) await adapter.DisposeAsync();
+            await adapter.DisposeAsync();
             adapter = null; throw;
         }
     }

@@ -79,6 +79,70 @@ internal static class RuntimeLifecycleChecks
         await IndependentAdapterLoopsAsync(check, scratch);
         await AdapterFailureRecordedAsync(check, scratch);
         await SlowCodexRowAsync(check);
+        await CodexReconnectAsync(check);
+    }
+
+    // N-broker-next-03: after a failed lookup the provider drops the owner connection and the next lookup reconnects. The
+    // reconnect's router verification is synchronous (WindowsDesktopConnection.ConnectAsync) and the initialize request after
+    // it honours the token it is given. With the pass token, a reconnect outlasting the pass deadline failed at initialize and
+    // was thrown away, so the next pass reconnected again: while a reconnect costs more than a pass, no pass renewed a row.
+    // Scaled down: pass deadline 400 ms, reconnect 700 ms (ignoring cancellation, as the verification does).
+    private static async Task CodexReconnectAsync(Action<bool, string> check)
+    {
+        var owner = new ReconnectOwner();
+        int connects = 0;
+        var connectCost = TimeSpan.FromMilliseconds(700);
+        var provider = new CodexNativeProvider(true, async token =>
+            {
+                Interlocked.Increment(ref connects);
+                await Task.Delay(connectCost);
+                token.ThrowIfCancellationRequested(); // The initialize request the library sends after the verification.
+                return owner;
+            }, () => { },
+            _ => Task.FromResult<IReadOnlyList<DesktopDirectorySession>>(
+                [new(owner.Thread, DesktopSessionActivity.Idle, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)]),
+            null, false, () => { });
+        await using var adapter = new CodexNativeAdapter(provider, enableDelivery: true);
+        var brokerId = Guid.NewGuid();
+        async Task<int> PassAsync()
+        {
+            using var deadline = new CancellationTokenSource(TimeSpan.FromMilliseconds(400));
+            try { return (await adapter.DiscoverAsync(brokerId, deadline.Token)).Count; }
+            catch (OperationCanceledException) { return 0; }
+        }
+        int renewed = 0;
+        for (int pass = 0; pass < 4; pass++) renewed += await PassAsync();
+        check(renewed == 3 && Volatile.Read(ref connects) == 1,
+            "CODEX_RECONNECT_KEPT: a reconnect that outlasts the pass deadline is kept, so the next pass renews the row (renewed " +
+            renewed + " of 4 passes, " + Volatile.Read(ref connects) + " connects)");
+        // A lookup that FAILED still discards the connection: the library closed its protocol, and a late answer could be
+        // read as the next request's (DesktopAdapter.RequestAsync). Only a connection no request ever failed on is kept.
+        connectCost = TimeSpan.Zero;
+        owner.Failure = new IOException("Synthetic owner lookup failure.");
+        await PassAsync();
+        owner.Failure = null;
+        int before = Volatile.Read(ref connects);
+        int after = await PassAsync();
+        check(after == 1 && Volatile.Read(ref connects) == before + 1,
+            "CODEX_RECONNECT_KEPT WITNESS: a lookup that failed still discards the connection and the next lookup reconnects (" +
+            (Volatile.Read(ref connects) - before) + " reconnects)");
+    }
+
+    private sealed class ReconnectOwner : ICodexOwnerConnection
+    {
+        internal Guid Thread { get; } = Guid.NewGuid();
+        internal Exception? Failure;
+        public bool NativeIdleGuard => true;
+        public Task<DesktopOwnerBinding?> DiscoverAsync(Guid conversationId, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            if (Failure is { } failure) return Task.FromException<DesktopOwnerBinding?>(failure);
+            return Task.FromResult<DesktopOwnerBinding?>(new DesktopOwnerBinding(conversationId, Guid.NewGuid(), Guid.NewGuid(), 12345,
+                134000000000000000, true) { RouterTrust = DesktopRouterTrust.ExactPinned });
+        }
+        public Task<DesktopSubmissionResult> SubmitAsync(DesktopOwnerBinding binding, Guid messageId, string text, CancellationToken token)
+            => throw new NotSupportedException();
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
     // N-agentbroker-native-flicker-01, the runtime half: one adapter's slow pass (a transport that outlives the pass
