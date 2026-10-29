@@ -14799,7 +14799,14 @@ CASES = (
 # lane fix/reminder on 2026-09-29, which verified its baseline by hand) and --module-selftest=petstudio
 # while the gates lane's petstudio case ran that (found the same way, 2026-09-30). A list a case can
 # be added to without updating is the drift this repo keeps finding; the set below cannot drift.
-BASELINES = tuple(sorted(set((case[6], case[7]) for case in CASES), key=lambda pair: pair[0]))
+# score() takes them from the cases the PLAN selected (N-modules-small-02): taken from every case, a
+# one-case --only run still paid for every unrelated self-test's baseline, and a red baseline on a flag
+# the run never grades refused the whole run. BASELINES stays the full set, for a reader of the harness.
+def baselines_for(cases):
+    return tuple(sorted(set((case[6], case[7]) for case in cases), key=lambda pair: pair[0]))
+
+
+BASELINES = baselines_for(CASES)
 
 # REAL INPUT (lane feature/blinkingled-resume, the owner's "Skip on agent runs", 2026-10-14). Agent runs on the maintainer's
 # box are to set DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT=1; then --module-selftest=blinkingled makes no real Scroll Lock
@@ -15222,7 +15229,7 @@ def score(plan):
         print("BASELINE BUILD FAILED")
         print(out[-800:])
         return 2
-    for flag, marker in BASELINES:
+    for flag, marker in baselines_for(cases):
         report, code = selftest(flag, marker)
         if report is None:
             print("BASELINE NOT GREEN for", flag, "--", code)
