@@ -220,6 +220,11 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
                 adapterErrors[adapter.Id] = e is AdapterDiscoveryException diagnostic ? diagnostic.Diagnostic.ToStatusText()
                     : e is BrokerException b ? b.Code : "adapter_unavailable";
             }
+            // Any other failure is this adapter's alone. With one loop per adapter it used to end that adapter's discovery in
+            // silence while the others went on (its rows lapsed, its status kept its last value, and nothing surfaced until
+            // shutdown): it is now that adapter's error, and the loop tries again next pass (independent review of 1.6.0,
+            // P3-7). The type is not shown: it could carry a vendor message.
+            catch (Exception) when (!stop.IsCancellationRequested) { adapterErrors[adapter.Id] = "adapter_failed"; }
             await Task.Delay(DiscoveryInterval, stop);
         }
     }

@@ -90,8 +90,12 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
                 // conversation alone is skipped. A DesktopAdapterException still fails the pass below: it is the router's
                 // or profile's verdict, not one slow row. The provider has already discarded the owner connection, so
                 // the next lookup reconnects.
+                // owner_discovery_rejected is the router's error answer for this one conversation (any error other than
+                // no-client-found, DesktopAdapter.DiscoverCoreAsync), so it skips this row too instead of failing the pass
+                // and clearing every binding (independent review of 1.6.0, P3-5).
                 try { binding = await provider.ResolveOwnerAsync(row.ConversationId, token); }
-                catch (Exception error) when (error is OperationCanceledException or IOException)
+                catch (Exception error) when (error is OperationCanceledException or IOException or
+                    DesktopAdapterException { Code: "owner_discovery_rejected" })
                 { skipped.Add(row.ConversationId); slow.Add(row.ConversationId); continue; }
                 if (!ValidBinding(binding, row.ConversationId)) continue;
                 var address = new SessionAddress(brokerId, "codex:" + row.ConversationId.ToString("D"), binding!.NativeSessionIncarnation);
@@ -135,8 +139,8 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
         {
             ObjectDisposedException.ThrowIf(disposed, this);
             // Under update tolerance an unmet guard reaches the binding check below and refuses with its reason. A guard that
-            // is down only because the broker's own check could not complete reaches the owner lookup below instead, which
-            // reconnects, and then either submits or defers (N-agentbroker-refusal-transience-01).
+            // is down only because the broker's own check could not complete defers below instead
+            // (N-agentbroker-refusal-transience-01).
             if (!enableDelivery || !provider.NativeIdleGuard && !updateTolerant && !provider.VerificationPending)
                 return new(AdapterAdmission.Refused, "native_delivery_disabled");
             string formatted = PeerMessageFormatter.Format(message, sender);
@@ -145,11 +149,14 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
             // A publisher signature permits observation only. Refuse before owner rediscovery, transport or model input.
             if (previous.RouterTrust != DesktopRouterTrust.ExactPinned && !updateTolerant)
                 return new(AdapterAdmission.Refused, "codex_observation_only");
-            // The opt-in policy refuses an unmet publisher, protocol or capability check just as early. A check the broker
-            // could not complete is not a verdict: it goes on to the fresh owner lookup, which reconnects a dropped owner
-            // connection, and is judged there. Live case 2026-10-29 10:22: a busy chat was refused unsupported_capability
-            // this way, under heavy disk load, where native_context_busy would have deferred it.
-            if (updateTolerant && !Pending(previous) && Refusal(previous) is { } unmet) return new(AdapterAdmission.Refused, unmet);
+            // A check the broker could not complete is not a verdict (live case 2026-10-29 10:22: a busy chat refused
+            // unsupported_capability under heavy disk load), and it is not this delivery's to repair: the message defers at
+            // once, WITHOUT connecting, and the discovery loop owns the reconnect. Reconnecting here re-verified the router
+            // synchronously under this adapter's lock, so a discovery pass waiting on the lock outlived its deadline and every
+            // Codex row lapsed: the flicker N-agentbroker-native-flicker-01 removed (independent review of 1.6.0, P2-1).
+            if (Pending(previous)) return Deferred("native_verification_unavailable");
+            // The opt-in policy refuses an unmet publisher, protocol or capability check just as early.
+            if (updateTolerant && Refusal(previous) is { } unmet) return new(AdapterAdmission.Refused, unmet);
             DesktopOwnerBinding? current;
             try { current = await provider.ResolveOwnerAsync(previous.ConversationId, token); }
             catch (Exception ex) when (ex is DesktopAdapterException or IOException or OperationCanceledException)

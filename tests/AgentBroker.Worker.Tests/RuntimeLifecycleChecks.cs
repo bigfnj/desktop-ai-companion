@@ -46,10 +46,26 @@ internal static class RuntimeLifecycleChecks
         using (var store = new BrokerStore(Path.Combine(scratch, "shutdown")))
         {
             await using var federation = new SlowDirectoryFederation(Guid.Empty);
-            var failing = new LifecycleAdapter("faulting", faultDiscovery: true, failDispose: true);
+            // Since lane broker-next (P3-7) a discovery failure no longer faults the loop (RUNTIME_ADAPTER_FAILURE_RECORDED
+            // below), so the loop fault injected here is a delivery's: the adapter lists a session and its submission throws.
+            var failing = new LifecycleAdapter("faulting", failDispose: true, listSession: true);
             var healthy = new LifecycleAdapter("healthy");
             var runtime = new BrokerRuntime(store, federation, [failing, healthy]);
             runtime.Start(default);
+            var started = Stopwatch.StartNew();
+            while (failing.Address is null || !store.Directory().Any(session => session.Address == failing.Address))
+            {
+                if (started.Elapsed > TimeSpan.FromSeconds(10)) throw new TimeoutException("The faulting adapter's session was never listed.");
+                await Task.Delay(20);
+            }
+            var poller = runtime.RegisterPollingAgent(Guid.NewGuid(), Guid.NewGuid(), "Synthetic lifecycle sender", false);
+            store.Accept(new BrokerMessage(Guid.NewGuid(), Guid.NewGuid(), null, poller.Address, failing.Address!,
+                "Synthetic lifecycle delivery.", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddMinutes(5)), store.BrokerId);
+            while (Volatile.Read(ref failing.Submissions) == 0)
+            {
+                if (started.Elapsed > TimeSpan.FromSeconds(15)) throw new TimeoutException("The faulting delivery never ran.");
+                await Task.Delay(20);
+            }
             try { await runtime.DisposeAsync(); throw new InvalidOperationException("Injected lifecycle faults were lost."); }
             catch (AggregateException error)
             {
@@ -61,19 +77,22 @@ internal static class RuntimeLifecycleChecks
             check(failing.DisposeCalls == 1 && healthy.DisposeCalls == 1, "repeated runtime disposal shares the original cleanup task and never disposes adapters twice");
         }
         await IndependentAdapterLoopsAsync(check, scratch);
+        await AdapterFailureRecordedAsync(check, scratch);
         await SlowCodexRowAsync(check);
     }
 
     // N-agentbroker-native-flicker-01, the runtime half: one adapter's slow pass (a transport that outlives the pass
     // deadline and ignores it) must not let another adapter's leases lapse. Scaled down: pass deadline and pause 300 ms,
-    // the other adapter's lease 1.2 s, the slow pass 2 s. When the adapters ran one after another, the other adapter was
-    // renewed only every 2.3 s, and its row dropped out of the directory between renewals.
+    // the other adapter's lease 3 s, the slow pass 5 s. When the adapters ran one after another, the other adapter was
+    // renewed only every 5.3 s and its row was missing for about 2.3 s of each cycle; run independently it renews every
+    // 0.3 s, which leaves about 2.7 s of margin for a stalled thread pool under load (independent review P3-8: 1.2 s
+    // and 2 s left only 0.9 s).
     private static async Task IndependentAdapterLoopsAsync(Action<bool, string> check, string scratch)
     {
         using var store = new BrokerStore(Path.Combine(scratch, "independent-loops"));
         await using var federation = new SlowDirectoryFederation(Guid.Empty);
-        var slow = new TimedAdapter("slow-native", store.BrokerId, TimeSpan.FromSeconds(2), ignoreCancellation: true);
-        var peer = new TimedAdapter("peer-native", store.BrokerId, TimeSpan.Zero);
+        var slow = new TimedAdapter("slow-native", store.BrokerId, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(3), ignoreCancellation: true);
+        var peer = new TimedAdapter("peer-native", store.BrokerId, TimeSpan.Zero, TimeSpan.FromSeconds(3));
         var runtime = new BrokerRuntime(store, federation, [slow, peer])
         { DiscoveryPassDeadline = TimeSpan.FromMilliseconds(300), DiscoveryInterval = TimeSpan.FromMilliseconds(300) };
         await using (runtime)
@@ -83,17 +102,40 @@ internal static class RuntimeLifecycleChecks
             while (!store.Directory().Any(session => session.Address == peer.Address) && first.Elapsed < TimeSpan.FromSeconds(5)) await Task.Delay(20);
             int samples = 0, missing = 0;
             var watch = Stopwatch.StartNew();
-            while (watch.Elapsed < TimeSpan.FromSeconds(4))
+            while (watch.Elapsed < TimeSpan.FromSeconds(8))
             {
                 samples++;
                 if (!store.Directory().Any(session => session.Address == peer.Address)) missing++;
                 await Task.Delay(50);
             }
-            check(samples >= 20 && missing == 0 && peer.Passes >= 6,
+            check(samples >= 40 && missing == 0 && peer.Passes >= 10,
                 "RUNTIME_ADAPTERS_INDEPENDENT: a slow adapter's pass never lets another adapter's lease lapse (" + missing + " of " + samples + " samples missing)");
             check(slow.Passes >= 1 && slow.Completed >= 1,
                 "RUNTIME_ADAPTERS_INDEPENDENT WITNESS: the slow adapter ran its long pass past the deadline");
         }
+    }
+
+    // Independent review of 1.6.0, P3-7: with one loop per adapter, an exception outside the loop's catch list ended that
+    // adapter's discovery in silence while the other went on. It is now that adapter's error and the loop tries again.
+    private static async Task AdapterFailureRecordedAsync(Action<bool, string> check, string scratch)
+    {
+        using var store = new BrokerStore(Path.Combine(scratch, "adapter-failure"));
+        await using var federation = new SlowDirectoryFederation(Guid.Empty);
+        var broken = new LifecycleAdapter("broken-native", faultDiscovery: true);
+        var peer = new TimedAdapter("peer-native", store.BrokerId, TimeSpan.Zero, TimeSpan.FromSeconds(3));
+        var runtime = new BrokerRuntime(store, federation, [broken, peer])
+        { DiscoveryPassDeadline = TimeSpan.FromMilliseconds(300), DiscoveryInterval = TimeSpan.FromMilliseconds(100) };
+        runtime.Start(default);
+        var watch = Stopwatch.StartNew();
+        while (Volatile.Read(ref broken.Passes) < 3 && watch.Elapsed < TimeSpan.FromSeconds(5)) await Task.Delay(20);
+        int passes = Volatile.Read(ref broken.Passes);
+        bool recorded = runtime.AdapterErrors.TryGetValue("broken-native", out var error) && error == "adapter_failed";
+        bool peerListed = store.Directory().Any(session => session.Address == peer.Address);
+        // Disposed before the checks: a loop that died would rethrow its fault here and hide the check's own label.
+        try { await runtime.DisposeAsync(); } catch (Exception) { }
+        check(passes >= 3 && recorded,
+            "RUNTIME_ADAPTER_FAILURE_RECORDED: an unexpected discovery failure is that adapter's error and its loop keeps trying (" + passes + " passes)");
+        check(peerListed, "RUNTIME_ADAPTER_FAILURE_RECORDED WITNESS: the other adapter keeps its row");
     }
 
     // N-agentbroker-native-flicker-01, the Codex half: a conversation whose owner lookup outlives the pass deadline is
@@ -127,12 +169,21 @@ internal static class RuntimeLifecycleChecks
         check(third is not null && Ids(third) == "1,2",
             "CODEX_SLOW_ROW_FAILING: a lookup that fails at once is skipped and the pass goes on (" + (third is null ? "failed" : Ids(third)) + ")");
         provider.Failing = null;
+        // The router's error answer for one conversation (owner_discovery_rejected) skips that row, not the pass
+        // (independent review of 1.6.0, P3-5).
+        provider.Rejected = provider.Threads[1];
+        IReadOnlyList<BrokerSession>? rejectedPass = null;
+        try { rejectedPass = await PassAsync(); } catch (AdapterDiscoveryException) { }
+        check(rejectedPass is not null && Ids(rejectedPass) == "0,2",
+            "CODEX_SLOW_ROW_REJECTED: one conversation's owner_discovery_rejected skips that row and the others are renewed (" +
+            (rejectedPass is null ? "failed" : Ids(rejectedPass)) + ")");
+        provider.Rejected = null;
         var healthy = await PassAsync();
         check(Ids(healthy) == "0,1,2" && !adapter.DiscoveryDiagnostics.Any(item => item.Code == "codex_owner_lookup_skipped"),
             "CODEX_SLOW_ROW_DIAGNOSTIC WITNESS: a pass that resolves every conversation renews all and reports no skip");
     }
 
-    private sealed class TimedAdapter(string id, Guid brokerId, TimeSpan pass, bool ignoreCancellation = false) : ILocalAgentAdapter
+    private sealed class TimedAdapter(string id, Guid brokerId, TimeSpan pass, TimeSpan lease, bool ignoreCancellation = false) : ILocalAgentAdapter
     {
         public string Id => id;
         public SessionAddress Address { get; } = new(brokerId, id + ":" + Guid.NewGuid().ToString("D"), Guid.NewGuid());
@@ -143,7 +194,7 @@ internal static class RuntimeLifecycleChecks
             if (pass > TimeSpan.Zero) await Task.Delay(pass, ignoreCancellation ? CancellationToken.None : token);
             Interlocked.Increment(ref Completed);
             return [new BrokerSession(Address, "Synthetic " + id, id, SessionCapabilities.Receive | SessionCapabilities.WakeIdle,
-                SessionActivity.Idle, DateTimeOffset.UtcNow.AddMilliseconds(1200))];
+                SessionActivity.Idle, DateTimeOffset.UtcNow + lease)];
         }
         public Task<AdapterResult> SubmitAsync(BrokerMessage message, CancellationToken token) => throw new NotSupportedException();
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
@@ -153,7 +204,7 @@ internal static class RuntimeLifecycleChecks
     private sealed class SlowRowProvider(int count) : ICodexNativeProvider
     {
         internal Guid[] Threads { get; } = Enumerable.Range(0, count).Select(_ => Guid.NewGuid()).ToArray();
-        internal Guid? Slow, Failing;
+        internal Guid? Slow, Failing, Rejected;
         internal List<Guid> Order { get; } = [];
         public bool NativeIdleGuard => false;
         public Task<IReadOnlyList<DesktopDirectorySession>> ObserveAsync(CancellationToken token)
@@ -164,6 +215,7 @@ internal static class RuntimeLifecycleChecks
             Order.Add(conversationId);
             if (conversationId == Slow) await Task.Delay(Timeout.Infinite, token);
             if (conversationId == Failing) throw new IOException("Synthetic owner connection failure.");
+            if (conversationId == Rejected) throw new DesktopAdapterException("owner_discovery_rejected");
             return new DesktopOwnerBinding(conversationId, Guid.NewGuid(), Guid.NewGuid(), 12345, 134000000000000000, true)
             { RouterTrust = DesktopRouterTrust.ExactPinned };
         }
@@ -172,14 +224,23 @@ internal static class RuntimeLifecycleChecks
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
-    private sealed class LifecycleAdapter(string id, bool faultDiscovery = false, bool failDispose = false) : ILocalAgentAdapter
+    private sealed class LifecycleAdapter(string id, bool faultDiscovery = false, bool failDispose = false, bool listSession = false) : ILocalAgentAdapter
     {
         public string Id => id;
-        internal int DisposeCalls;
+        internal int DisposeCalls, Passes, Submissions;
+        internal SessionAddress? Address { get; private set; }
         public Task<IReadOnlyList<BrokerSession>> DiscoverAsync(Guid brokerId, CancellationToken token)
-            => faultDiscovery ? Task.FromException<IReadOnlyList<BrokerSession>>(new InvalidOperationException("Synthetic discovery failure."))
-                : Task.FromResult<IReadOnlyList<BrokerSession>>([]);
-        public Task<AdapterResult> SubmitAsync(BrokerMessage message, CancellationToken token) => throw new NotSupportedException();
+        {
+            Interlocked.Increment(ref Passes);
+            if (faultDiscovery) return Task.FromException<IReadOnlyList<BrokerSession>>(new InvalidOperationException("Synthetic discovery failure."));
+            if (!listSession) return Task.FromResult<IReadOnlyList<BrokerSession>>([]);
+            Address ??= new(brokerId, id + ":synthetic", Guid.NewGuid());
+            return Task.FromResult<IReadOnlyList<BrokerSession>>([new BrokerSession(Address, "Synthetic " + id, id,
+                SessionCapabilities.Receive | SessionCapabilities.WakeIdle, SessionActivity.Idle, DateTimeOffset.UtcNow.AddMinutes(1))]);
+        }
+        // An unexpected delivery failure: it still faults the runtime's delivery loop, which shutdown reports.
+        public Task<AdapterResult> SubmitAsync(BrokerMessage message, CancellationToken token)
+        { Interlocked.Increment(ref Submissions); throw new NotSupportedException("Synthetic delivery failure."); }
         public ValueTask DisposeAsync()
         {
             DisposeCalls++;

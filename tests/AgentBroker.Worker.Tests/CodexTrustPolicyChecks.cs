@@ -19,7 +19,50 @@ internal static class CodexTrustPolicyChecks
         await AdmissionOutcomesAsync(check);
         await BusyAndReconnectAsync(check);
         await ProviderCannotLendExactTrustAsync(check);
+        await DeliveryLockAsync(check);
         await TransientVerificationAsync(check);
+    }
+
+    private static async Task DeliveryLockAsync(Action<bool, string> check)
+    {
+        // The lock: a delivery to a chat whose owner connection is down must leave the adapter's lock to the discovery pass.
+        // A real reconnect re-verifies the router synchronously (seconds under load, no token bounds it); done inside the
+        // lock, the waiting pass outlived its deadline and no row was renewed (independent review P2-1). The fake connect
+        // takes 3 s and ignores cancellation, as that verification does; the pass deadline is 1 s.
+        var lockOwner = new Owner(DesktopRouterTrust.PublisherSigned);
+        bool slowConnect = false;
+        var passClock = new System.Diagnostics.Stopwatch();
+        var observedAt = new List<TimeSpan>();
+        var lockProvider = new CodexNativeProvider(true, async _ =>
+            {
+                if (slowConnect) await Task.Delay(TimeSpan.FromSeconds(3));
+                return lockOwner;
+            }, () => { },
+            _ =>
+            {
+                observedAt.Add(passClock.Elapsed);
+                return Task.FromResult<IReadOnlyList<DesktopDirectorySession>>(
+                    [new(lockOwner.Binding.ConversationId, DesktopSessionActivity.Unknown, DateTimeOffset.UtcNow, null)]);
+            }, null, true, () => { });
+        await using (var adapter = new CodexNativeAdapter(lockProvider, enableDelivery: true, updateTolerantDelivery: true))
+        {
+            var row = (await adapter.DiscoverAsync(Guid.NewGuid(), default)).Single();
+            lockOwner.DiscoverFailure = new IOException("Synthetic owner lookup failure.");
+            await adapter.DiscoverAsync(Guid.NewGuid(), default);
+            lockOwner.DiscoverFailure = null; slowConnect = true;
+            var delivery = adapter.SubmitAsync(Message(row), default);
+            await Task.Delay(50);
+            observedAt.Clear(); passClock.Restart();
+            using (var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(1)))
+            {
+                try { await adapter.DiscoverAsync(Guid.NewGuid(), deadline.Token); } catch (OperationCanceledException) { }
+            }
+            var outcome = await delivery;
+            string waited = observedAt.Count == 0 ? "never" : observedAt[0].TotalMilliseconds.ToString("F0") + " ms";
+            check(observedAt.Count == 1 && observedAt[0] < TimeSpan.FromMilliseconds(500) && outcome.Reason == "native_verification_unavailable" &&
+                lockOwner.Submissions == 0,
+                File + "TRANSIENT_DELIVERY_NEVER_HOLDS_THE_LOCK: the discovery pass gets the lock at once while a delivery meets a dropped owner connection (pass started after " + waited + ", " + outcome.Reason + ")");
+        }
     }
 
     // N-agentbroker-refusal-transience-01, half 2. Live case 2026-10-29 10:22: a send to a busy Codex chat under heavy
@@ -56,9 +99,14 @@ internal static class CodexTrustPolicyChecks
                 ioFailure = false;
             }
 
-            // The owner connection was discarded by a failed lookup: the message reconnects and is submitted.
+            // The owner connection was discarded by a failed lookup: the message defers WITHOUT connecting (the discovery
+            // loop owns the reconnect, independent review P2-1), and is submitted once a discovery pass has reconnected.
             var dropped = new Owner(trust);
-            var connected = Provider(dropped, updateTolerant: tolerant);
+            int connects = 0;
+            var connected = new CodexNativeProvider(true, _ => { connects++; return Task.FromResult<ICodexOwnerConnection>(dropped); }, () => { },
+                _ => Task.FromResult<IReadOnlyList<DesktopDirectorySession>>(
+                    [new(dropped.Binding.ConversationId, DesktopSessionActivity.Unknown, DateTimeOffset.UtcNow, null)]),
+                null, tolerant, () => { });
             await using (var adapter = new CodexNativeAdapter(connected, enableDelivery: true, updateTolerantDelivery: tolerant))
             {
                 var row = (await adapter.DiscoverAsync(Guid.NewGuid(), default)).Single();
@@ -66,9 +114,15 @@ internal static class CodexTrustPolicyChecks
                 await adapter.DiscoverAsync(Guid.NewGuid(), default);
                 dropped.DiscoverFailure = null;
                 bool pendingBefore = connected.VerificationPending;
-                var reconnected = await adapter.SubmitAsync(Message(row), default);
-                check(pendingBefore && reconnected.Outcome == AdapterAdmission.Submitted && dropped.Submissions == 1,
-                    File + "TRANSIENT_OWNER_CONNECTION_RECOVERS: a message arriving while the owner connection is down reconnects and is submitted (" + mode + ", " + reconnected.Reason + ")");
+                int connectsBefore = connects;
+                var deferred = await adapter.SubmitAsync(Message(row), default);
+                check(pendingBefore && deferred is { Outcome: AdapterAdmission.DeferredNotSubmitted, Reason: "native_verification_unavailable" } &&
+                    connects == connectsBefore && dropped.Submissions == 0,
+                    File + "TRANSIENT_OWNER_CONNECTION_DEFERS: a message arriving while the owner connection is down defers without connecting (" + mode + ", " + deferred.Reason + ")");
+                var renewed = (await adapter.DiscoverAsync(Guid.NewGuid(), default)).Single();
+                var reconnected = await adapter.SubmitAsync(Message(renewed), default);
+                check(connects == connectsBefore + 1 && reconnected.Outcome == AdapterAdmission.Submitted && dropped.Submissions == 1,
+                    File + "TRANSIENT_OWNER_CONNECTION_DEFERS WITNESS: the next discovery pass reconnects and the message is then submitted (" + mode + ", " + reconnected.Reason + ")");
             }
         }
 

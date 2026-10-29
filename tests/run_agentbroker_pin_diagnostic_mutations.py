@@ -71,9 +71,11 @@ ASSEMBLIES = {
 # Re-measured 2026-10-29 by lane feature/broker-next-160 (N-modules-fixes-01): later lanes had added checks before the
 # cut-off without moving these, so every --apply run failed its healthy baseline; both include that lane's two
 # malformed-subject checks (Claude observation, Codex observation). Worker 210 after the same lane's seven runtime
-# lifecycle checks (N-agentbroker-native-flicker-01).
-EXISTING_COUNTS = {"worker": 210, "desktop": 157}
-FOCUSED_COUNTS = {"worker": 82, "desktop": 15}
+# lifecycle checks (N-agentbroker-native-flicker-01). Worker 213 and focused 81 after the review fixes: three more lifecycle
+# checks (adapter failure recorded, owner_discovery_rejected per row), and owner_discovery_rejected during owner
+# resolution now checked as a skipped row (two checks) instead of a failed pass (three).
+EXISTING_COUNTS = {"worker": 213, "desktop": 157}
+FOCUSED_COUNTS = {"worker": 81, "desktop": 15}
 CLAUDE_SCENARIOS = ("early-reject", "unsupported-version", "hash-mismatch", "mixed", "recovery", "bounded-snapshot")
 
 

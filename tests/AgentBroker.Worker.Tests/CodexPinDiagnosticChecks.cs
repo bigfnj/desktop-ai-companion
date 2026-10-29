@@ -21,6 +21,19 @@ internal static class CodexPinDiagnosticChecks
             var original = new DesktopAdapterException(fixture.Code, fixture.Version);
             var engine = new DiagnosticNativeProvider(original, failOwnerResolution);
             await using var adapter = new CodexNativeAdapter(engine);
+            if (fixture.Code == "owner_discovery_rejected" && failOwnerResolution)
+            {
+                // Lane broker-next (independent review of 1.6.0, P3-5): the router's error answer for one conversation's
+                // owner lookup skips that row; it no longer fails the pass and clears every binding.
+                var skippedPass = await adapter.DiscoverAsync(Guid.NewGuid(), default);
+                check(skippedPass.Count == 0 && adapter.DiscoveryDiagnostics.Any(item => item.Code == "codex_owner_lookup_skipped"),
+                    "Codex owner_discovery_rejected during owner resolution skips that conversation and says so, without failing the pass");
+                engine.ClearFailure();
+                var renewed = await adapter.DiscoverAsync(Guid.NewGuid(), default);
+                check(renewed.Count == 1 && ((ILocalAgentAdapter)adapter).DiscoveryDiagnostics.Count == 0,
+                    "Codex discovery renews the skipped conversation once its owner lookup answers");
+                continue;
+            }
             AdapterDiscoveryException? captured = null;
             try { await adapter.DiscoverAsync(Guid.NewGuid(), default); }
             catch (AdapterDiscoveryException error) { captured = error; }
