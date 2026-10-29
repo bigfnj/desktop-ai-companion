@@ -5187,6 +5187,33 @@ Assert-True ($hfAssetFetch -cmatch 'SecureDownload\.DownloadBytesAsync\(\s*uri, 
     $hfAssetFetch -cnotmatch 'CatalogLimits') (
     'host-fixes: a catalog asset download hands DownloadBytesAsync AssetLimits, never CatalogLimits')
 
+# THE SPEECH BUBBLE'S Z-ORDER NEVER GOES THROUGH Form.TopMost (N-cli-model-effort-16). WinForms' setter calls SetWindowPos
+# with no SWP_NOACTIVATE, and the pet ran it on every animation tick while stood down, so the hidden bubble took activation
+# from the app's tray menu and Settings dropdowns. --hardening-selftest records the z-order calls through a seam and
+# checks Form.TopMost before the window has a handle; what it cannot run is a build that makes the activating call WITH a
+# handle (that would activate a window on the machine running it), and it never calls ShowSpeech (that would show one).
+# So, on comment-stripped FormSpeech.cs: no assignment to TopMost anywhere, and the one SetWindowPos call passes the
+# flags that include SWP_NOACTIVATE; SetFullscreenSuppressed returns on an unchanged policy BEFORE it applies anything,
+# ShowSpeech raises BEFORE it shows, and the creation style carries topmost only while not stood down.
+$hfSpeech = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\FormSpeech.cs') -Raw)
+$hfSuppress = Get-MethodBody $hfSpeech 'internal void SetFullscreenSuppressed(bool suppressed)' $hfStops
+$hfShow = Get-MethodBody $hfSpeech 'internal void ShowSpeech(string text,' $hfStops
+$hfApply = Get-MethodBody $hfSpeech 'private void ApplyZOrder(IntPtr insertAfter)' $hfStops
+Assert-True ($hfSuppress.Length -gt 0 -and $hfShow.Length -gt 0 -and $hfApply.Length -gt 0) (
+    'host-fixes: FormSpeech.SetFullscreenSuppressed, ShowSpeech and ApplyZOrder were located')
+Assert-True ($hfSpeech -cnotmatch '(?<!\w)TopMost\s*=(?!=)' -and
+    $hfApply -cmatch 'const uint flags = SwpNoMove \| SwpNoSize \| SwpNoActivate;' -and
+    $hfApply -cmatch 'SetWindowPos\(Handle, insertAfter, 0, 0, 0, 0, flags\);' -and
+    [regex]::Matches($hfSpeech, 'SetWindowPos\(').Count -eq 2) (
+    'host-fixes: the speech bubble never sets Form.TopMost, and its one SetWindowPos call passes SWP_NOACTIVATE')
+$hfUnchangedAt = $hfSuppress.IndexOf('if (suppressed == _fullscreenSuppressed) return;')
+$hfApplyAt = $hfSuppress.IndexOf('ApplyZOrder(')
+$hfRaiseAt = $hfShow.IndexOf('RaiseForShow();')
+$hfShowAt = $hfShow.IndexOf('if (!Visible) Show();')
+Assert-True ($hfUnchangedAt -ge 0 -and $hfApplyAt -gt $hfUnchangedAt -and $hfRaiseAt -ge 0 -and $hfShowAt -gt $hfRaiseAt -and
+    $hfSpeech -cmatch 'if \(!_fullscreenSuppressed\) cp\.ExStyle \|= WsExTopMost;') (
+    "host-fixes: the speech bubble changes z-order only when its policy changes, raises before a remark shows, and is created topmost only while not stood down (found at $hfUnchangedAt, $hfApplyAt, $hfRaiseAt, $hfShowAt)")
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever

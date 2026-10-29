@@ -6471,6 +6471,15 @@ failure of the install when the marker is the cause, and that is deliberate. IsM
 marker, so Update all tries the module, whose Unmark then refuses. The launch removes nothing on such a start and the
 modules it names load once more.
 
+**The speech bubble never uses Form.TopMost (N-cli-model-effort-16).** Its topmost state is its own field: the window
+is created with WS_EX_TOPMOST while not stood down, and a change is one SetWindowPos with SWP_NOACTIVATE, made only when
+the policy changes, plus a raise before each remark. Form.TopMost's setter, the re-apply in Form.CreateHandle and the
+focus Form.SetVisibleCore gives a TopMost form are each an activation (read in dotnet/winforms Form.cs and
+ContainerControl.cs, 2026-10-29). So `bubble.TopMost` reads false while the bubble is topmost; that is not a defect.
+Refused: WS_EX_NOACTIVATE, whose effect on a programmatic SetWindowPos is not documented. The hardening self-test does
+not observe activation itself, because proving such a check can fail would mean activating a window on the machine
+running it; it asserts the flags and the absence of Form.TopMost, and a source invariant keeps the setter out.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

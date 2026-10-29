@@ -577,16 +577,83 @@ namespace DesktopAICompanion
                 }
                 finally { xmlDispose.Invoke(oneXxml, new object[0]); xmlDispose.Invoke(halfXml, new object[0]); }
 
-                // ---- speech bubble yields/restores topmost around fullscreen (reflection) ----
-                Type speechT = asm.GetType("DesktopAICompanion.FormSpeech", true);
-                var speech = (Form)Activator.CreateInstance(speechT, true);
+                // ---- speech bubble yields/restores topmost around fullscreen, once per change and never activating ----
+                // N-cli-model-effort-16: the pet calls SetFullscreenSuppressed(true) on every tick while its monitor
+                // is blocked, and the bubble ran Form.TopMost's setter each time, whose SetWindowPos carries no
+                // SWP_NOACTIVATE. Typed calls rather than reflection: the seam has to be assigned in this assembly.
+                // Form.TopMost is checked FIRST, before the window has a handle, because with a handle WinForms'
+                // setter would make the very activating call this guards against: a build that sets it fails here
+                // and the window is never created. Then the handle is created (never shown) and the z-order goes
+                // through the seam, which records each call instead of making it: five suppress calls are one
+                // NOTOPMOST change, five restores one TOPMOST change, each with no move, no size and SWP_NOACTIVATE;
+                // the raise before a remark is one more, and nothing while stood down. Then the same changes for
+                // real, only with flags that cannot activate: the window's own WS_EX_TOPMOST bit follows. Activation
+                // itself is not observed: proving such a check can fail would mean activating a window on the
+                // machine running this, so the flags and the absence of Form.TopMost are what is asserted, and the
+                // source invariant in runtime-hardening-selftest.ps1 keeps FormSpeech off Form.TopMost entirely.
+                var speech = new FormSpeech();
                 try
                 {
-                    MethodInfo setSuppressed = Require(speechT.GetMethod("SetFullscreenSuppressed", NpInstance), "FormSpeech.SetFullscreenSuppressed(bool)");
-                    setSuppressed.Invoke(speech, new object[] { true });
-                    Check("speech bubble yields to fullscreen", !speech.TopMost);
-                    setSuppressed.Invoke(speech, new object[] { false });
-                    Check("speech bubble restores topmost after fullscreen", speech.TopMost);
+                    speech.SetFullscreenSuppressed(true);
+                    speech.SetFullscreenSuppressed(false);
+                    bool neverTopMostProperty = !speech.TopMost;
+                    Check("speech bubble never sets Form.TopMost, whose setter activates the window", neverTopMostProperty);
+                    if (neverTopMostProperty)
+                    {
+                        var zOrder = new System.Collections.Generic.List<string>();
+                        uint lastFlags = 0;
+                        speech.ZOrderForSelfTest = delegate (IntPtr window, IntPtr insertAfter, uint flags)
+                        {
+                            lastFlags = flags;
+                            zOrder.Add((insertAfter == FormSpeech.HwndTopMost ? "topmost" : insertAfter == FormSpeech.HwndNoTopMost ? "notopmost" : "other") +
+                                       ((flags & FormSpeech.SwpNoActivate) != 0 ? "/noactivate" : "/ACTIVATES") +
+                                       ((flags & (FormSpeech.SwpNoMove | FormSpeech.SwpNoSize)) == (FormSpeech.SwpNoMove | FormSpeech.SwpNoSize) ? "" : "/MOVES"));
+                            return true;
+                        };
+                        IntPtr speechHandle = speech.Handle;
+                        Check("speech bubble is created topmost by its own style", (SpeechExStyle(speechHandle) & FormSpeech.WsExTopMost) != 0);
+                        // Each step starts from an empty record, so one broken rule fails its own line only.
+                        zOrder.Clear();
+                        for (int i = 0; i < 5; i++) speech.SetFullscreenSuppressed(true);
+                        Check("speech bubble yields to fullscreen with one z-order change that does not activate, calls=" + string.Join(",", zOrder),
+                            zOrder.Count == 1 && zOrder[0] == "notopmost/noactivate");
+                        zOrder.Clear();
+                        speech.RaiseForShow();
+                        Check("speech bubble is not raised for a remark while stood down, calls=" + string.Join(",", zOrder), zOrder.Count == 0);
+                        zOrder.Clear();
+                        for (int i = 0; i < 5; i++) speech.SetFullscreenSuppressed(false);
+                        Check("speech bubble restores topmost after fullscreen with one z-order change that does not activate, calls=" + string.Join(",", zOrder),
+                            zOrder.Count == 1 && zOrder[0] == "topmost/noactivate");
+                        zOrder.Clear();
+                        speech.RaiseForShow();
+                        Check("speech bubble is raised to the top of the topmost band before a remark, without activating, calls=" + string.Join(",", zOrder),
+                            zOrder.Count == 1 && zOrder[0] == "topmost/noactivate");
+
+                        // The real calls, only with flags that cannot activate: a mutant that dropped SWP_NOACTIVATE has
+                        // already failed above, and must not activate a window on the machine running this.
+                        speech.ZOrderForSelfTest = null;
+                        if ((lastFlags & FormSpeech.SwpNoActivate) != 0)
+                        {
+                            speech.SetFullscreenSuppressed(true);
+                            bool yieldedForReal = (SpeechExStyle(speechHandle) & FormSpeech.WsExTopMost) == 0;
+                            speech.SetFullscreenSuppressed(false);
+                            bool restoredForReal = (SpeechExStyle(speechHandle) & FormSpeech.WsExTopMost) != 0;
+                            Check("speech bubble's real z-order follows the policy, yielded=" + yieldedForReal + " restored=" + restoredForReal,
+                                yieldedForReal && restoredForReal);
+                        }
+                        else sb.AppendLine("NOTE: the real z-order leg was not run, because the recorded flags would activate a window");
+
+                        // A handle created while stood down (or re-created then) comes up below the game, not above it.
+                        var speechMidStandDown = new FormSpeech();
+                        try
+                        {
+                            speechMidStandDown.SetFullscreenSuppressed(true);
+                            Check("speech bubble created while stood down is not created topmost",
+                                (SpeechExStyle(speechMidStandDown.Handle) & FormSpeech.WsExTopMost) == 0);
+                        }
+                        finally { speechMidStandDown.Dispose(); }
+                    }
+                    else sb.AppendLine("NOTE: the bubble's z-order checks were not run, because a window whose Form.TopMost is set would be activated when its handle is created");
                 }
                 finally { speech.Dispose(); }
 
@@ -2132,6 +2199,17 @@ namespace DesktopAICompanion
         {
             if (member == null) throw new MissingMemberException("reflected member not found: " + what);
             return member;
+        }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "GetWindowLongW")]
+        private static extern int GetWindowLong(IntPtr hWnd, int index);
+
+        /// <summary>A window's extended style as the system holds it, which is where its topmost bit lives: the
+        /// speech-bubble check reads the real window rather than anything the form says about itself.</summary>
+        private static int SpeechExStyle(IntPtr window)
+        {
+            const int GWL_EXSTYLE = -20;
+            return GetWindowLong(window, GWL_EXSTYLE);
         }
 
         private static object MemberValue(Type t, object instance, string name)
