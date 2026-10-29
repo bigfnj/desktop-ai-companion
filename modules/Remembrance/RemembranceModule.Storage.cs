@@ -122,9 +122,12 @@ namespace DesktopAICompanion.RemembranceModule
             return root;
         }
 
-        /// <summary>The note the Status line gives the storage folder when it is the local one a fresh install chose.</summary>
+        /// <summary>The note the Status line gives the storage folder when it is the local one a fresh install chose, and
+        /// why it is none when it is not a full path (N-followups-02: one saved before the pane refused such a path, or
+        /// written into settings.json by hand; a recording's start refuses it with the same words).</summary>
         private string StorageNote(string root)
         {
+            if (!CaptureStore.IsFullFolder(root)) return " ✗ " + CaptureStore.RelativeRootReason;
             string dataRoot = AppDataRootOf(DataDirectory());
             if (dataRoot == null || !SameFolder(root, Path.Combine(dataRoot, LocalStorageFolderName))) return "";
             return CaptureStore.OneDriveRootOf(root, EnvironmentLookup) == null ? " (on this computer, outside OneDrive)" : "";
@@ -215,6 +218,9 @@ namespace DesktopAICompanion.RemembranceModule
         {
             string rootAfter = StorageRoot();
             if (SameFolder(rootBefore, rootAfter)) return;
+            // A location left that was not a full path named no folder (N-followups-02): FolderExists would resolve it
+            // against the current directory, and a folder there would be remembered and walked at every purge.
+            if (!CaptureStore.IsFullFolder(rootBefore)) rootBefore = null;
             string joined = _settings.Get(EarlierRootsKey, "");
             bool dropped = false;
             string next;
@@ -710,6 +716,163 @@ namespace DesktopAICompanion.RemembranceModule
                 try { Environment.CurrentDirectory = savedDirectory; } catch (Exception) { }
                 DocumentsRoot = savedDocuments;
                 CaptureStore.DefaultRootSource = savedDefault;
+                ClearReadOnly(scratch);
+                try { if (Directory.Exists(scratch)) Directory.Delete(scratch, true); } catch (Exception) { }
+            }
+        }
+
+        /// <summary>
+        /// N-followups-02 (lane feature/followups2): a storage location that is not a full path names no folder. The pane's
+        /// Apply refuses one whole, saves nothing and says why on the Status line; one saved before that, or by hand, is never
+        /// resolved: the store refuses it, a recording does not start and says why, and the purge, the Older recordings line,
+        /// its rename button and the follow-up's newest summary leave it alone, as a move away from it does. The process's
+        /// current directory is a scratch folder for the duration, holding a folder of the relative name with an aged
+        /// recording and a summary in it: a mutant that resolves the path does so THERE, where the check sees it.
+        /// </summary>
+        private static void SelfCheckRelativeStorage(Action<string, bool> check)
+        {
+            string[] notFull = { "Recordings", @"Meetings\Recordings", @"\Recordings", "C:Recordings", @".\Recordings" };
+            var refusals = new List<string>();
+            foreach (string root in notFull)
+            {
+                try { refusals.Add(root + " (taken as \"" + new CaptureStore(root, FolderLayout.PerCapture).Root + "\")"); }
+                catch (InvalidOperationException ex) { refusals.Add(ex.Message == CaptureStore.RelativeRootReason ? "refused" : root + " (" + ex.Message + ")"); }
+            }
+            check("relative storage: the store refuses a root that is not a full path, with the reason: " + string.Join(" | ", refusals),
+                refusals.All(r => r == "refused"));
+            check("WITNESS relative storage: a drive's folder and a share's are still taken as they are",
+                new CaptureStore(@"D:\Recordings", FolderLayout.PerCapture).Root == @"D:\Recordings" &&
+                new CaptureStore(@" \\server\share\Recordings ", FolderLayout.ByDate).Root == @"\\server\share\Recordings");
+
+            const string Relative = "Recordings";
+            string scratch = Path.Combine(Path.GetTempPath(), "dp-remembrance-relative-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            string cwd = Path.Combine(scratch, "cwd");
+            string resolved = Path.Combine(cwd, Relative);
+            string full = Path.Combine(scratch, "store");
+            string savedDirectory = Environment.CurrentDirectory;
+            try
+            {
+                Directory.CreateDirectory(full);
+                string strayAudio = Path.Combine(resolved, "2026-08-20 09-30 Stray", CaptureStore.FolderPrefix + ".wav");
+                PlantAged(new[] { strayAudio }, DateTime.UtcNow.AddDays(-4));
+                string straySummary = Path.Combine(resolved, "2026-10-29 09-30 Stray", CaptureStore.FolderPrefix + CaptureStore.SummarySuffix);
+                Directory.CreateDirectory(Path.GetDirectoryName(straySummary));
+                File.WriteAllText(straySummary, "a summary from wherever the app was started");
+                string[] planted = Directory.GetFileSystemEntries(resolved);
+                Environment.CurrentDirectory = cwd;
+
+                using (new RecorderSelfCheck.FakeDevices())
+                {
+                    // ---- the pane: an Apply of a path that is not a full one is refused whole ----
+                    var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                    DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings s = host.SettingsFor(Id);
+                    s.Set("storageLocation", full);
+                    s.Set("sysEnabled", "true");
+                    s.Set("summaryModelsCache", "alpha:1b");
+                    s.Set("whisperExe", @"c:\seeded\whisper-cli.exe");
+                    var module = new RemembranceModule();
+                    module.Init(host);
+                    try
+                    {
+                        OptionsPane pane = host.OptionsPanes[0];
+                        foreach (string typed in new[] { Relative, "C:Recordings" })
+                        {
+                            Dictionary<string, string> edited = CopyOf(pane.Load());
+                            edited["storageLocation"] = typed;
+                            edited["sysEnabled"] = "false";
+                            int before = host.LoggedLines.Count;
+                            bool applied = pane.Save(edited);
+                            List<string> said = host.LoggedLines.Skip(before).ToList();
+                            string status = module.StatusLine();
+                            check("relative storage: an Apply of \"" + typed + "\" is refused whole, saving nothing, and the Status line says why: " + status,
+                                !applied && s.Get("storageLocation", null) == full && s.Get("sysEnabled", null) == "true" &&
+                                status.Contains("  |  ✗ Not applied: " + CaptureStore.RelativeRootReason + "  |  "));
+                            check("relative storage: the refused Apply's one log line names no folder: " + string.Join(" | ", said),
+                                said.Count == 1 && said[0] == Id + ": storage location not applied: it is not a full path");
+                        }
+                        Dictionary<string, string> corrected = CopyOf(pane.Load());
+                        string other = Path.Combine(scratch, "other");
+                        corrected["storageLocation"] = other;
+                        bool correctedApplied = pane.Save(corrected);
+                        check("WITNESS relative storage: a full path then applies, and the Status line no longer says an Apply was refused",
+                            correctedApplied && s.Get("storageLocation", null) == other && !module.StatusLine().Contains("Not applied"));
+                    }
+                    finally { module.Shutdown(); }
+
+                    // ---- saved before the pane refused it, or by hand: never resolved ----
+                    var oldHost = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                    DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings old = oldHost.SettingsFor(Id);
+                    old.Set("storageLocation", Relative);
+                    old.Set("summaryModelsCache", "alpha:1b");
+                    old.Set("whisperExe", @"c:\seeded\whisper-cli.exe");
+                    var oldModule = new RemembranceModule();
+                    oldModule.Init(oldHost);
+                    try
+                    {
+                        IReadOnlyDictionary<string, string> shown = oldHost.OptionsPanes[0].Load();
+                        string status = oldModule.StatusLine();
+                        check("relative storage (saved): the Status line names the location and says why it is no folder: " + status,
+                            status.Contains("  |  storage: " + Relative + " ✗ " + CaptureStore.RelativeRootReason + "  |  "));
+                        string olderLine;
+                        shown.TryGetValue(OlderRecordingsKey, out olderLine);
+                        string renamed;
+                        try
+                        {
+                            Task<string> press = oldModule.RenameOlderForSelfTest(CopyOf(shown));
+                            renamed = press.Wait(TimeSpan.FromSeconds(10)) ? press.Result : "(no answer)";
+                        }
+                        catch (Exception ex) { renamed = "(threw " + ex.GetType().Name + ")"; }
+                        check("relative storage (saved): the Older recordings line and its rename button say why, and read nothing: " +
+                              olderLine + " / " + renamed,
+                            olderLine == CaptureStore.RelativeRootReason && renamed == CaptureStore.RelativeRootReason);
+                        string latest = oldModule.LatestSummaryPath();
+                        check("relative storage (saved): the follow-up does not look for its newest summary there: " + (latest ?? "(none)"),
+                            latest == null);
+                        oldModule.StartRecordingForSelfTest();
+                        CapturePaths paths = oldModule.LastCaptureForSelfTest;
+                        if (paths != null) Thread.Sleep(80);
+                        string started = oldModule.StatusLine();
+                        oldHost.RaiseHostShutdown();
+                        check("relative storage (saved): a recording does not start, and the Status line says why: " +
+                              (paths == null ? started : "recording to " + paths.Directory),
+                            paths == null && started.StartsWith("Could not start: " + CaptureStore.RelativeRootReason + "  |  ", StringComparison.Ordinal));
+                        bool ran = oldModule.PurgeForSelfTest().Wait(TimeSpan.FromSeconds(10));
+                        List<string> purge = oldHost.LoggedLines.Where(l => l.StartsWith(Id + ": purge", StringComparison.Ordinal)).ToList();
+                        check("relative storage (saved): the purge has no folder to walk, says nothing and deletes nothing: " + string.Join(" | ", purge),
+                            ran && purge.Count == 0 && File.Exists(strayAudio));
+                    }
+                    finally { oldModule.Shutdown(); }
+
+                    // ---- a move away from it remembers nothing for the purge ----
+                    var moveHost = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                    DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings m = moveHost.SettingsFor(Id);
+                    m.Set("storageLocation", Relative);
+                    m.Set("summaryModelsCache", "alpha:1b");
+                    m.Set("whisperExe", @"c:\seeded\whisper-cli.exe");
+                    var moveModule = new RemembranceModule();
+                    moveModule.Init(moveHost);
+                    try
+                    {
+                        OptionsPane movePane = moveHost.OptionsPanes[0];
+                        Dictionary<string, string> moved = CopyOf(movePane.Load());
+                        moved["storageLocation"] = full;
+                        bool movedApplied = movePane.Save(moved);
+                        check("relative storage (saved): a move away from it applies and does not remember it for the purge: \"" +
+                              m.Get(EarlierRootsKey, "") + "\"",
+                            movedApplied && m.Get("storageLocation", null) == full && ParseRoots(m.Get(EarlierRootsKey, "")).Count == 0);
+                    }
+                    finally { moveModule.Shutdown(); }
+                }
+                string[] after = Directory.GetFileSystemEntries(resolved);
+                check("relative storage: nothing was written where the relative location resolves, " +
+                      after.Length.ToString(CultureInfo.InvariantCulture) + " entries for the " +
+                      planted.Length.ToString(CultureInfo.InvariantCulture) + " planted",
+                    after.Length == planted.Length && Directory.GetFileSystemEntries(cwd).Length == 1);
+            }
+            catch (Exception ex) { check("relative storage: the checks threw " + ex.GetType().Name + ": " + ex.Message, false); }
+            finally
+            {
+                try { Environment.CurrentDirectory = savedDirectory; } catch (Exception) { }
                 ClearReadOnly(scratch);
                 try { if (Directory.Exists(scratch)) Directory.Delete(scratch, true); } catch (Exception) { }
             }

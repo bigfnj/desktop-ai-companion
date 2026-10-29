@@ -236,7 +236,9 @@ namespace DesktopAICompanion.RemembranceModule
             try
             {
                 string root = StorageRoot();
-                if (System.IO.Directory.Exists(root))
+                // Never a location that is not a full path (N-followups-02): listed against the current directory, it
+                // would hand a CLI the newest summary in whatever folder the app was started from.
+                if (CaptureStore.IsFullFolder(root) && System.IO.Directory.Exists(root))
                 {
                     foreach (string ending in CaptureStore.SummarySuffixes)
                     {

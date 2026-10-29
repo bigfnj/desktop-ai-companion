@@ -86,10 +86,22 @@ namespace DesktopAICompanion.RemembranceModule
         /// have resolved against the process's current directory, wherever the app was started from. Refused here, the one
         /// place every capture, snapshot, purge and rename builds its store, with <see cref="NoDefaultRootReason"/> as the
         /// message, so a recording's start reports it on the Status line and nothing is written anywhere.
+        ///
+        /// A root that is NOT a full path THROWS too (N-followups-02, lane feature/followups2), with
+        /// <see cref="RelativeRootReason"/>: "Recordings", "\Recordings" or "C:Recordings" typed into the storage box was
+        /// kept as it was and resolved against the process's current directory at every capture, snapshot, purge and
+        /// rename, so the folder recorded into, and purged, was wherever the app had been started from. The pane refuses
+        /// such a path at Apply (RemembranceModule's Save); this is for one saved before that, or written into
+        /// settings.json by hand. Refused rather than resolved against a stated base: the data root or Documents would
+        /// each be a folder the user never chose, the same reason the blank default refuses to fall back.
         /// </summary>
         public CaptureStore(string root, string layout)
         {
-            if (!string.IsNullOrWhiteSpace(root)) Root = root.Trim();
+            if (!string.IsNullOrWhiteSpace(root))
+            {
+                if (!IsFullFolder(root)) throw new InvalidOperationException(RelativeRootReason);
+                Root = root.Trim();
+            }
             else
             {
                 string fallback = DefaultRoot();
@@ -109,6 +121,12 @@ namespace DesktopAICompanion.RemembranceModule
         internal const string NoDefaultRootReason =
             "The storage location is blank and Windows reports no Documents folder for this account, so there is nowhere " +
             "to record to. Choose a folder for \"Where recordings are stored\".";
+
+        /// <summary>Why a storage location that is not a full path names no folder: what the pane's Apply refuses it with,
+        /// what a start refused by the constructor says, and what the Status line says beside it (N-followups-02).</summary>
+        internal const string RelativeRootReason =
+            "The storage location is not a full path, so the folder it names would depend on where the app was started. " +
+            "Choose a folder for \"Where recordings are stored\", or type one that starts with a drive or a share, like D:\\Recordings.";
 
         /// <summary>
         /// Where <see cref="DefaultRoot"/>, and so a blank root, resolves: <see cref="DocumentsRemembrance"/> outside the
