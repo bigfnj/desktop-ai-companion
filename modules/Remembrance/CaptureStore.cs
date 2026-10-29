@@ -79,15 +79,36 @@ namespace DesktopAICompanion.RemembranceModule
         /// <summary><see cref="FolderLayout.PerCapture"/> or <see cref="FolderLayout.ByDate"/>.</summary>
         public string Layout { get; private set; }
 
+        /// <summary>
+        /// A store under <paramref name="root"/>, or under <see cref="DefaultRoot"/> when it is blank. THROWS when it is
+        /// blank and there is no default (N-modules-fixes-02, lane feature/followups): the Documents known folder can be
+        /// missing, and then the default is null, never the relative "Remembrance" it used to be, which every caller would
+        /// have resolved against the process's current directory, wherever the app was started from. Refused here, the one
+        /// place every capture, snapshot, purge and rename builds its store, with <see cref="NoDefaultRootReason"/> as the
+        /// message, so a recording's start reports it on the Status line and nothing is written anywhere.
+        /// </summary>
         public CaptureStore(string root, string layout)
         {
-            Root = string.IsNullOrWhiteSpace(root) ? DefaultRoot() : root.Trim();
+            if (!string.IsNullOrWhiteSpace(root)) Root = root.Trim();
+            else
+            {
+                string fallback = DefaultRoot();
+                if (!IsFullFolder(fallback)) throw new InvalidOperationException(NoDefaultRootReason);
+                Root = fallback;
+            }
             Layout = FolderLayout.IsKnown(layout) ? layout : FolderLayout.PerCapture;
         }
 
         /// <summary>The folder a blank storage root means: <see cref="DocumentsRemembrance"/>, read through
-        /// <see cref="DefaultRootSource"/>.</summary>
+        /// <see cref="DefaultRootSource"/>. Null when Windows reports no Documents folder.</summary>
         public static string DefaultRoot() { return DefaultRootSource(); }
+
+        /// <summary>Why a blank storage location has nowhere to record to: what a start refused by the constructor says,
+        /// and what the Status line says in place of the storage folder. In the pane's words: the box is labelled
+        /// "Where recordings are stored".</summary>
+        internal const string NoDefaultRootReason =
+            "The storage location is blank and Windows reports no Documents folder for this account, so there is nowhere " +
+            "to record to. Choose a folder for \"Where recordings are stored\".";
 
         /// <summary>
         /// Where <see cref="DefaultRoot"/>, and so a blank root, resolves: <see cref="DocumentsRemembrance"/> outside the
@@ -102,11 +123,38 @@ namespace DesktopAICompanion.RemembranceModule
         internal static Func<string> DefaultRootSource = DocumentsRemembrance;
 
         /// <summary>Documents\Remembrance, the default since 1.0.0: the production answer of both
-        /// <see cref="DefaultRootSource"/> and RemembranceModule.DocumentsRoot, never written by the self-test.</summary>
+        /// <see cref="DefaultRootSource"/> and RemembranceModule.DocumentsRoot, never written by the self-test. Null when
+        /// Windows reports no Documents folder (<see cref="RemembranceUnder"/>).</summary>
         internal static string DocumentsRemembrance()
         {
-            try { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "Remembrance"); }
-            catch { return "Remembrance"; }
+            string documents;
+            try { documents = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments); }
+            catch (Exception) { return null; }
+            return RemembranceUnder(documents);
+        }
+
+        /// <summary>
+        /// "Remembrance" under the Documents known folder <paramref name="documents"/>, or null when that names no folder.
+        /// Environment.GetFolderPath answers "" for a known folder that does not exist (a profile whose Documents was
+        /// deleted or never made, a service account), and Path.Combine("", "Remembrance") is the RELATIVE "Remembrance",
+        /// which is what a blank storage location used to become (N-modules-fixes-02). Refused rather than replaced: the
+        /// data root was the other way out the backlog offered, and it would file recordings in a folder the user never
+        /// chose, then split a blank location's recordings across two folders once Documents came back, with the purge
+        /// walking only one of them. Pure, for the self-test.
+        /// </summary>
+        internal static string RemembranceUnder(string documents)
+        {
+            if (!IsFullFolder(documents)) return null;
+            return Path.Combine(documents.Trim(), "Remembrance");
+        }
+
+        /// <summary>A path that names a folder on its own, a drive's or a share's, whatever the current directory is: not
+        /// blank, not relative, not drive-relative ("C:Remembrance"). Never throws.</summary>
+        internal static bool IsFullFolder(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return false;
+            try { return Path.IsPathFullyQualified(path.Trim()); }
+            catch (Exception) { return false; }
         }
 
         /// <summary>The three variables OneDrive sets for its folders: the one in use, the work or school one, the personal one.</summary>

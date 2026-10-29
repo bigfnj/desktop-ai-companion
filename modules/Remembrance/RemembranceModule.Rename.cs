@@ -29,7 +29,9 @@ namespace DesktopAICompanion.RemembranceModule
         {
             try
             {
-                var store = new CaptureStore(StorageRoot(), CurrentFolderLayout());
+                string root = StorageRoot();
+                if (root == null) return CaptureStore.NoDefaultRootReason;   // no folder to read (N-modules-fixes-02)
+                var store = new CaptureStore(root, CurrentFolderLayout());
                 return DescribePlan(store.PlanRenames());
             }
             catch (Exception ex) { return "Could not read the storage folder (" + ex.GetType().Name + ")."; }
@@ -121,7 +123,11 @@ namespace DesktopAICompanion.RemembranceModule
                 return Task.FromResult("The storage folder on screen has not been applied yet. Apply it first, then press this again.");
             string refusal = RenameRefusal();
             if (refusal != null) return Task.FromResult(refusal);
-            var store = new CaptureStore(StorageRoot(), CurrentFolderLayout());
+            // No folder to rename in (a blank location and no Documents, N-modules-fixes-02): said, where the store's
+            // constructor would have thrown out of the button's press.
+            string root = StorageRoot();
+            if (root == null) return Task.FromResult(CaptureStore.NoDefaultRootReason);
+            var store = new CaptureStore(root, CurrentFolderLayout());
             return Task.Run(() =>
             {
                 RenamePlan plan = store.PlanRenames();

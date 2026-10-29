@@ -6521,6 +6521,18 @@ change under ModuleKit, even a comment, changes ModuleKit.dll (its symbols are e
 published payload stale, so the same note on the double's own doc comment (lane commit 1ea3bc2) waits for the next
 ModuleKit change that republishes the modules anyway.
 
+#### feature/followups
+
+Follow-ups of the 2026-10-29 evening campaign (lane followups) to lanes modules-fixes, installer-tests and host-fixes.
+
+**A blank Remembrance storage location with no Documents folder records nowhere (N-modules-fixes-02).** When Windows
+reports no Documents folder, `CaptureStore.RemembranceUnder` answers no folder instead of the relative "Remembrance"
+that `Path.Combine("", ...)` made, the CaptureStore constructor refuses a blank root with no default, and the Status
+line, the storage box's hint, the Older recordings line and its button say why. Refused: falling back to the app's data
+root. It would file recordings in a folder the user never chose, then split a blank location's recordings across two
+folders once Documents came back, with the purge walking only one of them. A storage location the user TYPED as a
+relative path is resolved as before; only the blank default is refused here.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of
