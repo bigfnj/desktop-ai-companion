@@ -146,6 +146,20 @@ internal static class FirstContactChecks
             "WHOAMI_LOCAL_BROKER: a caller authenticated as another broker cannot ask whoami");
         fixture.Context.Items["agentbroker.identity"] = fixture.Store.BrokerId;
         check(fixture.Tools.WhoAmI().Address == mine.Address, "WHOAMI_RESTORED: the same caller resolves again once local");
+
+        // Delivery disabled (Codex 01a1855c's review): the caller's row is observation-only. whoami still names it, and a hello
+        // sent from it cannot be answered, which is why the card sends such a caller to a mailbox.
+        var observing = new BrokerSession(new(fixture.Store.BrokerId, "claude:99999999-8888-4777-a666-555555555555", Guid.NewGuid()),
+            "Synthetic observation-only", "claude-native", SessionCapabilities.None, SessionActivity.Idle, fixture.Clock.GetUtcNow().AddMinutes(1));
+        fixture.Store.Register(observing);
+        adapter.Owned.Clear(); adapter.Owned[(300, 800UL)] = observing.Address;
+        var named = fixture.Tools.WhoAmI();
+        check(named.Address == observing.Address && named.Capabilities == SessionCapabilities.None,
+            "WHOAMI_OBSERVATION_ROW: whoami returns an observation-only row unchanged, without Receive or WakeIdle");
+        var listener = fixture.Register("Synthetic peer mailbox");
+        var hello = fixture.Tools.Send(observing.Address, listener.Address, Guid.NewGuid(), "Synthetic hello from an observation-only row.").Message;
+        check(ToolFixture.Refused(() => fixture.Tools.ReplyToMessage(hello.Id, Guid.NewGuid(), "Synthetic answer."), "recipient_cannot_receive"),
+            "WHOAMI_OBSERVATION_NO_REPLY: an answer to a hello sent from an observation-only row is refused recipient_cannot_receive");
     }
 
     private static async Task ReplyBudgetChecks(Action<bool, string> check)
@@ -179,8 +193,8 @@ internal static class FirstContactChecks
             "ENVELOPE_CREATED_AT: the native envelope carries the message's createdAt beside remainingReplies");
         string preamble = formatted[..formatted.IndexOf('\n')];
         check(preamble.Contains("at 0, continue with send to the sender using the same conversationId", StringComparison.Ordinal) &&
-            preamble.Contains("createdAt order", StringComparison.Ordinal),
-            "ENVELOPE_GUIDANCE: the preamble says how to continue at remainingReplies 0 and to read one sender in createdAt order");
+            preamble.Contains("createdAt is the sender's own timestamp; this broker delivers one sender's messages in the order it accepted them", StringComparison.Ordinal),
+            "ENVELOPE_GUIDANCE: the preamble says how to continue at remainingReplies 0, and that delivery order is acceptance order, not the sender's createdAt");
     }
 
     private sealed class FakeCallers : ICallerProcessResolver

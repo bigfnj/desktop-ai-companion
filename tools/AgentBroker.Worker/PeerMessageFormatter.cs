@@ -25,7 +25,7 @@ public static class PeerMessageFormatter
         "If AgentBroker MCP tools are available, acknowledge actual receipt with acknowledge_message using the exact recipient address and outcome Delivered. " +
         "To respond use reply_to_message(originalMessageId, a fresh messageId, text); do not start an unbounded automatic conversation. " +
         "remainingReplies is the replies left on this chain; at 0, continue with send to the sender using the same conversationId. " +
-        "createdAt is when the sender sent it: read one sender's messages in createdAt order.\n" +
+        "createdAt is the sender's own timestamp; this broker delivers one sender's messages in the order it accepted them.\n" +
         JsonSerializer.Serialize(new
         {
             kind = "agentbroker.peer_message", messageId = message.Id, conversationId = message.ConversationId,

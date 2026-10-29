@@ -233,16 +233,20 @@ try
         Check(lookup.FindSessionByProcess(12345, 134000000000000001) is null && lookup.FindSessionByProcess(12346, 134000000000000000) is null,
             "WHOAMI_CLAUDE_EXACT: a reused process ID (later creation time) or another process never matches");
     }
+    // Codex 01a1855c's review of 47adf9a: chat B is the only one discovered on server S, but the caller can be chat A on S
+    // that discovery has not seen. A server process therefore never names a Codex caller, with one chat or several.
     var whoCodex = new FakeCodex(Guid.NewGuid(), clock);
     await using (var lookup = new CodexNativeAdapter(whoCodex, clock: clock))
     {
         var row = (await lookup.DiscoverAsync(broker, default)).Single();
-        Check(lookup.FindSessionByProcess(12345, 134000000000000000) == row.Address && lookup.FindSessionByProcess(12345, 134000000000000001) is null,
-            "WHOAMI_CODEX_PROCESS: the Codex adapter names the one chat bound to an exact server process");
+        ILocalAgentAdapter asAdapter = lookup;
+        Check(row.Address.SessionId.StartsWith("codex:", StringComparison.Ordinal) && asAdapter.FindSessionByProcess(12345, 134000000000000000) is null,
+            "WHOAMI_CODEX_NEVER: one discovered chat on a Codex server process is not proof the caller is that chat");
     }
     await using (var shared = new CodexNativeAdapter(new SharedServerCodex(clock), clock: clock))
     {
-        Check((await shared.DiscoverAsync(broker, default)).Count == 2 && shared.FindSessionByProcess(12345, 134000000000000000) is null,
+        ILocalAgentAdapter asAdapter = shared;
+        Check((await shared.DiscoverAsync(broker, default)).Count == 2 && asAdapter.FindSessionByProcess(12345, 134000000000000000) is null,
             "WHOAMI_CODEX_SHARED: with two chats on one server process, the Codex adapter claims neither");
     }
     Console.WriteLine($"AgentBroker native adapter regression: {checks} assertions passed.");

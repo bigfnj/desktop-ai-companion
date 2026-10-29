@@ -14,10 +14,11 @@ public static class BrokerInstructions
 
     public const string Text =
         "AgentBroker relays messages between agent sessions on this workstation and explicitly paired brokers.\n" +
-        "Your address: call whoami first. A claude: or codex: row is you: send as it and give it to peers; you are woken when idle, " +
-        "so do not register a mailbox or poll. With no native row, register_agent ONE clientId and ONE incarnation for the whole " +
-        "conversation (a new incarnation is a new mailbox; presence lapses a minute after your last call, mail is kept 24 hours), " +
-        "send your hello to the peer's native row, then wait_for_messages. After a broker restart, register the same pair again.\n" +
+        "Your address: call whoami first; Codex instead finds codex:<CODEX_THREAD_ID> in list_sessions. If your row has Receive and " +
+        "WakeIdle, send as it and give it to peers; you are woken when idle, so do not register a mailbox or poll. With no such row " +
+        "(none, or observation-only), register_agent ONE clientId and ONE incarnation for the conversation (a new incarnation is a " +
+        "new mailbox; presence lapses a minute after your last call, mail is kept 24 hours), send your hello to the peer's native row, " +
+        "then wait_for_messages. After a broker restart, register the same pair again.\n" +
         "Incarnations change when a client restarts or reconnects: on recipient_unavailable, list_sessions again and resend.\n" +
         "Ask: list_sessions -> send -> wait_for_receipt (was it received?) -> wait_for_reply. " +
         "An acknowledgement never arrives in your inbox. " +

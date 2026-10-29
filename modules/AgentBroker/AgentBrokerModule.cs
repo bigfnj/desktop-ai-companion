@@ -43,9 +43,11 @@ public sealed partial class AgentBrokerModule : IModule
         Name = "AgentBroker",
         Version = "1.4.0",   // 1.4.0: first contact (2026-10-29), from agents on a second workstation who registered
                              //        mailboxes and ran pollers despite native rows, started fresh threads at the eighth
-                             //        reply and saw messages out of order. A new whoami tool returns the caller's own
-                             //        native row from the process that opened its loopback connection; the card now
-                             //        leads with it and says how to recover from a changed incarnation. reply_to_message
+                             //        reply and saw messages out of order. A new whoami tool returns a Claude caller's
+                             //        own native row from the process that opened its loopback connection (a Codex
+                             //        caller uses CODEX_THREAD_ID: one Codex server hosts many chats); the card leads
+                             //        with it, sends observation-only rows to a mailbox and says how to recover from a
+                             //        changed incarnation. reply_to_message
                              //        at remainingReplies 0 refuses as reply_budget_exhausted and points to send with the
                              //        same conversationId. The native envelope carries createdAt. One sender's messages
                              //        to one recipient are delivered in the order the broker accepted them. The installer

@@ -16,12 +16,18 @@ internal static class InstructionsChecks
             "the server instructions card stays within 1,800 characters");
         // First contact (2026-10-29): the identity line comes right after the opening sentence, before any flow.
         string[] lines = BrokerInstructions.Text.Split('\n');
-        check(lines.Length > 2 && lines[1].StartsWith("Your address: call whoami first.", StringComparison.Ordinal) &&
+        check(lines.Length > 2 && lines[1].StartsWith("Your address: call whoami first", StringComparison.Ordinal) &&
             lines[1].Contains("do not register a mailbox or poll", StringComparison.Ordinal),
             "CARD_WHOAMI_FIRST: the card's first instruction is whoami, and a native row means no mailbox and no polling");
         check(BrokerInstructions.Text.Contains("on recipient_unavailable, list_sessions again and resend", StringComparison.Ordinal) &&
             BrokerInstructions.Text.Contains("at remainingReplies 0, continue with send and the same conversationId", StringComparison.Ordinal),
             "CARD_CHURN_AND_BUDGET: the card says how to recover from a changed incarnation and from a spent reply budget");
+        // Codex 01a1855c's review of 47adf9a: an observation-only native row cannot take replies, so the no-mailbox guidance
+        // must depend on Receive and WakeIdle, and Codex (which whoami never resolves) must be told how to find its row.
+        check(lines[1].Contains("If your row has Receive and WakeIdle, send as it", StringComparison.Ordinal) &&
+            lines[1].Contains("(none, or observation-only), register_agent", StringComparison.Ordinal) &&
+            lines[1].Contains("codex:<CODEX_THREAD_ID>", StringComparison.Ordinal),
+            "CARD_CAPABILITY_GATE: no mailbox only for a row with Receive and WakeIdle; an observation-only row registers one; Codex uses CODEX_THREAD_ID");
         string scratch = Path.Combine(AppContext.BaseDirectory, "scratch", "instructions-" + Guid.NewGuid().ToString("N"));
         Guid brokerId;
         using (var seed = new BrokerStore(Path.Combine(scratch, "store"))) brokerId = seed.BrokerId;
