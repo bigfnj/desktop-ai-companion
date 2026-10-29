@@ -14790,6 +14790,45 @@ CASES = (
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "remembrance cli: the cards come in the approved mockup's order"),
+
+    # ---- lane feature/modules-fixes ----
+    # The 2026-10-29 evening campaign's module fixes. Names carry the "modules-fixes:" prefix so `--only=modules-fixes:` runs
+    # the lane. N-remembrance-test-documents-01 first: Remembrance's SelfTest runs every check with Documents\Remembrance
+    # pointed at a per-run scratch folder. The two swap mutants RE-POINT a swap at another folder inside that scratch rather
+    # than delete it: a deleted swap sends any capture that falls back to the blank default into the owner's real
+    # Documents\Remembrance, which is the leak itself, while the check under test compares the seam against the run's own
+    # folder and fails the same way for either.
+    ('modules-fixes: remembrance: the self-test loses its DocumentsRoot swap',
+     REMEMBRANCE_MODULE,
+     b'            DocumentsRoot = delegate { return documents; };\n',
+     b'            DocumentsRoot = delegate { return documents + "-elsewhere"; };\n',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "scratch Documents: the blank storage location's folder (DocumentsRoot) is this run's scratch folder"),
+    ('modules-fixes: remembrance: the self-test loses its CaptureStore default-root swap',
+     REMEMBRANCE_MODULE,
+     b'            CaptureStore.DefaultRootSource = delegate { return documents; };\n',
+     b'            CaptureStore.DefaultRootSource = delegate { return documents + "-elsewhere"; };\n',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "scratch Documents: CaptureStore's default root, which a blank root resolves to, is this run's scratch folder"),
+    # The WITNESS: the "fix" that moves the production default out of Documents instead of isolating the test.
+    ('modules-fixes: remembrance: the production default leaves Documents',
+     CAPTURE_STORE,
+     b'            try { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "Remembrance"); }\n',
+     b'            try { return Path.Combine(Path.GetTempPath(), "Remembrance"); }\n',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "WITNESS scratch Documents: outside the self-test both defaults are still Documents\\Remembrance"),
+    # The runner's own watch of the real folder: pointed at the children's TEMP, which the remembrance run writes its marker
+    # into, it must report the change by name.
+    ('modules-fixes: the module runner watches a folder the remembrance run writes into',
+     MODULE_SELFTESTS_PS1,
+     b"if (-not [string]::IsNullOrWhiteSpace($documentsFolder)) { $realRemembrance = Join-Path $documentsFolder 'Remembrance' }\n",
+     b"if (-not [string]::IsNullOrWhiteSpace($documentsFolder)) { $realRemembrance = $runTemp }\n",
+     None, None,
+     MODULE_SELFTESTS, None,
+     "remembrance : the real Documents\\Remembrance changed during its self-test"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
@@ -14833,6 +14872,70 @@ def real_input_notice(environ):
                     NO_REAL_INPUT_VARIABLE, len(NEEDS_REAL_INPUT)))
     return ("REAL INPUT: %s is not 1 in this process, so every --module-selftest=blinkingled run below makes one pair of "
             "real Scroll Lock presses (agent runs on the maintainer's box are to set it)" % NO_REAL_INPUT_VARIABLE)
+
+
+# THE REAL Documents\Remembrance, WATCHED AROUND EVERY RUN (N-remembrance-test-documents-01, lane feature/modules-fixes,
+# 2026-10-29). A blank Remembrance storage location records into the Documents known folder, which neither the data-root
+# override nor this harness's private TEMP redirects and which is often inside OneDrive, and 46 synthetic files from a test
+# run were found in a real one: the probable writer is a case here that sends recordings to the blank default. Remembrance's
+# SelfTest points its seams at a per-run scratch folder now; this watch does not depend on that. Every child run, the
+# baselines' and each case's, is bracketed by the folder's footprint (whether it exists, its file and folder counts and its
+# newest write time; never a name or a file's contents), on every flag rather than Remembrance's alone, since the host's own
+# self-tests load modules too and a stat of one folder costs nothing. A change STOPS the run on the spot, naming the run that
+# changed it, because every further case could write more. Said at the start, and said as well when the known folder cannot
+# be resolved, so a run that watched nothing does not read like one that saw nothing change.
+DOCUMENTS_REMEMBRANCE = None
+
+
+def documents_folder():
+    """The Documents known folder, as Environment.GetFolderPath(MyDocuments) resolves it (CSIDL_PERSONAL), or None."""
+    try:
+        import ctypes
+        buffer = ctypes.create_unicode_buffer(32768)
+        if ctypes.windll.shell32.SHGetFolderPathW(None, 5, None, 0, buffer) != 0:
+            return None
+        return buffer.value or None
+    except (AttributeError, OSError):
+        return None
+
+
+def folder_footprint(path):
+    """'absent', or the counts and newest write time under `path`. Reads directory entries only, never a file."""
+    if path is None:
+        return None
+    if not os.path.isdir(path):
+        return "absent"
+    files = folders = 0
+    newest = os.stat(path).st_mtime
+    for root, dirs, names in os.walk(path):
+        folders += len(dirs)
+        files += len(names)
+        for entry in dirs + names:
+            try:
+                newest = max(newest, os.stat(os.path.join(root, entry)).st_mtime)
+            except OSError:
+                pass
+    return "present, %d file(s) and %d folder(s), newest write %.6f" % (files, folders, newest)
+
+
+def documents_watch_notice():
+    """The line printed before the baseline: what is watched, and how it reads now, or that nothing is."""
+    if DOCUMENTS_REMEMBRANCE is None:
+        return ("DOCUMENTS WATCH: NOT WATCHED: the Documents known folder could not be resolved, so a run writing into a real "
+                "Documents\\Remembrance would go unseen")
+    return ("DOCUMENTS WATCH: %s is compared before and after every child run; it reads %s now"
+            % (DOCUMENTS_REMEMBRANCE, folder_footprint(DOCUMENTS_REMEMBRANCE)))
+
+
+def documents_leak(before):
+    """None while the watched folder reads as it did before the run, else what changed."""
+    if DOCUMENTS_REMEMBRANCE is None:
+        return None
+    after = folder_footprint(DOCUMENTS_REMEMBRANCE)
+    if after == before:
+        return None
+    return ("the real Documents\\Remembrance changed during this run (%s; before: %s; after: %s): a check or a mutant "
+            "recorded outside its scratch folder, or the installed app recorded there meanwhile" % (DOCUMENTS_REMEMBRANCE, before, after))
 
 
 def read(path):
@@ -15216,6 +15319,7 @@ def keep_report(index, name, report):
 def score(plan):
     cases = plan.cases
     print(real_input_notice(os.environ))
+    print(documents_watch_notice())
     print("baseline: build + every self-test in play must pass")
     ok, out = build_all()
     if not ok:
@@ -15223,7 +15327,12 @@ def score(plan):
         print(out[-800:])
         return 2
     for flag, marker in BASELINES:
+        watched = folder_footprint(DOCUMENTS_REMEMBRANCE)
         report, code = selftest(flag, marker)
+        leak = documents_leak(watched)
+        if leak:
+            print("STOPPED in the baseline run of %s: %s" % (flag, leak))
+            return 2
         if report is None:
             print("BASELINE NOT GREEN for", flag, "--", code)
             return 2
@@ -15238,6 +15347,7 @@ def score(plan):
 
     fired = 0
     not_run = 0
+    leaked = None
     withheld = real_input_withheld(os.environ)
     rebuilt = True
     try:
@@ -15256,6 +15366,7 @@ def score(plan):
             # fresh module from the mutated template and asserts the DLL exists; there is no artefact here
             # whose timestamp could stand for that.
             before = os.path.getmtime(artifact) if artifact is not None else None
+            watched = folder_footprint(DOCUMENTS_REMEMBRANCE)
             write(path, base.replace(old_v, new_v))
             time.sleep(1.1)
             report = None
@@ -15275,6 +15386,13 @@ def score(plan):
             finally:
                 write(path, base)
 
+            leak = documents_leak(watched)
+            if leak:
+                leaked = name
+                print("  %-52s LEAKED (%s)" % (name, leak))
+                if report is not None:
+                    keep_report(index, name, report)
+                break
             if verdict is not None:
                 print("  %-52s %s" % (name, verdict))
                 continue
@@ -15335,15 +15453,20 @@ def score(plan):
         if not rebuilt:
             print("THE CLEAN REBUILD FAILED -- build\\ may still hold a mutant artefact:")
             print(rebuild_output[-800:])
+    if leaked is not None:
+        print("STOPPED after the case %r: the real Documents\\Remembrance changed while it ran (above), so no further case "
+              "was run" % leaked)
     print("%d/%d fired." % (fired, len(cases) - not_run))
     if not_run:
         print("%d case(s) NOT RUN: they test the real Scroll Lock press, and %s=1 withholds real input (listed above)."
               % (not_run, NO_REAL_INPUT_VARIABLE))
-    return 0 if fired == len(cases) - not_run and rebuilt else 1
+    return 0 if fired == len(cases) - not_run and rebuilt and leaked is None else 1
 
 
 def main():
-    global RUN_TEMP, CHILD_ENV
+    global RUN_TEMP, CHILD_ENV, DOCUMENTS_REMEMBRANCE
+    documents = documents_folder()
+    DOCUMENTS_REMEMBRANCE = os.path.join(documents, "Remembrance") if documents else None
     parser = argparse.ArgumentParser()
     add_selection_arguments(parser)
     args = parser.parse_args()

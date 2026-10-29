@@ -373,6 +373,37 @@ $env:TMP = $runTemp
 # Set true as the last statement of the run's try: a run that threw before it is kept like a red one (see the finally).
 $runFinished = $false
 
+# THE REAL Documents\Remembrance, WATCHED FROM OUTSIDE (N-remembrance-test-documents-01, lane feature/modules-fixes,
+# 2026-10-29). A blank storage location records into Documents\Remembrance, the Documents known folder, which neither
+# DESKTOP_AI_COMPANION_DATA_ROOT nor TEMP redirects and which is often inside OneDrive, and 46 synthetic files from a test
+# run were found in a real one. Remembrance's SelfTest now points both of its seams at a per-run scratch folder; this is the
+# check that does not depend on the module going through them. The folder's footprint (whether it exists, how many files
+# and folders it holds, the newest write time; never a name or a file's contents) is taken before and after the remembrance
+# run, and any change is a problem that names it. Said on every run with the path, and said as well when the known folder
+# cannot be resolved, so a run that watched nothing does not read like one that saw nothing change.
+$documentsFolder = [Environment]::GetFolderPath('MyDocuments')
+$realRemembrance = $null
+if (-not [string]::IsNullOrWhiteSpace($documentsFolder)) { $realRemembrance = Join-Path $documentsFolder 'Remembrance' }
+$realRemembranceWatched = @('remembrance')
+
+function Get-FolderFootprint([string]$Path) {
+    if (-not (Test-Path -LiteralPath $Path -PathType Container)) { return 'absent' }
+    $entries = @(Get-ChildItem -LiteralPath $Path -Recurse -Force -ErrorAction SilentlyContinue)
+    $files = @($entries | Where-Object { -not $_.PSIsContainer }).Count
+    $newest = (Get-Item -LiteralPath $Path -Force).LastWriteTimeUtc
+    foreach ($entry in $entries) { if ($entry.LastWriteTimeUtc -gt $newest) { $newest = $entry.LastWriteTimeUtc } }
+    return ('present, {0} file(s) and {1} folder(s), newest write {2}' -f $files, ($entries.Count - $files), $newest.ToString('o'))
+}
+
+if ($realRemembrance) {
+    Write-Host ("DOCUMENTS WATCH: $realRemembrance is compared before and after the $($realRemembranceWatched -join ', ') " +
+                "self-test; it reads $(Get-FolderFootprint $realRemembrance) now")
+}
+else {
+    Write-Host ('DOCUMENTS WATCH: NOT WATCHED: the Documents known folder could not be resolved, so a self-test writing into a ' +
+                'real Documents\Remembrance would go unseen in this run')
+}
+
 # Said on every run that presses, before the first module runs, as tests\mutate-selftest-guards.py says it at its start:
 # a run without the variable makes Blinking LED's real presses, and until the final round of lane
 # feature/blinkingled-resume nothing here said so (with it at 1 the OK line, SELFTEST-NOT-RUN: and the summary say so).
@@ -383,7 +414,20 @@ if (-not $noRealInputRequested) {
 $problems = @()
 try {
     foreach ($id in $Covered) {
+        $footprintBefore = $null
+        if ($realRemembrance -and $realRemembranceWatched -contains $id) { $footprintBefore = Get-FolderFootprint $realRemembrance }
         $r = Invoke-ModuleSelfTest $id
+        # Graded whatever the module's verdict, like the real-input rules below: it is about the owner's files, not the suite.
+        $documentsProblem = $null
+        if ($null -ne $footprintBefore) {
+            $footprintAfter = Get-FolderFootprint $realRemembrance
+            if ($footprintAfter -cne $footprintBefore) {
+                $documentsProblem = ("the real Documents\Remembrance changed during its self-test ($realRemembrance; before: " +
+                                     "$footprintBefore; after: $footprintAfter): a check or a mutant recorded outside its scratch " +
+                                     'folder, or the installed app recorded there during the run')
+                $problems += "$id : $documentsProblem"
+            }
+        }
         # ANCHORED ON THE ASSERTION SHAPE, not on the substring 'PASS'.
         #
         # This counted `$_ -match 'PASS'`, and the marker's own `RESULT=PASS` line matches that. So
@@ -435,7 +479,7 @@ try {
             # nothing and reported success.
             $problems += "$id : reported PASS with no assertion lines, so it proved nothing"
         }
-        elseif (-not $realInputProblem) {
+        elseif (-not $realInputProblem -and -not $documentsProblem) {
             $notRunNote = ''
             if ($r.RealInputSkips.Count -gt 0) {
                 # Visible, not a failure: beside the OK, and once more on stdout for the gate's summary.

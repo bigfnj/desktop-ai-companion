@@ -29,8 +29,11 @@ namespace DesktopAICompanion.RemembranceModule
         internal const string LocalStorageEmptyHint = "Remembrance in this app's data folder, on this computer (the default here: Documents is in OneDrive)";
 
         /// <summary>Documents\Remembrance, the default since 1.0.0, behind a delegate so the self-test stands in a fake
-        /// Documents path. Defaults to CaptureStore.DefaultRoot.</summary>
-        internal static Func<string> DocumentsRoot = CaptureStore.DefaultRoot;
+        /// Documents path. Defaults to CaptureStore.DocumentsRemembrance, the same folder CaptureStore.DefaultRoot gives a
+        /// blank root, and NOT to DefaultRoot itself (N-remembrance-test-documents-01): SelfTest swaps this and
+        /// CaptureStore.DefaultRootSource for its whole run, and a delegate that read through the other seam would make
+        /// this one's swap a no-op no check could tell from a missing one.</summary>
+        internal static Func<string> DocumentsRoot = CaptureStore.DocumentsRemembrance;
 
         /// <summary>Directory.Exists behind a delegate, for the same reason.</summary>
         internal static Func<string, bool> FolderExists = Directory.Exists;

@@ -85,7 +85,25 @@ namespace DesktopAICompanion.RemembranceModule
             Layout = FolderLayout.IsKnown(layout) ? layout : FolderLayout.PerCapture;
         }
 
-        public static string DefaultRoot()
+        /// <summary>The folder a blank storage root means: <see cref="DocumentsRemembrance"/>, read through
+        /// <see cref="DefaultRootSource"/>.</summary>
+        public static string DefaultRoot() { return DefaultRootSource(); }
+
+        /// <summary>
+        /// Where <see cref="DefaultRoot"/>, and so a blank root, resolves: <see cref="DocumentsRemembrance"/> outside the
+        /// self-test. A seam (N-remembrance-test-documents-01, 2026-10-29): RemembranceModule.SelfTest points it at a
+        /// per-run scratch folder for the whole run and puts it back in a finally, because the Documents known folder is
+        /// one that neither DESKTOP_AI_COMPANION_DATA_ROOT nor TEMP redirects, and it is often inside OneDrive. A test run
+        /// with both redirected still left 46 synthetic files in a real Documents\Remembrance (found 2026-10-29), where
+        /// OneDrive syncs them, and an existing Documents\Remembrance also decides where a fresh install records
+        /// (RemembranceModule.FreshInstallRoot). RemembranceModule.DocumentsRoot is swapped too, and is a seam of its own
+        /// rather than a reader of this one, so that each swap is one a check can see removed.
+        /// </summary>
+        internal static Func<string> DefaultRootSource = DocumentsRemembrance;
+
+        /// <summary>Documents\Remembrance, the default since 1.0.0: the production answer of both
+        /// <see cref="DefaultRootSource"/> and RemembranceModule.DocumentsRoot, never written by the self-test.</summary>
+        internal static string DocumentsRemembrance()
         {
             try { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "Remembrance"); }
             catch { return "Remembrance"; }
