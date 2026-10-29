@@ -169,7 +169,17 @@ namespace DesktopAICompanion.AiBrainModule
         {
             Id = "aibrain",
             Name = "AI Brain",
-            Version = "1.6.0",   // 1.6.0: privacy and correctness in the shared CLI runner and the CLI card (campaign
+            Version = "1.7.0",   // 1.7.0: one Claude Code sign-in, shared with Remembrance (host 1.8.0's
+                                 //        IHostCredentials, BACKLOG N-cli-token-02, the owner's decision of
+                                 //        2026-10-29). The host keeps the token once, behind a grant the user gives on
+                                 //        the consent screen or at the start question
+                                 //        (ModulePermissions.ClaudeCodeSignIn, so MinHostVersion rises to 1.8.0). A
+                                 //        valid token saved before moves into it on the first start, and the module's
+                                 //        own copy is deleted once the shared save has succeeded; Remove token removes
+                                 //        it for every allowed module. The "About Haiku" note shows only while Haiku is
+                                 //        the chosen model (SettingField.VisibleWhen, host 1.8.0, BACKLOG
+                                 //        N-coordinator-02).
+                                 // 1.6.0: privacy and correctness in the shared CLI runner and the CLI card (campaign
                                  //        2026-10-26). Every Claude Code model call names --permission-mode default, so
                                  //        auto mode's classifier context (the module's work folder 13 more times, the
                                  //        home folder and the Windows user name) no longer goes with it, and every
@@ -662,7 +672,7 @@ namespace DesktopAICompanion.AiBrainModule
             // shared assembly, so on an older host the interface type itself is missing and the method naming it fails
             // to compile at its first call; the floor makes that host refuse the module with a legible reason instead.
             // Publish only after app 1.5.0 has shipped.
-            MinHostVersion = "1.7.0",
+            MinHostVersion = "1.8.0",
             // LaunchProcess: this module starts `ollama serve` (engine\OllamaClient.TryStartServer) and runs
             // tesseract.exe as a child for OCR (engine\AiBrain.RunOcrAsync), and no flag had ever said so on
             // the consent screen (F226: the flag shipped in host 1.2.5 naming this module as a holder, and no

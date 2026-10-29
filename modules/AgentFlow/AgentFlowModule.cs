@@ -179,7 +179,10 @@ namespace DesktopAICompanion.AgentFlow
         {
             Id = "agentflow",
             Name = "AgentFlow",
-            Version = "1.12.1",  // 1.12.1: no behaviour change: two self-test seams let the self-test run OnTick's body
+            Version = "1.12.2",  // 1.12.2: picking another pet keeps the pane's other unapplied edits; a threshold
+                                 //        typed or a box unticked before the pet change used to come back as stored
+                                 //        (N-host-options-01).
+                                 // 1.12.1: no behaviour change: two self-test seams let the self-test run OnTick's body
                                  //        inline on an injected clock, so the transcript beat is driven over a
                                  //        transcript that grows every tick (N-agentflow-enhancements-01).
                                  // 1.12.0: the owner's report of 2026-10-21 that 1.11.0 still did not clear several Codex

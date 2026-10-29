@@ -129,7 +129,12 @@ namespace DesktopAICompanion.FortunesModule
         {
             Id = "fortunes",
             Name = "Fortunes",
-            Version = "1.2.0",   // 1.2.0: "Check online for packs" names each pack the catalog lists but the app
+            Version = "1.2.1",   // 1.2.1: a pack import whose replace fails and whose backup cannot be put back is
+                                 //        counted as a rollback failure, and the batch says its rollback could not be
+                                 //        fully verified instead of "all earlier changes were rolled back"
+                                 //        (N-modules-small-01). The importer self-test keeps its scratch folder after a
+                                 //        failure and names it (N-test-infra-03).
+                                 // 1.2.0: "Check online for packs" names each pack the catalog lists but the app
                                  //        refused, with why, under its answer, instead of leaving it out; a pack
                                  //        already on disk is not named and an unreadable pack list says so
                                  //        (N-catalog-insight-05; host 1.7.0's ICatalogListing, so MinHostVersion rises

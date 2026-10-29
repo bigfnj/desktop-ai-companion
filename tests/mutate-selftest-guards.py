@@ -3626,7 +3626,7 @@ CASES = (
     # lane feature/meeting-end, which raised the floor to 1.6.0 (its case is under that lane's anchor).
     ("feature/remembrance-2: the module's host floor drops below InvokeWithPendingAsync (BUG-013)",
      REMEMBRANCE_MODULE,
-     b"            MinHostVersion = \"1.7.0\",\n",
+     b"            MinHostVersion = \"1.8.0\",\n",
      b"            MinHostVersion = \"1.2.4\",\n",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
@@ -7111,7 +7111,7 @@ CASES = (
     # lane feature/meeting-end, which raised the floor to 1.6.0.
     ("layout-remembrance: the host floor drops below 1.4.0",
      REMEMBRANCE_MODULE,
-     b"            MinHostVersion = \"1.7.0\",\n",
+     b"            MinHostVersion = \"1.8.0\",\n",
      b"            MinHostVersion = \"1.3.0\",\n",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
@@ -7690,13 +7690,13 @@ CASES = (
     # The host floor the primitives need: an older host would fail at the missing setters inside Init.
     # (Re-pointed by lane feature/fullscreen-per-monitor: the floor was 1.5.0, for ICompanionStandDown; re-pointed again
     # at the campaign's 1.7.0 version step: the floor is 1.7.0, for PaneAction.EnabledWhen.)
-    ("layout-aibrain: the module's host floor drops below 1.7.0, the PaneAction.EnabledWhen host",
+    ("layout-aibrain: the module's host floor drops below 1.8.0, the IHostCredentials host",
      AIBRAIN_MODULE,
-     b'            MinHostVersion = "1.7.0",\n',
-     b'            MinHostVersion = "1.6.1",\n',
+     b'            MinHostVersion = "1.8.0",\n',
+     b'            MinHostVersion = "1.7.1",\n',
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
-     "the module asks for host 1.7.0"),
+     "the module asks for host 1.8.0"),
 
     # An existing file through the pane: Load hands Save something other than what the file holds.
     ("layout-aibrain: the pane shows the fullscreen stand-down on whatever the file says",
@@ -12533,7 +12533,7 @@ CASES = (
     # The questions' types live in Contracts: an older host refuses the module at load, and the floor says so.
     ("meeting-end-remembrance: the host floor drops below 1.6.0, where ITrayQuestions arrived",
      REMEMBRANCE_MODULE,
-     b"            MinHostVersion = \"1.7.0\",\n",
+     b"            MinHostVersion = \"1.8.0\",\n",
      b"            MinHostVersion = \"1.5.0\",\n",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
@@ -12543,11 +12543,21 @@ CASES = (
     # older host's Contracts lacks it, so the floor is what makes that host refuse the module readably.
     ("version-step: Remembrance's host floor drops below 1.7.0, where PaneAction.EnabledWhen arrived",
      REMEMBRANCE_MODULE,
-     b"            MinHostVersion = \"1.7.0\",\n",
+     b"            MinHostVersion = \"1.8.0\",\n",
      b"            MinHostVersion = \"1.6.1\",\n",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "the module asks for host 1.7.0 or newer"),
+
+    # The 1.8.0 floor (campaign 2026-10-29 version step): the shared Claude Code sign-in is host 1.8.0's IHostCredentials,
+    # and an older host's Contracts lacks the interface and the ClaudeCodeSignIn flag, so the floor is what refuses it.
+    ("version-step-180: Remembrance's host floor drops below 1.8.0, where IHostCredentials arrived",
+     REMEMBRANCE_MODULE,
+     b"            MinHostVersion = \"1.8.0\",\n",
+     b"            MinHostVersion = \"1.7.1\",\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "the module asks for host 1.8.0 or newer"),
 
     # The owner's rule (2026-10-15): trim ONLY when nobody answers. The mutant trims a Stop now the user pressed too.
     ("meeting-end-remembrance: an explicit Stop now is trimmed as well",

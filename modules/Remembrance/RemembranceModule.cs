@@ -84,7 +84,16 @@ namespace DesktopAICompanion.RemembranceModule
         {
             Id = Id,
             Name = "Remembrance",
-            Version = "2.9.0",   // 2.9.0: the summary is saved as Markdown, "<name>.summary.md" (the owner's request of
+            Version = "2.10.0",  // 2.10.0: one Claude Code sign-in, shared with AI Brain (host 1.8.0's
+                                 //        IHostCredentials, BACKLOG N-cli-token-02, the owner's decision of
+                                 //        2026-10-29), behind the ClaudeCodeSignIn grant, so MinHostVersion rises to
+                                 //        1.8.0; a valid token saved before moves into it on the first start. A blank
+                                 //        storage location on a machine with no Documents folder records nowhere and
+                                 //        says why on the Status line, where it used to record into a path relative to
+                                 //        wherever the app was started (N-modules-fixes-02). The self-test records into
+                                 //        a scratch folder, never the real Documents\Remembrance
+                                 //        (N-remembrance-test-documents-01).
+                                 // 2.9.0: the summary is saved as Markdown, "<name>.summary.md" (the owner's request of
                                  //        2026-10-29: its text is Markdown). Summaries saved before keep ".summary.txt";
                                  //        the purge, the follow-up, the free-name check and "Rename older recordings"
                                  //        treat both endings alike.
@@ -535,7 +544,7 @@ namespace DesktopAICompanion.RemembranceModule
             // ITrayQuestions` would have come back null (TypeLoadException at JIT), so there is no soft fallback, and the
             // load gate is what turns an older host into a refusal with a reason. Not shipped before host 1.6.0 is
             // released (docs/VERSIONING.md's sequencing rule). The self-test pins this floor beside the other two.
-            MinHostVersion = "1.7.0",
+            MinHostVersion = "1.8.0",
             // Network is for two user-initiated local/upstream calls: fetching whisper.cpp from its GitHub release +
             // Hugging Face, and talking to a LOOPBACK Ollama for the summary. There is deliberately no cloud
             // transcription path, because a recording can be privileged or consent-regulated audio. Since 2.1.0 the
