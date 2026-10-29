@@ -150,7 +150,7 @@ foreach ($scenario in @('success', 'nonzero', 'exit_code', 'dispose')) {
 # absence UNPROVEN; links (name surrogates) and unknown tags must stay refused.
 $probe = @{}
 foreach ($name in @('Assert-NoDefaultFixtureArtifacts', 'Test-FixtureCloudPlaceholderTag', 'Get-FixtureReparseTag',
-    'Test-FixturePathPresent')) {
+    'Test-FixturePathPresent', 'ConvertTo-SanitizedRegistryKey', 'Get-MsiRegistryFailures', 'Get-RollbackRegistryEvidence')) {
     $found = @($ast.FindAll({ param($node)
         $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
     }, $true))
@@ -160,7 +160,8 @@ foreach ($name in @('Assert-NoDefaultFixtureArtifacts', 'Test-FixtureCloudPlaceh
 $walkText = $probe['Assert-NoDefaultFixtureArtifacts'].Extent.Text
 Check ($walkText.Contains('Test-FixturePathPresent $full') -and $walkText.Contains('Get-FixtureReparseTag $current')) 'WITNESS the default-path walk reads through its injectable metadata helpers'
 Check ($walkText -cnotmatch 'Get-ChildItem|Enumerate|GetFiles|GetDirectories|GetFileSystemEntries|\[IO\.(File|Directory)\]::') 'the default-path walk never lists a folder or reads the file system around its helpers'
-foreach ($name in @('Assert-NoDefaultFixtureArtifacts', 'Test-FixtureCloudPlaceholderTag')) {
+foreach ($name in @('Assert-NoDefaultFixtureArtifacts', 'Test-FixtureCloudPlaceholderTag', 'ConvertTo-SanitizedRegistryKey', 'Get-MsiRegistryFailures',
+    'Get-RollbackRegistryEvidence')) {
     . ([scriptblock]::Create($probe[$name].Extent.Text))
 }
 $realTagReader = $probe['Get-FixtureReparseTag'].Body.GetScriptBlock()
@@ -246,6 +247,68 @@ try {
     if ([IO.Directory]::Exists($reparseScratch)) { [IO.Directory]::Delete($reparseScratch) }
 }
 $cases.Add('real-reparse-reader')
+
+# ROLLBACK REGISTRY EVIDENCE (N-measure-offline-01). The lifecycle report extracts the
+# failing keys and codes of a failed rollback, sanitised: fixture keys relative to the
+# fixture root, any other key as its hive and first two key names with no account SID.
+$fixtureRoot = 'Software\bigfnj\DACScopedShutdownTest\' + $tag + '\main'
+$sampleSid = 'S-1-5-21-1111111111-2222222222-3333333333-1001'
+$packed = '9A735F4882942CE4BA103206B6C35AAC'
+$product = '{84F537A9-4928-4EC2-AB01-23606B3CA5CA}'
+$prefix = 'MSI (s) (3C:08) [00:36:26:741]: '
+$logText = @(
+    ($prefix + 'Note: 1: 1402 2: HKEY_USERS\' + $sampleSid + '\Software\Microsoft\Installer\Products\' + $packed + '\SourceList 3: 5 '),
+    ($prefix + 'Note: 1: 1401 2: HKEY_USERS\' + $sampleSid + '\Software\Microsoft\Installer\Products\' + $packed + '\SourceList 3: 5 '),
+    ($prefix + 'Error in rollback skipped.' + "`t" + 'Return: 3'),
+    ($prefix + 'Note: 1: 1401 2: HKEY_USERS\' + $sampleSid + '\Software\Microsoft\Installer\Products\' + $packed + '\SourceList 3: 5 '),
+    ($prefix + 'Note: 1: 1401 2: HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Installer\UserData\' + $sampleSid + '\Products\' + $packed + '\InstallProperties 3: 5 '),
+    ($prefix + 'Note: 1: 1401 2: HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Uninstall\' + $product + ' 3: 5 '),
+    ($prefix + 'Note: 1: 1406 2: HKEY_CURRENT_USER\' + $fixtureRoot + '\Components 3: 5 '),
+    ($prefix + 'Note: 1: 1401 2: HKEY_USERS\' + $sampleSid + '\' + $fixtureRoot + ' 3: 5 '),
+    ($prefix + 'Note: 1: 1404 2: HKEY_LOCAL_MACHINE\Software\ExampleVendor\Guard\Policy 3: 5 '),
+    ($prefix + 'Note: 1: 1402 2: HKEY_CURRENT_USER\Software\Microsoft\MS Setup (ACME)\User Info 3: 2 ')
+) -join "`r`n"
+$evidence = Get-MsiRegistryFailures -Text $logText -FixtureRegistryRoot $fixtureRoot
+$failures = @($evidence.Failures)
+$evidenceText = (@($failures | ForEach-Object { [string]$_.Message + '|' + $_.Win32Error + '|' + $_.Owner + '|' + $_.Area + '|' + $_.Key }) +
+    @($evidence.Owners)) -join "`n"
+Check ($failures.Count -eq 7 -and @($failures | Where-Object { $_.Win32Error -eq 2 }).Count -eq 0) 'registry evidence: routine not-found probing is not reported as a failure'
+Check ($evidence.RollbackErrorsSkipped -eq 1 -and @($failures | Where-Object { $_.Message -eq 1401 -and $_.Area -ceq 'per-user Installer\Products\<packed-code>\SourceList' -and $_.Occurrences -eq 2 }).Count -eq 1) (
+    'registry evidence: repeated notes group by message, code and area with their occurrence count')
+Check ((@($evidence.Owners) -join ',') -ceq 'fixture,other,windows-installer') 'registry evidence: each key is attributed to the fixture, Windows Installer or another owner'
+Check ((@($failures | Where-Object { $_.Owner -ceq 'fixture' } | ForEach-Object { $_.Key } | Sort-Object) -join ',') -ceq '<fixture-root>,<fixture-root>\Components') (
+    'registry evidence: fixture keys are shown relative to the fixture root in both user hives')
+Check (@($failures | Where-Object { $_.Owner -ceq 'other' })[0].Key -ceq 'HKEY_LOCAL_MACHINE\Software\ExampleVendor') 'registry evidence: another owner''s key shows only its hive and first two key names'
+Check (-not $evidenceText.Contains($sampleSid) -and -not $evidenceText.Contains($packed) -and -not $evidenceText.Contains('84F537A9') -and
+    -not $evidenceText.Contains($tag) -and -not $evidenceText.Contains('Guard')) 'registry evidence carries no account SID, product code, fixture tag or deeper foreign key name'
+Check ($evidenceText.Contains('|machine Installer\UserData\<sid>\Products\<packed-code>\InstallProperties|HKEY_LOCAL_MACHINE\Software\Microsoft') -and
+    $evidenceText.Contains('|Uninstall (Programs and Features)\<product-code>|')) 'WITNESS registry evidence names Windows Installer areas by fixed templates'
+# The report reads each family's rollback-v2.log after the run: a UTF-16 log the way msiexec
+# writes it, a family with no log (skipped), and a family whose read fails (reported, not thrown).
+$evidenceScratch = Join-Path $repo ('build\msi-caller-safety\' + [Guid]::NewGuid().ToString('N') + '-evidence')
+[void](Assert-ScopedShutdownPath -Path $evidenceScratch -TrustedRoot $repo)
+$evidenceLog = Join-Path $evidenceScratch 'main\rollback-v2.log'
+[void][IO.Directory]::CreateDirectory((Split-Path $evidenceLog -Parent))
+[IO.File]::WriteAllText($evidenceLog, $logText, [Text.Encoding]::Unicode)
+function Fixture-Path([string]$Relative) {
+    if ($Relative.StartsWith('legacy\')) { throw 'injected_fixture_path' }
+    return (Join-Path $evidenceScratch $Relative)
+}
+function Read-Utf8([string]$Path) { return [IO.File]::ReadAllText($Path) }
+$manifest = [pscustomobject]@{ Families = @(
+    [pscustomobject]@{ Name = 'main'; RegistryRoot = $fixtureRoot },
+    [pscustomobject]@{ Name = 'nolog'; RegistryRoot = $fixtureRoot },
+    [pscustomobject]@{ Name = 'legacy'; RegistryRoot = $fixtureRoot }) }
+try {
+    $reported = @(Get-RollbackRegistryEvidence)
+    Check ($reported.Count -eq 2 -and $reported[0] -isnot [array] -and $reported[0].Family -ceq 'main' -and
+        @($reported[0].Failures).Count -eq 7 -and $reported[0].RollbackErrorsSkipped -eq 1) 'the lifecycle report lists one rollback evidence object per family with a log, not a nested list'
+    Check ($reported[1].Family -ceq 'legacy' -and $reported[1].ExtractionFailed -ceq 'injected_fixture_path') 'a family whose rollback log cannot be read is reported, never thrown over the primary failure'
+} finally {
+    if ([IO.File]::Exists($evidenceLog)) { [IO.File]::Delete($evidenceLog) }
+    foreach ($directory in @((Split-Path $evidenceLog -Parent), $evidenceScratch)) { if ([IO.Directory]::Exists($directory)) { [IO.Directory]::Delete($directory) } }
+}
+$cases.Add('rollback-registry-evidence')
 
 $scratch = Join-Path $repo ('build\msi-caller-safety\' + [Guid]::NewGuid().ToString('N'))
 [void](Assert-ScopedShutdownPath -Path $scratch -TrustedRoot $repo)

@@ -601,6 +601,82 @@ function Assert-NoDefaultFixtureArtifacts {
         Assert-Check (-not (Test-FixturePathPresent $full)) 'exact GUID-named default user path contains no fixture artifact'
     }
 }
+function ConvertTo-SanitizedRegistryKey {
+    param([string]$Key, [string]$FixtureRegistryRoot)
+    # Evidence leaves this box in reports, so a key is shown relative to the fixture's own
+    # root, or as its hive and first two key names with any account SID replaced. Owner and
+    # Area are judged on the FULL path, and Area is a fixed template, never a raw key.
+    $sid = '^S-1-[0-9]+(-[0-9]+)+$'
+    $parts = @($Key.Split('\') | Where-Object { $_.Length -gt 0 })
+    $hive = if ($parts.Count -gt 0) { $parts[0] } else { '' }
+    $rest = @(if ($parts.Count -gt 1) { $parts[1..($parts.Count - 1)] })
+    $user = $rest
+    if ($hive -ceq 'HKEY_USERS' -and $rest.Count -gt 0 -and $rest[0] -match $sid) { $user = @(if ($rest.Count -gt 1) { $rest[1..($rest.Count - 1)] }) }
+    $relative = $user -join '\'
+    if ($hive -cin @('HKEY_CURRENT_USER', 'HKEY_USERS') -and -not [string]::IsNullOrEmpty($FixtureRegistryRoot) -and
+        ($relative -ieq $FixtureRegistryRoot -or $relative.StartsWith($FixtureRegistryRoot + '\', [StringComparison]::OrdinalIgnoreCase))) {
+        return [pscustomobject]@{ Owner = 'fixture'; Area = 'fixture registry root'; Key = '<fixture-root>' + $relative.Substring($FixtureRegistryRoot.Length) }
+    }
+    $owner = 'other'; $area = 'unclassified'
+    $machine = $rest -join '\'
+    if ($hive -cin @('HKEY_CURRENT_USER', 'HKEY_USERS') -and $relative -match '^(?i)Software\\Microsoft\\Installer\\(Products|Features|UpgradeCodes|Components|Patches)(\\[0-9A-F]{32})?(\\(SourceList(\\(Media|Net))?|Patches|Transforms))?$') {
+        $owner = 'windows-installer'
+        $area = 'per-user Installer\' + $matches[1] + $(if ($matches[2]) { '\<packed-code>' } else { '' }) + $(if ($matches[3]) { $matches[3] } else { '' })
+    } elseif ($hive -ceq 'HKEY_LOCAL_MACHINE' -and $machine -match '^(?i)Software\\Microsoft\\Windows\\CurrentVersion\\Installer\\UserData\\S-1-[0-9]+(-[0-9]+)+\\(Products|Components|Patches)(\\[0-9A-F]{32})?(\\(InstallProperties|Features|Patches|Usage|Transforms))?$') {
+        $owner = 'windows-installer'
+        $area = 'machine Installer\UserData\<sid>\' + $matches[2] + $(if ($matches[3]) { '\<packed-code>' } else { '' }) + $(if ($matches[4]) { $matches[4] } else { '' })
+    } elseif ($hive -ceq 'HKEY_LOCAL_MACHINE' -and $machine -match '^(?i)Software\\Microsoft\\Windows\\CurrentVersion\\Installer\\(UpgradeCodes|Rollback|TempPackages|InProgress|Folders|Managed|Products|Components)(\\|$)') {
+        $owner = 'windows-installer'; $area = 'machine Installer\' + $matches[1]
+    } elseif ($hive -cin @('HKEY_LOCAL_MACHINE', 'HKEY_CURRENT_USER', 'HKEY_USERS') -and
+        $(if ($hive -ceq 'HKEY_LOCAL_MACHINE') { $machine } else { $relative }) -match '^(?i)Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall(\\\{[0-9A-F-]{36}\})?$') {
+        $owner = 'windows-installer'; $area = 'Uninstall (Programs and Features)' + $(if ($matches[1]) { '\<product-code>' } else { '' })
+    } elseif ($hive -ceq 'UNKNOWN') {
+        $owner = 'windows-installer'; $area = 'Installer root not yet resolved (UNKNOWN)'
+    }
+    $shown = @($hive) + @($rest | Select-Object -First 2 | ForEach-Object { if ($_ -match $sid) { '<sid>' } else { $_ } })
+    return [pscustomobject]@{ Owner = $owner; Area = $area; Key = ($shown -join '\') }
+}
+function Get-MsiRegistryFailures {
+    param([string]$Text, [string]$FixtureRegistryRoot)
+    # A verbose log notes each registry failure as `Note: 1: <message> 2: <key> 3: <Win32 code>`:
+    # 1401 create key, 1402 open key, 1403 delete value, 1404 delete key, 1406 write value.
+    # Code 2 (not found) is Windows Installer's routine probing and is not a failure.
+    $groups = [ordered]@{}
+    foreach ($match in [regex]::Matches($Text, '(?m)Note: 1: (?<message>140[0-9]) 2: (?<key>[^\r\n]*?) 3: (?<code>[0-9]+)[ \t]*\r?$')) {
+        $code = [int]$match.Groups['code'].Value
+        if ($code -eq 2) { continue }
+        $entry = ConvertTo-SanitizedRegistryKey -Key $match.Groups['key'].Value -FixtureRegistryRoot $FixtureRegistryRoot
+        $id = $match.Groups['message'].Value + '|' + $code + '|' + $entry.Owner + '|' + $entry.Area + '|' + $entry.Key
+        if (-not $groups.Contains($id)) {
+            $groups[$id] = [pscustomobject]@{ Message = [int]$match.Groups['message'].Value; Win32Error = $code
+                Owner = $entry.Owner; Area = $entry.Area; Key = $entry.Key; Occurrences = 0 }
+        }
+        $groups[$id].Occurrences++
+    }
+    return [pscustomobject]@{
+        RollbackErrorsSkipped = [regex]::Matches($Text, 'Error in rollback skipped\.').Count
+        Owners = @($groups.Values | ForEach-Object { $_.Owner } | Sort-Object -Unique)
+        Failures = @($groups.Values)
+    }
+}
+function Get-RollbackRegistryEvidence {
+    # Read after the run, whatever its result: the failed rollback-v2 is the case it exists for
+    # (N-measure-offline-01). An extraction problem is reported, never thrown over the primary.
+    $found = New-Object 'Collections.Generic.List[object]'
+    foreach ($family in $manifest.Families) {
+        try {
+            $log = Fixture-Path ($family.Name + '\rollback-v2.log')
+            if (-not [IO.File]::Exists($log)) { continue }
+            $extracted = Get-MsiRegistryFailures -Text (Read-Utf8 $log) -FixtureRegistryRoot $family.RegistryRoot
+            $found.Add([pscustomobject]@{ Family = $family.Name; Log = $family.Name + '\rollback-v2.log'
+                RollbackErrorsSkipped = $extracted.RollbackErrorsSkipped; Owners = $extracted.Owners; Failures = $extracted.Failures })
+        } catch {
+            $found.Add([pscustomobject]@{ Family = $family.Name; ExtractionFailed = $_.Exception.Message })
+        }
+    }
+    # Unrolled on purpose: the report wraps this in @(), and a comma here nested the list.
+    return $found.ToArray()
+}
 function Assert-FixtureConfinement {
     param($Family)
     $defaults = Fixture-Defaults $Family
@@ -718,6 +794,7 @@ $report = [ordered]@{
     RecoveryManifest = $(if ($script:installerState.Uncertain) { $manifestFile } else { $null })
     UnprovenChecks = @($script:unprovenChecks.ToArray())
     CloudPlaceholderWalks = @($script:cloudPlaceholderWalks.ToArray())
+    RollbackRegistryFailures = @(Get-RollbackRegistryEvidence)
 }
 Write-Utf8 -Path (Join-Path $fixtureRoot 'lifecycle-result.json') -Text ($report | ConvertTo-Json -Depth 5)
 if ($null -ne $primary) { throw $primary }
