@@ -6614,6 +6614,59 @@ was down needs its MCP server reconnected (Claude Code: /mcp) or a restart. Keep
 companion restart would change the supervisor's ownership model (a worker outliving its parent is what the parent-PID
 watch prevents) and stays a backlog option.
 
+#### feature/broker-161
+
+AgentBroker 1.6.1, the 2026-10-29 evening campaign's follow-up broker lane.
+
+**A Codex row whose engine check could not complete keeps Receive alone, for five minutes (N-broker-next-02).** Listed
+without capabilities, such a row made `BrokerStore.BeginDelivery` refuse its Accepted messages `recipient_cannot_receive`:
+a final refusal for the transience 1.6.0 defers in `SubmitAsync`. `CodexNativeAdapter.DiscoverAsync` now lists it with
+`Receive` and nothing else, only when the provider's verdict for that binding is `VerificationUnavailable` (delivery on,
+the owner advertising the native capability, no mismatch or publisher refusal found). `Ready` needs `WakeIdle`, so the
+store neither claims nor refuses: the message waits, and the first pass that completes the check restores the full
+capabilities and the message is claimed. Nothing unverified is advertised (no wake, no idle guard) and every delivery
+still runs the fresh checks. The wait is bounded because a waiting message holds its sender's later messages to that row
+behind it (the per-pair order), so an engine that can never be read would hold them for the message lifetime:
+`CodexNativeAdapter.VerificationPendingBound`, five minutes of unbroken incomplete checks for that address, after which the
+row is listed without capabilities and its queue refuses as 1.6.0 did. A pass that skipped the row keeps its start time,
+so a skip never restarts the bound. Five minutes is a judgement, not a measurement: ten 30-second leases, long enough for
+a disk-load stall of the kind seen on 2026-10-29, short enough that a sender learns of a check that never completes well
+inside a working session. Refused: keeping the earlier pass's verified capabilities (it would advertise a wake nobody
+verified this pass, and the row would be claimed every five seconds, two state writes each, only for `SubmitAsync` to
+defer it); and a new capability flag for the state (`SessionCapabilities` travels to paired brokers as a number). Because a
+generic mailbox is the other row with `Receive` and no `WakeIdle`, `send`'s mailbox advisory now also requires the row's
+adapter to be `mcp`.
+
+**A waiting message's receipt names the wait, derived when it is read (N-broker-next-01).** `BeginDelivery` skips a
+message whose native recipient is not `Ready` without touching it, so a message to a busy Claude session, or to a Codex
+chat whose directory reports it busy, waited Accepted with no reason. Only a Codex chat of Unknown activity (its native
+idle guard makes it Ready) was claimed and came back `native_context_busy`, which is the live receipt of 2026-10-29.
+`BrokerStore.FindReceipt` (so `get_message_receipt` and `wait_for_receipt`) now fills the reason of an Accepted message
+that was never attempted from the recipient's present state: `recipient_busy`, `recipient_awaiting_approval`,
+`recipient_interrupted`, `recipient_activity_unknown`, `recipient_wake_unavailable` (Receive without WakeIdle, the pending
+Codex row above), or `recipient_unavailable` (its row lapsed or is gone). It is never stored: a delivery pass makes no
+state write for it, it cannot go stale, nothing is claimed and the pick order is untouched. A message that was tried keeps
+its deferral's own reason, and a present generic mailbox's receipt is unchanged (Accepted there already means unread, which
+`send`'s advisory says). Not done: when the recipient was last Ready. The store does not track it, and carrying it would
+need a field in the receipt, which is the journal's and the paired brokers' format; `UpdatedAt` still says when the message
+was accepted or last deferred.
+
+**A reconnect no longer costs every pass after it (N-broker-next-03).** Reproduced offline before any change
+(`CODEX_RECONNECT_KEPT`, `RuntimeLifecycleChecks.cs`): the real `CodexNativeProvider` with a connect that takes longer than
+the pass deadline and ignores cancellation, as the router verification does, then honours the token it was given, as the
+initialize request after it does. Scaled down (400 ms pass deadline, 700 ms reconnect), 1.6.0 renewed the row on 0 of 4
+passes and connected 4 times; with the change, 3 of 4 and once. The count is deterministic for the fake; no production
+timing is claimed. The cause: the reconnect ran on the pass token, so one that outlasted the deadline failed at its
+initialize request and was thrown away, and the next pass paid for it again; while a reconnect cost more than a pass, no
+pass renewed a row. `ResolveOwnerAsync` now connects on its own budget (`OwnerReconnectBudget`, 30 s; the library's own
+five-second timeouts still bound the pipe connect and the initialize request, and the verification between them takes no
+token, as before), and keeps a connection no request has failed on when the pass ran out meanwhile. A lookup that fails
+still discards its connection (the library closed its protocol), so with a conversation whose lookup times out on every
+pass and a reconnect longer than the pass, the other rows are renewed on every other pass rather than never. No
+verification is skipped or reused: every new connection is verified in full. Cost: a pass that is reconnecting at shutdown
+now finishes the reconnect (bounded by those timeouts and the verification) instead of having its pipe connect or
+initialize request cancelled.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of
