@@ -2336,10 +2336,10 @@
       "id": "remembrance",
       "name": "Remembrance",
       "desc": "Records a meeting (your microphone + the system output over WASAPI loopback), transcribes it offline with a local Whisper, names it from your calendar (via the Reminder module) or a timestamp, snapshots the screen on a hotkey, and purges the audio + snapshots after 72 hours while keeping the transcript. An AI summary can be written beside the transcript by a local model or, if you choose one, by a cloud provider (OpenAI, OpenRouter or any OpenAI-compatible server), Claude Code or Codex (with a model and effort you can choose for each), which sends the transcript's text (never the audio) to that provider. Needs a local Whisper (whisper-cli + a model) set up in options, and the machine's own console - a Remote Desktop session presents no real microphone.",
-      "version": "2.8.0",
+      "version": "2.9.0",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/remembrance.zip",
-      "sha256": "ca4bf29725693ebc3b93d2e61f7dbe6acf6cfc8cdb4f62fed51257bf88e04768",
-      "bytes": 7362443,
+      "sha256": "362aeaa4131ae8ec119fb4165db8a83d8fcb4b29a1f48fc6f20af458e56a4db0",
+      "bytes": 7363052,
       "permissions": "Speech, Microphone, SystemAudio, ScreenContext, Hotkey, Storage, Network, LaunchProcess, MicrophoneUsage",
       "minHostVersion": "1.7.0"
     },
