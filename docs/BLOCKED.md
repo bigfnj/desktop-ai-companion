@@ -255,6 +255,8 @@ The entry as it stood:
 
 **Blocker: needs the owner or the organisation's Codex admin.**
 
+**Re-measured 2026-10-29, later the same evening: on this workstation the allowlist did not block it.** The cached managed configuration does carry a deny-by-default MCP allowlist that does not name `desktop-ai-companion-agentbroker`, yet a Codex chat in VS Code connected to the broker as soon as the companion had restarted; its earlier `unknown MCP server` was N-agentbroker-client-reconnect-01 (the chat started while the broker was down). Before asking the admin, re-check the 2026-10-27 observation, which was made with `codex exec`, on the client that matters.
+
 What clears it: Ask the admin whether the managed requirements still deny MCP servers by default (by name and identity); if so, request an entry for `desktop-ai-companion-agentbroker` with its exact identity (`http://127.0.0.1:7432/mcp`, or the stdio worker command).
 
 The entry as it stood:
