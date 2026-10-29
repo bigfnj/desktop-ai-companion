@@ -1067,8 +1067,10 @@ namespace DesktopAICompanion.Modules
         //
         // This event is therefore for the OTHER kind of reader -- one that must do something the moment the
         // fact changes rather than the moment it is used -- including out-of-tree modules, which is why it
-        // stays on the ABI with no consumer in this repo. ModuleKit.Testing.RecordingHost raises it exactly as
-        // the host does, so a subscriber can be unit-tested against the shipped double.
+        // stays on the ABI with no consumer in this repo. ModuleKit.Testing.RecordingHost raises it inline on the
+        // caller's thread, which is what the host does for a publish made on the UI thread; a publish from a worker
+        // thread is posted to the UI thread here and raised at once on the worker there (N-host-runtime-02), so a
+        // subscriber can be unit-tested against the shipped double for UI-thread publishes only.
         event Action<string> ContextChanged;
 
         // ---- contributions (register in Init) ----

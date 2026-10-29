@@ -270,6 +270,13 @@ Reference [`src/DesktopAICompanion.ModuleKit`](../src/DesktopAICompanion.ModuleK
 | `SelfTestProbe` | The PASS/FAIL/RESULT report shape the gate parses. |
 | `Testing.RecordingHost` + fakes | Driving your module in a self-test with no window, companion or network. |
 
+`RecordingHost.PublishContext` raises `ContextChanged` synchronously, on the thread that called it. That matches the host
+for a publish made on the UI thread, which the host raises inline before `PublishContext` returns. It does NOT match a
+publish made from a worker thread: the host posts that raise to the UI thread, so the subscriber runs later and on the UI
+thread, while the double runs it at once on the worker. A test of a subscriber that touches UI state, or of a publisher
+that publishes off the UI thread, therefore sees an ordering and a thread the shipped host never gives it: marshal in the
+test, or assert the thread you rely on yourself.
+
 Two things go in your **data directory** (`ModulePaths`), never beside the exe: anything durable, because a
 per-user install directory is read-only-ish and a module *update* replaces the install folder while
 deliberately preserving the data directory.

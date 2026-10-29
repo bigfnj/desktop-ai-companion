@@ -6513,6 +6513,14 @@ Refused: WS_EX_NOACTIVATE, whose effect on a programmatic SetWindowPos is not do
 not observe activation itself, because proving such a check can fail would mean activating a window on the machine
 running it; it asserts the flags and the absence of Form.TopMost, and a source invariant keeps the setter out.
 
+**RecordingHost keeps raising ContextChanged inline (N-host-runtime-02).** The double raises on the caller's thread,
+which matches the host for a UI-thread publish and not for a worker-thread one; the limit is now written in
+`docs/module-authoring.md` (beside RecordingHost) and in the contract's comment, which had said the double raises it
+"exactly as the host does". Refused: an injectable dispatcher. No module test publishes from a worker thread, and any
+change under ModuleKit, even a comment, changes ModuleKit.dll (its symbols are embedded) and makes every module's
+published payload stale, so the same note on the double's own doc comment (lane commit 1ea3bc2) waits for the next
+ModuleKit change that republishes the modules anyway.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of
