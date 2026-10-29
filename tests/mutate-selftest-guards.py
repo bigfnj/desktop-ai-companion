@@ -15701,13 +15701,16 @@ def score(plan):
             # fresh module from the mutated template and asserts the DLL exists; there is no artefact here
             # whose timestamp could stand for that.
             before = os.path.getmtime(artifact) if artifact is not None else None
-            write(path, base.replace(old_v, new_v))
-            time.sleep(1.1)
             report = None
             code = None
             verdict = None
             leak = None
+            # The mutant is written INSIDE the try, and the pause after it too (lane feature/modules-fixes, from a review
+            # on 2026-10-29): both sat before it, so a Ctrl+C during the 1.1 s pause skipped the restore, and the outer
+            # finally then rebuilt the clean tree from the mutated source.
             try:
+                write(path, base.replace(old_v, new_v))
+                time.sleep(1.1)
                 if csproj is None:
                     report, code, leak = watched_selftest(flag, marker)
                 else:
