@@ -19,6 +19,83 @@ internal static class CodexTrustPolicyChecks
         await AdmissionOutcomesAsync(check);
         await BusyAndReconnectAsync(check);
         await ProviderCannotLendExactTrustAsync(check);
+        await TransientVerificationAsync(check);
+    }
+
+    // N-agentbroker-refusal-transience-01, half 2. Live case 2026-10-29 10:22: a send to a busy Codex chat under heavy
+    // disk load was Refused unsupported_capability, decided before any turn frame. A broker-side check that could not
+    // complete is transient and defers (or recovers on the fresh owner lookup); an owner that does not advertise the
+    // native capability, and a verified mismatch, stay refused.
+    private static async Task TransientVerificationAsync(Action<bool, string> check)
+    {
+        foreach (bool tolerant in new[] { true, false })
+        {
+            string mode = tolerant ? "update-tolerant" : "strict";
+            var trust = tolerant ? DesktopRouterTrust.PublisherSigned : DesktopRouterTrust.ExactPinned;
+            // The engine check cannot complete (IO) at discovery and at submission.
+            bool ioFailure = true;
+            var owner = new Owner(trust);
+            var provider = Provider(owner, updateTolerant: tolerant, verify: () => { if (ioFailure) throw new IOException("Synthetic engine read failure."); });
+            await using (var adapter = new CodexNativeAdapter(provider, enableDelivery: true, updateTolerantDelivery: tolerant))
+            {
+                var row = (await adapter.DiscoverAsync(Guid.NewGuid(), default)).Single();
+                var deferred = await adapter.SubmitAsync(Message(row), default);
+                check(provider.Authorize(owner.Binding) == CodexDeliveryAuthority.VerificationUnavailable &&
+                    deferred is { Outcome: AdapterAdmission.DeferredNotSubmitted, Reason: "native_verification_unavailable" } && owner.Submissions == 0,
+                    File + "TRANSIENT_VERIFY_DEFERS: an engine check that cannot complete defers with its own reason, never a final refusal (" + mode + ", " + deferred.Reason + ")");
+                ioFailure = false;
+                var recovered = (await adapter.DiscoverAsync(Guid.NewGuid(), default)).Single();
+                var submitted = await adapter.SubmitAsync(Message(recovered), default);
+                check(submitted.Outcome == AdapterAdmission.Submitted && owner.Submissions == 1,
+                    File + "TRANSIENT_VERIFY_DEFERS WITNESS: once the check completes the same chat is submitted (" + mode + ")");
+                // Discovery verified, then the fresh check at submission cannot complete: nothing is written, it defers.
+                ioFailure = true;
+                var atSubmit = await adapter.SubmitAsync(Message(recovered), default);
+                check(atSubmit is { Outcome: AdapterAdmission.DeferredNotSubmitted, Reason: "native_verification_unavailable" } && owner.Submissions == 1,
+                    File + "TRANSIENT_VERIFY_AT_SUBMIT_DEFERS: the fresh check at submission failing with IO defers (" + mode + ", " + atSubmit.Reason + ")");
+                ioFailure = false;
+            }
+
+            // The owner connection was discarded by a failed lookup: the message reconnects and is submitted.
+            var dropped = new Owner(trust);
+            var connected = Provider(dropped, updateTolerant: tolerant);
+            await using (var adapter = new CodexNativeAdapter(connected, enableDelivery: true, updateTolerantDelivery: tolerant))
+            {
+                var row = (await adapter.DiscoverAsync(Guid.NewGuid(), default)).Single();
+                dropped.DiscoverFailure = new IOException("Synthetic owner lookup failure.");
+                await adapter.DiscoverAsync(Guid.NewGuid(), default);
+                dropped.DiscoverFailure = null;
+                bool pendingBefore = connected.VerificationPending;
+                var reconnected = await adapter.SubmitAsync(Message(row), default);
+                check(pendingBefore && reconnected.Outcome == AdapterAdmission.Submitted && dropped.Submissions == 1,
+                    File + "TRANSIENT_OWNER_CONNECTION_RECOVERS: a message arriving while the owner connection is down reconnects and is submitted (" + mode + ", " + reconnected.Reason + ")");
+            }
+        }
+
+        // Verdicts stay refused: an owner without the native capability, with the engine check unable to complete too.
+        bool failing = true;
+        var noCapability = new Owner(DesktopRouterTrust.PublisherSigned, capability: false);
+        var refusing = Provider(noCapability, updateTolerant: true, verify: () => { if (failing) throw new IOException("Synthetic engine read failure."); });
+        await using (var adapter = new CodexNativeAdapter(refusing, enableDelivery: true, updateTolerantDelivery: true))
+        {
+            var row = (await adapter.DiscoverAsync(Guid.NewGuid(), default)).Single();
+            var refused = await adapter.SubmitAsync(Message(row), default);
+            check(refused is { Outcome: AdapterAdmission.Refused, Reason: "unsupported_capability" } && noCapability.Submissions == 0,
+                File + "TRANSIENT_VERIFY_CAPABILITY_REFUSES: an owner that does not advertise the native capability stays refused (" + refused.Reason + ")");
+        }
+        // A verified mismatch at submission is a verdict: refused, as before.
+        bool mismatch = false;
+        var verdictOwner = new Owner(DesktopRouterTrust.ExactPinned);
+        var verdict = Provider(verdictOwner, updateTolerant: false,
+            verify: () => { if (mismatch) throw new DesktopAdapterException("running_vscode_image_mismatch"); });
+        await using (var adapter = new CodexNativeAdapter(verdict, enableDelivery: true))
+        {
+            var row = (await adapter.DiscoverAsync(Guid.NewGuid(), default)).Single();
+            mismatch = true;
+            var refused = await adapter.SubmitAsync(Message(row), default);
+            check(refused is { Outcome: AdapterAdmission.Refused, Reason: "native_admission_refused" } && verdictOwner.Submissions == 0,
+                File + "TRANSIENT_VERIFY_VERDICT_REFUSES WITNESS: a verified mismatch at submission stays refused (" + refused.Reason + ")");
+        }
     }
 
     private static async Task StrictObservationAsync(Action<bool, string> check)
@@ -247,9 +324,12 @@ internal static class CodexTrustPolicyChecks
         internal int Submissions, Discoveries;
         internal Guid LastMessageId;
         public bool NativeIdleGuard => true;
+        // A lookup failure makes the provider discard this owner connection, as the adapter library's closed protocol does.
+        internal Exception? DiscoverFailure { get; set; }
         public Task<DesktopOwnerBinding?> DiscoverAsync(Guid conversationId, CancellationToken token)
         {
             Discoveries++;
+            if (DiscoverFailure is { } failure) return Task.FromException<DesktopOwnerBinding?>(failure);
             return Task.FromResult<DesktopOwnerBinding?>(conversationId == thread ? Binding with { SupportsUntrustedAppInput = Capability } : null);
         }
         public Task<DesktopSubmissionResult> SubmitAsync(DesktopOwnerBinding binding, Guid messageId, string text, CancellationToken token)

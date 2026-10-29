@@ -6522,6 +6522,32 @@ are registered when a pass ends, so a longer pass delays every row it resolved);
 cancelled lookup (the adapter library closes the protocol on any failed request, because a late answer would be read as
 the next request's, `DesktopAdapter.RequestAsync`), so the next lookup still reconnects.
 
+**A Codex check the broker could not complete defers; a verdict still refuses (N-agentbroker-refusal-transience-01, half
+2).** On 2026-10-29 at 10:22, under heavy disk load, a send to a live, busy Codex chat was Refused 17 seconds later with
+`unsupported_capability`, decided before any turn frame; a busy chat should defer. Two broker-side states made the
+provider answer `UnsupportedCapability` (or, in strict mode, `native_delivery_disabled` and
+`native_client_profile_unverified`) for an owner that does advertise the native capability: the engine check failing
+with an IO or access error, and the owner connection being down after a failed lookup (`NativeIdleGuard` reads the live
+connection), which is what the slow lookups of N-agentbroker-native-flicker-01 leave behind. Neither says anything
+about the client. `CodexDeliveryAuthority.VerificationUnavailable` names that state; the adapter lets such a message go
+on to the fresh owner lookup, which reconnects, and then submits or defers with `native_verification_unavailable`; the
+provider's own fresh check at submission that cannot complete defers with the same reason. Verdicts stay refused: an
+owner that does not advertise `supportsUntrustedAppInput` (`unsupported_capability`), a verified profile mismatch, a
+publisher refusal. Not changed here: a discovery pass whose engine check could not complete still lists the row without
+capabilities, and `BrokerStore.BeginDelivery` refuses an Accepted message to such a row as `recipient_cannot_receive`
+(filed as N-broker-next-02).
+
+**Half 1 (`no-client-found` after the start-turn frame) stays a final refusal for now.** A read-only audit of the
+INSTALLED router builds (Codex VS Code extension 26.1021.22027 `out/extension.js`, the desktop app 26.1023.6123.0
+`app.asar`) found one producer of `no-client-found` for a targeted request: the router's `findClientForRequest` catch,
+reached when the target is unknown or its `client-discovery-request` probe answers `canHandle:false`, disconnects or times
+out, all before any `request` frame is forwarded; after a forward, failures answer `client-disconnected` or
+`request-timeout` instead. The probe does carry the whole request, turn input included, to the target, which only reads
+its role from it. That would make the answer provably unsubmitted, but none of the PINNED builds (extension 26.1007.21434,
+Code 1.143.x, desktop 26.1016.x) is installed on this workstation to confirm it, and delivery trust follows the pinned
+build, so `DesktopAdapter.cs` keeps the refusal. Next step: read the same router function in a pinned image; if it
+matches, defer it on the external-peer path as the discovery miss already does.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

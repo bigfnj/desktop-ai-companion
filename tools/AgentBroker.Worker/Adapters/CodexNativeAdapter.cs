@@ -7,13 +7,18 @@ namespace AgentBroker.Worker.Adapters;
 /// <summary>
 /// The provider's delivery verdict for one owner binding. <see cref="ObservationOnly"/> is a publisher-signed
 /// build under strict pins; <see cref="UnsupportedCapability"/> is the opt-in update-tolerant policy finding an
-/// unmet publisher, protocol or capability check. Only the two admitting values permit model input.
+/// unmet publisher, protocol or capability check. <see cref="VerificationUnavailable"/> is the broker's own check that
+/// could not complete for a binding that would otherwise qualify (N-agentbroker-refusal-transience-01): a transient state,
+/// decided before any turn frame, that defers instead of refusing. Only the two admitting values permit model input.
 /// </summary>
-public enum CodexDeliveryAuthority { None, ExactPinned, UpdateTolerant, ObservationOnly, UnsupportedCapability }
+public enum CodexDeliveryAuthority { None, ExactPinned, UpdateTolerant, ObservationOnly, UnsupportedCapability, VerificationUnavailable }
 
 public interface ICodexNativeProvider : IAsyncDisposable
 {
     bool NativeIdleGuard { get; }
+    // True while the broker's own checks could not complete (an engine check failed with an IO or access error, or the
+    // owner connection is down after a failed lookup): NativeIdleGuard is false for a reason a retry can clear.
+    bool VerificationPending => false;
     IReadOnlyList<AdapterDiscoveryDiagnostic> DiscoveryDiagnostics => Array.Empty<AdapterDiscoveryDiagnostic>();
     bool IsDeliveryAuthorized(DesktopOwnerBinding binding) => NativeIdleGuard;
     // A provider without the update-tolerant policy can only ever report the reviewed exact path.
@@ -129,22 +134,31 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
         try
         {
             ObjectDisposedException.ThrowIf(disposed, this);
-            // Under update tolerance an unmet guard reaches the binding check below and refuses with its reason.
-            if (!enableDelivery || !provider.NativeIdleGuard && !updateTolerant) return new(AdapterAdmission.Refused, "native_delivery_disabled");
+            // Under update tolerance an unmet guard reaches the binding check below and refuses with its reason. A guard that
+            // is down only because the broker's own check could not complete reaches the owner lookup below instead, which
+            // reconnects, and then either submits or defers (N-agentbroker-refusal-transience-01).
+            if (!enableDelivery || !provider.NativeIdleGuard && !updateTolerant && !provider.VerificationPending)
+                return new(AdapterAdmission.Refused, "native_delivery_disabled");
             string formatted = PeerMessageFormatter.Format(message, sender);
             if (Encoding.UTF8.GetByteCount(formatted) > 32 * 1024) return new(AdapterAdmission.Refused, "native_message_too_large");
             if (!bindings.TryGetValue(message.Recipient, out var previous)) return Deferred("native_session_unavailable");
             // A publisher signature permits observation only. Refuse before owner rediscovery, transport or model input.
             if (previous.RouterTrust != DesktopRouterTrust.ExactPinned && !updateTolerant)
                 return new(AdapterAdmission.Refused, "codex_observation_only");
-            // The opt-in policy refuses an unmet publisher, protocol or capability check just as early.
-            if (updateTolerant && Refusal(previous) is { } unmet) return new(AdapterAdmission.Refused, unmet);
+            // The opt-in policy refuses an unmet publisher, protocol or capability check just as early. A check the broker
+            // could not complete is not a verdict: it goes on to the fresh owner lookup, which reconnects a dropped owner
+            // connection, and is judged there. Live case 2026-10-29 10:22: a busy chat was refused unsupported_capability
+            // this way, under heavy disk load, where native_context_busy would have deferred it.
+            if (updateTolerant && !Pending(previous) && Refusal(previous) is { } unmet) return new(AdapterAdmission.Refused, unmet);
             DesktopOwnerBinding? current;
             try { current = await provider.ResolveOwnerAsync(previous.ConversationId, token); }
             catch (Exception ex) when (ex is DesktopAdapterException or IOException or OperationCanceledException)
             { return Deferred("native_owner_unavailable"); } // No model-input method has been called.
             if (!ValidBinding(current, previous.ConversationId) || current!.NativeSessionIncarnation != message.Recipient.Incarnation)
                 return Deferred("native_owner_changed");
+            // Still unable to complete its own check: no model-input method has been called, so this defers with its own
+            // reason. An owner that does not advertise the native capability is a verdict and stays refused.
+            if (!provider.IsDeliveryAuthorized(current) && Pending(current)) return Deferred("native_verification_unavailable");
             if (!provider.IsDeliveryAuthorized(current))
                 return new(AdapterAdmission.Refused, updateTolerant ? Refusal(current) ?? "unsupported_capability" : "native_client_profile_unverified");
             if (Refusal(current) is { } changed) return new(AdapterAdmission.Refused, changed);
@@ -156,7 +170,13 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
                 return result.Outcome switch
                 {
                     DesktopSubmissionOutcome.Accepted => new(AdapterAdmission.Submitted, "native_admission_unconfirmed"),
-                    DesktopSubmissionOutcome.DeferredNotSubmitted => Deferred(result.ErrorCode == "owner_unavailable" ? "native_owner_unavailable" : "native_context_busy"),
+                    DesktopSubmissionOutcome.DeferredNotSubmitted => Deferred(result.ErrorCode switch
+                    {
+                        "owner_unavailable" => "native_owner_unavailable",
+                        // The provider's fresh engine check at submission could not complete; nothing was written.
+                        "native_verification_unavailable" => "native_verification_unavailable",
+                        _ => "native_context_busy",
+                    }),
                     DesktopSubmissionOutcome.Rejected => new(AdapterAdmission.Refused, "native_admission_refused"),
                     _ => new(AdapterAdmission.Uncertain, UncertainReason(result.ErrorCode)),
                 };
@@ -179,6 +199,8 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
         "connection_io_unconfirmed" => "native_uncertain_connection",
         _ => "native_submission_uncertain",
     };
+
+    private bool Pending(DesktopOwnerBinding binding) => provider.Authorize(binding) == CodexDeliveryAuthority.VerificationUnavailable;
 
     // A publisher-signed owner stays observable without the native capability; an exact one never lacks it.
     private static bool ValidBinding(DesktopOwnerBinding? binding, Guid thread) => binding is not null && binding.ConversationId == thread &&
