@@ -15,7 +15,8 @@
 
     -Range scans the commits of a revision range instead of the index: every added line of
     every commit (so a value added and later removed is still found), each commit message,
-    and the author and committer lines.
+    and the author and committer lines. A merge is diffed against its first parent, so a line
+    written while resolving a conflict, and a path only the merge adds, are read too.
 .EXAMPLE
     pwsh -NoProfile -File tests/Test-PublicCommitPrivacy.ps1
 .EXAMPLE
@@ -130,14 +131,21 @@ function Get-RangePrivacyFindings([string]$Range, [string[]]$Needles, [string]$R
         throw 'The range must be a plain revision range such as origin/master..HEAD.'
     }
     # Names first: a protected path anywhere in the range refuses before any content is read.
-    $names = Invoke-IndexedGit @('log', '--no-color', '--format=', '--name-only', '-z', '--end-of-options', $Range, '--') $Repository
+    # Both log calls name a merge format (N-audit-20261029-14): with none, git log prints NO names and
+    # NO diff for a merge commit, so a line written only while resolving a conflict, or a path a merge
+    # alone adds, was never read. --diff-merges=first-parent diffs a merge against the branch it was
+    # made on, which keeps the plain "diff --git" / "+++ b/" shape the parser below reads; -m would too
+    # but repeats the merge once per parent, and --cc prints a combined format the parser cannot read.
+    # The price is a superset, never a gap: a merge repeats the lines its side branch brought in, so
+    # a value on that branch is reported at its own commit AND at the merge.
+    $names = Invoke-IndexedGit @('log', '--no-color', '--diff-merges=first-parent', '--format=', '--name-only', '-z', '--end-of-options', $Range, '--') $Repository
     if ($names.ExitCode -ne 0) { throw 'Could not list the paths the range changes. No commit contents were scanned.' }
     $protected = @($names.Output.Split([char]0, [StringSplitOptions]::RemoveEmptyEntries) | ForEach-Object { $_.Trim("`n") } |
         Where-Object { $_.Length -gt 0 -and (Get-ProtectedPattern $_) } | Sort-Object -Unique |
         ForEach-Object { [pscustomobject]@{ Path = $_; Pattern = (Get-ProtectedPattern $_) } })
     $findings = New-Object 'Collections.Generic.List[object]'
     if ($protected.Count -gt 0) { return [pscustomobject]@{ Protected = $protected; Findings = @(); Commits = 0 } }
-    $log = Invoke-IndexedGit @('log', '--no-color', '--no-ext-diff', '--no-textconv', '-p',
+    $log = Invoke-IndexedGit @('log', '--no-color', '--no-ext-diff', '--no-textconv', '-p', '--diff-merges=first-parent',
         '--format=%x00%x01%H%n%an <%ae>%n%cn <%ce>%n%B%x00%x02', '--end-of-options', $Range, '--') $Repository -Lenient
     if ($log.ExitCode -ne 0) { throw 'Could not read the range. No findings were printed.' }
     $commits = 0
@@ -263,10 +271,45 @@ if ($SelfTest) {
             throw ('Public privacy range self-test failed: a protected path in the range was not refused before reading (' + $protectedCommit + ').')
         }
         $count++
+        # Merges (N-audit-20261029-14): a conflict resolved with a line new to BOTH parents, and a path
+        # only a merge adds. With no merge format git log prints neither, so both used to pass unread.
+        $identity = @('-c', 'user.name=Synthetic Author', '-c', 'user.email=synthetic@example.invalid')
+        [void](Commit 'shared line' 'add the merge file' 'Synthetic Author' 'merge.txt')
+        $mergeBase = Step @('rev-parse', 'HEAD')
+        $trunk = Step @('symbolic-ref', '--short', 'HEAD')
+        [void](Step @('checkout', '-q', '-b', 'side'))
+        [void](Commit 'side wording' 'side edit' 'Synthetic Author' 'merge.txt')
+        [void](Step @('checkout', '-q', $trunk))
+        [void](Commit 'trunk wording' 'trunk edit' 'Synthetic Author' 'merge.txt')
+        $conflict = Invoke-IndexedGit ($identity + @('merge', '-q', '--no-ff', '--no-edit', 'side')) $synthetic
+        if ($conflict.ExitCode -eq 0) { throw 'Synthetic repository step failed: the side branch merged without the conflict the merge case needs.' }
+        [IO.File]::WriteAllText((Join-Path $synthetic 'merge.txt'), "shared line`ntrunk wording`nside wording`nresolved for Contoso`n")
+        [void](Step @('add', '--', 'merge.txt'))
+        [void](Step ($identity + @('commit', '-q', '-m', 'merge the side branch')))
+        $resolution = (Step @('rev-parse', 'HEAD')).Substring(0, 12)
+        $merged = Get-RangePrivacyFindings ($mergeBase + '..HEAD') $needles $synthetic
+        $mergeSeen = @($merged.Findings | ForEach-Object { $_.Commit + ' ' + $_.Kind + ' ' + $_.Path + ' ' + $_.Count }) -join '|'
+        if ($merged.Commits -ne 3 -or $mergeSeen -cne ($resolution + ' added-line merge.txt 1')) {
+            throw 'Public privacy range self-test failed: a line written only in a merge conflict resolution was not reported at the merge.'
+        }
+        $count++
+        [void](Step @('checkout', '-q', '-b', 'side-two'))
+        [void](Commit 'side two wording' 'side two edit' 'Synthetic Author' 'merge.txt')
+        [void](Step @('checkout', '-q', $trunk))
+        [void](Step ($identity + @('merge', '-q', '--no-ff', '--no-commit', 'side-two')))
+        [IO.File]::WriteAllText((Join-Path $synthetic 'merge-only.pem'), "synthetic`n")
+        [void](Step @('add', '--', 'merge-only.pem'))
+        [void](Step ($identity + @('commit', '-q', '-m', 'merge the second side branch')))
+        $mergeRefused = Get-RangePrivacyFindings ($resolution + '..HEAD') $needles $synthetic
+        if (@($mergeRefused.Protected).Count -ne 1 -or $mergeRefused.Protected[0].Path -cne 'merge-only.pem' -or
+            $mergeRefused.Protected[0].Pattern -cne 'W05' -or $mergeRefused.Commits -ne 0) {
+            throw 'Public privacy range self-test failed: a protected path added only by a merge was not refused before reading.'
+        }
+        $count++
     } finally {
         if ([IO.Directory]::Exists($synthetic)) { Remove-Item -LiteralPath $synthetic -Recurse -Force }
     }
-    Write-Host "Public privacy self-test passed: $count cases (path policy, matchers, range mode on a synthetic repository, removed again)."
+    Write-Host "Public privacy self-test passed: $count cases (path policy, matchers, range mode with merges on a synthetic repository, removed again)."
     exit 0
 }
 
