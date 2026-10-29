@@ -374,18 +374,21 @@ namespace DesktopAICompanion.Plugins
 
         /// <summary>The marked ids, an empty list for no marker, or NULL for a marker that exists but could not
         /// be read (RA-297): the two used to be one answer, and only the caller can decide that an unreadable
-        /// marker means "do nothing this launch" rather than "nothing is pending".</summary>
+        /// marker means "do nothing this launch" rather than "nothing is pending". Absent is only what the open says is
+        /// absent, FileNotFound or DirectoryNotFound (N-codex-review-01, lane feature/followups2): File.Exists answered
+        /// false for a marker this account cannot probe, and a launch then swept a marked payload as abandoned. The
+        /// removal marker's ReadIds says more.</summary>
         private static List<string> ReadIds(string markerPath)
         {
-            try
-            {
-                if (!File.Exists(markerPath)) return new List<string>();
-                var result = new List<string>();
-                foreach (string line in File.ReadAllLines(markerPath))
-                    if (!string.IsNullOrWhiteSpace(line)) result.Add(line.Trim());
-                return result;
-            }
+            string[] lines;
+            try { lines = File.ReadAllLines(markerPath); }
+            catch (FileNotFoundException) { return new List<string>(); }
+            catch (DirectoryNotFoundException) { return new List<string>(); }
             catch { return null; }
+            var result = new List<string>();
+            foreach (string line in lines)
+                if (!string.IsNullOrWhiteSpace(line)) result.Add(line.Trim());
+            return result;
         }
     }
 }

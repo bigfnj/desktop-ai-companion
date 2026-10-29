@@ -15485,6 +15485,30 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--hardening-selftest", "dp-hardening-selftest.txt",
      "pet stand-down: leaving it clears the marker and never writes Form.TopMost"),
+
+    # ---- lane feature/followups2 ----
+    # Follow-ups of lanes followups and the Codex reviews. Names carry the "followups2:" prefix so `--only=followups2:` runs
+    # the lane. Every mutant keeps the build green under warnings-as-errors.
+
+    # N-codex-review-01: the removal marker is probed with File.Exists again before it is opened, so a marker this account
+    # cannot probe (a deny ACL on its folder, made and lifted by the check) reads as "nothing pending" and Unmark is quiet.
+    ("followups2: host: the removal marker is probed with File.Exists again",
+     PENDING_REMOVALS,
+     b"            try { lines = File.ReadAllLines(markerPath); }\n",
+     b"            if (!File.Exists(markerPath)) return new List<string>();\n"
+     b"            try { lines = File.ReadAllLines(markerPath); }\n",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "removal: Unmark of a removal marker this account cannot probe throws instead of answering that nothing is pending"),
+    # ...and the update marker's twin, so a launch sweeps a marked payload past the age limit as abandoned.
+    ("followups2: host: the update marker is probed with File.Exists again",
+     PENDING_UPDATES,
+     b"            try { lines = File.ReadAllLines(markerPath); }\n",
+     b"            if (!File.Exists(markerPath)) return new List<string>();\n"
+     b"            try { lines = File.ReadAllLines(markerPath); }\n",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "update: a launch whose update marker cannot be probed sweeps nothing, so a marked payload past the age limit survives"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

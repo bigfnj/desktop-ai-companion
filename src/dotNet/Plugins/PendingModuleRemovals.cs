@@ -244,18 +244,26 @@ namespace DesktopAICompanion.Plugins
 
         /// <summary>The marked ids, an empty list for no marker, or NULL for a marker that exists but could not
         /// be read (N-host-runtime-01, the shape PendingModuleUpdates took for RA-297): the two used to be one
-        /// answer, so a held marker was overwritten as if nothing had been pending.</summary>
+        /// answer, so a held marker was overwritten as if nothing had been pending.
+        ///
+        /// ABSENT IS ONLY WHAT THE OPEN SAYS IS ABSENT (N-codex-review-01, lane feature/followups2). This began with
+        /// File.Exists, which answers false for a marker it cannot probe as well as for one that is not there: a data
+        /// folder whose ACL refuses this account the marker's attributes made the marker read as "nothing pending", so
+        /// Unmark returned quietly over an uninstall it could not see and a launch said nothing. Now the file is opened
+        /// and only FileNotFound and DirectoryNotFound mean no marker; anything else (an UnauthorizedAccessException, a
+        /// sharing violation, a directory at the path) is unreadable, which every caller already fails closed on. The
+        /// update marker's ReadIds is the same code, for the same reason.</summary>
         private static List<string> ReadIds(string markerPath)
         {
-            try
-            {
-                if (!File.Exists(markerPath)) return new List<string>();
-                var result = new List<string>();
-                foreach (string line in File.ReadAllLines(markerPath))
-                    if (!string.IsNullOrWhiteSpace(line)) result.Add(line.Trim());
-                return result;
-            }
+            string[] lines;
+            try { lines = File.ReadAllLines(markerPath); }
+            catch (FileNotFoundException) { return new List<string>(); }
+            catch (DirectoryNotFoundException) { return new List<string>(); }
             catch { return null; }
+            var result = new List<string>();
+            foreach (string line in lines)
+                if (!string.IsNullOrWhiteSpace(line)) result.Add(line.Trim());
+            return result;
         }
 
         /// <summary>ReadIds, read again up to <see cref="PendingModuleUpdates.MarkerReReads"/> times while it answers
