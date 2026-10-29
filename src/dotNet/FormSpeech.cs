@@ -50,6 +50,36 @@ namespace DesktopAICompanion
         private const uint MONITOR_DEFAULTTONEAREST = 2;
         private const int  MDT_EFFECTIVE_DPI = 0;
 
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
+        internal static readonly IntPtr HwndTopMost = new IntPtr(-1);
+        internal static readonly IntPtr HwndNoTopMost = new IntPtr(-2);
+        internal const uint SwpNoSize = 0x0001;
+        internal const uint SwpNoMove = 0x0002;
+        internal const uint SwpNoActivate = 0x0010;
+        internal const int WsExTopMost = 0x00000008;
+
+        /// <summary>
+        /// THE BUBBLE'S Z-ORDER NEVER GOES THROUGH Form.TopMost (N-cli-model-effort-16). Every path WinForms runs
+        /// for a TopMost form can activate it: the setter calls SetWindowPos with SWP_NOMOVE | SWP_NOSIZE and no
+        /// SWP_NOACTIVATE, and has no already-set check; CreateHandle re-applies TopMost = true through that setter;
+        /// and SetVisibleCore focuses a TopMost form it shows (FocusActiveControlInternal ends in SetFocus), which
+        /// ShowWithoutActivation does not stop. While a pet was stood down every animation tick ran
+        /// SetFullscreenSuppressed(true), so the hidden bubble of a pet that had spoken once took activation from
+        /// the app's own tray menu and Settings dropdowns about every 150 ms. Now the window's own style carries
+        /// topmost at creation (CreateParams below), and a change is one SetWindowPos with SWP_NOACTIVATE, made only
+        /// when the policy changes, plus the raise ShowSpeech makes before a remark (RaiseForShow), which is what the
+        /// per-remark TopMost = true used to do. Refused: WS_EX_NOACTIVATE, whose effect on a programmatic
+        /// SetWindowPos is not documented; and keeping Form.TopMost beside this, which would put the setter back.
+        /// </summary>
+        private bool _fullscreenSuppressed;
+
+        /// <summary>--hardening-selftest's seam: when set, receives (window, insert-after, flags) instead of
+        /// SetWindowPos, so the check counts the z-order changes and reads their flags without moving a real
+        /// window. Null in production.</summary>
+        internal Func<IntPtr, IntPtr, uint, bool> ZOrderForSelfTest;
+
         protected override CreateParams CreateParams
         {
             get
@@ -57,6 +87,9 @@ namespace DesktopAICompanion
                 CreateParams cp = base.CreateParams;
                 cp.ExStyle |= 0x00000080; // WS_EX_TOOLWINDOW
                 // No WS_EX_LAYERED: shape comes from Form.Region, not colour-keying.
+                // Topmost by the window's own style, and only while no fullscreen window has the pet's monitor:
+                // a handle created (or re-created) mid-stand-down comes up below the game, never above it.
+                if (!_fullscreenSuppressed) cp.ExStyle |= WsExTopMost;
                 return cp;
             }
         }
@@ -78,7 +111,7 @@ namespace DesktopAICompanion
             // the clipping Region shows white (matching the bubble), not magenta.
             // The Region — not a TransparencyKey — defines the visible shape.
             BackColor       = Color.White;
-            TopMost         = true;
+            // Topmost comes from CreateParams and RaiseForShow, never from Form.TopMost (see _fullscreenSuppressed).
             ShowInTaskbar   = false;
             DoubleBuffered  = true;
             if (Program.ResourceChurnSelfTestActive)
@@ -200,6 +233,7 @@ namespace DesktopAICompanion
             _dismissTimer.Interval = Math.Max(1000, durationSeconds * 1000);
             _typeTimer.Start();
 
+            RaiseForShow();
             if (!Visible) Show();
             else          Invalidate();
         }
@@ -209,12 +243,40 @@ namespace DesktopAICompanion
 
         /// <summary>
         /// Keep the bubble in the same z-order policy as its pet. The pet polls fullscreen state
-        /// even while stationary and propagates transitions here.
+        /// even while stationary and calls this on EVERY tick while its monitor is blocked, so a call
+        /// that changes nothing does nothing (N-cli-model-effort-16): no SetWindowPos at all. A change is
+        /// applied without activation; before the handle exists it is only recorded, and CreateParams
+        /// creates the window to match.
         /// </summary>
         internal void SetFullscreenSuppressed(bool suppressed)
         {
             if (IsDisposed) return;
-            TopMost = !suppressed;
+            if (suppressed == _fullscreenSuppressed) return;
+            _fullscreenSuppressed = suppressed;
+            if (IsHandleCreated) ApplyZOrder(suppressed ? HwndNoTopMost : HwndTopMost);
+        }
+
+        /// <summary>
+        /// Before a remark shows, put the bubble at the top of the topmost band, as the TopMost = true that
+        /// SayWithDwell's SetFullscreenSuppressed(false) ran on every remark used to: Show() here is
+        /// SW_SHOWNOACTIVATE, which leaves the z-order alone, so a pet raised above a hidden bubble since its
+        /// last remark would otherwise cover the next one. Nothing while stood down, and nothing before the
+        /// first show, whose CreateParams already make the window topmost.
+        /// </summary>
+        internal void RaiseForShow()
+        {
+            if (IsDisposed || _fullscreenSuppressed || !IsHandleCreated) return;
+            ApplyZOrder(HwndTopMost);
+        }
+
+        /// <summary>The one z-order call: no move, no size, NO ACTIVATION. A failure is ignored, as the
+        /// WinForms setter ignored it: the bubble's z-order is cosmetic and the next change tries again.</summary>
+        private void ApplyZOrder(IntPtr insertAfter)
+        {
+            const uint flags = SwpNoMove | SwpNoSize | SwpNoActivate;
+            Func<IntPtr, IntPtr, uint, bool> seam = ZOrderForSelfTest;
+            if (seam != null) { seam(Handle, insertAfter, flags); return; }
+            SetWindowPos(Handle, insertAfter, 0, 0, 0, 0, flags);
         }
 
         /// <summary>

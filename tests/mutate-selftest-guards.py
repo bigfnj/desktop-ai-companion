@@ -12874,10 +12874,12 @@ CASES = (
      b"                return Deadline;\n",
      HOST_CSPROJ, EXE,
      SECURITY, None, "a slow asset download that keeps moving outlives the floor deadline"),
+    # Re-pointed 2026-10-29 (lane feature/host-fixes): N-host-catalog-01 gave DownloadLimits a subject as its first
+    # argument. Same defect, same line: the asset limits get the catalog's timing, the subject left as it is.
     ("host-catalog: an asset gets the catalog's limits",
      SECURE_DOWNLOAD_CS,
-     b"            new DownloadLimits(DownloadDeadline, TimeSpan.FromSeconds(30), 256 * 1024);\n",
-     b"            new DownloadLimits(DownloadDeadline, TimeSpan.Zero, 0);\n",
+     b"            new DownloadLimits(\"Download\", DownloadDeadline, TimeSpan.FromSeconds(30), 256 * 1024);\n",
+     b"            new DownloadLimits(\"Download\", DownloadDeadline, TimeSpan.Zero, 0);\n",
      HOST_CSPROJ, EXE,
      SECURITY, None, "the catalog keeps one 60 s deadline; an asset gets a 30 s stall timeout"),
     ("host-catalog: a hash mismatch keeps its old reason",
@@ -14884,6 +14886,144 @@ CASES = (
      FORTUNES_CSPROJ, FORTUNES_DLL,
      "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
      "importer self-test scratch: a failed run keeps its scratch folder"),
+    # ---- lane feature/host-fixes ----
+    # Host 1.8.0 fixes. Names carry the "host-fixes:" prefix so `--only=host-fixes:` runs the lane. Every mutant keeps
+    # the build green under warnings-as-errors.
+
+    # N-host-runtime-01: an unreadable removal marker is taken for an empty one and overwritten again, the shape
+    # "host-runtime: MarkForUpdate overwrites a marker it could not read" guards on the update marker.
+    ("host-fixes: MarkForRemoval overwrites a removal marker it could not read",
+     PENDING_REMOVALS,
+     b"            if (marked == null)\n"
+     b"                throw new IOException(",
+     b"            if (marked == null) marked = new List<string>();\n"
+     b"            if (marked == null)\n"
+     b"                throw new IOException(",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "marking onto a removal marker that cannot be read throws and keeps the uninstalls marked before it"),
+
+    # ...and the bounded re-read is gone, so a hold of a few milliseconds fails the uninstall outright.
+    ("host-fixes: MarkForRemoval never reads an unreadable removal marker again",
+     PENDING_REMOVALS,
+     b"            for (int reRead = 0; ids == null && reRead < PendingModuleUpdates.MarkerReReads; reRead++)\n",
+     b"            for (int reRead = 0; ids == null && reRead < 0; reRead++)\n",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "an unreadable removal marker is read again before the mark gives up"),
+
+    # ...Unmark is the silent no-op it was, so a reinstall over a held marker reports success and the next launch
+    # deletes the module.
+    ("host-fixes: Unmark returns quietly from a removal marker it could not read",
+     PENDING_REMOVALS,
+     b"            if (ids == null)\n"
+     b"                throw new IOException(\"The list of uninstalls waiting for the next start could not be read, so an \" +\n",
+     b"            if (ids == null) return;\n"
+     b"            if (ids == null)\n"
+     b"                throw new IOException(\"The list of uninstalls waiting for the next start could not be read, so an \" +\n",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "Unmark of a removal marker that cannot be read throws instead of leaving its uninstall in place unseen"),
+
+    # ...the launch path dereferences the unreadable answer, which costs the launch every module.
+    ("host-fixes: a launch dereferences a removal marker it could not read",
+     PENDING_REMOVALS,
+     b"            if (ids == null)\n"
+     b"            {\n"
+     b"                // An UNREADABLE marker is not an empty one, and not a reason to fail the launch either\n",
+     b"            if (ids == null && ids != null)\n"
+     b"            {\n"
+     b"                // An UNREADABLE marker is not an empty one, and not a reason to fail the launch either\n",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "a launch that cannot read the removal marker removes nothing, rewrites nothing and does not throw"),
+
+    # ...IsMarked answers true for a marker it could not read, so Update all names a module as being uninstalled
+    # on no evidence.
+    ("host-fixes: IsMarked answers marked for a removal marker it could not read",
+     PENDING_REMOVALS,
+     b"            if (marked == null) return false;\n",
+     b"            if (marked == null) return true;\n",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "an unreadable removal marker answers not marked"),
+
+    # N-host-catalog-01: each of the shared handler's three refusals goes back to the catalog's words for an asset,
+    # one site per mutant; the catalog's own words are WITNESSed and must stay green.
+    ("host-fixes: an asset's refused redirect is worded as the catalog's",
+     SECURE_DOWNLOAD_CS,
+     b"                            throw new HttpRequestException(limits.Subject + \" redirects are not permitted.\");\n",
+     b"                            throw new HttpRequestException(\"Catalog redirects are not permitted.\");\n",
+     HOST_CSPROJ, EXE,
+     SECURITY, None, "a refused redirect of an asset download says Download, not Catalog"),
+    ("host-fixes: an asset's declared length over the limit is worded as the catalog's",
+     SECURE_DOWNLOAD_CS,
+     b"                            throw new InvalidDataException(\n"
+     b"                                limits.Subject + \" response exceeds its size limit.\");\n",
+     b"                            throw new InvalidDataException(\n"
+     b"                                \"Catalog response exceeds its size limit.\");\n",
+     HOST_CSPROJ, EXE,
+     SECURITY, None, "an asset download whose declared length is over its limit says Download, not Catalog"),
+    ("host-fixes: an asset's counted length over the limit is worded as the catalog's",
+     SECURE_DOWNLOAD_CS,
+     b"                                        limits.Subject + \" response exceeds its size limit.\");\n",
+     b"                                        \"Catalog response exceeds its size limit.\");\n",
+     HOST_CSPROJ, EXE,
+     SECURITY, None, "an asset download that runs over its limit with no declared length says Download, not Catalog"),
+
+    # N-cli-model-effort-16: the speech bubble's z-order, graded by --hardening-selftest through its seam. No mutant here
+    # makes a real activating call: the one that sets Form.TopMost does it before the window has a handle, where the
+    # check fails and the window is never created, and the activating shapes with a handle are the source invariant's
+    # (tests/mutate-hardening-guards.py, "host-fixes: the speech bubble sets Form.TopMost again").
+    ("host-fixes: the bubble re-applies its stand-down on every tick",
+     os.path.join(REPO, "src", "dotNet", "FormSpeech.cs"),
+     b"            if (suppressed == _fullscreenSuppressed) return;\n",
+     b"            if (!suppressed && suppressed == _fullscreenSuppressed) return;\n",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "speech bubble yields to fullscreen with one z-order change that does not activate"),
+    ("host-fixes: the bubble's z-order change may activate it",
+     os.path.join(REPO, "src", "dotNet", "FormSpeech.cs"),
+     b"            const uint flags = SwpNoMove | SwpNoSize | SwpNoActivate;\n",
+     b"            const uint flags = SwpNoMove | SwpNoSize;\n",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "speech bubble yields to fullscreen with one z-order change that does not activate"),
+    ("host-fixes: the bubble is raised for a remark while stood down",
+     os.path.join(REPO, "src", "dotNet", "FormSpeech.cs"),
+     b"            if (IsDisposed || _fullscreenSuppressed || !IsHandleCreated) return;\n",
+     b"            if (IsDisposed || !IsHandleCreated) return;\n",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "speech bubble is not raised for a remark while stood down"),
+    ("host-fixes: the bubble's raise before a remark lowers it instead",
+     os.path.join(REPO, "src", "dotNet", "FormSpeech.cs"),
+     b"            ApplyZOrder(HwndTopMost);\n",
+     b"            ApplyZOrder(HwndNoTopMost);\n",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "speech bubble is raised to the top of the topmost band before a remark"),
+    ("host-fixes: the bubble is created topmost while stood down",
+     os.path.join(REPO, "src", "dotNet", "FormSpeech.cs"),
+     b"                if (!_fullscreenSuppressed) cp.ExStyle |= WsExTopMost;\n",
+     b"                cp.ExStyle |= WsExTopMost;\n",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "speech bubble created while stood down is not created topmost"),
+    ("host-fixes: the bubble is never created topmost",
+     os.path.join(REPO, "src", "dotNet", "FormSpeech.cs"),
+     b"                if (!_fullscreenSuppressed) cp.ExStyle |= WsExTopMost;\n",
+     b"",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "speech bubble is created topmost by its own style"),
+    ("host-fixes: the bubble sets Form.TopMost in its constructor again",
+     os.path.join(REPO, "src", "dotNet", "FormSpeech.cs"),
+     b"            // Topmost comes from CreateParams and RaiseForShow, never from Form.TopMost (see _fullscreenSuppressed).\n",
+     b"            TopMost         = true;\n",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "speech bubble never sets Form.TopMost"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

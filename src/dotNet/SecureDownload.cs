@@ -32,7 +32,7 @@ namespace DesktopAICompanion
         /// 60-second whole would only change which words a dead connection fails with.
         /// </summary>
         internal static readonly DownloadLimits CatalogLimits =
-            new DownloadLimits(DownloadDeadline, TimeSpan.Zero, 0);
+            new DownloadLimits("Catalog", DownloadDeadline, TimeSpan.Zero, 0);
 
         /// <summary>
         /// Every asset the catalog lists (modules, pets, packs; RemoteCatalogClient.DownloadVerifiedAsync):
@@ -44,7 +44,7 @@ namespace DesktopAICompanion
         /// cap only stops a server that keeps a download alive by trickling, so it can be generous.
         /// </summary>
         internal static readonly DownloadLimits AssetLimits =
-            new DownloadLimits(DownloadDeadline, TimeSpan.FromSeconds(30), 256 * 1024);
+            new DownloadLimits("Download", DownloadDeadline, TimeSpan.FromSeconds(30), 256 * 1024);
 
         /// <summary>
         /// The pause before the one retry a status-less failure gets (N-catalog-insight-02): long enough for a
@@ -61,17 +61,26 @@ namespace DesktopAICompanion
         {
             internal static readonly TimeSpan MaximumDeadline = TimeSpan.FromHours(1);
 
+            /// <summary>What the refusals of the shared response handler call this request: "Catalog" or
+            /// "Download" (N-host-catalog-01). The catalog fetch and every asset download run through one handler,
+            /// so a module download refused for a redirect or its size used to say "Catalog redirects are not
+            /// permitted." to a user who had pressed Install. Carried by the limits because they are the one thing
+            /// that already tells the two kinds apart, as <see cref="DeadlineReason"/> does for the deadline.
+            /// Refused alternative: generic words for both, which would also change what the catalog says.</summary>
+            internal readonly string Subject;
             internal readonly TimeSpan Deadline;
             internal readonly TimeSpan Stall;
             internal readonly long BytesPerSecond;
 
-            internal DownloadLimits(TimeSpan deadline, TimeSpan stall, long bytesPerSecond)
+            internal DownloadLimits(string subject, TimeSpan deadline, TimeSpan stall, long bytesPerSecond)
             {
+                if (string.IsNullOrWhiteSpace(subject)) throw new ArgumentException("A subject is required.", "subject");
                 if (deadline <= TimeSpan.Zero || deadline > MaximumDeadline)
                     throw new ArgumentOutOfRangeException("deadline");
                 if (stall < TimeSpan.Zero || stall > MaximumDeadline)
                     throw new ArgumentOutOfRangeException("stall");
                 if (bytesPerSecond < 0) throw new ArgumentOutOfRangeException("bytesPerSecond");
+                Subject = subject;
                 Deadline = deadline;
                 Stall = stall;
                 BytesPerSecond = bytesPerSecond;
@@ -294,7 +303,7 @@ namespace DesktopAICompanion
                 handler,
                 request,
                 maximumBytes,
-                new DownloadLimits(deadline, TimeSpan.Zero, 0),
+                new DownloadLimits("Catalog", deadline, TimeSpan.Zero, 0),
                 ct).ConfigureAwait(false);
         }
 
@@ -368,13 +377,13 @@ namespace DesktopAICompanion
                         ArmStall(stallCancellation, limits);
                         int status = (int)response.StatusCode;
                         if (status >= 300 && status <= 399)
-                            throw new HttpRequestException("Catalog redirects are not permitted.");
+                            throw new HttpRequestException(limits.Subject + " redirects are not permitted.");
                         response.EnsureSuccessStatusCode();
 
                         if (response.Content.Headers.ContentLength.HasValue &&
                             response.Content.Headers.ContentLength.Value > maximumBytes)
                             throw new InvalidDataException(
-                                "Catalog response exceeds its size limit.");
+                                limits.Subject + " response exceeds its size limit.");
 
                         // The cap SIZED BY WHAT THE RESPONSE DECLARES, counted from the first send. Content-Length
                         // rather than the catalog's "bytes": it is the length actually being sent, including in the
@@ -415,7 +424,7 @@ namespace DesktopAICompanion
                                 total = checked(total + read);
                                 if (total > maximumBytes)
                                     throw new InvalidDataException(
-                                        "Catalog response exceeds its size limit.");
+                                        limits.Subject + " response exceeds its size limit.");
                                 destination.Write(buffer, 0, read);
                             }
                             return destination.ToArray();

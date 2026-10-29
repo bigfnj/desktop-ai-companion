@@ -3513,6 +3513,50 @@ CASES = (
         b"        System.Threading.Tasks.Task<CatalogListing> FetchCatalogListingAsync(string kind);\n",
         "abi-pane-actions: ICatalogListing is its own interface",
     ),
+    # ---- lane feature/host-fixes ----
+    # N-host-catalog-02: the limits each production download passes, swapped one site at a time, and the catalog fetch
+    # going round its entry with the asset limits. "host-fixes:" for one --only.
+    (
+        "host-fixes: the catalog download entry hands DownloadBytesAsync the asset limits",
+        os.path.join(REPO, "src", "dotNet", "SecureDownload.cs"),
+        b"            return DownloadBytesAsync(uri, maximumBytes, CatalogLimits, null, ct);\n",
+        b"            return DownloadBytesAsync(uri, maximumBytes, AssetLimits, null, ct);\n",
+        "host-fixes: the catalog fetch goes through the entry that hands DownloadBytesAsync CatalogLimits",
+    ),
+    (
+        "host-fixes: a catalog asset download is handed the catalog's limits",
+        os.path.join(REPO, "src", "dotNet", "RemoteCatalog.cs"),
+        b"                uri, maximumBytes, SecureDownload.AssetLimits, transport, cancellationToken).ConfigureAwait(false);\n",
+        b"                uri, maximumBytes, SecureDownload.CatalogLimits, transport, cancellationToken).ConfigureAwait(false);\n",
+        "host-fixes: a catalog asset download hands DownloadBytesAsync AssetLimits",
+    ),
+    (
+        "host-fixes: the catalog fetch goes round its entry with the asset limits",
+        os.path.join(REPO, "src", "dotNet", "RemoteCatalog.cs"),
+        b"                    uri, MaximumCatalogBytes, cancellationToken).ConfigureAwait(false);\n",
+        b"                    uri, MaximumCatalogBytes, SecureDownload.AssetLimits, null, cancellationToken).ConfigureAwait(false);\n",
+        "host-fixes: the catalog fetch goes through the entry that hands DownloadBytesAsync CatalogLimits",
+    ),
+    # N-cli-model-effort-16: the two shapes --hardening-selftest cannot run or cannot see. The bubble's policy change
+    # goes through Form.TopMost's activating setter again (a runtime run of that would activate a window), and
+    # ShowSpeech shows a remark without the raise the per-remark TopMost = true used to give it.
+    (
+        "host-fixes: the speech bubble sets Form.TopMost again",
+        os.path.join(REPO, "src", "dotNet", "FormSpeech.cs"),
+        b"            _fullscreenSuppressed = suppressed;\n",
+        b"            _fullscreenSuppressed = suppressed;\n"
+        b"            TopMost = !suppressed;\n",
+        "host-fixes: the speech bubble never sets Form.TopMost",
+    ),
+    (
+        "host-fixes: ShowSpeech shows a remark without raising it",
+        os.path.join(REPO, "src", "dotNet", "FormSpeech.cs"),
+        b"            RaiseForShow();\n"
+        b"            if (!Visible) Show();\n",
+        b"            if (!Visible) Show();\n",
+        # Short: Windows PowerShell wraps the thrown label at the console width, and a fragment across the wrap never matches.
+        "host-fixes: the speech bubble changes z-order only when its policy changes",
+    ),
 )
 
 

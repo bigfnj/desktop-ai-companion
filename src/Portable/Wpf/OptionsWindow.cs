@@ -722,6 +722,61 @@ namespace DesktopAICompanion.Wpf
     }
 
     /// <summary>
+    /// The Expander of a collapsible card and of a list card's group, whose header TOGGLE carries the Expander's own
+    /// automation name and help text (N-settings-accessibility-01). The Expander is named (LabelForAutomation), but the
+    /// ToggleButton its template draws the header with is a UI Automation element of its own, a Button with a Toggle
+    /// pattern, and it read with an empty name: the installed Remembrance 2.9.0 showed three, one per collapsible card.
+    /// Named when the template is applied, because that is when the toggle exists, and again on every re-application
+    /// (a theme change can re-template), reading what LabelForAutomation set at construction. Refused alternative: the
+    /// Loaded event, which a window laid out by hand and never shown (the in-process UIA check's) never raises.
+    /// </summary>
+    internal sealed class CardExpander : Expander
+    {
+        internal CardExpander()
+        {
+            // The theme's implicit Expander style (WpfTheme: the dark theme's text colour) is looked up by the exact
+            // type, so a subclass would lose it and draw its header black on the dark background.
+            SetResourceReference(StyleProperty, typeof(Expander));
+        }
+
+        public override void OnApplyTemplate()
+        {
+            base.OnApplyTemplate();
+            System.Windows.Controls.Primitives.ToggleButton toggle = HeaderToggle();
+            if (toggle == null) return;
+            System.Windows.Automation.AutomationProperties.SetName(toggle, System.Windows.Automation.AutomationProperties.GetName(this));
+            string help = System.Windows.Automation.AutomationProperties.GetHelpText(this);
+            if (!string.IsNullOrEmpty(help)) System.Windows.Automation.AutomationProperties.SetHelpText(toggle, help);
+        }
+
+        /// <summary>The template's header toggle: the part every stock WPF theme names HeaderSite, else the first
+        /// ToggleButton this template drew, so a theme that names it otherwise is still covered.</summary>
+        internal System.Windows.Controls.Primitives.ToggleButton HeaderToggle()
+        {
+            var named = GetTemplateChild("HeaderSite") as System.Windows.Controls.Primitives.ToggleButton;
+            return named ?? FirstTemplateToggle(this, 0);
+        }
+
+        private System.Windows.Controls.Primitives.ToggleButton FirstTemplateToggle(DependencyObject node, int depth)
+        {
+            if (node == null || depth > 12) return null;
+            int n = VisualTreeHelper.GetChildrenCount(node);
+            for (int i = 0; i < n; i++)
+            {
+                DependencyObject child = VisualTreeHelper.GetChild(node, i);
+                var toggle = child as System.Windows.Controls.Primitives.ToggleButton;
+                if (toggle != null && ReferenceEquals(toggle.TemplatedParent, this)) return toggle;
+                var element = child as FrameworkElement;
+                // Not into the content: a toggle the CARD holds is the card's, named by its own row.
+                if (element != null && !ReferenceEquals(element.TemplatedParent, this)) continue;
+                System.Windows.Controls.Primitives.ToggleButton deeper = FirstTemplateToggle(child, depth + 1);
+                if (deeper != null) return deeper;
+            }
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Renders one <see cref="OptionsPane"/>'s schema into WPF controls and collects/persists edited values
     /// via the pane's Load/Save. Kept separate + headless-constructable (STA) so the render + Load/Save
     /// round-trip is unit-testable without showing a window. Secret fields are write-only: the box starts
@@ -1765,7 +1820,7 @@ namespace DesktopAICompanion.Wpf
                     header.Children.Add(reason);
                 }
                 body.Margin = new Thickness(0, 6, 0, 0);
-                var expander = new Expander { Header = header, Content = body, IsExpanded = IsCardOpen(key, collapsibleLead) };
+                var expander = new CardExpander { Header = header, Content = body, IsExpanded = IsCardOpen(key, collapsibleLead) };
                 // Its header is a panel, which UI Automation reads no name from: named after the card, and the count
                 // beside the title as its help text.
                 LabelForAutomation(expander, title, !string.IsNullOrEmpty(group) ? group : (_pane != null ? (_pane.Title ?? "") : ""), count);
@@ -2045,7 +2100,7 @@ namespace DesktopAICompanion.Wpf
                             refreshAll();
                         };
 
-                        var expander = new Expander
+                        var expander = new CardExpander
                         {
                             Header = header,
                             IsExpanded = !lc.CollapseGroups,

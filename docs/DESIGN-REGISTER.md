@@ -6491,6 +6491,28 @@ at another folder inside the run's scratch. Deleting a swap would send any captu
 the real folder, which is the defect being guarded; the check compares each seam with the run's own folder, so either
 mutant fails it the same way.
 
+#### feature/host-fixes
+
+Host 1.8.0 fixes (lane host-fixes, 2026-10-29).
+
+**An uninstall marker that cannot be read refuses Unmark too, not only the mark (N-host-runtime-01).** MarkForRemoval
+re-reads a held `pending-module-removals.txt` as often as the update marker is re-read and then throws, as MarkForUpdate does.
+Unmark does the same rather than return quietly: it cannot know whether the marker names its id, and if it does, the
+next launch deletes the module the user just reinstalled or updated. So an install over a held marker says "A
+pending-uninstall marker could not be updated", and an update over one says it could not update; both read like a
+failure of the install when the marker is the cause, and that is deliberate. IsMarked answers false for an unreadable
+marker, so Update all tries the module, whose Unmark then refuses. The launch removes nothing on such a start and the
+modules it names load once more.
+
+**The speech bubble never uses Form.TopMost (N-cli-model-effort-16).** Its topmost state is its own field: the window
+is created with WS_EX_TOPMOST while not stood down, and a change is one SetWindowPos with SWP_NOACTIVATE, made only when
+the policy changes, plus a raise before each remark. Form.TopMost's setter, the re-apply in Form.CreateHandle and the
+focus Form.SetVisibleCore gives a TopMost form are each an activation (read in dotnet/winforms Form.cs and
+ContainerControl.cs, 2026-10-29). So `bubble.TopMost` reads false while the bubble is topmost; that is not a defect.
+Refused: WS_EX_NOACTIVATE, whose effect on a programmatic SetWindowPos is not documented. The hardening self-test does
+not observe activation itself, because proving such a check can fail would mean activating a window on the machine
+running it; it asserts the flags and the absence of Form.TopMost, and a source invariant keeps the setter out.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of
