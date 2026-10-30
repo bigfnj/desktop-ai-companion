@@ -131,6 +131,12 @@ public sealed partial class AgentBrokerModule
             Check(AgentBrokerModule.NoticeDropText(new(0, 1, 0, null)) ==
                 " Since the broker started, 1 delivery notice was dropped undelivered (1 while the store was full).",
                 "one dropped notice reads in the singular and names the store");
+            // A-broker-06: the time of the last drop, which the worker always sent, is shown in local time.
+            var lastDrop = new DateTimeOffset(2026, 10, 29, 20, 5, 0, TimeSpan.Zero);
+            string withTime = AgentBrokerModule.NoticeDropText(new(1, 0, 0, lastDrop));
+            Check(withTime.EndsWith(" The most recent was at " + lastDrop.ToLocalTime().ToString("yyyy-MM-dd HH:mm",
+                System.Globalization.CultureInfo.InvariantCulture) + ".", StringComparison.Ordinal),
+                "NOTICE_DROP_LAST_SHOWN: Status names when the last notice was dropped: " + withTime);
             module.ApplyStatus(new(true, false, "standby", view with { PairingOffers = [] }));
             Check(!pane.Load()["status"].Contains("delivery notice", StringComparison.Ordinal),
                 "WITNESS: a snapshot with nothing dropped says nothing about notices");
