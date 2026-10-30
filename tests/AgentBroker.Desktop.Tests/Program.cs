@@ -98,6 +98,23 @@ if (args.SequenceEqual(new[] { "--discovery-timeouts-only" })
         return 1;
     }
 }
+// Lane broker-163: the report-only engine binding (synthetic), and its read-only live observation for evidence.
+if (args.SequenceEqual(new[] { "--engine-binding-only" }))
+{
+    try
+    {
+        EngineBindingChecks.Run(Check);
+        Console.WriteLine($"AgentBroker engine binding checks passed: {passed}");
+        return 0;
+    }
+    catch (Exception error)
+    {
+        Console.Error.WriteLine(error);
+        Console.WriteLine("RESULT=FAIL");
+        return 1;
+    }
+}
+if (args.SequenceEqual(new[] { "--codex-engine-binding-observation" })) return EngineBindingChecks.Live();
 if (args.SequenceEqual(new[] { "--codex-observation-only" }))
 {
     try
@@ -573,6 +590,8 @@ if (!args.SequenceEqual(new[] { "--existing-tests-only" })) DesktopPackageProfil
 if (!args.SequenceEqual(new[] { "--existing-tests-only" })) await CodexObservationChecks.RunAsync(Check);
 // The embedded pin document (lane broker-pins), after the --existing-tests-only cut-off.
 if (!args.SequenceEqual(new[] { "--existing-tests-only" })) PinDocumentChecks.Run(Check);
+// The report-only engine binding (lane broker-163).
+if (!args.SequenceEqual(new[] { "--existing-tests-only" })) EngineBindingChecks.Run(Check);
 
 // O-agentbroker-02 (2026-10-29): discovery reuses a success only for the exact same running engine processes.
 {

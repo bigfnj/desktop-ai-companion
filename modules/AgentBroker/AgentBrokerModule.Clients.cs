@@ -147,6 +147,8 @@ public sealed partial class AgentBrokerModule
 
         // Native receive and wake support.
         yield return NativeLine(client);
+        // Report only (lane broker-163, N-agentbroker-code-owner-provenance-01): whose engine holds each Codex row's thread.
+        if (client == "codex" && EngineBindingLine() is { } engine) yield return engine;
 
         if (clientSetupResults.TryGetValue(client, out string? result)) yield return "Last setup action: " + result;
     }
@@ -230,6 +232,19 @@ public sealed partial class AgentBrokerModule
     }
 
     private static string Count(int value) => value.ToString(CultureInfo.InvariantCulture);
+
+    // Counts and reason codes only, never a thread or process. Absent until the worker reports an observation.
+    private string? EngineBindingLine()
+    {
+        var observed = (snapshot?.Sessions ?? []).Where(session => session?.Adapter == "codex-native" && session.Engine is not null).ToArray();
+        if (observed.Length == 0) return null;
+        int bound = observed.Count(session => session.Engine!.Bound);
+        string unbound = string.Join(", ", observed.Where(session => !session.Engine!.Bound)
+            .GroupBy(session => Safe(session.Engine!.Reason, 32)).OrderBy(group => group.Key, StringComparer.Ordinal)
+            .Select(group => group.Key + " " + Count(group.Count())));
+        return (bound == observed.Length ? "\u2713" : "\u26A0") + " Engine binding (report only): " + Count(bound) + " of " + Count(observed.Length) +
+            " Codex sessions held by a Code or desktop engine" + (unbound.Length == 0 ? "" : "; unbound: " + unbound) + ". Nothing is refused on it.";
+    }
 
     private IEnumerable<TrayItem> ClientTrayItems()
     {

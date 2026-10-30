@@ -18,14 +18,17 @@ namespace AgentBroker.Worker;
 /// receipt tells its own age (N-broker-busy-visibility-01): ReadAt minus UpdatedAt is how long a Submitted or Held receipt
 /// has held its status, or how long ago an Accepted one was last attempted. BusySince is present only while the
 /// message is Accepted (or being attempted) because its native recipient said a turn is still running
-/// (native_context_busy): the first such answer in the current unbroken run, as this worker process saw it.
+/// (native_context_busy): the first such answer in the current unbroken run, as this worker process saw it. EngineBinding
+/// is what the native adapter observed about the recipient's engine at the message's latest attempt (report only,
+/// N-agentbroker-code-owner-provenance-01: nothing was refused or routed on it); like BusySince, process-local.
 /// </summary>
 public sealed record SenderReceipt(SenderReceiptMessage Message, MessageStatus Status, DateTimeOffset UpdatedAt,
     string? Reason, int Attempts, int? TextBytes, DateTimeOffset ReadAt,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] DateTimeOffset? BusySince = null)
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] DateTimeOffset? BusySince = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] EngineBinding? EngineBinding = null)
 {
     internal static SenderReceipt From(MessageReceipt receipt, DateTimeOffset readAt, bool includeText = false,
-        DateTimeOffset? busySince = null)
+        DateTimeOffset? busySince = null, EngineBinding? engine = null)
     {
         var message = receipt.Message;
         // An empty text is always a tombstone: real message text is never empty or whitespace (BrokerStore.FindReceipt).
@@ -33,7 +36,7 @@ public sealed record SenderReceipt(SenderReceiptMessage Message, MessageStatus S
         return new(new(message.Id, message.ConversationId, message.ReplyTo, message.Sender, message.Recipient,
                 message.CreatedAt, message.ExpiresAt, message.RemainingReplies, includeText ? message.Text : null),
             receipt.Status, receipt.UpdatedAt, receipt.Reason, receipt.Attempts,
-            held ? Encoding.UTF8.GetByteCount(message.Text) : null, readAt, busySince);
+            held ? Encoding.UTF8.GetByteCount(message.Text) : null, readAt, busySince, engine);
     }
 }
 

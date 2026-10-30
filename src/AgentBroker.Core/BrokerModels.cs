@@ -24,6 +24,15 @@ public sealed record SessionAddress(Guid BrokerId, string SessionId, Guid Incarn
 public sealed record BrokerSession(SessionAddress Address, string Label, string Adapter,
     SessionCapabilities Capabilities, SessionActivity Activity, DateTimeOffset LeaseUntil, bool IsPrivate = false);
 
+// REPORT ONLY (owner's decision 2026-10-30, N-agentbroker-code-owner-provenance-01): whether the process holding a native
+// thread's writer lock is an engine the broker recognises, as observed at ObservedAt. Bound names which engine
+// (code_engine: a Code-owned codex.exe; desktop_engine: the desktop app's); unbound names why not (lock_missing,
+// lock_path_reparse, query_failed, no_holder, multiple_holders, foreign_holder, start_time_mismatch). It never authorizes,
+// refuses, routes, retries or changes an address: the ENFORCE design that would is recorded, not built. Deliberately NOT a
+// member of BrokerSession: that record is what a paired broker is sent, and it keeps exactly the 1.0.4 members a 1.0.4
+// peer's strict reader accepts (TombstoneChecks.WireAsync). The local list carries it beside the row (ListedSession).
+public sealed record EngineBinding(bool Bound, string Reason, DateTimeOffset ObservedAt);
+
 public sealed record PeerTrust(Guid BrokerId, string Name, string Endpoint, string CertificateSha256,
     DateTimeOffset PairedAt);
 

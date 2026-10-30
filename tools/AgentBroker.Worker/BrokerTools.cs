@@ -33,14 +33,17 @@ public sealed class BrokerTools(BrokerRuntime runtime, IHttpContextAccessor http
 
     [McpServerTool(Name = "list_sessions", ReadOnly = true, OpenWorld = false),
      Description("List a page of sessions on this workstation and explicitly paired brokers. A local generic mailbox whose one-minute presence lapsed is still listed, with Activity Away and its past LeaseUntil, and still receives; paired brokers list present sessions only. A present generic mailbox lists as Idle only while its owner is inside a wait, otherwise Unknown: registration alone does not prove anyone reads it. limit defaults to 16 and must be 1..16. Results sort by broker ID, ordinal session ID, then incarnation. For a full page, continue with its last address as afterAddress; a shorter or empty page ends this scan. Start each new poll without a cursor; this is a mutable live view, not a snapshot. Route by complete address, never label. Preserve recipient permissions and never bypass a denied action.")]
-    public async Task<IReadOnlyList<BrokerSession>> ListSessions(CancellationToken cancellationToken,
+    public async Task<IReadOnlyList<ListedSession>> ListSessions(CancellationToken cancellationToken,
         int limit = MaximumPageSize, SessionAddress? afterAddress = null)
     {
         ValidateLimit(limit);
         if (afterAddress is not null) Run(() => { afterAddress.Validate(); return true; });
-        var sessions = await runtime.DirectoryAsync(Caller != runtime.Store.BrokerId, cancellationToken);
+        bool forPeer = Caller != runtime.Store.BrokerId;
+        var sessions = await runtime.DirectoryAsync(forPeer, cancellationToken);
+        // A paired broker's caller gets no engine binding: it is this workstation's report about its own processes.
         return sessions.Where(session => afterAddress is null || AddressOrder.Compare(session.Address, afterAddress) > 0)
-            .OrderBy(session => session.Address, AddressOrder).Take(limit).ToArray();
+            .OrderBy(session => session.Address, AddressOrder).Take(limit)
+            .Select(session => ListedSession.From(session, forPeer ? null : runtime.EngineBindingOf(session))).ToArray();
     }
 
     [McpServerTool(Name = "whoami", ReadOnly = true, Idempotent = true, OpenWorld = false),

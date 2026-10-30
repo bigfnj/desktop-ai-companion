@@ -180,6 +180,18 @@ public sealed partial class AgentBrokerModule
             check(pane.Load()["codexClient"].Contains("\u2717 Native: the Codex adapter reports unsupported_vscode_router 9.9.9.", StringComparison.Ordinal) &&
                 pane.Load()["claudeClient"].Contains("Native wake off: 1 open Claude session", StringComparison.Ordinal),
                 "onboarding: an unsupported native client is shown for that client only");
+            // Lane broker-163: the report-only engine binding is a Codex line of its own, counts and reason codes only.
+            SessionView Codex(EngineBindingView? engine) => new("codex:" + Guid.NewGuid().ToString("D"), Guid.NewGuid(), "Synthetic Codex",
+                "codex-native", "Idle", true, true, false, false, engine);
+            module.ApplyStatus(new(true, true, "running", view with { Sessions = [native, Codex(new(true, "code_engine")),
+                Codex(new(false, "foreign_holder")), Codex(new(false, "foreign_holder")), Codex(null)] }));
+            string engines = pane.Load()["codexClient"];
+            check(engines.Contains("\u26A0 Engine binding (report only): 1 of 3 Codex sessions held by a Code or desktop engine; unbound: foreign_holder 2. Nothing is refused on it.", StringComparison.Ordinal) &&
+                !pane.Load()["claudeClient"].Contains("Engine binding", StringComparison.Ordinal),
+                "ENGINE_BINDING_LINE: the Codex client shows how many observed rows are bound, and the unbound reasons by count");
+            module.ApplyStatus(new(true, true, "running", view with { Sessions = [native, Codex(null)] }));
+            check(!pane.Load()["codexClient"].Contains("Engine binding", StringComparison.Ordinal),
+                "ENGINE_BINDING_LINE_ABSENT: with no observation reported there is no engine line");
 
             // A settings change restarts the worker; a check made against the old settings no longer applies.
             pane.Save(new Dictionary<string, string> { ["loopbackPort"] = "7440" });

@@ -16,8 +16,12 @@ namespace AgentBroker.Protocol;
 public sealed record PeerView(Guid BrokerId, string Name, string Endpoint, string CertificateSha256);
 public sealed record PairingView(Guid RequestId, PeerView Peer, string VerificationCode,
     DateTimeOffset ExpiresAt, bool Outbound, bool LocalApproved = false, bool RemoteApproved = false);
+// Engine: a native adapter's report-only engine binding for the row (lane broker-163), omitted while there is none.
 public sealed record SessionView(string SessionId, Guid Incarnation, string Label, string Adapter,
-    string Activity, bool CanReceive, bool CanWake, bool IsPrivate, bool IsMuted);
+    string Activity, bool CanReceive, bool CanWake, bool IsPrivate, bool IsMuted,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] EngineBindingView? Engine = null);
+// Report only (N-agentbroker-code-owner-provenance-01): bound, and the reason code. Nothing is refused on it.
+public sealed record EngineBindingView(bool Bound, string Reason);
 public enum McpClientFamily { Other = 0, Claude = 1, Codex = 2 }
 public sealed record McpClientActivityView(McpClientFamily Family, DateTimeOffset? LastInitializeUtc = null,
     DateTimeOffset? LastSuccessfulRequestUtc = null, DateTimeOffset? LastToolsListUtc = null,

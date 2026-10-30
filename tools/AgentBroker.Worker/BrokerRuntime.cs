@@ -28,10 +28,15 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
     // The store clock, for a tool that must wake at a message deadline (BrokerTools.WaitForReceipt).
     internal DateTimeOffset StoreNow => Now;
 
+    // A local native row's last engine observation, from the adapter that discovered it (report only). Null for a paired
+    // broker's row, a generic mailbox, or an adapter that observes nothing.
+    internal EngineBinding? EngineBindingOf(BrokerSession session) => session.Address.BrokerId != store.BrokerId ? null
+        : adapters.FirstOrDefault(adapter => adapter.Id == session.Adapter)?.EngineBindingOf(session.Address);
+
     // The sender's view of a receipt: no text unless asked, its own read time, and since when its recipient has been seen
     // busy (SenderReceipt, DeliveryObservations).
     internal SenderReceipt View(MessageReceipt receipt, bool includeText = false) =>
-        SenderReceipt.From(receipt, Now, includeText, observations.BusySince(receipt));
+        SenderReceipt.From(receipt, Now, includeText, observations.BusySince(receipt), observations.EngineAtAttempt(receipt.Message.Id));
 
     public void SetSessionPreference(string sessionId, bool? isPrivate, bool? isMuted)
     {

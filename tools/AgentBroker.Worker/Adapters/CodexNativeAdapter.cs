@@ -36,6 +36,11 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
     private readonly bool enableDelivery;
     private readonly bool updateTolerant;
     private readonly TimeProvider clock;
+    // Report only (N-agentbroker-code-owner-provenance-01): who holds each thread's writer lock. Null observes nothing.
+    private readonly ICodexEngineBindingSource? engineBindings;
+    // The last completed pass's observations by row, replaced whole each pass, so the runtime reads it without the gate.
+    private volatile IReadOnlyDictionary<SessionAddress, EngineBinding> engineByRow = new Dictionary<SessionAddress, EngineBinding>();
+    public EngineBinding? EngineBindingOf(SessionAddress address) => engineByRow.GetValueOrDefault(address);
     private readonly SemaphoreSlim gate = new(1, 1);
     private readonly Dictionary<SessionAddress, DesktopOwnerBinding> bindings = [];
     // Conversations whose owner lookup failed or ran out of time on the last pass that reached them. They are looked up
@@ -56,12 +61,14 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
             (skippedLastPass == 1 ? " was" : "s were") + " not renewed this pass: the owner lookup did not finish in time or failed.")];
 
     public CodexNativeAdapter(bool enableDelivery = false, bool updateTolerantDelivery = false)
-        : this(new CodexNativeProvider(enableDelivery, updateTolerantDelivery), enableDelivery, updateTolerantDelivery: updateTolerantDelivery) { }
+        : this(new CodexNativeProvider(enableDelivery, updateTolerantDelivery), enableDelivery, updateTolerantDelivery: updateTolerantDelivery,
+            engineBindings: WindowsCodexEngineBindingSource.Instance) { }
 
     public CodexNativeAdapter(ICodexNativeProvider provider, bool enableDelivery = false, TimeProvider? clock = null,
-        bool updateTolerantDelivery = false)
+        bool updateTolerantDelivery = false, ICodexEngineBindingSource? engineBindings = null)
     {
         this.provider = provider; this.enableDelivery = enableDelivery; this.clock = clock ?? TimeProvider.System;
+        this.engineBindings = engineBindings;
         // Strict exact pins stay the default; update tolerance is a separate opt-in on top of delivery.
         updateTolerant = enableDelivery && updateTolerantDelivery;
     }
@@ -154,6 +161,11 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
             bindings.Clear(); foreach (var pair in found) bindings.Add(pair.Key, pair.Value);
             slowLookups.Clear(); slowLookups.UnionWith(slow);
             skippedLastPass = skipped.Count;
+            // Report only: each listed row says whether its thread's writer lock is held by a recognised engine. Observed after
+            // every capability and address above was decided, and kept beside the rows, never in them, so it cannot change one.
+            var engines = ObserveEngines(sessions.Select(session => ThreadOf(session.Address)).ToArray());
+            engineByRow = sessions.Where(session => engines.ContainsKey(ThreadOf(session.Address)))
+                .ToDictionary(session => session.Address, session => engines[ThreadOf(session.Address)]);
             return sessions;
         }
         catch (DesktopAdapterException error)
@@ -211,10 +223,13 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
             if (Refusal(current) is { } changed) return new(AdapterAdmission.Refused, changed);
             // Binding.Incarnation is a connection lease; stable broker identity uses the native tuple.
             bindings[message.Recipient] = current;
+            // Report only: who holds the thread's writer lock just before the input is written, for this attempt's receipt.
+            // Every check above has already admitted or refused the attempt; nothing below reads it.
+            var observed = ObserveEngines([current.ConversationId]).GetValueOrDefault(current.ConversationId);
             try
             {
                 var result = await provider.SubmitAsync(current, message.Id, formatted, token);
-                return result.Outcome switch
+                return Observed(result.Outcome switch
                 {
                     DesktopSubmissionOutcome.Accepted => new(AdapterAdmission.Submitted, "native_admission_unconfirmed"),
                     DesktopSubmissionOutcome.DeferredNotSubmitted => Deferred(result.ErrorCode switch
@@ -226,14 +241,34 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
                     }),
                     DesktopSubmissionOutcome.Rejected => new(AdapterAdmission.Refused, "native_admission_refused"),
                     _ => new(AdapterAdmission.Uncertain, UncertainReason(result.ErrorCode)),
-                };
+                }, observed);
             }
             catch (DesktopAdapterException ex) when (ex.Code is "message_frame_too_large" or "invalid_message" or "frame_too_large")
-            { return new(AdapterAdmission.Refused, "native_message_too_large"); } // Native library proves these before its first model-input write.
+            { return Observed(new(AdapterAdmission.Refused, "native_message_too_large"), observed); } // Native library proves these before its first model-input write.
             catch (Exception ex) when (ex is DesktopAdapterException or IOException or OperationCanceledException)
-            { return new(AdapterAdmission.Uncertain, RaisedReason(ex)); }
+            { return Observed(new(AdapterAdmission.Uncertain, RaisedReason(ex)), observed); }
         }
         finally { gate.Release(); }
+    }
+
+    private static Guid ThreadOf(SessionAddress address) => Guid.ParseExact(address.SessionId["codex:".Length..], "D");
+
+    private static AdapterResult Observed(AdapterResult result, EngineBinding? engine) => engine is null ? result : result with { EngineBinding = engine };
+
+    // Report only (N-agentbroker-code-owner-provenance-01): one engine binding per thread, stamped with this adapter's clock.
+    // The source promises never to throw; if one does anyway, every thread reads query_failed for this observation, so a
+    // failed observation is never silent and never fails a discovery pass or a delivery.
+    private Dictionary<Guid, EngineBinding> ObserveEngines(IReadOnlyCollection<Guid> threads)
+    {
+        var result = new Dictionary<Guid, EngineBinding>();
+        if (engineBindings is null || threads.Count == 0) return result;
+        var now = clock.GetUtcNow();
+        IReadOnlyDictionary<Guid, CodexEngineBindingVerdict> verdicts;
+        try { verdicts = engineBindings.Observe(threads); }
+        catch (Exception) { verdicts = threads.Distinct().ToDictionary(thread => thread, _ => new CodexEngineBindingVerdict(false, "query_failed")); }
+        foreach (var thread in threads)
+            if (verdicts.TryGetValue(thread, out var verdict) && verdict is not null) result[thread] = new(verdict.Bound, verdict.Reason, now);
+        return result;
     }
 
     // An exception out of the library's submission, recorded with its cause (A-broker-08): all of them carried the one

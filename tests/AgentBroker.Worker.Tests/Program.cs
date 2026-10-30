@@ -49,7 +49,7 @@ if (args.Length == 1 && args[0] == "--polling-lease-only")
 }
 if (args.Length == 1 && args[0] is "--mailbox-only" or "--wait-tools-only" or "--send-only" or "--instructions-only" or
     "--inbox-attribution-only" or "--lan-profile-only" or "--receipt-wait-only" or "--first-contact-only" or "--send-advisory-only" or "--peer-forward-only" or
-    "--compact-receipts-only")
+    "--compact-receipts-only" or "--engine-binding-report-only")
 {
     try
     {
@@ -64,6 +64,7 @@ if (args.Length == 1 && args[0] is "--mailbox-only" or "--wait-tools-only" or "-
         if (args[0] == "--send-only") await SendToolChecks.RunAsync(Check);
         if (args[0] == "--instructions-only") await InstructionsChecks.RunAsync(Check);
         if (args[0] == "--compact-receipts-only") await CompactReceiptChecks.RunAsync(Check);
+        if (args[0] == "--engine-binding-report-only") await EngineBindingReportChecks.RunAsync(Check);
         Console.WriteLine($"RESULT=PASS assertions={assertions}");
         return 0;
     }
@@ -294,6 +295,8 @@ try
         await InstructionsChecks.RunAsync(Check);
         // Compact sender receipts that tell their age and since when their recipient was seen busy (lane broker-163).
         await CompactReceiptChecks.RunAsync(Check);
+        // The report-only Codex engine binding on rows and receipts (lane broker-163).
+        await EngineBindingReportChecks.RunAsync(Check);
         // Client inbox attribution and the LAN network profile (lane feature/agentbroker-backlog-a).
         await OnboardingChecks.RunAsync(Check);
         // Codex observation-only discovery and opt-in update-tolerant delivery (lane broker-b).

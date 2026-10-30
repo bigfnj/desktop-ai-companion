@@ -5,12 +5,34 @@ using System.Text;
 
 namespace AgentBroker.CodexDesktopAdapter;
 
+// Pid is carried for the engine binding report (lane broker-163); the profile checks and DiscoveryReuse's key never read it.
 internal sealed record CodeOwnedEngine(string Image, ulong CreationFileTime, string ParentImage,
-    ulong ParentCreationFileTime, bool SameUser);
+    ulong ParentCreationFileTime, bool SameUser, uint Pid = 0);
 
 internal static class WindowsClientProcesses
 {
-    internal static IReadOnlyList<CodeOwnedEngine> ReadCodeOwnedEngines()
+    internal static IReadOnlyList<CodeOwnedEngine> ReadCodeOwnedEngines() => SelectCodeOwnedEngines(ReadSnapshot(), ReadMetadata);
+
+    // The engines a thread's writer-lock holder may be (CodexEngineBinding, report only): Code-owned engines exactly as the
+    // profile check selects them, and the desktop app's, a codex.exe whose parent is the Codex package's ChatGPT.exe (the
+    // image the desktop path identifies by its WindowsApps package name). Both need the same user and a parent created no
+    // later than the engine (a later one is a reused parent ID).
+    internal static IReadOnlyList<CodexEngine> ReadCodexEngines() => SelectCodexEngines(ReadSnapshot(), ReadMetadata);
+
+    internal static IReadOnlyList<CodexEngine> SelectCodexEngines(IReadOnlyDictionary<uint, (uint Parent, string Name)> processes,
+        Func<uint, (string Image, ulong Created, bool SameUser)> readMetadata)
+    {
+        static bool Owned(CodeOwnedEngine engine, string parent) => engine.SameUser && engine.ParentCreationFileTime <= engine.CreationFileTime &&
+            string.Equals(Path.GetFileName(engine.ParentImage), parent, StringComparison.OrdinalIgnoreCase);
+        var code = SelectOwnedEngines(processes, readMetadata, "Code.exe").Where(engine => Owned(engine, "Code.exe"))
+            .Select(engine => new CodexEngine(engine.Pid, engine.CreationFileTime, CodexEngineHost.Code));
+        var desktop = SelectOwnedEngines(processes, readMetadata, "ChatGPT.exe")
+            .Where(engine => Owned(engine, "ChatGPT.exe") && DesktopCompatibilityProfile.InstalledApplicationVersion(engine.ParentImage) is not null)
+            .Select(engine => new CodexEngine(engine.Pid, engine.CreationFileTime, CodexEngineHost.Desktop));
+        return code.Concat(desktop).ToArray();
+    }
+
+    private static Dictionary<uint, (uint Parent, string Name)> ReadSnapshot()
     {
         using var snapshot = Native.CreateToolhelp32Snapshot(2, 0);
         if (snapshot.IsInvalid) throw new DesktopAdapterException("vscode_process_snapshot_unverified");
@@ -25,7 +47,7 @@ internal static class WindowsClientProcesses
             entry.Size = (uint)Marshal.SizeOf<Native.ProcessEntry>();
         } while (Native.Process32NextW(snapshot, ref entry));
         if (Marshal.GetLastWin32Error() != 18) throw new DesktopAdapterException("vscode_process_snapshot_unverified");
-        return SelectCodeOwnedEngines(processes, ReadMetadata);
+        return processes;
     }
 
     // The engines a running Code.exe owns, from one process snapshot. A codex.exe whose parent is not in the snapshot has no
@@ -34,17 +56,20 @@ internal static class WindowsClientProcesses
     // for the whole set, so one orphan anywhere on the machine turned off Codex wake for every chat (A-broker-03). Every
     // codex.exe whose parent IS a running Code.exe is still read and checked exactly as before.
     internal static IReadOnlyList<CodeOwnedEngine> SelectCodeOwnedEngines(IReadOnlyDictionary<uint, (uint Parent, string Name)> processes,
-        Func<uint, (string Image, ulong Created, bool SameUser)> readMetadata)
+        Func<uint, (string Image, ulong Created, bool SameUser)> readMetadata) => SelectOwnedEngines(processes, readMetadata, "Code.exe");
+
+    private static IReadOnlyList<CodeOwnedEngine> SelectOwnedEngines(IReadOnlyDictionary<uint, (uint Parent, string Name)> processes,
+        Func<uint, (string Image, ulong Created, bool SameUser)> readMetadata, string parentName)
     {
         List<CodeOwnedEngine> result = [];
         foreach (var process in processes.Where(p => string.Equals(p.Value.Name, "codex.exe", StringComparison.OrdinalIgnoreCase)))
         {
             if (!processes.TryGetValue(process.Value.Parent, out var parent)) continue;
-            if (!string.Equals(parent.Name, "Code.exe", StringComparison.OrdinalIgnoreCase)) continue;
+            if (!string.Equals(parent.Name, parentName, StringComparison.OrdinalIgnoreCase)) continue;
             var childMetadata = readMetadata(process.Key);
             var parentMetadata = readMetadata(process.Value.Parent);
             result.Add(new(childMetadata.Image, childMetadata.Created, parentMetadata.Image, parentMetadata.Created,
-                childMetadata.SameUser && parentMetadata.SameUser));
+                childMetadata.SameUser && parentMetadata.SameUser, process.Key));
             if (result.Count > 256) throw new DesktopAdapterException("vscode_process_count_limit");
         }
         return result;

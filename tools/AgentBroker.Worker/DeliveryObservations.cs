@@ -24,6 +24,10 @@ internal sealed class DeliveryObservations(TimeProvider clock)
     private readonly object gate = new();
     private readonly Dictionary<Guid, DateTimeOffset> busySince = new();
     private readonly Dictionary<SessionAddress, DateTimeOffset> recipientBusyAt = new();
+    // The engine binding a native adapter observed at each message's latest attempt (report only,
+    // N-agentbroker-code-owner-provenance-01). Kept after the attempt, since a Submitted receipt is where it matters most;
+    // past the bound the older half by observation time goes.
+    private readonly Dictionary<Guid, EngineBinding> engineAtAttempt = new();
 
     // After every local native attempt. A busy deferral starts (or continues) the message's busy run and refreshes the
     // recipient's; any other answer ends both, since it says nothing about a turn still running.
@@ -32,6 +36,13 @@ internal sealed class DeliveryObservations(TimeProvider clock)
         var now = clock.GetUtcNow();
         lock (gate)
         {
+            if (result.EngineBinding is { } engine)
+            {
+                if (!engineAtAttempt.ContainsKey(message.Id) && engineAtAttempt.Count >= MaximumMessages)
+                    foreach (var old in engineAtAttempt.OrderBy(p => p.Value.ObservedAt).Take(MaximumMessages / 2).Select(p => p.Key).ToArray())
+                        engineAtAttempt.Remove(old);
+                engineAtAttempt[message.Id] = engine;
+            }
             if (result.Outcome == AdapterAdmission.DeferredNotSubmitted && result.Reason == BusyReason)
             {
                 if (!busySince.ContainsKey(message.Id))
@@ -59,6 +70,12 @@ internal sealed class DeliveryObservations(TimeProvider clock)
     {
         if (receipt.Reason != BusyReason || receipt.Status is not (MessageStatus.Accepted or MessageStatus.Submitting)) return null;
         lock (gate) return busySince.TryGetValue(receipt.Message.Id, out var since) ? since : null;
+    }
+
+    // What the adapter observed about the recipient's engine at this message's latest attempt that observed one.
+    internal EngineBinding? EngineAtAttempt(Guid messageId)
+    {
+        lock (gate) return engineAtAttempt.TryGetValue(messageId, out var engine) ? engine : null;
     }
 
     // A row discovery left Unknown, whose recipient answered busy within BusyFreshFor.
