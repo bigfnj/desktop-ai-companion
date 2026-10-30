@@ -182,7 +182,9 @@ namespace DesktopAICompanion.AiBrainModule
                                  //        token, the CLI card's Status row says why and never shows the token; Remove
                                  //        token no longer closes a shared sign-in that holds nothing, so Remembrance's
                                  //        old token still moves into it; the old token moves in the background, never
-                                 //        while Settings opens or applies (N-audit-20261029-01, -02, -05).
+                                 //        while Settings opens or applies (N-audit-20261029-01, -02, -05). An API key
+                                 //        Apply refuses says why on the Status row at the top of the pane, never the key
+                                 //        (N-audit-runner-01).
                                  // 1.6.0: privacy and correctness in the shared CLI runner and the CLI card (campaign
                                  //        2026-10-26). Every Claude Code model call names --permission-mode default, so
                                  //        auto mode's classifier context (the module's work folder 13 more times, the

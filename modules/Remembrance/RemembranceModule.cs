@@ -106,7 +106,8 @@ namespace DesktopAICompanion.RemembranceModule
                                  //        in the background, never while Settings opens or applies; and an earlier storage
                                  //        folder 2.9.0 remembered without a full path is dropped from the hourly purge
                                  //        instead of being looked up in the app's working folder and logged as unreadable
-                                 //        (N-audit-20261029-01, -02, -05, -07).
+                                 //        (N-audit-20261029-01, -02, -05, -07). An API key Apply refuses says why on the
+                                 //        Status line, as a refused sign-in token does, never the key (N-audit-runner-01).
                                  // 2.9.0: the summary is saved as Markdown, "<name>.summary.md" (the owner's request of
                                  //        2026-10-29: its text is Markdown). Summaries saved before keep ".summary.txt";
                                  //        the purge, the follow-up, the free-name check and "Rename older recordings"
