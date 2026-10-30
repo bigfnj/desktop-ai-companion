@@ -5253,7 +5253,8 @@ $abiChange = Get-MethodBody $abiStore 'private HostCredentialCommit Change(' $ab
 $abiRemove = Get-MethodBody $abiStore 'internal HostCredentialCommit Remove(' $abiStops
 $abiMigrate = Get-MethodBody $cliRunnerCode 'private void MigrateLocalClaudeToken()' $abiStops
 $abiReadToken = Get-MethodBody $cliRunnerCode 'private ClaudeTokenState ReadClaudeToken(out string token, out bool ownLeftover)' $abiStops
-$abiReadShared = Get-MethodBody $cliRunnerCode 'private ClaudeTokenState ReadSharedClaudeToken(out string token, out bool ownLeftover)' $abiStops
+# (Re-pointed by lane fix/audit-runner-1029, N-audit-20261029-02: the read takes whether to move the old copy on this thread.)
+$abiReadShared = Get-MethodBody $cliRunnerCode 'private ClaudeTokenState ReadSharedClaudeToken(out string token, out bool ownLeftover, bool migrate)' $abiStops
 Assert-True ($abiRefusal.Length -gt 0 -and $abiRead.Length -gt 0 -and $abiChange.Length -gt 0 -and $abiRemove.Length -gt 0 -and
     $abiMigrate.Length -gt 0 -and $abiReadToken.Length -gt 0 -and $abiReadShared.Length -gt 0) (
     'abi180: the store''s gate and three verbs, and the runner''s migration and two token reads, were sliced')
@@ -5284,7 +5285,7 @@ $abiOutcomeAt = $abiMigrate.IndexOf('import.Outcome != HostCredentialOutcome.Imp
 $abiDeleteAt = $abiMigrate.IndexOf('DeleteLocalClaudeToken(path)', [StringComparison]::Ordinal)
 Assert-True ($abiImportAt -ge 0 -and $abiOutcomeAt -gt $abiImportAt -and $abiDeleteAt -gt $abiOutcomeAt) (
     "abi180: the runner deletes its old token only after the shared store answered the import (import $abiImportAt, outcome $abiOutcomeAt, delete $abiDeleteAt)")
-$abiSharedAt = $abiReadToken.IndexOf('if (_sharedSignIn != null) return ReadSharedClaudeToken(out token, out ownLeftover);', [StringComparison]::Ordinal)
+$abiSharedAt = $abiReadToken.IndexOf('if (_sharedSignIn != null) return ReadSharedClaudeToken(out token, out ownLeftover, true);', [StringComparison]::Ordinal)
 $abiLocalAt = $abiReadToken.IndexOf('return ReadLocalClaudeToken(out token);', [StringComparison]::Ordinal)
 Assert-True ($abiSharedAt -ge 0 -and $abiLocalAt -gt $abiSharedAt -and $abiReadShared -cnotmatch 'ReadLocalClaudeToken\(out token\)' -and
     $abiReadShared.Contains('ReadLocalClaudeToken(out ignored)')) (
