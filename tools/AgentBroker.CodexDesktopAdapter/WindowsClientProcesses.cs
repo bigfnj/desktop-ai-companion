@@ -25,15 +25,24 @@ internal static class WindowsClientProcesses
             entry.Size = (uint)Marshal.SizeOf<Native.ProcessEntry>();
         } while (Native.Process32NextW(snapshot, ref entry));
         if (Marshal.GetLastWin32Error() != 18) throw new DesktopAdapterException("vscode_process_snapshot_unverified");
+        return SelectCodeOwnedEngines(processes, ReadMetadata);
+    }
 
+    // The engines a running Code.exe owns, from one process snapshot. A codex.exe whose parent is not in the snapshot has no
+    // live parent, so it cannot be Code-owned: it is a standalone CLI or an app-server left behind by a closed window, which
+    // the profile ignores (VsCodeCompatibilityProfile.VerifyRunningClients). It used to throw vscode_process_parent_unverified
+    // for the whole set, so one orphan anywhere on the machine turned off Codex wake for every chat (A-broker-03). Every
+    // codex.exe whose parent IS a running Code.exe is still read and checked exactly as before.
+    internal static IReadOnlyList<CodeOwnedEngine> SelectCodeOwnedEngines(IReadOnlyDictionary<uint, (uint Parent, string Name)> processes,
+        Func<uint, (string Image, ulong Created, bool SameUser)> readMetadata)
+    {
         List<CodeOwnedEngine> result = [];
         foreach (var process in processes.Where(p => string.Equals(p.Value.Name, "codex.exe", StringComparison.OrdinalIgnoreCase)))
         {
-            if (!processes.TryGetValue(process.Value.Parent, out var parent))
-                throw new DesktopAdapterException("vscode_process_parent_unverified");
+            if (!processes.TryGetValue(process.Value.Parent, out var parent)) continue;
             if (!string.Equals(parent.Name, "Code.exe", StringComparison.OrdinalIgnoreCase)) continue;
-            var childMetadata = ReadMetadata(process.Key);
-            var parentMetadata = ReadMetadata(process.Value.Parent);
+            var childMetadata = readMetadata(process.Key);
+            var parentMetadata = readMetadata(process.Value.Parent);
             result.Add(new(childMetadata.Image, childMetadata.Created, parentMetadata.Image, parentMetadata.Created,
                 childMetadata.SameUser && parentMetadata.SameUser));
             if (result.Count > 256) throw new DesktopAdapterException("vscode_process_count_limit");
