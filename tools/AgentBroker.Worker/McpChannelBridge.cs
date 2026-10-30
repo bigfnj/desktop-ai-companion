@@ -511,14 +511,16 @@ internal sealed class ChannelBrokerClient(string directory) : IDisposable
             ["messageId"] = messageId.ToString("D"), ["recipient"] = Address(recipient), ["outcome"] = (int)outcome,
         }, RequestTimeout, token) ?? throw new ChannelBrokerException("invalid_broker_result");
 
-    internal async Task<MessageReceipt> ReplyAsync(Guid originalMessageId, Guid messageId, string text, CancellationToken token) =>
-        await CallAsync<MessageReceipt>("reply_to_message", new JsonObject
+    // reply_to_message and get_message_receipt answer with the sender's compact receipt, without the text
+    // (N-broker-compact-receipts-01); the bridge reads only ids, addresses and the status from either.
+    internal async Task<SenderReceipt> ReplyAsync(Guid originalMessageId, Guid messageId, string text, CancellationToken token) =>
+        await CallAsync<SenderReceipt>("reply_to_message", new JsonObject
         {
             ["originalMessageId"] = originalMessageId.ToString("D"), ["messageId"] = messageId.ToString("D"), ["text"] = text,
         }, RequestTimeout, token) ?? throw new ChannelBrokerException("invalid_broker_result");
 
-    internal Task<MessageReceipt?> ReceiptAsync(Guid messageId, CancellationToken token) =>
-        CallAsync<MessageReceipt>("get_message_receipt", new JsonObject { ["messageId"] = messageId.ToString("D") }, RequestTimeout, token);
+    internal Task<SenderReceipt?> ReceiptAsync(Guid messageId, CancellationToken token) =>
+        CallAsync<SenderReceipt>("get_message_receipt", new JsonObject { ["messageId"] = messageId.ToString("D") }, RequestTimeout, token);
 
     internal async Task<BrokerSnapshot> SnapshotAsync(CancellationToken token)
     {

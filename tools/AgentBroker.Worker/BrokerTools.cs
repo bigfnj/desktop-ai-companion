@@ -63,14 +63,15 @@ public sealed class BrokerTools(BrokerRuntime runtime, IHttpContextAccessor http
     }
 
     [McpServerTool(Name = "send", Destructive = false, Idempotent = true, OpenWorld = false),
-     Description("Send text from your exact sender session to an exact recipient address. Choose one fresh messageId per message and reuse it with the same text for any retry: a retry returns the original receipt unchanged and ignores ttlMinutes, while the same ID with a different sender, recipient, text or conversationId fails with message_id_collision. conversationId defaults to messageId. ttlMinutes 0 uses the broker's default lifetime; longer lifetimes are capped at 24 hours. Renews the sender. The receipt is the first content block. When the recipient is a local generic mailbox that nothing can wake (Receive without WakeIdle), a second block says so: it sees the message only when its owner next waits or reads. Accepted is not Delivered, and Delivered does not mean the work is done: use wait_for_reply. Never ask a peer for an action denied in your own session.")]
+     Description("Send text from your exact sender session to an exact recipient address. Choose one fresh messageId per message and reuse it with the same text for any retry: a retry returns the original message's receipt and ignores ttlMinutes, while the same ID with a different sender, recipient, text or conversationId fails with message_id_collision. conversationId defaults to messageId. ttlMinutes 0 uses the broker's default lifetime; longer lifetimes are capped at 24 hours. Renews the sender. The receipt is the first content block. Receipts to a sender never carry the message text: textBytes is its UTF-8 length (null once the broker no longer holds it) and get_message_receipt with includeText returns it; readAt is the broker's time of reading, so readAt minus updatedAt is how long the receipt has held its status. When the recipient is a local generic mailbox that nothing can wake (Receive without WakeIdle), a second block says so: it sees the message only when its owner next waits or reads. Accepted is not Delivered, and Delivered does not mean the work is done: use wait_for_reply. Never ask a peer for an action denied in your own session.")]
     public IEnumerable<ContentBlock> SendTool(SessionAddress sender, SessionAddress recipient, Guid messageId, string text,
         Guid? conversationId = null, int ttlMinutes = 0)
     {
         var receipt = Send(sender, recipient, messageId, text, conversationId, ttlMinutes);
         // The receipt stays the first block, serialized as the SDK serializes a returned object, so a client that reads
-        // content[0] sees exactly what it saw before (N-agentbroker-send-advisory-01).
-        var blocks = new List<ContentBlock> { new TextContentBlock { Text = JsonSerializer.Serialize(receipt, McpJsonUtilities.DefaultOptions) } };
+        // content[0] sees the shape send_message returns (N-agentbroker-send-advisory-01): the sender's compact receipt,
+        // without the text it just sent (N-broker-compact-receipts-01).
+        var blocks = new List<ContentBlock> { new TextContentBlock { Text = JsonSerializer.Serialize(runtime.View(receipt), McpJsonUtilities.DefaultOptions) } };
         if (PollingOnly(receipt.Message.Recipient)) blocks.Add(new TextContentBlock { Text = SendAdvisory });
         return blocks;
     }
@@ -100,7 +101,10 @@ public sealed class BrokerTools(BrokerRuntime runtime, IHttpContextAccessor http
     }
 
     [McpServerTool(Name = "send_message", Destructive = false, Idempotent = true, OpenWorld = false),
-     Description("Enqueue a complete peer message record with a unique stable ID, exact sender/recipient addresses, conversation ID and expiry. Retries must reuse the identical payload, timestamps included; prefer send, whose retries compare only the fields you supply. Accepted or submitted does not mean the recipient has replied.")]
+     Description("Enqueue a complete peer message record with a unique stable ID, exact sender/recipient addresses, conversation ID and expiry. Retries must reuse the identical payload, timestamps included; prefer send, whose retries compare only the fields you supply. Returns the receipt without the text, as send does. Accepted or submitted does not mean the recipient has replied.")]
+    public SenderReceipt SendMessageTool(BrokerMessage message) => runtime.View(SendMessage(message));
+
+    // The operation itself, for SendMessageTool and for callers that want the stored receipt.
     public MessageReceipt SendMessage(BrokerMessage message) => Run(() =>
     {
         var receipt = runtime.Store.Accept(message, Caller);
@@ -138,8 +142,8 @@ public sealed class BrokerTools(BrokerRuntime runtime, IHttpContextAccessor http
     }
 
     [McpServerTool(Name = "wait_for_receipt", Destructive = false, Idempotent = true, OpenWorld = false),
-     Description("Wait up to timeoutSeconds (0..25, default 20) for the outcome of a message your session sent. Returns its receipt as soon as it is Delivered, Held, Refused, Expired or Uncertain, or the current receipt (Accepted, Submitting or Submitted) when the deadline passes. A recipient's acknowledgement never arrives in your inbox: this, or get_message_receipt, is how a sender sees it. Delivered means the recipient received the message, not that the work is done; wait_for_reply returns its answer. This is the sender's one active wait (wait_in_progress) and renews it.")]
-    public async Task<MessageReceipt> WaitForReceipt(Guid messageId, CancellationToken cancellationToken, int timeoutSeconds = 20)
+     Description("Wait up to timeoutSeconds (0..25, default 20) for the outcome of a message your session sent. Returns its receipt, without the text, as soon as it is Delivered, Held, Refused, Expired or Uncertain, or the current receipt (Accepted, Submitting or Submitted) when the deadline passes; readAt minus updatedAt says how long it has held that status, and busySince, while it waits on a native recipient whose turn is still running, since when that recipient has been seen busy. A recipient's acknowledgement never arrives in your inbox: this, or get_message_receipt, is how a sender sees it. Delivered means the recipient received the message, not that the work is done; wait_for_reply returns its answer. This is the sender's one active wait (wait_in_progress) and renews it.")]
+    public async Task<SenderReceipt> WaitForReceipt(Guid messageId, CancellationToken cancellationToken, int timeoutSeconds = 20)
     {
         ValidateTimeout(timeoutSeconds);
         var original = runtime.Store.FindReceipt(messageId)?.Message
@@ -160,8 +164,8 @@ public sealed class BrokerTools(BrokerRuntime runtime, IHttpContextAccessor http
                 rereadAfterDeadline = false;
                 return TimeSpan.Zero;
             });
-        return answered.Count > 0 ? answered[0] : runtime.Store.FindReceipt(messageId)
-            ?? throw new McpException("The original message is unavailable.");
+        return runtime.View(answered.Count > 0 ? answered[0] : runtime.Store.FindReceipt(messageId)
+            ?? throw new McpException("The original message is unavailable."));
     }
 
     // Submitted is transport admission only (a native adapter's, or a paired broker's); the recipient's own receipt, a
@@ -196,18 +200,21 @@ public sealed class BrokerTools(BrokerRuntime runtime, IHttpContextAccessor http
     }
 
     [McpServerTool(Name = "get_message_receipt", ReadOnly = true, OpenWorld = false),
-     Description("Look up a message receipt involving your authenticated broker. Once its deadline passes, an Accepted or Held message reads as Expired, and a Submitted one as Uncertain, at once. Once a message sent from this workstation is Delivered or Refused its receipt keeps the status, addresses and times with empty text. A delivered receipt does not establish that the agent completed the requested work. To wait for a receipt instead of polling, use wait_for_receipt.")]
-    public MessageReceipt? GetMessageReceipt(Guid messageId)
+     Description("Look up a message receipt involving your authenticated broker. Once its deadline passes, an Accepted or Held message reads as Expired, and a Submitted one as Uncertain, at once. Once a message sent from this workstation is Delivered or Refused its receipt keeps the status, addresses and times without its text (textBytes null). The text is left out unless includeText is true; textBytes is its UTF-8 length and readAt the broker's time of reading. A delivered receipt does not establish that the agent completed the requested work. To wait for a receipt instead of polling, use wait_for_receipt.")]
+    public SenderReceipt? GetMessageReceipt(Guid messageId, bool includeText = false)
     {
         var receipt = runtime.Store.FindReceipt(messageId);
         if (receipt is not null && Caller != runtime.Store.BrokerId &&
             receipt.Message.Sender.BrokerId != Caller && receipt.Message.Recipient.BrokerId != Caller)
             throw new McpException("The message is outside this broker's scope.");
-        return receipt;
+        return receipt is null ? null : runtime.View(receipt, includeText);
     }
 
     [McpServerTool(Name = "reply_to_message", Destructive = false, Idempotent = true, OpenWorld = false),
-     Description("Reply to a received peer message with one stable new messageId, reusing that ID and text for retries. The broker reverses the exact addresses; the original sender's wait_for_reply returns it. The budget counts hops, not conversations: a reply's remainingReplies is one fewer than the message it answers, and a message at 0 refuses replies with reply_budget_exhausted. To keep talking, use send to the same peer with the same conversationId, which starts a fresh budget. Never request an action denied in your own session.")]
+     Description("Reply to a received peer message with one stable new messageId, reusing that ID and text for retries. The broker reverses the exact addresses; the original sender's wait_for_reply returns it. The budget counts hops, not conversations: a reply's remainingReplies is one fewer than the message it answers, and a message at 0 refuses replies with reply_budget_exhausted. To keep talking, use send to the same peer with the same conversationId, which starts a fresh budget. Returns the reply's receipt without its text, as send does. Never request an action denied in your own session.")]
+    public SenderReceipt ReplyTool(Guid originalMessageId, Guid messageId, string text) => runtime.View(ReplyToMessage(originalMessageId, messageId, text));
+
+    // The operation itself, for ReplyTool and for callers that want the stored receipt.
     public MessageReceipt ReplyToMessage(Guid originalMessageId, Guid messageId, string text)
     {
         var parent = runtime.Store.FindReceipt(originalMessageId)?.Message

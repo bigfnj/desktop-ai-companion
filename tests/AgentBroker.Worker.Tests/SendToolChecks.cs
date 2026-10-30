@@ -94,8 +94,17 @@ internal static class SendToolChecks
             var stored = worker.Runtime.Store.FindReceipt(id);
             await Task.Delay(25);
             var second = await Call(client, sender.Address, recipient.Address, id, "Stable HTTP send.");
-            check(first is not null && first == second && stored is not null && worker.Runtime.Store.FindReceipt(id) == stored,
-                "an HTTP send retry after wall-clock time advances returns the stored receipt unchanged");
+            // The compact receipt carries readAt, the broker's time of the read (lane broker-163), which a retry later in time
+            // must move; everything else is the stored receipt's and must not.
+            static System.Text.Json.Nodes.JsonNode? Unread(string? receipt)
+            {
+                var node = receipt is null ? null : System.Text.Json.Nodes.JsonNode.Parse(receipt);
+                node?.AsObject().Remove("readAt");
+                return node;
+            }
+            check(first is not null && second is not null && System.Text.Json.Nodes.JsonNode.DeepEquals(Unread(first), Unread(second)) &&
+                first != second && stored is not null && worker.Runtime.Store.FindReceipt(id) == stored,
+                "an HTTP send retry after wall-clock time advances returns the stored receipt unchanged, its read time aside");
             check(await Call(client, sender.Address, recipient.Address, id, "Conflicting HTTP send.") is null &&
                 worker.Runtime.Store.FindReceipt(id) == stored,
                 "an HTTP send retry with changed text returns a tool error and leaves the receipt intact");

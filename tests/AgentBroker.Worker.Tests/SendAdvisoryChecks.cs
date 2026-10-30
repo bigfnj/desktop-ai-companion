@@ -68,6 +68,23 @@ internal static class SendAdvisoryChecks
             check(Shape(sent.RootElement) == Shape(classic.RootElement) && sent.RootElement.TryGetProperty("message", out var sentMessage) &&
                 sentMessage.GetProperty("recipient").GetProperty("sessionId").GetString() == mailbox.Address.SessionId,
                 "SEND_ADVISORY_SHAPE: send's first block is the receipt, in exactly the shape send_message returns");
+
+            // The sender's compact receipt on the wire (lane broker-163, N-broker-compact-receipts-01): the SDK serializes what
+            // get_message_receipt returns without the text, and binds includeText.
+            var sentReceipt = sent.RootElement.GetProperty("message");
+            Guid sentId = sentReceipt.GetProperty("id").GetGuid();
+            async Task<JsonElement> Receipt(object arguments)
+            {
+                var content = (await Rpc(client, "tools/call", new { name = "get_message_receipt", arguments })).GetProperty("result").GetProperty("content");
+                using var parsed = JsonDocument.Parse(content[0].GetProperty("text").GetString()!);
+                return parsed.RootElement.Clone();
+            }
+            var compact = await Receipt(new { messageId = sentId });
+            var full = await Receipt(new { messageId = sentId, includeText = true });
+            check(!sentReceipt.TryGetProperty("text", out _) && !compact.GetProperty("message").TryGetProperty("text", out _) &&
+                compact.GetProperty("textBytes").GetInt32() == "Synthetic advisory text.".Length &&
+                full.GetProperty("message").GetProperty("text").GetString() == "Synthetic advisory text.",
+                "COMPACT_WIRE: over MCP, send and get_message_receipt leave the text out, and includeText brings it back");
         }
         finally
         {

@@ -39,7 +39,7 @@ internal static class ReceiptWaitChecks
         Guid pending = Guid.NewGuid();
         tools.Send(sender.Address, recipient.Address, pending, "Synthetic message nobody acknowledges yet.");
         elapsed.Restart();
-        MessageReceipt? current = null;
+        AgentBroker.Worker.SenderReceipt? current = null;
         try { current = await tools.WaitForReceipt(pending, default, timeoutSeconds: 1); }
         catch (McpException) { /* A deadline must return the receipt; the check below names the failure. */ }
         elapsed.Stop();

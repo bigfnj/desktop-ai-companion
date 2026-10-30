@@ -10,6 +10,7 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
 {
     private readonly ConcurrentDictionary<string, string> adapterErrors = new(StringComparer.Ordinal);
     private readonly DeferredDeliveryClaims claims = new(store);
+    private readonly DeliveryObservations observations = new(clock ?? TimeProvider.System);
     private readonly ConcurrentDictionary<string, BrokerSession> observed = new(StringComparer.Ordinal);
     private readonly object sessionGate = new();
     private readonly Dictionary<Guid, Guid> receiptCursors = new();
@@ -26,6 +27,11 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
     private DateTimeOffset Now => (clock ?? TimeProvider.System).GetUtcNow();
     // The store clock, for a tool that must wake at a message deadline (BrokerTools.WaitForReceipt).
     internal DateTimeOffset StoreNow => Now;
+
+    // The sender's view of a receipt: no text unless asked, its own read time, and since when its recipient has been seen
+    // busy (SenderReceipt, DeliveryObservations).
+    internal SenderReceipt View(MessageReceipt receipt, bool includeText = false) =>
+        SenderReceipt.From(receipt, Now, includeText, observations.BusySince(receipt));
 
     public void SetSessionPreference(string sessionId, bool? isPrivate, bool? isMuted)
     {
@@ -129,6 +135,13 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
         var result = store.PresentedDirectory(forPeer).ToList();
         if (!forPeer)
         {
+            // A native row discovery could only call Unknown, whose recipient answered "a turn is still running" to a
+            // delivery attempt within the last 30 seconds, is listed Busy (N-broker-busy-visibility-01): a sender saw Unknown
+            // for two hours while every attempt said busy. Presentation only, local list only: the stored activity, and so
+            // which message is claimed and when (BrokerStore.Ready), are unchanged.
+            for (int index = 0; index < result.Count; index++)
+                if (result[index] is { Activity: SessionActivity.Unknown } row && observations.SeenBusy(row.Address))
+                    result[index] = row with { Activity = SessionActivity.Busy };
             var peers = store.Peers();
             var authorizations = peers.ToDictionary(p => p.BrokerId, store.CapturePeerAuthorization);
             var directories = new ConcurrentDictionary<Guid, BrokerSession[]>();
@@ -358,6 +371,9 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
         // submission may have been written, so it is Uncertain like any unconfirmed one, under its own reason; the type is
         // not recorded, as it could carry a vendor message.
         catch (Exception) { result = new(AdapterAdmission.Uncertain, "submission_failed"); }
+        // What this attempt learned about a local recipient, for the sender's receipt and the directory. Observation only.
+        if (receipt.Message.Recipient.BrokerId == store.BrokerId)
+            observations.Record(receipt.Message, result, id => store.FindReceipt(id) is { Status: MessageStatus.Accepted or MessageStatus.Submitting });
         // A revocation may have resolved an in-flight claim while its IO was completing.
         if (store.FindReceipt(receipt.Message.Id)?.Status != MessageStatus.Submitting) return;
         try
