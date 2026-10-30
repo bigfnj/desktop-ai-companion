@@ -436,6 +436,35 @@ namespace DesktopAICompanion.Wpf
             try { DiagnosticLog.Write(LogCategory.Modules, "info", moduleId, "[" + (moduleId ?? "module") + "] " + line); } catch { }
         }
 
+        /// <summary>The shipped SignInGranted: the grants record's three answers (HostCredentialStore.IsGranted with its
+        /// readable flag, as the store's gate reads it): true allowed, false not allowed, null the record is there and could
+        /// not be read now, or is damaged. The two-answer IsGranted read that as false (the 2026-10-29 audit, A-host-06).</summary>
+        internal static bool? SignInGrantAnswer(string directory, string id)
+        {
+            bool readable;
+            bool granted = DesktopAICompanion.Plugins.HostCredentialStore.IsGranted(directory, id, out readable);
+            if (!readable) return null;
+            return granted;
+        }
+
+        internal const string SignInAllowCaption = "Allow sign-in";
+        internal const string SignInRevokeCaption = "Revoke sign-in";
+
+        /// <summary>What a sign-in row says for <paramref name="granted"/> (SignInGrantAnswer's three values), and the
+        /// caption of the one button it offers: Allow sign-in, Revoke sign-in, or none (null) while the record cannot be
+        /// read, since an Allow or a Revoke recorded then is refused and the record kept as it is.</summary>
+        internal static string SignInRowText(bool? granted, out string button)
+        {
+            if (!granted.HasValue)
+            {
+                button = null;
+                return "The record of which modules may use the shared Claude Code sign-in can't be read just now " +
+                       "(another program may hold it, or it is damaged), so it can't be changed here.";
+            }
+            button = granted == true ? SignInRevokeCaption : SignInAllowCaption;
+            return granted == true ? "Allowed the shared Claude Code sign-in." : "Not allowed the shared Claude Code sign-in.";
+        }
+
         // The live ModuleInfo for a currently-loaded module id, or null when it's on disk but not (yet)
         // loaded -- e.g. just installed, still waiting on the restart prompt. The shipped seam for LoadedInfo.
         internal static ModuleInfo LiveLoadedInfo(string id)
@@ -595,32 +624,40 @@ namespace DesktopAICompanion.Wpf
             // THE SHARED CLAUDE CODE SIGN-IN (host 1.8.0, BACKLOG N-cli-token-02): for a loaded module that declares
             // ModulePermissions.ClaudeCodeSignIn, whether the user allows it, and the button that changes that. The host's
             // credential store answers such a module only while this says allowed (SetSignInAllowed says how it is asked).
+            // A record that cannot be read, or is damaged, is said as such and offers no button (the 2026-10-29 audit,
+            // A-host-06): read as "not allowed" it claimed the user's grant was gone while the store's gate answered
+            // Unavailable, and its Allow then failed in HostCredentialStore.Record, which keeps such a record as it is.
             if (info != null && _seams.SignInGranted != null &&
                 (info.Permissions & ModulePermissions.ClaudeCodeSignIn) == ModulePermissions.ClaudeCodeSignIn)
             {
-                bool allowed = _seams.SignInGranted(id);
+                bool? granted = _seams.SignInGranted(id);
+                string signInCaption;
                 nameStack.Children.Add(new TextBlock
                 {
-                    Text = allowed ? "Allowed the shared Claude Code sign-in." : "Not allowed the shared Claude Code sign-in.",
+                    Text = SignInRowText(granted, out signInCaption),
                     FontSize = 11,
-                    Foreground = Brushes.Gray,
+                    Foreground = granted.HasValue ? Brushes.Gray : Brushes.Goldenrod,
                     TextWrapping = TextWrapping.Wrap,
                 });
-                var signIn = new Button
+                if (signInCaption != null)
                 {
-                    Content = allowed ? "Revoke sign-in" : "Allow sign-in",
-                    MinWidth = 100,
-                    Padding = new Thickness(8, 1, 8, 1),
-                    Margin = new Thickness(0, 0, 6, 0),
-                    VerticalAlignment = VerticalAlignment.Center,
-                    IsEnabled = !_updatingAll,
-                    ToolTip = allowed
-                        ? "Stop this module using the Claude Code sign-in token the app keeps for the modules you allow."
-                        : "Let this module read, replace and remove the Claude Code sign-in token the app keeps for the modules you allow.",
-                };
-                string signInName = info.Name;
-                signIn.Click += delegate { SetSignInAllowed(id, signInName, !allowed); };
-                sp.Children.Add(signIn);
+                    bool allowed = granted == true;
+                    var signIn = new Button
+                    {
+                        Content = signInCaption,
+                        MinWidth = 100,
+                        Padding = new Thickness(8, 1, 8, 1),
+                        Margin = new Thickness(0, 0, 6, 0),
+                        VerticalAlignment = VerticalAlignment.Center,
+                        IsEnabled = !_updatingAll,
+                        ToolTip = allowed
+                            ? "Stop this module using the Claude Code sign-in token the app keeps for the modules you allow."
+                            : "Let this module read, replace and remove the Claude Code sign-in token the app keeps for the modules you allow.",
+                    };
+                    string signInName = info.Name;
+                    signIn.Click += delegate { SetSignInAllowed(id, signInName, !allowed); };
+                    sp.Children.Add(signIn);
+                }
             }
 
             // Not while Update all runs: the run's own MarkForUpdate of the same module forgets a pending removal
@@ -793,7 +830,9 @@ namespace DesktopAICompanion.Wpf
             }
             if (!_seams.SetSignInGrant(id, allow))
             {
-                _status.Text = "Couldn't record that for " + display + ": the app's data folder could not be written.";
+                // HostCredentialStore.Record answers false for a record it cannot read (kept as it is) as well as for one it
+                // cannot write, so the line names both (A-host-06: it said only "could not be written").
+                _status.Text = "Couldn't record that for " + display + ": the app's record of who is allowed could not be read or written just now.";
                 return;
             }
             _status.Text = allow
@@ -1455,8 +1494,10 @@ namespace DesktopAICompanion.Wpf
         /// <summary>Where the problem panel's Copy details puts its text: the clipboard, shipped.</summary>
         internal Action<string> CopyText;
         /// <summary>Whether the user allows a module the shared Claude Code sign-in, and recording an Allow or a Revoke
-        /// (host 1.8.0): the host's grants file, shipped. Null in a probe that sets neither, which then shows no sign-in row.</summary>
-        internal Func<string, bool> SignInGranted;
+        /// (host 1.8.0): the host's grants file, shipped. Null in a probe that sets neither, which then shows no sign-in row.
+        /// The answer has three values, the record's own (ModulesPaneControl.SignInGrantAnswer): true allowed, false not
+        /// allowed, null the record could not be read just now or is damaged, which is no answer either way.</summary>
+        internal Func<string, bool?> SignInGranted;
         internal Func<string, bool, bool> SetSignInGrant;
 
         internal static ModulesPaneSeams Live()
@@ -1483,7 +1524,7 @@ namespace DesktopAICompanion.Wpf
                 CopyText = Clipboard.SetText,
                 SignInGranted = delegate (string id)
                 {
-                    return DesktopAICompanion.Plugins.HostCredentialStore.IsGranted(DesktopAICompanion.Plugins.HostCredentialStore.DefaultDirectory, id);
+                    return ModulesPaneControl.SignInGrantAnswer(DesktopAICompanion.Plugins.HostCredentialStore.DefaultDirectory, id);
                 },
                 SetSignInGrant = delegate (string id, bool allowed)
                 {

@@ -267,14 +267,16 @@ namespace DesktopAICompanion.Plugins
             RaiseEach<Action>(_hostShutdown, "HostShutdown", h => h());
         }
 
-        /// <summary>Every subscriber across the six module-facing events, for the self-test that proves a
-        /// rolled-back Init left none behind (F344), and its witness that a healthy Init left some.</summary>
+        /// <summary>Every subscriber across the seven ledgered module-facing events, for the self-test that proves a
+        /// rolled-back Init left none behind (F344), and its witness that a healthy Init left some. CredentialChanged
+        /// (host 1.8.0) is the seventh: left out, a leaked handler on it passed the rollback check (the 2026-10-29
+        /// audit, A-host-04).</summary>
         internal int LifecycleSubscriberCount
         {
             get
             {
                 int n = 0;
-                foreach (Delegate d in new Delegate[] { _companionSpawned, _companionPoked, _companionLanded, _hostShutdown, _fullscreenChanged, _contextChanged })
+                foreach (Delegate d in new Delegate[] { _companionSpawned, _companionPoked, _companionLanded, _hostShutdown, _fullscreenChanged, _contextChanged, _credentialChanged })
                     if (d != null) n += d.GetInvocationList().Length;
                 return n;
             }

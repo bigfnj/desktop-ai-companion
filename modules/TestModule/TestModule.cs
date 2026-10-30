@@ -33,6 +33,13 @@ namespace DesktopAICompanion.TestModule
         {
             _host = host;
             host.CompanionPoked += OnPoked;
+            // The shared sign-in's change event (host 1.8.0), subscribed for the Init-rollback check alone: it is the
+            // seventh ledgered event, and with no in-tree module subscribing before a throw, deleting its Ledger call
+            // passed every rollback check (the 2026-10-29 audit, A-host-04). This module declares no ClaudeCodeSignIn
+            // and reads nothing; the handler does nothing. Asked with `as`, as the ABI says, so a host without the
+            // interface is simply not subscribed. Never published (no modules-dist entry), so no MinHostVersion moves.
+            _credentials = host as IHostCredentials;
+            if (_credentials != null) _credentials.CredentialChanged += OnCredentialChanged;
             host.AddTrayItems(new List<TrayItem>
             {
                 new TrayItem { Label = "TestModule OK", Group = 9, Order = 0, Click = TrayClicked },
@@ -81,6 +88,9 @@ namespace DesktopAICompanion.TestModule
             if (info.Pet != null) _host.Say(info.Pet, "poked!"); else _host.SayAll("poked!");
         }
         private void TrayClicked() { if (_host != null) _host.SayAll("test module tray click"); }
+
+        private IHostCredentials _credentials;
+        private void OnCredentialChanged(HostCredentialId credential, long revision) { }
 
         /// <summary>
         /// Spawn a preview from a pet the user already has installed, read back through the pet manager.
@@ -138,6 +148,9 @@ namespace DesktopAICompanion.TestModule
             _preview = null;
             if (preview != null) { try { preview.Remove(); } catch { } }
             if (_host != null) _host.CompanionPoked -= OnPoked;
+            IHostCredentials credentials = _credentials;
+            _credentials = null;
+            if (credentials != null) credentials.CredentialChanged -= OnCredentialChanged;
         }
     }
 }

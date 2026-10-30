@@ -617,6 +617,10 @@ namespace DesktopAICompanion.Plugins
                     ok &= Check(sb, "rollback: WITNESS a healthy Init contributes tray items, a pane and a subscription",
                         loaded == 1 && healthy.TrayItems.Count >= 1 && healthy.OptionsPanes.Count == 1 &&
                         healthy.LifecycleSubscriberCount >= 1);
+                    // The test module subscribes to CompanionPoked and to CredentialChanged (the 2026-10-29 audit,
+                    // A-host-04), so both are in the count the rollback check below reads as zero.
+                    ok &= Check(sb, "audit-host: rollback: WITNESS a healthy Init's CredentialChanged subscription is counted (" +
+                        healthy.LifecycleSubscriberCount + " subscribers)", healthy.LifecycleSubscriberCount >= 2);
                     loader.ShutdownAll(delegate { });
                 }
 
@@ -2142,6 +2146,70 @@ namespace DesktopAICompanion.Plugins
                 HostCredentialCommit removedUnusable = store.Remove("aibrain", HostCredentialId.ClaudeCodeSignIn);
                 ok &= Check(sb, "abi180: review: Remove of a saved value that is no token answers Removed, as the contract says (" + removedUnusable.Outcome + ")",
                     removedUnusable.Outcome == HostCredentialOutcome.Removed && removedUnusable.Revision == 41);
+
+                // THE UNSEAL CACHE LETS GO (the 2026-10-29 audit, A-host-05, BACKLOG N-audit-20261029-12). Read straight
+                // after each commit, before any read could replace what the cache holds: a save lets go of the token it
+                // replaced, and a Remove of the one it removed; a Remove made through another store on the same folder (a
+                // second window of the app) is let go by this store's own Remove, or by its next read.
+                store.TrySave("aibrain", HostCredentialId.ClaudeCodeSignIn, SyntheticToken);
+                bool cacheFilled = store.Read("aibrain", HostCredentialId.ClaudeCodeSignIn).Value == SyntheticToken && store.HoldsUnsealedForDiagnostics;
+                store.TrySave("aibrain", HostCredentialId.ClaudeCodeSignIn, SyntheticOther);
+                bool saveLetGo = !store.HoldsUnsealedForDiagnostics;
+                bool cacheRefilled = store.Read("aibrain", HostCredentialId.ClaudeCodeSignIn).Value == SyntheticOther && store.HoldsUnsealedForDiagnostics;
+                HostCredentialCommit cacheRemove = store.Remove("aibrain", HostCredentialId.ClaudeCodeSignIn);
+                bool removeLetGo = !store.HoldsUnsealedForDiagnostics;
+                var otherWindow = new HostCredentialStore(dir, delegate (string id) { return true; }, null);
+                store.TrySave("aibrain", HostCredentialId.ClaudeCodeSignIn, SyntheticToken);
+                store.Read("aibrain", HostCredentialId.ClaudeCodeSignIn);
+                HostCredentialCommit otherRemove = otherWindow.Remove("aibrain", HostCredentialId.ClaudeCodeSignIn);
+                bool heldAfterOtherRemove = store.HoldsUnsealedForDiagnostics;
+                HostCredentialCommit ownRemove = store.Remove("aibrain", HostCredentialId.ClaudeCodeSignIn);
+                bool ownRemoveLetGo = !store.HoldsUnsealedForDiagnostics;
+                store.TrySave("aibrain", HostCredentialId.ClaudeCodeSignIn, SyntheticOther);
+                store.Read("aibrain", HostCredentialId.ClaudeCodeSignIn);
+                otherWindow.Remove("aibrain", HostCredentialId.ClaudeCodeSignIn);
+                bool heldBeforeRead = store.HoldsUnsealedForDiagnostics;
+                HostCredentialReading readAfterOther = store.Read("aibrain", HostCredentialId.ClaudeCodeSignIn);
+                bool readLetGo = !store.HoldsUnsealedForDiagnostics;
+                ok &= Check(sb, "audit-host: unseal cache: WITNESS a read fills the cache, so the checks beside it are not vacuous",
+                    cacheFilled && cacheRefilled && heldAfterOtherRemove && heldBeforeRead);
+                ok &= Check(sb, "audit-host: unseal cache: a save lets go of the token it replaced before the new one is read (" +
+                    (saveLetGo ? "nothing held" : "the old token held") + ")", saveLetGo);
+                ok &= Check(sb, "audit-host: unseal cache: a Remove leaves no plaintext of the removed token in the store (" +
+                    cacheRemove.Outcome + ", " + (removeLetGo ? "nothing held" : "the token held") + ")",
+                    cacheRemove.Outcome == HostCredentialOutcome.Removed && removeLetGo);
+                ok &= Check(sb, "audit-host: unseal cache: a Remove after another window's lets go of what this store held (" +
+                    otherRemove.Outcome + ", " + ownRemove.Outcome + ", " + (ownRemoveLetGo ? "nothing held" : "the token held") + ")",
+                    otherRemove.Outcome == HostCredentialOutcome.Removed && ownRemove.Outcome == HostCredentialOutcome.NothingToRemove && ownRemoveLetGo);
+                ok &= Check(sb, "audit-host: unseal cache: a read after another window's Remove lets go of what this store held (" +
+                    readAfterOther.State + ", " + (readLetGo ? "nothing held" : "the token held") + ")",
+                    readAfterOther.State == HostCredentialState.None && readLetGo);
+
+                // THE MODULES ROW'S READ OF THE GRANT (the 2026-10-29 audit, A-host-06, BACKLOG N-audit-20261029-13): the
+                // shipped seam and the row's words, pixel-free. A grants record held or damaged is no answer (null), as the
+                // store's gate reads it, and the row then says it cannot be read and offers no button; it said "Not allowed"
+                // and offered an Allow that failed.
+                bool? rowAllowed = DesktopAICompanion.Wpf.ModulesPaneControl.SignInGrantAnswer(dir, "aibrain");
+                bool? rowNotAllowed = DesktopAICompanion.Wpf.ModulesPaneControl.SignInGrantAnswer(dir, "ungranted");
+                bool? rowWhileHeld;
+                using (new FileStream(grants, FileMode.Open, FileAccess.Read, FileShare.None))
+                    rowWhileHeld = DesktopAICompanion.Wpf.ModulesPaneControl.SignInGrantAnswer(dir, "aibrain");
+                byte[] rowGoodGrants = File.ReadAllBytes(grants);
+                File.WriteAllText(grants, "{ damaged");
+                bool? rowWhileDamaged = DesktopAICompanion.Wpf.ModulesPaneControl.SignInGrantAnswer(dir, "aibrain");
+                File.WriteAllBytes(grants, rowGoodGrants);
+                string allowCaption, revokeCaption, heldCaption;
+                string notAllowedLine = DesktopAICompanion.Wpf.ModulesPaneControl.SignInRowText(rowNotAllowed, out allowCaption);
+                DesktopAICompanion.Wpf.ModulesPaneControl.SignInRowText(rowAllowed, out revokeCaption);
+                string heldLine = DesktopAICompanion.Wpf.ModulesPaneControl.SignInRowText(rowWhileHeld, out heldCaption);
+                ok &= Check(sb, "audit-host: modules row: WITNESS a grants record that can be read answers allowed and not allowed, offering Revoke and Allow (" +
+                    revokeCaption + ", " + allowCaption + ")",
+                    rowAllowed == true && rowNotAllowed == false && revokeCaption == "Revoke sign-in" && allowCaption == "Allow sign-in" &&
+                    notAllowedLine == "Not allowed the shared Claude Code sign-in.");
+                ok &= Check(sb, "audit-host: modules row: a grants record held or damaged is no answer, said as unreadable, with no button (" +
+                    (rowWhileHeld.HasValue ? rowWhileHeld.ToString() : "no answer") + ", " + (rowWhileDamaged.HasValue ? rowWhileDamaged.ToString() : "no answer") +
+                    ", " + (heldCaption ?? "no button") + ")",
+                    !rowWhileHeld.HasValue && !rowWhileDamaged.HasValue && heldCaption == null && heldLine.Contains("can't be read just now"));
 
                 // P3-5: the start question for a long name still fits, and names the module's id beside it.
                 string longName = new string('N', 120);

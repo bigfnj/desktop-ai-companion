@@ -3558,7 +3558,11 @@ namespace DesktopAICompanion
                     },
                     CopyText = delegate (string text) { Copied.Add(text); },
                     // The shared Claude Code sign-in's grants (host 1.8.0): in memory, never the data folder's file.
-                    SignInGranted = delegate (string id) { return Granted.Contains(id); },
+                    SignInGranted = delegate (string id)
+                    {
+                        if (GrantsUnreadable) return null;
+                        return Granted.Contains(id);
+                    },
                     SetSignInGrant = delegate (string id, bool allowed)
                     {
                         GrantCalls.Add(id + "=" + (allowed ? "allow" : "revoke") + " after " + Downloads.Count + " downloads");
@@ -3573,6 +3577,8 @@ namespace DesktopAICompanion
             /// <summary>The module ids allowed the shared Claude Code sign-in, and each Allow or Revoke the pane recorded.</summary>
             internal readonly HashSet<string> Granted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             internal readonly List<string> GrantCalls = new List<string>();
+            /// <summary>The grants record held by another program or damaged: the seam answers null, no answer either way.</summary>
+            internal bool GrantsUnreadable;
 
             /// <summary>What a check-now returns, when a case sets it; the probe's own catalog otherwise.</summary>
             internal Func<Task<RemoteCatalog>> Refresh;
@@ -5714,6 +5720,26 @@ namespace DesktopAICompanion
                     !row.Granted.Contains("aibrain") && row.Asked.Count == askedBeforeRevoke &&
                     row.Pane.StatusText.Contains("stays for the other modules you allow") &&
                     ModulesPaneProbe.Find(row.Buttons(), "Allow sign-in") != null);
+
+                // THE RECORD CANNOT BE READ (the 2026-10-29 audit, A-host-06, BACKLOG N-audit-20261029-13): an allowed module's
+                // row says the record cannot be read, never "Not allowed", and offers neither button; its Uninstall is the WITNESS
+                // that the row was built.
+                var unreadable = new ModulesPaneProbe(root, "unreadable");
+                unreadable.Installed("aibrain", "AI Brain", "1.8.0");
+                unreadable.Loaded["aibrain"].Permissions = ModulePermissions.Speech | ModulePermissions.ClaudeCodeSignIn;
+                unreadable.Granted.Add("aibrain");
+                unreadable.GrantsUnreadable = true;
+                unreadable.Build();
+                List<System.Windows.Controls.Button> unreadableButtons = unreadable.Buttons();
+                List<string> unreadableTexts = TextOf(unreadable.Pane);
+                string unreadableCaption;
+                string unreadableLine = DesktopAICompanion.Wpf.ModulesPaneControl.SignInRowText(null, out unreadableCaption);
+                ok &= Check(sb, "audit-host: modules row: a grants record that cannot be read is said so, with no Allow or Revoke offered (" +
+                    ModulesPaneProbe.Captions(unreadableButtons) + ")",
+                    unreadableTexts.Contains(unreadableLine) && !unreadableTexts.Contains("Not allowed the shared Claude Code sign-in.") &&
+                    !unreadableTexts.Contains("Allowed the shared Claude Code sign-in.") &&
+                    ModulesPaneProbe.Find(unreadableButtons, "Allow sign-in") == null && ModulesPaneProbe.Find(unreadableButtons, "Revoke sign-in") == null &&
+                    ModulesPaneProbe.Find(unreadableButtons, "Uninstall") != null);
             }
             catch (Exception ex)
             {
