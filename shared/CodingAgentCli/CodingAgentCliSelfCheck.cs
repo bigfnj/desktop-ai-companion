@@ -4406,6 +4406,12 @@ namespace DesktopAICompanion.CodingAgent
     /// holding nothing usable; Remove closing the store), with switches for what a check needs to put in front of the
     /// runner: the user's grant, a store that cannot be read, a saved value that is unusable, and the change event raised
     /// at once or held until the check releases it. The host's own store is checked by --module-host-selftest.
+    ///
+    /// NOT HOST 1.8.0 IN TWO RULES, ON PURPOSE (N-final-host-01): its Remove closes a store never used, and its CredentialChanged
+    /// reaches every subscriber, as the host did before lane fix/final-host-1029 moved the runner's guards into it (a Remove
+    /// on a store never used leaves it open; the event reaches only allowed modules, and an Allow recorded is announced to
+    /// that module). Kept so the runner's own guards (N-audit-20261029-01, -04) stay tested against a host that lacks them.
+    /// A check about the host's behaviour belongs in --module-host-selftest, never on this fake.
     /// </summary>
     internal sealed class FakeHostCredentials : IHostCredentials
     {

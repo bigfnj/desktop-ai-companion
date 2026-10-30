@@ -868,7 +868,7 @@ namespace DesktopAICompanion.Plugins
 
         private HostCredentialStore WireCredentials(HostCredentialStore store)
         {
-            if (store != null) store.Committed = RaiseCredentialChanged;
+            if (store != null) { store.Committed = RaiseCredentialChanged; store.Granted = RaiseCredentialGranted; }
             return store;
         }
 
@@ -931,7 +931,7 @@ namespace DesktopAICompanion.Plugins
         /// <summary>The CredentialChanged handlers whose module the store allows <paramref name="credential"/> NOW (asked when
         /// the event is raised, so a grant given or revoked since the module subscribed counts), in subscription order, or
         /// null. A handler skipped is logged once per module and reason, never with the revision.</summary>
-        private Delegate AllowedCredentialHandlers(HostCredentialId credential)
+        private Delegate AllowedCredentialHandlers(HostCredentialId credential, string onlyModule = null)
         {
             Action<HostCredentialId, long> all = _credentialChanged;
             if (all == null) return null;
@@ -943,6 +943,7 @@ namespace DesktopAICompanion.Plugins
             {
                 string owner;
                 lock (_credentialHandlerOwners) { if (!_credentialHandlerOwners.TryGetValue(handler, out owner)) owner = null; }
+                if (onlyModule != null && !string.Equals(owner, onlyModule, StringComparison.OrdinalIgnoreCase)) continue;
                 bool allows = false;
                 if (owner != null && !verdicts.TryGetValue(owner, out allows))
                 {
@@ -1017,6 +1018,24 @@ namespace DesktopAICompanion.Plugins
         private void RaiseCredentialChanged(HostCredentialId credential, long revision)
         {
             OnUi(delegate { RaiseEach<Action<HostCredentialId, long>>(AllowedCredentialHandlers(credential), "CredentialChanged", h => h(credential, revision)); });
+        }
+
+        /// <summary>The store's Granted callback (N-final-host-02): an Allow just recorded for <paramref name="moduleId"/>, from the
+        /// Modules pane or the start question. A grant commits no envelope, so no CredentialChanged was raised, and the module,
+        /// refused until now, never heard other modules' commits either (N-audit-runner-02): its pane kept its refused readings
+        /// until it next read the store. Raised to that module's handlers alone, at the store's current revision, and only
+        /// while the store allows it (a revoke in between wins).</summary>
+        private void RaiseCredentialGranted(string moduleId)
+        {
+            HostCredentialStore store;
+            lock (_credentialsSync) store = _credentials;
+            if (store == null || string.IsNullOrEmpty(moduleId)) return;
+            long revision = store.CurrentRevision();
+            OnUi(delegate
+            {
+                RaiseEach<Action<HostCredentialId, long>>(AllowedCredentialHandlers(HostCredentialId.ClaudeCodeSignIn, moduleId), "CredentialChanged",
+                    h => h(HostCredentialId.ClaudeCodeSignIn, revision));
+            });
         }
 
         public async System.Threading.Tasks.Task<byte[]> DownloadCatalogItemAsync(string kind, string id)

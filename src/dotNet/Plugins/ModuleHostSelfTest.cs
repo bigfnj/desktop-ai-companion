@@ -1795,6 +1795,15 @@ namespace DesktopAICompanion.Plugins
                 ok &= Check(sb, "abi180: store: WITNESS a recorded grant lets a declaring module in, ids compared as the loader compares them",
                     granted && HostCredentialStore.IsGranted(dir, "AIBRAIN") && HostCredentialStore.IsGranted(dir, "remembrance") &&
                     !HostCredentialStore.IsGranted(dir, "ungranted"));
+                // A RECORDED ALLOW IS ANNOUNCED (N-final-host-02): a grant commits no envelope, and a module refused until now
+                // heard no other module's commit either, so its pane kept its refused readings. AI Brain's two handlers hear
+                // its Allow once, at the store's current revision (0, never used); nobody else hears it. Counted afresh below.
+                ok &= Check(sb, "final-host: store: a recorded Allow raises CredentialChanged to that module at the store's current revision (" +
+                    string.Join(",", events.ConvertAll<string>(delegate (long r) { return r.ToString(); }).ToArray()) + "; thrower " + throwingCalls +
+                    "; others " + ungrantedHeard + "," + undeclaredHeard + "," + unattributedHeard + ")",
+                    events.Count == 1 && events[0] == 0 && throwingCalls == 1 && ungrantedHeard == 0 && undeclaredHeard == 0 && unattributedHeard == 0);
+                lock (events) events.Clear();
+                throwingCalls = 0;
 
                 // NEVER USED, then SAVED: DPAPI round trip, shared by every allowed module, one event with the revision.
                 HostCredentialReading virgin = creds.ReadCredential("aibrain", HostCredentialId.ClaudeCodeSignIn);
@@ -1846,8 +1855,12 @@ namespace DesktopAICompanion.Plugins
                 ok &= Check(sb, "abi180: store: a second Remove is NothingToRemove at the same revision, and announces nothing (" + again.Outcome + " " + again.Revision + ")",
                     again.Outcome == HostCredentialOutcome.NothingToRemove && again.Revision == 2 && events.Count == 2);
                 // The grant is asked when the event is raised, not when the handler was added: allowed now, it hears the next.
+                int ungrantedPreGrant = ungrantedHeard, aibrainPreGrant = events.Count;
                 HostCredentialStore.SetGrant(dir, "ungranted", true, null);
                 int ungrantedBefore = ungrantedHeard;
+                ok &= Check(sb, "final-host: store: an Allow recorded for one module is heard by that module alone; an allowed module beside it hears nothing (" +
+                    (ungrantedBefore - ungrantedPreGrant) + ", " + (events.Count - aibrainPreGrant) + ")",
+                    ungrantedBefore == ungrantedPreGrant + 1 && events.Count == aibrainPreGrant);
                 HostCredentialCommit pasted = creds.TrySaveCredential("aibrain", HostCredentialId.ClaudeCodeSignIn, SyntheticOther);
                 int ungrantedAfter = ungrantedHeard;
                 HostCredentialStore.SetGrant(dir, "ungranted", false, null);

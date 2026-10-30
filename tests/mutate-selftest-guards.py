@@ -15398,8 +15398,9 @@ CASES = (
      "abi180: start question: the queue takes it"),
     ("abi180: start question: Revoke on the row is not an answer",
      os.path.join(REPO, "src", "dotNet", "Plugins", "HostCredentialStore.cs"),
-     b'            return Record(directory, moduleId, allowed, !allowed, log,\n',
-     b'            return Record(directory, moduleId, allowed, false, log,\n',
+     # (Re-pointed by N-final-host-02: SetGrant keeps Record's answer to announce a recorded Allow.)
+     b'            bool recorded = Record(directory, moduleId, allowed, !allowed, log,\n',
+     b'            bool recorded = Record(directory, moduleId, allowed, false, log,\n',
      HOST_CSPROJ, EXE,
      "--module-host-selftest", "dp-module-host-selftest.txt",
      "abi180: start question: Allow on the row clears a recorded no, Revoke records one, and an uninstall forgets both"),
@@ -15680,6 +15681,23 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--module-host-selftest", "dp-module-host-selftest.txt",
      "abi180: store: a launch whose removal marker cannot be read answers, removes nothing and keeps the module's grant"),
+    # N-final-host-02: a recorded Allow is announced to nobody again, so a module allowed just now keeps its refused
+    # readings until it next reads the store.
+    ("coordinator-1029: host: a recorded Allow is announced to nobody",
+     os.path.join(REPO, "src", "dotNet", "Plugins", "HostCredentialStore.cs"),
+     b"            if (recorded && allowed) AnnounceGrant(directory, (moduleId ?? \"\").Trim());\n",
+     b"            if (recorded && allowed && moduleId == null) AnnounceGrant(directory, (moduleId ?? \"\").Trim());\n",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "final-host: store: a recorded Allow raises CredentialChanged to that module at the store's current revision"),
+    # ...and announced to every allowed module, not the one allowed.
+    ("coordinator-1029: host: an Allow is announced to every allowed module",
+     os.path.join(REPO, "src", "dotNet", "Plugins", "CompanionHost.cs"),
+     b"                if (onlyModule != null && !string.Equals(owner, onlyModule, StringComparison.OrdinalIgnoreCase)) continue;\n",
+     b"                if (onlyModule != null && onlyModule.Length == 0) continue;\n",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "final-host: store: an Allow recorded for one module is heard by that module alone"),
 
     # N-followups-01: the pet off Form.TopMost, graded by --hardening-selftest through FormCompanion's z-order seam. No
     # mutant here makes a real activating call: the Designer mutant fails the flag check BEFORE any pet window is made (the

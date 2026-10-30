@@ -72,6 +72,57 @@ namespace DesktopAICompanion.Plugins
             _directory = directory;
             _declares = declares;
             _log = log;
+            lock (LiveStores)
+            {
+                LiveStores.RemoveAll(w => { HostCredentialStore s; return !w.TryGetTarget(out s); });
+                LiveStores.Add(new WeakReference<HostCredentialStore>(this));
+            }
+        }
+
+        // A RECORDED ALLOW REACHES THE STORES ON ITS FOLDER (N-final-host-02). SetGrant is static, called by the Modules pane and
+        // the start question, neither of which holds a host; since CredentialChanged reaches only allowed modules (N-audit-
+        // runner-02), a module allowed just now heard nothing and kept its refused readings until it next read the store. Weak,
+        // so the list pins no store and no host (a host has no teardown, and the self-tests make many).
+        private static readonly List<WeakReference<HostCredentialStore>> LiveStores = new List<WeakReference<HostCredentialStore>>();
+
+        /// <summary>Called with a module's id after an Allow for it was recorded in this store's folder (CompanionHost raises
+        /// CredentialChanged to that module alone at the current revision). Never with a value.</summary>
+        internal Action<string> Granted;
+
+        /// <summary>The revision the envelope holds now, -1 when it cannot be read: what a newly allowed module is told, so its
+        /// runner reads the store it was refused until now. No gate: a number, never a value.</summary>
+        internal long CurrentRevision()
+        {
+            try
+            {
+                Envelope envelope = ReadEnvelope();
+                if (envelope.Unavailable || envelope.Damaged) return -1;
+                return envelope.Exists ? envelope.Revision : 0;
+            }
+            catch { return -1; }
+        }
+
+        private static void AnnounceGrant(string directory, string moduleId)
+        {
+            var targets = new List<HostCredentialStore>();
+            lock (LiveStores)
+                foreach (WeakReference<HostCredentialStore> w in LiveStores)
+                {
+                    HostCredentialStore s;
+                    if (w.TryGetTarget(out s) && SameDirectory(s._directory, directory)) targets.Add(s);
+                }
+            foreach (HostCredentialStore s in targets)
+            {
+                Action<string> granted = s.Granted;
+                if (granted == null) continue;
+                try { granted(moduleId); } catch { }
+            }
+        }
+
+        private static bool SameDirectory(string a, string b)
+        {
+            try { return string.Equals(Path.GetFullPath(a).TrimEnd('\\', '/'), Path.GetFullPath(b).TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase); }
+            catch { return false; }
         }
 
         /// <summary>&lt;data folder&gt;\credentials: outside every module's folder (an uninstall deletes those,
@@ -682,8 +733,10 @@ namespace DesktopAICompanion.Plugins
         /// clears that. Under its own lock, so two windows of the app cannot lose each other's change.</summary>
         internal static bool SetGrant(string directory, string moduleId, bool allowed, Action<string, string> log)
         {
-            return Record(directory, moduleId, allowed, !allowed, log,
+            bool recorded = Record(directory, moduleId, allowed, !allowed, log,
                 "claude-code-signin " + (allowed ? "allowed" : "no longer allowed") + " by the user");
+            if (recorded && allowed) AnnounceGrant(directory, (moduleId ?? "").Trim());
+            return recorded;
         }
 
         /// <summary>The start question's "Don't ask again": no grant, and the question is not asked for it again.</summary>
