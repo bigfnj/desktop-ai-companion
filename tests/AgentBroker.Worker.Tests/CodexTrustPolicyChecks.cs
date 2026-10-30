@@ -208,14 +208,18 @@ internal static class CodexTrustPolicyChecks
             await using (var adapter = new CodexNativeAdapter(connected, enableDelivery: true, updateTolerantDelivery: tolerant))
             {
                 var row = (await adapter.DiscoverAsync(Guid.NewGuid(), default)).Single();
+                // Counted from before the failing pass (lane broker-162, N-broker-161-01): the reconnect now starts in the
+                // background as the failed lookup discards the connection, and only a discovery lookup adopts it. A delivery
+                // that connected or adopted it would leave the provider no longer pending.
+                int connectsBefore = connects;
                 dropped.DiscoverFailure = new IOException("Synthetic owner lookup failure.");
                 await adapter.DiscoverAsync(Guid.NewGuid(), default);
                 dropped.DiscoverFailure = null;
                 bool pendingBefore = connected.VerificationPending;
-                int connectsBefore = connects;
                 var deferred = await adapter.SubmitAsync(Message(row), default);
-                check(pendingBefore && deferred is { Outcome: AdapterAdmission.DeferredNotSubmitted, Reason: "native_verification_unavailable" } &&
-                    connects == connectsBefore && dropped.Submissions == 0,
+                check(pendingBefore && connected.VerificationPending &&
+                    deferred is { Outcome: AdapterAdmission.DeferredNotSubmitted, Reason: "native_verification_unavailable" } &&
+                    dropped.Submissions == 0,
                     File + "TRANSIENT_OWNER_CONNECTION_DEFERS: a message arriving while the owner connection is down defers without connecting (" + mode + ", " + deferred.Reason + ")");
                 var renewed = (await adapter.DiscoverAsync(Guid.NewGuid(), default)).Single();
                 var reconnected = await adapter.SubmitAsync(Message(renewed), default);

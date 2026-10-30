@@ -41,7 +41,21 @@ public sealed partial class AgentBrokerModule : IModule
     {
         Id = "agentbroker",
         Name = "AgentBroker",
-        Version = "1.6.1",   // 1.6.1: fixes after the 2026-10-29 audit (lane feature/broker-161). A message to a Codex
+        Version = "1.6.2",   // 1.6.2: broker-161's filed items and two found on the way (lane feature/broker-162). A
+                             //        delivery or receipt loop that fails unexpectedly is shown in Status (delivery:
+                             //        loop_failed or receipts: loop_failed, with a count and the last time) and runs
+                             //        again after a pause of one second doubling to a minute (N-broker-161-02); a
+                             //        submission that threw an unexpected exception ends Uncertain submission_failed
+                             //        instead of holding every later message to its recipient until a restart. Codex
+                             //        rows stay listed when one chat's owner lookup keeps timing out: the owner
+                             //        reconnect runs in the pause between discovery passes, after a failed lookup and
+                             //        after a failed submission alike (N-broker-161-01, N-broker-162-02), and the
+                             //        lookup order no longer blames a slow reconnect on the chat that waited for it, so
+                             //        even a reconnect longer than a pass and a pause lets every other pass renew the
+                             //        rows (N-broker-162-01). An uncertain Claude delivery names its cause
+                             //        (native_uncertain_raised_io, _access or _cancelled; N-broker-161-03). The
+                             //        private/mute preference wiring has its own check.
+                             // 1.6.1: fixes after the 2026-10-29 audit (lane feature/broker-161). A message to a Codex
                              //        chat is no longer refused because the broker could not finish checking the Codex
                              //        engine: the row stays listed with Receive only and the message waits for a check
                              //        that completes, refused only after five minutes of incomplete checks

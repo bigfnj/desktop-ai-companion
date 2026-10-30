@@ -132,9 +132,11 @@ try
         replacement.Failure = "other_native_error";
         try { await provider.SubmitAsync(refreshed, Guid.NewGuid(), "other", default); throw new InvalidOperationException("Expected ambiguous native failure."); }
         catch (DesktopAdapterException error)
-        // Since AgentBroker 1.6.1 the connection a failed request leaves behind is retired (A-broker-07), so the next
-        // discovery pass reconnects with full verification; nothing reconnects inside this call and nothing is retried.
-        { Check(error.Code == "other_native_error" && replacement.Disposed && connections == 2 && !provider.NativeIdleGuard,
+        // Since AgentBroker 1.6.1 the connection a failed request leaves behind is retired (A-broker-07), and nothing is
+        // retried. Since 1.6.2 its replacement is started at once in the background (N-broker-162-02), so a connect count
+        // here races; what must hold is that nothing is adopted inside this call: the provider holds no connection
+        // (VerificationPending) until a discovery lookup adopts the replacement, with full verification.
+        { Check(error.Code == "other_native_error" && replacement.Disposed && !provider.NativeIdleGuard && provider.VerificationPending,
             "Other native failures are not relabeled safe retry or silently reconnected."); }
     }
     Check(replacement.Disposed, "Replacement native connection closes on provider disposal.");
@@ -290,6 +292,21 @@ try
         Check((await enabled.SubmitAsync(message, new PeerSenderInfo("Synthetic Claude sender", "local"), default)).Outcome == AdapterAdmission.Submitted &&
             JsonDocument.Parse(claude.LastMessage!.Text[(claude.LastMessage.Text.IndexOf('\n') + 1)..]).RootElement.GetProperty("senderLabel").GetString() == "Synthetic Claude sender",
             "LABEL_CLAUDE_ADAPTER: the Claude adapter puts the sender description it is given into the envelope it submits");
+        // N-broker-161-03: an exception out of the native submission stays Uncertain and names its cause, as Codex's does.
+        var raised = new List<string>();
+        foreach (Exception failure in new Exception[] { new IOException("Synthetic pipe failure."),
+            new UnauthorizedAccessException("Synthetic access failure."), new OperationCanceledException() })
+        {
+            claude.SubmitFailure = failure;
+            var outcome = await enabled.SubmitAsync(message, default);
+            raised.Add(outcome.Outcome == AdapterAdmission.Uncertain ? outcome.Reason ?? "no reason" : outcome.Outcome.ToString());
+        }
+        claude.SubmitFailure = null;
+        Check(string.Join(",", raised) == "native_uncertain_raised_io,native_uncertain_raised_access,native_uncertain_raised_cancelled",
+            "CLAUDE_UNCERTAIN_RAISED_CAUSE: an exception out of the Claude native submission stays Uncertain and records its cause (" +
+            string.Join(",", raised) + ")");
+        Check((await enabled.SubmitAsync(message, default)).Outcome == AdapterAdmission.Submitted,
+            "CLAUDE_UNCERTAIN_RAISED_CAUSE WITNESS: the same submission without the exception is Submitted");
         int before = claude.CredentialReads;
         claude.Current = claude.Current with { Target = target with { StartFileTime = target.StartFileTime + 1 } };
         Check((await enabled.SubmitAsync(message, default)).Outcome == AdapterAdmission.DeferredNotSubmitted && claude.CredentialReads == before,
@@ -370,12 +387,17 @@ sealed class FakeClaude(ClaudeNativeCandidate initial) : IClaudeNativeProvider
     internal ClaudeNativeCandidate Current = initial;
     internal int Submits, CredentialReads, Refreshes;
     internal NativeMessage? LastMessage;
+    internal Exception? SubmitFailure;
     public Task<IReadOnlyList<ClaudeNativeCandidate>> DiscoverAsync(CancellationToken token)
         => Task.FromResult<IReadOnlyList<ClaudeNativeCandidate>>([Current]);
     public Task<ClaudeNativeCandidate?> RefreshAsync(int pid, CancellationToken token)
     { Refreshes++; return Task.FromResult<ClaudeNativeCandidate?>(Current); }
     public Task<SubmissionResult> SubmitAsync(NativeTarget target, NativeMessage message, CancellationToken token)
-    { Submits++; CredentialReads++; LastMessage = message; return Task.FromResult(new SubmissionResult(SubmissionStatus.SubmittedUnconfirmed, "synthetic_write")); }
+    {
+        Submits++; CredentialReads++; LastMessage = message;
+        if (SubmitFailure is { } failure) return Task.FromException<SubmissionResult>(failure);
+        return Task.FromResult(new SubmissionResult(SubmissionStatus.SubmittedUnconfirmed, "synthetic_write"));
+    }
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 }
 

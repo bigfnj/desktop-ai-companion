@@ -172,11 +172,19 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
         // CODEX_RECONNECT_KEPT). The reconnect now runs on its own budget, and a connection no request has failed on is
         // kept when the pass ran out meanwhile: no request was sent, so no late answer can exist. Every new connection is
         // still fully verified; nothing here skips or reuses a verification. A lookup that fails still discards it below.
+        bool reconnected = adapter is null;
         if (adapter is null)
         {
-            using var budget = new CancellationTokenSource(OwnerReconnectBudget);
-            adapter = await connect(budget.Token);
+            adapter = await AdoptReconnectAsync();
+            if (adapter is null)
+            {
+                using var budget = new CancellationTokenSource(OwnerReconnectBudget);
+                adapter = await connect(budget.Token);
+            }
         }
+        // A pass that ran out while this lookup waited for the connection never sent this conversation's request: the time
+        // was the reconnect's, so the adapter must not mark the conversation slow (N-broker-162-01).
+        if (reconnected && token.IsCancellationRequested) throw new CodexReconnectOutlastedPassException(token);
         token.ThrowIfCancellationRequested();
         try { return await adapter.DiscoverAsync(conversationId, token); }
         // The router's complete answer about one conversation leaves the protocol in step: the library throws these two
@@ -187,14 +195,69 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
         catch
         {
             await adapter.DisposeAsync();
-            adapter = null; throw;
+            adapter = null;
+            BeginReconnect();
+            throw;
         }
+    }
+
+    // The reconnect after a failed lookup starts at once, so it runs in the pause between passes (N-broker-161-01). It used
+    // to run inside the next pass, charged to whichever conversation came first: with one conversation whose lookup times
+    // out on every pass (and drops the connection each time) and a reconnect longer than a pass, the other rows were
+    // renewed on every other pass at best, and with 10-second passes and pauses that exceeds the 30-second lease
+    // (reproduced offline by CODEX_RECONNECT_BETWEEN_PASSES). The new connection is fully verified as before, and the
+    // failed one is still discarded first: a connection a request failed on is never reused. Only code under the
+    // adapter's gate (every caller of this provider holds it) reads or writes these two fields; the task touches neither.
+    private Task<ICodexOwnerConnection>? reconnecting;
+    private CancellationTokenSource? reconnectBudget;
+
+    private void BeginReconnect()
+    {
+        if (reconnecting is not null) return;
+        var budget = new CancellationTokenSource(OwnerReconnectBudget);
+        reconnectBudget = budget;
+        // Task.Run because the router verification inside a connect is synchronous and this runs inside a failed lookup.
+        reconnecting = Task.Run(() => connect(budget.Token));
+    }
+
+    // The started reconnect's connection, or null when none was started or it failed. A failure from between passes is not
+    // rethrown, since it may be stale: the caller connects afresh, and that attempt's failure is the one reported, exactly as
+    // an inline reconnect's was.
+    private async Task<ICodexOwnerConnection?> AdoptReconnectAsync()
+    {
+        var started = reconnecting; var budget = reconnectBudget;
+        reconnecting = null; reconnectBudget = null;
+        if (started is null) return null;
+        try { return await started; }
+        catch (Exception) { return null; }
+        finally { budget?.Dispose(); }
+    }
+
+    // A reconnect still running at disposal is cancelled where it can be (the pipe connect and the initialize request honour
+    // the token) and NOT awaited: the router verification takes no token, and shutdown should not wait for a connection
+    // nobody will use. A connection it produces anyway is closed when it arrives; its failure is nobody's to report.
+    private void DiscardReconnect()
+    {
+        var started = reconnecting; var budget = reconnectBudget;
+        reconnecting = null; reconnectBudget = null;
+        if (started is null || budget is null) return;
+        budget.Cancel();
+        _ = CloseLateAsync(started, budget);
+    }
+
+    private static async Task CloseLateAsync(Task<ICodexOwnerConnection> started, CancellationTokenSource budget)
+    {
+        try { await (await started).DisposeAsync(); }
+        catch (Exception) { }
+        finally { budget.Dispose(); }
     }
 
     // A submission whose request failed leaves a connection the library has closed (DesktopAdapter.RequestAsync), and an
     // Uncertain answer may come from exactly that. Kept, the next discovery pass met connection_closed, which fails the
     // whole pass and clears every binding (A-broker-07). Retired here, the state reads as pending (adapter null), delivery
-    // defers without connecting, and the discovery loop reconnects. A connection a request failed on is never reused.
+    // defers without connecting, and the replacement starts at once, as after a failed lookup, so the next discovery pass
+    // adopts it instead of reconnecting inside itself (N-broker-162-02). A connection a request failed on is never reused:
+    // the replacement is a new, fully verified connection, and it reaches delivery only through a discovery lookup.
     private async Task RetireOwnerConnectionAsync()
     {
         var retired = adapter;
@@ -202,6 +265,7 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
         if (retired is null) return;
         try { await retired.DisposeAsync(); }
         catch (Exception error) when (error is IOException or ObjectDisposedException) { }
+        BeginReconnect();
     }
 
     public async Task<DesktopSubmissionResult> SubmitAsync(DesktopOwnerBinding binding, Guid messageId, string text, CancellationToken token)
@@ -259,10 +323,16 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
         discoveryDiagnostics = Array.Empty<AdapterDiscoveryDiagnostic>();
         var retiredDirectory = directory; directory = null;
         var retiredOwner = adapter; adapter = null;
+        DiscardReconnect();
         try { if (retiredDirectory is not null) await retiredDirectory.DisposeAsync(); }
         finally { if (retiredOwner is not null) await retiredOwner.DisposeAsync(); }
     }
 }
+
+// The pass ran out while ResolveOwnerAsync waited for the owner connection, before this conversation's request was sent.
+// CodexNativeAdapter treats the conversation as not reached rather than slow (N-broker-162-01).
+internal sealed class CodexReconnectOutlastedPassException(CancellationToken token)
+    : OperationCanceledException("The discovery pass ran out while the owner connection was being established.", token);
 
 internal interface ICodexDirectoryObserver : IAsyncDisposable
 {

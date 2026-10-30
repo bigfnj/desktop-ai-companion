@@ -169,21 +169,52 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
 
     private async Task RunAsync(CancellationToken stop)
     {
-        await Task.WhenAll(new[] { GuardAsync(DiscoverAsync, stop), GuardAsync(ReceiptLoopAsync, stop) }
-            .Concat(Enumerable.Range(0, 4).Select(_ => GuardAsync(DeliveryLoopAsync, stop))));
+        await Task.WhenAll(new[] { GuardAsync("discovery", DiscoverAsync, stop), GuardAsync("receipts", ReceiptLoopAsync, stop) }
+            .Concat(Enumerable.Range(0, 4).Select(_ => GuardAsync("delivery", DeliveryLoopAsync, stop))));
     }
 
-    private async Task GuardAsync(Func<CancellationToken, Task> run, CancellationToken stop)
+    // The pause before a loop that failed unexpectedly runs again: doubled after each failure up to the limit, and back to
+    // the first pause once the loop has run longer than the limit without failing. Internal so the lifecycle checks can
+    // scale them down.
+    internal TimeSpan LoopRestartDelay { get; init; } = TimeSpan.FromSeconds(1);
+    internal TimeSpan LoopRestartLimit { get; init; } = TimeSpan.FromMinutes(1);
+    private readonly ConcurrentDictionary<string, int> loopFailures = new(StringComparer.Ordinal);
+
+    private async Task GuardAsync(string name, Func<CancellationToken, Task> run, CancellationToken stop)
     {
-        try
+        var pause = LoopRestartDelay;
+        while (true)
         {
-            await run(stop);
-        }
-        catch (OperationCanceledException) when (stop.IsCancellationRequested) { }
-        catch (Exception e) when (e is IOException or InvalidDataException or BrokerException or UnauthorizedAccessException)
-        {
-            adapterErrors["broker"] = "durable_state_unavailable";
-            lifetime?.Cancel(); FatalError?.Invoke();
+            long started = System.Diagnostics.Stopwatch.GetTimestamp();
+            try
+            {
+                await run(stop);
+                return;
+            }
+            catch (OperationCanceledException) when (stop.IsCancellationRequested) { return; }
+            catch (Exception e) when (e is IOException or InvalidDataException or BrokerException or UnauthorizedAccessException)
+            {
+                adapterErrors["broker"] = "durable_state_unavailable";
+                lifetime?.Cancel(); FatalError?.Invoke();
+                return;
+            }
+            // Any other exception ended the loop in silence (N-broker-161-02): a receipt loop that stopped meant no outbound
+            // message got its receipt again, and the four delivery loops could end one by one, each as quietly, until
+            // nothing was delivered; Status showed nothing and the fault surfaced only at shutdown. The discovery loops
+            // already record such a failure and try again (P3-7); these now do the same, under the loop's own name, and
+            // the entry stays until the worker restarts, with a count and the last time, so a one-off reads differently
+            // from a loop that keeps failing. The type is not shown: it could carry a vendor message. A fault while the
+            // runtime is stopping still ends the loop and is reported by DisposeAsync, as before.
+            catch (Exception) when (!stop.IsCancellationRequested)
+            {
+                int failures = loopFailures.AddOrUpdate(name, 1, (_, count) => count + 1);
+                adapterErrors[name] = "loop_failed: " + failures + (failures == 1 ? " unexpected failure" : " unexpected failures") +
+                    ", restarted each time; the last at " + Now.ToString("HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture) + " UTC.";
+            }
+            if (System.Diagnostics.Stopwatch.GetElapsedTime(started) > LoopRestartLimit) pause = LoopRestartDelay;
+            try { await Task.Delay(pause, stop); }
+            catch (OperationCanceledException) { return; }
+            pause = TimeSpan.FromTicks(Math.Min(pause.Ticks * 2, LoopRestartLimit.Ticks));
         }
     }
 
@@ -315,6 +346,12 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
         // Submitting and held every later message to that recipient until a restart (A-broker-02). The forward may have
         // been admitted, so it is Uncertain, with a reason that names the cause.
         catch (System.Text.Json.JsonException) { result = new(AdapterAdmission.Uncertain, "peer_answer_invalid"); }
+        // Any other exception out of a submission (an adapter's or a transport's defect) did the same as that one: the claim
+        // stayed Submitting, holding every later message to that recipient until a restart, and the loop ended
+        // (N-broker-161-02). Restarting the loop alone would leave the claim held, so the message settles here. The
+        // submission may have been written, so it is Uncertain like any unconfirmed one, under its own reason; the type is
+        // not recorded, as it could carry a vendor message.
+        catch (Exception) { result = new(AdapterAdmission.Uncertain, "submission_failed"); }
         // A revocation may have resolved an in-flight claim while its IO was completing.
         if (store.FindReceipt(receipt.Message.Id)?.Status != MessageStatus.Submitting) return;
         try
