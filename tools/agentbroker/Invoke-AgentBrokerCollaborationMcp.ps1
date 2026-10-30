@@ -10,7 +10,9 @@ calling Codex agent's own native row, codex: plus the canonical lowercase GUID i
 admitted only after the helper finds, across every list_sessions page, exactly one fresh codex-native
 row with that session ID, the request's broker ID and incarnation, and Receive and WakeIdle. Absence,
 a second row with that ID, a stale incarnation, a lapsed lease or an observation-only row refuses.
-That is an authorised routing convenience inside the broker's existing same-user model, not
+That is an authorised routing convenience inside the broker's existing local access model
+(any local process of any account while 'Allow local connections without a token' is on, the
+default; same-user only with that setting off), not
 per-thread authentication: no trusted per-thread OS marker exists, and CODEX_THREAD_ID (like
 CODEX_SESSION_ID) is self-asserted by whatever runs the helper. A claude: sender, any native
 recipient, send_message, and native read_inbox, wait_for_messages and acknowledge_message stay

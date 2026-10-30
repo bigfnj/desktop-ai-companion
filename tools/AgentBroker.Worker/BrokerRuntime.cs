@@ -34,7 +34,7 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
             if (sessionPreferences is null) throw new BrokerException("preferences_unavailable", "Preferences are unavailable.");
             if (!observed.TryGetValue(sessionId, out var session) || !Observable(session))
                 throw new BrokerException("recipient_unavailable", "This session is no longer available.");
-            sessionPreferences.Set(sessionId, isPrivate, isMuted);
+            sessionPreferences.Set(sessionId, isPrivate, isMuted, id => observed.TryGetValue(id, out var present) && Observable(present));
             // A retained mailbox has no live lease to register with, and the owner's choice is not the
             // agent's activity: apply it in place without restoring presence or extending retention.
             if (session.LeaseUntil > Now) store.Register(sessionPreferences.Apply(session));
@@ -148,8 +148,11 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
                         directories[peer.BrokerId] = remote.Sessions.Where(s => s.Address.BrokerId == peer.BrokerId &&
                             !s.IsPrivate && s.LeaseUntil > DateTimeOffset.UtcNow).Take(256).ToArray();
                     }
+                    // A paired broker's body the strict federation options refuse (an unknown member from a newer release, a
+                    // truncated answer) is that peer's failure for this listing, as PeerDiagnostics already reads it
+                    // (invalid_directory); it used to fail list_sessions for every local caller (A-broker-02).
                     catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException or
-                        HttpRequestException or BrokerException or OperationCanceledException)
+                        HttpRequestException or BrokerException or OperationCanceledException or System.Text.Json.JsonException)
                     { peerToken.ThrowIfCancellationRequested(); }
                 });
             }
@@ -308,6 +311,10 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
         catch (Exception e) when (e is IOException or InvalidDataException or HttpRequestException or BrokerException or
             UnauthorizedAccessException or System.ComponentModel.Win32Exception or OperationCanceledException)
         { result = new(AdapterAdmission.Uncertain, "submission_unconfirmed"); }
+        // A paired broker's answer the strict federation options refuse escaped this loop: the loop ended, the claim stayed
+        // Submitting and held every later message to that recipient until a restart (A-broker-02). The forward may have
+        // been admitted, so it is Uncertain, with a reason that names the cause.
+        catch (System.Text.Json.JsonException) { result = new(AdapterAdmission.Uncertain, "peer_answer_invalid"); }
         // A revocation may have resolved an in-flight claim while its IO was completing.
         if (store.FindReceipt(receipt.Message.Id)?.Status != MessageStatus.Submitting) return;
         try
@@ -357,8 +364,10 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
                         (MessageStatus.Delivered or MessageStatus.Held or MessageStatus.Refused or MessageStatus.Expired)) continue;
                     store.RecordPeerReceipt(message.Message.Id, message.Message.Recipient, peer.BrokerId, remote.Status);
                 }
+                // An unreadable receipt answer is that message's failure for this pass; it used to end the receipt loop, so
+                // no outbound message to any peer got its receipt again (A-broker-02).
                 catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException or
-                    HttpRequestException or BrokerException or OperationCanceledException)
+                    HttpRequestException or BrokerException or OperationCanceledException or System.Text.Json.JsonException)
                 { if (stop.IsCancellationRequested) throw; }
             }
         }

@@ -132,7 +132,10 @@ try
         replacement.Failure = "other_native_error";
         try { await provider.SubmitAsync(refreshed, Guid.NewGuid(), "other", default); throw new InvalidOperationException("Expected ambiguous native failure."); }
         catch (DesktopAdapterException error)
-        { Check(error.Code == "other_native_error" && !replacement.Disposed, "Other native failures are not relabeled safe retry or silently reconnected."); }
+        // Since AgentBroker 1.6.1 the connection a failed request leaves behind is retired (A-broker-07), so the next
+        // discovery pass reconnects with full verification; nothing reconnects inside this call and nothing is retried.
+        { Check(error.Code == "other_native_error" && replacement.Disposed && connections == 2 && !provider.NativeIdleGuard,
+            "Other native failures are not relabeled safe retry or silently reconnected."); }
     }
     Check(replacement.Disposed, "Replacement native connection closes on provider disposal.");
 

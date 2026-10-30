@@ -19,8 +19,36 @@ internal static class CodexObservationChecks
         PublisherRouter(check);
         RunningEngines(check);
         StartupRead(check);
+        OrphanEngines(check);
         await AdapterGateAsync(check);
         await TrustProbeAsync(check);
+    }
+
+    // A-broker-03: a codex.exe whose parent has exited threw vscode_process_parent_unverified for the whole engine set, so one
+    // orphan anywhere on the machine turned off Codex wake for every chat. A synthetic snapshot: a Code-owned engine, an
+    // orphan, a standalone CLI under a shell. No real process is read.
+    private static void OrphanEngines(Action<bool, string> check)
+    {
+        var snapshot = new Dictionary<uint, (uint Parent, string Name)>
+        {
+            [10] = (4, "Code.exe"), [20] = (10, "codex.exe"),
+            [30] = (999, "codex.exe"),
+            [40] = (50, "codex.exe"), [50] = (4, "pwsh.exe"),
+        };
+        var read = new List<uint>();
+        (string, ulong, bool) Metadata(uint pid) { read.Add(pid); return (@"C:\Synthetic\" + pid + ".exe", 134000000000000000UL + pid, true); }
+        IReadOnlyList<CodeOwnedEngine>? engines = null;
+        string outcome;
+        try { engines = WindowsClientProcesses.SelectCodeOwnedEngines(snapshot, Metadata); outcome = engines.Count + " engines"; }
+        catch (DesktopAdapterException error) { outcome = error.Code; }
+        check(engines is { Count: 1 } && engines[0].Image == @"C:\Synthetic\20.exe" && engines[0].ParentImage == @"C:\Synthetic\10.exe" &&
+            !read.Contains(30u) && !read.Contains(40u),
+            File + "ORPHAN_ENGINE_IGNORED: a codex.exe with no live parent is ignored like a standalone CLI; the Code-owned engine is still read (" + outcome + ")");
+        string witness = "none";
+        try { WindowsClientProcesses.SelectCodeOwnedEngines(snapshot, pid => pid == 20 ? throw new DesktopAdapterException("vscode_process_identity_unverified") : Metadata(pid)); }
+        catch (DesktopAdapterException error) { witness = error.Code; }
+        check(witness == "vscode_process_identity_unverified",
+            File + "ORPHAN_ENGINE_IGNORED WITNESS: a Code-owned engine whose identity cannot be read still refuses the whole set (" + witness + ")");
     }
 
     // O-agentbroker-02 (lane broker-next): the two startup-read savings that move no trust decision. The Code.exe version is

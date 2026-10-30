@@ -159,18 +159,49 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
     // Pending only for an owner that advertises the native capability: its absence is the owner's own verdict.
     private bool Pending(DesktopOwnerBinding binding) => binding.SupportsUntrustedAppInput && VerificationPending;
 
+    // A reconnect's own budget, outside the discovery pass deadline (N-broker-next-03). The router verification inside a
+    // connect takes no token (WindowsDesktopConnection.ConnectAsync) and the library bounds the pipe connect and the
+    // initialize request with its own five-second timeouts, so this bounds only what those leave.
+    internal static readonly TimeSpan OwnerReconnectBudget = TimeSpan.FromSeconds(30);
+
     public async Task<DesktopOwnerBinding?> ResolveOwnerAsync(Guid conversationId, CancellationToken token)
     {
-        try
+        // A reconnect that outlasted the pass deadline used to fail at its initialize request on the expired pass token
+        // and be thrown away, so the next pass reconnected again; while a reconnect cost more than a pass (under disk load,
+        // the full router verification), no pass renewed a row (N-broker-next-03, reproduced offline by
+        // CODEX_RECONNECT_KEPT). The reconnect now runs on its own budget, and a connection no request has failed on is
+        // kept when the pass ran out meanwhile: no request was sent, so no late answer can exist. Every new connection is
+        // still fully verified; nothing here skips or reuses a verification. A lookup that fails still discards it below.
+        if (adapter is null)
         {
-            adapter ??= await connect(token);
-            return await adapter.DiscoverAsync(conversationId, token);
+            using var budget = new CancellationTokenSource(OwnerReconnectBudget);
+            adapter = await connect(budget.Token);
         }
+        token.ThrowIfCancellationRequested();
+        try { return await adapter.DiscoverAsync(conversationId, token); }
+        // The router's complete answer about one conversation leaves the protocol in step: the library throws these two
+        // only after RequestAsync returned the response matching its request ID (DesktopAdapter.DiscoverCoreAsync), and
+        // only RequestAsync's own failure closes the protocol. Discarding the connection here made every later pass pay a
+        // full owner re-verification while that conversation kept answering with an error (A-broker-01).
+        catch (DesktopAdapterException error) when (error.Code is "owner_discovery_rejected" or "owner_capability_mismatch") { throw; }
         catch
         {
-            if (adapter is not null) await adapter.DisposeAsync();
+            await adapter.DisposeAsync();
             adapter = null; throw;
         }
+    }
+
+    // A submission whose request failed leaves a connection the library has closed (DesktopAdapter.RequestAsync), and an
+    // Uncertain answer may come from exactly that. Kept, the next discovery pass met connection_closed, which fails the
+    // whole pass and clears every binding (A-broker-07). Retired here, the state reads as pending (adapter null), delivery
+    // defers without connecting, and the discovery loop reconnects. A connection a request failed on is never reused.
+    private async Task RetireOwnerConnectionAsync()
+    {
+        var retired = adapter;
+        adapter = null;
+        if (retired is null) return;
+        try { await retired.DisposeAsync(); }
+        catch (Exception error) when (error is IOException or ObjectDisposedException) { }
     }
 
     public async Task<DesktopSubmissionResult> SubmitAsync(DesktopOwnerBinding binding, Guid messageId, string text, CancellationToken token)
@@ -198,17 +229,22 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
             forgetDiscovery();
             return Unverified();
         }
-        try { return await adapter.SubmitAsync(binding, messageId, text, token); }
+        DesktopSubmissionResult submitted;
+        try { submitted = await adapter.SubmitAsync(binding, messageId, text, token); }
         catch (DesktopAdapterException exception) when (exception.Code == "receipt_capacity")
         {
             // This exact library error precedes discovery and the first model-input write. Core owns
             // durable message dedup, so a new connection lease may safely admit this unsubmitted ID.
-            var retired = adapter;
-            adapter = null;
-            try { await retired.DisposeAsync(); }
-            catch (Exception error) when (error is IOException or ObjectDisposedException) { }
+            await RetireOwnerConnectionAsync();
             return new(DesktopSubmissionOutcome.DeferredNotSubmitted, ErrorCode: "native_receipt_capacity_reconnect");
         }
+        catch
+        {
+            await RetireOwnerConnectionAsync();
+            throw;
+        }
+        if (submitted.Outcome == DesktopSubmissionOutcome.Uncertain) await RetireOwnerConnectionAsync();
+        return submitted;
     }
 
     // Nothing was written either way. A fresh check that could not complete (IO or access) is transient and defers with its

@@ -116,8 +116,12 @@ public sealed partial class AgentBrokerModule
         if (drops.SenderUnavailable > 0) reasons.Add(drops.SenderUnavailable + " while the sender was away");
         if (drops.StoreFull > 0) reasons.Add(drops.StoreFull + " while the store was full");
         if (drops.QueueFull > 0) reasons.Add(drops.QueueFull + " while the sender's queue was full");
+        // The worker has sent the time of the last drop since 1.5.0 and nothing showed it (A-broker-06); local time, with the
+        // date, because the count runs for the worker's whole life.
         return " Since the broker started, " + total + (total == 1 ? " delivery notice was" : " delivery notices were") +
-            " dropped undelivered (" + string.Join(", ", reasons) + ").";
+            " dropped undelivered (" + string.Join(", ", reasons) + ")." + (drops.LastUtc is { } last
+                ? " The most recent was at " + last.ToLocalTime().ToString("yyyy-MM-dd HH:mm", System.Globalization.CultureInfo.InvariantCulture) + "."
+                : "");
     }
 
     private void SetPairingStatus(string value, bool failed, PairingPeerIdentity? peer = null, bool clearFailure = false)

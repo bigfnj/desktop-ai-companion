@@ -79,9 +79,11 @@ public sealed class BrokerTools(BrokerRuntime runtime, IHttpContextAccessor http
         "wakes it: it sees this message only when its owner next waits or reads its inbox. A mailbox lists as Idle only while its " +
         "owner is inside a wait.";
 
-    // Only a local recipient is known here; a paired broker's session gets no advisory rather than a guess.
+    // Only a local recipient is known here; a paired broker's session gets no advisory rather than a guess. Only a generic
+    // mailbox: a Codex row whose engine check cannot complete also lists Receive without WakeIdle for a while
+    // (CodexNativeAdapter.DiscoverAsync, N-broker-next-02), and it is woken once the check completes, not read by an owner.
     private bool PollingOnly(SessionAddress recipient) => recipient.BrokerId == runtime.Store.BrokerId &&
-        runtime.Store.Directory().SingleOrDefault(session => session.Address == recipient) is { } row &&
+        runtime.Store.Directory().SingleOrDefault(session => session.Address == recipient) is { Adapter: "mcp" } row &&
         row.Capabilities.HasFlag(SessionCapabilities.Receive) && !row.Capabilities.HasFlag(SessionCapabilities.WakeIdle);
 
     // The send operation itself, for SendTool and for callers that want the receipt alone.

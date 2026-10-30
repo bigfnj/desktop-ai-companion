@@ -41,6 +41,12 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
     // Conversations whose owner lookup failed or ran out of time on the last pass that reached them. They are looked up
     // last on the next pass, so one slow conversation cannot again hold up the renewal of every one after it.
     private readonly HashSet<Guid> slowLookups = [];
+    // When each row's engine check was first found unable to complete, in the current run of passes that did not complete
+    // it. A failed pass leaves it in place: it completed no check either, so the run is not broken.
+    private readonly Dictionary<SessionAddress, DateTimeOffset> pendingSince = [];
+    // How long a row whose check cannot complete keeps Receive (see DiscoverAsync). Past it the row is listed without
+    // capabilities and its queue refuses as it did before 1.6.1.
+    internal static readonly TimeSpan VerificationPendingBound = TimeSpan.FromMinutes(5);
     private int skippedLastPass;
     private bool disposed;
     public string Id => "codex-native";
@@ -75,6 +81,7 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
             // not reached before the deadline is not slow, and keeps its place).
             var skipped = new HashSet<Guid>();
             var slow = new HashSet<Guid>();
+            var pendingNow = new Dictionary<SessionAddress, DateTimeOffset>();
             // OrderBy is stable: last pass's slow lookups go last, everything else keeps the directory's order.
             var ordered = rows.DistinctBy(r => r.ConversationId).OrderBy(r => slowLookups.Contains(r.ConversationId)).ToArray();
             foreach (var row in ordered)
@@ -104,14 +111,35 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
                     Refusal(binding) is null;
                 var activity = row.ActivityObservedAt is { } observed && observed <= clock.GetUtcNow().AddSeconds(5) && observed > clock.GetUtcNow().AddMinutes(-2)
                     ? MapActivity(row.Activity) : SessionActivity.Unknown;
-                sessions.Add(new(address, row.DisplayLabel, Id, guarded
+                // An engine check that could not complete (IO or access) is not a verdict (N-broker-next-02). Listed without
+                // capabilities, the row made BrokerStore.BeginDelivery refuse its Accepted messages recipient_cannot_receive: a
+                // final refusal for the transience SubmitAsync defers. Such a row now keeps Receive alone, so its queue waits
+                // (Ready needs WakeIdle) and nothing is advertised that this pass did not verify: no wake, no idle guard,
+                // and every delivery still takes the full fresh checks. Only for an owner that would otherwise qualify
+                // (Pending: delivery on, the native capability advertised, no verdict found); an owner without the capability,
+                // a verified mismatch and a publisher refusal stay listed without capabilities. Bounded, because a waiting
+                // message holds its sender's later ones to this row behind it (per-pair order) and a check that never
+                // completes would hold them for the message lifetime: past VerificationPendingBound of unbroken incomplete
+                // checks for this row the row loses Receive and its queue refuses as before. Refused: keeping the earlier
+                // pass's verified capabilities, which would advertise a wake nobody verified this pass and claim (two state
+                // writes) every five seconds only for SubmitAsync to defer it.
+                bool pending = !guarded && enableDelivery && Pending(binding);
+                if (pending) pendingNow[address] = pendingSince.TryGetValue(address, out var since) ? since : clock.GetUtcNow();
+                var capabilities = guarded
                     ? SessionCapabilities.Receive | SessionCapabilities.WakeIdle | SessionCapabilities.Reply | SessionCapabilities.NativeIdleGuard
-                    : SessionCapabilities.None, activity, clock.GetUtcNow().AddSeconds(30)));
+                    : pending && clock.GetUtcNow() - pendingNow[address] < VerificationPendingBound ? SessionCapabilities.Receive
+                    : SessionCapabilities.None;
+                sessions.Add(new(address, row.DisplayLabel, Id, capabilities, activity, clock.GetUtcNow().AddSeconds(30)));
             }
-            // A skipped conversation keeps its earlier binding until its lease lapses, as it did when a failed pass left
-            // every binding in place; submission resolves the owner afresh before any input either way.
+            // A skipped conversation keeps its earlier binding for as long as it keeps being skipped, as it did when a failed
+            // pass left every binding in place; submission resolves the owner afresh before any input either way. Its
+            // pending-since time is kept with it, so a skip never restarts the bound.
             foreach (var pair in bindings)
                 if (skipped.Contains(pair.Value.ConversationId) && !found.ContainsKey(pair.Key)) found.Add(pair.Key, pair.Value);
+            foreach (var pair in pendingSince)
+                if (!pendingNow.ContainsKey(pair.Key) && Guid.TryParseExact(pair.Key.SessionId["codex:".Length..], "D", out var thread) &&
+                    skipped.Contains(thread)) pendingNow.Add(pair.Key, pair.Value);
+            pendingSince.Clear(); foreach (var pair in pendingNow) pendingSince.Add(pair.Key, pair.Value);
             bindings.Clear(); foreach (var pair in found) bindings.Add(pair.Key, pair.Value);
             slowLookups.Clear(); slowLookups.UnionWith(slow);
             skippedLastPass = skipped.Count;
@@ -163,9 +191,10 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
             { return Deferred("native_owner_unavailable"); } // No model-input method has been called.
             if (!ValidBinding(current, previous.ConversationId) || current!.NativeSessionIncarnation != message.Recipient.Incarnation)
                 return Deferred("native_owner_changed");
-            // Still unable to complete its own check: no model-input method has been called, so this defers with its own
-            // reason. An owner that does not advertise the native capability is a verdict and stays refused.
-            if (!provider.IsDeliveryAuthorized(current) && Pending(current)) return Deferred("native_verification_unavailable");
+            // No "still pending" deferral here (A-broker-09): with this lock held nothing changes the provider's check state
+            // between the Pending(previous) test above and this point, a lookup that succeeded leaves the owner connection up,
+            // and every binding reaching the lookup passed that test, so Pending(current) cannot be true. The pending case
+            // defers above, and the fresh check at submission defers through the provider (native_verification_unavailable).
             if (!provider.IsDeliveryAuthorized(current))
                 return new(AdapterAdmission.Refused, updateTolerant ? Refusal(current) ?? "unsupported_capability" : "native_client_profile_unverified");
             if (Refusal(current) is { } changed) return new(AdapterAdmission.Refused, changed);
@@ -191,10 +220,24 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
             catch (DesktopAdapterException ex) when (ex.Code is "message_frame_too_large" or "invalid_message" or "frame_too_large")
             { return new(AdapterAdmission.Refused, "native_message_too_large"); } // Native library proves these before its first model-input write.
             catch (Exception ex) when (ex is DesktopAdapterException or IOException or OperationCanceledException)
-            { return new(AdapterAdmission.Uncertain, "native_submission_uncertain"); }
+            { return new(AdapterAdmission.Uncertain, RaisedReason(ex)); }
         }
         finally { gate.Release(); }
     }
+
+    // An exception out of the library's submission, recorded with its cause (A-broker-08): all of them carried the one
+    // generic native_submission_uncertain, the reason N-agentbroker-uncertain-parked-01 cannot diagnose. Still Uncertain and
+    // never retried: the library raises these before its turn frame today (DesktopAdapter.SubmitCoreAsync answers every
+    // failure after it with a result instead), but ICodexOwnerConnection.SubmitAsync promises no such thing, so deferring
+    // them would rest on library internals; that needs a typed "nothing was written" signal from the library first.
+    private static string RaisedReason(Exception error) => error switch
+    {
+        DesktopAdapterException { Code: { Length: > 0 and <= 48 } code } when code.All(c => c is >= 'a' and <= 'z' or >= '0' and <= '9' or '_')
+            => "native_uncertain_raised_" + code,
+        IOException => "native_uncertain_raised_io",
+        OperationCanceledException => "native_uncertain_raised_cancelled",
+        _ => "native_submission_uncertain",
+    };
 
     // The library's typed cause of an uncertain submission, kept in the receipt so the next one can be diagnosed: two
     // messages to a chat parked on a prompt ended with only the generic reason (N-agentbroker-uncertain-parked-01).
