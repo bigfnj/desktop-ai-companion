@@ -3722,6 +3722,80 @@ CASES = (
         b"                ApplyTopMost(true);   // Set again the topmost\n",
         "a respawning pet, a child, or a grabbed pet cannot",
     ),
+    # ---- lane feature/audit-infra ----
+    # N-audit-20261029-16: the respawn block matched the RAW file, so each regression below, which keeps the old
+    # line as a comment beside the new one, passed it. The two followups2 cases above replace the whole line and
+    # could not see that shape. "audit-infra:" for one --only. Expected fragments are the labels' opening words.
+    (
+        "audit-infra: host: a grab's conditioned raise survives only as a comment",
+        FORMPET,
+        b"                ApplyTopMost(hwndFullscreenWindow == IntPtr.Zero);   // Set again the topmost\n",
+        b"                ApplyTopMost(true); // ApplyTopMost(hwndFullscreenWindow == IntPtr.Zero);   // Set again the topmost\n",
+        "a respawning pet, a child, or a grabbed pet cannot",
+    ),
+    (
+        "audit-infra: host: a respawn's conditioned raise survives only as a comment",
+        FORMPET,
+        b"            ApplyTopMost(!spawningOntoBlockedMonitor);  // new in 1.2.6; without activating (N-followups-01)\n",
+        b"            ApplyTopMost(true); // ApplyTopMost(!spawningOntoBlockedMonitor);  // new in 1.2.6; without activating (N-followups-01)\n",
+        "a respawning pet, a child, or a grabbed pet cannot",
+    ),
+    (
+        "audit-infra: host: a respawn's conditioned show survives only as a comment",
+        FORMPET,
+        b"            Visible = !spawningOntoBlockedMonitor;      // Now we can show the form\n",
+        b"            Visible = true; // Visible = !spawningOntoBlockedMonitor;      // Now we can show the form\n",
+        "a respawning pet, a child, or a grabbed pet cannot",
+    ),
+    (
+        "audit-infra: host: a respawn's hidden marker survives only as a comment",
+        FORMPET,
+        b"            _fullscreenHidden = spawningOntoBlockedMonitor;\n            SetPetOpacity(0.0);",
+        b"            _fullscreenHidden = false; // _fullscreenHidden = spawningOntoBlockedMonitor;\n            SetPetOpacity(0.0);",
+        "a respawning pet, a child, or a grabbed pet cannot",
+    ),
+    (
+        "audit-infra: host: a child's conditioned show survives only as a comment",
+        FORMPET,
+        b"                Visible = !childOntoBlockedMonitor;     // Now we can show this child\n",
+        b"                Visible = true; // Visible = !childOntoBlockedMonitor;     // Now we can show this child\n",
+        "a respawning pet, a child, or a grabbed pet cannot",
+    ),
+    (
+        "audit-infra: host: a respawn stops asking whether its monitor is blocked",
+        FORMPET,
+        b"            bool spawningOntoBlockedMonitor = MonitorIsBlockedNow();\n",
+        b"            bool spawningOntoBlockedMonitor = false; // MonitorIsBlockedNow();\n",
+        "a respawning pet, a child, or a grabbed pet cannot",
+    ),
+    (
+        "audit-infra: host: a child stops asking whether its monitor is blocked",
+        FORMPET,
+        b"                bool childOntoBlockedMonitor = MonitorIsBlockedNow();\n",
+        b"                bool childOntoBlockedMonitor = false; // MonitorIsBlockedNow();\n",
+        "a respawning pet, a child, or a grabbed pet cannot",
+    ),
+    (
+        "audit-infra: host: a grab raises unconditionally after its conditioned raise",
+        FORMPET,
+        b"                ApplyTopMost(hwndFullscreenWindow == IntPtr.Zero);   // Set again the topmost\n",
+        b"                ApplyTopMost(hwndFullscreenWindow == IntPtr.Zero);   // Set again the topmost\n                ApplyTopMost(true);\n",
+        "a respawning pet, a child, or a grabbed pet cannot",
+    ),
+    (
+        "audit-infra: host: a respawn raises unconditionally after its conditioned raise",
+        FORMPET,
+        b"            ApplyTopMost(!spawningOntoBlockedMonitor);  // new in 1.2.6; without activating (N-followups-01)\n",
+        b"            ApplyTopMost(!spawningOntoBlockedMonitor);  // new in 1.2.6; without activating (N-followups-01)\n            ApplyTopMost(true);\n",
+        "a respawning pet, a child, or a grabbed pet cannot",
+    ),
+    (
+        "audit-infra: host: PlayChild's signature moves, so the respawn block loses its scope",
+        FORMPET,
+        b"\t\tpublic void PlayChild(int aniID, TChild child)\n",
+        b"\t\tpublic void PlayChild(int aniID, TChild childEntry)\n",
+        "respawn: Play, PlayChild and PictureBox1_MouseDown were located",
+    ),
 )
 
 
