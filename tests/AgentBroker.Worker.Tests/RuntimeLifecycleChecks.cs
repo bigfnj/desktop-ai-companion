@@ -80,6 +80,124 @@ internal static class RuntimeLifecycleChecks
         await AdapterFailureRecordedAsync(check, scratch);
         await SlowCodexRowAsync(check);
         await CodexReconnectAsync(check);
+        await CodexConnectionReuseAsync(check);
+        await PeerAnswerInvalidAsync(check, scratch);
+        SessionPreferenceLimit(check, scratch);
+    }
+
+    // A-broker-04: preferences were never pruned, so at 1,024 every new private or mute choice failed preference_limit and
+    // the stale entries (sessions that ended) could not be cleared. The file is written directly in its own format.
+    private static void SessionPreferenceLimit(Action<bool, string> check, string scratch)
+    {
+        string directory = Path.Combine(scratch, "preferences");
+        Directory.CreateDirectory(directory);
+        string file = Path.Combine(directory, "session-preferences.json");
+        File.WriteAllText(file, "{" + string.Join(",", Enumerable.Range(0, 1024).Select(i =>
+            "\"claude:ended-" + i + "\":{\"isPrivate\":true,\"isMuted\":false}")) + "}");
+        BrokerSession Session(string id) => new(new(Guid.NewGuid(), id, Guid.NewGuid()), "Synthetic " + id, "claude-native",
+            SessionCapabilities.None, SessionActivity.Idle, DateTimeOffset.UtcNow.AddMinutes(1));
+        int Entries() { using var json = System.Text.Json.JsonDocument.Parse(File.ReadAllBytes(file)); return json.RootElement.EnumerateObject().Count(); }
+        var preferences = new SessionPreferences(directory);
+        string? refused = null;
+        try { preferences.Set("claude:live", true, null, id => id == "claude:live"); } catch (BrokerException error) { refused = error.Code; }
+        var reopened = new SessionPreferences(directory);
+        check(refused is null && reopened.Apply(Session("claude:live")).IsPrivate && Entries() == 1024,
+            "PREFERENCE_LIMIT_EVICTS_ENDED: at the bound a choice for a session no longer observed makes room for a new one (" +
+            (refused ?? "set") + ", " + Entries() + " entries)");
+        string? limit = null;
+        try { reopened.Set("claude:another-live", true, null, _ => true); } catch (BrokerException error) { limit = error.Code; }
+        check(limit == "preference_limit",
+            "PREFERENCE_LIMIT_EVICTS_ENDED WITNESS: when every entry belongs to an observed session the limit still refuses (" + (limit ?? "accepted") + ")");
+    }
+
+    // A-broker-02: the federation's strict JSON options throw JsonException on a paired broker's unknown member, and the
+    // runtime's three peer paths did not catch it: list_sessions failed for every local caller, a delivery loop ended with
+    // its claim left Submitting (holding every later message to that recipient), and the receipt loop ended. The fake peer
+    // parses its answers with the same strict options PeerFederation uses, so the exception is the real one.
+    private static async Task PeerAnswerInvalidAsync(Action<bool, string> check, string scratch)
+    {
+        using var store = new BrokerStore(Path.Combine(scratch, "peer-answer"));
+        var peerId = Guid.NewGuid();
+        store.AuthorizePeer(new(peerId, "Synthetic newer peer", "https://127.0.0.1:15100", new string('B', 64), DateTimeOffset.UtcNow));
+        await using var federation = new UnreadablePeerFederation();
+        var runtime = new BrokerRuntime(store, federation, []);
+        try
+        {
+            var local = runtime.RegisterPollingAgent(Guid.NewGuid(), Guid.NewGuid(), "Synthetic peer sender", false);
+            IReadOnlyList<BrokerSession>? listed = null;
+            try { listed = await runtime.DirectoryAsync(false, default); } catch (System.Text.Json.JsonException) { }
+            check(listed is not null && listed.Count == 1 && listed[0].Address == local.Address,
+                "PEER_JSON_DIRECTORY: a peer directory answer with an unknown member costs that peer's listing, not list_sessions (" +
+                (listed is null ? "threw" : listed.Count + " rows") + ")");
+            var recipient = new SessionAddress(peerId, "claude:synthetic-peer-recipient", Guid.NewGuid());
+            BrokerMessage Message(string text) => new(Guid.NewGuid(), Guid.NewGuid(), null, local.Address, recipient, text,
+                DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddMinutes(5));
+            var unreadable = Message("Synthetic forward whose answer is unreadable.");
+            var later = Message("Synthetic forward after it.");
+            federation.UnreadableSubmit = unreadable.Id;
+            federation.UnreadableReceipt = unreadable.Id;
+            store.Accept(unreadable, store.BrokerId);
+            store.Accept(later, store.BrokerId);
+            runtime.Start(default);
+            var watch = Stopwatch.StartNew();
+            while (store.FindReceipt(later.Id)?.Status is not (MessageStatus.Submitted or MessageStatus.Delivered) && watch.Elapsed < TimeSpan.FromSeconds(10))
+                await Task.Delay(50);
+            var first = store.FindReceipt(unreadable.Id);
+            check(first is { Status: MessageStatus.Uncertain, Reason: "peer_answer_invalid" } &&
+                store.FindReceipt(later.Id)?.Status is MessageStatus.Submitted or MessageStatus.Delivered,
+                "PEER_JSON_DELIVERY: an unreadable forward answer is that message's Uncertain peer_answer_invalid and the next message to the recipient still goes (" +
+                first?.Status + " " + first?.Reason + ", later " + store.FindReceipt(later.Id)?.Status + ")");
+            // The receipt pass meets the unreadable receipt answer first (list order), then must still reach the later one.
+            while (store.FindReceipt(later.Id)?.Status != MessageStatus.Delivered && watch.Elapsed < TimeSpan.FromSeconds(20)) await Task.Delay(50);
+            check(store.FindReceipt(later.Id)?.Status == MessageStatus.Delivered && federation.UnreadableReceipts >= 1,
+                "PEER_JSON_RECEIPT: an unreadable receipt answer costs that message's receipt for the pass, never the receipt loop (later " +
+                store.FindReceipt(later.Id)?.Status + ", " + federation.UnreadableReceipts + " unreadable answers)");
+        }
+        // A loop that died rethrows its fault at disposal, which must not replace a check's own label.
+        finally { try { await runtime.DisposeAsync(); } catch (Exception) { } }
+    }
+
+    private sealed class UnreadablePeerFederation : IPeerFederation
+    {
+        // PeerFederation's own options (Federation/PeerFederation.cs): an unknown member is refused.
+        private static readonly System.Text.Json.JsonSerializerOptions Strict = new(System.Text.Json.JsonSerializerDefaults.Web)
+        {
+            MaxDepth = 16, UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow,
+            RespectNullableAnnotations = true, RespectRequiredConstructorParameters = true
+        };
+        private const string NewerBody = "{\"brokerId\":\"00000000-0000-0000-0000-000000000001\",\"sessions\":[],\"aMemberFromANewerRelease\":1}";
+        private readonly ConcurrentDictionary<Guid, BrokerMessage> forwarded = new();
+        internal Guid? UnreadableSubmit, UnreadableReceipt;
+        internal int UnreadableReceipts;
+        public IReadOnlyList<BrokerAdvertisement> Discovered => [];
+        public IReadOnlyList<PairingOffer> PairingOffers => [];
+        public BrokerAdvertisement LocalAdvertisement => new(Guid.NewGuid(), "Synthetic", "https://127.0.0.1:15000", new string('A', 64), DateTimeOffset.UtcNow);
+        public Guid? AuthenticatePeer(HttpContext context) => null;
+        public void MapEndpoints(WebApplication application) { }
+        public Task StartAsync(CancellationToken token) => Task.CompletedTask;
+        public Task RequestPairAsync(BrokerAdvertisement peer, CancellationToken token) => throw new NotSupportedException();
+        public Task ApprovePairAsync(Guid requestId, CancellationToken token) => throw new NotSupportedException();
+        public void RejectPair(Guid requestId) { }
+        public void RevokePeer(Guid brokerId) { }
+        public Task<PeerDirectory> GetDirectoryAsync(PeerTrust peer, CancellationToken token)
+            => Task.FromResult(System.Text.Json.JsonSerializer.Deserialize<PeerDirectory>(NewerBody, Strict)!);
+        public Task<MessageReceipt> SubmitAsync(PeerTrust peer, BrokerMessage message, CancellationToken token)
+        {
+            forwarded[message.Id] = message;
+            if (message.Id == UnreadableSubmit) System.Text.Json.JsonSerializer.Deserialize<MessageReceipt>(NewerBody, Strict);
+            return Task.FromResult(new MessageReceipt(message, MessageStatus.Submitted, DateTimeOffset.UtcNow));
+        }
+        public Task<MessageReceipt?> GetReceiptAsync(PeerTrust peer, Guid messageId, CancellationToken token)
+        {
+            if (messageId == UnreadableReceipt)
+            {
+                Interlocked.Increment(ref UnreadableReceipts);
+                System.Text.Json.JsonSerializer.Deserialize<MessageReceipt>(NewerBody, Strict);
+            }
+            return Task.FromResult(forwarded.TryGetValue(messageId, out var message)
+                ? new MessageReceipt(message, MessageStatus.Delivered, DateTimeOffset.UtcNow) : null);
+        }
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
     // N-broker-next-03: after a failed lookup the provider drops the owner connection and the next lookup reconnects. The
@@ -128,20 +246,70 @@ internal static class RuntimeLifecycleChecks
             (Volatile.Read(ref connects) - before) + " reconnects)");
     }
 
+    // A-broker-07 and A-broker-01, the owner connection's reuse. Modelled on the library: a failed start-turn request closes
+    // the protocol and answers Uncertain, and every later request on it throws connection_closed; the router's error answer
+    // for one conversation (owner_discovery_rejected) arrives as a complete response and leaves the protocol in step.
+    private static async Task CodexConnectionReuseAsync(Action<bool, string> check)
+    {
+        var owner = new ReconnectOwner();
+        var other = Guid.NewGuid();
+        int connects = 0;
+        var provider = new CodexNativeProvider(true, _ =>
+            {
+                Interlocked.Increment(ref connects);
+                owner.Closed = false; // A new connection.
+                return Task.FromResult<ICodexOwnerConnection>(owner);
+            }, () => { },
+            _ => Task.FromResult<IReadOnlyList<DesktopDirectorySession>>(
+                [new(owner.Thread, DesktopSessionActivity.Idle, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow),
+                 new(other, DesktopSessionActivity.Idle, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)]),
+            null, false, () => { });
+        await using var adapter = new CodexNativeAdapter(provider, enableDelivery: true);
+        var brokerId = Guid.NewGuid();
+        var rows = await adapter.DiscoverAsync(brokerId, default);
+        var target = rows.Single(row => row.Address.SessionId == "codex:" + owner.Thread.ToString("D"));
+        owner.SubmitTimesOut = true;
+        var uncertain = await adapter.SubmitAsync(new BrokerMessage(Guid.NewGuid(), Guid.NewGuid(), null,
+            new(brokerId, "synthetic-reuse-sender", Guid.NewGuid()), target.Address, "Synthetic start-turn that times out.",
+            DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddMinutes(1)), default);
+        IReadOnlyList<BrokerSession>? next = null;
+        try { next = await adapter.DiscoverAsync(brokerId, default); } catch (AdapterDiscoveryException) { }
+        check(uncertain.Outcome == AdapterAdmission.Uncertain && next?.Count == 2 && connects == 2,
+            "CODEX_SUBMIT_FAILURE_RETIRES: after a submission whose request failed, the next pass reconnects and renews every row (" +
+            (next is null ? "pass failed" : next.Count + " rows") + ", " + connects + " connects)");
+        // The router's error answer for one conversation: that row is skipped, the connection is kept.
+        owner.Rejected = other;
+        int before = connects;
+        var first = await adapter.DiscoverAsync(brokerId, default);
+        var second = await adapter.DiscoverAsync(brokerId, default);
+        check(first.Count == 1 && second.Count == 1 && connects == before,
+            "CODEX_REJECTED_KEEPS_CONNECTION: a router error answer for one conversation skips its row and keeps the intact connection (" +
+            (connects - before) + " reconnects over two passes)");
+    }
+
     private sealed class ReconnectOwner : ICodexOwnerConnection
     {
         internal Guid Thread { get; } = Guid.NewGuid();
         internal Exception? Failure;
+        internal bool Closed, SubmitTimesOut;
+        internal Guid? Rejected;
         public bool NativeIdleGuard => true;
         public Task<DesktopOwnerBinding?> DiscoverAsync(Guid conversationId, CancellationToken token)
         {
             token.ThrowIfCancellationRequested();
+            if (Closed) return Task.FromException<DesktopOwnerBinding?>(new DesktopAdapterException("connection_closed"));
             if (Failure is { } failure) return Task.FromException<DesktopOwnerBinding?>(failure);
-            return Task.FromResult<DesktopOwnerBinding?>(new DesktopOwnerBinding(conversationId, Guid.NewGuid(), Guid.NewGuid(), 12345,
+            if (conversationId == Rejected) return Task.FromException<DesktopOwnerBinding?>(new DesktopAdapterException("owner_discovery_rejected"));
+            return Task.FromResult<DesktopOwnerBinding?>(new DesktopOwnerBinding(conversationId, ownerClient, connectionLease, 12345,
                 134000000000000000, true) { RouterTrust = DesktopRouterTrust.ExactPinned });
         }
+        private readonly Guid ownerClient = Guid.NewGuid(), connectionLease = Guid.NewGuid();
         public Task<DesktopSubmissionResult> SubmitAsync(DesktopOwnerBinding binding, Guid messageId, string text, CancellationToken token)
-            => throw new NotSupportedException();
+        {
+            if (!SubmitTimesOut) throw new NotSupportedException();
+            Closed = true; // DesktopAdapter.RequestAsync's catch: the protocol is closed and the answer is Uncertain.
+            return Task.FromResult(new DesktopSubmissionResult(DesktopSubmissionOutcome.Uncertain, ErrorCode: "response_timeout_or_cancelled"));
+        }
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 

@@ -35,7 +35,13 @@ public sealed class SessionPreferences
         }
     }
     public bool IsMuted(string sessionId) { lock (gate) return choices.GetValueOrDefault(sessionId)?.IsMuted == true; }
-    public void Set(string sessionId, bool? isPrivate, bool? isMuted)
+    // At the bound an entry for a session the broker no longer observes makes room (A-broker-04). Every native session ID is
+    // per conversation, so each choice on a chat that later ended stayed forever; at 1,024 every new choice failed
+    // preference_limit, and the stale ones could not be cleared because their sessions were gone. An observed session's
+    // choice is never evicted, so the limit still refuses when every entry belongs to a present session. Not a last-seen
+    // time per entry: the file's strict reader (UnmappedMemberHandling.Disallow) would make an older worker refuse a file
+    // that carried one, so a rollback would lose every choice.
+    public void Set(string sessionId, bool? isPrivate, bool? isMuted, Func<string, bool>? isObserved = null)
     {
         if (string.IsNullOrWhiteSpace(sessionId) || sessionId.Length > 160 || sessionId.Any(char.IsControl))
             throw new BrokerException("invalid_session", "Invalid session preference target.");
@@ -46,6 +52,8 @@ public sealed class SessionPreferences
             var updated = new Choice(isPrivate ?? old.IsPrivate, isMuted ?? old.IsMuted);
             if (updated == old) return;
             if (!updated.IsPrivate && !updated.IsMuted) copy.Remove(sessionId); else copy[sessionId] = updated;
+            if (copy.Count > 1024 && isObserved is not null &&
+                copy.Keys.FirstOrDefault(key => key != sessionId && !isObserved(key)) is { } stale) copy.Remove(stale);
             if (copy.Count > 1024) throw new BrokerException("preference_limit", "Session preference limit reached.");
             if (!AtomicFile.TryWriteAllText(path, JsonSerializer.Serialize(copy, Protocol.ControlProtocol.Json), null))
                 throw new IOException("Session preferences could not be persisted.");
