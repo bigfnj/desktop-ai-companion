@@ -3686,11 +3686,15 @@ CASES = (
     # N-followups-01: the pet off Form.TopMost, in the callers --hardening-selftest cannot run (each needs a live pet). Named
     # "followups2:" for one --only, as in tests/mutate-selftest-guards.py. Expected fragments are the labels' opening words,
     # short for the console wrap noted above.
+    # The per-animation case keeps the ApplyTopMost(true) call and adds the Form.TopMost write beside it. Replacing the call
+    # outright also removed the one ApplyTopMost(true) in FormCompanion.cs, so the respawn WITNESS (which needs that call to
+    # exist) failed first and the run scored WRONG, not FIRED: found by the host 1.8.0 whole run, 2026-10-30, after lanes
+    # that each ran only their own cases.
     (
         "followups2: host: the per-animation raise writes Form.TopMost again",
         os.path.join(REPO, "src", "dotNet", "FormCompanion.cs"),
         b"                    ApplyTopMost(true); // bring to top again on each new animation\n",
-        b"                    TopMost = true; // bring to top again on each new animation\n",
+        b"                    ApplyTopMost(true); TopMost = true; // bring to top again on each new animation\n",
         "followups2: the pet never assigns Form.TopMost",
     ),
     (
