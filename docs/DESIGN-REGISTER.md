@@ -6694,6 +6694,59 @@ pending" deferral in `CodexNativeAdapter.SubmitAsync` was removed as unreachable
 site), and the provider's reconnect stays reachable only from discovery. Status now says when the last delivery notice was
 dropped (A-broker-06). The native-sender paragraph above is corrected on access (A-broker-05).
 
+#### feature/broker-162
+
+AgentBroker 1.6.2, the follow-up to broker-161's filed items (N-broker-161-01..04).
+
+**A delivery or receipt loop that fails unexpectedly is reported and runs again (N-broker-161-02).** `BrokerRuntime.GuardAsync`
+caught only the durable-state failures (which stop the runtime, unchanged), so any other exception ended the loop in
+silence: a dead receipt loop meant no outbound message got its receipt again, the four delivery loops could end one by
+one, Status showed nothing and the fault surfaced only at shutdown. 1.6.1 closed only the JsonException case (A-broker-02).
+Such a failure is now recorded under the loop's own name (`delivery`, `receipts`, `discovery`) as `loop_failed` with a
+count and the time of the last one, and the loop runs again after a pause of one second, doubled after each failure up to
+a minute and back to one second once the loop has run a minute without failing. The entry stays until the worker
+restarts. Refused: clearing it when the loop next runs, because `GuardAsync` cannot see a loop's passes and an entry that
+clears itself would hide a defect the owner should report; the count and time let a one-off read differently from a loop
+that keeps failing. A fault while the runtime is stopping still ends the loop and is reported by `DisposeAsync`. Restarting
+alone would not have been enough for a delivery: a submission that threw left its claim Submitting, holding every later
+message to that recipient until a restart. `DeliverAsync` now settles any exception outside its list as Uncertain
+`submission_failed` (it may have been written; the type is not recorded, as it could carry a vendor message), so the loop
+restart is the net for failures outside a submission. Not checked by a test: the pause's limit and its reset, which only
+timing could show; the restart itself, its report and shutdown during a pause are (`RUNTIME_LOOP_RESTARTED`,
+`RUNTIME_LOOP_SHUTDOWN`, `RUNTIME_DELIVERY_FAULT_SETTLES`). The shutdown check that relied on a delivery fault reaching
+disposal now injects its two shutdown failures through two adapters' disposal.
+
+**The Codex owner reconnect after a failed lookup runs between passes (N-broker-161-01).** Reproduced offline
+(`CODEX_RECONNECT_BETWEEN_PASSES`, `RuntimeLifecycleChecks.cs`): the real `CodexNativeProvider`, three conversations, one
+whose lookup never answers (so it times out and discards the connection on every pass), a 700 ms reconnect that ignores
+cancellation and then honours its token, 600 ms pass deadlines and 600 ms pauses (the production ratio, scaled down). With
+1.6.1's behaviour (the change's start removed) the two healthy rows were renewed on 1 of 6 passes each, with 3 connects;
+with the change, on 5 of 6 each (the first pass connects inside itself and renews nothing), with one connect per pass. The counts are deterministic for the fake; no production timing is
+claimed. The cause: the reconnect ran inside the next pass, charged to whichever conversation came first, which was then
+marked slow, so the timing-out conversation was looked up first on the pass after and ended it. The provider now starts
+the reconnect as the failed lookup discards the connection (`BeginReconnect`, on `Task.Run` because the router verification
+inside a connect is synchronous), and the next lookup adopts it. A failed background attempt is not rethrown (it may be
+stale): the lookup connects afresh, as before, and that failure is the one reported. Disposal cancels a reconnect still
+running and does not wait for it; a connection it produces anyway is closed when it arrives. Nothing is reused: the failed
+connection is discarded first, and every new one is fully verified. Refused: a lookup budget that leaves room for a
+reconnect (it needs an estimate of the reconnect, which is exactly what varies under disk load); doing the reconnect under
+the adapter's lock between passes (a delivery waiting on the lock would wait for the router verification, the cause of
+the flicker P2-1 removed). The background connect can now overlap a pass's engine check and directory-observer connect:
+the library's shared state there is the pin document (a `Lazy`) and the discovery reuse (locked), and the router already
+serves the observer and owner connections side by side. Not done: the same for a connection retired after a failed
+submission (A-broker-07), which the next pass still reconnects inline. A reconnect longer than a pass and a pause together
+still costs the next pass.
+
+**A raised exception out of a Claude submission names its cause (N-broker-161-03).** `ClaudeNativeAdapter.SubmitAsync`
+recorded `native_submission_uncertain` for each of the three exceptions it catches; it now records
+`native_uncertain_raised_io`, `native_uncertain_raised_access` or `native_uncertain_raised_cancelled`, as 1.6.1 does for
+Codex. The outcome stays Uncertain for the same reason as Codex's: the library lets a cancellation out only before the user
+frame, but `IClaudeNativeProvider.SubmitAsync` promises no such thing.
+
+**The runtime's preference predicate has its own check (N-broker-161-04).** `PREFERENCE_RUNTIME_OBSERVED` sets a choice
+through `BrokerRuntime.SetSessionPreference` at the 1,024-entry bound with a present session's choice written first: a
+predicate that observes every session refuses the choice, and one that observes none evicts the present session's.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of
