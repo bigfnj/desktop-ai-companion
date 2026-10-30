@@ -433,8 +433,11 @@ internal static class CodexTrustPolicyChecks
         owner.Failure = new DesktopAdapterException("connection_closed");
         var fresh = (await adapter.DiscoverAsync(Guid.NewGuid(), default)).Single();
         var unavailable = await adapter.SubmitAsync(Message(fresh), default);
-        check(unavailable is { Outcome: AdapterAdmission.Uncertain, Reason: "native_submission_uncertain" } && owner.Submissions == 3,
+        check(unavailable.Outcome == AdapterAdmission.Uncertain && owner.Submissions == 3,
             File + "update-tolerant reconnect: a transport failure after entering submission stays uncertain and is never replayed");
+        // A-broker-08: the receipt names what was raised, so an Uncertain to a parked chat can be told apart.
+        check(unavailable.Reason == "native_uncertain_raised_connection_closed",
+            File + "UNCERTAIN_RAISED_CAUSE: an exception out of the library's submission is recorded with its code (" + unavailable.Reason + ")");
     }
 
     private static async Task ProviderCannotLendExactTrustAsync(Action<bool, string> check)

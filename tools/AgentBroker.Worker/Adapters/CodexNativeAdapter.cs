@@ -191,9 +191,10 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
             { return Deferred("native_owner_unavailable"); } // No model-input method has been called.
             if (!ValidBinding(current, previous.ConversationId) || current!.NativeSessionIncarnation != message.Recipient.Incarnation)
                 return Deferred("native_owner_changed");
-            // Still unable to complete its own check: no model-input method has been called, so this defers with its own
-            // reason. An owner that does not advertise the native capability is a verdict and stays refused.
-            if (!provider.IsDeliveryAuthorized(current) && Pending(current)) return Deferred("native_verification_unavailable");
+            // No "still pending" deferral here (A-broker-09): with this lock held nothing changes the provider's check state
+            // between the Pending(previous) test above and this point, a lookup that succeeded leaves the owner connection up,
+            // and every binding reaching the lookup passed that test, so Pending(current) cannot be true. The pending case
+            // defers above, and the fresh check at submission defers through the provider (native_verification_unavailable).
             if (!provider.IsDeliveryAuthorized(current))
                 return new(AdapterAdmission.Refused, updateTolerant ? Refusal(current) ?? "unsupported_capability" : "native_client_profile_unverified");
             if (Refusal(current) is { } changed) return new(AdapterAdmission.Refused, changed);
@@ -219,10 +220,24 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
             catch (DesktopAdapterException ex) when (ex.Code is "message_frame_too_large" or "invalid_message" or "frame_too_large")
             { return new(AdapterAdmission.Refused, "native_message_too_large"); } // Native library proves these before its first model-input write.
             catch (Exception ex) when (ex is DesktopAdapterException or IOException or OperationCanceledException)
-            { return new(AdapterAdmission.Uncertain, "native_submission_uncertain"); }
+            { return new(AdapterAdmission.Uncertain, RaisedReason(ex)); }
         }
         finally { gate.Release(); }
     }
+
+    // An exception out of the library's submission, recorded with its cause (A-broker-08): all of them carried the one
+    // generic native_submission_uncertain, the reason N-agentbroker-uncertain-parked-01 cannot diagnose. Still Uncertain and
+    // never retried: the library raises these before its turn frame today (DesktopAdapter.SubmitCoreAsync answers every
+    // failure after it with a result instead), but ICodexOwnerConnection.SubmitAsync promises no such thing, so deferring
+    // them would rest on library internals; that needs a typed "nothing was written" signal from the library first.
+    private static string RaisedReason(Exception error) => error switch
+    {
+        DesktopAdapterException { Code: { Length: > 0 and <= 48 } code } when code.All(c => c is >= 'a' and <= 'z' or >= '0' and <= '9' or '_')
+            => "native_uncertain_raised_" + code,
+        IOException => "native_uncertain_raised_io",
+        OperationCanceledException => "native_uncertain_raised_cancelled",
+        _ => "native_submission_uncertain",
+    };
 
     // The library's typed cause of an uncertain submission, kept in the receipt so the next one can be diagnosed: two
     // messages to a chat parked on a prompt ended with only the generic reason (N-agentbroker-uncertain-parked-01).
