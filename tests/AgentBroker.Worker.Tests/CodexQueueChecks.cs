@@ -58,8 +58,10 @@ internal static class CodexQueueChecks
                 var now = DateTimeOffset.UtcNow;
                 var message = new BrokerMessage(Guid.NewGuid(), Guid.NewGuid(), null, sender.Address, recipient!.Address,
                     "Synthetic queue request, never sent to a real native client.", now, now.AddMinutes(1));
+                // A sender's receipt leaves the text out (lane broker-163, N-broker-compact-receipts-01): everything else is the
+                // message's own, and get_message_receipt with includeText returns all of it (ReceiptAsync below).
                 var accepted = await ToolAsync<MessageReceipt>(client, "send_message", new { message });
-                check(accepted.Message == message && accepted.Status == MessageStatus.Accepted,
+                check(accepted.Message is { Text: null } && accepted.Message with { Text = message.Text } == message && accepted.Status == MessageStatus.Accepted,
                     "MCP enqueues the immutable message for an Unknown session through the real Codex adapter boundary");
                 await UntilAsync(async () => engine.AttemptsFor(message.Id).Length == 1 &&
                     (await ReceiptAsync(client, message.Id)).Status != MessageStatus.Submitting);
@@ -120,7 +122,7 @@ internal static class CodexQueueChecks
     }
 
     private static Task<MessageReceipt> ReceiptAsync(HttpClient client, Guid messageId)
-        => ToolAsync<MessageReceipt>(client, "get_message_receipt", new { messageId });
+        => ToolAsync<MessageReceipt>(client, "get_message_receipt", new { messageId, includeText = true });
 
     private static async Task<T> ToolAsync<T>(HttpClient client, string name, object arguments)
     {
