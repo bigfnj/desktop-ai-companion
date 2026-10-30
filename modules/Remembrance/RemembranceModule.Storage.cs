@@ -234,10 +234,32 @@ namespace DesktopAICompanion.RemembranceModule
                 (dropped ? "; the oldest of them is no longer remembered, and no longer purged" : ""));
         }
 
-        /// <summary>The remembered earlier roots other than <paramref name="current"/>, read once per purge pass.</summary>
+        /// <summary>The remembered earlier roots other than <paramref name="current"/>, read once per purge pass. One that is
+        /// not a full path is never purged, and leaves the list (BACKLOG N-audit-20261029-07): 2.9.0's NoteStorageMove
+        /// remembered a relative location it left, before N-followups-02 stopped new ones, and the purge resolved it against
+        /// the process's current directory at every pass, the behaviour N-followups-02 refused for the current root; when a
+        /// folder of that name existed there, the store refused it and EVERY hourly pass logged "could not read 1 folder(s)
+        /// (InvalidOperationException)", a cause the line misnamed, and the entry never left. The cleaned list is written
+        /// back once, on the UI thread (PersistOnUi), and the one line says how many went, naming none.</summary>
         private List<string> EarlierRoots(string current)
         {
-            return ParseRoots(_settings.Get(EarlierRootsKey, "")).Where(r => !SameFolder(r, current)).ToList();
+            string joined = _settings.Get(EarlierRootsKey, "");
+            List<string> roots = ParseRoots(joined);
+            int relative = roots.RemoveAll(r => !CaptureStore.IsFullFolder(r));
+            if (relative > 0)
+            {
+                string cleaned = string.Join("|", roots);
+                PersistOnUi(delegate
+                {
+                    if (!string.Equals(_settings.Get(EarlierRootsKey, ""), joined, StringComparison.Ordinal)) return;
+                    SetInBackground(EarlierRootsKey, cleaned);
+                    string notPersisted;
+                    TrySaveSettings("the earlier storage folders", out notPersisted);
+                });
+                Log("purge, earlier storage folders: " + Counted(relative) +
+                    " remembered location(s) that are not a full path named no folder, are not purged and are no longer remembered");
+            }
+            return roots.Where(r => !SameFolder(r, current)).ToList();
         }
 
         /// <summary>Whether an earlier root can be walked: null when it can, "missing", or the type of the exception its
@@ -459,6 +481,19 @@ namespace DesktopAICompanion.RemembranceModule
                     check("earlier roots: no purge or storage line names a folder, checked against the planted names (" +
                           lines.Count.ToString(CultureInfo.InvariantCulture) + " lines); leaked: " + (leaked ?? "none"),
                         lines.Count == 5 && leaked == null);
+
+                    // ---- a relative location 2.9.0 remembered (N-audit-20261029-07): never resolved, and it leaves the list.
+                    // No folder is made in the current directory: before the fix the pass resolved "Recordings" there and,
+                    // finding none, said it was missing and kept it.
+                    string before = s.Get(EarlierRootsKey, "");
+                    s.Set(EarlierRootsKey, "Recordings|" + before);
+                    List<string> relative = pass();
+                    List<string> left = ParseRoots(s.Get(EarlierRootsKey, ""));
+                    check("earlier roots: a remembered location that is not a full path is never purged and leaves the list, in one line: " +
+                          (relative == null ? "(no pass)" : string.Join(" | ", relative)),
+                        relative != null && relative.Count == 1 && relative[0] == Id +
+                        ": purge, earlier storage folders: 1 remembered location(s) that are not a full path named no folder, are not purged and are no longer remembered" &&
+                        left.Count == 1 && SameFolder(left[0], second));
                 }
                 finally { module.Shutdown(); }
             }

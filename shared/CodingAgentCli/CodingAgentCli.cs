@@ -1916,8 +1916,25 @@ namespace DesktopAICompanion.CodingAgent
         private ClaudeTokenState ReadClaudeToken(out string token, out bool ownLeftover)
         {
             ownLeftover = false;
-            if (_sharedSignIn != null) return ReadSharedClaudeToken(out token, out ownLeftover);
+            if (_sharedSignIn != null) return ReadSharedClaudeToken(out token, out ownLeftover, true);
             return ReadLocalClaudeToken(out token);
+        }
+
+        /// <summary>
+        /// The pane's question, asked by Load on the UI thread: whether a sign-in token is saved, the token never read out.
+        /// It READS only (BACKLOG N-audit-20261029-02): this module's old copy, while one waits, is moved into the shared
+        /// store on a pool thread (BeginMigration), never here, since the move waits on the store's lock (up to five
+        /// seconds while another window of the app holds it) and retries a held file's delete; ReadClaudeToken, which a
+        /// call, a Validate and Remove token use off the UI thread, still moves it first. A usable old copy waiting to move
+        /// beside a store that cannot take it yet shows as saved, which it is, in this module's folder.
+        /// </summary>
+        internal bool ClaudeTokenShowsAsSaved()
+        {
+            string ignored;
+            if (_sharedSignIn == null) return ShowsAsSaved(ReadLocalClaudeToken(out ignored));
+            bool ownLeftover;
+            ClaudeTokenState state = ReadSharedClaudeToken(out ignored, out ownLeftover, false);
+            return ShowsAsSaved(state) || (state == ClaudeTokenState.Unavailable && LocalClaudeTokenWaiting());
         }
 
         /// <summary>This module's own file: the token store before host 1.8.0, and since then the old copy that moves into
@@ -1983,8 +2000,10 @@ namespace DesktopAICompanion.CodingAgent
             // IOException on the token an Apply had just sealed, in 3 of 15 runs on 2026-10-13, with the holder never
             // identified, and the user then had to press Remove token again. An IOException is a held file (a sharing
             // violation) or a transient one; anything else (access denied, a bad path) is said at once. Bounded: at most
-            // TokenDeleteAttempts tries, TokenDeleteRetryDelay apart, about 0.4 s in all, on the pool thread both modules
-            // run this on. If the last try fails too, the answer is the one it always was.
+            // TokenDeleteAttempts tries, TokenDeleteRetryDelay apart, about 0.4 s in all. Remove token and the old copy's
+            // move run it on a pool thread; an Apply that saves a token over a waiting old copy runs it on the UI thread,
+            // once, since that copy goes with the save (N-audit-20261029-02). If the last try fails too, the answer is the
+            // one it always was.
             Exception failure = null;
             for (int attempt = 1; ; attempt++)
             {
@@ -2031,7 +2050,8 @@ namespace DesktopAICompanion.CodingAgent
         //     the store revision it was learnt under. A commit of this runner's adopts its own revision at once; the
         //     host's CredentialChanged (NoteSharedSignInChanged) and a fresh read before each cached reading is served or an
         //     old Validate records its line (SyncSharedSignIn) drop them when the revision moved, so a second window of the
-        //     app changing the token is caught too, and this runner's own event is a no-op (the revision is already held).
+        //     app changing the token is caught too, and this runner's own event is a no-op: skipped when the host raises it
+        //     inline, inside the commit (on the UI thread), and a revision already held when it is posted to land later.
 
         private long _sharedRevision = long.MinValue;   // no reading of the store yet
         private readonly object _migrationSync = new object();
@@ -2039,6 +2059,7 @@ namespace DesktopAICompanion.CodingAgent
 
         private HostCredentialReading SharedRead()
         {
+            Interlocked.Exchange(ref _sharedReadAt, Environment.TickCount64);   // SyncSharedSignInFor's reuse window
             try { return _sharedSignIn.ReadCredential(_moduleId, HostCredentialId.ClaudeCodeSignIn); }
             catch { return null; }
         }
@@ -2051,18 +2072,23 @@ namespace DesktopAICompanion.CodingAgent
             catch { return false; }
         }
 
-        private ClaudeTokenState ReadSharedClaudeToken(out string token, out bool ownLeftover)
+        /// <param name="migrate">Move this module's old copy first, on this thread (a call, a Validate, Remove token: all off
+        /// the UI thread); false for the pane's read (ClaudeTokenShowsAsSaved), which starts the move on a pool thread.</param>
+        private ClaudeTokenState ReadSharedClaudeToken(out string token, out bool ownLeftover, bool migrate)
         {
             token = null;
             ownLeftover = false;
-            MigrateLocalClaudeToken();
+            if (migrate) MigrateLocalClaudeToken();
+            else BeginMigration();
             HostCredentialReading reading = SharedRead();
             ObserveSharedRevision(reading == null ? -1 : reading.Revision);
             if (reading == null) return ClaudeTokenState.Unavailable;
             switch (reading.State)
             {
                 case HostCredentialState.Saved:
-                    // The host's check is the looser one; this runner's own rule still decides what is sent.
+                    // This runner's own rule decides what is sent. Host 1.8.0's check refuses what this rule refuses (the
+                    // independent review's P3-9, HostCredentialStore.ValueProblem), but the store is the host's and any
+                    // module allowed it can write it, so a value checked by another rule is never sent on that word alone.
                     string checkedToken;
                     if (CheckClaudeToken(reading.Value, out checkedToken) != null) return ClaudeTokenState.NotAToken;
                     token = checkedToken;
@@ -2100,6 +2126,29 @@ namespace DesktopAICompanion.CodingAgent
             return now != null && now.State == HostCredentialState.Saved && CheckClaudeToken(now.Value, out ignored) != null;
         }
 
+        // Whether a pool-thread move of the old copy is running (BeginMigration's single-flight gate).
+        private int _migrationRunning;
+
+        /// <summary>Move this module's old copy on a pool thread, once at a time, when one waits (N-audit-20261029-02); the
+        /// pane's rows are refreshed when the copy has gone (DetailsRead, the channel each module hands its pane's
+        /// NotifyInfoChanged), so they show the shared store's state without a reopen. One that could not move yet is tried
+        /// again at the next read.</summary>
+        private void BeginMigration()
+        {
+            if (_sharedSignIn == null || !LocalClaudeTokenWaiting()) return;
+            if (Interlocked.CompareExchange(ref _migrationRunning, 1, 0) != 0) return;
+            Task.Run(delegate
+            {
+                try { MigrateLocalClaudeToken(); }
+                catch { }
+                finally { Interlocked.Exchange(ref _migrationRunning, 0); }
+                if (!LocalClaudeTokenWaiting()) NotifyDetailsRead(CodingAgentKind.Claude);
+            });
+        }
+
+        /// <summary>Whether BeginMigration's pool-thread move is running: the self-check's wait for it to end.</summary>
+        internal bool MigrationRunningForDiagnostics { get { return Volatile.Read(ref _migrationRunning) != 0; } }
+
         private void NoteMigration(string note)
         {
             if (string.Equals(note, _lastMigrationNote, StringComparison.Ordinal)) return;
@@ -2133,7 +2182,7 @@ namespace DesktopAICompanion.CodingAgent
                 if (localState == ClaudeTokenState.Saved)
                 {
                     HostCredentialCommit import;
-                    try { import = _sharedSignIn.ImportCredentialIfUnset(_moduleId, HostCredentialId.ClaudeCodeSignIn, local); }
+                    try { import = Committing(delegate { return _sharedSignIn.ImportCredentialIfUnset(_moduleId, HostCredentialId.ClaudeCodeSignIn, local); }); }
                     catch { import = null; }
                     if (import == null || (import.Outcome != HostCredentialOutcome.Imported && import.Outcome != HostCredentialOutcome.NotImported))
                     {
@@ -2177,9 +2226,10 @@ namespace DesktopAICompanion.CodingAgent
         {
             signIn = -1;
             error = null;
-            MigrateLocalClaudeToken();
+            // No move of the old copy first (N-audit-20261029-02): an Apply runs this on the UI thread, and the save below
+            // replaces whatever a move would have put in the store; the old copy is deleted after it, as one token is kept.
             HostCredentialCommit commit;
-            try { commit = _sharedSignIn.TrySaveCredential(_moduleId, HostCredentialId.ClaudeCodeSignIn, token); }
+            try { commit = Committing(delegate { return _sharedSignIn.TrySaveCredential(_moduleId, HostCredentialId.ClaudeCodeSignIn, token); }); }
             catch { commit = null; }
             if (commit == null || commit.Outcome != HostCredentialOutcome.Saved)
             {
@@ -2204,17 +2254,27 @@ namespace DesktopAICompanion.CodingAgent
         /// and this module's copy left (press again), not allowed, or the store unavailable. Two cases touch this module's
         /// own copy alone (the independent review): a store never used, where closing it from a leftover would cost another
         /// module its working token at that module's next use (P3-10); and a module not allowed the shared sign-in, whose
-        /// calls otherwise stopped for good, since nothing removed its waiting copy (P2-2).</summary>
+        /// calls otherwise stopped for good, since nothing removed its waiting copy (P2-2). A store never used, with no copy
+        /// of this module's either, is not touched at all (BACKLOG N-audit-20261029-01): nothing is saved anywhere this
+        /// module can remove, so the answer is "nothing to remove", and the store stays open for another module's old
+        /// token.</summary>
         private string RemoveSharedClaudeToken()
         {
-            if (LocalClaudeTokenWaiting())
+            HostCredentialReading reading = SharedRead();
+            if (reading != null && reading.State == HostCredentialState.None && reading.Revision == 0)
             {
-                HostCredentialReading reading = SharedRead();
-                if (reading != null && reading.State == HostCredentialState.None && reading.Revision == 0)
+                if (LocalClaudeTokenWaiting())
                     return DeleteOwnCopy(CodingAgentCliText.OwnCopyDeletedSentence(), "the shared store was never used and is left as it is");
+                // N-audit-20261029-01: RemoveCredential here wrote "removed" over a store never used (the host's Remove
+                // closes it, HostCredentialStore.Remove), so the OTHER module's valid old token, still waiting to move in,
+                // was deleted at that module's next use, though this press removed nothing and said so. The P3-10 reasoning
+                // holds whether or not this module has a copy of its own: closing the store is for a sign-in the user
+                // removed, and here there was none.
+                Log("cli: claude sign-in token not in the shared store, nothing to remove; the store was never used and is left open");
+                return CodingAgentCliText.SharedNothingToRemoveSentence;
             }
             HostCredentialCommit commit;
-            try { commit = _sharedSignIn.RemoveCredential(_moduleId, HostCredentialId.ClaudeCodeSignIn); }
+            try { commit = Committing(delegate { return _sharedSignIn.RemoveCredential(_moduleId, HostCredentialId.ClaudeCodeSignIn); }); }
             catch { commit = null; }
             HostCredentialOutcome outcome = commit == null ? HostCredentialOutcome.Unavailable : commit.Outcome;
             if (outcome == HostCredentialOutcome.Denied || outcome == HostCredentialOutcome.ConsentRequired)
@@ -2258,11 +2318,46 @@ namespace DesktopAICompanion.CodingAgent
         }
 
         /// <summary>The host said the shared sign-in changed (IHostCredentials.CredentialChanged): true when this runner's
-        /// Claude Code readings were dropped, so the module refreshes its pane; false for a revision it already holds (its
-        /// own commit's event among them) and for a runner with no shared store.</summary>
+        /// Claude Code readings were dropped, so the module refreshes its pane; false for a revision it already holds, for
+        /// its own commit's event, for a change while this module is refused the store, and for a runner with no shared
+        /// store.</summary>
         internal bool NoteSharedSignInChanged(long revision)
         {
+            // This runner's own commit, announced INLINE before the commit returned (BACKLOG N-audit-20261029-10): the host
+            // raises CredentialChanged on the UI thread at once (CompanionHost.OnUi) when the commit was made there, as a
+            // pane's Apply is, so the event came before AdoptSharedRevision and dropped the readings once, and asked the
+            // module for a pane refresh, ahead of the adopt's own drop. The commit's caller adopts its revision as soon as
+            // it returns, so the event is skipped here. Only an event raised on the committing thread, inside the commit,
+            // is: a posted one (a commit made on a pool thread) lands after the adopt and is a revision already held.
+            if (ReferenceEquals(t_committing, this)) return false;
+            // A module the user has not allowed the store (BACKLOG N-audit-20261029-04): the host announces every change to
+            // every subscriber, with the real revision, and adopting it took this runner out of its refused state, dropped
+            // its Claude Code readings, refreshed the pane, and the pane's first read was refused again and dropped them a
+            // second time, so the details read ran Claude Code's version and auth status children again, for a store this
+            // module cannot read. While refused, the store is read instead: still refused changes nothing, and a grant given
+            // since is seen as the change it is.
+            bool refused;
+            lock (_detailsSync) refused = _sharedRefused;
+            if (refused && _sharedSignIn != null)
+            {
+                HostCredentialReading now = SharedRead();
+                return ObserveSharedRevision(now == null ? -1 : now.Revision);
+            }
             return ObserveSharedRevision(revision);
+        }
+
+        // The runner whose commit (a save, an import or a remove) is running on this thread, or null: NoteSharedSignInChanged
+        // skips the event such a commit raises inline. Per thread, so another thread's commit, or another module's runner
+        // handling the same event, is never mistaken for this one.
+        [ThreadStatic] private static CodingAgentCli t_committing;
+
+        /// <summary>Run one of this runner's commits to the shared store with this thread marked as committing it.</summary>
+        private T Committing<T>(Func<T> commit)
+        {
+            CodingAgentCli outer = t_committing;
+            t_committing = this;
+            try { return commit(); }
+            finally { t_committing = outer; }
         }
 
         /// <summary>Read the store's revision now and drop the Claude Code readings when it moved: before a cached reading is
@@ -2272,6 +2367,36 @@ namespace DesktopAICompanion.CodingAgent
             if (_sharedSignIn == null) return;
             HostCredentialReading reading = SharedRead();
             ObserveSharedRevision(reading == null ? -1 : reading.Revision);
+        }
+
+        /// <summary>
+        /// A cached reading's sync (BACKLOG N-audit-20261029-03): for Claude Code only, since no Codex reading depends on the
+        /// Claude Code sign-in, and at most once per <see cref="SharedReadReuse"/>. Every cached getter read the host's store
+        /// (two file opens, the grants record and the envelope, HostCredentialStore.Read), Codex's too, so one pane Load on
+        /// the UI thread made about 9 to 12 reads; it makes one now, and the Load's ReadClaudeToken another. What the reuse
+        /// gives up is a change made in ANOTHER window of the app (no event reaches this process) being seen by a getter up
+        /// to that long later; a change in this process is announced (CredentialChanged), and a call, a Validate or a
+        /// details read still reads the store before it records what it learnt (SyncSharedSignIn). Rejected: a read once
+        /// per Load, which needs the module to say when a Load starts and every other getter caller to know it.
+        /// </summary>
+        private void SyncSharedSignInFor(CodingAgentKind agent)
+        {
+            if (agent != CodingAgentKind.Claude || _sharedSignIn == null) return;
+            long last = Interlocked.Read(ref _sharedReadAt);
+            if (last != 0 && Environment.TickCount64 - last < (long)SharedReadReuse.TotalMilliseconds) return;
+            SyncSharedSignIn();
+        }
+
+        /// <summary>How long a read of the shared store answers a cached getter's sync (SyncSharedSignInFor).</summary>
+        internal static readonly TimeSpan SharedReadReuse = TimeSpan.FromSeconds(1);
+
+        // When this runner last read the shared store (Environment.TickCount64), 0 before the first read.
+        private long _sharedReadAt;
+
+        /// <summary>The self-check's stand-in for the reuse window passing: the next cached getter reads the store.</summary>
+        internal void ExpireSharedReadForDiagnostics()
+        {
+            Interlocked.Exchange(ref _sharedReadAt, 0);
         }
 
         // Whether the last reading of the store was no reading at all (a refusal, or the store unavailable): -1 is not a
@@ -2307,7 +2432,8 @@ namespace DesktopAICompanion.CodingAgent
             }
         }
 
-        /// <summary>This runner's own commit: its revision is held at once, so the host's event for it changes nothing, and
+        /// <summary>This runner's own commit: its revision is held at once, so the host's event for it changes nothing (one
+        /// raised inside the commit is skipped by NoteSharedSignInChanged, one posted lands on a revision held), and
         /// the readings go with a new sign-in generation, which is returned (TrySetClaudeToken's contract).</summary>
         private int AdoptSharedRevision(long revision)
         {
@@ -2346,6 +2472,9 @@ namespace DesktopAICompanion.CodingAgent
         {
             lock (_detailsSync) return _claudeSignInGeneration;
         }
+
+        /// <summary>The sign-in generation, for the self-check: how many times the Claude Code readings were dropped.</summary>
+        internal int ClaudeSignInGenerationForDiagnostics { get { return ClaudeSignInGeneration(); } }
 
         /// <summary>Whether a reading of <paramref name="agent"/> taken at <paramref name="signIn"/> still describes the saved
         /// sign-in. Codex has none of the module's, so its readings always do. Call under _detailsSync.</summary>
@@ -3974,7 +4103,7 @@ namespace DesktopAICompanion.CodingAgent
         internal CliDetails CachedDetails(CodingAgentKind agent)
         {
             if (agent == CodingAgentKind.None) return null;
-            SyncSharedSignIn();
+            SyncSharedSignInFor(agent);
             CliDetails cached;
             lock (_detailsSync) _details.TryGetValue(agent, out cached);
             if (cached == null || DateTime.UtcNow - cached.ReadAtUtc > SignInFreshness) BeginDetailsRefresh(agent);
@@ -4042,7 +4171,7 @@ namespace DesktopAICompanion.CodingAgent
         internal CliDetails KeptDetails(CodingAgentKind agent)
         {
             if (agent == CodingAgentKind.None) return null;
-            SyncSharedSignIn();
+            SyncSharedSignInFor(agent);
             CliDetails kept;
             lock (_detailsSync) _details.TryGetValue(agent, out kept);
             return kept;
@@ -4116,7 +4245,7 @@ namespace DesktopAICompanion.CodingAgent
         /// <summary>The last Validate's line for this CLI, or null when none ran this session.</summary>
         internal string LastValidation(CodingAgentKind agent)
         {
-            SyncSharedSignIn();
+            SyncSharedSignInFor(agent);
             lock (_detailsSync)
             {
                 ValidationRecord kept;
@@ -4129,7 +4258,9 @@ namespace DesktopAICompanion.CodingAgent
         /// shows, the last press of Validate is what it describes.</summary>
         internal string LatestValidation()
         {
-            SyncSharedSignIn();
+            bool claudeKept;
+            lock (_detailsSync) claudeKept = _lastValidation.ContainsKey(CodingAgentKind.Claude);
+            if (claudeKept) SyncSharedSignInFor(CodingAgentKind.Claude);   // only Claude Code's line depends on the store
             lock (_detailsSync)
             {
                 string latest = null;
@@ -4251,7 +4382,7 @@ namespace DesktopAICompanion.CodingAgent
         /// a Validate), or null when none has this session. A copy: its Text is never kept.</summary>
         internal CliAnswer LastAnswered(CodingAgentKind agent)
         {
-            SyncSharedSignIn();
+            SyncSharedSignInFor(agent);
             lock (_detailsSync)
             {
                 CliAnswer kept;

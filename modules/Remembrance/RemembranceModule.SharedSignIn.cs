@@ -73,6 +73,19 @@ namespace DesktopAICompanion.RemembranceModule
                         check("remembrance shared sign-in: Apply saves a typed token into the shared store, and the card then says one is saved",
                             applied && host.Store.Value == Token && host.Store.Saves == 1 && pane.Load()["cliToken"] == "set");
 
+                        // BACKLOG N-audit-20261029-05: an Apply refused over the token says why on the Status line, which said
+                        // it only in the log, and never the token; the next Apply clears it.
+                        Dictionary<string, string> withRefused = CopyOf(pane.Load());
+                        withRefused["cliToken"] = "sk-ant-api03-REMEMBRANCE-REFUSED-0123";
+                        bool refusedApply = !pane.Save(withRefused);
+                        string refusedStatus = pane.Load()["status"];
+                        check("remembrance shared sign-in: an Apply refused over the sign-in token says why on the Status line, never the token: " + refusedStatus,
+                            refusedApply && refusedStatus.Contains("✗ Not applied: That is an Anthropic API key") &&
+                            !refusedStatus.Contains("REMEMBRANCE-REFUSED") && host.Store.Value == Token);
+                        bool reapplied = pane.Save(CopyOf(pane.Load()));
+                        check("remembrance shared sign-in: WITNESS the next Apply takes the refusal off the Status line",
+                            reapplied && !pane.Load()["status"].Contains("✗ Not applied"));
+
                         int notified = 0;
                         Action counter = delegate { Interlocked.Increment(ref notified); };
                         pane.InfoChanged += counter;

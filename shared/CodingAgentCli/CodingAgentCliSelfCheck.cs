@@ -4421,6 +4421,8 @@ namespace DesktopAICompanion.CodingAgent
         internal bool Removed;
         internal string Value;
         internal int Imports, Saves, RemovesCommitted, Reads;
+        /// <summary>The managed thread the last committed import ran on (N-audit-20261029-02: never a pane's).</summary>
+        internal int ImportThread;
         /// <summary>When set, a commit's event waits in Held until ReleaseHeld (a host posting it to the UI thread later).</summary>
         internal bool HoldEvents;
         internal readonly List<long> Held = new List<long>();
@@ -4499,6 +4501,7 @@ namespace DesktopAICompanion.CodingAgent
                 bool allows = !Used || (!Removed && SavedContent.HasValue);
                 if (!allows) return new HostCredentialCommit { Outcome = HostCredentialOutcome.NotImported, Revision = Revision, Problem = "" };
                 Used = true; Removed = false; SavedContent = null; Value = value; Imports++;
+                ImportThread = Environment.CurrentManagedThreadId;
                 committed = ++Revision;
             }
             Committed(committed);
@@ -4806,6 +4809,8 @@ namespace DesktopAICompanion.CodingAgent
                 Wait(runner.ValidateAsync(CodingAgentKind.Claude, CancellationToken.None));
                 bool cached = runner.LastValidation(CodingAgentKind.Claude) != null;
                 store.SaveElsewhere(SharedToken);
+                // A cached getter reads the store at most once a SharedReadReuse (N-audit-20261029-03): the window passing.
+                runner.ExpireSharedReadForDiagnostics();
                 check("cli runner: shared sign-in: a token saved in another window of the app, with no event here, drops the cached readings before they are served",
                     cached && runner.LastValidation(CodingAgentKind.Claude) == null && runner.LatestValidation() == null);
                 CodingAgentCli.CliDetails details = Wait(runner.RefreshDetailsAsync(CodingAgentKind.Claude, CancellationToken.None));
@@ -4828,6 +4833,135 @@ namespace DesktopAICompanion.CodingAgent
                     notNow + ")",
                     notNow.StartsWith("✗ The shared Claude Code sign-in token could not be removed", StringComparison.Ordinal) &&
                     both == CodingAgentCliText.SharedTokenRemovedSentence && store.Removed && !File.Exists(LocalFile(scratch)));
+            }
+
+            AuditRunnerChecks(check, log);
+        }
+
+        /// <summary>
+        /// The 2026-10-29 audit's runner findings (lane audit-runner): Remove token on a store never used with no copy of its
+        /// own (N-audit-20261029-01), the old copy's move off a pane's thread (-02), the cached getters' store reads (-03), a
+        /// module not allowed the store and another module's change (-04), and this runner's own commit announced inline, as
+        /// the host does on the UI thread (-10). The fake raises every commit's event inline, inside the commit.
+        /// </summary>
+        private static void AuditRunnerChecks(Action<string, bool> check, List<string> log)
+        {
+            string read;
+
+            // -01: the module pressing Remove has nothing; the other module's valid old token waits to move in.
+            using (var scratch = new FakeCliScratch())
+            using (var other = new FakeCliScratch())
+            {
+                var fake = new FakeCliProcess { Respond = FakeCliProcess.Answering("OK") };
+                var store = new FakeHostCredentials();
+                CodingAgentCli pressing = NewRunner(scratch, fake, log, store);
+                WriteLocal(other, LocalToken);
+                CodingAgentCli waiting = NewRunner(other, fake, log, store);
+                string nothing = pressing.RemoveClaudeToken();
+                check("cli runner: shared sign-in: Remove token with no copy of its own on a store never used says nothing to remove and leaves the store untouched: " + nothing,
+                    nothing == CodingAgentCliText.SharedNothingToRemoveSentence && !store.Used && store.RemovesCommitted == 0 && store.Revision == 0);
+                CliAnswer next = Wait(waiting.AskAsync(Remark(), CancellationToken.None));
+                check("cli runner: shared sign-in: after that Remove the other module's old token still moves in at its next use and is the one sent (" + next.Outcome + ")",
+                    next.Ok && store.Imports == 1 && store.Value == LocalToken && !File.Exists(LocalFile(other)) && Carried(fake) == LocalToken);
+            }
+
+            // -02: a pane's read (Load, on the UI thread) moves nothing on its own thread; the move runs on a pool thread and
+            // the pane is told when the copy has gone.
+            using (var scratch = new FakeCliScratch())
+            {
+                var fake = new FakeCliProcess { Respond = FakeCliProcess.Answering("OK") };
+                var store = new FakeHostCredentials();
+                WriteLocal(scratch, LocalToken);
+                CodingAgentCli runner = NewRunner(scratch, fake, log, store);
+                int notified = 0;
+                runner.DetailsRead = delegate { Interlocked.Increment(ref notified); };
+                int caller = Environment.CurrentManagedThreadId;
+                bool shows = runner.ClaudeTokenShowsAsSaved();
+                var clock = Stopwatch.StartNew();
+                while ((runner.MigrationRunningForDiagnostics || File.Exists(LocalFile(scratch)) || Volatile.Read(ref notified) == 0) &&
+                       clock.Elapsed < TimeSpan.FromSeconds(10))
+                    Thread.Sleep(20);
+                check("cli runner: shared sign-in: a pane's read shows a waiting old copy as saved and moves it on a pool thread, never the reader's (" +
+                    shows + ", " + store.Imports + ", " + (store.ImportThread == caller ? "reader's thread" : "another thread") + ")",
+                    shows && store.Imports == 1 && store.ImportThread != 0 && store.ImportThread != caller && store.Value == LocalToken &&
+                    !File.Exists(LocalFile(scratch)));
+                check("cli runner: shared sign-in: the pane is told when the old copy has moved (" + Volatile.Read(ref notified) + ")",
+                    Volatile.Read(ref notified) >= 1);
+                check("cli runner: shared sign-in: WITNESS after the move a pane's read shows the shared token as saved",
+                    runner.ClaudeTokenShowsAsSaved() && runner.ReadClaudeToken(out read) == CodingAgentCli.ClaudeTokenState.Saved && read == LocalToken);
+            }
+
+            // -03: the getters a pane Load asks read the store once between them, and Codex's not at all.
+            using (var scratch = new FakeCliScratch())
+            {
+                var fake = new FakeCliProcess { Respond = FakeCliProcess.Answering("OK") };
+                var store = new FakeHostCredentials();
+                store.SaveElsewhere(SharedToken);
+                CodingAgentCli runner = NewRunner(scratch, fake, log, store);
+                runner.ExpireSharedReadForDiagnostics();
+                int before = store.Reads;
+                runner.KeptDetails(CodingAgentKind.Claude);
+                runner.KeptDetails(CodingAgentKind.Codex);
+                runner.LastValidation(CodingAgentKind.Claude);
+                runner.LastValidation(CodingAgentKind.Codex);
+                runner.LatestValidation();
+                runner.LastAnswered(CodingAgentKind.Claude);
+                runner.LastAnswered(CodingAgentKind.Codex);
+                int loadReads = store.Reads - before;
+                runner.ExpireSharedReadForDiagnostics();
+                int codexBefore = store.Reads;
+                runner.KeptDetails(CodingAgentKind.Codex);
+                runner.LastValidation(CodingAgentKind.Codex);
+                runner.LastAnswered(CodingAgentKind.Codex);
+                int codexReads = store.Reads - codexBefore;
+                check("cli runner: shared sign-in: a pane Load's cached getters read the store once between them, and Codex's getters not at all (" +
+                    loadReads + ", " + codexReads + ")",
+                    loadReads == 1 && codexReads == 0);
+            }
+
+            // -04: a module not allowed the store, and another module's change announced to it.
+            using (var scratch = new FakeCliScratch())
+            {
+                var fake = new FakeCliProcess { Respond = FakeCliProcess.Answering("OK") };
+                var store = new FakeHostCredentials { Allowed = false };
+                CodingAgentCli runner = NewRunner(scratch, fake, log, store);
+                runner.ReadClaudeToken(out read);
+                int before = runner.ClaudeSignInGenerationForDiagnostics;
+                store.SaveElsewhere(SharedToken);
+                bool dropped = runner.NoteSharedSignInChanged(store.Revision);
+                int after = runner.ClaudeSignInGenerationForDiagnostics;
+                check("cli runner: shared sign-in: a module not allowed the store drops nothing and asks for no refresh when another module changes it (" +
+                    dropped + ", " + (after - before) + ")",
+                    !dropped && after == before);
+                store.Allowed = true;
+                store.SaveElsewhere(SharedToken + "-newer");
+                check("cli runner: shared sign-in: WITNESS a module allowed since sees the next change as one",
+                    runner.NoteSharedSignInChanged(store.Revision) && runner.ClaudeSignInGenerationForDiagnostics > after);
+            }
+
+            // -10: this runner's own save and remove, their events raised inside the commit (the UI thread's case).
+            using (var scratch = new FakeCliScratch())
+            {
+                var fake = new FakeCliProcess { Respond = FakeCliProcess.Answering("OK") };
+                var store = new FakeHostCredentials();
+                CodingAgentCli runner = NewRunner(scratch, fake, log, store);
+                int refreshes = 0;
+                store.CredentialChanged += delegate(HostCredentialId id, long revision) { if (runner.NoteSharedSignInChanged(revision)) refreshes++; };
+                runner.ReadClaudeToken(out read);
+                int before = runner.ClaudeSignInGenerationForDiagnostics;
+                string error;
+                bool saved = runner.TrySetClaudeToken(TypedToken, out error);
+                int afterSave = runner.ClaudeSignInGenerationForDiagnostics;
+                string removed = runner.RemoveClaudeToken();
+                int afterRemove = runner.ClaudeSignInGenerationForDiagnostics;
+                check("cli runner: shared sign-in: this runner's own save and remove, announced inside the commit, ask for no refresh and drop the readings once each (" +
+                    refreshes + ", " + (afterSave - before) + ", " + (afterRemove - afterSave) + ")",
+                    saved && removed == CodingAgentCliText.SharedTokenRemovedSentence && refreshes == 0 && afterSave - before == 1 &&
+                    afterRemove - afterSave == 1);
+                store.SaveElsewhere(SharedToken);
+                store.Raise(store.Revision);
+                check("cli runner: shared sign-in: WITNESS another module's change announced the same way still asks for a refresh (" + refreshes + ")",
+                    refreshes == 1);
             }
         }
     }

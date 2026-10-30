@@ -2743,6 +2743,12 @@ namespace DesktopAICompanion.RemembranceModule
                         if (cli == null || !cli.TrySetClaudeToken(typedToken, out tokenError))
                         {
                             Log("sign-in token not stored: " + tokenError);
+                            // And on the Status line, as the storage refusal above is (BACKLOG N-audit-20261029-05): the host's
+                            // dialog says only that the settings could not be saved, and the reason ("That is an Anthropic API
+                            // key...", "not allowed the shared Claude Code sign-in...") was in the log alone. The runner's
+                            // reasons never carry the token.
+                            _applyRefusal = tokenError;
+                            NotifyInfoChanged();
                             return false;
                         }
                     }
@@ -3953,9 +3959,9 @@ namespace DesktopAICompanion.RemembranceModule
         /// <summary>The token row's Load value: "set" while a token is saved, never the token.</summary>
         private string SavedTokenHint()
         {
-            string ignored;
             CodingAgentCli cli = _cli;
-            return cli != null && CodingAgentCli.ShowsAsSaved(cli.ReadClaudeToken(out ignored)) ? "set" : "";
+            // Read only: an old copy's move into the shared store runs on a pool thread (N-audit-20261029-02).
+            return cli != null && cli.ClaudeTokenShowsAsSaved() ? "set" : "";
         }
 
         /// <summary>The CLI card's Update CLI: the CLI's own update, refused while a call of this module's runs. Not

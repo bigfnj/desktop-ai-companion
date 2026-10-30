@@ -1000,30 +1000,31 @@ namespace DesktopAICompanion.Ai
         /// is, because it is then the only copy. The delete is the user's earlier version of the pack, so it is
         /// counted in <paramref name="report"/> (N-remembrance-delete-logging-04).
         ///
-        /// False when the backup could not be moved back, and that is counted in <paramref name="report"/> as a pack
-        /// the batch could not undo (N-modules-small-01). It returned in silence, so the batch's verdict, which
-        /// asked only the rollback of the commits before this one, could still say every earlier change was rolled
-        /// back while the pack sat in its hidden backup. CommitAtomic rethrows either way; the count is what reaches
-        /// the verdict, which now also requires <see cref="FortuneImportBatchResult.RollbackFailed"/> to be 0.</summary>
-        private static bool RestoreTornReplace(string destinationPath, string backupPath, FortuneImportBatchResult report)
+        /// A backup that could not be moved back is counted in <paramref name="report"/> as a pack the batch could not
+        /// undo (N-modules-small-01). It went uncounted, so the batch's verdict, which asked only the rollback of the
+        /// commits before this one, could still say every earlier change was rolled back while the pack sat in its
+        /// hidden backup. CommitAtomic rethrows either way; the count is what reaches the verdict, which now also
+        /// requires <see cref="FortuneImportBatchResult.RollbackFailed"/> to be 0. No return value: the one caller
+        /// rethrows whatever happened here, and a bool it discarded only looked like a second channel
+        /// (BACKLOG N-audit-20261029-08).</summary>
+        private static void RestoreTornReplace(string destinationPath, string backupPath, FortuneImportBatchResult report)
         {
-            if (string.IsNullOrEmpty(backupPath)) return true;
+            if (string.IsNullOrEmpty(backupPath)) return;
             try
             {
                 var backup = new FileInfo(backupPath);
                 if (!File.Exists(destinationPath) && backup.Exists && backup.Length > 0)
                 {
                     WithTransientRetry(delegate { File.Move(backupPath, destinationPath); });
-                    return true;
+                    return;
                 }
             }
             catch (Exception ex)
             {
                 if (report != null) report.RollbackNotUndone(ex);
-                return false;
+                return;
             }
             DeleteBackup(backupPath, report);
-            return true;
         }
 
         /// <param name="report">Where the rollback's outcome is counted for the module's one line

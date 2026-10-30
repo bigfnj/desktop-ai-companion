@@ -6893,6 +6893,36 @@ was down needs its MCP server reconnected (Claude Code: /mcp) or a restart. Keep
 companion restart would change the supervisor's ownership model (a worker outliving its parent is what the parent-PID
 watch prevents) and stays a backlog option.
 
+#### fix/audit-runner-1029
+
+The 2026-10-29 audit's findings in the shared runner (`shared/CodingAgentCli/CodingAgentCli.cs`) and the modules that
+link it.
+
+**A cached getter can serve a reading up to a second after another window of the app changed the token
+(N-audit-20261029-03).** The cached getters (`CachedDetails`, `KeptDetails`, `LastValidation`, `LatestValidation`,
+`LastAnswered`) read the host's store through `SyncSharedSignInFor`, which reads only for Claude Code and at most once per
+`SharedReadReuse` (one second) since this runner's last read of the store. Before, each getter read it, two file opens
+each, Codex's getters too, so one pane Load on the UI thread read it about 9 to 12 times; the self-check counts one read
+for the getters a Load asks and none for Codex's. The second is what a change made in another process costs: no
+CredentialChanged reaches this process for it, so a getter in that window serves the old reading. A change in this
+process is announced and drops the readings at once, and a call, a Validate and a details read still read the store
+before they record what they learnt (`SyncSharedSignIn`), so nothing recorded under the old sign-in survives. Refused: a
+read once per Load, which needs each module to say when a Load begins and every other caller of a getter to know about
+it. The saving is a count of reads, not a time: no timing was measured.
+
+**A module refused the store re-reads it on CredentialChanged instead of adopting the event's revision
+(N-audit-20261029-04).** The host announces every change to every subscriber; skipping ungranted modules in
+`CompanionHost.RaiseCredentialChanged` would need the host to know which module each handler belongs to, which the event
+does not record. The runner already knows it is refused (`_sharedRefused`), so the fix is there: while refused, the event
+reads the store, a refusal still changes nothing, and a grant given since is seen as the change it is.
+
+**A runner skips the CredentialChanged its own commit raises inline (N-audit-20261029-10).** On the UI thread the host
+raises the event inside the commit (`CompanionHost.OnUi` runs inline there), before the runner's `AdoptSharedRevision`.
+The runner marks the thread while it commits (`Committing`, a `[ThreadStatic]` field naming the runner) and its handler
+ignores an event raised on that thread inside that runner's commit; a posted event lands after the adopt on a revision
+already held. Refused: posting the raise always, which changes the host's event timing for every module and every
+self-test that relies on the headless host raising inline.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

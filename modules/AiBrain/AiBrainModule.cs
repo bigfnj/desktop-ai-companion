@@ -2056,8 +2056,13 @@ namespace DesktopAICompanion.AiBrainModule
         private string CliStatusLine()
         {
             string last = _cli == null ? null : _cli.LatestValidation();
-            return last ?? "Not validated yet. Press Validate.";
+            string refusal = _tokenApplyRefusal;
+            return (refusal == null ? "" : "✗ Not applied: " + refusal + "  |  ") + (last ?? "Not validated yet. Press Validate.");
         }
+
+        // The reason the last Apply was refused over the sign-in token, shown first on the Status row until the next Apply
+        // (BACKLOG N-audit-20261029-05), or null. Written and read on the UI thread (Save, Load).
+        private string _tokenApplyRefusal;
 
         /// <summary>The card's "Goes through" row for <paramref name="agent"/>, one row per CLI since round 2 (the row for
         /// the CLI on screen is live): one plain account of what leaves the machine on this path. The privacy row, so it
@@ -2272,8 +2277,8 @@ namespace DesktopAICompanion.AiBrainModule
                 d["cliAccountClaude"] = CliAccountLine(CodingAgentKind.Claude, cli);
                 d["cliAccountCodex"] = CliAccountLine(CodingAgentKind.Codex, cli);
                 // The saved sign-in token's presence and never the token: the host's Secret box shows "a value is saved".
-                string ignoredToken;
-                d["cliToken"] = _cli != null && CodingAgentCli.ShowsAsSaved(_cli.ReadClaudeToken(out ignoredToken)) ? "set" : "";
+                // Read only: an old copy's move into the shared store runs on a pool thread (N-audit-20261029-02).
+                d["cliToken"] = _cli != null && _cli.ClaudeTokenShowsAsSaved() ? "set" : "";
                 // The four model and effort rows (feature/cli-model-effort): their Options first, so the label each value
                 // loads as is one the dropdown offers (Codex's labels are registered by the rebuild).
                 RefreshCliChoiceOptions(s);
@@ -2293,6 +2298,7 @@ namespace DesktopAICompanion.AiBrainModule
         {
             AiSettings s = _settings;
             if (s == null || values == null) return false;
+            _tokenApplyRefusal = null;   // the last Apply's refusal goes with the next Apply (N-audit-20261029-05)
             // The Claude sign-in token FIRST, before anything is written onto the live settings: one that is not a token,
             // or cannot be sealed, refuses the whole Apply (nothing saved, the typed values stay on screen, the reason in
             // the log, which never carries the token). Present only when the user typed one; blank keeps the saved one.
@@ -2306,6 +2312,11 @@ namespace DesktopAICompanion.AiBrainModule
                 if (cli == null || !cli.TrySetClaudeToken(typedToken, out tokenError))
                 {
                     try { if (_host != null) _host.Log(Info.Id, "sign-in token not stored: " + tokenError); } catch { }
+                    // And on the CLI card's Status row (BACKLOG N-audit-20261029-05): the host's dialog says only that the
+                    // settings could not be saved, and the reason was in the log alone. The runner's reasons never carry
+                    // the token. Cleared by the next Apply.
+                    _tokenApplyRefusal = tokenError;
+                    NotifyPaneInfoChanged();
                     return false;
                 }
             }
