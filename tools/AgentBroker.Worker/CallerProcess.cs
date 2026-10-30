@@ -8,6 +8,11 @@ namespace AgentBroker.Worker;
 /// <summary>One process in a caller's ancestry. The creation time keeps a reused process ID from matching a session.</summary>
 public sealed record CallerProcess(int ProcessId, ulong StartFileTime, string ImageName);
 
+/// <summary>A caller's ancestry, and whether an empty one is because the connection's owner was found but Windows denied
+/// even a limited query of it (N-broker-elevated-caller-01): an elevated process, or one running as another user, seen
+/// from this Medium-integrity broker.</summary>
+public sealed record CallerResolution(IReadOnlyList<CallerProcess> Chain, bool OwnerAccessDenied = false);
+
 /// <summary>Finds the process that opened a loopback connection, for whoami. Read-only: it opens no process for anything
 /// beyond limited query access and reads no memory, command line or token.</summary>
 public interface ICallerProcessResolver
@@ -15,6 +20,10 @@ public interface ICallerProcessResolver
     /// <summary>The process owning the client end of a loopback TCP connection, then its parents, nearest first. Empty when
     /// the owner cannot be found.</summary>
     IReadOnlyList<CallerProcess> Resolve(IPAddress clientAddress, int clientPort, int serverPort);
+
+    /// <summary>The same chain, saying whether an empty one met an owner it was refused access to. A resolver that cannot
+    /// tell never claims a refusal.</summary>
+    CallerResolution ResolveCaller(IPAddress clientAddress, int clientPort, int serverPort) => new(Resolve(clientAddress, clientPort, serverPort));
 }
 
 public sealed class WindowsCallerProcessResolver : ICallerProcessResolver
@@ -23,13 +32,37 @@ public sealed class WindowsCallerProcessResolver : ICallerProcessResolver
     internal const int MaximumDepth = 16;
 
     public IReadOnlyList<CallerProcess> Resolve(IPAddress clientAddress, int clientPort, int serverPort)
+        => ResolveCaller(clientAddress, clientPort, serverPort).Chain;
+
+    public CallerResolution ResolveCaller(IPAddress clientAddress, int clientPort, int serverPort)
     {
         if (!OperatingSystem.IsWindows() || !IPAddress.IsLoopback(clientAddress) ||
-            clientPort is <= 0 or > 65535 || serverPort is <= 0 or > 65535) return [];
+            clientPort is <= 0 or > 65535 || serverPort is <= 0 or > 65535) return new([]);
         if (clientAddress.IsIPv4MappedToIPv6) clientAddress = clientAddress.MapToIPv4();
         int? owner = clientAddress.AddressFamily == AddressFamily.InterNetwork
             ? Owner(2, 24, clientAddress, clientPort, serverPort) : Owner(23, 56, clientAddress, clientPort, serverPort);
-        return owner is { } pid ? Walk(pid, Snapshot(), StartTime) : [];
+        return Compose(owner, pid => Walk(pid, Snapshot(), StartTime), AccessDenied);
+    }
+
+    /// <summary>The resolution for a found (or missing) connection owner. Pure over its two lookups, so the elevated case is
+    /// tested without an elevated process. Only an EMPTY chain asks: an owner that could be opened is never a refusal, and
+    /// a refusal is asked about the owner itself, never a parent (a parent the broker cannot open just ends the walk).</summary>
+    internal static CallerResolution Compose(int? owner, Func<int, IReadOnlyList<CallerProcess>> walk, Func<int, bool> accessDenied)
+    {
+        if (owner is not { } pid) return new([]);
+        var chain = walk(pid);
+        return new(chain, chain.Count == 0 && accessDenied(pid));
+    }
+
+    // ERROR_ACCESS_DENIED from the same limited query StartTime makes, read at once. Any other failure (the process exited,
+    // an invalid ID) is not a refusal: it stays caller_unresolved.
+    internal static bool AccessDenied(int processId)
+    {
+        var process = OpenProcess(ProcessQueryLimitedInformation, false, processId);
+        int error = Marshal.GetLastPInvokeError();
+        bool invalid = process.IsInvalid;
+        process.Dispose();
+        return invalid && error == ErrorAccessDenied;
     }
 
     /// <summary>The owner and its parents, nearest first, from a process snapshot (ID to parent ID and image) and a creation
@@ -110,6 +143,7 @@ public sealed class WindowsCallerProcessResolver : ICallerProcessResolver
 
     private const int TcpTableOwnerPidConnections = 4;
     private const uint ErrorInsufficientBuffer = 122;
+    private const int ErrorAccessDenied = 5;
     private const uint SnapProcess = 0x2;
     private const uint ProcessQueryLimitedInformation = 0x1000;
 

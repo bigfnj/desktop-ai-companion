@@ -282,10 +282,16 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
     // whoami: the session owned by the nearest process in the caller's ancestry that an adapter binds to exactly one
     // directory row. The walk ends at the nearest claude or codex process even when that process is no discovered session,
     // so an agent another agent started (claude -p inside a Claude session) is never told that it is its parent.
+    // caller_elevated (N-broker-elevated-caller-01): the connection's owner was found but even a limited query of it was
+    // denied, which from this Medium-integrity broker means an elevated process or another user's. It is deliberately NOT
+    // bridged: verifying, waking or injecting into a process above the broker's integrity would let any Medium process
+    // drive an elevated one. The caller is told what it can do instead (a mailbox, or run unelevated); caller_unresolved
+    // keeps meaning that no owner was found at all.
     public (BrokerSession? Session, string Code) WhoAmI(System.Net.IPAddress client, int clientPort, int serverPort)
     {
-        var chain = (callerProcesses ?? WindowsCallerProcessResolver.Instance).Resolve(client, clientPort, serverPort);
-        if (chain.Count == 0) return (null, "caller_unresolved");
+        var resolution = (callerProcesses ?? WindowsCallerProcessResolver.Instance).ResolveCaller(client, clientPort, serverPort);
+        var chain = resolution.Chain;
+        if (chain.Count == 0) return (null, resolution.OwnerAccessDenied ? "caller_elevated" : "caller_unresolved");
         var directory = store.Directory();
         foreach (var process in chain)
         {

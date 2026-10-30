@@ -13,7 +13,7 @@ internal static class ClaudePinDiagnosticChecks
     internal static async Task RunAsync(Action<bool, string> check, string? scenario = null)
     {
         string[] selected = scenario is null
-            ? ["early-reject", "unsupported-version", "hash-mismatch", "mixed", "recovery", "bounded-snapshot"] : [scenario];
+            ? ["early-reject", "unsupported-version", "hash-mismatch", "mixed", "recovery", "bounded-snapshot", "elevated"] : [scenario];
         foreach (string name in selected)
             switch (name)
             {
@@ -23,6 +23,7 @@ internal static class ClaudePinDiagnosticChecks
                 case "mixed": await MixedPassAndRecoveryAsync(check); break;
                 case "recovery": await RecoveryAsync(check); break;
                 case "bounded-snapshot": await BoundedSnapshotAsync(check); break;
+                case "elevated": await ElevatedSessionAsync(check); break;
                 default: throw new ArgumentException("Unknown Claude pin diagnostic scenario.", nameof(scenario));
             }
     }
@@ -147,6 +148,42 @@ internal static class ClaudePinDiagnosticChecks
             "Claude installed-version reporting is bounded and strips public metadata control characters");
     }
 
+    // N-broker-elevated-caller-01: a Claude Code session of this user's home that runs elevated used to be skipped in
+    // silence (its process cannot be opened from a Medium broker). It is still skipped and never woken, but counted, and
+    // the count names no process, session or path.
+    private static async Task ElevatedSessionAsync(Action<bool, string> check)
+    {
+        var denied = new System.ComponentModel.Win32Exception(5);
+        var elevated = Create(801) with { ImageFailure = denied };
+        var secondElevated = Create(802) with { ImageFailure = new System.ComponentModel.Win32Exception(5) };
+        var unreadableRecord = Create(803) with { MetadataFailure = new System.ComponentModel.Win32Exception(5) };
+        var otherFailure = Create(804) with { ImageFailure = new System.ComponentModel.Win32Exception(299) };
+        var supported = Create(805) with { Version = Pin21292.Version, Hash = Pin21292.Sha256 };
+        var source = new PublicSource(elevated, unreadableRecord, otherFailure, supported);
+        await using var provider = new ClaudeNativeProvider(source);
+        var sessions = await provider.DiscoverAsync(CancellationToken.None);
+        var diagnostic = provider.DiscoveryDiagnostics.SingleOrDefault(item => item.Code == "claude_session_elevated");
+        check(sessions.Count == 1 && sessions[0].Target.ProcessId == supported.Pid && diagnostic is not null,
+            "CLAUDE_ELEVATED_COUNTED: an elevated session is counted in the pass's diagnostic while the openable one is still listed");
+        check(provider.DiscoveryDiagnostics.Count == 1 && diagnostic is not null &&
+            diagnostic.Description.StartsWith("1 Claude Code session runs elevated or as another user, so the broker cannot verify or wake it;", StringComparison.Ordinal),
+            "CLAUDE_ELEVATED_RECORD_ONLY: an unreadable session record and a non-access failure are not counted as elevated");
+        string text = diagnostic?.ToStatusText() ?? "";
+        check(!text.Contains("801", StringComparison.Ordinal) && !text.Contains(elevated.Metadata.SessionId, StringComparison.Ordinal) &&
+            !text.Contains(elevated.Image!, StringComparison.Ordinal) && text.Contains("register_agent", StringComparison.Ordinal),
+            "CLAUDE_ELEVATED_COUNT_ONLY: the diagnostic names no process, session or path, and says what to do instead");
+        source.Processes[secondElevated.Pid] = secondElevated;
+        await provider.DiscoverAsync(CancellationToken.None);
+        check(provider.DiscoveryDiagnostics.SingleOrDefault(item => item.Code == "claude_session_elevated")?.Description
+                .StartsWith("2 Claude Code sessions run elevated", StringComparison.Ordinal) == true,
+            "CLAUDE_ELEVATED_PLURAL: two elevated sessions are counted as two");
+        check(await provider.RefreshAsync(elevated.Pid, CancellationToken.None) is null,
+            "CLAUDE_ELEVATED_REFRESH: a direct refresh of an elevated session still finds no target");
+        source.Processes.Remove(elevated.Pid); source.Processes.Remove(secondElevated.Pid);
+        await provider.DiscoverAsync(CancellationToken.None);
+        check(provider.DiscoveryDiagnostics.Count == 0, "CLAUDE_ELEVATED_CLEARS: the diagnostic clears once no elevated session remains");
+    }
+
     private static async Task RecoveryAsync(Action<bool, string> check)
     {
         var stale = Create(701);
@@ -192,6 +229,7 @@ internal static class ClaudePinDiagnosticChecks
     {
         internal Exception? MetadataFailure { get; init; }
         internal Exception? GuardFailure { get; init; }
+        internal Exception? ImageFailure { get; init; }
     }
 
     private sealed class PublicSource(params PublicProcess[] processes) : IClaudeDiscoverySource
@@ -222,7 +260,7 @@ internal static class ClaudePinDiagnosticChecks
         private sealed class ProcessView(PublicProcess process, List<string> calls) : IClaudeDiscoveryProcess
         {
             public string ProcessName { get { calls.Add(process.Pid + ":name"); return process.Name; } }
-            public string? ImagePath { get { calls.Add(process.Pid + ":image"); return process.Image; } }
+            public string? ImagePath { get { calls.Add(process.Pid + ":image"); return process.ImageFailure is { } failure ? throw failure : process.Image; } }
             public ulong StartFileTime { get { calls.Add(process.Pid + ":start"); return process.Started; } }
             public void Dispose() => calls.Add(process.Pid + ":dispose");
         }

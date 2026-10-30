@@ -10,6 +10,9 @@ public sealed class ClaudeNativeProvider : IClaudeNativeProvider
     private readonly bool enablePeerCredentials;
     private readonly Func<string?> pinDocumentError;
     private IReadOnlyList<AdapterDiscoveryDiagnostic> discoveryDiagnostics = Array.Empty<AdapterDiscoveryDiagnostic>();
+    // Sessions this pass found but could not open (see RefreshCoreAsync). Discovery runs one pass at a time.
+    private int unopenableThisPass;
+    private const int ErrorAccessDenied = 5;
     private bool disposed;
 
     public ClaudeNativeProvider(bool enablePeerCredentials = false)
@@ -34,12 +37,20 @@ public sealed class ClaudeNativeProvider : IClaudeNativeProvider
             diagnostics.Add(new("pin_document_invalid", "AgentBroker's pin document was refused (" + refused
                 + "); no Claude Code build is verified, so no session can be woken until an AgentBroker module update replaces it."));
         var live = new HashSet<int>();
+        unopenableThisPass = 0;
         foreach (int processId in source.GetProcessIds().Order().Take(32))
         {
             token.ThrowIfCancellationRequested(); live.Add(processId);
             var candidate = await RefreshCoreAsync(processId, diagnostics, token);
             if (candidate is not null) found.Add(candidate);
         }
+        // Counted, never named (no process ID, session ID or path): such a session used to be skipped in silence, so its
+        // owner saw no row and no reason (N-broker-elevated-caller-01).
+        if (unopenableThisPass > 0)
+            diagnostics.Add(new("claude_session_elevated", unopenableThisPass + " Claude Code session" + (unopenableThisPass == 1
+                ? " runs elevated or as another user, so the broker cannot verify or wake it"
+                : "s run elevated or as another user, so the broker cannot verify or wake them") +
+                "; use register_agent for a mailbox, or run the agent unelevated."));
         foreach (var key in profiles.Keys.Where(key => !live.Contains(key.Pid)).ToArray()) profiles.Remove(key);
         // Publish only a completed pass. A stale process cannot hide a supported one, and a later
         // healthy pass replaces the entire snapshot rather than retaining historical refusals.
@@ -55,10 +66,12 @@ public sealed class ClaudeNativeProvider : IClaudeNativeProvider
     {
         ObjectDisposedException.ThrowIf(disposed, this);
         token.ThrowIfCancellationRequested();
+        bool identifying = false;
         try
         {
             // Exact numeric JSON target only. No vendor list routine or directory/key enumeration.
             var metadata = source.ReadMetadata(processId);
+            identifying = true;
             using var process = source.OpenProcess(processId);
             if (!string.Equals(process.ProcessName, "claude", StringComparison.OrdinalIgnoreCase)) return Task.FromResult<ClaudeNativeCandidate?>(null);
             string? image = process.ImagePath;
@@ -66,6 +79,7 @@ public sealed class ClaudeNativeProvider : IClaudeNativeProvider
                 !string.Equals(Path.GetFileName(image), "claude.exe", StringComparison.OrdinalIgnoreCase)) return Task.FromResult<ClaudeNativeCandidate?>(null);
             // ToFileTimeUtc converts the native process creation timestamp; DateTime.Ticks is not used.
             ulong started = process.StartFileTime;
+            identifying = false;
             if (started != metadata.StartFileTime) return Task.FromResult<ClaudeNativeCandidate?>(null);
             var key = (processId, started, Path.GetFullPath(image));
             if (!profiles.TryGetValue(key, out var profile))
@@ -96,6 +110,13 @@ public sealed class ClaudeNativeProvider : IClaudeNativeProvider
             return Task.FromResult<ClaudeNativeCandidate?>(new(new(metadata.CanonicalPipe, processId, image,
                 profile.Sha256, profile.Version, started, metadata.SessionId), plausible ? metadata.Status : null));
         }
+        // A session whose record sits in THIS user's home (so it is this user's Claude Code) but whose process Windows will
+        // not let this Medium-integrity broker query (its image or start time: access denied): it runs elevated, or as
+        // another user. Still skipped, and never bridged (waking it would let any Medium process drive an elevated one), but
+        // counted for the pass's diagnostic. Only the identity reads count: a record that cannot be read is a missing or
+        // foreign session, and a denial later (an image file, a hash) is not about the process.
+        catch (System.ComponentModel.Win32Exception ex) when (identifying && diagnostics is not null && ex.NativeErrorCode == ErrorAccessDenied)
+        { unopenableThisPass++; return Task.FromResult<ClaudeNativeCandidate?>(null); }
         catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or
             InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException or OverflowException)
         { return Task.FromResult<ClaudeNativeCandidate?>(null); }
