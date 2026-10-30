@@ -191,6 +191,12 @@ namespace DesktopAICompanion.AiBrainModule
                     {
                         return line.IndexOf("api key not stored:", StringComparison.Ordinal) >= 0;
                     }));
+                // BACKLOG N-audit-runner-01: the reason is on the pane's Status row too, where it was in the log alone (the
+                // host's dialog says only that the settings could not be saved), and the typed key never is.
+                string keyStatus = pane == null ? "" : pane.Load()["brainStatus"];
+                ok &= Check(sb, "aibrain: an Apply refused over the cloud API key says why on the Status row, never the key: " + keyStatus,
+                    keyStatus.IndexOf("✗ Not applied: Select a provider and valid endpoint before entering an API key.", StringComparison.Ordinal) >= 0 &&
+                    keyStatus.IndexOf("not-a-real-key", StringComparison.Ordinal) < 0);
                 // N-burn-aibrain-02: the refused save wrote NOTHING onto the live instance. Until 2026-10-01 the other
                 // typed values landed on it before the key was judged, unsaved and unapplied until the next Apply.
                 ok &= Check(sb, "a save refused for its key leaves the live settings as they were: the other typed values stay on screen, not on the instance (N-burn-aibrain-02)",
@@ -199,6 +205,8 @@ namespace DesktopAICompanion.AiBrainModule
                     !string.Equals(liveNameBefore, "Typed-Beside-A-Refused-Key", StringComparison.Ordinal));
                 ok &= Check(sb, "WITNESS the same save without a key succeeds",
                     pane != null && pane.Save(new Dictionary<string, string>(StringComparer.Ordinal) { { "cloudProvider", "(none)" } }));
+                ok &= Check(sb, "aibrain: WITNESS the next Apply takes the API key's refusal off the Status row",
+                    pane != null && pane.Load()["brainStatus"].IndexOf("✗ Not applied", StringComparison.Ordinal) < 0);
                 ok &= Check(sb, "WITNESS a save that goes ahead writes the typed values onto the live instance",
                     pane != null &&
                     pane.Save(new Dictionary<string, string>(StringComparer.Ordinal) { { "cloudProvider", "(none)" }, { "companionName", "Typed-And-Saved" } }) &&

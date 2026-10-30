@@ -2068,6 +2068,11 @@ namespace DesktopAICompanion.AiBrainModule
         // (BACKLOG N-audit-20261029-05), or null. Written and read on the UI thread (Save, Load).
         private string _tokenApplyRefusal;
 
+        // The reason the last Apply was refused over the cloud API key, shown on the pane's top Status row (StatusRowLine)
+        // until the next Apply (BACKLOG N-audit-runner-01), or null; never the key. Written and read on the UI thread.
+        // It outlives an abandoned edit as the token's does (N-audit-20261029-06, docs/BLOCKED.md).
+        private string _keyApplyRefusal;
+
         /// <summary>The card's "Goes through" row for <paramref name="agent"/>, one row per CLI since round 2 (the row for
         /// the CLI on screen is live): one plain account of what leaves the machine on this path. The privacy row, so it
         /// must never name the saved CLI's vendor under a radio that shows the other (the first on-screen walk: "Every
@@ -2173,7 +2178,11 @@ namespace DesktopAICompanion.AiBrainModule
         {
             string head = BrainStatusLine(s, remembrancePhase);
             if (s == null) return head;
-            var parts = new List<string> { head, "runs on: " + RunsOnPhrase(s), "vision: " + (s.UseVision ? "on" : "off") };
+            var parts = new List<string> { head };
+            string keyRefusal = _keyApplyRefusal;   // the last Apply refused over the cloud key (N-audit-runner-01)
+            if (keyRefusal != null) parts.Add("✗ Not applied: " + keyRefusal);
+            parts.Add("runs on: " + RunsOnPhrase(s));
+            parts.Add("vision: " + (s.UseVision ? "on" : "off"));
             DateTime at;
             long ms;
             string failure, ranOn;
@@ -2303,6 +2312,7 @@ namespace DesktopAICompanion.AiBrainModule
             AiSettings s = _settings;
             if (s == null || values == null) return false;
             _tokenApplyRefusal = null;   // the last Apply's refusal goes with the next Apply (N-audit-20261029-05)
+            _keyApplyRefusal = null;     // and the cloud key's (N-audit-runner-01)
             // The Claude sign-in token FIRST, before anything is written onto the live settings: one that is not a token,
             // or cannot be sealed, refuses the whole Apply (nothing saved, the typed values stay on screen, the reason in
             // the log, which never carries the token). Present only when the user typed one; blank keeps the saved one.
@@ -2342,6 +2352,12 @@ namespace DesktopAICompanion.AiBrainModule
                 // screen for the user to fix and press again, and the running brain keeps the saved configuration.
                 // The reason goes to the log, the channel the pane's bool cannot carry.
                 try { if (_host != null) _host.Log(Info.Id, "api key not stored: " + keyError); } catch { }
+                // And on the pane's Status row (BACKLOG N-audit-runner-01), as a refused sign-in token is said on the CLI
+                // card's: the host's dialog says only that the settings could not be saved. The top row rather than the CLI
+                // card's, which is greyed while the brain runs on the cloud, and the cloud card has no Status row of its own.
+                // TrySetApiKey's reasons never carry the key. Cleared by the next Apply.
+                _keyApplyRefusal = string.IsNullOrEmpty(keyError) ? "the API key could not be stored." : keyError;
+                NotifyPaneInfoChanged();
                 return false;
             }
             bool ok = s.SaveWithin(AiSettings.UiSaveBudgetMilliseconds);

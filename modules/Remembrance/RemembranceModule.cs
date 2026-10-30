@@ -2768,6 +2768,10 @@ namespace DesktopAICompanion.RemembranceModule
                         if (_cloudKeys == null || !_cloudKeys.TrySet(typedKey, out keyError))
                         {
                             Log("cloud api key not stored: " + keyError);
+                            // And on the Status line, as a refused sign-in token is (BACKLOG N-audit-runner-01): the host's
+                            // dialog says only that the settings could not be saved. CloudKeyStore's reasons never carry the key.
+                            _applyRefusal = keyError;
+                            NotifyInfoChanged();
                             return false;
                         }
                         Log("cloud: api key saved");
@@ -8621,6 +8625,19 @@ namespace DesktopAICompanion.RemembranceModule
                     check("remembrance cloud: Apply stores the provider, the base URL and the model, and the key is sealed in its own file, never in settings",
                         applied && s.Get("cloudModel", "") == "gpt-test-small" && s.Get("cloudProvider", "") == "custom" && !settingsHoldKey &&
                         keyFile != null && System.IO.File.Exists(keyFile) && !System.IO.File.ReadAllText(keyFile).Contains(Key));
+                    // BACKLOG N-audit-runner-01: an Apply refused over the key says why on the Status line, as one refused over
+                    // the sign-in token does, where it was in the log alone; never the key, and the saved key is kept.
+                    Dictionary<string, string> applyBadKey = CopyOf(pane.Load());
+                    applyBadKey["cloudApiKey"] = "sk-REMEMBRANCE-KEY-REFUSED has-a-space";
+                    bool keyRefused = !pane.Save(applyBadKey);
+                    string keyStatus = pane.Load()["status"];
+                    check("remembrance cloud: an Apply refused over the API key says why on the Status line, never the key: " + keyStatus,
+                        keyRefused && keyStatus.Contains("✗ Not applied: An API key is one unbroken line") &&
+                        !keyStatus.Contains("REMEMBRANCE-KEY-REFUSED") &&
+                        module._cloudKeys.Read(out readKey) == CloudKeyStore.State.Saved && readKey == Key);
+                    bool keyReapplied = pane.Save(CopyOf(pane.Load()));
+                    check("remembrance cloud: WITNESS the next Apply takes the API key's refusal off the Status line",
+                        keyReapplied && !pane.Load()["status"].Contains("✗ Not applied"));
 
                     // ---- the stop path: one cloud call, the single-shot prompt, no busy flag for a remote provider ----
                     provider.Hold = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
