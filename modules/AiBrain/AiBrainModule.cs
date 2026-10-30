@@ -178,7 +178,11 @@ namespace DesktopAICompanion.AiBrainModule
                                  //        own copy is deleted once the shared save has succeeded; Remove token removes
                                  //        it for every allowed module. The "About Haiku" note shows only while Haiku is
                                  //        the chosen model (SettingField.VisibleWhen, host 1.8.0, BACKLOG
-                                 //        N-coordinator-02).
+                                 //        N-coordinator-02). From the 2026-10-29 audit: when Apply refuses a sign-in
+                                 //        token, the CLI card's Status row says why and never shows the token; Remove
+                                 //        token no longer closes a shared sign-in that holds nothing, so Remembrance's
+                                 //        old token still moves into it; the old token moves in the background, never
+                                 //        while Settings opens or applies (N-audit-20261029-01, -02, -05).
                                  // 1.6.0: privacy and correctness in the shared CLI runner and the CLI card (campaign
                                  //        2026-10-26). Every Claude Code model call names --permission-mode default, so
                                  //        auto mode's classifier context (the module's work folder 13 more times, the

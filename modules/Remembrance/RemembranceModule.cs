@@ -100,7 +100,13 @@ namespace DesktopAICompanion.RemembranceModule
                                  //        purge, Older recordings and the follow-up leave it alone (N-followups-02).
                                  //        The self-test records into a scratch folder, never the real
                                  //        Documents\Remembrance
-                                 //        (N-remembrance-test-documents-01).
+                                 //        (N-remembrance-test-documents-01). From the 2026-10-29 audit: when Apply refuses
+                                 //        a sign-in token, the Status line says why and never shows the token; Remove
+                                 //        token no longer closes a shared sign-in that holds nothing; the old token moves
+                                 //        in the background, never while Settings opens or applies; and an earlier storage
+                                 //        folder 2.9.0 remembered without a full path is dropped from the hourly purge
+                                 //        instead of being looked up in the app's working folder and logged as unreadable
+                                 //        (N-audit-20261029-01, -02, -05, -07).
                                  // 2.9.0: the summary is saved as Markdown, "<name>.summary.md" (the owner's request of
                                  //        2026-10-29: its text is Markdown). Summaries saved before keep ".summary.txt";
                                  //        the purge, the follow-up, the free-name check and "Rename older recordings"
