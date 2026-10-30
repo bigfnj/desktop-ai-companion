@@ -1365,8 +1365,12 @@ namespace DesktopAICompanion.Modules
         HostCredentialReading ReadCredential(string moduleId, HostCredentialId credential);
 
         // Replace whatever is saved with this value: Saved with the new revision, or Refused with the Problem, the saved
-        // one left as it was. The host checks only what no token can be (empty, longer than 4,096 characters, or holding a
-        // space, a control character or anything outside printable ASCII); the module's own check comes first.
+        // one left as it was. The host refuses what cannot be a Claude Code sign-in token, by the shared runner's rule
+        // (CodingAgentCli.CheckClaudeToken) applied to the value as given, never trimmed: an empty value, one longer than
+        // 4,096 characters, a space (a leading or trailing one included), a control character
+        // or anything outside printable ASCII, an Anthropic API key (it starts sk-ant-api), a web address (it holds :// or
+        // starts www.), and any character outside RFC 6750's bearer-token set (letters, digits and - . _ ~ + /, with = only
+        // at the end). Problem names the reason; the module's own check comes first.
         HostCredentialCommit TrySaveCredential(string moduleId, HostCredentialId credential, string value);
 
         // A token the module kept before 1.8.0: Imported while the store has never been used or holds nothing usable,
@@ -1408,8 +1412,10 @@ namespace DesktopAICompanion.Modules
         public HostCredentialState State { get; set; }
         // Saved only; null otherwise.
         public string Value { get; set; }
-        // The committed revision this reading describes: 0 for a store never written, -1 when the state is a refusal or
-        // Unavailable and no revision was read.
+        // The committed revision this reading describes: 0 for a store never written; -1 when no revision was read: the
+        // state is a refusal (Denied, ConsentRequired), Unavailable, or Unreadable because the store's file is too damaged
+        // to hold one. An Unreadable file that still holds a revision (a value this Windows account cannot unseal, or a
+        // state this host does not know) reads at that revision.
         public long Revision { get; set; }
     }
 
