@@ -56,8 +56,9 @@ namespace DesktopAICompanion.Plugins
         private readonly Func<string, bool> _declares;
         private readonly Action<string, string> _log;
 
-        /// <summary>Called once per committed change (Saved, Imported, Removed, and the NothingToRemove that closed a store
-        /// never used), after the lock is released, with the credential and the revision now current. Never with a value.</summary>
+        /// <summary>Called once per committed change (Saved, Imported, Removed; a NothingToRemove commits nothing), after the
+        /// lock is released, with the credential and the revision now current. Never with a value. CompanionHost hands it
+        /// on only to the modules allowed the credential (<see cref="Allows"/>).</summary>
         internal Action<HostCredentialId, long> Committed;
 
         /// <summary>How long a change waits for the store's lock before answering Unavailable; the self-test shortens it.</summary>
@@ -103,6 +104,20 @@ namespace DesktopAICompanion.Plugins
             if (!readable) { reason = "grants-unreadable"; return HostCredentialState.Unavailable; }
             if (!granted) { reason = "not-allowed"; return HostCredentialState.ConsentRequired; }
             return null;
+        }
+
+        /// <summary>Whether <paramref name="moduleId"/> passes the gate for <paramref name="credential"/> now: a loaded module
+        /// declaring the flag, with the user's grant, read from a grants record that can be read. CompanionHost asks it before
+        /// it hands a module CredentialChanged (BACKLOG N-audit-runner-02), so a module the store would refuse never hears a
+        /// revision. Logs nothing, and false on any failure.</summary>
+        internal bool Allows(string moduleId, HostCredentialId credential)
+        {
+            try
+            {
+                string reason;
+                return !Refusal(moduleId, credential, out reason).HasValue;
+            }
+            catch { return false; }
         }
 
         /// <summary>Each (module, verb, reason) refusal is logged once per store, not on every read: a module the user has
@@ -490,9 +505,9 @@ namespace DesktopAICompanion.Plugins
             return new HostCredentialCommit { Outcome = outcome, Revision = committed, Problem = "" };
         }
 
-        /// <summary>Remove: one transaction under the lock. A store holding anything is replaced by a "removed" envelope; a
-        /// store never used gets one too (NothingToRemove, and the change is announced), so no module's old copy can be
-        /// imported after the user removed the sign-in through another; a store already removed is left alone.</summary>
+        /// <summary>Remove: one transaction under the lock. A store holding anything, usable or not, is replaced by a "removed"
+        /// envelope (Removed, announced), which closes it to imports; a store already removed, or never used, is left alone
+        /// (NothingToRemove, nothing written, nothing announced).</summary>
         internal HostCredentialCommit Remove(string moduleId, HostCredentialId credential)
         {
             string reason;
@@ -531,8 +546,22 @@ namespace DesktopAICompanion.Plugins
                     Log(moduleId, "remove: nothing to remove revision=" + envelope.Revision);
                     return new HostCredentialCommit { Outcome = HostCredentialOutcome.NothingToRemove, Revision = envelope.Revision, Problem = "" };
                 }
-                string ignored;
-                bool held = envelope.Exists && Contents(envelope, out ignored) != HostCredentialState.None;
+                // A STORE NEVER USED is left as it is (BACKLOG N-audit-runner-02, moving the shared runner's rule,
+                // N-audit-20261029-01, into the host so every caller of the ABI gets it). This wrote "removed" over it, which
+                // closed the store to imports, so another module's valid old token, still waiting to move in, was refused at
+                // that module's next use and deleted, though this Remove removed nothing. The first design decided the
+                // opposite ("so no module's old copy can be imported after the user removed the sign-in through another"),
+                // but with no file there is no shared sign-in to remove: the old copies are each module's own, removed by
+                // that module's Remove token, and closing the store is for a sign-in the user removed. The runner keeps its
+                // own guard as a belt for a host before this one. Revision 0, as a reading of the store says.
+                if (!envelope.Exists)
+                {
+                    Log(moduleId, "remove: nothing to remove, the store was never used and is left open");
+                    return new HostCredentialCommit { Outcome = HostCredentialOutcome.NothingToRemove, Revision = 0, Problem = "" };
+                }
+                // Past the two tests above the file holds something, usable or not (a saved value, one this account cannot
+                // unseal, one that is no token, or a damaged file), so the answer is Removed (P3-14); it used to unseal the
+                // value only to learn that, and to call a never-used store NothingToRemove.
                 committed = NextRevision(envelope);
                 if (!WriteEnvelope(committed, RemovedState, null))
                 {
@@ -540,9 +569,9 @@ namespace DesktopAICompanion.Plugins
                     return new HostCredentialCommit { Outcome = HostCredentialOutcome.Unavailable, Revision = envelope.Revision, Problem = "The sign-in store in the app's data folder could not be written." };
                 }
                 // The removed token's plaintext goes with the commit (A-host-05): no later read reaches the cache to replace
-                // it, so without this it stayed in this process for good. After the `held` test above, whose unseal filled it.
+                // it, so without this it stayed in this process for good.
                 ForgetUnsealed();
-                outcome = held ? HostCredentialOutcome.Removed : HostCredentialOutcome.NothingToRemove;
+                outcome = HostCredentialOutcome.Removed;
             }
             catch (Exception ex)
             {
@@ -551,7 +580,7 @@ namespace DesktopAICompanion.Plugins
             }
             finally { lease.Dispose(); }
 
-            Log(moduleId, (outcome == HostCredentialOutcome.Removed ? "removed" : "closed, nothing to remove") + " claude-code-signin revision=" + committed);
+            Log(moduleId, "removed claude-code-signin revision=" + committed);
             Announce(credential, committed);
             return new HostCredentialCommit { Outcome = outcome, Revision = committed, Problem = "" };
         }

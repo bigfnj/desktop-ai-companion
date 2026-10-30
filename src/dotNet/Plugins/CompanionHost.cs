@@ -895,9 +895,67 @@ namespace DesktopAICompanion.Plugins
         private Action<HostCredentialId, long> _credentialChanged;
         public event Action<HostCredentialId, long> CredentialChanged
         {
-            // Ledgered like FullscreenChanged, so a module whose Init throws after subscribing is not left subscribed.
-            add { _credentialChanged += value; Ledger(delegate { _credentialChanged -= value; }); }
-            remove { _credentialChanged -= value; }
+            // Ledgered like FullscreenChanged, so a module whose Init throws after subscribing is not left subscribed; and its
+            // module recorded, so the event reaches it only while that module is allowed the sign-in (RaiseCredentialChanged).
+            add { _credentialChanged += value; Ledger(delegate { _credentialChanged -= value; }); NoteCredentialHandlerOwner(value); }
+            remove { _credentialChanged -= value; ForgetCredentialHandlerOwner(value); }
+        }
+
+        // THE MODULE EACH CredentialChanged HANDLER BELONGS TO (BACKLOG N-audit-runner-02), recorded when the handler is added
+        // inside that module's Init, as AddOptionsPane records a pane's owner. The event used to reach every subscriber, with
+        // the real revision, so a module the user had not allowed, or one that does not declare the flag, learnt when the
+        // sign-in changed and at which revision, which the store refuses it on every verb; the shared runner coped with that
+        // for itself (N-audit-20261029-04), and no other caller of the ABI would have. The design register's audit-runner
+        // entry said the host could not do this because the event does not record whose handler is whose: this is that
+        // record. A handler added OUTSIDE an Init has no module the host can name, so it hears nothing, and the contract says
+        // to subscribe in Init. Refused: telling a handler's module from its method's assembly, which misnames a handler a
+        // shared library (ModuleKit) supplies and leaves the rule depending on how a module is built.
+        private readonly Dictionary<Delegate, string> _credentialHandlerOwners = new Dictionary<Delegate, string>();
+        private readonly HashSet<string> _credentialSkipsLogged = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        private void NoteCredentialHandlerOwner(Action<HostCredentialId, long> handler)
+        {
+            string owner = _initialisingModuleId;
+            if (handler == null || string.IsNullOrWhiteSpace(owner)) return;
+            lock (_credentialHandlerOwners) _credentialHandlerOwners[handler] = owner.Trim();
+        }
+
+        private void ForgetCredentialHandlerOwner(Action<HostCredentialId, long> handler)
+        {
+            if (handler == null) return;
+            Action<HostCredentialId, long> still = _credentialChanged;
+            if (still != null && Array.IndexOf(still.GetInvocationList(), handler) >= 0) return;   // added twice, removed once
+            lock (_credentialHandlerOwners) _credentialHandlerOwners.Remove(handler);
+        }
+
+        /// <summary>The CredentialChanged handlers whose module the store allows <paramref name="credential"/> NOW (asked when
+        /// the event is raised, so a grant given or revoked since the module subscribed counts), in subscription order, or
+        /// null. A handler skipped is logged once per module and reason, never with the revision.</summary>
+        private Delegate AllowedCredentialHandlers(HostCredentialId credential)
+        {
+            Action<HostCredentialId, long> all = _credentialChanged;
+            if (all == null) return null;
+            HostCredentialStore store;
+            lock (_credentialsSync) store = _credentials;
+            var verdicts = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+            Delegate allowed = null;
+            foreach (Delegate handler in all.GetInvocationList())
+            {
+                string owner;
+                lock (_credentialHandlerOwners) { if (!_credentialHandlerOwners.TryGetValue(handler, out owner)) owner = null; }
+                bool allows = false;
+                if (owner != null && !verdicts.TryGetValue(owner, out allows))
+                {
+                    allows = store != null && store.Allows(owner, credential);
+                    verdicts[owner] = allows;
+                }
+                if (allows) { allowed = Delegate.Combine(allowed, handler); continue; }
+                string why = owner == null ? "it was added outside a module's Init, so its module is unknown" : "the module is not allowed the sign-in";
+                bool first;
+                lock (_credentialSkipsLogged) first = _credentialSkipsLogged.Add((owner ?? "") + "|" + why);
+                if (first) Log(owner, "credentials: a CredentialChanged handler was not called: " + why);
+            }
+            return allowed;
         }
 
         // THE START QUESTION (SignInGrantQuestion says why it exists): asked once per module per start, through the host's
@@ -954,10 +1012,11 @@ namespace DesktopAICompanion.Plugins
 
         /// <summary>The store's commit callback: after the commit reached the disk and its lock was released (the store calls
         /// it only then), posted to the UI thread when it came from another, and raised per handler (RaiseEach), so a handler
-        /// that throws is logged and skipped and never turns a committed change into a failure.</summary>
+        /// that throws is logged and skipped and never turns a committed change into a failure. Only to the handlers of
+        /// modules allowed the sign-in when it is raised (AllowedCredentialHandlers, BACKLOG N-audit-runner-02).</summary>
         private void RaiseCredentialChanged(HostCredentialId credential, long revision)
         {
-            OnUi(delegate { RaiseEach<Action<HostCredentialId, long>>(_credentialChanged, "CredentialChanged", h => h(credential, revision)); });
+            OnUi(delegate { RaiseEach<Action<HostCredentialId, long>>(AllowedCredentialHandlers(credential), "CredentialChanged", h => h(credential, revision)); });
         }
 
         public async System.Threading.Tasks.Task<byte[]> DownloadCatalogItemAsync(string kind, string id)
