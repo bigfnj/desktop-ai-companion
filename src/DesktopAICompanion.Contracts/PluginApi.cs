@@ -1337,7 +1337,10 @@ namespace DesktopAICompanion.Modules
     // token it kept before 1.8.0 into the store calls ImportCredentialIfUnset, which takes it only while the store has
     // never been used, or holds something unusable (Unreadable, NotAToken), in ONE host transaction under one lock: once
     // anything has been saved, imported or removed, an import is refused (NotImported), so a token removed through one
-    // module is never brought back by another module's old copy. That old copy is the caller's to delete then.
+    // module is never brought back by another module's old copy. That old copy is the caller's to delete then. A Remove on
+    // a store never used removes nothing and leaves it never used (NothingToRemove at revision 0, nothing written, nothing
+    // announced): there is no shared sign-in to remove, and closing the store would refuse another module's old token at
+    // its first use. Each module's own old copy is that module's to delete.
     //
     // REVISIONS. Every committed change has a new revision; a reading carries the revision it describes, and each commit
     // the revision it made. CredentialChanged is a HINT, raised in this process only: a second instance of the app on the
@@ -1377,13 +1380,16 @@ namespace DesktopAICompanion.Modules
         // otherwise NotImported with the store's current revision (see THE STORE'S LIFE above).
         HostCredentialCommit ImportCredentialIfUnset(string moduleId, HostCredentialId credential, string value);
 
-        // Removed (a value was saved, usable or not), or NothingToRemove when nothing was saved (never, or removed already).
+        // Removed (a value was saved, usable or not), or NothingToRemove when nothing was saved (never, or removed already),
+        // which writes nothing: a store never used stays open to an import (see THE STORE'S LIFE above).
         HostCredentialCommit RemoveCredential(string moduleId, HostCredentialId credential);
 
-        // After a commit (Saved, Imported, Removed, or the NothingToRemove that closed a store never used) has reached the
-        // disk and every lock is released: which credential, and
-        // the revision now current. Raised on the UI thread, each handler on its own, so a handler that throws is logged and
-        // the others still run. Unsubscribe in Shutdown.
+        // After a commit (Saved, Imported, Removed; a NothingToRemove commits nothing) has reached the disk and every lock is
+        // released: which credential, and the revision now current. Raised on the UI thread, each handler on its own, so a
+        // handler that throws is logged and the others still run. Only to a module the store would answer when it is raised
+        // (loaded, declaring the flag, allowed by the user): a module refused the sign-in hears no change and no revision,
+        // and hears the next one once it is allowed. The host knows a handler's module from the Init that added it, so
+        // SUBSCRIBE IN Init: a handler added at any other time is never called. Unsubscribe in Shutdown.
         event Action<HostCredentialId, long> CredentialChanged;
     }
 

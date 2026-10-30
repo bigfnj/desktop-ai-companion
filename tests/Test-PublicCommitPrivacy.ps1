@@ -140,8 +140,10 @@ function Get-RangePrivacyFindings([string]$Range, [string[]]$Needles, [string]$R
     # a value on that branch is reported at its own commit AND at the merge.
     $names = Invoke-IndexedGit @('log', '--no-color', '--diff-merges=first-parent', '--format=', '--name-only', '-z', '--end-of-options', $Range, '--') $Repository
     if ($names.ExitCode -ne 0) { throw 'Could not list the paths the range changes. No commit contents were scanned.' }
+    # -CaseSensitive (N-audit-infra-01): -Unique alone compares ignoring case, so two paths that differ only in case,
+    # two files to git and to any case-sensitive checkout, were listed and counted as one.
     $protected = @($names.Output.Split([char]0, [StringSplitOptions]::RemoveEmptyEntries) | ForEach-Object { $_.Trim("`n") } |
-        Where-Object { $_.Length -gt 0 -and (Get-ProtectedPattern $_) } | Sort-Object -Unique |
+        Where-Object { $_.Length -gt 0 -and (Get-ProtectedPattern $_) } | Sort-Object -Unique -CaseSensitive |
         ForEach-Object { [pscustomobject]@{ Path = $_; Pattern = (Get-ProtectedPattern $_) } })
     $findings = New-Object 'Collections.Generic.List[object]'
     if ($protected.Count -gt 0) { return [pscustomobject]@{ Protected = $protected; Findings = @(); Commits = 0 } }
@@ -211,9 +213,10 @@ function Get-IndexedPrivacyOffenders([string[]]$Needles, [string]$Repository = $
     }
     $result = Invoke-IndexedGit $arguments $Repository
     if ($result.ExitCode -gt 1) { throw 'Indexed git grep failed. No matching contents were printed.' }
+    # -CaseSensitive, as in the range mode (N-audit-infra-01): two indexed paths differing only in case are two offenders.
     return [pscustomobject]@{
         Matched = ($result.ExitCode -eq 0)
-        Offenders = @($result.Output.Split([char]0, [StringSplitOptions]::RemoveEmptyEntries) | Sort-Object -Unique)
+        Offenders = @($result.Output.Split([char]0, [StringSplitOptions]::RemoveEmptyEntries) | Sort-Object -Unique -CaseSensitive)
     }
 }
 
@@ -351,6 +354,22 @@ if ($SelfTest) {
             throw 'Public privacy range self-test failed: a protected path added only by a merge was not refused before reading.'
         }
         $count++
+        # Two protected paths that differ only in case (N-audit-infra-01) are two refusals, not one. Staged straight into
+        # the index, since this file system cannot hold both names, with core.ignorecase off so git keeps both entries.
+        [void](Step @('config', 'core.ignorecase', 'false'))
+        $variantBlob = Step @('hash-object', '-w', '--', 'notes.txt')
+        $beforeVariants = Step @('rev-parse', 'HEAD')
+        foreach ($variant in @('keys/Site.PEM', 'keys/site.pem')) {
+            [void](Step @('update-index', '--add', '--cacheinfo', ('100644,' + $variantBlob + ',' + $variant)))
+        }
+        [void](Step ($identity + @('commit', '-q', '-m', 'add two keys whose names differ only in case')))
+        $variantRefused = Get-RangePrivacyFindings ($beforeVariants + '..HEAD') $needles $synthetic
+        $variantPaths = (@($variantRefused.Protected | ForEach-Object { $_.Path } | Sort-Object -CaseSensitive)) -join '|'
+        if (@($variantRefused.Protected).Count -ne 2 -or $variantPaths -cne ((@('keys/Site.PEM', 'keys/site.pem') | Sort-Object -CaseSensitive) -join '|') -or
+            $variantRefused.Commits -ne 0) {
+            throw ('Public privacy range self-test failed: two protected paths differing only in case were not both refused: ' + $variantPaths)
+        }
+        $count++
         # The DEFAULT mode (N-audit-20261029-15). Its matcher is git grep, not Test-PrivacyText, so nothing
         # above vouches for it. This index holds the identifier in another case (found only with -i), a
         # profile path, a bare user name and clean text, and the identifier inside a path of each protected
@@ -398,6 +417,18 @@ if ($SelfTest) {
         $scanned = Get-IndexPrivacyFindings $needles $indexRepo
         if (-not $scanned.Scanned -or @($scanned.Protected).Count -ne 0 -or -not $scanned.Matched -or (@($scanned.Offenders) -join '|') -cne $foundFixture) {
             throw 'Public privacy index self-test failed: the default mode did not grep, and report the same two files, once nothing protected was indexed.'
+        }
+        $count++
+        # Two indexed paths that differ only in case (N-audit-infra-01) are two offenders, listed and counted apart. The
+        # second name is staged straight into the index with the first one's text, as the range case above stages its pair.
+        [void](Step @('config', 'core.ignorecase', 'false') $indexRepo)
+        $variantText = Step @('hash-object', '-w', '--', 'docs/Notes.txt') $indexRepo
+        [void](Step @('update-index', '--add', '--cacheinfo', ('100644,' + $variantText + ',docs/NOTES.txt')) $indexRepo)
+        $variantScan = Get-IndexPrivacyFindings $needles $indexRepo
+        $variantExpected = (@(@('docs/NOTES.txt') + @($foundFixture.Split('|')) | Sort-Object -CaseSensitive)) -join '|'
+        $variantSeen = (@($variantScan.Offenders | Sort-Object -CaseSensitive)) -join '|'
+        if (-not $variantScan.Scanned -or @($variantScan.Offenders).Count -ne 3 -or $variantSeen -cne $variantExpected) {
+            throw ('Public privacy index self-test failed: two indexed paths differing only in case were not both reported: ' + $variantSeen)
         }
         $count++
     } finally {

@@ -459,10 +459,32 @@ namespace DesktopAICompanion.Wpf
             {
                 button = null;
                 return "The record of which modules may use the shared Claude Code sign-in can't be read just now " +
-                       "(another program may hold it, or it is damaged), so it can't be changed here.";
+                       "(another program may hold it, or it is damaged), so it can't be changed here." + SignInRecordWayOut();
             }
             button = granted == true ? SignInRevokeCaption : SignInAllowCaption;
             return granted == true ? "Allowed the shared Claude Code sign-in." : "Not allowed the shared Claude Code sign-in.";
+        }
+
+        /// <summary>
+        /// The way out of a record that stays unreadable (BACKLOG N-audit-host-01), named on the row because nothing in the
+        /// app could clear it: the store keeps such a record byte for byte and refuses every Allow, Revoke and uninstall
+        /// forget (P3-15), and the start question asks nothing while it stands, so every module declaring the flag reads
+        /// Unavailable until the file goes. The real path, so the user can find it; what deleting it forgets (every module's
+        /// Allow and Don't ask again), and that the saved token is a different file. Refused for now: a "Reset the record"
+        /// button, which would have to tell a record held for a moment from one damaged for good (docs/DESIGN-REGISTER.md,
+        /// fix/final-host-1029).
+        /// </summary>
+        internal static string SignInRecordWayOut()
+        {
+            string path;
+            try
+            {
+                path = System.IO.Path.Combine(DesktopAICompanion.Plugins.HostCredentialStore.DefaultDirectory,
+                    DesktopAICompanion.Plugins.HostCredentialStore.GrantsFileName);
+            }
+            catch { path = "grants.json in the credentials folder of the app's data folder"; }
+            return " If it stays that way, delete " + path + " (every module's Allow and Don't ask again go with it; the saved " +
+                   "token stays), or reinstall with \"Clear all settings and modules\" ticked, which resets the whole app.";
         }
 
         // The live ModuleInfo for a currently-loaded module id, or null when it's on disk but not (yet)

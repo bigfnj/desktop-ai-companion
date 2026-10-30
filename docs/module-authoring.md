@@ -256,7 +256,7 @@ var credentials = host as IHostCredentials;     // never null on 1.8.0+; declare
 HostCredentialReading r = credentials.ReadCredential(Info.Id, HostCredentialId.ClaudeCodeSignIn);
 if (r.State == HostCredentialState.Saved) UseOnTheChildOnly(r.Value);   // never on this process, never in a log
 HostCredentialCommit c = credentials.TrySaveCredential(Info.Id, HostCredentialId.ClaudeCodeSignIn, typed);
-credentials.CredentialChanged += OnChanged;     // (id, revision); unsubscribe in Shutdown
+credentials.CredentialChanged += OnChanged;     // (id, revision); add it in Init, unsubscribe in Shutdown
 ```
 
 - **It needs a grant, not just a flag.** Declare `ModulePermissions.ClaudeCodeSignIn`, and the user must allow your
@@ -268,10 +268,13 @@ credentials.CredentialChanged += OnChanged;     // (id, revision); unsubscribe i
 - **Revisions, not events.** Each reading carries the revision it describes and each commit returns the one it made.
   `CredentialChanged` is a hint raised in this process only (a second window of the app on the same data folder
   changes the store without it), so compare a fresh reading's revision before trusting anything learnt under an older
-  one, and ignore an event for a revision you already hold, your own commit's among them.
+  one, and ignore an event for a revision you already hold, your own commit's among them. The event reaches your module
+  only while the user allows it the sign-in, and only through a handler you added in `Init` (the host learns whose handler
+  is whose there); one added later is never called.
 - **Moving an old token in.** `ImportCredentialIfUnset` takes a token you kept before 1.8.0 only while the store has
   never been used or holds nothing usable, in one host transaction: after any save, import or remove it answers
-  `NotImported`, and the old copy is yours to delete. Delete it only after the store answered.
+  `NotImported`, and the old copy is yours to delete. Delete it only after the store answered. A Remove on a store never
+  used answers `NothingToRemove` and leaves it open, so another module's old token can still move in.
 - **`Saved` is not "works".** It means unsealed and shaped like a token. Keep your own check of the value, too.
 - **Remove** takes the app's copy away for every allowed module. It does not revoke the token at Anthropic, and a module
   still on a version from before 1.8.0 keeps a token of its own until it is updated.

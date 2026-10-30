@@ -1750,8 +1750,22 @@ namespace DesktopAICompanion.Plugins
                 IHostCredentials creds = host;
                 var events = new List<long>();
                 int throwingCalls = 0;
+                // Each handler added inside its module's Init, as a module adds it: the host hands CredentialChanged only to a
+                // module allowed the sign-in, and knows a handler's module from the Init that added it (BACKLOG
+                // N-audit-runner-02). Beside AI Brain's two, one of a module declaring the flag with no grant, one of a module
+                // not declaring it, and one added outside any Init, each counting what it hears.
+                int ungrantedHeard = 0, undeclaredHeard = 0, unattributedHeard = 0;
+                host.BeginModuleInit("aibrain");
                 creds.CredentialChanged += delegate (HostCredentialId id, long revision) { throwingCalls++; throw new InvalidOperationException("a module's handler threw"); };
                 creds.CredentialChanged += delegate (HostCredentialId id, long revision) { lock (events) events.Add(id == HostCredentialId.ClaudeCodeSignIn ? revision : -999); };
+                host.EndModuleInit();
+                host.BeginModuleInit("ungranted");
+                creds.CredentialChanged += delegate { ungrantedHeard++; };
+                host.EndModuleInit();
+                host.BeginModuleInit("fortunes");
+                creds.CredentialChanged += delegate { undeclaredHeard++; };
+                host.EndModuleInit();
+                creds.CredentialChanged += delegate { unattributedHeard++; };
                 string envelope = Path.Combine(dir, HostCredentialStore.ClaudeCodeSignInFileName);
 
                 // THE GATE. Not declared: Denied. Declared and not allowed: ConsentRequired. Neither writes, imports or moves.
@@ -1808,6 +1822,9 @@ namespace DesktopAICompanion.Plugins
                 ok &= Check(sb, "abi180: store: a commit raises CredentialChanged once, with its revision, and a handler that throws is skipped while the next still runs (" +
                     string.Join(",", events.ConvertAll<string>(delegate (long r) { return r.ToString(); }).ToArray()) + "; thrower " + throwingCalls + ")",
                     events.Count == 1 && events[0] == 1 && throwingCalls == 1);
+                ok &= Check(sb, "final-host: store: CredentialChanged reaches only a module allowed the sign-in; one declaring it without the grant, one not declaring it and a handler added outside any Init hear nothing (" +
+                    ungrantedHeard + ", " + undeclaredHeard + ", " + unattributedHeard + ")",
+                    events.Count == 1 && ungrantedHeard == 0 && undeclaredHeard == 0 && unattributedHeard == 0);
 
                 // NO RESURRECTION. An import over a saved store is refused; Remove closes the store; an import after it too.
                 HostCredentialCommit overSaved = creds.ImportCredentialIfUnset("remembrance", HostCredentialId.ClaudeCodeSignIn, SyntheticOther);
@@ -1828,26 +1845,43 @@ namespace DesktopAICompanion.Plugins
                 HostCredentialCommit again = creds.RemoveCredential("aibrain", HostCredentialId.ClaudeCodeSignIn);
                 ok &= Check(sb, "abi180: store: a second Remove is NothingToRemove at the same revision, and announces nothing (" + again.Outcome + " " + again.Revision + ")",
                     again.Outcome == HostCredentialOutcome.NothingToRemove && again.Revision == 2 && events.Count == 2);
+                // The grant is asked when the event is raised, not when the handler was added: allowed now, it hears the next.
+                HostCredentialStore.SetGrant(dir, "ungranted", true, null);
+                int ungrantedBefore = ungrantedHeard;
                 HostCredentialCommit pasted = creds.TrySaveCredential("aibrain", HostCredentialId.ClaudeCodeSignIn, SyntheticOther);
+                int ungrantedAfter = ungrantedHeard;
+                HostCredentialStore.SetGrant(dir, "ungranted", false, null);
                 ok &= Check(sb, "abi180: store: WITNESS a save after a Remove is taken, the user's explicit paste (" + pasted.Outcome + " " + pasted.Revision + ")",
                     pasted.Outcome == HostCredentialOutcome.Saved && pasted.Revision == 3 &&
                     creds.ReadCredential("remembrance", HostCredentialId.ClaudeCodeSignIn).Value == SyntheticOther && events.Count == 3);
+                ok &= Check(sb, "final-host: store: WITNESS a module allowed after it subscribed hears the next commit, the grant read when the event is raised (" +
+                    ungrantedBefore + " -> " + ungrantedAfter + ")", ungrantedAfter == ungrantedBefore + 1);
 
                 HostCredentialCommit refused = creds.TrySaveCredential("aibrain", HostCredentialId.ClaudeCodeSignIn, "has a space");
                 ok &= Check(sb, "abi180: store: a value no token can be is Refused with the reason, the saved one kept and nothing announced (" + refused.Problem + ")",
                     refused.Outcome == HostCredentialOutcome.Refused && refused.Problem.Length > 0 &&
                     creds.ReadCredential("aibrain", HostCredentialId.ClaudeCodeSignIn).Value == SyntheticOther && events.Count == 3);
 
-                // A STORE NEVER USED, closed by a Remove: nothing to remove, and no import afterwards either.
+                // A STORE NEVER USED, and a Remove: nothing to remove, nothing written, nothing announced, and the store left
+                // open, so another module's old token can still move in (BACKLOG N-audit-runner-02; this check said the
+                // opposite, "still closes it", until the host took the shared runner's rule, N-audit-20261029-01).
                 string closedDir = SelfTestScratch.Create("credentials-closed");
                 var closed = new CompanionHost(null, new HostCredentialStore(closedDir, delegate (string id) { return id == "aibrain"; }, null));
                 HostCredentialStore.SetGrant(closedDir, "aibrain", true, null);
+                int closedHeard = 0;
+                closed.BeginModuleInit("aibrain");
+                ((IHostCredentials)closed).CredentialChanged += delegate { closedHeard++; };
+                closed.EndModuleInit();
                 HostCredentialCommit closeFirst = closed.RemoveCredential("aibrain", HostCredentialId.ClaudeCodeSignIn);
+                bool closeWrote = File.Exists(Path.Combine(closedDir, HostCredentialStore.ClaudeCodeSignInFileName));
+                int heardAfterClose = closedHeard;
                 HostCredentialCommit afterClose = closed.ImportCredentialIfUnset("aibrain", HostCredentialId.ClaudeCodeSignIn, SyntheticToken);
-                ok &= Check(sb, "abi180: store: Remove on a store never used is NothingToRemove and still closes it, so a later import is NotImported (" +
-                    closeFirst.Outcome + ", " + afterClose.Outcome + ")",
-                    closeFirst.Outcome == HostCredentialOutcome.NothingToRemove && closeFirst.Revision == 1 &&
-                    afterClose.Outcome == HostCredentialOutcome.NotImported);
+                ok &= Check(sb, "final-host: store: Remove on a store never used is NothingToRemove at revision 0, writes nothing and announces nothing, so a later import is taken (" +
+                    closeFirst.Outcome + " " + closeFirst.Revision + ", " + (closeWrote ? "file written" : "no file") + ", " + heardAfterClose + " heard, " + afterClose.Outcome + ")",
+                    closeFirst.Outcome == HostCredentialOutcome.NothingToRemove && closeFirst.Revision == 0 && !closeWrote && heardAfterClose == 0 &&
+                    afterClose.Outcome == HostCredentialOutcome.Imported);
+                ok &= Check(sb, "final-host: store: WITNESS the import into the store a Remove left open is announced to the allowed module (" + closedHeard + ")",
+                    closedHeard == 1);
                 SelfTestScratch.TryRelease(closedDir, out string ignoredRelease);
 
                 // THE CONTENT STATES, and an import taken over each unusable one (the review's P2: shared Unreadable or
@@ -2210,6 +2244,12 @@ namespace DesktopAICompanion.Plugins
                     (rowWhileHeld.HasValue ? rowWhileHeld.ToString() : "no answer") + ", " + (rowWhileDamaged.HasValue ? rowWhileDamaged.ToString() : "no answer") +
                     ", " + (heldCaption ?? "no button") + ")",
                     !rowWhileHeld.HasValue && !rowWhileDamaged.HasValue && heldCaption == null && heldLine.Contains("can't be read just now"));
+                // BACKLOG N-audit-host-01: nothing in the app clears such a record, so the line names its real file and the two
+                // ways out, and says the saved token is not part of it.
+                string recordFile = Path.Combine(HostCredentialStore.DefaultDirectory, HostCredentialStore.GrantsFileName);
+                ok &= Check(sb, "final-host: modules row: an unreadable grants record names its file and the ways out: " + heldLine,
+                    heldLine.Contains("delete " + recordFile + " (") && heldLine.Contains("Allow and Don't ask again go with it") &&
+                    heldLine.Contains("the saved token stays") && heldLine.Contains("\"Clear all settings and modules\""));
 
                 // P3-5: the start question for a long name still fits, and names the module's id beside it.
                 string longName = new string('N', 120);

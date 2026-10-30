@@ -6625,6 +6625,8 @@ only if the envelope read UNDER the lock still allows one, the compare-and-set t
 saves Y, A imports X over Y), and it allows one only while the store has never been used or holds nothing usable: once
 anything has been saved, imported or removed it answers `NotImported` (P1: a Remove through one module was undone by the
 other module's first-use import). A Remove on a store never used still writes "removed", so it closes the store too.
+*(2026-10-29, lane fix/final-host-1029: no longer. A Remove on a store never used answers NothingToRemove and writes
+nothing; see `#### fix/final-host-1029` below.)*
 Remove's outcomes are `Removed`, `NothingToRemove` and `Unavailable` (nothing committed); the caller's own old copy is the
 caller's, and the runner says a shared removal whose local delete failed as its own answer ("the shared sign-in token was
 removed, but this module's old copy could not be deleted"). A lock held elsewhere answers `Unavailable` after 5 s.
@@ -7002,6 +7004,39 @@ The runner marks the thread while it commits (`Committing`, a `[ThreadStatic]` f
 ignores an event raised on that thread inside that runner's commit; a posted event lands after the adopt on a revision
 already held. Refused: posting the raise always, which changes the host's event timing for every module and every
 self-test that relies on the headless host raising inline.
+
+#### fix/final-host-1029
+
+The last host items of the 2026-10-29 evening campaign (lane final-host).
+
+**The shared runner's two rules are the host's now (N-audit-runner-02).** `HostCredentialStore.Remove` on a store never
+used (no envelope) answers NothingToRemove at revision 0, writes nothing and announces nothing, and `CompanionHost`
+hands `CredentialChanged` only to the handlers of modules the store would answer when the event is raised (loaded,
+declaring the flag, allowed). The first design's "a Remove on a store never used still writes removed" is reversed, and
+its reason checked first: it was written so that no module's old copy could be imported "after the user removed the
+sign-in through another", but with no envelope there is no shared sign-in to remove. The old copies are each module's
+own, removed by that module's Remove token; closing the store from a module with nothing there refused another module's
+valid old token at its first use and deleted it, the defect P3-10 and N-audit-20261029-01 fixed in the runner. That holds
+for any caller of the ABI, so the host takes it, and the runner's guard stays as a belt. Remove's write path now always
+answers Removed: past the two early answers the file holds something, usable or not (P3-14). The audit-runner entry above
+said the event could not be filtered because it does not record whose handler is whose; the host now records it, from the
+Init that adds the handler, as `AddOptionsPane` records a pane's owner. A handler added outside an Init has no module the
+host can name and is never called, and the contract says to subscribe in Init. Refused: naming a handler's module from its
+method's assembly, which misnames a handler a shared library supplies and makes the rule depend on how a module is built.
+The verdict is read at each raise, so a module allowed after it subscribed hears the next commit; a grant itself is not a
+commit and raises nothing, as before. The runner's refused-module read (N-audit-20261029-04) stays for a host before this.
+
+**A grants record damaged for good is named on the Modules row, and no reset button was built (N-audit-host-01).** The
+row's unreadable line now gives the record's real path and the two ways out (delete it, which forgets every module's
+Allow and Don't ask again and keeps the saved token; or the installer's "Clear all settings and modules"). A "Reset the
+record" button (asks first, backs the file up beside itself, writes an empty record) was the larger fix and did not fit
+the lane's time; it would also have to tell a record another program holds for a moment from one damaged for good, since
+resetting the first forgets every grant to clear a hold that would have ended.
+
+**AI Brain says a refused cloud key on the pane's top Status row (N-audit-runner-01).** Remembrance puts it on its Status
+line beside a refused token, the same segment. AI Brain's token refusal is on the CLI card's Status row, but that card is
+greyed while the brain runs on the cloud and the cloud card has no Status row, so the key's "✗ Not applied: <reason>" is a
+segment of the top row, after the brain's state. Both inherit N-audit-20261029-06's lifetime (docs/BLOCKED.md).
 
 ## Known ABI gaps
 
