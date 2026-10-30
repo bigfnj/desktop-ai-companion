@@ -172,6 +172,7 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
         // CODEX_RECONNECT_KEPT). The reconnect now runs on its own budget, and a connection no request has failed on is
         // kept when the pass ran out meanwhile: no request was sent, so no late answer can exist. Every new connection is
         // still fully verified; nothing here skips or reuses a verification. A lookup that fails still discards it below.
+        bool reconnected = adapter is null;
         if (adapter is null)
         {
             adapter = await AdoptReconnectAsync();
@@ -181,6 +182,9 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
                 adapter = await connect(budget.Token);
             }
         }
+        // A pass that ran out while this lookup waited for the connection never sent this conversation's request: the time
+        // was the reconnect's, so the adapter must not mark the conversation slow (N-broker-162-01).
+        if (reconnected && token.IsCancellationRequested) throw new CodexReconnectOutlastedPassException(token);
         token.ThrowIfCancellationRequested();
         try { return await adapter.DiscoverAsync(conversationId, token); }
         // The router's complete answer about one conversation leaves the protocol in step: the library throws these two
@@ -324,6 +328,11 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
         finally { if (retiredOwner is not null) await retiredOwner.DisposeAsync(); }
     }
 }
+
+// The pass ran out while ResolveOwnerAsync waited for the owner connection, before this conversation's request was sent.
+// CodexNativeAdapter treats the conversation as not reached rather than slow (N-broker-162-01).
+internal sealed class CodexReconnectOutlastedPassException(CancellationToken token)
+    : OperationCanceledException("The discovery pass ran out while the owner connection was being established.", token);
 
 internal interface ICodexDirectoryObserver : IAsyncDisposable
 {

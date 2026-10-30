@@ -77,10 +77,17 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
             if (rows.Count > 256) throw new BrokerException("session_limit", "Native directory exceeded its bound.");
             var found = new Dictionary<SessionAddress, DesktopOwnerBinding>();
             var sessions = new List<BrokerSession>();
-            // skipped: not renewed this pass; slow: the lookups that themselves timed out or failed (a conversation merely
-            // not reached before the deadline is not slow, and keeps its place).
+            // skipped: not renewed this pass; slow: the lookups that themselves timed out or failed. A conversation merely not
+            // reached before the deadline keeps its place, mark included: it used to lose a mark it had, so a conversation
+            // whose lookup times out on every pass went first again on the pass after one that did not reach it, and ended
+            // that pass too (N-broker-162-01).
             var skipped = new HashSet<Guid>();
             var slow = new HashSet<Guid>();
+            void NotReached(Guid conversation)
+            {
+                skipped.Add(conversation);
+                if (slowLookups.Contains(conversation)) slow.Add(conversation);
+            }
             var pendingNow = new Dictionary<SessionAddress, DateTimeOffset>();
             // OrderBy is stable: last pass's slow lookups go last, everything else keeps the directory's order.
             var ordered = rows.DistinctBy(r => r.ConversationId).OrderBy(r => slowLookups.Contains(r.ConversationId)).ToArray();
@@ -89,7 +96,7 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
                 if (row.ConversationId == Guid.Empty || row.LastSeenAt > clock.GetUtcNow().AddSeconds(5) ||
                     row.LastSeenAt <= clock.GetUtcNow().AddMinutes(-2)) continue;
                 // Past the pass deadline nothing more is looked up; what was resolved is still returned and renewed.
-                if (token.IsCancellationRequested) { skipped.Add(row.ConversationId); continue; }
+                if (token.IsCancellationRequested) { NotReached(row.ConversationId); continue; }
                 DesktopOwnerBinding? binding;
                 // One conversation's lookup timing out (a pinned router can spend its whole discovery timeout, which
                 // outlasts the pass deadline) or its transport failing used to fail the whole pass, so no conversation was
@@ -101,6 +108,10 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
                 // no-client-found, DesktopAdapter.DiscoverCoreAsync), so it skips this row too instead of failing the pass
                 // and clearing every binding (independent review of 1.6.0, P3-5).
                 try { binding = await provider.ResolveOwnerAsync(row.ConversationId, token); }
+                // The pass ran out while this lookup waited for the owner connection: the time was the reconnect's, and
+                // marking this conversation slow put the one whose lookup really times out first on the next pass
+                // (N-broker-162-01). It is treated as not reached.
+                catch (CodexReconnectOutlastedPassException) { NotReached(row.ConversationId); continue; }
                 catch (Exception error) when (error is OperationCanceledException or IOException or
                     DesktopAdapterException { Code: "owner_discovery_rejected" })
                 { skipped.Add(row.ConversationId); slow.Add(row.ConversationId); continue; }

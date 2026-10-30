@@ -89,6 +89,7 @@ internal static class RuntimeLifecycleChecks
         await SlowCodexRowAsync(check);
         await CodexReconnectAsync(check);
         await CodexReconnectBetweenPassesAsync(check);
+        await CodexSlowOrderReconnectAsync(check);
         await CodexConnectionReuseAsync(check);
         await CodexSubmitFailureReconnectAsync(check);
         await PeerAnswerInvalidAsync(check, scratch);
@@ -430,13 +431,61 @@ internal static class RuntimeLifecycleChecks
             }
             await Task.Delay(TimeSpan.FromMilliseconds(600)); // The discovery loop's pause.
         }
-        // The first pass connects inside itself (nothing failed before it) and renews nothing; every later pass renews both.
-        check(renewedOwner == passes - 1 && renewedOther == passes - 1,
+        // The first pass connects inside itself (nothing failed before it) and renews nothing. Since N-broker-162-01 the
+        // conversation charged with that connect is not marked slow, so the second pass meets the timing-out conversation
+        // first and renews nothing either (before, the charge happened to fall on it); every later pass renews both. At least,
+        // because the ordering has its own check (CODEX_SLOW_ORDER_RECONNECT); this one is about where the reconnect runs.
+        check(renewedOwner >= passes - 2 && renewedOther >= passes - 2,
             "CODEX_RECONNECT_BETWEEN_PASSES: with one lookup timing out every pass and a reconnect longer than a pass, the other rows renew on every pass (renewed " +
             renewedOwner + " and " + renewedOther + " of " + passes + " passes, " + Volatile.Read(ref connects) + " connects, " +
             Volatile.Read(ref owner.Disposals) + " closed)");
         check(Volatile.Read(ref owner.Disposals) == passes - 1,
             "CODEX_RECONNECT_BETWEEN_PASSES WITNESS: every pass's timed-out lookup still discarded its connection (" + Volatile.Read(ref owner.Disposals) + " closed)");
+    }
+
+    // N-broker-162-01: the slow ordering. With a reconnect longer than a pass and a pause together, the conversation that
+    // adopts the reconnect is charged the wait and the pass runs out before its own lookup; it used to be marked slow, and
+    // the timing-out conversation, not reached that pass, lost its mark, so it went first on the pass after and ended it.
+    // From then on no pass renewed anything. Scaled down: pass deadline and pause 400 ms each, reconnect 1,000 ms (ignoring
+    // cancellation, then honouring its token). Counts are deterministic for this fake; no production timing is claimed.
+    private static async Task CodexSlowOrderReconnectAsync(Action<bool, string> check)
+    {
+        var owner = new ReconnectOwner { Hanging = Guid.NewGuid() };
+        var other = Guid.NewGuid();
+        int connects = 0;
+        var provider = new CodexNativeProvider(true, async token =>
+            {
+                Interlocked.Increment(ref connects);
+                await Task.Delay(TimeSpan.FromMilliseconds(1000));
+                token.ThrowIfCancellationRequested();
+                return owner;
+            }, () => { },
+            _ => Task.FromResult<IReadOnlyList<DesktopDirectorySession>>(
+                [new(owner.Hanging.Value, DesktopSessionActivity.Idle, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow),
+                 new(owner.Thread, DesktopSessionActivity.Idle, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow),
+                 new(other, DesktopSessionActivity.Idle, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)]),
+            null, false, () => { });
+        await using var adapter = new CodexNativeAdapter(provider, enableDelivery: true);
+        var brokerId = Guid.NewGuid();
+        int renewedOwner = 0, renewedOther = 0;
+        const int passes = 8;
+        for (int pass = 0; pass < passes; pass++)
+        {
+            using (var deadline = new CancellationTokenSource(TimeSpan.FromMilliseconds(400)))
+            {
+                IReadOnlyList<BrokerSession> rows = [];
+                try { rows = await adapter.DiscoverAsync(brokerId, deadline.Token); } catch (OperationCanceledException) { }
+                renewedOwner += rows.Count(row => row.Address.SessionId == "codex:" + owner.Thread.ToString("D"));
+                renewedOther += rows.Count(row => row.Address.SessionId == "codex:" + other.ToString("D"));
+            }
+            await Task.Delay(TimeSpan.FromMilliseconds(400)); // The discovery loop's pause.
+        }
+        // Passes 1 to 3 renew nothing (the first connects inside itself, the second meets the timing-out conversation first,
+        // the third waits out the reconnect); from then on every other pass renews both, the most a reconnect this long
+        // allows, since each timed-out lookup discards the connection.
+        check(renewedOwner == 3 && renewedOther == 3,
+            "CODEX_SLOW_ORDER_RECONNECT: a lookup charged with a reconnect is not marked slow and an unreached slow conversation keeps its mark (renewed " +
+            renewedOwner + " and " + renewedOther + " of " + passes + " passes, " + Volatile.Read(ref connects) + " connects)");
     }
 
     // A-broker-07 and A-broker-01, the owner connection's reuse. Modelled on the library: a failed start-turn request closes
