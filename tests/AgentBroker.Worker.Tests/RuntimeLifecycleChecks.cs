@@ -88,6 +88,7 @@ internal static class RuntimeLifecycleChecks
         await LoopShutdownAsync(check, scratch);
         await SlowCodexRowAsync(check);
         await CodexReconnectAsync(check);
+        await CodexReconnectBetweenPassesAsync(check);
         await CodexConnectionReuseAsync(check);
         await PeerAnswerInvalidAsync(check, scratch);
         SessionPreferenceLimit(check, scratch);
@@ -344,15 +345,64 @@ internal static class RuntimeLifecycleChecks
             renewed + " of 4 passes, " + Volatile.Read(ref connects) + " connects)");
         // A lookup that FAILED still discards the connection: the library closed its protocol, and a late answer could be
         // read as the next request's (DesktopAdapter.RequestAsync). Only a connection no request ever failed on is kept.
+        // Counted from before the failing pass: since N-broker-161-01 the reconnect starts as the failed lookup discards the
+        // connection, so it may already have begun when that pass returns.
         connectCost = TimeSpan.Zero;
+        int before = Volatile.Read(ref connects), closed = Volatile.Read(ref owner.Disposals);
         owner.Failure = new IOException("Synthetic owner lookup failure.");
         await PassAsync();
         owner.Failure = null;
-        int before = Volatile.Read(ref connects);
         int after = await PassAsync();
-        check(after == 1 && Volatile.Read(ref connects) == before + 1,
-            "CODEX_RECONNECT_KEPT WITNESS: a lookup that failed still discards the connection and the next lookup reconnects (" +
-            (Volatile.Read(ref connects) - before) + " reconnects)");
+        check(after == 1 && Volatile.Read(ref connects) == before + 1 && Volatile.Read(ref owner.Disposals) == closed + 1,
+            "CODEX_RECONNECT_KEPT WITNESS: a lookup that failed still discards the connection and the next lookup uses a new one (" +
+            (Volatile.Read(ref connects) - before) + " reconnects, " + (Volatile.Read(ref owner.Disposals) - closed) + " closed)");
+    }
+
+    // N-broker-161-01, the rest of N-broker-next-03: one conversation whose owner lookup times out on every pass (the failed
+    // lookup discards the connection, as it must) and a reconnect longer than a pass. The reconnect ran inside the next pass,
+    // charged to whichever conversation came first, so the other rows were renewed on every other pass at best. Scaled down
+    // at the production ratio: pass deadline and pause 600 ms each, a reconnect of 700 ms that ignores cancellation (as the
+    // router verification does) and then honours its token. Counts are deterministic for this fake; no production timing
+    // is claimed.
+    private static async Task CodexReconnectBetweenPassesAsync(Action<bool, string> check)
+    {
+        var owner = new ReconnectOwner { Hanging = Guid.NewGuid() };
+        var other = Guid.NewGuid();
+        int connects = 0;
+        var provider = new CodexNativeProvider(true, async token =>
+            {
+                Interlocked.Increment(ref connects);
+                await Task.Delay(TimeSpan.FromMilliseconds(700));
+                token.ThrowIfCancellationRequested(); // The initialize request the library sends after the verification.
+                return owner;
+            }, () => { },
+            _ => Task.FromResult<IReadOnlyList<DesktopDirectorySession>>(
+                [new(owner.Hanging.Value, DesktopSessionActivity.Idle, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow),
+                 new(owner.Thread, DesktopSessionActivity.Idle, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow),
+                 new(other, DesktopSessionActivity.Idle, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)]),
+            null, false, () => { });
+        await using var adapter = new CodexNativeAdapter(provider, enableDelivery: true);
+        var brokerId = Guid.NewGuid();
+        int renewedOwner = 0, renewedOther = 0;
+        const int passes = 6;
+        for (int pass = 0; pass < passes; pass++)
+        {
+            using (var deadline = new CancellationTokenSource(TimeSpan.FromMilliseconds(600)))
+            {
+                IReadOnlyList<BrokerSession> rows = [];
+                try { rows = await adapter.DiscoverAsync(brokerId, deadline.Token); } catch (OperationCanceledException) { }
+                renewedOwner += rows.Count(row => row.Address.SessionId == "codex:" + owner.Thread.ToString("D"));
+                renewedOther += rows.Count(row => row.Address.SessionId == "codex:" + other.ToString("D"));
+            }
+            await Task.Delay(TimeSpan.FromMilliseconds(600)); // The discovery loop's pause.
+        }
+        // The first pass connects inside itself (nothing failed before it) and renews nothing; every later pass renews both.
+        check(renewedOwner == passes - 1 && renewedOther == passes - 1,
+            "CODEX_RECONNECT_BETWEEN_PASSES: with one lookup timing out every pass and a reconnect longer than a pass, the other rows renew on every pass (renewed " +
+            renewedOwner + " and " + renewedOther + " of " + passes + " passes, " + Volatile.Read(ref connects) + " connects, " +
+            Volatile.Read(ref owner.Disposals) + " closed)");
+        check(Volatile.Read(ref owner.Disposals) == passes - 1,
+            "CODEX_RECONNECT_BETWEEN_PASSES WITNESS: every pass's timed-out lookup still discarded its connection (" + Volatile.Read(ref owner.Disposals) + " closed)");
     }
 
     // A-broker-07 and A-broker-01, the owner connection's reuse. Modelled on the library: a failed start-turn request closes
@@ -402,10 +452,14 @@ internal static class RuntimeLifecycleChecks
         internal Exception? Failure;
         internal bool Closed, SubmitTimesOut;
         internal Guid? Rejected;
+        // A conversation whose lookup never answers, so it runs out of time on every pass.
+        internal Guid? Hanging { get; init; }
+        internal int Disposals;
         public bool NativeIdleGuard => true;
         public Task<DesktopOwnerBinding?> DiscoverAsync(Guid conversationId, CancellationToken token)
         {
             token.ThrowIfCancellationRequested();
+            if (conversationId == Hanging) return HangAsync(token);
             if (Closed) return Task.FromException<DesktopOwnerBinding?>(new DesktopAdapterException("connection_closed"));
             if (Failure is { } failure) return Task.FromException<DesktopOwnerBinding?>(failure);
             if (conversationId == Rejected) return Task.FromException<DesktopOwnerBinding?>(new DesktopAdapterException("owner_discovery_rejected"));
@@ -419,7 +473,12 @@ internal static class RuntimeLifecycleChecks
             Closed = true; // DesktopAdapter.RequestAsync's catch: the protocol is closed and the answer is Uncertain.
             return Task.FromResult(new DesktopSubmissionResult(DesktopSubmissionOutcome.Uncertain, ErrorCode: "response_timeout_or_cancelled"));
         }
-        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        private static async Task<DesktopOwnerBinding?> HangAsync(CancellationToken token)
+        {
+            await Task.Delay(Timeout.Infinite, token);
+            return null;
+        }
+        public ValueTask DisposeAsync() { Interlocked.Increment(ref Disposals); return ValueTask.CompletedTask; }
     }
 
     // N-agentbroker-native-flicker-01, the runtime half: one adapter's slow pass (a transport that outlives the pass

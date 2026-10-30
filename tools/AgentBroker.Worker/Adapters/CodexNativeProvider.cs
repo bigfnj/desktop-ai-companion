@@ -174,8 +174,12 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
         // still fully verified; nothing here skips or reuses a verification. A lookup that fails still discards it below.
         if (adapter is null)
         {
-            using var budget = new CancellationTokenSource(OwnerReconnectBudget);
-            adapter = await connect(budget.Token);
+            adapter = await AdoptReconnectAsync();
+            if (adapter is null)
+            {
+                using var budget = new CancellationTokenSource(OwnerReconnectBudget);
+                adapter = await connect(budget.Token);
+            }
         }
         token.ThrowIfCancellationRequested();
         try { return await adapter.DiscoverAsync(conversationId, token); }
@@ -187,8 +191,61 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
         catch
         {
             await adapter.DisposeAsync();
-            adapter = null; throw;
+            adapter = null;
+            BeginReconnect();
+            throw;
         }
+    }
+
+    // The reconnect after a failed lookup starts at once, so it runs in the pause between passes (N-broker-161-01). It used
+    // to run inside the next pass, charged to whichever conversation came first: with one conversation whose lookup times
+    // out on every pass (and drops the connection each time) and a reconnect longer than a pass, the other rows were
+    // renewed on every other pass at best, and with 10-second passes and pauses that exceeds the 30-second lease
+    // (reproduced offline by CODEX_RECONNECT_BETWEEN_PASSES). The new connection is fully verified as before, and the
+    // failed one is still discarded first: a connection a request failed on is never reused. Only code under the
+    // adapter's gate (every caller of this provider holds it) reads or writes these two fields; the task touches neither.
+    private Task<ICodexOwnerConnection>? reconnecting;
+    private CancellationTokenSource? reconnectBudget;
+
+    private void BeginReconnect()
+    {
+        if (reconnecting is not null) return;
+        var budget = new CancellationTokenSource(OwnerReconnectBudget);
+        reconnectBudget = budget;
+        // Task.Run because the router verification inside a connect is synchronous and this runs inside a failed lookup.
+        reconnecting = Task.Run(() => connect(budget.Token));
+    }
+
+    // The started reconnect's connection, or null when none was started or it failed. A failure from between passes is not
+    // rethrown, since it may be stale: the caller connects afresh, and that attempt's failure is the one reported, exactly as
+    // an inline reconnect's was.
+    private async Task<ICodexOwnerConnection?> AdoptReconnectAsync()
+    {
+        var started = reconnecting; var budget = reconnectBudget;
+        reconnecting = null; reconnectBudget = null;
+        if (started is null) return null;
+        try { return await started; }
+        catch (Exception) { return null; }
+        finally { budget?.Dispose(); }
+    }
+
+    // A reconnect still running at disposal is cancelled where it can be (the pipe connect and the initialize request honour
+    // the token) and NOT awaited: the router verification takes no token, and shutdown should not wait for a connection
+    // nobody will use. A connection it produces anyway is closed when it arrives; its failure is nobody's to report.
+    private void DiscardReconnect()
+    {
+        var started = reconnecting; var budget = reconnectBudget;
+        reconnecting = null; reconnectBudget = null;
+        if (started is null || budget is null) return;
+        budget.Cancel();
+        _ = CloseLateAsync(started, budget);
+    }
+
+    private static async Task CloseLateAsync(Task<ICodexOwnerConnection> started, CancellationTokenSource budget)
+    {
+        try { await (await started).DisposeAsync(); }
+        catch (Exception) { }
+        finally { budget.Dispose(); }
     }
 
     // A submission whose request failed leaves a connection the library has closed (DesktopAdapter.RequestAsync), and an
@@ -259,6 +316,7 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
         discoveryDiagnostics = Array.Empty<AdapterDiscoveryDiagnostic>();
         var retiredDirectory = directory; directory = null;
         var retiredOwner = adapter; adapter = null;
+        DiscardReconnect();
         try { if (retiredDirectory is not null) await retiredDirectory.DisposeAsync(); }
         finally { if (retiredOwner is not null) await retiredOwner.DisposeAsync(); }
     }
