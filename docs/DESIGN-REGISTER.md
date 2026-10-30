@@ -6491,10 +6491,15 @@ decision of 2026-10-29, design reviewed by Codex 01a1855c).** `Invoke-AgentBroke
 sender only as `send`'s `sender`, equal to `codex:` plus the canonical lowercase GUID in `CODEX_THREAD_ID` (a missing,
 empty, zero or non-canonical value refuses; nothing is repaired), and only after the helper itself finds, across every
 `list_sessions` page, exactly one fresh `codex-native` row with that session ID, the request's broker ID and incarnation,
-and `Receive` and `WakeIdle`. It is a routing convenience inside the existing same-user model, NOT per-thread
+and `Receive` and `WakeIdle`. It is a routing convenience inside the broker's existing local access model, NOT per-thread
 authentication: no trusted per-thread operating-system marker exists, and `CODEX_THREAD_ID` and `CODEX_SESSION_ID` are
-self-asserted, so any process of the same user could claim any thread. That is the same reach such a process already has
-through the broker's unauthenticated loopback endpoint. The helper cannot learn the local broker ID without registering,
+self-asserted, so any local process could claim any thread. That is the same reach such a process already has through the
+broker's loopback endpoint, and that reach is wider than one user (corrected by lane broker-161, audit A-broker-05; this
+paragraph first said "same-user"): while "Allow local connections without a token" is on, the default, the endpoint admits
+a request on a loopback address and a loopback Host alone (`WorkerApplication.cs`), and a loopback TCP connection carries no
+Windows identity, so a process of ANY local account, another signed-in user or a service, reaches the same tools and can
+`send` as any live native row. Turning that setting off (the bearer token, handed out only over the user-scoped control
+pipe) is what makes the model same-user. Whether the default changes is the owner's decision. The helper cannot learn the local broker ID without registering,
 so its "local" test is the directory's: the row names the broker ID the request names, and no other row anywhere has that
 session ID (a paired broker advertising one makes it ambiguous, which refuses); the broker's own `sender_mismatch` and
 `sender_unavailable` checks in `BrokerStore.Accept` still refuse a sender from another broker or one no longer
@@ -6666,6 +6671,28 @@ pass and a reconnect longer than the pass, the other rows are renewed on every o
 verification is skipped or reused: every new connection is verified in full. Cost: a pass that is reconnecting at shutdown
 now finishes the reconnect (bounded by those timeouts and the verification) instead of having its pipe connect or
 initialize request cancelled.
+
+**The 2026-10-29 audit's broker findings, same lane.** A paired broker's answer the federation's strict JSON options refuse
+(an unknown member from a newer release, a truncated body) is now that peer's failure for that request on all three
+runtime paths (A-broker-02): the directory listing skips the peer, a forward is Uncertain `peer_answer_invalid` (it may
+have been admitted), and the receipt pass moves to the next message; before, it failed `list_sessions` or ended a delivery
+loop (its claim left Submitting, holding the recipient until a restart) or the receipt loop. The Codex owner connection is
+retired after any submission that answered Uncertain or threw (A-broker-07), so the next pass reconnects instead of
+meeting `connection_closed` and failing whole; and it is KEPT after the router's complete error answer for one
+conversation (A-broker-01), because `owner_discovery_rejected` and `owner_capability_mismatch` are thrown only after
+`RequestAsync` returned the response matching its request ID and only `RequestAsync`'s own failure closes the protocol.
+The rule both serve: a connection a request failed on is never reused, and one no request failed on is. A `codex.exe`
+with no live parent is ignored like a standalone CLI (A-broker-03): it cannot be Code-owned, and it used to refuse the
+whole engine set. Every engine whose parent is a running `Code.exe` is read and checked as before, and one whose identity
+cannot be read still refuses the set. A choice for a session the broker no longer observes makes room at the 1,024-entry
+preference bound (A-broker-04); refused: a last-seen time per entry, because the file's strict reader would make an older
+worker reject a file carrying it. An exception out of the Codex library's submission records its code
+(`native_uncertain_raised_<code>`, `_io`, `_cancelled`) instead of the generic reason (A-broker-08); it stays Uncertain,
+because although the library raises these before its turn frame today, `ICodexOwnerConnection.SubmitAsync` promises no
+such thing, and deferring them needs a typed "nothing was written" signal from the library first. The post-lookup "still
+pending" deferral in `CodexNativeAdapter.SubmitAsync` was removed as unreachable (A-broker-09; the reasoning is at the
+site), and the provider's reconnect stays reachable only from discovery. Status now says when the last delivery notice was
+dropped (A-broker-06). The native-sender paragraph above is corrected on access (A-broker-05).
 
 ## Known ABI gaps
 
