@@ -106,7 +106,16 @@ try {
             $gateExit = 0
         }
         'Host' {
-            & dotnet build (Join-Path $repoRoot 'src\DesktopAICompanion_Portable.csproj') -c Release --no-restore --nologo -v:minimal
+            # Restore first, as build.ps1 does before its clean (N-audit-20261029-17). obj\project.assets.json names the
+            # package folder of the restore that wrote it, and a passing isolated run releases its private dotnet home,
+            # so a --no-restore build in THIS run's empty home read a folder that no longer existed and failed with
+            # NETSDK1064 before the self-test ran (measured 2026-10-29 by repeating this build after deleting the
+            # restoring home). A restore rewrites the assets for this run's own folder. It stays a separate step so a
+            # NuGet warning is never judged by the build's own flags.
+            $hostProject = Join-Path $repoRoot 'src\DesktopAICompanion_Portable.csproj'
+            & dotnet restore $hostProject --nologo -v:minimal
+            if ($LASTEXITCODE -ne 0) { throw 'Host restore failed.' }
+            & dotnet build $hostProject -c Release --no-restore --nologo -v:minimal
             if ($LASTEXITCODE -ne 0) { throw 'Host build failed.' }
             $exe = Join-Path $repoRoot 'build\DesktopAICompanionPortable\bin\Release\x64\DesktopAICompanion.exe'
             # A valid self-test accompanies each malformed scalar. Removing the refusal can
