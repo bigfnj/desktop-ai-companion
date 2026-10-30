@@ -5290,6 +5290,14 @@ $abiLocalAt = $abiReadToken.IndexOf('return ReadLocalClaudeToken(out token);', [
 Assert-True ($abiSharedAt -ge 0 -and $abiLocalAt -gt $abiSharedAt -and $abiReadShared -cnotmatch 'ReadLocalClaudeToken\(out token\)' -and
     $abiReadShared.Contains('ReadLocalClaudeToken(out ignored)')) (
     'abi180: a runner with a shared store never takes the token it sends from the module''s own file (WITNESS: it reads that file''s state alone)')
+# THE PANE'S READ STARTS THE OLD COPY'S MOVE AFTER ITS ANSWER (the gate of 2026-10-29, under load: a move started before the
+# store read finished between it and the waiting-copy test, and a saved token read as none). A timing race no run can pin;
+# the order can be: ReadSharedClaudeToken never starts the pool-thread move, ClaudeTokenShowsAsSaved starts it after reading.
+$abiShows = Get-MethodBody $cliRunnerCode 'internal bool ClaudeTokenShowsAsSaved()' $abiStops
+$abiShowsReadAt = $abiShows.IndexOf('ReadSharedClaudeToken(out ignored, out ownLeftover, false);', [StringComparison]::Ordinal)
+$abiShowsMoveAt = $abiShows.IndexOf('BeginMigration();', [StringComparison]::Ordinal)
+Assert-True ($abiShows.Length -gt 0 -and $abiShowsReadAt -ge 0 -and $abiShowsMoveAt -gt $abiShowsReadAt -and $abiReadShared -cnotmatch 'BeginMigration\(') (
+    "audit-race: the pane's read starts the old copy's move only after the reading it answers from, and the shared read never starts it (read $abiShowsReadAt, move $abiShowsMoveAt)")
 # THE START QUESTION (the coordinator's finding of 2026-10-29: an MSI-installed module never passes the update question).
 # --module-host-selftest drives the asking and the answers; these are what it cannot see: that the app asks at all, after
 # the modules load, and that the one grant in the answer code sits behind the user's press of Allow.

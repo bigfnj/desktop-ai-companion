@@ -15883,8 +15883,9 @@ CASES = (
      "cli runner: shared sign-in: Remove token with no copy of its own on a store never used says nothing to remove and leaves the store untouched"),
     ("audit-runner: runner: a pane's read moves the old copy on the pane's own thread (N-audit-20261029-02)",
      CLI_RUNNER,
-     b"            if (migrate) MigrateLocalClaudeToken();\n            else BeginMigration();\n",
-     b"            MigrateLocalClaudeToken();\n",
+     # (Re-pointed by the coordinator's race fix: the pane's read starts the move after its answer, in ClaudeTokenShowsAsSaved.)
+     b"            BeginMigration();\n            return shows;\n",
+     b"            MigrateLocalClaudeToken();\n            return shows;\n",
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "cli runner: shared sign-in: a pane's read shows a waiting old copy as saved and moves it on a pool thread, never the reader's"),

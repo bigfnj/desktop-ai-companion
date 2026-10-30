@@ -3618,6 +3618,13 @@ CASES = (
         "abi180: a runner with a shared store never takes the token it sends from the module's own file",
     ),
     (
+        "audit-race: the shared read starts the old copy's move before it reads the store again",
+        os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCli.cs"),
+        b"            if (migrate) MigrateLocalClaudeToken();\n            HostCredentialReading reading = SharedRead();\n",
+        b"            if (migrate) MigrateLocalClaudeToken();\n            else BeginMigration();\n            HostCredentialReading reading = SharedRead();\n",
+        "audit-race: the pane's read starts the old copy's move only after the reading it answers from",
+    ),
+    (
         "abi180: the host store puts the token on this process",
         os.path.join(REPO, "src", "dotNet", "Plugins", "HostCredentialStore.cs"),
         b"            string problem = ValueProblem(value);\n",

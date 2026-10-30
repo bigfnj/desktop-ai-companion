@@ -1934,7 +1934,12 @@ namespace DesktopAICompanion.CodingAgent
             if (_sharedSignIn == null) return ShowsAsSaved(ReadLocalClaudeToken(out ignored));
             bool ownLeftover;
             ClaudeTokenState state = ReadSharedClaudeToken(out ignored, out ownLeftover, false);
-            return ShowsAsSaved(state) || (state == ClaudeTokenState.Unavailable && LocalClaudeTokenWaiting());
+            bool shows = ShowsAsSaved(state) || (state == ClaudeTokenState.Unavailable && LocalClaudeTokenWaiting());
+            // The move starts only AFTER this answer is computed (the gate of 2026-10-29, under load): started first, a move
+            // that finished between the store read and the waiting-copy test made a saved token read as none ("False, 1,
+            // another thread"). A move that completes now tells the pane (DetailsRead), which reads again.
+            BeginMigration();
+            return shows;
         }
 
         /// <summary>This module's own file: the token store before host 1.8.0, and since then the old copy that moves into
@@ -2073,13 +2078,13 @@ namespace DesktopAICompanion.CodingAgent
         }
 
         /// <param name="migrate">Move this module's old copy first, on this thread (a call, a Validate, Remove token: all off
-        /// the UI thread); false for the pane's read (ClaudeTokenShowsAsSaved), which starts the move on a pool thread.</param>
+        /// the UI thread); false for the pane's read (ClaudeTokenShowsAsSaved), which starts the move on a pool thread once
+        /// its answer is computed, never here.</param>
         private ClaudeTokenState ReadSharedClaudeToken(out string token, out bool ownLeftover, bool migrate)
         {
             token = null;
             ownLeftover = false;
             if (migrate) MigrateLocalClaudeToken();
-            else BeginMigration();
             HostCredentialReading reading = SharedRead();
             ObserveSharedRevision(reading == null ? -1 : reading.Revision);
             if (reading == null) return ClaudeTokenState.Unavailable;
