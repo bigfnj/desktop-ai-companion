@@ -41,7 +41,26 @@ public sealed partial class AgentBrokerModule : IModule
     {
         Id = "agentbroker",
         Name = "AgentBroker",
-        Version = "1.6.0",   // 1.6.0: backlog batch 3 (2026-10-29). A Codex check the broker could not complete (an
+        Version = "1.6.1",   // 1.6.1: fixes after the 2026-10-29 audit (lane feature/broker-161). A message to a Codex
+                             //        chat is no longer refused because the broker could not finish checking the Codex
+                             //        engine: the row stays listed with Receive only and the message waits for a check
+                             //        that completes, refused only after five minutes of incomplete checks
+                             //        (N-broker-next-02). A message waiting for a native session gives the reason in
+                             //        its receipt (recipient_busy, recipient_awaiting_approval, recipient_interrupted,
+                             //        recipient_activity_unknown, recipient_wake_unavailable or recipient_unavailable;
+                             //        N-broker-next-01), and an uncertain Codex delivery names its cause
+                             //        (native_uncertain_raised_<code>). Codex rows stay listed: a slow reconnect is
+                             //        kept rather than lost to the pass deadline (N-broker-next-03), a delivery whose
+                             //        answer was lost retires the connection so the next pass reconnects instead of
+                             //        failing whole, a router error answer keeps an intact connection, and a stray
+                             //        codex.exe whose parent has exited is ignored rather than turning Codex delivery
+                             //        off. A paired broker's answer this one cannot read costs only that request; it
+                             //        used to end a delivery or receipt loop until a restart and break list_sessions.
+                             //        Private and mute choices keep working past 1,024 by dropping choices for sessions
+                             //        no longer seen. Status says when the last delivery notice was dropped. The docs
+                             //        say that while "Allow local connections without a token" is on, any local account
+                             //        can reach the broker.
+                             // 1.6.0: backlog batch 3 (2026-10-29). A Codex check the broker could not complete (an
                              //        engine read failing under load, or the owner connection dropped) defers as
                              //        native_verification_unavailable instead of refusing, without reconnecting (the
                              //        discovery loop does that); a missing capability or a verified mismatch is still
