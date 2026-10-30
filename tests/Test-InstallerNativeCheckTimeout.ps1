@@ -6,10 +6,15 @@ Check bounded native-checker execution and the actual wrapper's child cleanup.
 pwsh -NoProfile -File tests/Test-InstallerNativeCheckTimeout.ps1
 #>
 [CmdletBinding()]
-param([ValidateSet('none', 'hang')][string]$CheckerFixture = 'none')
+param(
+    [ValidateSet('none', 'hang')][string]$CheckerFixture = 'none',
+    # The hang fixture prints the healthy count the parent run read from the wrapper, never a number of its own.
+    [int]$HealthyCount = 0
+)
 if ($CheckerFixture -eq 'hang') {
+    if ($HealthyCount -le 0) { throw 'The hang fixture needs the wrapper healthy unit count.' }
     [Console]::OutputEncoding = New-Object Text.UTF8Encoding($false)
-    [Console]::WriteLine('PASS 59 checks')
+    [Console]::WriteLine('PASS ' + $HealthyCount + ' checks')
     [Console]::WriteLine('RESULT:PASS')
     [Console]::Error.WriteLine('owned synthetic checker is intentionally waiting')
     Start-Sleep -Seconds 60
@@ -29,6 +34,28 @@ function Check([bool]$Condition, [string]$Message) {
     if (-not $Condition) { throw ('Test-InstallerNativeCheckTimeout.ps1: ' + $Message) }
     $script:assertions++
 }
+# The actual wrapper, parsed once: its flow is executed below, and its unit count is the healthy count every
+# fake checker here prints (N-audit-20261029-18). A number of this file's own drifted to 59 while the wrapper
+# moved to 62, so the timeout cases were refusing markers the count check would have refused anyway. Read
+# from the AST of Invoke-NativeCheck, the one table run_installer_shutdown_mutations.py's healthy_count() reads.
+$source = Join-Path $PSScriptRoot 'Test-InstallerShutdown.ps1'
+[void](Assert-ScopedShutdownPath -Path $source -TrustedRoot $repo)
+$tokens=$null; $errors=$null
+$ast = [Management.Automation.Language.Parser]::ParseFile($source, [ref]$tokens, [ref]$errors)
+if ($errors.Count -ne 0) { throw 'Actual native wrapper must parse.' }
+$functions = @($ast.FindAll({ param($node)
+    $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Invoke-NativeCheck'
+}, $true))
+$flows = @($ast.FindAll({ param($node)
+    $node -is [Management.Automation.Language.TryStatementAst] -and $null -ne $node.Finally -and
+    $node.Body.Extent.Text.Contains("Invoke-NativeCheck -Name 'unit'") -and $node.Finally.Extent.Text.Contains('$cleanupFailures')
+}, $true))
+if ($functions.Count -ne 1 -or $flows.Count -ne 1) { throw 'Actual native wrapper flow was not uniquely identified.' }
+$unitCounts = @($functions[0].FindAll({ param($node) $node -is [Management.Automation.Language.HashtableAst] }, $true) |
+    ForEach-Object { $_.KeyValuePairs } | Where-Object { $_.Item1.Extent.Text -ceq 'unit' } | ForEach-Object { $_.Item2.Extent.Text.Trim() })
+if ($unitCounts.Count -ne 1 -or $unitCounts[0] -notmatch '^[1-9][0-9]*$') { throw 'The wrapper healthy unit count was not found exactly once.' }
+$script:healthyUnitCount = [int]$unitCounts[0]
+$script:healthyLine = 'PASS ' + $script:healthyUnitCount + ' checks'
 function New-FakeReader([string]$Text, [switch]$NeverCompletes) {
     $completion = New-Object 'Threading.Tasks.TaskCompletionSource[string]'
     if (-not $NeverCompletes) { $completion.SetResult($Text) }
@@ -38,7 +65,7 @@ function New-FakeReader([string]$Text, [switch]$NeverCompletes) {
     return $reader
 }
 function New-FakeChecker([string]$Mode) {
-    $out = New-FakeReader "PASS 59 checks`r`nRESULT:PASS`r`nUnicode: $([char]0x2603)"
+    $out = New-FakeReader "$($script:healthyLine)`r`nRESULT:PASS`r`nUnicode: $([char]0x2603)"
     $err = New-FakeReader 'stderr was drained concurrently' -NeverCompletes:($Mode -eq 'drain')
     $checker = [pscustomobject]@{
         Mode=$Mode; SafeHandle='owned-fake-handle'; Id=4321; ExitCode=0
@@ -85,19 +112,6 @@ foreach ($mode in @('success', 'timeout', 'wait', 'cleanup', 'drain')) {
 
 # Execute the real wrapper try/catch/finally. Only the checker itself is replaced;
 # its fake/real timeout reaches the unchanged owned-synthetic-child cleanup.
-$source = Join-Path $PSScriptRoot 'Test-InstallerShutdown.ps1'
-[void](Assert-ScopedShutdownPath -Path $source -TrustedRoot $repo)
-$tokens=$null; $errors=$null
-$ast = [Management.Automation.Language.Parser]::ParseFile($source, [ref]$tokens, [ref]$errors)
-if ($errors.Count -ne 0) { throw 'Actual native wrapper must parse.' }
-$functions = @($ast.FindAll({ param($node)
-    $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Invoke-NativeCheck'
-}, $true))
-$flows = @($ast.FindAll({ param($node)
-    $node -is [Management.Automation.Language.TryStatementAst] -and $null -ne $node.Finally -and
-    $node.Body.Extent.Text.Contains("Invoke-NativeCheck -Name 'unit'") -and $node.Finally.Extent.Text.Contains('$cleanupFailures')
-}, $true))
-if ($functions.Count -ne 1 -or $flows.Count -ne 1) { throw 'Actual native wrapper flow was not uniquely identified.' }
 . ([scriptblock]::Create($functions[0].Extent.Text))
 $actualFlow = [scriptblock]::Create($flows[0].Extent.Text)
 function New-FakeCompanion {
@@ -113,10 +127,20 @@ function Invoke-ScopedNativeCheck {
         $script:lastResult = & $script:runner -FilePath $FilePath -Arguments $Arguments -TimeoutMilliseconds 20 -CleanupMilliseconds 20 -DrainMilliseconds 20 -StartCaller { param($Info) return $script:fakeChecker }
     } else {
         $hostExe = if ($PSVersionTable.PSEdition -eq 'Core') { Join-Path $PSHOME 'pwsh.exe' } else { Join-Path $PSHOME 'powershell.exe' }
-        $script:lastResult = & $script:runner -FilePath $hostExe -Arguments @('-NoProfile','-ExecutionPolicy','Bypass','-File',$PSCommandPath,'-CheckerFixture','hang') -TimeoutMilliseconds 2500 -CleanupMilliseconds 2000 -DrainMilliseconds 1000
+        $script:lastResult = & $script:runner -FilePath $hostExe -Arguments @('-NoProfile','-ExecutionPolicy','Bypass','-File',$PSCommandPath,'-CheckerFixture','hang','-HealthyCount',[string]$script:healthyUnitCount) -TimeoutMilliseconds 2500 -CleanupMilliseconds 2000 -DrainMilliseconds 1000
     }
     return $script:lastResult
 }
+# POSITIVE CONTROL for the refusals below: the actual wrapper ACCEPTS a successful fake's markers, so when the
+# timeout cases refuse the same markers, the refusal is the timeout's and not the count's.
+$script:flowMode = 'fake'
+$script:fakeChecker = New-FakeChecker 'success'
+$script:checks = 'owned-test-checker.exe'
+$script:results = New-Object 'Collections.Generic.List[object]'
+$accepted = ''
+try { Invoke-NativeCheck -Name 'unit' -Arguments @() } catch { $accepted = $_.Exception.Message }
+Check ($accepted.Length -eq 0 -and $results.Count -eq 1 -and $results[0].Result -eq 'PASS') (
+    'the actual wrapper accepts the fake checker''s healthy unit markers (' + $script:healthyLine + ')')
 foreach ($flowCase in @('fake', 'synthetic')) {
     $script:flowMode = $flowCase
     $script:fakeChecker = New-FakeChecker 'timeout'
@@ -130,13 +154,15 @@ foreach ($flowCase in @('fake', 'synthetic')) {
     . $actualFlow
     $clock.Stop()
     Check ($null -ne $primaryFailure -and $primaryFailure.Exception.Message -match 'Native shutdown check timed out: unit') ($flowCase + ': actual wrapper refuses successful markers from a timed-out checker')
+    Check ($lastResult.Lines -contains $script:healthyLine -and $lastResult.Lines -contains 'RESULT:PASS') (
+        $flowCase + ': the timed-out checker printed the healthy markers the wrapper accepts')
     Check ($lastResult.TimedOut -and $lastResult.ExitObserved -and $lastResult.CallerPid -gt 0) ($flowCase + ': retained checker exit is confirmed after timeout cleanup')
     Check ($first.KillCalls -eq 1 -and $second.KillCalls -eq 1 -and $first.WaitCalls -eq 1 -and $second.WaitCalls -eq 1 -and
         $first.DisposeCalls -eq 1 -and $second.DisposeCalls -eq 1) ($flowCase + ': actual outer finally cleans every owned synthetic child')
     Check ($results.Count -eq 0) ($flowCase + ': timed-out checker is never recorded as a passing case')
     Check ($clock.ElapsedMilliseconds -lt 10000) ($flowCase + ': wrapper failure and child cleanup complete within a finite bound')
 }
-$report = [ordered]@{ Result='PASS'; Checks=$assertions; FakeCases=5; ActualWrapperTimeoutCases=2; SyntheticCheckerOnly=$true; MsiExecuted=$false; NativeBuildInvoked=$false }
+$report = [ordered]@{ Result='PASS'; Checks=$assertions; FakeCases=5; ActualWrapperAcceptCases=1; ActualWrapperTimeoutCases=2; HealthyUnitCount=$script:healthyUnitCount; SyntheticCheckerOnly=$true; MsiExecuted=$false; NativeBuildInvoked=$false }
 [IO.File]::WriteAllText((Join-Path $scratch 'result.json'), ($report | ConvertTo-Json), (New-Object Text.UTF8Encoding($false)))
 $report | ConvertTo-Json -Compress
 Write-Output ('Evidence=' + $scratch)
