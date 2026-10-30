@@ -107,11 +107,13 @@ namespace DesktopAICompanion.Plugins
                    "the app keeps for the modules you allow. You can change this on its row in Settings, Modules.";
         }
 
-        /// <summary>The second card when an Allow on the start question could not be recorded (SignInGrantQuestion.RetryFor).</summary>
+        /// <summary>The second card when an Allow on the start question could not be recorded (SignInGrantQuestion.RetryFor).
+        /// SetGrant answers false for a grants record it could not read (kept byte for byte, P3-15) or a lock it waited out,
+        /// as well as a write that failed, so the card names all three in the Modules pane's words (N-audit-host-02).</summary>
         internal static string RetryQuestionText(string displayName)
         {
             string who = string.IsNullOrEmpty(displayName) ? "this module" : displayName;
-            return "Your Allow for " + who + " was not recorded: the app's data folder could not be written. Try again?";
+            return "Your Allow for " + who + " was not recorded: the app's record of who is allowed could not be read or written just now. Try again?";
         }
 
         /// <summary>The question the Allow on a module's row asks before it records the grant (host 1.8.0).</summary>
