@@ -132,9 +132,11 @@ try
         replacement.Failure = "other_native_error";
         try { await provider.SubmitAsync(refreshed, Guid.NewGuid(), "other", default); throw new InvalidOperationException("Expected ambiguous native failure."); }
         catch (DesktopAdapterException error)
-        // Since AgentBroker 1.6.1 the connection a failed request leaves behind is retired (A-broker-07), so the next
-        // discovery pass reconnects with full verification; nothing reconnects inside this call and nothing is retried.
-        { Check(error.Code == "other_native_error" && replacement.Disposed && connections == 2 && !provider.NativeIdleGuard,
+        // Since AgentBroker 1.6.1 the connection a failed request leaves behind is retired (A-broker-07), and nothing is
+        // retried. Since 1.6.2 its replacement is started at once in the background (N-broker-162-02), so a connect count
+        // here races; what must hold is that nothing is adopted inside this call: the provider holds no connection
+        // (VerificationPending) until a discovery lookup adopts the replacement, with full verification.
+        { Check(error.Code == "other_native_error" && replacement.Disposed && !provider.NativeIdleGuard && provider.VerificationPending,
             "Other native failures are not relabeled safe retry or silently reconnected."); }
     }
     Check(replacement.Disposed, "Replacement native connection closes on provider disposal.");

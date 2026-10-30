@@ -90,6 +90,7 @@ internal static class RuntimeLifecycleChecks
         await CodexReconnectAsync(check);
         await CodexReconnectBetweenPassesAsync(check);
         await CodexConnectionReuseAsync(check);
+        await CodexSubmitFailureReconnectAsync(check);
         await PeerAnswerInvalidAsync(check, scratch);
         SessionPreferenceLimit(check, scratch);
         await SessionPreferenceWiringAsync(check, scratch);
@@ -477,6 +478,61 @@ internal static class RuntimeLifecycleChecks
         check(first.Count == 1 && second.Count == 1 && connects == before,
             "CODEX_REJECTED_KEEPS_CONNECTION: a router error answer for one conversation skips its row and keeps the intact connection (" +
             (connects - before) + " reconnects over two passes)");
+    }
+
+    // N-broker-162-02: a submission whose request failed retires the connection (A-broker-07), and the replacement used to be
+    // made inside the next discovery pass. It now starts as the connection is retired, so the next pass adopts it. Scaled
+    // down: pass deadline and pause 600 ms each, reconnect 700 ms (longer than a pass). Deterministic for this fake.
+    private static async Task CodexSubmitFailureReconnectAsync(Action<bool, string> check)
+    {
+        var owner = new ReconnectOwner();
+        var other = Guid.NewGuid();
+        int connects = 0, connectsInPass = 0;
+        bool inPass = false;
+        var cost = TimeSpan.Zero;
+        var provider = new CodexNativeProvider(true, async token =>
+            {
+                Interlocked.Increment(ref connects);
+                if (Volatile.Read(ref inPass)) Interlocked.Increment(ref connectsInPass);
+                await Task.Delay(cost);
+                token.ThrowIfCancellationRequested();
+                owner.Closed = false; // A new connection.
+                return owner;
+            }, () => { },
+            _ => Task.FromResult<IReadOnlyList<DesktopDirectorySession>>(
+                [new(owner.Thread, DesktopSessionActivity.Idle, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow),
+                 new(other, DesktopSessionActivity.Idle, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)]),
+            null, false, () => { });
+        await using var adapter = new CodexNativeAdapter(provider, enableDelivery: true);
+        var brokerId = Guid.NewGuid();
+        async Task<IReadOnlyList<BrokerSession>> PassAsync()
+        {
+            Volatile.Write(ref inPass, true);
+            try
+            {
+                using var deadline = new CancellationTokenSource(TimeSpan.FromMilliseconds(600));
+                try { return await adapter.DiscoverAsync(brokerId, deadline.Token); }
+                catch (OperationCanceledException) { return []; }
+            }
+            finally { Volatile.Write(ref inPass, false); }
+        }
+        var rows = await PassAsync(); // The first connection is made inside the first pass, as always.
+        int inPassBefore = Volatile.Read(ref connectsInPass);
+        var target = rows.Single(row => row.Address.SessionId == "codex:" + owner.Thread.ToString("D"));
+        cost = TimeSpan.FromMilliseconds(700);
+        owner.SubmitTimesOut = true;
+        var uncertain = await adapter.SubmitAsync(new BrokerMessage(Guid.NewGuid(), Guid.NewGuid(), null,
+            new(brokerId, "synthetic-retire-sender", Guid.NewGuid()), target.Address, "Synthetic start-turn whose answer is lost.",
+            DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddMinutes(1)), default);
+        await Task.Delay(TimeSpan.FromMilliseconds(600)); // The discovery loop's pause.
+        var next = await PassAsync();
+        int inside = Volatile.Read(ref connectsInPass) - inPassBefore;
+        check(uncertain.Outcome == AdapterAdmission.Uncertain && next.Count == 2 && inside == 0 && Volatile.Read(ref connects) == 2,
+            "CODEX_SUBMIT_FAILURE_RECONNECTS_IN_PAUSE: after a failed submission the replacement connection is made in the pause, so the next pass renews every row (" +
+            next.Count + " rows, " + inside + " connects inside the pass, " + Volatile.Read(ref connects) + " connects)");
+        check(Volatile.Read(ref owner.Disposals) == 1,
+            "CODEX_SUBMIT_FAILURE_RECONNECTS_IN_PAUSE WITNESS: the connection the failed request used was closed, never reused (" +
+            Volatile.Read(ref owner.Disposals) + " closed)");
     }
 
     private sealed class ReconnectOwner : ICodexOwnerConnection

@@ -251,7 +251,9 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
     // A submission whose request failed leaves a connection the library has closed (DesktopAdapter.RequestAsync), and an
     // Uncertain answer may come from exactly that. Kept, the next discovery pass met connection_closed, which fails the
     // whole pass and clears every binding (A-broker-07). Retired here, the state reads as pending (adapter null), delivery
-    // defers without connecting, and the discovery loop reconnects. A connection a request failed on is never reused.
+    // defers without connecting, and the replacement starts at once, as after a failed lookup, so the next discovery pass
+    // adopts it instead of reconnecting inside itself (N-broker-162-02). A connection a request failed on is never reused:
+    // the replacement is a new, fully verified connection, and it reaches delivery only through a discovery lookup.
     private async Task RetireOwnerConnectionAsync()
     {
         var retired = adapter;
@@ -259,6 +261,7 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
         if (retired is null) return;
         try { await retired.DisposeAsync(); }
         catch (Exception error) when (error is IOException or ObjectDisposedException) { }
+        BeginReconnect();
     }
 
     public async Task<DesktopSubmissionResult> SubmitAsync(DesktopOwnerBinding binding, Guid messageId, string text, CancellationToken token)
