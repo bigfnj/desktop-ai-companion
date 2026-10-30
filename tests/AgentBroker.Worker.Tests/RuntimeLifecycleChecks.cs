@@ -47,10 +47,11 @@ internal static class RuntimeLifecycleChecks
         {
             await using var federation = new SlowDirectoryFederation(Guid.Empty);
             // Since lane broker-next (P3-7) a discovery failure no longer faults the loop (RUNTIME_ADAPTER_FAILURE_RECORDED
-            // below), so the loop fault injected here is a delivery's: the adapter lists a session and its submission throws.
+            // below), and since lane broker-162 (N-broker-161-02) neither does a delivery's: the adapter lists a session, its
+            // submission throws, and the message settles. The shutdown faults injected here are therefore both adapters'.
             var failing = new LifecycleAdapter("faulting", failDispose: true, listSession: true);
-            var healthy = new LifecycleAdapter("healthy");
-            var runtime = new BrokerRuntime(store, federation, [failing, healthy]);
+            var second = new LifecycleAdapter("second", failDispose: true);
+            var runtime = new BrokerRuntime(store, federation, [failing, second]);
             runtime.Start(default);
             var started = Stopwatch.StartNew();
             while (failing.Address is null || !store.Directory().Any(session => session.Address == failing.Address))
@@ -59,30 +60,138 @@ internal static class RuntimeLifecycleChecks
                 await Task.Delay(20);
             }
             var poller = runtime.RegisterPollingAgent(Guid.NewGuid(), Guid.NewGuid(), "Synthetic lifecycle sender", false);
-            store.Accept(new BrokerMessage(Guid.NewGuid(), Guid.NewGuid(), null, poller.Address, failing.Address!,
-                "Synthetic lifecycle delivery.", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddMinutes(5)), store.BrokerId);
-            while (Volatile.Read(ref failing.Submissions) == 0)
-            {
-                if (started.Elapsed > TimeSpan.FromSeconds(15)) throw new TimeoutException("The faulting delivery never ran.");
-                await Task.Delay(20);
-            }
+            BrokerMessage Delivery(string text) => new(Guid.NewGuid(), Guid.NewGuid(), null, poller.Address, failing.Address!,
+                text, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddMinutes(5));
+            var faulted = Delivery("Synthetic lifecycle delivery.");
+            var behind = Delivery("Synthetic lifecycle delivery behind it.");
+            store.Accept(faulted, store.BrokerId);
+            store.Accept(behind, store.BrokerId);
+            // The second message to the same recipient is claimed only once the first has settled (per-pair order).
+            while (Volatile.Read(ref failing.Submissions) < 2 && started.Elapsed < TimeSpan.FromSeconds(15)) await Task.Delay(20);
+            var settled = store.FindReceipt(faulted.Id);
+            check(settled is { Status: MessageStatus.Uncertain, Reason: "submission_failed" } && Volatile.Read(ref failing.Submissions) >= 2,
+                "RUNTIME_DELIVERY_FAULT_SETTLES: an unexpected submission failure settles that message Uncertain and the next one to the recipient still goes (" +
+                settled?.Status + " " + settled?.Reason + ", " + Volatile.Read(ref failing.Submissions) + " submissions)");
             try { await runtime.DisposeAsync(); throw new InvalidOperationException("Injected lifecycle faults were lost."); }
             catch (AggregateException error)
             {
-                check(error.InnerExceptions.Count == 2, "runtime preserves both loop and adapter shutdown failures after attempting cleanup");
+                check(error.InnerExceptions.Count == 2, "runtime preserves every adapter shutdown failure after attempting cleanup");
             }
-            check(failing.DisposeCalls == 1 && healthy.DisposeCalls == 1, "a loop fault and first-adapter disposal failure cannot skip remaining native adapter cleanup");
+            check(failing.DisposeCalls == 1 && second.DisposeCalls == 1, "a first-adapter disposal failure cannot skip remaining native adapter cleanup");
             try { await runtime.DisposeAsync(); }
             catch (AggregateException) { }
-            check(failing.DisposeCalls == 1 && healthy.DisposeCalls == 1, "repeated runtime disposal shares the original cleanup task and never disposes adapters twice");
+            check(failing.DisposeCalls == 1 && second.DisposeCalls == 1, "repeated runtime disposal shares the original cleanup task and never disposes adapters twice");
         }
         await IndependentAdapterLoopsAsync(check, scratch);
         await AdapterFailureRecordedAsync(check, scratch);
+        await LoopRestartAsync(check, scratch);
+        await LoopShutdownAsync(check, scratch);
         await SlowCodexRowAsync(check);
         await CodexReconnectAsync(check);
         await CodexConnectionReuseAsync(check);
         await PeerAnswerInvalidAsync(check, scratch);
         SessionPreferenceLimit(check, scratch);
+    }
+
+    // N-broker-161-02: an exception outside GuardAsync's list ended a delivery or receipt loop in silence. The receipt loop
+    // is the one faulted here (no outbound message got its receipt again): it is now reported under its name and runs again.
+    private static async Task LoopRestartAsync(Action<bool, string> check, string scratch)
+    {
+        using var store = new BrokerStore(Path.Combine(scratch, "loop-restart"));
+        var peerId = Guid.NewGuid();
+        store.AuthorizePeer(new(peerId, "Synthetic receipt peer", "https://127.0.0.1:15200", new string('C', 64), DateTimeOffset.UtcNow));
+        await using var federation = new FaultingReceiptFederation { Failures = 2 };
+        var runtime = new BrokerRuntime(store, federation, [])
+        { LoopRestartDelay = TimeSpan.FromMilliseconds(100), LoopRestartLimit = TimeSpan.FromSeconds(1) };
+        try
+        {
+            var local = runtime.RegisterPollingAgent(Guid.NewGuid(), Guid.NewGuid(), "Synthetic receipt sender", false);
+            var message = new BrokerMessage(Guid.NewGuid(), Guid.NewGuid(), null, local.Address,
+                new SessionAddress(peerId, "claude:synthetic-receipt-recipient", Guid.NewGuid()), "Synthetic forward awaiting its receipt.",
+                DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddMinutes(5));
+            store.Accept(message, store.BrokerId);
+            runtime.Start(default);
+            var watch = Stopwatch.StartNew();
+            while (store.FindReceipt(message.Id)?.Status != MessageStatus.Delivered && watch.Elapsed < TimeSpan.FromSeconds(20)) await Task.Delay(50);
+            var status = store.FindReceipt(message.Id)?.Status;
+            runtime.AdapterErrors.TryGetValue("receipts", out var error);
+            check(status == MessageStatus.Delivered && error is not null && error.StartsWith("loop_failed: 2 unexpected failures", StringComparison.Ordinal) &&
+                Volatile.Read(ref federation.ReceiptCalls) >= 3,
+                "RUNTIME_LOOP_RESTARTED: a receipt loop that failed unexpectedly is reported and runs again (" + status + ", " + (error ?? "not reported") + ")");
+            check(!runtime.AdapterErrors.ContainsKey("delivery") && !runtime.AdapterErrors.ContainsKey("broker"),
+                "RUNTIME_LOOP_RESTARTED WITNESS: only the loop that failed is reported (" + string.Join(", ", runtime.AdapterErrors.Keys) + ")");
+        }
+        finally { try { await runtime.DisposeAsync(); } catch (Exception) { } }
+    }
+
+    // N-broker-161-02, the lifecycle half: a loop waiting to run again must still end at shutdown, and every other loop with
+    // it. The receipt loop fails on every call with a 30-second pause, so a pause that ignored shutdown would hold disposal.
+    private static async Task LoopShutdownAsync(Action<bool, string> check, string scratch)
+    {
+        using var store = new BrokerStore(Path.Combine(scratch, "loop-shutdown"));
+        var peerId = Guid.NewGuid();
+        store.AuthorizePeer(new(peerId, "Synthetic receipt peer", "https://127.0.0.1:15201", new string('D', 64), DateTimeOffset.UtcNow));
+        await using var federation = new FaultingReceiptFederation { Failures = int.MaxValue };
+        var native = new LifecycleAdapter("shutdown-native");
+        var runtime = new BrokerRuntime(store, federation, [native])
+        { LoopRestartDelay = TimeSpan.FromSeconds(30), LoopRestartLimit = TimeSpan.FromMinutes(1), DiscoveryInterval = TimeSpan.FromMilliseconds(50) };
+        Exception? fault = null;
+        var elapsed = TimeSpan.Zero;
+        try
+        {
+            var local = runtime.RegisterPollingAgent(Guid.NewGuid(), Guid.NewGuid(), "Synthetic receipt sender", false);
+            store.Accept(new BrokerMessage(Guid.NewGuid(), Guid.NewGuid(), null, local.Address,
+                new SessionAddress(peerId, "claude:synthetic-shutdown-recipient", Guid.NewGuid()), "Synthetic forward during shutdown.",
+                DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddMinutes(5)), store.BrokerId);
+            runtime.Start(default);
+            var watch = Stopwatch.StartNew();
+            while (!runtime.AdapterErrors.ContainsKey("receipts") && watch.Elapsed < TimeSpan.FromSeconds(20)) await Task.Delay(50);
+        }
+        finally
+        {
+            var disposal = Stopwatch.StartNew();
+            try { await runtime.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(60)); } catch (Exception error) { fault = error; }
+            elapsed = disposal.Elapsed;
+        }
+        int calls = Volatile.Read(ref federation.ReceiptCalls), passes = Volatile.Read(ref native.Passes);
+        await Task.Delay(300);
+        check(runtime.AdapterErrors.ContainsKey("receipts") && elapsed < TimeSpan.FromSeconds(5) && fault is null &&
+            Volatile.Read(ref federation.ReceiptCalls) == calls && Volatile.Read(ref native.Passes) == passes,
+            "RUNTIME_LOOP_SHUTDOWN: shutdown ends every loop, one waiting to run again included (" + (int)elapsed.TotalMilliseconds + " ms, " +
+            (fault?.GetType().Name ?? "no fault") + ")");
+        check(passes >= 2, "RUNTIME_LOOP_SHUTDOWN WITNESS: the discovery loop was running until shutdown (" + passes + " passes)");
+    }
+
+    // A paired broker that accepts every forward and fails its first receipt answers with an exception type outside every
+    // catch list of the receipt path: a defect, not a transport failure.
+    private sealed class FaultingReceiptFederation : IPeerFederation
+    {
+        private readonly ConcurrentDictionary<Guid, BrokerMessage> forwarded = new();
+        internal int Failures, ReceiptCalls;
+        public IReadOnlyList<BrokerAdvertisement> Discovered => [];
+        public IReadOnlyList<PairingOffer> PairingOffers => [];
+        public BrokerAdvertisement LocalAdvertisement => new(Guid.NewGuid(), "Synthetic", "https://127.0.0.1:15000", new string('A', 64), DateTimeOffset.UtcNow);
+        public Guid? AuthenticatePeer(HttpContext context) => null;
+        public void MapEndpoints(WebApplication application) { }
+        public Task StartAsync(CancellationToken token) => Task.CompletedTask;
+        public Task RequestPairAsync(BrokerAdvertisement peer, CancellationToken token) => throw new NotSupportedException();
+        public Task ApprovePairAsync(Guid requestId, CancellationToken token) => throw new NotSupportedException();
+        public void RejectPair(Guid requestId) { }
+        public void RevokePeer(Guid brokerId) { }
+        public Task<PeerDirectory> GetDirectoryAsync(PeerTrust peer, CancellationToken token) => Task.FromResult(new PeerDirectory(peer.BrokerId, []));
+        public Task<MessageReceipt> SubmitAsync(PeerTrust peer, BrokerMessage message, CancellationToken token)
+        {
+            forwarded[message.Id] = message;
+            return Task.FromResult(new MessageReceipt(message, MessageStatus.Submitted, DateTimeOffset.UtcNow));
+        }
+        public Task<MessageReceipt?> GetReceiptAsync(PeerTrust peer, Guid messageId, CancellationToken token)
+        {
+            if (Interlocked.Increment(ref ReceiptCalls) <= Volatile.Read(ref Failures))
+                return Task.FromException<MessageReceipt?>(new InvalidOperationException("Synthetic receipt loop failure."));
+            return Task.FromResult(forwarded.TryGetValue(messageId, out var message)
+                ? new MessageReceipt(message, MessageStatus.Delivered, DateTimeOffset.UtcNow) : null);
+        }
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
     // A-broker-04: preferences were never pruned, so at 1,024 every new private or mute choice failed preference_limit and
