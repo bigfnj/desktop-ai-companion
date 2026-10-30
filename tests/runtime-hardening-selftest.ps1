@@ -936,19 +936,39 @@ Assert-True (
 
 # ...and a RESPAWN must not walk back onto a blocked monitor at all. Correcting it one tick later is a visible
 # flash; before the enforcement fix it was permanent. Play() has to decide at spawn time.
+# Every clause is matched in its OWN method's comment-stripped body (N-audit-20261029-16). On the raw file,
+# `ApplyTopMost(true); // ApplyTopMost(hwndFullscreenWindow == IntPtr.Zero);`, which IS the regression the
+# label names, passed: the old text was still there, in the comment. Each body ends at its method's closing
+# brace, eight spaces in, because PlayChild is tab-indented and a member-keyword stop would run Play's body
+# on through it.
+$respawnPet = Remove-LineComments $formPetSource
+$respawnStops = @("`n        }")
+$respawnPlay = Get-MethodBody $respawnPet 'public void Play(int forceSpawn = -1)' $respawnStops
+$respawnChild = Get-MethodBody $respawnPet 'public void PlayChild(int aniID, TChild child)' $respawnStops
+$respawnGrab = Get-MethodBody $respawnPet 'private void PictureBox1_MouseDown(object sender, MouseEventArgs e)' $respawnStops
+Assert-True ($respawnPlay.Length -gt 0 -and $respawnChild.Length -gt 0 -and $respawnGrab.Length -gt 0) (
+    'respawn: Play, PlayChild and PictureBox1_MouseDown were located in comment-stripped FormCompanion.cs')
+$respawnRaise = 'ApplyTopMost\(true\)'
+Assert-True ($respawnPet -cmatch $respawnRaise -and 'ApplyTopMost(true);' -cmatch $respawnRaise) (
+    'respawn: WITNESS the unconditional-raise pattern finds the per-animation raise in comment-stripped FormCompanion.cs')
 Assert-True (
-    $formPetSource -match '(?s)private bool MonitorIsBlockedNow\([\s\S]{0,900}?FullscreenScan\.BlockedMonitors\(' -and
-    $formPetSource -match 'Visible = !spawningOntoBlockedMonitor;' -and
+    $respawnPet -cmatch '(?s)private bool MonitorIsBlockedNow\([\s\S]{0,900}?FullscreenScan\.BlockedMonitors\(' -and
+    $respawnPlay -cmatch 'bool spawningOntoBlockedMonitor = MonitorIsBlockedNow\(\);' -and
+    $respawnPlay -cmatch 'Visible = !spawningOntoBlockedMonitor;' -and
     # Through ApplyTopMost since N-followups-01 (lane feature/followups2): the pet never writes Form.TopMost.
-    $formPetSource -cmatch 'ApplyTopMost\(!spawningOntoBlockedMonitor\);' -and
-    $formPetSource -match '_fullscreenHidden = spawningOntoBlockedMonitor;' -and
+    $respawnPlay -cmatch 'ApplyTopMost\(!spawningOntoBlockedMonitor\);' -and
+    $respawnPlay -cnotmatch $respawnRaise -and
+    $respawnPlay -cmatch '_fullscreenHidden = spawningOntoBlockedMonitor;' -and
     # A CHILD is a separate window shown by its own code path and inherits nothing from a hidden parent --
     # the UFO ship is one. It has to ask the same question.
-    $formPetSource -match 'Visible = !childOntoBlockedMonitor;' -and
+    $respawnChild -cmatch 'bool childOntoBlockedMonitor = MonitorIsBlockedNow\(\);' -and
+    $respawnChild -cmatch 'Visible = !childOntoBlockedMonitor;' -and
     # ...and grabbing a pet must not be a way to force it back over a game. Asserting the CONDITION is
     # present, not the absence of the old adjacent pair: a comment between the two lines defeats an
-    # adjacency pattern, which is exactly how this assertion first came back silent under mutation.
-    $formPetSource -cmatch 'ApplyTopMost\(hwndFullscreenWindow == IntPtr\.Zero\);'
+    # adjacency pattern, which is exactly how this assertion first came back silent under mutation. The
+    # absence of an unconditional raise beside it is asserted too, against the WITNESS above.
+    $respawnGrab -cmatch 'ApplyTopMost\(hwndFullscreenWindow == IntPtr\.Zero\);' -and
+    $respawnGrab -cnotmatch $respawnRaise
 ) 'a respawning pet, a child, or a grabbed pet cannot appear over a fullscreen app'
 
 # A pet pinned to a monitor must (a) spawn there rather than on a random screen, and (b) HIDE rather than
