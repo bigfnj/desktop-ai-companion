@@ -267,9 +267,11 @@ public sealed partial class AgentBrokerModule : IModule
 
     internal const string ReconnectAdvice = "A session that started while the broker was down, including during a companion restart, has no broker tools until you reconnect its MCP server (Claude Code: /mcp) or restart the session.";
 
-    private string NativeStatusText() => snapshot is null ? "No worker status yet." : snapshot.AdapterErrors.Count == 0
+    private string NativeStatusText() => snapshot is null ? "No worker status yet." : (snapshot.AdapterErrors.Count == 0
         ? "No adapter errors reported."
-        : string.Join("; ", snapshot.AdapterErrors.Select(x => Safe(x.Key, 32) + ": " + Safe(x.Value, 512)).Take(8));
+        : string.Join("; ", snapshot.AdapterErrors.Select(x => Safe(x.Key, 32) + ": " + Safe(x.Value, 512)).Take(8))) +
+        // Notes about some sessions (lane broker-163), after the errors and never counted as one.
+        (snapshot.AdapterNotes is { Count: > 0 } notes ? " Notes: " + string.Join("; ", notes.Select(x => Safe(x.Key, 32) + ": " + Safe(x.Value, 512)).Take(8)) : "");
 
     private void SetStatus(string value)
     {

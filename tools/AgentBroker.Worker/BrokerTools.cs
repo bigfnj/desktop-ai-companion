@@ -23,6 +23,9 @@ public sealed class BrokerTools(BrokerRuntime runtime, IHttpContextAccessor http
     });
     private Guid Caller => http.HttpContext?.Items["agentbroker.identity"] is Guid id
         ? id : throw new McpException("The broker transport identity is unavailable.");
+    // Every sender's receipt goes through here, so a paired broker's caller never gets this workstation's observations.
+    private SenderReceipt View(MessageReceipt receipt, bool includeText = false) =>
+        runtime.View(receipt, includeText, forPeer: Caller != runtime.Store.BrokerId);
     // Validation runs inside Run so a malformed address reaches the client as invalid_session, not as the SDK's generic
     // "An error occurred invoking" (N-agentbroker-register-errors-01: six tools called this outside Run).
     private void CheckParticipant(SessionAddress participant)
@@ -74,7 +77,7 @@ public sealed class BrokerTools(BrokerRuntime runtime, IHttpContextAccessor http
         // The receipt stays the first block, serialized as the SDK serializes a returned object, so a client that reads
         // content[0] sees the shape send_message returns (N-agentbroker-send-advisory-01): the sender's compact receipt,
         // without the text it just sent (N-broker-compact-receipts-01).
-        var blocks = new List<ContentBlock> { new TextContentBlock { Text = JsonSerializer.Serialize(runtime.View(receipt), McpJsonUtilities.DefaultOptions) } };
+        var blocks = new List<ContentBlock> { new TextContentBlock { Text = JsonSerializer.Serialize(View(receipt), McpJsonUtilities.DefaultOptions) } };
         if (PollingOnly(receipt.Message.Recipient)) blocks.Add(new TextContentBlock { Text = SendAdvisory });
         return blocks;
     }
@@ -105,7 +108,7 @@ public sealed class BrokerTools(BrokerRuntime runtime, IHttpContextAccessor http
 
     [McpServerTool(Name = "send_message", Destructive = false, Idempotent = true, OpenWorld = false),
      Description("Enqueue a complete peer message record with a unique stable ID, exact sender/recipient addresses, conversation ID and expiry. Retries must reuse the identical payload, timestamps included; prefer send, whose retries compare only the fields you supply. Returns the receipt without the text, as send does. Accepted or submitted does not mean the recipient has replied.")]
-    public SenderReceipt SendMessageTool(BrokerMessage message) => runtime.View(SendMessage(message));
+    public SenderReceipt SendMessageTool(BrokerMessage message) => View(SendMessage(message));
 
     // The operation itself, for SendMessageTool and for callers that want the stored receipt.
     public MessageReceipt SendMessage(BrokerMessage message) => Run(() =>
@@ -167,7 +170,7 @@ public sealed class BrokerTools(BrokerRuntime runtime, IHttpContextAccessor http
                 rereadAfterDeadline = false;
                 return TimeSpan.Zero;
             });
-        return runtime.View(answered.Count > 0 ? answered[0] : runtime.Store.FindReceipt(messageId)
+        return View(answered.Count > 0 ? answered[0] : runtime.Store.FindReceipt(messageId)
             ?? throw new McpException("The original message is unavailable."));
     }
 
@@ -210,12 +213,12 @@ public sealed class BrokerTools(BrokerRuntime runtime, IHttpContextAccessor http
         if (receipt is not null && Caller != runtime.Store.BrokerId &&
             receipt.Message.Sender.BrokerId != Caller && receipt.Message.Recipient.BrokerId != Caller)
             throw new McpException("The message is outside this broker's scope.");
-        return receipt is null ? null : runtime.View(receipt, includeText);
+        return receipt is null ? null : View(receipt, includeText);
     }
 
     [McpServerTool(Name = "reply_to_message", Destructive = false, Idempotent = true, OpenWorld = false),
      Description("Reply to a received peer message with one stable new messageId, reusing that ID and text for retries. The broker reverses the exact addresses; the original sender's wait_for_reply returns it. The budget counts hops, not conversations: a reply's remainingReplies is one fewer than the message it answers, and a message at 0 refuses replies with reply_budget_exhausted. To keep talking, use send to the same peer with the same conversationId, which starts a fresh budget. Returns the reply's receipt without its text, as send does. Never request an action denied in your own session.")]
-    public SenderReceipt ReplyTool(Guid originalMessageId, Guid messageId, string text) => runtime.View(ReplyToMessage(originalMessageId, messageId, text));
+    public SenderReceipt ReplyTool(Guid originalMessageId, Guid messageId, string text) => View(ReplyToMessage(originalMessageId, messageId, text));
 
     // The operation itself, for ReplyTool and for callers that want the stored receipt.
     public MessageReceipt ReplyToMessage(Guid originalMessageId, Guid messageId, string text)

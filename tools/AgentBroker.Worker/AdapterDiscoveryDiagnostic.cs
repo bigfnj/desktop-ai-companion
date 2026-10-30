@@ -3,6 +3,10 @@ namespace AgentBroker.Worker;
 /// <summary>Non-secret compatibility information from a completed discovery pass.</summary>
 public sealed record AdapterDiscoveryDiagnostic(string Code, string Description)
 {
+    /// <summary>A note about some of the adapter's sessions, not a failure of the adapter: Status keeps it apart from the
+    /// adapter errors (BrokerRuntime.AdapterNotes), so the healthy sessions' line is not replaced by it.</summary>
+    public bool Note { get; init; }
+
     public string ToStatusText() => Clean(Code, 64) + ": " + Clean(Description, 320);
 
     /// <summary>

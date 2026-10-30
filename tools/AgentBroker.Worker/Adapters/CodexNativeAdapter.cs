@@ -38,8 +38,20 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
     private readonly TimeProvider clock;
     // Report only (N-agentbroker-code-owner-provenance-01): who holds each thread's writer lock. Null observes nothing.
     private readonly ICodexEngineBindingSource? engineBindings;
-    // The last completed pass's observations by row, replaced whole each pass, so the runtime reads it without the gate.
+    // The latest observation of each listed row, replaced whole (under engineGate) so the runtime reads it without either
+    // lock. Observed OFF the discovery gate, in the background (review of 25a0c65, finding 3): about 0.1 s per held lock, so
+    // at the 256-row bound an inline observation outlasted the 10-second pass deadline and held the gate a delivery waits on.
+    // The shape of the house's background probes: an Interlocked single-flight gate, Task.Run, a budget; a pass that finds
+    // one still running starts none. Rows not reached within the budget keep their previous observation, whose ObservedAt
+    // says how old it is; the oldest observations are taken first, so every row is reached in turn.
     private volatile IReadOnlyDictionary<SessionAddress, EngineBinding> engineByRow = new Dictionary<SessionAddress, EngineBinding>();
+    private readonly object engineGate = new();
+    private IReadOnlySet<SessionAddress> engineListed = new HashSet<SessionAddress>();
+    private int engineObserving;
+    private readonly CancellationTokenSource engineStop = new();
+    internal TimeSpan EngineObservationBudget { get; init; } = TimeSpan.FromSeconds(10);
+    // The observation started by the latest pass that started one; for the checks, which wait for it.
+    internal Task EngineObservation { get; private set; } = Task.CompletedTask;
     public EngineBinding? EngineBindingOf(SessionAddress address) => engineByRow.GetValueOrDefault(address);
     private readonly SemaphoreSlim gate = new(1, 1);
     private readonly Dictionary<SessionAddress, DesktopOwnerBinding> bindings = [];
@@ -161,11 +173,9 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
             bindings.Clear(); foreach (var pair in found) bindings.Add(pair.Key, pair.Value);
             slowLookups.Clear(); slowLookups.UnionWith(slow);
             skippedLastPass = skipped.Count;
-            // Report only: each listed row says whether its thread's writer lock is held by a recognised engine. Observed after
-            // every capability and address above was decided, and kept beside the rows, never in them, so it cannot change one.
-            var engines = ObserveEngines(sessions.Select(session => ThreadOf(session.Address)).ToArray());
-            engineByRow = sessions.Where(session => engines.ContainsKey(ThreadOf(session.Address)))
-                .ToDictionary(session => session.Address, session => engines[ThreadOf(session.Address)]);
+            // Report only: each listed row's thread writer lock, observed after every capability and address above was decided,
+            // in the background and kept beside the rows, never in them, so it can neither change one nor delay the pass.
+            BeginEngineObservation(sessions.Select(session => session.Address).ToArray());
             return sessions;
         }
         catch (DesktopAdapterException error)
@@ -223,9 +233,11 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
             if (Refusal(current) is { } changed) return new(AdapterAdmission.Refused, changed);
             // Binding.Incarnation is a connection lease; stable broker identity uses the native tuple.
             bindings[message.Recipient] = current;
-            // Report only: who holds the thread's writer lock just before the input is written, for this attempt's receipt.
-            // Every check above has already admitted or refused the attempt; nothing below reads it.
-            var observed = ObserveEngines([current.ConversationId]).GetValueOrDefault(current.ConversationId);
+            // Report only: the latest discovery observation of this row, for the attempt's receipt (its ObservedAt says when it
+            // was made). Not a fresh query: one costs about 0.1 s plus a process snapshot, and it would sit between the owner
+            // re-check above and the write below, widening the window those fresh checks exist to close (review of 25a0c65,
+            // finding 3). A dictionary read, and nothing below reads it.
+            var observed = EngineBindingOf(message.Recipient);
             try
             {
                 var result = await provider.SubmitAsync(current, message.Id, formatted, token);
@@ -255,21 +267,57 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
 
     private static AdapterResult Observed(AdapterResult result, EngineBinding? engine) => engine is null ? result : result with { EngineBinding = engine };
 
-    // Report only (N-agentbroker-code-owner-provenance-01): one engine binding per thread, stamped with this adapter's clock.
-    // The source promises never to throw; if one does anyway, every thread reads query_failed for this observation, so a
-    // failed observation is never silent and never fails a discovery pass or a delivery.
-    private Dictionary<Guid, EngineBinding> ObserveEngines(IReadOnlyCollection<Guid> threads)
+    // Called under the discovery gate with the pass's listed rows. A row no longer listed loses its observation now; the
+    // rest keep theirs until the background observation replaces them.
+    private void BeginEngineObservation(IReadOnlyList<SessionAddress> listed)
+    {
+        if (engineBindings is null) return;
+        lock (engineGate)
+        {
+            engineListed = listed.ToHashSet();
+            engineByRow = engineByRow.Where(pair => engineListed.Contains(pair.Key)).ToDictionary(pair => pair.Key, pair => pair.Value);
+        }
+        if (listed.Count == 0 || engineStop.IsCancellationRequested || Interlocked.CompareExchange(ref engineObserving, 1, 0) != 0) return;
+        var current = engineByRow;
+        // Oldest first (never observed before anything), so a budget that runs out reaches the others on the next pass.
+        var order = listed.OrderBy(address => current.TryGetValue(address, out var seen) ? seen.ObservedAt : DateTimeOffset.MinValue).ToArray();
+        EngineObservation = Task.Run(() =>
+        {
+            try
+            {
+                using var budget = CancellationTokenSource.CreateLinkedTokenSource(engineStop.Token);
+                budget.CancelAfter(EngineObservationBudget);
+                var observed = ObserveEngines(order.Select(ThreadOf).ToArray(), budget.Token);
+                lock (engineGate)
+                {
+                    var next = new Dictionary<SessionAddress, EngineBinding>(engineByRow);
+                    foreach (var address in order)
+                        if (engineListed.Contains(address) && observed.TryGetValue(ThreadOf(address), out var engine)) next[address] = engine;
+                    engineByRow = next;
+                }
+            }
+            finally { Volatile.Write(ref engineObserving, 0); }
+        });
+    }
+
+    // Report only (N-agentbroker-code-owner-provenance-01): one engine binding per thread reached, stamped with this
+    // adapter's clock when the observation ended. The source promises never to throw; if one does anyway (or answers null),
+    // every thread reads query_failed for this observation, so a failed observation is never silent and fails nothing.
+    private Dictionary<Guid, EngineBinding> ObserveEngines(IReadOnlyCollection<Guid> threads, CancellationToken token)
     {
         var result = new Dictionary<Guid, EngineBinding>();
         if (engineBindings is null || threads.Count == 0) return result;
-        var now = clock.GetUtcNow();
         IReadOnlyDictionary<Guid, CodexEngineBindingVerdict> verdicts;
-        try { verdicts = engineBindings.Observe(threads); }
-        catch (Exception) { verdicts = threads.Distinct().ToDictionary(thread => thread, _ => new CodexEngineBindingVerdict(false, "query_failed")); }
+        try { verdicts = engineBindings.Observe(threads, token) ?? Failed(threads); }
+        catch (Exception) { verdicts = Failed(threads); }
+        var now = clock.GetUtcNow();
         foreach (var thread in threads)
             if (verdicts.TryGetValue(thread, out var verdict) && verdict is not null) result[thread] = new(verdict.Bound, verdict.Reason, now);
         return result;
     }
+
+    private static Dictionary<Guid, CodexEngineBindingVerdict> Failed(IEnumerable<Guid> threads) =>
+        threads.Distinct().ToDictionary(thread => thread, _ => new CodexEngineBindingVerdict(false, "query_failed"));
 
     // An exception out of the library's submission, recorded with its cause (A-broker-08): all of them carried the one
     // generic native_submission_uncertain, the reason N-agentbroker-uncertain-parked-01 cannot diagnose. Still Uncertain and
@@ -361,7 +409,16 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
     public async ValueTask DisposeAsync()
     {
         await gate.WaitAsync();
-        try { if (disposed) return; disposed = true; bindings.Clear(); await provider.DisposeAsync(); }
+        try
+        {
+            if (disposed) return;
+            disposed = true; bindings.Clear();
+            // The background observation stops at its next thread (each query is about 0.1 s), and is waited for so nothing
+            // queries a lock after disposal.
+            engineStop.Cancel();
+            try { await EngineObservation; } catch (Exception) { }
+            await provider.DisposeAsync();
+        }
         finally { gate.Release(); }
     }
 }

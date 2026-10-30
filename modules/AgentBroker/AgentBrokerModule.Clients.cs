@@ -147,6 +147,9 @@ public sealed partial class AgentBrokerModule
 
         // Native receive and wake support.
         yield return NativeLine(client);
+        // A note about some sessions (lane broker-163: elevated Claude Code sessions), beside the healthy line, not instead.
+        if (snapshot?.AdapterNotes is { } notes && notes.TryGetValue(client == "claude" ? "claude-native" : "codex-native", out string? note))
+            yield return "\u26A0 " + Safe(StripCode(note), 116);
         // Report only (lane broker-163, N-agentbroker-code-owner-provenance-01): whose engine holds each Codex row's thread.
         if (client == "codex" && EngineBindingLine() is { } engine) yield return engine;
 
@@ -232,6 +235,9 @@ public sealed partial class AgentBrokerModule
     }
 
     private static string Count(int value) => value.ToString(CultureInfo.InvariantCulture);
+
+    // A note's status text is "code: description"; the pane shows the description.
+    private static string StripCode(string note) => note.IndexOf(": ", StringComparison.Ordinal) is int at and >= 0 ? note[(at + 2)..] : note;
 
     // Counts and reason codes only, never a thread or process. Absent until the worker reports an observation.
     private string? EngineBindingLine()

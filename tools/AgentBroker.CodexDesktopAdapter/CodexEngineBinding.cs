@@ -37,11 +37,18 @@ public sealed record WriterLockObservation(WriterLockState State, IReadOnlyList<
 /// <summary>Bound, and why: code_engine or desktop_engine when bound; otherwise the reason it is not.</summary>
 public sealed record CodexEngineBindingVerdict(bool Bound, string Reason);
 
+/// <summary>The engines running now, and the codex.exe processes that looked like engines but could not be read (one that
+/// exited between the snapshot and the read, another user's, an elevated VS Code's). Only a lock held by one of those reads
+/// query_failed; every other lock is classified as usual (review of 25a0c65, finding 4: one unreadable process used to
+/// spoil every lock, the A-broker-03 shape).</summary>
+public sealed record CodexEngineSet(IReadOnlyList<CodexEngine> Engines, IReadOnlySet<uint> Unreadable);
+
 /// <summary>The broker's source of engine-binding observations, one verdict per thread. Never throws: a failure is a
-/// verdict (query_failed), so an observation can never fail a discovery pass or a delivery.</summary>
+/// verdict (query_failed). Threads not reached before the token is cancelled are absent from the answer, so a slow
+/// observation is cut short instead of running past its budget.</summary>
 public interface ICodexEngineBindingSource
 {
-    IReadOnlyDictionary<Guid, CodexEngineBindingVerdict> Observe(IReadOnlyCollection<Guid> threadIds);
+    IReadOnlyDictionary<Guid, CodexEngineBindingVerdict> Observe(IReadOnlyCollection<Guid> threadIds, CancellationToken token);
 }
 
 public static class CodexEngineBinding
@@ -51,7 +58,8 @@ public static class CodexEngineBinding
 
     /// <summary>Pure: the verdict for one lock observation against the engines running now. Bound only for exactly one holder
     /// whose process ID AND start time are a recognised engine's.</summary>
-    public static CodexEngineBindingVerdict Classify(WriterLockObservation observation, IReadOnlyList<CodexEngine> engines)
+    public static CodexEngineBindingVerdict Classify(WriterLockObservation observation, IReadOnlyList<CodexEngine> engines,
+        IReadOnlySet<uint>? unreadable = null)
     {
         switch (observation.State)
         {
@@ -62,6 +70,7 @@ public static class CodexEngineBinding
         if (observation.Holders.Count == 0) return new(false, "no_holder");
         if (observation.Holders.Count > 1) return new(false, "multiple_holders");
         var holder = observation.Holders[0];
+        if (unreadable?.Contains(holder.Pid) == true) return new(false, "query_failed");
         var engine = engines.FirstOrDefault(candidate => candidate.Pid == holder.Pid);
         if (engine is null) return new(false, "foreign_holder");
         if (engine.CreationFileTime != holder.StartFileTime) return new(false, "start_time_mismatch");
@@ -74,16 +83,21 @@ public static class CodexEngineBinding
         => Path.Combine(codexHome, "thread-writer-locks", threadId.ToString("D") + ".lock");
 
     /// <summary>The lock path's state before any query: Reparse if the file or any directory above it is a reparse point
-    /// (reported, never followed), Missing if it does not exist, Failed if its attributes cannot be read, else Queried.</summary>
+    /// (reported, never followed), Missing if it does not exist, Failed if its attributes cannot be read, else Queried. Walked
+    /// from the root down, so a missing lock under a junctioned directory reads lock_path_reparse, not lock_missing.</summary>
     public static WriterLockState CheckPath(string lockPath, Func<string, FileAttributes> attributes)
     {
         try
         {
+            var components = new List<string>();
             for (string? path = Path.GetFullPath(lockPath); !string.IsNullOrEmpty(path); path = Path.GetDirectoryName(path))
             {
-                if ((attributes(path) & FileAttributes.ReparsePoint) != 0) return WriterLockState.Reparse;
+                components.Add(path);
                 if (Path.GetPathRoot(path) == path) break;
             }
+            components.Reverse();
+            foreach (string path in components)
+                if ((attributes(path) & FileAttributes.ReparsePoint) != 0) return WriterLockState.Reparse;
             return WriterLockState.Queried;
         }
         catch (Exception error) when (error is FileNotFoundException or DirectoryNotFoundException) { return WriterLockState.Missing; }
@@ -104,7 +118,7 @@ public sealed class WindowsCodexEngineBindingSource : ICodexEngineBindingSource
     // A lock held by more processes than this is reported as multiple_holders without reading them all.
     private const int MaximumHolders = 16;
 
-    public IReadOnlyDictionary<Guid, CodexEngineBindingVerdict> Observe(IReadOnlyCollection<Guid> threadIds)
+    public IReadOnlyDictionary<Guid, CodexEngineBindingVerdict> Observe(IReadOnlyCollection<Guid> threadIds, CancellationToken token)
     {
         var result = new Dictionary<Guid, CodexEngineBindingVerdict>();
         if (threadIds.Count == 0) return result;
@@ -115,20 +129,23 @@ public sealed class WindowsCodexEngineBindingSource : ICodexEngineBindingSource
             return result;
         }
         string home = Path.Combine(profile, ".codex");
-        IReadOnlyList<CodexEngine>? engines = null;
-        bool enginesUnreadable = false;
+        CodexEngineSet? engines = null;
+        bool snapshotFailed = false;
         foreach (var thread in threadIds.Distinct())
         {
+            // Each query costs about 0.1 s; the caller's budget ends the pass, and what was not reached is simply absent.
+            if (token.IsCancellationRequested) break;
             var observation = Query(CodexEngineBinding.LockPath(home, thread));
-            // The engines are read once, and only when a holder needs matching.
-            if (observation is { State: WriterLockState.Queried, Holders.Count: 1 } && engines is null && !enginesUnreadable)
+            // The engines are read once, and only when a holder needs matching. Only the process snapshot itself failing
+            // spoils every lock; a single unreadable process is in Unreadable and affects only a lock it holds.
+            if (observation is { State: WriterLockState.Queried, Holders.Count: 1 } && engines is null && !snapshotFailed)
             {
                 try { engines = WindowsClientProcesses.ReadCodexEngines(); }
                 catch (Exception error) when (error is DesktopAdapterException or Win32Exception or IOException or UnauthorizedAccessException or InvalidOperationException)
-                { enginesUnreadable = true; }
+                { snapshotFailed = true; }
             }
-            result[thread] = observation is { State: WriterLockState.Queried, Holders.Count: 1 } && enginesUnreadable
-                ? new(false, "query_failed") : CodexEngineBinding.Classify(observation, engines ?? []);
+            result[thread] = observation is { State: WriterLockState.Queried, Holders.Count: 1 } && snapshotFailed
+                ? new(false, "query_failed") : CodexEngineBinding.Classify(observation, engines?.Engines ?? [], engines?.Unreadable);
         }
         return result;
     }

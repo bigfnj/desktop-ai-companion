@@ -29,37 +29,75 @@ internal static class EngineBindingReportChecks
         Guid broker = Guid.NewGuid();
         source.Verdict = new(true, CodexEngineBinding.CodeEngine);
         var row = (await reporting.DiscoverAsync(broker, default)).Single();
+        await reporting.EngineObservation;
         var plain = (await silent.DiscoverAsync(broker, default)).Single();
         check(reporting.EngineBindingOf(row.Address) == new EngineBinding(true, "code_engine", clock.GetUtcNow()) && source.Asked.Single().SequenceEqual([provider.Thread]),
             "ENGINE_ROW_BOUND: a discovered Codex row has the observed binding of its own thread, stamped when observed");
         check(silent.EngineBindingOf(plain.Address) is null && row == plain,
             "ENGINE_ROW_REPORT_ONLY: the observation changes nothing on the row: address, capabilities, activity and lease are those without it");
 
+        // The attempt carries the latest discovery observation and queries nothing between the owner re-check and the write
+        // (review of 25a0c65, finding 3).
         source.Verdict = new(false, "foreign_holder");
         clock.Advance(TimeSpan.FromSeconds(1));
-        var message = Message(row.Address);
-        var unbound = await reporting.SubmitAsync(message, default);
+        await reporting.DiscoverAsync(broker, default);
+        await reporting.EngineObservation;
+        var observedAt = clock.GetUtcNow();
+        clock.Advance(TimeSpan.FromSeconds(1));
+        int asked = source.Asked.Count;
+        var unbound = await reporting.SubmitAsync(Message(row.Address), default);
+        check(source.Asked.Count == asked, "ENGINE_SUBMIT_NO_QUERY: a delivery attempt makes no lock query of its own; it reports the latest discovery observation");
         check(unbound.Outcome == AdapterAdmission.Submitted && unbound.Reason == "native_admission_unconfirmed" &&
-            unbound.EngineBinding == new EngineBinding(false, "foreign_holder", clock.GetUtcNow()) && provider.Submissions == 1,
-            "ENGINE_SUBMIT_UNBOUND_NOT_REFUSED: an unbound observation at the attempt is reported on the result, and the input is still written");
-        source.Verdict = new(true, CodexEngineBinding.DesktopEngine);
+            unbound.EngineBinding == new EngineBinding(false, "foreign_holder", observedAt) && provider.Submissions == 1,
+            "ENGINE_SUBMIT_UNBOUND_NOT_REFUSED: an unbound observation is reported on the attempt's result, and the input is still written");
         provider.DeferNext = true;
         var deferred = await reporting.SubmitAsync(Message(row.Address), default);
         check(deferred.Outcome == AdapterAdmission.DeferredNotSubmitted && deferred.Reason == "native_context_busy" &&
-            deferred.EngineBinding?.Reason == "desktop_engine",
-            "ENGINE_SUBMIT_EVERY_OUTCOME: a deferred attempt reports what was observed too");
+            deferred.EngineBinding?.Reason == "foreign_holder",
+            "ENGINE_SUBMIT_EVERY_OUTCOME: a deferred attempt reports the observation too");
 
         source.Throws = true;
         var failed = (await reporting.DiscoverAsync(broker, default)).Single();
+        await reporting.EngineObservation;
         check(reporting.EngineBindingOf(failed.Address) is { Bound: false, Reason: "query_failed" } && failed.Capabilities == row.Capabilities,
             "ENGINE_SOURCE_THROWS: a source that throws reads query_failed on every row and fails neither the pass nor the row");
-        source.Throws = false;
+        // A good pass between, so the null answer's query_failed is its own, not the throwing pass's left over.
+        source.Throws = false; source.Verdict = new(true, CodexEngineBinding.CodeEngine);
+        await reporting.DiscoverAsync(broker, default);
+        await reporting.EngineObservation;
+        source.Null = true;
+        await reporting.DiscoverAsync(broker, default);
+        try { await reporting.EngineObservation; } catch (Exception) { /* The check below names what a faulted observation lost. */ }
+        check(reporting.EngineBindingOf(row.Address) is { Bound: false, Reason: "query_failed" },
+            "ENGINE_SOURCE_NULL: a source that answers null reads query_failed instead of throwing");
+        source.Null = false;
+
+        // Off the pass and inside a budget (finding 3): a source that never finishes neither holds the pass nor runs past its
+        // budget, and a row it did not reach keeps its previous observation, whose ObservedAt says how old it is.
+        var slow = new Source { Verdict = new(true, CodexEngineBinding.CodeEngine) };
+        await using var budgeted = new CodexNativeAdapter(new Owner(provider.Thread, clock.GetUtcNow), enableDelivery: true, clock, engineBindings: slow)
+        { EngineObservationBudget = TimeSpan.FromMilliseconds(300) };
+        var listed = (await budgeted.DiscoverAsync(broker, default)).Single();
+        await budgeted.EngineObservation;
+        var first = budgeted.EngineBindingOf(listed.Address);
+        clock.Advance(TimeSpan.FromSeconds(10));
+        slow.BlockUntilCancelled = true;
+        var timer = System.Diagnostics.Stopwatch.StartNew();
+        await budgeted.DiscoverAsync(broker, default);
+        bool passReturnedFirst = !budgeted.EngineObservation.IsCompleted;
+        await Task.WhenAny(budgeted.EngineObservation, Task.Delay(TimeSpan.FromSeconds(10)));
+        timer.Stop();
+        check(passReturnedFirst && first is { Reason: "code_engine" } && budgeted.EngineBindingOf(listed.Address) == first,
+            "ENGINE_OFF_THE_PASS: the pass returns while the observation still runs, and a row not reached keeps its previous observation");
+        check(budgeted.EngineObservation.IsCompleted && timer.Elapsed < TimeSpan.FromSeconds(5) && slow.SawCancellation,
+            $"ENGINE_BUDGET: the observation is cut at its budget ({timer.Elapsed.TotalMilliseconds:F0} ms for a 300 ms budget)");
     }
 
     private static async Task RuntimeAsync(Action<bool, string> check)
     {
         var provider = new Owner();
-        var source = new Source { Verdict = new(true, CodexEngineBinding.CodeEngine) };
+        // Unbound from the start: a report, so the unbound row is still delivered to.
+        var source = new Source { Verdict = new(false, "multiple_holders") };
         // The real clock for store and adapter alike: the adapter stamps leases and observations with its own clock.
         await using var fixture = new ToolFixture("engine-binding", clock: TimeProvider.System,
             adapters: [new CodexNativeAdapter(provider, enableDelivery: true, null, engineBindings: source)]);
@@ -67,12 +105,12 @@ internal static class EngineBindingReportChecks
         using var stop = new CancellationTokenSource();
         fixture.Runtime.Start(stop.Token);
         ListedSession? row = null;
-        for (int i = 0; i < 100 && row is null; i++)
+        for (int i = 0; i < 100 && row?.EngineBinding is null; i++)
         {
             row = (await fixture.Tools.ListSessions(default)).SingleOrDefault(session => session.Adapter == "codex-native");
-            if (row is null) await Task.Delay(50);
+            if (row?.EngineBinding is null) await Task.Delay(50);
         }
-        check(row?.EngineBinding is { Bound: true, Reason: "code_engine" },
+        check(row?.EngineBinding is { Bound: false, Reason: "multiple_holders" },
             "ENGINE_LISTED: list_sessions shows the Codex row's engine binding");
         // A paired broker's caller: the same tool, authenticated as another broker. Its directory has no engine member at
         // all (BrokerSession keeps the 1.0.4 members, TombstoneChecks.WireAsync), and its list_sessions gets none either.
@@ -81,15 +119,30 @@ internal static class EngineBindingReportChecks
         fixture.Context.Items["agentbroker.identity"] = fixture.Store.BrokerId;
         check(asPeer.Any(session => session.Address == row!.Address) && asPeer.All(session => session.EngineBinding is null),
             "ENGINE_NOT_FEDERATED: a paired broker's caller lists the row but never its engine binding");
-        source.Verdict = new(false, "multiple_holders");
         Guid id = Guid.NewGuid();
         fixture.Tools.Send(sender.Address, row!.Address, id, "Synthetic message to a Codex row with an engine report.");
         for (int i = 0; i < 100 && fixture.Store.FindReceipt(id)?.Status is MessageStatus.Accepted or MessageStatus.Submitting; i++) await Task.Delay(50);
         var receipt = fixture.Tools.GetMessageReceipt(id);
-        check(receipt is { Status: MessageStatus.Submitted } && receipt.EngineBinding is { Bound: false, Reason: "multiple_holders" },
-            "ENGINE_RECEIPT_AT_ATTEMPT: the sender's receipt says what was observed at the attempt, and the unbound message was still submitted");
+        check(receipt is { Status: MessageStatus.Submitted } && receipt.EngineBinding == row.EngineBinding,
+            "ENGINE_RECEIPT_AT_ATTEMPT: the sender's receipt says what was observed for the row at the attempt, and the unbound message was still submitted");
         check(fixture.Store.FindReceipt(id)?.Reason == "native_admission_unconfirmed",
             "ENGINE_RECEIPT_STORED_UNCHANGED: the stored receipt is the one it would have been without the report");
+
+        // Review of 25a0c65, finding 2: a paired broker that sent the message reads its receipt without this workstation's
+        // observations; the same receipt read locally keeps them.
+        var peer = new PeerTrust(Guid.NewGuid(), "Synthetic engine peer", "https://192.0.2.30/", new string('E', 64), DateTimeOffset.UtcNow);
+        fixture.Store.AuthorizePeer(peer);
+        var now = DateTimeOffset.UtcNow;
+        var fromPeer = new BrokerMessage(Guid.NewGuid(), Guid.NewGuid(), null, new(peer.BrokerId, "remote", Guid.NewGuid()), row.Address,
+            "Synthetic message from a paired broker.", now, now.AddMinutes(5));
+        fixture.Store.Accept(fromPeer, peer.BrokerId);
+        for (int i = 0; i < 100 && fixture.Store.FindReceipt(fromPeer.Id)?.Status is MessageStatus.Accepted or MessageStatus.Submitting; i++) await Task.Delay(50);
+        var local = fixture.Tools.GetMessageReceipt(fromPeer.Id);
+        fixture.Context.Items["agentbroker.identity"] = peer.BrokerId;
+        var remote = fixture.Tools.GetMessageReceipt(fromPeer.Id);
+        fixture.Context.Items["agentbroker.identity"] = fixture.Store.BrokerId;
+        check(local?.EngineBinding is not null && remote is { Status: MessageStatus.Submitted, EngineBinding: null, BusySince: null },
+            "ENGINE_RECEIPT_NOT_FEDERATED: a paired broker's caller reads the receipt without the engine binding; a local read keeps it");
         stop.Cancel();
     }
 
@@ -119,13 +172,21 @@ internal static class EngineBindingReportChecks
 
     private sealed class Source : ICodexEngineBindingSource
     {
-        internal CodexEngineBindingVerdict Verdict = new(false, "lock_missing");
-        internal bool Throws;
+        internal volatile CodexEngineBindingVerdict Verdict = new(false, "lock_missing");
+        internal volatile bool Throws, Null, BlockUntilCancelled, SawCancellation;
         internal List<Guid[]> Asked { get; } = [];
-        public IReadOnlyDictionary<Guid, CodexEngineBindingVerdict> Observe(IReadOnlyCollection<Guid> threadIds)
+        public IReadOnlyDictionary<Guid, CodexEngineBindingVerdict> Observe(IReadOnlyCollection<Guid> threadIds, CancellationToken token)
         {
-            Asked.Add(threadIds.ToArray());
+            lock (Asked) Asked.Add(threadIds.ToArray());
             if (Throws) throw new InvalidOperationException("Synthetic observation failure.");
+            if (Null) return null!;
+            if (BlockUntilCancelled)
+            {
+                // Reaches nothing before the budget ends, as a Restart Manager pass over too many locks would.
+                token.WaitHandle.WaitOne(TimeSpan.FromSeconds(30));
+                SawCancellation = token.IsCancellationRequested;
+                return new Dictionary<Guid, CodexEngineBindingVerdict>();
+            }
             return threadIds.ToDictionary(thread => thread, _ => Verdict);
         }
     }

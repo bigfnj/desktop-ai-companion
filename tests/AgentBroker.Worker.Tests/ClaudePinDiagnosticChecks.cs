@@ -166,16 +166,18 @@ internal static class ClaudePinDiagnosticChecks
         check(sessions.Count == 1 && sessions[0].Target.ProcessId == supported.Pid && diagnostic is not null,
             "CLAUDE_ELEVATED_COUNTED: an elevated session is counted in the pass's diagnostic while the openable one is still listed");
         check(provider.DiscoveryDiagnostics.Count == 1 && diagnostic is not null &&
-            diagnostic.Description.StartsWith("1 Claude Code session runs elevated or as another user, so the broker cannot verify or wake it;", StringComparison.Ordinal),
+            diagnostic.Description.StartsWith("1 Claude Code session is elevated or another user's and cannot be woken;", StringComparison.Ordinal),
             "CLAUDE_ELEVATED_RECORD_ONLY: an unreadable session record and a non-access failure are not counted as elevated");
         string text = diagnostic?.ToStatusText() ?? "";
         check(!text.Contains("801", StringComparison.Ordinal) && !text.Contains(elevated.Metadata.SessionId, StringComparison.Ordinal) &&
-            !text.Contains(elevated.Image!, StringComparison.Ordinal) && text.Contains("register_agent", StringComparison.Ordinal),
-            "CLAUDE_ELEVATED_COUNT_ONLY: the diagnostic names no process, session or path, and says what to do instead");
+            !text.Contains(elevated.Image!, StringComparison.Ordinal) && text.Contains("register_agent", StringComparison.Ordinal) &&
+            diagnostic!.Description.Length <= 116,
+            "CLAUDE_ELEVATED_COUNT_ONLY: the diagnostic names no process, session or path, says what to do instead, and fits a tray label");
+        check(diagnostic?.Note == true, "CLAUDE_ELEVATED_NOTE: the elevated count is a note about some sessions, not an adapter failure");
         source.Processes[secondElevated.Pid] = secondElevated;
         await provider.DiscoverAsync(CancellationToken.None);
         check(provider.DiscoveryDiagnostics.SingleOrDefault(item => item.Code == "claude_session_elevated")?.Description
-                .StartsWith("2 Claude Code sessions run elevated", StringComparison.Ordinal) == true,
+                .StartsWith("2 Claude Code sessions are elevated", StringComparison.Ordinal) == true,
             "CLAUDE_ELEVATED_PLURAL: two elevated sessions are counted as two");
         check(await provider.RefreshAsync(elevated.Pid, CancellationToken.None) is null,
             "CLAUDE_ELEVATED_REFRESH: a direct refresh of an elevated session still finds no target");

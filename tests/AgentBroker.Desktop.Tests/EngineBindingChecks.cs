@@ -39,6 +39,11 @@ internal static class EngineBindingChecks
             "ENGINE_QUERY_FAILED: a lock query that failed is unbound query_failed");
         check(CodexEngineBinding.Classify(new(WriterLockState.Queried, [new(4100, 1000)]), []) == new CodexEngineBindingVerdict(false, "foreign_holder"),
             "ENGINE_NONE_RUNNING: with no recognised engine running, any holder is foreign");
+        // Review of 25a0c65, finding 4: an engine-like process that could not be read makes only a lock IT holds unverifiable.
+        var unreadable = new HashSet<uint> { 4300 };
+        check(CodexEngineBinding.Classify(new(WriterLockState.Queried, [new(4300, 3000)]), engines, unreadable) == new CodexEngineBindingVerdict(false, "query_failed") &&
+            CodexEngineBinding.Classify(new(WriterLockState.Queried, [new(4100, 1000)]), engines, unreadable) == new CodexEngineBindingVerdict(true, "code_engine"),
+            "ENGINE_UNREADABLE_HOLDER: a lock held by an unreadable process is query_failed, and every other lock is still classified");
     }
 
     private static void PathChecks(Action<bool, string> check)
@@ -51,8 +56,8 @@ internal static class EngineBindingChecks
         var seen = new List<string>();
         FileAttributes Regular(string candidate) { seen.Add(candidate); return FileAttributes.Normal; }
         check(CodexEngineBinding.CheckPath(path, Regular) == WriterLockState.Queried && seen.Count >= 3 &&
-            seen[0] == Path.GetFullPath(path) && seen.Contains(Path.GetFullPath(home)) && seen.Last() == Path.GetPathRoot(Path.GetFullPath(path)),
-            "ENGINE_PATH_EVERY_COMPONENT: the lock file and every directory above it to the root are checked");
+            seen[0] == Path.GetPathRoot(Path.GetFullPath(path)) && seen.Contains(Path.GetFullPath(home)) && seen.Last() == Path.GetFullPath(path),
+            "ENGINE_PATH_EVERY_COMPONENT: every directory from the root down to the lock file, and the file, are checked");
         string linkedDirectory = Path.Combine(home, "thread-writer-locks");
         check(CodexEngineBinding.CheckPath(path, candidate => candidate == Path.GetFullPath(linkedDirectory) ? FileAttributes.Directory | FileAttributes.ReparsePoint
             : FileAttributes.Normal) == WriterLockState.Reparse,
@@ -64,6 +69,11 @@ internal static class EngineBindingChecks
             "ENGINE_PATH_MISSING: a missing lock file or directory is lock_missing");
         check(CodexEngineBinding.CheckPath(path, _ => throw new UnauthorizedAccessException("synthetic")) == WriterLockState.Failed,
             "ENGINE_PATH_UNREADABLE: attributes that cannot be read are query_failed, never Queried");
+        // Review of 25a0c65, finding 6: a missing lock under a junctioned Codex home is the junction's finding, not lock_missing.
+        string linkedHome = Path.GetFullPath(home);
+        check(CodexEngineBinding.CheckPath(path, candidate => candidate == linkedHome ? FileAttributes.Directory | FileAttributes.ReparsePoint
+            : candidate == Path.GetFullPath(path) ? throw new FileNotFoundException("synthetic") : FileAttributes.Directory) == WriterLockState.Reparse,
+            "ENGINE_PATH_REPARSE_BEFORE_MISSING: a reparse point above a missing lock is reported as lock_path_reparse");
     }
 
     // The engines a holder may be, from one synthetic snapshot: PIDs 10..14 are codex.exe under different parents.
@@ -74,6 +84,7 @@ internal static class EngineBindingChecks
         var processes = new Dictionary<uint, (uint Parent, string Name)>
         {
             [10] = (100, "codex.exe"), [11] = (101, "codex.exe"), [12] = (102, "codex.exe"), [13] = (103, "codex.exe"), [14] = (104, "codex.exe"),
+            [15] = (100, "codex.exe"),
             [100] = (1, "Code.exe"), [101] = (1, "ChatGPT.exe"), [102] = (1, "ChatGPT.exe"), [103] = (1, "Code.exe"), [104] = (1, "pwsh.exe"),
         };
         (string Image, ulong Created, bool SameUser) Metadata(uint pid) => pid switch
@@ -84,9 +95,14 @@ internal static class EngineBindingChecks
             12 => (@"C:\Synthetic\codex.exe", 700, true), 102 => (@"C:\Synthetic\Elsewhere\ChatGPT.exe", 300, true),
             // A Code.exe parent created after its engine is a reused parent ID.
             13 => (@"C:\Synthetic\codex.exe", 200, true), 103 => (@"C:\Synthetic\Code.exe", 900, true),
+            // An engine that exited between the snapshot and the read (or another user's, or an elevated VS Code's).
+            15 => throw new DesktopAdapterException("vscode_process_identity_unverified"),
             _ => (@"C:\Synthetic\other.exe", 100, true),
         };
-        var engines = WindowsClientProcesses.SelectCodexEngines(processes, Metadata);
+        var set = WindowsClientProcesses.SelectCodexEngines(processes, Metadata);
+        var engines = set.Engines;
+        check(set.Unreadable.SetEquals([15u]) && engines.Any(engine => engine.Pid == 10),
+            "ENGINE_SELECT_UNREADABLE_ALONE: an engine-like process that cannot be read is set aside alone; the readable engines are still recognised");
         check(engines.Contains(new CodexEngine(10, 500, CodexEngineHost.Code)),
             "ENGINE_SELECT_CODE: a codex.exe under a running Code.exe is a Code engine, with its PID carried");
         check(engines.Contains(new CodexEngine(11, 600, CodexEngineHost.Desktop)),
@@ -94,9 +110,11 @@ internal static class EngineBindingChecks
         check(!engines.Any(engine => engine.Pid == 12), "ENGINE_SELECT_DESKTOP_PACKAGE: a ChatGPT.exe outside the Codex package owns no engine");
         check(!engines.Any(engine => engine.Pid == 13), "ENGINE_SELECT_REUSED_PARENT: a parent created after its engine owns no engine");
         check(!engines.Any(engine => engine.Pid == 14) && engines.Count == 2, "ENGINE_SELECT_OTHER_PARENT: a codex.exe under any other parent is not an engine");
-        var otherUser = WindowsClientProcesses.SelectCodexEngines(processes, pid => Metadata(pid) with { SameUser = pid != 10 });
+        var otherUser = WindowsClientProcesses.SelectCodexEngines(processes, pid => Metadata(pid) with { SameUser = pid != 10 }).Engines;
         check(!otherUser.Any(engine => engine.Pid == 10), "ENGINE_SELECT_SAME_USER: an engine of another user is not recognised");
-        check(WindowsClientProcesses.SelectCodeOwnedEngines(processes, Metadata).Single(engine => engine.Image == @"C:\Synthetic\codex.exe" && engine.CreationFileTime == 500).Pid == 10,
+        // The profile check's own selection stays strict (an unreadable engine refuses it), so it reads the set without 15.
+        var readable = processes.Where(pair => pair.Key != 15).ToDictionary(pair => pair.Key, pair => pair.Value);
+        check(WindowsClientProcesses.SelectCodeOwnedEngines(readable, Metadata).Single(engine => engine.Image == @"C:\Synthetic\codex.exe" && engine.CreationFileTime == 500).Pid == 10,
             "ENGINE_CODE_OWNED_PID: CodeOwnedEngine now carries the engine's PID");
     }
 
@@ -111,8 +129,11 @@ internal static class EngineBindingChecks
             : [];
         Console.WriteLine("locks=" + threads.Length);
         var engines = WindowsClientProcesses.ReadCodexEngines();
-        foreach (var engine in engines) Console.WriteLine("engine pid=" + engine.Pid + " host=" + engine.Host);
-        var verdicts = WindowsCodexEngineBindingSource.Instance.Observe(threads);
+        foreach (var engine in engines.Engines) Console.WriteLine("engine pid=" + engine.Pid + " host=" + engine.Host);
+        Console.WriteLine("unreadable=" + engines.Unreadable.Count);
+        var timer = System.Diagnostics.Stopwatch.StartNew();
+        var verdicts = WindowsCodexEngineBindingSource.Instance.Observe(threads, CancellationToken.None);
+        Console.WriteLine("observe ms=" + timer.ElapsedMilliseconds);
         foreach (var thread in threads)
         {
             var raw = WindowsCodexEngineBindingSource.Query(CodexEngineBinding.LockPath(Path.GetDirectoryName(locks)!, thread));

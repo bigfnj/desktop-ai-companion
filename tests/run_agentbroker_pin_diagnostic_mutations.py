@@ -74,8 +74,8 @@ ASSEMBLIES = {
 # lifecycle checks (N-agentbroker-native-flicker-01). Worker 213 and focused 81 after the review fixes: three more lifecycle
 # checks (adapter failure recorded, owner_discovery_rejected per row), and owner_discovery_rejected during owner
 # resolution now checked as a skipped row (two checks) instead of a failed pass (three).
-EXISTING_COUNTS = {"worker": 213, "desktop": 157}
-FOCUSED_COUNTS = {"worker": 81, "desktop": 15}
+EXISTING_COUNTS = {"worker": 234, "desktop": 157}  # worker 213 -> 234: re-measured by lane broker-163; stale before it (no existing-suite check changed there)
+FOCUSED_COUNTS = {"worker": 89, "desktop": 15}  # worker 81 -> 89: lane broker-163 (CLAUDE_ELEVATED_* and RUNTIME_NOTE_APART)
 CLAUDE_SCENARIOS = ("early-reject", "unsupported-version", "hash-mismatch", "mixed", "recovery", "bounded-snapshot")
 
 
@@ -122,7 +122,8 @@ WITNESSES = (
     # Both re-pointed by lane feature/broker-next-160 (N-agentbroker-native-flicker-01): the pass moved into one loop per
     # adapter (BrokerRuntime.DiscoverLoopAsync), four spaces shallower; same bytes otherwise, same intent.
     Witness("runtime-completed-pass-reporting", "runtime", "worker", ("--runtime-pin-diagnostics-only",), "AdapterDiagnosticChecks.cs", ((
-        """                var diagnostics = adapter.DiscoveryDiagnostics.Take(8).Select(item => item.ToStatusText()).Distinct().ToArray();
+        # Re-pointed by lane broker-163 (notes are kept apart from errors): the same completed-pass error reporting.
+        """                var diagnostics = reported.Where(item => !item.Note).Select(item => item.ToStatusText()).Distinct().ToArray();
                 if (diagnostics.Length == 0) adapterErrors.TryRemove(adapter.Id, out _);
                 else adapterErrors[adapter.Id] = string.Join("; ", diagnostics);""",
         "                adapterErrors.TryRemove(adapter.Id, out _);",

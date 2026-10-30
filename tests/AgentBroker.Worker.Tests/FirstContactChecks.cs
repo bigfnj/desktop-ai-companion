@@ -111,8 +111,25 @@ internal static class FirstContactChecks
         bool absentRunning;
         try { using var probe = Process.GetProcessById(absent); absentRunning = true; }
         catch (ArgumentException) { absentRunning = false; }
-        check(!WindowsCallerProcessResolver.AccessDenied(Environment.ProcessId) && !absentRunning && !WindowsCallerProcessResolver.AccessDenied(absent),
-            "WHOAMI_DENIED_PROBE: the limited-query probe never calls this process or an ID no process has access denied");
+        // Non-vacuous (review of 25a0c65, finding 1): the refusal itself through an injected open, which must be the limited query.
+        var probes = new List<uint>();
+        (bool Opened, int Error) Refuse(uint access, int pid) { probes.Add(access); return (false, 5); }
+        check(WindowsCallerProcessResolver.AccessDenied(4242, Refuse) && probes.SequenceEqual([0x1000u]) &&
+            !WindowsCallerProcessResolver.AccessDenied(4242, (_, _) => (false, 87)) && !WindowsCallerProcessResolver.AccessDenied(4242, (_, _) => (true, 0)) &&
+            !WindowsCallerProcessResolver.AccessDenied(Environment.ProcessId) && !absentRunning && !WindowsCallerProcessResolver.AccessDenied(absent),
+            "WHOAMI_DENIED_PROBE: the limited-query probe is a refusal only for ERROR_ACCESS_DENIED, never for this process or an ID no process has");
+        // The second shape: an elevated launch that allows the limited query and refuses the full one (0x0400). The start time
+        // is read again first, so a reused process ID is never called elevated.
+        var elevatedWalk = new CallerProcess(300, 800, "claude.exe");
+        probes.Clear();
+        bool fullDenied = WindowsCallerProcessResolver.QueryDenied(elevatedWalk, _ => 800, Refuse);
+        bool fullAsked = probes.SequenceEqual([0x0400u]);
+        probes.Clear();
+        bool reused = WindowsCallerProcessResolver.QueryDenied(elevatedWalk, _ => 801, Refuse);
+        check(fullDenied && fullAsked && !reused && probes.Count == 0 &&
+            !WindowsCallerProcessResolver.QueryDenied(elevatedWalk, _ => 800, (_, _) => (false, 87)) &&
+            !resolver.QueryDenied(new CallerProcess(Environment.ProcessId, selfStart, "AgentBroker.Worker.Tests.exe")),
+            "WHOAMI_QUERY_DENIED_PROBE: a refused full query of the walked process is elevated; a reused ID, another error or this process is not");
 
         // The walk on synthetic processes: 30's recorded parent 40 was created after 30, so 40 is a reused ID and not its parent.
         var parents = new Dictionary<int, (int Parent, string Image)>
@@ -181,6 +198,21 @@ internal static class FirstContactChecks
             "WHOAMI_ELEVATED: an owner the broker may not query (elevated, or another user) gets caller_elevated, not caller_unresolved");
         callers.Denied = false;
 
+        // Review of 25a0c65, finding 1: the limited query succeeded, so the walk reached the elevated claude process, but no
+        // adapter binds it (discovery could not read it). Its refused full query answers caller_elevated.
+        callers.Chain = [new(100, 1000, "pwsh.exe"), new(300, 800, "claude.exe"), new(400, 700, "Code.exe")];
+        adapter.Owned.Clear();
+        callers.QueryDeniedFor = [300];
+        check(ToolFixture.Refused(() => fixture.Tools.WhoAmI(), "caller_elevated"),
+            "WHOAMI_ELEVATED_FULL_QUERY: the nearest agent process of an unbound chain whose full query is refused gets caller_elevated");
+        callers.QueryDeniedFor = [100, 400];
+        check(ToolFixture.Refused(() => fixture.Tools.WhoAmI(), "no_native_session"),
+            "WHOAMI_ELEVATED_NEAREST_ONLY: a refused full query of a process that is not the nearest agent proves nothing");
+        callers.QueryDeniedFor = [300];
+        adapter.Owned[(300, 800UL)] = mine.Address;
+        check(fixture.Tools.WhoAmI().Address == mine.Address, "WHOAMI_ELEVATED_BOUND_WINS: a chain an adapter binds is answered with its row");
+        callers.QueryDeniedFor = [];
+
         callers.Chain = [new(300, 800, "claude.exe")];
         adapter.Owned.Clear(); adapter.Owned[(300, 800UL)] = mine.Address;
         fixture.Context.Request.IsHttps = true;
@@ -247,6 +279,8 @@ internal static class FirstContactChecks
     {
         internal IReadOnlyList<CallerProcess> Chain = [];
         internal bool Denied;
+        internal HashSet<int> QueryDeniedFor = [];
+        public bool QueryDenied(CallerProcess process) => QueryDeniedFor.Contains(process.ProcessId);
         internal List<(IPAddress, int, int)> Calls { get; } = [];
         public IReadOnlyList<CallerProcess> Resolve(IPAddress clientAddress, int clientPort, int serverPort)
         { Calls.Add((clientAddress, clientPort, serverPort)); return Chain; }

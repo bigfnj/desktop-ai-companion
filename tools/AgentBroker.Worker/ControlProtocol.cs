@@ -46,7 +46,9 @@ public sealed record BrokerSnapshot(Guid BrokerId, string Name, string LoopbackE
     IReadOnlyDictionary<string, string> AdapterErrors, string? CertificateSha256 = null, McpStatusView? Mcp = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] LanProfileView? Lan = null,
     // Absent while nothing was dropped, so that snapshot is exactly the one before this field existed.
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] NoticeDropView? DroppedNotices = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] NoticeDropView? DroppedNotices = null,
+    // Count-only notes about some of an adapter's sessions (lane broker-163), absent while there are none.
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyDictionary<string, string>? AdapterNotes = null);
 public sealed record ControlRequest(string Operation, Guid Id = default, PeerView? Peer = null,
     string? SessionId = null, bool Value = false);
 public sealed record LocalConnection(string McpEndpoint, string? BearerToken);

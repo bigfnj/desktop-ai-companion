@@ -192,6 +192,15 @@ public sealed partial class AgentBrokerModule
             module.ApplyStatus(new(true, true, "running", view with { Sessions = [native, Codex(null)] }));
             check(!pane.Load()["codexClient"].Contains("Engine binding", StringComparison.Ordinal),
                 "ENGINE_BINDING_LINE_ABSENT: with no observation reported there is no engine line");
+            // Review finding 5: an elevated Claude Code session is a note beside the healthy sessions' line, not an adapter error.
+            const string elevated = "1 Claude Code session is elevated or another user's and cannot be woken; use register_agent or run it unelevated.";
+            module.ApplyStatus(new(true, true, "running", view with { AdapterNotes = new Dictionary<string, string> { ["claude-native"] = "claude_session_elevated: " + elevated } }));
+            string noted = pane.Load()["claudeClient"];
+            check(noted.Contains("Native wake off: 1 open Claude session", StringComparison.Ordinal) && noted.Contains("\n\u26A0 " + elevated, StringComparison.Ordinal) &&
+                !noted.Contains("\u2717 Native", StringComparison.Ordinal) && !pane.Load()["codexClient"].Contains("elevated", StringComparison.Ordinal) &&
+                pane.Load()["nativeStatus"].Contains("Notes: claude-native: claude_session_elevated", StringComparison.Ordinal),
+                "ELEVATED_NOTE_LINE: the elevated count is its own line beside the healthy Claude line, whole, and a note in Native adapters");
+            module.ApplyStatus(new(true, true, "running", view));
 
             // A settings change restarts the worker; a check made against the old settings no longer applies.
             pane.Save(new Dictionary<string, string> { ["loopbackPort"] = "7440" });

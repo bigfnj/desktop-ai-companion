@@ -1,4 +1,5 @@
 using Microsoft.Win32.SafeHandles;
+using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Security.Principal;
 using System.Text;
@@ -13,23 +14,39 @@ internal static class WindowsClientProcesses
 {
     internal static IReadOnlyList<CodeOwnedEngine> ReadCodeOwnedEngines() => SelectCodeOwnedEngines(ReadSnapshot(), ReadMetadata);
 
-    // The engines a thread's writer-lock holder may be (CodexEngineBinding, report only): Code-owned engines exactly as the
-    // profile check selects them, and the desktop app's, a codex.exe whose parent is the Codex package's ChatGPT.exe (the
-    // image the desktop path identifies by its WindowsApps package name). Both need the same user and a parent created no
-    // later than the engine (a later one is a reused parent ID).
-    internal static IReadOnlyList<CodexEngine> ReadCodexEngines() => SelectCodexEngines(ReadSnapshot(), ReadMetadata);
+    // The engines a thread's writer-lock holder may be (CodexEngineBinding, report only): codex.exe processes under a running
+    // Code.exe (the engines the profile check reads) and the desktop app's, a codex.exe whose parent is the Codex package's
+    // ChatGPT.exe (the image the desktop path identifies by its WindowsApps package name). Both need the same user and a
+    // parent created no later than the engine (a later one is a reused parent ID). Unlike the profile check, which must
+    // refuse on any unreadable engine, a process that cannot be read is set aside on its own (Unreadable): it can only make
+    // a lock it holds unverifiable, never every lock (review of 25a0c65, finding 4).
+    internal static CodexEngineSet ReadCodexEngines() => SelectCodexEngines(ReadSnapshot(), ReadMetadata);
 
-    internal static IReadOnlyList<CodexEngine> SelectCodexEngines(IReadOnlyDictionary<uint, (uint Parent, string Name)> processes,
+    internal static CodexEngineSet SelectCodexEngines(IReadOnlyDictionary<uint, (uint Parent, string Name)> processes,
         Func<uint, (string Image, ulong Created, bool SameUser)> readMetadata)
     {
-        static bool Owned(CodeOwnedEngine engine, string parent) => engine.SameUser && engine.ParentCreationFileTime <= engine.CreationFileTime &&
-            string.Equals(Path.GetFileName(engine.ParentImage), parent, StringComparison.OrdinalIgnoreCase);
-        var code = SelectOwnedEngines(processes, readMetadata, "Code.exe").Where(engine => Owned(engine, "Code.exe"))
-            .Select(engine => new CodexEngine(engine.Pid, engine.CreationFileTime, CodexEngineHost.Code));
-        var desktop = SelectOwnedEngines(processes, readMetadata, "ChatGPT.exe")
-            .Where(engine => Owned(engine, "ChatGPT.exe") && DesktopCompatibilityProfile.InstalledApplicationVersion(engine.ParentImage) is not null)
-            .Select(engine => new CodexEngine(engine.Pid, engine.CreationFileTime, CodexEngineHost.Desktop));
-        return code.Concat(desktop).ToArray();
+        var engines = new List<CodexEngine>();
+        var unreadable = new HashSet<uint>();
+        foreach (var process in processes.Where(p => string.Equals(p.Value.Name, "codex.exe", StringComparison.OrdinalIgnoreCase)))
+        {
+            if (!processes.TryGetValue(process.Value.Parent, out var parent)) continue;
+            CodexEngineHost host;
+            if (string.Equals(parent.Name, "Code.exe", StringComparison.OrdinalIgnoreCase)) host = CodexEngineHost.Code;
+            else if (string.Equals(parent.Name, "ChatGPT.exe", StringComparison.OrdinalIgnoreCase)) host = CodexEngineHost.Desktop;
+            else continue;
+            (string Image, ulong Created, bool SameUser) child, owner;
+            try { child = readMetadata(process.Key); owner = readMetadata(process.Value.Parent); }
+            catch (Exception error) when (error is DesktopAdapterException or Win32Exception or UnauthorizedAccessException or
+                InvalidOperationException or ArgumentException)
+            { unreadable.Add(process.Key); continue; }
+            string expectedParent = host == CodexEngineHost.Code ? "Code.exe" : "ChatGPT.exe";
+            if (!child.SameUser || !owner.SameUser || owner.Created > child.Created ||
+                !string.Equals(Path.GetFileName(owner.Image), expectedParent, StringComparison.OrdinalIgnoreCase) ||
+                host == CodexEngineHost.Desktop && DesktopCompatibilityProfile.InstalledApplicationVersion(owner.Image) is null) continue;
+            engines.Add(new(process.Key, child.Created, host));
+            if (engines.Count + unreadable.Count > 512) break;
+        }
+        return new(engines, unreadable);
     }
 
     private static Dictionary<uint, (uint Parent, string Name)> ReadSnapshot()

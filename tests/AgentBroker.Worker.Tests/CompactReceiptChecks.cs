@@ -166,6 +166,22 @@ internal static class CompactReceiptChecks
         var after = (await fixture.Tools.ListSessions(default)).Single(session => session.Address == row.Address);
         check(third && submitted is { Status: MessageStatus.Submitted, BusySince: null } && after.Activity == SessionActivity.Unknown,
             "BUSY_ROW_ENDS: an admitted attempt ends the busy run: no busySince, and the row is Unknown again");
+        adapter.Answer = new(AdapterAdmission.DeferredNotSubmitted, "native_context_busy");
+        // Review of 25a0c65, finding 2: a paired broker that sent a message to the busy row reads its receipt without
+        // busySince, a local read of the same receipt keeps it.
+        var peer = new PeerTrust(Guid.NewGuid(), "Synthetic busy peer", "https://192.0.2.31/", new string('D', 64), fixture.Clock.GetUtcNow());
+        fixture.Store.AuthorizePeer(peer);
+        var sent = fixture.Clock.GetUtcNow();
+        var fromPeer = new BrokerMessage(Guid.NewGuid(), Guid.NewGuid(), null, new(peer.BrokerId, "remote", Guid.NewGuid()), row.Address,
+            "Synthetic busy message from a paired broker.", sent, sent.AddHours(2));
+        fixture.Store.Accept(fromPeer, peer.BrokerId);
+        for (int i = 0; i < 300 && fixture.Store.FindReceipt(fromPeer.Id)?.Reason != "native_context_busy"; i++) await Task.Delay(50);
+        var localRead = fixture.Tools.GetMessageReceipt(fromPeer.Id);
+        fixture.Context.Items["agentbroker.identity"] = peer.BrokerId;
+        var peerRead = fixture.Tools.GetMessageReceipt(fromPeer.Id);
+        fixture.Context.Items["agentbroker.identity"] = fixture.Store.BrokerId;
+        check(localRead?.BusySince is not null && peerRead is { Reason: "native_context_busy", BusySince: null },
+            "BUSY_SINCE_NOT_FEDERATED: a paired broker's caller reads the busy receipt without busySince; a local read keeps it");
         stop.Cancel();
     }
 

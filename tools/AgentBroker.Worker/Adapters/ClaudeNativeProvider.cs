@@ -47,10 +47,12 @@ public sealed class ClaudeNativeProvider : IClaudeNativeProvider
         // Counted, never named (no process ID, session ID or path): such a session used to be skipped in silence, so its
         // owner saw no row and no reason (N-broker-elevated-caller-01).
         if (unopenableThisPass > 0)
+            // A note, not an adapter failure (review of 25a0c65, finding 5): the other sessions are healthy, so the pane keeps
+            // their wake line and shows this beside it. Short enough for a 120-character tray label with its marker.
             diagnostics.Add(new("claude_session_elevated", unopenableThisPass + " Claude Code session" + (unopenableThisPass == 1
-                ? " runs elevated or as another user, so the broker cannot verify or wake it"
-                : "s run elevated or as another user, so the broker cannot verify or wake them") +
-                "; use register_agent for a mailbox, or run the agent unelevated."));
+                ? " is elevated or another user's and cannot be woken; use register_agent or run it unelevated."
+                : "s are elevated or another user's and cannot be woken; use register_agent or run them unelevated."))
+            { Note = true });
         foreach (var key in profiles.Keys.Where(key => !live.Contains(key.Pid)).ToArray()) profiles.Remove(key);
         // Publish only a completed pass. A stale process cannot hide a supported one, and a later
         // healthy pass replaces the entire snapshot rather than retaining historical refusals.

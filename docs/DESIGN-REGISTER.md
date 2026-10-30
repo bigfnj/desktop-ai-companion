@@ -6780,8 +6780,8 @@ N-broker-busy-visibility-01 and N-broker-compact-receipts-01.
 **The Codex engine binding is REPORTED, not enforced (owner's decision 2026-10-30).** The 2026-10-29 read-only audit found
 one identity that ties a Codex thread to a process: the engine's writer lock, `%USERPROFILE%\.codex\thread-writer-locks\<threadId>.lock`.
 The adapter now asks Restart Manager who has that file open (`RmStartSession`, `RmRegisterResources`, `RmGetList`,
-`RmEndSession`; read-only, the lock is never opened by this code and a stale lock is never deleted), at every discovery
-pass and just before a delivery's input is written, and classifies the answer with a pure function
+`RmEndSession`; read-only, the lock is never opened by this code and a stale lock is never deleted), in the background
+after each discovery pass, and classifies the answer with a pure function
 (`CodexEngineBinding.Classify`): bound (`code_engine`, a codex.exe under a running Code.exe; `desktop_engine`, one under the
 Codex package's ChatGPT.exe) only for exactly one holder whose PID AND start time are such an engine's; otherwise unbound
 with `lock_missing`, `lock_path_reparse` (a reparse point anywhere on the path, reported and never followed), `query_failed`,
@@ -6802,6 +6802,17 @@ Code-owned engine for 11 and the desktop engine for 2, each matched by PID and s
 repository. An engine holds the lock of every thread it has loaded, not only the one on screen, so bound means "this
 engine owns the thread", which is what the binding is for.
 
+**The engine observation runs off the discovery pass and off the delivery path (review of 25a0c65).** A query costs about
+0.1 s per held lock (the reviewer measured 88-123 ms, 14 locks in 1.31 s), so at the 256-row bound an inline observation
+held the adapter's gate for about 25 s, past the 10-second pass deadline, and a query at each attempt sat between the owner
+re-check and the write. It now runs in the background (an Interlocked single-flight gate and Task.Run, the house shape),
+within a 10-second budget; a row not reached keeps its previous observation and its `observedAt`, and the oldest are taken
+first. A delivery's receipt carries the row's latest observation and the attempt queries nothing. Refused: observing after
+the write returns (it would hold the gate a further 0.1 s per attempt). A codex.exe the broker cannot read affects only a
+lock it holds (`query_failed`), never every lock, the shape A-broker-03 removed from the profile check. The lock path is
+checked from the root down, so a missing lock under a junctioned Codex home reads `lock_path_reparse`. A paired broker's
+caller gets neither the engine binding nor `busySince` on a receipt, as on a row.
+
 **The view hop stays a vendor limit.** Which webview of a window answered an owner lookup cannot be verified: the
 `codex-ipc` router registers each client with a random UUID and no PID, forwards responses matched by `requestId` alone,
 and sends untargeted discovery to every client, so `handledByClientId` is the responder's own claim. Closing it needs the
@@ -6809,11 +6820,16 @@ vendor: the router would stamp each pipe client's verified PID (`GetNamedPipeCli
 forwards and reject a response not from the target's socket, or an owner-discovery answer would name the engine PID and lock
 path, or each view would carry a credential. The engine binding above is as far as the broker can see on its own.
 
-**An elevated caller gets `caller_elevated`, and Medium is not bridged to High (N-broker-elevated-caller-01).** From the
-Medium-integrity broker, `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)` on an elevated process fails with
-`ERROR_ACCESS_DENIED`, so `whoami` walked nothing and answered `caller_unresolved`. It now answers `caller_elevated` when the
-connection's owner was found and exactly that refusal came back (`WindowsCallerProcessResolver.Compose`), and Claude
-discovery counts such sessions in Status (`claude_session_elevated`) instead of skipping them in silence. Refused: bridging
+**An elevated caller gets `caller_elevated`, and Medium is not bridged to High (N-broker-elevated-caller-01).** Two shapes,
+both measured on this workstation. For some elevated launches `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)` from the
+Medium-integrity broker fails with `ERROR_ACCESS_DENIED`, so `whoami` walked nothing and answered `caller_unresolved`; it
+now answers `caller_elevated` when the owner was found and exactly that refusal came back (`WindowsCallerProcessResolver.Compose`).
+For a same-user UAC elevation the review measured the limited query succeeding and the full one (`0x0410`) refused, so the
+walk succeeds, no adapter binds the elevated process, and the first fix still answered `no_native_session`; the nearest
+claude or codex process of an unbound chain is now asked whether a full query (`PROCESS_QUERY_INFORMATION`) is refused, its
+start time re-read first so a reused ID is never called elevated (`QueryDenied`). Claude discovery counts such sessions
+(`claude_session_elevated`) as a note beside the healthy sessions' line, not an adapter error, instead of skipping them in
+silence. Refused: bridging
 the integrity boundary (a broker helper at High, or any way to verify, wake or inject into an elevated agent), because it
 would let any Medium process drive an elevated one.
 
