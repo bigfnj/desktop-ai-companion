@@ -15943,6 +15943,14 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--module-host-selftest", "dp-module-host-selftest.txt",
      "final-host: store: CredentialChanged reaches only a module allowed the sign-in"),
+    # BACKLOG N-audit-host-01: the Modules row's unreadable line names the record's file and the ways out.
+    ("final-host: modules row: the unreadable grants line names no file and no way out (N-audit-host-01)",
+     os.path.join(REPO, "src", "Portable", "Wpf", "ModulesPaneControl.cs"),
+     b'                       "(another program may hold it, or it is damaged), so it can\'t be changed here." + SignInRecordWayOut();\n',
+     b'                       "(another program may hold it, or it is damaged), so it can\'t be changed here.";\n',
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "final-host: modules row: an unreadable grants record names its file and the ways out"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

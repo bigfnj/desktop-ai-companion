@@ -2244,6 +2244,12 @@ namespace DesktopAICompanion.Plugins
                     (rowWhileHeld.HasValue ? rowWhileHeld.ToString() : "no answer") + ", " + (rowWhileDamaged.HasValue ? rowWhileDamaged.ToString() : "no answer") +
                     ", " + (heldCaption ?? "no button") + ")",
                     !rowWhileHeld.HasValue && !rowWhileDamaged.HasValue && heldCaption == null && heldLine.Contains("can't be read just now"));
+                // BACKLOG N-audit-host-01: nothing in the app clears such a record, so the line names its real file and the two
+                // ways out, and says the saved token is not part of it.
+                string recordFile = Path.Combine(HostCredentialStore.DefaultDirectory, HostCredentialStore.GrantsFileName);
+                ok &= Check(sb, "final-host: modules row: an unreadable grants record names its file and the ways out: " + heldLine,
+                    heldLine.Contains("delete " + recordFile + " (") && heldLine.Contains("Allow and Don't ask again go with it") &&
+                    heldLine.Contains("the saved token stays") && heldLine.Contains("\"Clear all settings and modules\""));
 
                 // P3-5: the start question for a long name still fits, and names the module's id beside it.
                 string longName = new string('N', 120);
