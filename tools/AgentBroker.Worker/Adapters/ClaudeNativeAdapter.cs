@@ -124,10 +124,24 @@ public sealed class ClaudeNativeAdapter : ILocalAgentAdapter
                 };
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or OperationCanceledException)
-            { return new(AdapterAdmission.Uncertain, "native_submission_uncertain"); }
+            { return new(AdapterAdmission.Uncertain, RaisedReason(ex)); }
         }
         finally { gate.Release(); }
     }
+
+    // An exception out of the native submission, recorded with its cause (N-broker-161-03), as 1.6.1 does for Codex
+    // (CodexNativeAdapter.RaisedReason, A-broker-08): each one carried the generic native_submission_uncertain, which
+    // N-agentbroker-uncertain-parked-01 cannot diagnose. The outcome stays Uncertain. The library answers its own transport
+    // failures with a result and lets a cancellation out only before the user frame (NativePeerAdapter.SendAsync), but
+    // IClaudeNativeProvider.SubmitAsync promises neither, so deferring would rest on library internals. The library raises
+    // no coded exception, so there is no _<code> form; access is Claude's own case.
+    private static string RaisedReason(Exception error) => error switch
+    {
+        IOException => "native_uncertain_raised_io",
+        UnauthorizedAccessException => "native_uncertain_raised_access",
+        OperationCanceledException => "native_uncertain_raised_cancelled",
+        _ => "native_submission_uncertain",
+    };
 
     private static bool Valid(ClaudeNativeCandidate candidate) => candidate.Target.ProcessId > 1 && candidate.Target.StartFileTime > 0 &&
         Guid.TryParseExact(candidate.Target.SessionId, "D", out Guid id) && id != Guid.Empty && id.ToString("D") == candidate.Target.SessionId &&
