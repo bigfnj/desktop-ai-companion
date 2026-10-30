@@ -716,6 +716,15 @@ class Runner:
         return entry
 
     def build(self, family: str, label: str) -> None:
+        # Restore first, as build.ps1 does before its clean (N-audit-20261029-17). obj/project.assets.json names the
+        # package folder of the restore that wrote it, and a passing isolated gate restores these projects into its
+        # private dotnet home and then releases that home, so the --no-restore build read a folder that no longer
+        # existed and failed with NETSDK1064 before any witness ran (measured 2026-10-29 on the worker project). A
+        # restore under this run's environment rewrites the assets for its own folder and is a no-op once they do.
+        # It stays a separate step: inside the build, -warnaserror would turn a NuGet warning into a failed build.
+        restored = self.invoke(label + "-restore", ["dotnet", "restore", PROJECTS[family], "--disable-build-servers"], 600)
+        if restored["exitCode"] != 0:
+            raise RuntimeError("Restore before a healthy/mutant build failed; this is not a killed reporting mutation: " + label)
         result = self.invoke(label, ["dotnet", "build", PROJECTS[family], "-c", "Release", "--no-restore",
                                     "--disable-build-servers", "-warnaserror", "-p:UseSharedCompilation=false"], 600)
         if result["exitCode"] != 0:
