@@ -448,3 +448,39 @@ What clears it: in a Codex chat on this workstation (VS Code or desktop), ask it
 The entry as it stood:
 
 **N-agentbroker-helper-native-sender-01** **Owner decision 2026-10-29: build it.** The helper may send as the agent's own native address (`codex:<CODEX_THREAD_ID>`), reviewed by Codex before it ships. [usability] `tools/agentbroker/Invoke-AgentBrokerCollaborationMcp.ps1` sends only between generic `mcp:` mailboxes (`Confirm-GenericMcpAddress`), on purpose: it "is not a Claude/Codex client identity". An agent whose own MCP client cannot connect (Codex under this organisation's MCP allowlist) reaches the broker only through it, so it can never send as its native row and its peers' replies land in a mailbox it must poll. With `whoami`, the helper could admit a native sender exactly when the broker confirms the calling process is inside that session. That changes a deliberate restriction, so it needs a reviewer before it is built.
+
+---
+
+## N-settings-accessibility-01 (moved from BACKLOG.md 2026-10-29)
+
+**Blocker: the owner at a connected desktop: implemented in lane host-fixes-180 (merged on integration/evening-1029, host 1.8.0), and its proof is a UI Automation look at the real Settings window, which a disconnected session cannot render**
+
+What clears it: with host 1.8.0 installed and the session connected, open Settings and confirm with an inspector (or the no-focus UIA recipe) that every Expander toggle and list-card toggle has a name; then the steps under N-cli-token-02 release it.
+
+The entry as it stood:
+
+**N-settings-accessibility-01** [host/accessibility] The Settings window's own controls are named for UI Automation since lane host-options (`src/Portable/Wpf/OptionsWindow.cs`). The real-app walk of 2026-10-27 opened Settings by a posted click and found 10 named navigation entries and 45 controls, none unnamed; a window opened through UIA Invoke reads as an empty tree, which is what the original report saw. Left: the 3 unnamed Buttons in the real Remembrance pane are the expand/collapse toggles of its collapsible cards (identified 2026-10-29 in the installed 2.9.0: "Set up and check Whisper", "Set up and check Ollama" and "Try it on a file", each a Button with only a Toggle pattern and an empty name). The Expander itself is named (`src/Portable/Wpf/OptionsWindow.cs:1768-1771`, `LabelForAutomation`), but the ToggleButton inside its template is a separate UIA element that carries no name, so every collapsible card in every pane has one. Name the toggle after its card, and have the in-process UIA check walk a collapsible card, which it does not today. The paired-broker Info row still needs visual acceptance.
+
+---
+
+## N-cli-token-02 (moved from BACKLOG.md 2026-10-29)
+
+**Blocker: the owner at a connected desktop. Built on integration/evening-1029 (host 1.8.0 with AI Brain 1.7.0 and Remembrance 2.10.0; last gate 99c0a78 PASS but the render-blank WPF lines and the unpublished-module freshness line), installed on this workstation on 2026-10-29 at 20:55 (MSI over 1.7.1, then both modules staged through module-staging; both load), but the grant is a person's press by design: the start question for both modules was asked and held (reason=locked, the session disconnected). Until Allow is pressed, AI Brain's and Remembrance's Claude Code calls stop (an old token waits), so Remembrance summaries (summaryRunsOn=claude) do not run. Both old tokens are untouched and backed up at D:\.ai-work\worktrees\_temp\reinstall\tokens-20261029 (sha256 2E9060D2..., 4589E3A4...)**
+
+What clears it: (1) Press Allow on the sign-in question for AI Brain and for Remembrance (it shows on unlock; if it timed out, Settings, Modules, each row, Allow sign-in). Check: <data folder>\credentials\claude-code-signin.json exists, both modules' cli\claude-token.dpapi are gone, both cards say the sign-in is shared, and a Validate answers. Delete the token backups once both cards answer. (2) Run the WPF self-test on the connected desktop (`--wpf-options-selftest`, every line PASS) and look at DISPLAY2: VisibleWhen hides AI Brain's About Haiku row unless Haiku is chosen; the Settings toggles are named for UI Automation (N-settings-accessibility-01); the speech bubble A/B (N-cli-model-effort-16). (3) Soaks: tests\runtime-resource-soak.ps1 (Result PASS, record SettledGrowth) and tests\module-window-soak.ps1 (RESULT=PASS). (4) Release: in D:\.ai-work\worktrees\dac-broker-contact, privacy scan origin/master..HEAD, `git push origin HEAD:master`, tag v1.8.0 and let release.yml publish, then `packaging\New-ModulePublish.ps1 -ModuleId <id> -Commit` for aibrain, remembrance, agentflow and fortunes, regenerate and commit the catalog, push, watch CI green, and check the public catalog and zip hashes against the installed ones.
+
+The entry as it stood:
+
+**N-cli-token-02** **Owner decision 2026-10-29: build the shared credential store** (a host ABI addition, so it ships in a host release). [low/ux] Each module keeps its own sign-in token, so a user who runs AI Brain and Remembrance both on Claude Code pastes it twice (`shared/CodingAgentCli/CodingAgentCli.cs`, `ClaudeTokenPath`). A module cannot read another's folder; a credential store the host holds would be the shared place, and that is an ABI addition. Found by lane feature/cli-token-and-locate. **Built 2026-10-29 (lane abi180, 9001b9b, merged 4b9f0c2):** IHostCredentials with a recorded grant per module, one locked transaction per change with a revision, and a store that never imports again after a save, an import or a remove; 31 store/runner/module and 8 hardening mutation cases FIRED. Open until Codex's review of 9001b9b, the five Modules-pane grant cases in tests/mutate-diagnostics.py (they need a rendering session), and the real-app migration of the owner's two saved tokens.
+
+---
+
+## N-cli-model-effort-16 (moved from BACKLOG.md 2026-10-29)
+
+**Blocker: the owner at a connected desktop: implemented in lane host-fixes-180 (FormSpeech sets TopMost only on a change, SWP_NOACTIVATE; merged on integration/evening-1029, host 1.8.0); its proof is watching a remark while a companion is stood down for a fullscreen app, on a rendered desktop**
+
+What clears it: with host 1.8.0 installed and the session connected, put a fullscreen app on one monitor, let a remark fire, and confirm the bubble neither appears over the fullscreen app nor takes focus; then the steps under N-cli-token-02 release it.
+
+The entry as it stood:
+
+**N-cli-model-effort-16** [medium/host] While a companion is stood down for a fullscreen app (`FormCompanion.IsStoodDownForFullscreen`), a remark leaves its hidden speech-bubble form (`FormSpeech`, `src/dotNet/FormSpeech.cs`) taking the foreground back within about 150 ms whenever another window of the app is activated, so the tray menu closes as soon as it opens and a Settings dropdown list closes as it opens. Seen on the third on-screen walk (2026-10-10) on the test copy, with a full-desktop window covering both monitor centres, so both monitors were blocked: the tray menu opened and closed in under 300 ms, so Options could not be reached from the tray, and `SetForegroundWindow` on the pet returned true and left the bubble in front (`temp/realapp-model-effort/evidence3/tray-probe-results.txt`). It did not happen before the first remark under the same stand-down, and with the stand-down lifted the menu and the lists worked. UNVERIFIED: it was not A/B'd against the shipped aibrain 1.4.0, so whether host 1.5.0 alone does this or this lane's module brings it out is not known, and nobody looked for it on an installed 1.5.0 app. What gives the bubble the foreground is not traced either. A first step: the same tray probe on a master build with aibrain 1.4.0 under the same stand-down, then a trace of what activates `FormSpeech` after a remark that the stand-down deferred. Found by lane feature/cli-model-effort.
