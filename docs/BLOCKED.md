@@ -412,3 +412,15 @@ What clears it: install the pinned builds, or re-pin to the installed ones (N-ag
 The entry as it stood:
 
 **N-agentbroker-refusal-transience-01** [delivery policy, observed 2026-10-28] Two messages from a live Claude session to a live Codex session were refused as final: `native_admission_refused` and `unsupported_capability`; the same session accepted other messages minutes later. 1.4.0 fixed one cause: a Codex owner missing at the pre-write rediscovery (`owner_unavailable` before any turn frame or receipt; discovery writes only a control frame, `DesktopAdapter.cs`) now defers as `native_owner_unavailable` and retries on the external-peer path (TRANSIENT_OWNER_DEFERS, TRANSIENT_OWNER_REASON). Left: the `no-client-found` answer to the start-turn request stays a final refusal because a frame was written, and update-tolerant `unsupported_capability` refuses on a momentary capability check (`CodexNativeAdapter.cs`, `Refusal`). Decide whether either can be proved unsubmitted; keep a definite refusal final when the recipient's own policy refused it.
+
+---
+
+## N-audit-20261029-06 (moved from BACKLOG.md 2026-10-29)
+
+**Blocker: a host ABI addition. A module's Load cannot tell a fresh pane build from a live InfoChanged refresh (both call Load: src/Portable/Wpf/OptionsWindow.cs around :1362 and :1573), and no pane-closed signal reaches a module (the host's InfoChanged subscribe and unsubscribe around :1471 and :1512 are not observable). Both mechanical fixes fail a reachable case: clearing on the next Load wipes the line on any coincidental refresh while the bad text is still in the box; expiring after a time shows a stale line on a quick reopen (lane audit-runner, 2026-10-29)**
+
+What clears it: add one of: a Load overload or flag that says whether this is a fresh build, or a pane-closed callback (IOptionsPane, MINOR host version), then clear Remembrance's _applyRefusal and AI Brain's _tokenApplyRefusal on a fresh build. The same lifetime applies to N-audit-20261029-05's and N-audit-runner-01's refusal segments, so all three close together.
+
+The entry as it stood:
+
+**N-audit-20261029-06** [low/ux, A-modules-04, verified by the coordinator] Remembrance's "✗ Not applied: <reason>" Status segment from a refused relative storage location (`modules/Remembrance/RemembranceModule.cs:2725-2733`, shown at :2813) stays for the rest of the session after the user abandons the edit (closes Settings or reverts the box); only a later Apply clears it. Clear `_applyRefusal` when the pane is loaded again with the stored value, or after any Apply.
