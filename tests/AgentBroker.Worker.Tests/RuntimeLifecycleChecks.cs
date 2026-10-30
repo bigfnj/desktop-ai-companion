@@ -92,6 +92,39 @@ internal static class RuntimeLifecycleChecks
         await CodexConnectionReuseAsync(check);
         await PeerAnswerInvalidAsync(check, scratch);
         SessionPreferenceLimit(check, scratch);
+        await SessionPreferenceWiringAsync(check, scratch);
+    }
+
+    // N-broker-161-04: SetSessionPreference hands SessionPreferences the runtime's own observed set, which decides whose
+    // choice may be evicted at the 1,024-entry bound. Only the eviction was tested (PREFERENCE_LIMIT_EVICTS_ENDED), so a
+    // predicate wired to the wrong set passed: every session observed (nothing evictable, every new choice refused) or none
+    // (a present session's choice evicted). The present session's choice is written first, so "none" evicts it.
+    private static async Task SessionPreferenceWiringAsync(Action<bool, string> check, string scratch)
+    {
+        string directory = Path.Combine(scratch, "preference-wiring");
+        Directory.CreateDirectory(directory);
+        string file = Path.Combine(directory, "session-preferences.json");
+        Guid keptClient = Guid.NewGuid(), targetClient = Guid.NewGuid();
+        string kept = "mcp:" + keptClient.ToString("D");
+        File.WriteAllText(file, "{\"" + kept + "\":{\"isPrivate\":true,\"isMuted\":false}," + string.Join(",", Enumerable.Range(0, 1023).Select(i =>
+            "\"claude:ended-wiring-" + i + "\":{\"isPrivate\":true,\"isMuted\":false}")) + "}");
+        using var store = new BrokerStore(Path.Combine(directory, "store"));
+        await using var federation = new SlowDirectoryFederation(Guid.Empty);
+        await using var runtime = new BrokerRuntime(store, federation, [], new SessionPreferences(directory));
+        var present = runtime.RegisterPollingAgent(keptClient, Guid.NewGuid(), "Synthetic present session", false);
+        var target = runtime.RegisterPollingAgent(targetClient, Guid.NewGuid(), "Synthetic chosen session", false);
+        string? refused = null;
+        try { runtime.SetSessionPreference(target.Address.SessionId, true, null); } catch (BrokerException error) { refused = error.Code; }
+        var reopened = new SessionPreferences(directory);
+        bool presentKept = reopened.Apply(present with { IsPrivate = false }).IsPrivate;
+        bool targetSet = reopened.Apply(target with { IsPrivate = false }).IsPrivate;
+        int ended;
+        using (var json = System.Text.Json.JsonDocument.Parse(File.ReadAllBytes(file)))
+            ended = json.RootElement.EnumerateObject().Count(entry => entry.Name.StartsWith("claude:ended-wiring-", StringComparison.Ordinal));
+        check(refused is null && targetSet && presentKept,
+            "PREFERENCE_RUNTIME_OBSERVED: through the runtime, a choice at the bound is kept and a present session's choice is never the one evicted (" +
+            (refused ?? "set") + ", present kept " + presentKept + ")");
+        check(ended == 1022, "PREFERENCE_RUNTIME_OBSERVED WITNESS: the entry evicted was an ended session's (" + ended + " of 1023 remain)");
     }
 
     // N-broker-161-02: an exception outside GuardAsync's list ended a delivery or receipt loop in silence. The receipt loop
