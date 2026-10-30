@@ -10070,11 +10070,12 @@ CASES = (
     ("cli-model-effort: round 2: asking for the kept details starts a read",
      CLI_RUNNER,
      # Re-pointed by lane feature/host-abi-180: the shared sign-in's revision check now sits between the two lines.
+     # And by lane fix/audit-runner-1029: SyncSharedSignInFor (N-audit-20261029-03).
      b"            if (agent == CodingAgentKind.None) return null;\n"
-     b"            SyncSharedSignIn();\n"
+     b"            SyncSharedSignInFor(agent);\n"
      b"            CliDetails kept;\n",
      b"            if (agent == CodingAgentKind.None) return null;\n"
-     b"            SyncSharedSignIn();\n"
+     b"            SyncSharedSignInFor(agent);\n"
      b"            BeginDetailsRefresh(agent);\n"
      b"            CliDetails kept;\n",
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
@@ -13511,8 +13512,9 @@ CASES = (
      "and is not said again at the next purge while it stays gone"),
     ('remembrance-backlog: earlier roots: a missing folder drops out of the purge',
      os.path.join(REPO, "modules", "Remembrance", "RemembranceModule.Storage.cs"),
-     b'            return ParseRoots(_settings.Get(EarlierRootsKey, "")).Where(r => !SameFolder(r, current)).ToList();\n',
-     b'            return ParseRoots(_settings.Get(EarlierRootsKey, "")).Where(r => !SameFolder(r, current) && FolderExists(r)).ToList();\n',
+     # Re-pointed by lane fix/audit-runner-1029: EarlierRoots drops a relative entry first (N-audit-20261029-07).
+     b'            return roots.Where(r => !SameFolder(r, current)).ToList();\n',
+     b'            return roots.Where(r => !SameFolder(r, current) && FolderExists(r)).ToList();\n',
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "a remembered folder that is gone is said once, and stays on the list"),
@@ -14921,11 +14923,12 @@ CASES = (
      FORTUNE_IMPORTER,
      b'            catch (Exception ex)\n'
      b'            {\n'
+     # Re-pointed by lane fix/audit-runner-1029: RestoreTornReplace returns void (N-audit-20261029-08).
      b'                if (report != null) report.RollbackNotUndone(ex);\n'
-     b'                return false;\n',
+     b'                return;\n',
      b'            catch (Exception)\n'
      b'            {\n'
-     b'                return false;\n',
+     b'                return;\n',
      FORTUNES_CSPROJ, FORTUNES_DLL,
      "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
      "a torn replace whose backup cannot be moved back is counted as a pack not undone"),
@@ -15153,7 +15156,8 @@ CASES = (
      "cli runner: shared sign-in: the save's own event, landing while Validate reads the card, does not drop that Validate's Status line"),
     ("abi180: runner: a cached Validate line is served without checking the store's revision",
      CLI_RUNNER,
-     b"        internal string LastValidation(CodingAgentKind agent)\n        {\n            SyncSharedSignIn();\n",
+     # Re-pointed by lane fix/audit-runner-1029: the getters sync through SyncSharedSignInFor (N-audit-20261029-03).
+     b"        internal string LastValidation(CodingAgentKind agent)\n        {\n            SyncSharedSignInFor(agent);\n",
      b"        internal string LastValidation(CodingAgentKind agent)\n        {\n",
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
@@ -15609,8 +15613,9 @@ CASES = (
      "cli runner: shared sign-in: not allowed, Remove token deletes this module's waiting copy"),
     ("abi180: review: runner: Remove token on a leftover closes a store never used",
      CLI_RUNNER,
-     b'                if (reading != null && reading.State == HostCredentialState.None && reading.Revision == 0)\n',
-     b'                if (reading != null && reading.State == HostCredentialState.None && reading.Revision == 0 && reading.Value != null)\n',
+     # Re-pointed by lane fix/audit-runner-1029: the guard now reads the store for every Remove (N-audit-20261029-01).
+     b'            if (reading != null && reading.State == HostCredentialState.None && reading.Revision == 0)\n',
+     b'            if (reading != null && reading.State == HostCredentialState.None && reading.Revision == 0 && reading.Value != null)\n',
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "cli runner: shared sign-in: Remove token on its own unreadable old copy deletes that copy and leaves a store never used open"),
@@ -15847,6 +15852,73 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--module-host-selftest", "dp-module-host-selftest.txt",
      "audit-host: rollback: WITNESS a healthy Init's CredentialChanged subscription is counted"),
+    # ---- lane fix/audit-runner-1029 ----
+    # The 2026-10-29 audit's shared-runner and module findings (N-audit-20261029-01..07, -10). The runner's are graded by AI
+    # Brain's self-test, which runs SharedSignInSelfCheck. Named "audit-runner: ..." so --only=audit-runner: runs the lane.
+    ("audit-runner: runner: Remove token with no copy of its own closes a store never used (N-audit-20261029-01)",
+     CLI_RUNNER,
+     b"                Log(\"cli: claude sign-in token not in the shared store, nothing to remove; the store was never used and is left open\");\n"
+     b"                return CodingAgentCliText.SharedNothingToRemoveSentence;\n",
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "cli runner: shared sign-in: Remove token with no copy of its own on a store never used says nothing to remove and leaves the store untouched"),
+    ("audit-runner: runner: a pane's read moves the old copy on the pane's own thread (N-audit-20261029-02)",
+     CLI_RUNNER,
+     b"            if (migrate) MigrateLocalClaudeToken();\n            else BeginMigration();\n",
+     b"            MigrateLocalClaudeToken();\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "cli runner: shared sign-in: a pane's read shows a waiting old copy as saved and moves it on a pool thread, never the reader's"),
+    ("audit-runner: runner: every cached getter reads the store again (N-audit-20261029-03)",
+     CLI_RUNNER,
+     b"            if (last != 0 && Environment.TickCount64 - last < (long)SharedReadReuse.TotalMilliseconds) return;\n",
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "cli runner: shared sign-in: a pane Load's cached getters read the store once between them, and Codex's getters not at all"),
+    ("audit-runner: runner: Codex's getters read the Claude Code store (N-audit-20261029-03)",
+     CLI_RUNNER,
+     b"            if (agent != CodingAgentKind.Claude || _sharedSignIn == null) return;\n",
+     b"            if (_sharedSignIn == null) return;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "cli runner: shared sign-in: a pane Load's cached getters read the store once between them, and Codex's getters not at all"),
+    ("audit-runner: runner: a module refused the store adopts another module's revision (N-audit-20261029-04)",
+     CLI_RUNNER,
+     b"            if (refused && _sharedSignIn != null)\n",
+     b"            if (false && refused && _sharedSignIn != null)\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "cli runner: shared sign-in: a module not allowed the store drops nothing and asks for no refresh when another module changes it"),
+    ("audit-runner: runner: its own commit's inline event drops the readings and asks for a refresh (N-audit-20261029-10)",
+     CLI_RUNNER,
+     b"            if (ReferenceEquals(t_committing, this)) return false;\n",
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "cli runner: shared sign-in: this runner's own save and remove, announced inside the commit, ask for no refresh and drop the readings once each"),
+    ("audit-runner: AI Brain: a refused token's reason is in the log only (N-audit-20261029-05)",
+     AIBRAIN_MODULE,
+     b"                    _tokenApplyRefusal = tokenError;\n",
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "aibrain shared sign-in: an Apply refused over the sign-in token says why on the Status row, never the token"),
+    ("audit-runner: Remembrance: a refused token's reason is in the log only (N-audit-20261029-05)",
+     REMEMBRANCE_MODULE,
+     b"                            _applyRefusal = tokenError;\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "remembrance shared sign-in: an Apply refused over the sign-in token says why on the Status line, never the token"),
+    ("audit-runner: Remembrance: a relative earlier root stays on the list and is resolved at every purge (N-audit-20261029-07)",
+     os.path.join(REPO, "modules", "Remembrance", "RemembranceModule.Storage.cs"),
+     b"            int relative = roots.RemoveAll(r => !CaptureStore.IsFullFolder(r));\n",
+     b"            int relative = 0;\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "earlier roots: a remembered location that is not a full path is never purged and leaves the list"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

@@ -76,6 +76,17 @@ namespace DesktopAICompanion.AiBrainModule
                 ok &= Check(sb, "aibrain shared sign-in: Apply saves a typed token into the shared store, and the card then says one is saved",
                     applied && host.Store.Value == SharedSelfTestToken && host.Store.Saves == 1 && pane.Load()["cliToken"] == "set");
 
+                // BACKLOG N-audit-20261029-05: an Apply refused over the token says why on the CLI card's Status row, which
+                // said it only in the log, and never the token; the next Apply clears it.
+                bool refusedApply = pane != null && !pane.Save(new Dictionary<string, string>(StringComparer.Ordinal) { { "cliToken", "sk-ant-api03-SELFTEST-aibrain-refused-0123" } });
+                string refusedStatus = pane == null ? "" : pane.Load()["cliStatus"];
+                ok &= Check(sb, "aibrain shared sign-in: an Apply refused over the sign-in token says why on the Status row, never the token: " + refusedStatus,
+                    refusedApply && refusedStatus.StartsWith("✗ Not applied: That is an Anthropic API key", StringComparison.Ordinal) &&
+                    refusedStatus.IndexOf("SELFTEST", StringComparison.Ordinal) < 0 && host.Store.Value == SharedSelfTestToken);
+                bool reapplied = pane != null && pane.Save(new Dictionary<string, string>(StringComparer.Ordinal) { { "cliToken", SharedSelfTestToken } });
+                ok &= Check(sb, "aibrain shared sign-in: WITNESS the next Apply takes the refusal off the Status row",
+                    reapplied && !pane.Load()["cliStatus"].StartsWith("✗ Not applied", StringComparison.Ordinal));
+
                 int notified = 0;
                 Action counter = delegate { Interlocked.Increment(ref notified); };
                 pane.InfoChanged += counter;
