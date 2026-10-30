@@ -6733,9 +6733,34 @@ reconnect (it needs an estimate of the reconnect, which is exactly what varies u
 the adapter's lock between passes (a delivery waiting on the lock would wait for the router verification, the cause of
 the flicker P2-1 removed). The background connect can now overlap a pass's engine check and directory-observer connect:
 the library's shared state there is the pin document (a `Lazy`) and the discovery reuse (locked), and the router already
-serves the observer and owner connections side by side. Not done: the same for a connection retired after a failed
-submission (A-broker-07), which the next pass still reconnects inline. A reconnect longer than a pass and a pause together
-still costs the next pass.
+serves the observer and owner connections side by side. The same lane's second round (below) extends this to a connection
+retired after a failed submission and fixes the ordering a reconnect longer than a pass and a pause still upset.
+
+**A connection retired after a failed submission is replaced between passes too (N-broker-162-02).**
+`RetireOwnerConnectionAsync` (the A-broker-07 path, for a submission that answered Uncertain or threw, and the
+`receipt_capacity` deferral) now calls `BeginReconnect` after closing the connection, so the next discovery pass adopts the
+replacement instead of connecting inside itself. `CODEX_SUBMIT_FAILURE_RECONNECTS_IN_PAUSE` counts the connects made while a
+pass is running: with a 700 ms reconnect, 600 ms passes and a 600 ms pause, the replacement is made in the pause (0 inside
+the pass) and the next pass renews both rows. Unchanged: the retired connection is closed first and never reused (the
+check's witness), delivery defers while the state reads pending (a replacement reaches delivery only through a discovery
+lookup, which adopts it), and disposal cancels a reconnect still running without waiting for it. The adapter harness's
+check that other native failures are not silently reconnected asserted a connect count, which the background start makes
+race; it now asserts what the design promises, that nothing is adopted inside the failed call (`VerificationPending`).
+
+**The slow ordering no longer blames a reconnect on the conversation that waited for it (N-broker-162-01).** Reproduced
+first (`CODEX_SLOW_ORDER_RECONNECT`, the fixture above with a 1,000 ms reconnect, 400 ms passes and 400 ms pauses, so the
+reconnect outlasts a pass and a pause together): the two healthy rows were renewed on 1 of 8 passes each; with the change,
+on 3 of 8 (every other pass from the fourth, the most a reconnect that long allows, since each timed-out lookup discards
+the connection). Deterministic counts for the fake; no production timing is claimed. Two causes, both needed: the
+conversation that adopted the late reconnect ran out of pass before its own request and was marked slow, and the
+conversation whose lookup really times out, not reached that pass, lost its mark (`slowLookups` was replaced by the pass's
+own set), so it went first on the next pass and ended it, and so on with no pass renewing anything. Now a conversation not
+reached keeps its mark, and `ResolveOwnerAsync` raises `CodexReconnectOutlastedPassException` (an
+`OperationCanceledException`) when the pass ran out while it waited for the connection, which the adapter treats as not
+reached. A conversation that resolves loses its mark as before. Consequence, accepted: a conversation charged with the very
+first connect is no longer marked slow by chance, so in `CODEX_RECONNECT_BETWEEN_PASSES` the timing-out conversation first
+shows as slow on the second pass, one pass later than before; that check now requires at least four of six renewals and
+leaves the ordering to the new check.
 
 **A raised exception out of a Claude submission names its cause (N-broker-161-03).** `ClaudeNativeAdapter.SubmitAsync`
 recorded `native_submission_uncertain` for each of the three exceptions it catches; it now records
