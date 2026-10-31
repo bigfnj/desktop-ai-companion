@@ -7248,7 +7248,11 @@ CASES = (
      b"                    [\"storageLocation\"] = string.IsNullOrWhiteSpace(_settings.Get(\"storageLocation\", \"\")) ? CaptureStore.DefaultRoot() : _settings.Get(\"storageLocation\", \"\"),\n",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
-     "an untouched Apply over an existing settings file stores exactly what it held"),
+     # The box check, not "an untouched Apply over an existing settings file stores exactly what it held": under this
+     # mutant both untouched-Apply checks now pass ("changed: none", "leaves the location unsaved"), so the Apply no
+     # longer stores the default; what the mutant still breaks is the blank box the user sees. The case scored WRONG
+     # on the host 1.8.0 whole run (guard shard 7/8, 2026-10-30), read from its kept report.
+     "fresh install: the storage box stays blank and its hint names the local default"),
 
     # A path field's id drifts from the key Load answers and Save stores.
     ("layout-remembrance: a field's id is not one Load answers",
