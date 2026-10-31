@@ -48,7 +48,9 @@ public sealed partial class AgentBrokerModule : IModule
                              //        reason, on the list_sessions row, on the sender's receipt (the row's latest
                              //        observation at the attempt) and as a Codex line in client status; nothing is
                              //        refused on it and no address changes (N-agentbroker-code-owner-provenance-01, the
-                             //        owner's report-only decision). An elevated caller gets whoami caller_elevated
+                             //        owner's report-only decision). The observation keeps each thread's own query
+                             //        time, and a conversation whose owner lookup ran out of time keeps its last
+                             //        observation. An elevated Claude Code or Codex caller gets whoami caller_elevated
                              //        instead of caller_unresolved or no_native_session, whichever way Windows refuses
                              //        the Medium broker, and elevated Claude Code sessions are counted as a note beside
                              //        the healthy sessions' line (claude_session_elevated); the Medium-to-High boundary
