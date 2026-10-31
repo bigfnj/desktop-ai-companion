@@ -185,6 +185,43 @@ function Resolve-CanonicalTool([string[]]$Candidates) {
     }
     throw 'canonical_tool_missing'
 }
+# A registered install (Git for Windows' or python.org's installer) may live outside the default roots, as both do on
+# the maintainer's workstation (N-release-180-01). HKLM is read before HKCU, in the 64-bit view, and environment names
+# are not expanded. A value counts only as a fully qualified local path, with no . or .. segment, ending in the
+# expected file name; Resolve-CanonicalTool still refuses a reparse point. PATH and WindowsApps aliases are never read.
+function Get-RegisteredToolCandidates([string]$Tool, [scriptblock]$ReadValue = $null) {
+    if (-not $ReadValue) {
+        $ReadValue = { param($Hive, $SubKey, $Name)
+            $root = [Microsoft.Win32.RegistryKey]::OpenBaseKey($Hive, [Microsoft.Win32.RegistryView]::Registry64)
+            try {
+                $key = $root.OpenSubKey($SubKey)
+                if ($null -eq $key) { return $null }
+                # The comma keeps a REG_MULTI_SZ a string[], so a one-line one is refused as not text.
+                try { return , $key.GetValue($Name, $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames) }
+                finally { $key.Dispose() }
+            } finally { $root.Dispose() }
+        }
+    }
+    switch -CaseSensitive ($Tool) {
+        'git' { $leaf = 'git.exe'; $sources = @(, @('SOFTWARE\GitForWindows', 'InstallPath', 'cmd\git.exe')) }
+        'python' { $leaf = 'python.exe'; $sources = @(@('SOFTWARE\Python\PythonCore\3.14\InstallPath', 'ExecutablePath', ''),
+            @('SOFTWARE\Python\PythonCore\3.14\InstallPath', '', 'python.exe')) }
+        default { throw 'registered_tool_unknown' }
+    }
+    $candidates = [Collections.Generic.List[string]]::new()
+    foreach ($hive in @([Microsoft.Win32.RegistryHive]::LocalMachine, [Microsoft.Win32.RegistryHive]::CurrentUser)) {
+        foreach ($source in $sources) {
+            $value = & $ReadValue $hive $source[0] $source[1]
+            if ($value -isnot [string] -or [string]::IsNullOrWhiteSpace($value)) { continue }
+            $path = if ($source[2]) { [IO.Path]::Combine($value, $source[2]) } else { $value }
+            if (-not [IO.Path]::IsPathFullyQualified($path) -or $path.StartsWith('\\', [StringComparison]::Ordinal)) { continue }
+            if (@($path.Split([char[]]@('\', '/')) | Where-Object { $_ -ceq '.' -or $_ -ceq '..' }).Count -gt 0) { continue }
+            if (-not [string]::Equals([IO.Path]::GetFileName($path), $leaf, [StringComparison]::OrdinalIgnoreCase)) { continue }
+            $candidates.Add($path)
+        }
+    }
+    return $candidates.ToArray()
+}
 function Invoke-Captured([string]$Exe, [string[]]$Arguments, [string]$Directory, [hashtable]$Environment = @{}, [int]$Seconds = 60) {
     $info = [Diagnostics.ProcessStartInfo]::new()
     $info.FileName = $Exe; $info.WorkingDirectory = $Directory
@@ -561,6 +598,32 @@ function Run-SelfTest {
     Assert-Fixed $refused 'selftest_cross_suite_refusal_failed'; $checks++
     $refused = $false; try { $null = Test-ShardVerdict $log.Replace(' FIRED', ' FIRED (+2 other failures)') $first 0 'Guards' } catch { $refused = $true }
     Assert-Fixed $refused 'selftest_guard_suffix_refusal_failed'; $checks++
+    # N-release-180-01: a registered install is offered after the default roots, HKLM before HKCU, and only as a fully
+    # qualified local path to the expected file.
+    $registry = @{
+        'LocalMachine|SOFTWARE\GitForWindows|InstallPath' = 'C:\Synthetic\MachineGit'
+        'CurrentUser|SOFTWARE\GitForWindows|InstallPath' = 'C:\Synthetic\UserGit'
+        'LocalMachine|SOFTWARE\Python\PythonCore\3.14\InstallPath|ExecutablePath' = 'C:\Synthetic\PyExe\python.exe'
+        'LocalMachine|SOFTWARE\Python\PythonCore\3.14\InstallPath|' = 'C:\Synthetic\PyHome\'
+    }
+    $reader = { param($Hive, $SubKey, $Name) , $registry["$Hive|$SubKey|$Name"] }.GetNewClosure()
+    $found = @(Get-RegisteredToolCandidates 'git' $reader)
+    Assert-Fixed ($found.Count -eq 2 -and $found[0] -ceq 'C:\Synthetic\MachineGit\cmd\git.exe' -and
+        $found[1] -ceq 'C:\Synthetic\UserGit\cmd\git.exe') 'selftest_registered_git_failed'; $checks++
+    $found = @(Get-RegisteredToolCandidates 'python' $reader)
+    Assert-Fixed ($found.Count -eq 2 -and $found[0] -ceq 'C:\Synthetic\PyExe\python.exe' -and
+        $found[1] -ceq 'C:\Synthetic\PyHome\python.exe') 'selftest_registered_python_failed'; $checks++
+    foreach ($bad in @(@('relative', 'git', 'InstallPath', 'Synthetic\Git'), @('unc', 'git', 'InstallPath', '\\server\share\Git'),
+        @('device', 'git', 'InstallPath', '\\?\C:\Synthetic\Git'), @('drive_relative', 'git', 'InstallPath', 'C:Synthetic\Git'),
+        @('dot_segment', 'git', 'InstallPath', 'C:\Synthetic\..\Git'), @('unexpanded', 'git', 'InstallPath', '%ProgramFiles%\Git'),
+        @('not_text', 'git', 'InstallPath', [string[]]@('C:\Synthetic\Git')), @('wrong_file', 'python', 'ExecutablePath', 'C:\Synthetic\Py\pythonw.exe'))) {
+        $badKey = if ($bad[1] -ceq 'git') { 'SOFTWARE\GitForWindows' } else { 'SOFTWARE\Python\PythonCore\3.14\InstallPath' }
+        $one = @{ ("LocalMachine|$badKey|" + $bad[2]) = $bad[3] }
+        $oneReader = { param($Hive, $SubKey, $Name) , $one["$Hive|$SubKey|$Name"] }.GetNewClosure()
+        Assert-Fixed (@(Get-RegisteredToolCandidates $bad[1] $oneReader).Count -eq 0) ('selftest_registered_refusal_failed_' + $bad[0]); $checks++
+    }
+    $refused = ''; try { $null = Get-RegisteredToolCandidates 'Git' $reader } catch { $refused = $_.Exception.Message }
+    Assert-Fixed ($refused -ceq 'registered_tool_unknown') 'selftest_registered_unknown_failed'; $checks++
     Write-Output ("SelfTestChecks=$checks`nGitInvoked=False`nWorktreesCreated=False`nProcessesStarted=False`nProtectedFixturesOpened=False")
 }
 
@@ -576,8 +639,9 @@ Assert-Fixed ($env:OS -eq 'Windows_NT') 'windows_required'
 # Use real installed images. A WindowsApps alias or another PATH entry is never
 # a substitute, and per-shard APPDATA/LOCALAPPDATA cannot redirect resolution.
 $userLocal = Join-Path $env:USERPROFILE 'AppData\Local'
-$git = Resolve-CanonicalTool @((Join-Path $userLocal 'Programs\Git\cmd\git.exe'), (Join-Path $env:ProgramFiles 'Git\cmd\git.exe'))
-$python = Resolve-CanonicalTool @((Join-Path $userLocal 'Programs\Python\Python314\python.exe'))
+$git = Resolve-CanonicalTool (@((Join-Path $userLocal 'Programs\Git\cmd\git.exe'), (Join-Path $env:ProgramFiles 'Git\cmd\git.exe')) +
+    @(Get-RegisteredToolCandidates 'git'))
+$python = Resolve-CanonicalTool (@((Join-Path $userLocal 'Programs\Python\Python314\python.exe')) + @(Get-RegisteredToolCandidates 'python'))
 $pwsh = Resolve-CanonicalTool @((Join-Path $env:ProgramFiles 'PowerShell\7\pwsh.exe'))
 $dotnet = Resolve-CanonicalTool @((Join-Path $env:ProgramFiles 'dotnet\dotnet.exe'))
 
