@@ -9,7 +9,9 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
     TimeProvider? clock = null, ICallerProcessResolver? callerProcesses = null) : IAsyncDisposable
 {
     private readonly ConcurrentDictionary<string, string> adapterErrors = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, string> adapterNotes = new(StringComparer.Ordinal);
     private readonly DeferredDeliveryClaims claims = new(store);
+    private readonly DeliveryObservations observations = new(clock ?? TimeProvider.System);
     private readonly ConcurrentDictionary<string, BrokerSession> observed = new(StringComparer.Ordinal);
     private readonly object sessionGate = new();
     private readonly Dictionary<Guid, Guid> receiptCursors = new();
@@ -21,11 +23,26 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
     public BrokerStore Store => store;
     public IPeerFederation Federation => federation;
     public IReadOnlyDictionary<string, string> AdapterErrors => adapterErrors;
+    // Count-only notes about some of an adapter's sessions (AdapterDiscoveryDiagnostic.Note), from its last completed pass.
+    public IReadOnlyDictionary<string, string> AdapterNotes => adapterNotes;
     public event Action? FatalError;
     public bool IsMuted(string sessionId) => sessionPreferences?.IsMuted(sessionId) == true;
     private DateTimeOffset Now => (clock ?? TimeProvider.System).GetUtcNow();
     // The store clock, for a tool that must wake at a message deadline (BrokerTools.WaitForReceipt).
     internal DateTimeOffset StoreNow => Now;
+
+    // A local native row's last engine observation, from the adapter that discovered it (report only). Null for a paired
+    // broker's row, a generic mailbox, or an adapter that observes nothing.
+    internal EngineBinding? EngineBindingOf(BrokerSession session) => session.Address.BrokerId != store.BrokerId ? null
+        : adapters.FirstOrDefault(adapter => adapter.Id == session.Adapter)?.EngineBindingOf(session.Address);
+
+    // The sender's view of a receipt: no text unless asked, its own read time, and since when its recipient has been seen
+    // busy (SenderReceipt, DeliveryObservations). A paired broker's caller (forPeer) gets neither busySince nor the engine
+    // binding: both are this workstation's observations of its own processes, which a paired broker is never sent, the
+    // same rule as list_sessions (review of 25a0c65, finding 2).
+    internal SenderReceipt View(MessageReceipt receipt, bool includeText = false, bool forPeer = false) => forPeer
+        ? SenderReceipt.From(receipt, Now, includeText)
+        : SenderReceipt.From(receipt, Now, includeText, observations.BusySince(receipt), observations.EngineAtAttempt(receipt.Message.Id));
 
     public void SetSessionPreference(string sessionId, bool? isPrivate, bool? isMuted)
     {
@@ -129,6 +146,13 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
         var result = store.PresentedDirectory(forPeer).ToList();
         if (!forPeer)
         {
+            // A native row discovery could only call Unknown, whose recipient answered "a turn is still running" to a
+            // delivery attempt within the last 30 seconds, is listed Busy (N-broker-busy-visibility-01): a sender saw Unknown
+            // for two hours while every attempt said busy. Presentation only, local list only: the stored activity, and so
+            // which message is claimed and when (BrokerStore.Ready), are unchanged.
+            for (int index = 0; index < result.Count; index++)
+                if (result[index] is { Activity: SessionActivity.Unknown } row && observations.SeenBusy(row.Address))
+                    result[index] = row with { Activity = SessionActivity.Busy };
             var peers = store.Peers();
             var authorizations = peers.ToDictionary(p => p.BrokerId, store.CapturePeerAuthorization);
             var directories = new ConcurrentDictionary<Guid, BrokerSession[]>();
@@ -243,14 +267,19 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
                 stop.ThrowIfCancellationRequested();
                 if (sessions.Count > 256) throw new BrokerException("session_limit", "Adapter directory exceeded its bound.");
                 foreach (var session in sessions) Register(session);
-                var diagnostics = adapter.DiscoveryDiagnostics.Take(8).Select(item => item.ToStatusText()).Distinct().ToArray();
+                var reported = adapter.DiscoveryDiagnostics.Take(8).ToArray();
+                var diagnostics = reported.Where(item => !item.Note).Select(item => item.ToStatusText()).Distinct().ToArray();
                 if (diagnostics.Length == 0) adapterErrors.TryRemove(adapter.Id, out _);
                 else adapterErrors[adapter.Id] = string.Join("; ", diagnostics);
+                var notes = reported.Where(item => item.Note).Select(item => item.ToStatusText()).Distinct().ToArray();
+                if (notes.Length == 0) adapterNotes.TryRemove(adapter.Id, out _);
+                else adapterNotes[adapter.Id] = string.Join("; ", notes);
             }
             catch (Exception e) when (e is IOException or InvalidDataException or BrokerException or
                 UnauthorizedAccessException or System.ComponentModel.Win32Exception or OperationCanceledException)
             {
                 if (stop.IsCancellationRequested) throw;
+                adapterNotes.TryRemove(adapter.Id, out _); // A failed pass completed nothing to note.
                 adapterErrors[adapter.Id] = e is AdapterDiscoveryException diagnostic ? diagnostic.Diagnostic.ToStatusText()
                     : e is BrokerException b ? b.Code : "adapter_unavailable";
             }
@@ -258,7 +287,11 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
             // silence while the others went on (its rows lapsed, its status kept its last value, and nothing surfaced until
             // shutdown): it is now that adapter's error, and the loop tries again next pass (independent review of 1.6.0,
             // P3-7). The type is not shown: it could carry a vendor message.
-            catch (Exception) when (!stop.IsCancellationRequested) { adapterErrors[adapter.Id] = "adapter_failed"; }
+            catch (Exception) when (!stop.IsCancellationRequested)
+            {
+                adapterNotes.TryRemove(adapter.Id, out _); // As above: a failed pass completed nothing to note.
+                adapterErrors[adapter.Id] = "adapter_failed";
+            }
             await Task.Delay(DiscoveryInterval, stop);
         }
     }
@@ -282,19 +315,30 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
     // whoami: the session owned by the nearest process in the caller's ancestry that an adapter binds to exactly one
     // directory row. The walk ends at the nearest claude or codex process even when that process is no discovered session,
     // so an agent another agent started (claude -p inside a Claude session) is never told that it is its parent.
+    // caller_elevated (N-broker-elevated-caller-01): the connection's owner was found but even a limited query of it was
+    // denied, which from this Medium-integrity broker means an elevated process or another user's. It is deliberately NOT
+    // bridged: verifying, waking or injecting into a process above the broker's integrity would let any Medium process
+    // drive an elevated one. The caller is told what it can do instead (a mailbox, or run unelevated); caller_unresolved
+    // keeps meaning that no owner was found at all.
     public (BrokerSession? Session, string Code) WhoAmI(System.Net.IPAddress client, int clientPort, int serverPort)
     {
-        var chain = (callerProcesses ?? WindowsCallerProcessResolver.Instance).Resolve(client, clientPort, serverPort);
-        if (chain.Count == 0) return (null, "caller_unresolved");
+        var resolver = callerProcesses ?? WindowsCallerProcessResolver.Instance;
+        var resolution = resolver.ResolveCaller(client, clientPort, serverPort);
+        var chain = resolution.Chain;
+        if (chain.Count == 0) return (null, resolution.OwnerAccessDenied ? "caller_elevated" : "caller_unresolved");
         var directory = store.Directory();
+        CallerProcess? nearestAgent = null;
         foreach (var process in chain)
         {
             foreach (var adapter in adapters)
                 if (adapter.FindSessionByProcess(process.ProcessId, process.StartFileTime) is { } address)
                     return directory.SingleOrDefault(session => session.Address == address) is { } row ? (row, "ok") : (null, "no_native_session");
-            if (IsAgentImage(process.ImageName)) break;
+            if (IsAgentImage(process.ImageName)) { nearestAgent = process; break; }
         }
-        return (null, "no_native_session");
+        // No adapter binds the chain. An elevated launch that allowed the limited query got this far (review of 25a0c65,
+        // finding 1): the nearest claude or codex process it walked to is asked whether a full query is refused, which for
+        // this user's agent means elevated. Only that process: a parent the broker cannot fully query proves nothing.
+        return (null, nearestAgent is not null && resolver.QueryDenied(nearestAgent) ? "caller_elevated" : "no_native_session");
     }
 
     private static bool IsAgentImage(string image) => Path.GetFileNameWithoutExtension(image) is { } name &&
@@ -352,6 +396,9 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
         // submission may have been written, so it is Uncertain like any unconfirmed one, under its own reason; the type is
         // not recorded, as it could carry a vendor message.
         catch (Exception) { result = new(AdapterAdmission.Uncertain, "submission_failed"); }
+        // What this attempt learned about a local recipient, for the sender's receipt and the directory. Observation only.
+        if (receipt.Message.Recipient.BrokerId == store.BrokerId)
+            observations.Record(receipt.Message, result, id => store.FindReceipt(id) is { Status: MessageStatus.Accepted or MessageStatus.Submitting });
         // A revocation may have resolved an in-flight claim while its IO was completing.
         if (store.FindReceipt(receipt.Message.Id)?.Status != MessageStatus.Submitting) return;
         try

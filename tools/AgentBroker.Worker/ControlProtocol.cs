@@ -16,8 +16,12 @@ namespace AgentBroker.Protocol;
 public sealed record PeerView(Guid BrokerId, string Name, string Endpoint, string CertificateSha256);
 public sealed record PairingView(Guid RequestId, PeerView Peer, string VerificationCode,
     DateTimeOffset ExpiresAt, bool Outbound, bool LocalApproved = false, bool RemoteApproved = false);
+// Engine: a native adapter's report-only engine binding for the row (lane broker-163), omitted while there is none.
 public sealed record SessionView(string SessionId, Guid Incarnation, string Label, string Adapter,
-    string Activity, bool CanReceive, bool CanWake, bool IsPrivate, bool IsMuted);
+    string Activity, bool CanReceive, bool CanWake, bool IsPrivate, bool IsMuted,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] EngineBindingView? Engine = null);
+// Report only (N-agentbroker-code-owner-provenance-01): bound, and the reason code. Nothing is refused on it.
+public sealed record EngineBindingView(bool Bound, string Reason);
 public enum McpClientFamily { Other = 0, Claude = 1, Codex = 2 }
 public sealed record McpClientActivityView(McpClientFamily Family, DateTimeOffset? LastInitializeUtc = null,
     DateTimeOffset? LastSuccessfulRequestUtc = null, DateTimeOffset? LastToolsListUtc = null,
@@ -42,7 +46,9 @@ public sealed record BrokerSnapshot(Guid BrokerId, string Name, string LoopbackE
     IReadOnlyDictionary<string, string> AdapterErrors, string? CertificateSha256 = null, McpStatusView? Mcp = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] LanProfileView? Lan = null,
     // Absent while nothing was dropped, so that snapshot is exactly the one before this field existed.
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] NoticeDropView? DroppedNotices = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] NoticeDropView? DroppedNotices = null,
+    // Count-only notes about some of an adapter's sessions (lane broker-163), absent while there are none.
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyDictionary<string, string>? AdapterNotes = null);
 public sealed record ControlRequest(string Operation, Guid Id = default, PeerView? Peer = null,
     string? SessionId = null, bool Value = false);
 public sealed record LocalConnection(string McpEndpoint, string? BearerToken);

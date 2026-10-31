@@ -7116,6 +7116,82 @@ frame, but `IClaudeNativeProvider.SubmitAsync` promises no such thing.
 through `BrokerRuntime.SetSessionPreference` at the 1,024-entry bound with a present session's choice written first: a
 predicate that observes every session refuses the choice, and one that observes none evicts the present session's.
 
+#### feature/broker-163
+
+AgentBroker 1.7.0 candidates: N-agentbroker-code-owner-provenance-01 (report only), N-broker-elevated-caller-01,
+N-broker-busy-visibility-01 and N-broker-compact-receipts-01.
+
+**The Codex engine binding is REPORTED, not enforced (owner's decision 2026-10-30).** The 2026-10-29 read-only audit found
+one identity that ties a Codex thread to a process: the engine's writer lock, `%USERPROFILE%\.codex\thread-writer-locks\<threadId>.lock`.
+The adapter now asks Restart Manager who has that file open (`RmStartSession`, `RmRegisterResources`, `RmGetList`,
+`RmEndSession`; read-only, the lock is never opened by this code and a stale lock is never deleted), in the background
+after each discovery pass, and classifies the answer with a pure function
+(`CodexEngineBinding.Classify`): bound (`code_engine`, a codex.exe under a running Code.exe; `desktop_engine`, one under the
+Codex package's ChatGPT.exe) only for exactly one holder whose PID AND start time are such an engine's; otherwise unbound
+with `lock_missing`, `lock_path_reparse` (a reparse point anywhere on the path, reported and never followed), `query_failed`,
+`no_holder`, `multiple_holders`, `foreign_holder` or `start_time_mismatch`. It shows on the local `list_sessions` row
+(`engineBinding`, absent while null), on the sender's receipt (what was observed at the latest attempt) and as a Codex line
+in the module's client status (counts and reason codes only). It is carried BESIDE the directory row (`ListedSession`,
+`ILocalAgentAdapter.EngineBindingOf`), never in `BrokerSession`: that record is what a paired broker is sent and keeps the
+1.0.4 members a 1.0.4 peer's strict reader accepts (`TombstoneChecks.WireAsync` compares the shapes; a first draft put the
+member on `BrokerSession`, stripped for peers at run time, and that check refused it), and a paired broker's caller gets
+none. Nothing is refused, deferred, retried or re-addressed on it: `DesktopOwnerBinding.NativeSessionIncarnation`
+and every address are unchanged, because changing the address strands queued messages (`DesktopProtocol.cs`). Refused, for
+now: ENFORCE, which would refuse a delivery unless exactly one holder matched before and after `thread-follower-start-turn`
+and would derive the incarnation from the holder instead of the router's `ServerPid`. It stays the documented next step if
+the report shows the binding holds in practice. The Codex home is Codex's default only: the worker cannot see the CODEX_HOME
+an engine was started with, and guessing from its own environment could name another home's lock (such an engine reads
+`lock_missing`). Live, read-only, 2026-10-30: all 13 lock files on this workstation had exactly one holder each, the
+Code-owned engine for 11 and the desktop engine for 2, each matched by PID and start time (`bound`); evidence outside the
+repository. An engine holds the lock of every thread it has loaded, not only the one on screen, so bound means "this
+engine owns the thread", which is what the binding is for.
+
+**The engine observation runs off the discovery pass and off the delivery path (review of 25a0c65).** A query costs about
+0.1 s per held lock (the reviewer measured 88-123 ms, 14 locks in 1.31 s), so at the 256-row bound an inline observation
+held the adapter's gate for about 25 s, past the 10-second pass deadline, and a query at each attempt sat between the owner
+re-check and the write. It now runs in the background (an Interlocked single-flight gate and Task.Run, the house shape),
+within a 10-second budget; a row not reached keeps its previous observation and its `observedAt`, and the oldest are taken
+first. A delivery's receipt carries the row's latest observation and the attempt queries nothing. Refused: observing after
+the write returns (it would hold the gate a further 0.1 s per attempt). A codex.exe the broker cannot read affects only a
+lock it holds (`query_failed`), never every lock, the shape A-broker-03 removed from the profile check. The lock path is
+checked from the root down, so a missing lock under a junctioned Codex home reads `lock_path_reparse`. A paired broker's
+caller gets neither the engine binding nor `busySince` on a receipt, as on a row.
+
+**The view hop stays a vendor limit.** Which webview of a window answered an owner lookup cannot be verified: the
+`codex-ipc` router registers each client with a random UUID and no PID, forwards responses matched by `requestId` alone,
+and sends untargeted discovery to every client, so `handledByClientId` is the responder's own claim. Closing it needs the
+vendor: the router would stamp each pipe client's verified PID (`GetNamedPipeClientProcessId`) and start time on what it
+forwards and reject a response not from the target's socket, or an owner-discovery answer would name the engine PID and lock
+path, or each view would carry a credential. The engine binding above is as far as the broker can see on its own.
+
+**An elevated caller gets `caller_elevated`, and Medium is not bridged to High (N-broker-elevated-caller-01).** Two shapes,
+one of them measured. Measured on this workstation, for a same-user UAC elevation: the limited query succeeds and the full
+one (`0x0410`) is refused with error 5. The other shape, `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)` itself refused
+with `ERROR_ACCESS_DENIED`, is what another user's process or a protected one returns (this lane's Medium shell got it from
+five SYSTEM processes); it is handled by design (`whoami` answers `caller_elevated` when the owner was found and exactly that
+refusal came back, `WindowsCallerProcessResolver.Compose`, where it used to answer `caller_unresolved`) and was not measured
+as a same-user elevation. For the measured shape the walk succeeds, no adapter binds the elevated process, and the first fix still answered `no_native_session`; the nearest
+claude or codex process of an unbound chain is now asked whether a full query (`PROCESS_QUERY_INFORMATION`) is refused, its
+start time re-read first so a reused ID is never called elevated (`QueryDenied`). Claude discovery counts such sessions
+(`claude_session_elevated`) as a note beside the healthy sessions' line, not an adapter error, instead of skipping them in
+silence. Refused: bridging
+the integrity boundary (a broker helper at High, or any way to verify, wake or inject into an elevated agent), because it
+would let any Medium process drive an elevated one.
+
+**Receipts tell their age; busySince and the Busy row are process-local presentation (N-broker-busy-visibility-01).** The
+store keeps the schema a 1.0.4 worker reads (`UnmappedMemberHandling.Disallow` on `broker-state.json`), so the first busy
+observation is not stored in the receipt: `DeliveryObservations` keeps it in the worker process, and a restart starts it
+again. A native row discovery can only call `Unknown` is listed `Busy` in the local `list_sessions` while its recipient
+answered `native_context_busy` within 30 seconds, but the stored activity, which `BrokerStore.Ready` reads to decide when a
+message is tried, is untouched: presenting Busy there would have stopped the very retries that see the turn end. A future
+reader could take either for a defect; both are deliberate.
+
+**Sender receipts leave out the text (N-broker-compact-receipts-01).** The shape stays the receipt's nested one with
+`message.text` omitted and `textBytes` and `readAt` added, so the channel bridge and the collaboration helper, which read
+`message.recipient` and `message.sender` from `get_message_receipt`, keep working. `reply_to_message` is compacted too (a
+sender's receipt); `acknowledge_message` is not (the recipient's own). Refused: a flat new shape, and leaving
+`reply_to_message` out, which would have kept one sender tool echoing its own text.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

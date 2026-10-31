@@ -135,10 +135,14 @@ internal static class TombstoneChecks
         fixture.Tools.AcknowledgeMessage(delivered, recipient.Address, MessageStatus.Delivered);
         fixture.Tools.AcknowledgeMessage(refused, recipient.Address, MessageStatus.Refused);
         var receipt = fixture.Tools.GetMessageReceipt(delivered);
-        check(receipt is { Status: MessageStatus.Delivered, Reason: "recipient_receipt", Attempts: 1 } &&
-            receipt.UpdatedAt == fixture.Clock.GetUtcNow() && receipt.Message == sent with { Text = "" },
+        // The sender's compact receipt (N-broker-compact-receipts-01): no text by default, and textBytes null for a tombstone.
+        var asked = fixture.Tools.GetMessageReceipt(delivered, includeText: true);
+        check(receipt is { Status: MessageStatus.Delivered, Reason: "recipient_receipt", Attempts: 1, TextBytes: null } &&
+            receipt.UpdatedAt == fixture.Clock.GetUtcNow() && receipt.Message.Text is null && receipt.Message.Id == sent.Id &&
+            receipt.Message.Sender == sent.Sender && receipt.Message.Recipient == sent.Recipient && receipt.Message.ConversationId == sent.ConversationId &&
+            receipt.Message.CreatedAt == sent.CreatedAt && receipt.Message.ExpiresAt == sent.ExpiresAt && asked?.Message.Text == "",
             "get_message_receipt answers an acknowledged message's status, addresses and times with empty text");
-        check(fixture.Tools.GetMessageReceipt(refused) is { Status: MessageStatus.Refused } refusal && refusal.Message.Text.Length == 0 &&
+        check(fixture.Tools.GetMessageReceipt(refused, includeText: true) is { Status: MessageStatus.Refused, TextBytes: null } refusal && refusal.Message.Text?.Length == 0 &&
             fixture.Tools.GetMessageReceipt(Guid.NewGuid()) is null,
             "get_message_receipt answers a Refused tombstone too, and null for an unknown ID");
     }

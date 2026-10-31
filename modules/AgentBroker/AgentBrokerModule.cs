@@ -41,7 +41,28 @@ public sealed partial class AgentBrokerModule : IModule
     {
         Id = "agentbroker",
         Name = "AgentBroker",
-        Version = "1.6.2",   // 1.6.2: broker-161's filed items and two found on the way (lane feature/broker-162). A
+        Version = "1.7.0",   // 1.7.0: four reported items (lane feature/broker-163). Codex rows report, never enforce,
+                             //        which engine holds their thread: the adapter asks Restart Manager, read-only and
+                             //        in the background after each discovery pass within a budget, who has the thread's
+                             //        writer lock open and says bound (code_engine, desktop_engine) or unbound with the
+                             //        reason, on the list_sessions row, on the sender's receipt (the row's latest
+                             //        observation at the attempt) and as a Codex line in client status; nothing is
+                             //        refused on it and no address changes (N-agentbroker-code-owner-provenance-01, the
+                             //        owner's report-only decision). The observation keeps each thread's own query
+                             //        time, and a conversation whose owner lookup ran out of time keeps its last
+                             //        observation. An elevated Claude Code or Codex caller gets whoami caller_elevated
+                             //        instead of caller_unresolved or no_native_session, whichever way Windows refuses
+                             //        the Medium broker, and elevated Claude Code sessions are counted as a note beside
+                             //        the healthy sessions' line (claude_session_elevated); the Medium-to-High boundary
+                             //        is not bridged (N-broker-elevated-caller-01). The sender's receipts (send,
+                             //        send_message, reply_to_message, wait_for_receipt, get_message_receipt) leave out
+                             //        the message text, with textBytes, and get_message_receipt takes includeText
+                             //        (N-broker-compact-receipts-01). Receipts carry readAt and, while a native
+                             //        recipient keeps answering that its turn is running, busySince; such a row that
+                             //        discovery calls Unknown lists as Busy (N-broker-busy-visibility-01). A paired
+                             //        broker's caller gets neither busySince nor the engine binding. MinHostVersion
+                             //        unchanged (1.6.1).
+                             // 1.6.2: broker-161's filed items and two found on the way (lane feature/broker-162). A
                              //        delivery or receipt loop that fails unexpectedly is shown in Status (delivery:
                              //        loop_failed or receipts: loop_failed, with a count and the last time) and runs
                              //        again after a pause of one second doubling to a minute (N-broker-161-02); a
@@ -252,9 +273,11 @@ public sealed partial class AgentBrokerModule : IModule
 
     internal const string ReconnectAdvice = "A session that started while the broker was down, including during a companion restart, has no broker tools until you reconnect its MCP server (Claude Code: /mcp) or restart the session.";
 
-    private string NativeStatusText() => snapshot is null ? "No worker status yet." : snapshot.AdapterErrors.Count == 0
+    private string NativeStatusText() => snapshot is null ? "No worker status yet." : (snapshot.AdapterErrors.Count == 0
         ? "No adapter errors reported."
-        : string.Join("; ", snapshot.AdapterErrors.Select(x => Safe(x.Key, 32) + ": " + Safe(x.Value, 512)).Take(8));
+        : string.Join("; ", snapshot.AdapterErrors.Select(x => Safe(x.Key, 32) + ": " + Safe(x.Value, 512)).Take(8))) +
+        // Notes about some sessions (lane broker-163), after the errors and never counted as one.
+        (snapshot.AdapterNotes is { Count: > 0 } notes ? " Notes: " + string.Join("; ", notes.Select(x => Safe(x.Key, 32) + ": " + Safe(x.Value, 512)).Take(8)) : "");
 
     private void SetStatus(string value)
     {

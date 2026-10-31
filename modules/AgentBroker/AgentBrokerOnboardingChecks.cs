@@ -180,6 +180,32 @@ public sealed partial class AgentBrokerModule
             check(pane.Load()["codexClient"].Contains("\u2717 Native: the Codex adapter reports unsupported_vscode_router 9.9.9.", StringComparison.Ordinal) &&
                 pane.Load()["claudeClient"].Contains("Native wake off: 1 open Claude session", StringComparison.Ordinal),
                 "onboarding: an unsupported native client is shown for that client only");
+            // Lane broker-163: the report-only engine binding is a Codex line of its own, counts and reason codes only.
+            SessionView Codex(EngineBindingView? engine) => new("codex:" + Guid.NewGuid().ToString("D"), Guid.NewGuid(), "Synthetic Codex",
+                "codex-native", "Idle", true, true, false, false, engine);
+            module.ApplyStatus(new(true, true, "running", view with { Sessions = [native, Codex(new(true, "code_engine")),
+                Codex(new(false, "foreign_holder")), Codex(new(false, "foreign_holder")), Codex(null)] }));
+            string engines = pane.Load()["codexClient"];
+            check(engines.Contains("\u26A0 Engine binding (report only): 1 of 3 Codex sessions held by a Code or desktop engine; unbound: foreign_holder 2. Nothing is refused on it.", StringComparison.Ordinal) &&
+                !pane.Load()["claudeClient"].Contains("Engine binding", StringComparison.Ordinal),
+                "ENGINE_BINDING_LINE: the Codex client shows how many observed rows are bound, and the unbound reasons by count");
+            module.ApplyStatus(new(true, true, "running", view with { Sessions = [native, Codex(null)] }));
+            check(!pane.Load()["codexClient"].Contains("Engine binding", StringComparison.Ordinal),
+                "ENGINE_BINDING_LINE_ABSENT: with no observation reported there is no engine line");
+            // Review finding 5: an elevated Claude Code session is a note beside the healthy sessions' line, not an adapter error.
+            const string elevated = "1 Claude Code session is elevated or another user's and cannot be woken; use register_agent or run unelevated.";
+            module.ApplyStatus(new(true, true, "running", view with { AdapterNotes = new Dictionary<string, string> { ["claude-native"] = "claude_session_elevated: " + elevated } }));
+            string noted = pane.Load()["claudeClient"];
+            check(noted.Contains("Native wake off: 1 open Claude session", StringComparison.Ordinal) && noted.Contains("\n\u26A0 " + elevated, StringComparison.Ordinal) &&
+                !noted.Contains("\u2717 Native", StringComparison.Ordinal) && !pane.Load()["codexClient"].Contains("elevated", StringComparison.Ordinal) &&
+                pane.Load()["nativeStatus"].Contains("Notes: claude-native: claude_session_elevated", StringComparison.Ordinal),
+                "ELEVATED_NOTE_LINE: the elevated count is its own line beside the healthy Claude line, whole, and a note in Native adapters");
+            // Review of d9c2967, item 3: the plural at the 32-process bound keeps its final period.
+            const string many = "32 Claude Code sessions are elevated or another user's and cannot be woken; use register_agent or run unelevated.";
+            module.ApplyStatus(new(true, true, "running", view with { AdapterNotes = new Dictionary<string, string> { ["claude-native"] = "claude_session_elevated: " + many } }));
+            check(pane.Load()["claudeClient"].Contains("\n\u26A0 " + many, StringComparison.Ordinal),
+                "ELEVATED_NOTE_PLURAL_WHOLE: the plural note at the 32-session bound is shown whole, final period included");
+            module.ApplyStatus(new(true, true, "running", view));
 
             // A settings change restarts the worker; a check made against the old settings no longer applies.
             pane.Save(new Dictionary<string, string> { ["loopbackPort"] = "7440" });

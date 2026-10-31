@@ -95,6 +95,9 @@ internal static class FirstContactChecks
                 check(chain.Count >= 2 && chain[0].ProcessId == Environment.ProcessId && chain[0].StartFileTime == selfStart &&
                     chain.Skip(1).All(parent => parent.StartFileTime <= chain[0].StartFileTime),
                     $"WHOAMI_RESOLVER_{label}: the resolver finds this process as the owner of a loopback connection's client end, then its parents");
+                var resolution = resolver.ResolveCaller(loopback, clientPort, serverPort);
+                check(resolution.Chain.Count == chain.Count && !resolution.OwnerAccessDenied,
+                    $"WHOAMI_RESOLVER_OPENABLE_{label}: an owner this process can open is never reported as access denied");
                 // Both ends live in this process here, so only ports that match no connection can show exactness.
                 check(resolver.Resolve(loopback, clientPort, serverPort + 1).Count == 0 && resolver.Resolve(loopback, clientPort + 1, serverPort).Count == 0,
                     $"WHOAMI_RESOLVER_EXACT_{label}: a wrong server port or a wrong client port finds no caller");
@@ -102,6 +105,31 @@ internal static class FirstContactChecks
             finally { listener.Stop(); }
         }
         check(resolver.Resolve(IPAddress.Parse("192.0.2.10"), 50000, 7432).Count == 0, "WHOAMI_RESOLVER_LOOPBACK_ONLY: a non-loopback address is never resolved");
+        // The production probe behind caller_elevated answers true only for ERROR_ACCESS_DENIED. An elevated process cannot be
+        // made here, so its true case is the coordinator's live measurement (Medium to an elevated claude.exe: error 5).
+        int absent = int.MaxValue - 3;
+        bool absentRunning;
+        try { using var probe = Process.GetProcessById(absent); absentRunning = true; }
+        catch (ArgumentException) { absentRunning = false; }
+        // Non-vacuous (review of 25a0c65, finding 1): the refusal itself through an injected open, which must be the limited query.
+        var probes = new List<uint>();
+        (bool Opened, int Error) Refuse(uint access, int pid) { probes.Add(access); return (false, 5); }
+        check(WindowsCallerProcessResolver.AccessDenied(4242, Refuse) && probes.SequenceEqual([0x1000u]) &&
+            !WindowsCallerProcessResolver.AccessDenied(4242, (_, _) => (false, 87)) && !WindowsCallerProcessResolver.AccessDenied(4242, (_, _) => (true, 0)) &&
+            !WindowsCallerProcessResolver.AccessDenied(Environment.ProcessId) && !absentRunning && !WindowsCallerProcessResolver.AccessDenied(absent),
+            "WHOAMI_DENIED_PROBE: the limited-query probe is a refusal only for ERROR_ACCESS_DENIED, never for this process or an ID no process has");
+        // The second shape: an elevated launch that allows the limited query and refuses the full one (0x0400). The start time
+        // is read again first, so a reused process ID is never called elevated.
+        var elevatedWalk = new CallerProcess(300, 800, "claude.exe");
+        probes.Clear();
+        bool fullDenied = WindowsCallerProcessResolver.QueryDenied(elevatedWalk, _ => 800, Refuse);
+        bool fullAsked = probes.SequenceEqual([0x0400u]);
+        probes.Clear();
+        bool reused = WindowsCallerProcessResolver.QueryDenied(elevatedWalk, _ => 801, Refuse);
+        check(fullDenied && fullAsked && !reused && probes.Count == 0 &&
+            !WindowsCallerProcessResolver.QueryDenied(elevatedWalk, _ => 800, (_, _) => (false, 87)) &&
+            !resolver.QueryDenied(new CallerProcess(Environment.ProcessId, selfStart, "AgentBroker.Worker.Tests.exe")),
+            "WHOAMI_QUERY_DENIED_PROBE: a refused full query of the walked process is elevated; a reused ID, another error or this process is not");
 
         // The walk on synthetic processes: 30's recorded parent 40 was created after 30, so 40 is a reused ID and not its parent.
         var parents = new Dictionary<int, (int Parent, string Image)>
@@ -112,6 +140,22 @@ internal static class FirstContactChecks
             "WHOAMI_WALK_REUSED_PARENT: the parent walk stops at a recorded parent created after its child (a reused process ID)");
         var cyclic = new Dictionary<int, (int Parent, string Image)> { [10] = (20, "a.exe"), [20] = (10, "b.exe") };
         check(WindowsCallerProcessResolver.Walk(10, cyclic, _ => 500).Count == 2, "WHOAMI_WALK_CYCLE: a parent cycle ends the walk instead of looping");
+
+        // N-broker-elevated-caller-01: the owner of an elevated session's connection is found, but a Medium broker is denied
+        // even a limited query of it, so the walk is empty. Compose says why, and asks only about an owner it could not open.
+        int asked = 0;
+        bool Denied(int _) { asked++; return true; }
+        var denied = WindowsCallerProcessResolver.Compose(300, _ => [], Denied);
+        check(denied.Chain.Count == 0 && denied.OwnerAccessDenied && asked == 1,
+            "WHOAMI_COMPOSE_DENIED: a found owner whose limited query is denied is reported as such");
+        asked = 0;
+        var opened = WindowsCallerProcessResolver.Compose(300, _ => [new(300, 800, "claude.exe")], Denied);
+        check(opened.Chain.Count == 1 && !opened.OwnerAccessDenied && asked == 0,
+            "WHOAMI_COMPOSE_OPENABLE: an owner whose walk succeeded is never asked about or reported as denied");
+        var vanished = WindowsCallerProcessResolver.Compose(300, _ => [], _ => false);
+        var missing = WindowsCallerProcessResolver.Compose(null, _ => throw new InvalidOperationException("no owner to walk"), Denied);
+        check(!vanished.OwnerAccessDenied && !missing.OwnerAccessDenied && missing.Chain.Count == 0,
+            "WHOAMI_COMPOSE_NOT_DENIED: an owner that exited, or no owner at all, stays unresolved");
     }
 
     private static async Task WhoAmIChecks(Action<bool, string> check)
@@ -149,6 +193,25 @@ internal static class FirstContactChecks
 
         callers.Chain = [];
         check(ToolFixture.Refused(() => fixture.Tools.WhoAmI(), "caller_unresolved"), "WHOAMI_UNRESOLVED: an unknown connection owner says so");
+        callers.Denied = true;
+        check(ToolFixture.Refused(() => fixture.Tools.WhoAmI(), "caller_elevated"),
+            "WHOAMI_ELEVATED: an owner the broker may not query (elevated, or another user) gets caller_elevated, not caller_unresolved");
+        callers.Denied = false;
+
+        // Review of 25a0c65, finding 1: the limited query succeeded, so the walk reached the elevated claude process, but no
+        // adapter binds it (discovery could not read it). Its refused full query answers caller_elevated.
+        callers.Chain = [new(100, 1000, "pwsh.exe"), new(300, 800, "claude.exe"), new(400, 700, "Code.exe")];
+        adapter.Owned.Clear();
+        callers.QueryDeniedFor = [300];
+        check(ToolFixture.Refused(() => fixture.Tools.WhoAmI(), "caller_elevated"),
+            "WHOAMI_ELEVATED_FULL_QUERY: the nearest agent process of an unbound chain whose full query is refused gets caller_elevated");
+        callers.QueryDeniedFor = [100, 400];
+        check(ToolFixture.Refused(() => fixture.Tools.WhoAmI(), "no_native_session"),
+            "WHOAMI_ELEVATED_NEAREST_ONLY: a refused full query of a process that is not the nearest agent proves nothing");
+        callers.QueryDeniedFor = [300];
+        adapter.Owned[(300, 800UL)] = mine.Address;
+        check(fixture.Tools.WhoAmI().Address == mine.Address, "WHOAMI_ELEVATED_BOUND_WINS: a chain an adapter binds is answered with its row");
+        callers.QueryDeniedFor = [];
 
         callers.Chain = [new(300, 800, "claude.exe")];
         adapter.Owned.Clear(); adapter.Owned[(300, 800UL)] = mine.Address;
@@ -215,9 +278,14 @@ internal static class FirstContactChecks
     private sealed class FakeCallers : ICallerProcessResolver
     {
         internal IReadOnlyList<CallerProcess> Chain = [];
+        internal bool Denied;
+        internal HashSet<int> QueryDeniedFor = [];
+        public bool QueryDenied(CallerProcess process) => QueryDeniedFor.Contains(process.ProcessId);
         internal List<(IPAddress, int, int)> Calls { get; } = [];
         public IReadOnlyList<CallerProcess> Resolve(IPAddress clientAddress, int clientPort, int serverPort)
         { Calls.Add((clientAddress, clientPort, serverPort)); return Chain; }
+        public CallerResolution ResolveCaller(IPAddress clientAddress, int clientPort, int serverPort)
+        { Calls.Add((clientAddress, clientPort, serverPort)); return new(Chain, Denied && Chain.Count == 0); }
     }
 
     private sealed class ProcessAdapter : ILocalAgentAdapter

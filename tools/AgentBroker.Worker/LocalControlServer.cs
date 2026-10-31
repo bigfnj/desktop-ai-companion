@@ -101,10 +101,12 @@ public sealed class LocalControlServer(WorkerApplication worker) : IAsyncDisposa
                 p.VerificationCode, p.ExpiresAt, p.Outbound, p.LocalApproved, p.RemoteApproved)).ToArray(),
             directory.Select(s => new SessionView(s.Address.SessionId, s.Address.Incarnation,
                 s.Label, s.Adapter, s.Activity.ToString(), s.Capabilities.HasFlag(SessionCapabilities.Receive),
-                s.Capabilities.HasFlag(SessionCapabilities.WakeIdle), s.IsPrivate, runtime.IsMuted(s.Address.SessionId))).ToArray(),
+                s.Capabilities.HasFlag(SessionCapabilities.WakeIdle), s.IsPrivate, runtime.IsMuted(s.Address.SessionId),
+                runtime.EngineBindingOf(s) is { } engine ? new EngineBindingView(engine.Bound, engine.Reason) : null)).ToArray(),
             new Dictionary<string, string>(runtime.AdapterErrors, StringComparer.Ordinal),
             worker.Options.EnableLan ? runtime.Federation.LocalAdvertisement.CertificateSha256 : null, mcp, LanProfile(lanEndpoint),
-            DroppedNotices(runtime.Store.DroppedNotices()));
+            DroppedNotices(runtime.Store.DroppedNotices()),
+            runtime.AdapterNotes.Count == 0 ? null : new Dictionary<string, string>(runtime.AdapterNotes, StringComparer.Ordinal));
     }
 
     // Absent while none was dropped, so the snapshot is unchanged for a worker that has nothing to report.

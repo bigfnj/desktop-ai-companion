@@ -27,6 +27,20 @@ internal static class AdapterDiagnosticChecks
             await UntilAsync(() => adapter.Calls >= 2 && !runtime.AdapterErrors.ContainsKey(adapter.Id));
             check(store.Directory().Count == 1 && store.Directory()[0].LeaseUntil > DateTimeOffset.UtcNow,
                 "AdapterDiagnosticChecks.cs: the next supported-only pass clears the warning and renews its session");
+            // Lane broker-163 (review finding 5): a note about some sessions is kept apart from the adapter's errors, so Status
+            // keeps the healthy sessions' line, and it clears with the next pass that has none.
+            adapter.Noting = true;
+            await UntilAsync(() => runtime.AdapterNotes.ContainsKey(adapter.Id));
+            check(runtime.AdapterNotes[adapter.Id].Contains("synthetic_note", StringComparison.Ordinal) && !runtime.AdapterErrors.ContainsKey(adapter.Id),
+                "AdapterDiagnosticChecks.cs: RUNTIME_NOTE_APART: a note is reported as a note and never as the adapter's error");
+            // Review of d9c2967, item 4: an unexpected failure (adapter_failed) completed nothing to note either.
+            adapter.Fails = true;
+            await UntilAsync(() => runtime.AdapterErrors.TryGetValue(adapter.Id, out string? failed) && failed == "adapter_failed");
+            check(!runtime.AdapterNotes.ContainsKey(adapter.Id),
+                "AdapterDiagnosticChecks.cs: RUNTIME_NOTE_CLEARED_ON_FAILURE: an unexpected discovery failure clears the last pass's note");
+            adapter.Fails = false;
+            adapter.Noting = false;
+            await UntilAsync(() => !runtime.AdapterNotes.ContainsKey(adapter.Id) && !runtime.AdapterErrors.ContainsKey(adapter.Id));
         }
         finally
         {
@@ -48,13 +62,14 @@ internal static class AdapterDiagnosticChecks
         private readonly Guid incarnation = Guid.NewGuid();
         private int calls;
         internal int Calls => Volatile.Read(ref calls);
-        internal volatile bool Recovered;
+        internal volatile bool Recovered, Noting, Fails;
         public string Id => "synthetic-pin-diagnostics";
         public IReadOnlyList<AdapterDiscoveryDiagnostic> DiscoveryDiagnostics { get; private set; } = [];
         public Task<IReadOnlyList<BrokerSession>> DiscoverAsync(Guid brokerId, CancellationToken token)
         {
             token.ThrowIfCancellationRequested();
-            DiscoveryDiagnostics = Recovered ? [] : [new("unsupported_public_version",
+            if (Fails) throw new InvalidOperationException("Synthetic unexpected discovery failure.");
+            DiscoveryDiagnostics = Noting ? [new("synthetic_note", "1 synthetic session is noted.") { Note = true }] : Recovered ? [] : [new("unsupported_public_version",
                 "Claude Code 2.1.310 installed; verified 2.1.292, 2.1.304, 2.1.306")];
             Interlocked.Increment(ref calls);
             return Task.FromResult<IReadOnlyList<BrokerSession>>([new(new(brokerId, "synthetic-supported", incarnation),
