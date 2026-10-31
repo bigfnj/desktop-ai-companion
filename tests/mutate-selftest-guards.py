@@ -15426,7 +15426,10 @@ CASES = (
      b'            if (documents == null) return null;\n',
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
-     "no Documents: nothing was written in the current directory, where a relative root resolves"),
+     # The direct check, not "nothing was written in the current directory": since followups2 refuses a storage root
+     # that is not a full path, a relative default can no longer write anywhere, so that check stays green under this
+     # mutant and the case scored WRONG (host 1.8.0 whole run, guard shard 5/8, 2026-10-30).
+     "no Documents: a known folder that names no folder gives no default root, never a relative one"),
     ('followups: 1029: remembrance: the store takes a blank root with no default',
      CAPTURE_STORE,
      b'                if (!IsFullFolder(fallback)) throw new InvalidOperationException(NoDefaultRootReason);\n',
