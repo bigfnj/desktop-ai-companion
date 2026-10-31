@@ -287,7 +287,11 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
             // silence while the others went on (its rows lapsed, its status kept its last value, and nothing surfaced until
             // shutdown): it is now that adapter's error, and the loop tries again next pass (independent review of 1.6.0,
             // P3-7). The type is not shown: it could carry a vendor message.
-            catch (Exception) when (!stop.IsCancellationRequested) { adapterErrors[adapter.Id] = "adapter_failed"; }
+            catch (Exception) when (!stop.IsCancellationRequested)
+            {
+                adapterNotes.TryRemove(adapter.Id, out _); // As above: a failed pass completed nothing to note.
+                adapterErrors[adapter.Id] = "adapter_failed";
+            }
             await Task.Delay(DiscoveryInterval, stop);
         }
     }

@@ -21,14 +21,18 @@ internal static class WindowsClientProcesses
     // refuse on any unreadable engine, a process that cannot be read is set aside on its own (Unreadable): it can only make
     // a lock it holds unverifiable, never every lock (review of 25a0c65, finding 4).
     internal static CodexEngineSet ReadCodexEngines() => SelectCodexEngines(ReadSnapshot(), ReadMetadata);
+    internal const int MaximumEngineCandidates = 512;
 
     internal static CodexEngineSet SelectCodexEngines(IReadOnlyDictionary<uint, (uint Parent, string Name)> processes,
         Func<uint, (string Image, ulong Created, bool SameUser)> readMetadata)
     {
         var engines = new List<CodexEngine>();
         var unreadable = new HashSet<uint>();
+        bool incomplete = false;
         foreach (var process in processes.Where(p => string.Equals(p.Value.Name, "codex.exe", StringComparison.OrdinalIgnoreCase)))
         {
+            // The bound: past it, the set says it is incomplete, and an unmatched holder reads query_failed (Classify).
+            if (engines.Count + unreadable.Count >= MaximumEngineCandidates) { incomplete = true; break; }
             if (!processes.TryGetValue(process.Value.Parent, out var parent)) continue;
             CodexEngineHost host;
             if (string.Equals(parent.Name, "Code.exe", StringComparison.OrdinalIgnoreCase)) host = CodexEngineHost.Code;
@@ -44,9 +48,8 @@ internal static class WindowsClientProcesses
                 !string.Equals(Path.GetFileName(owner.Image), expectedParent, StringComparison.OrdinalIgnoreCase) ||
                 host == CodexEngineHost.Desktop && DesktopCompatibilityProfile.InstalledApplicationVersion(owner.Image) is null) continue;
             engines.Add(new(process.Key, child.Created, host));
-            if (engines.Count + unreadable.Count > 512) break;
         }
-        return new(engines, unreadable);
+        return new(engines, unreadable, incomplete);
     }
 
     private static Dictionary<uint, (uint Parent, string Name)> ReadSnapshot()

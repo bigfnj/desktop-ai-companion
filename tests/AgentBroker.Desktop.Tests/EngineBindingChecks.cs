@@ -44,6 +44,9 @@ internal static class EngineBindingChecks
         check(CodexEngineBinding.Classify(new(WriterLockState.Queried, [new(4300, 3000)]), engines, unreadable) == new CodexEngineBindingVerdict(false, "query_failed") &&
             CodexEngineBinding.Classify(new(WriterLockState.Queried, [new(4100, 1000)]), engines, unreadable) == new CodexEngineBindingVerdict(true, "code_engine"),
             "ENGINE_UNREADABLE_HOLDER: a lock held by an unreadable process is query_failed, and every other lock is still classified");
+        // Review of d9c2967, item 6: a selection cut at its bound cannot call an unmatched holder foreign.
+        check(CodexEngineBinding.Classify(new(WriterLockState.Queried, [new(30000, 3000)]), engines, null, incomplete: true) == new CodexEngineBindingVerdict(false, "query_failed"),
+            "ENGINE_INCOMPLETE_UNMATCHED: with an incomplete engine set, an unmatched holder is query_failed, not foreign_holder");
     }
 
     private static void PathChecks(Action<bool, string> check)
@@ -110,6 +113,12 @@ internal static class EngineBindingChecks
         check(!engines.Any(engine => engine.Pid == 12), "ENGINE_SELECT_DESKTOP_PACKAGE: a ChatGPT.exe outside the Codex package owns no engine");
         check(!engines.Any(engine => engine.Pid == 13), "ENGINE_SELECT_REUSED_PARENT: a parent created after its engine owns no engine");
         check(!engines.Any(engine => engine.Pid == 14) && engines.Count == 2, "ENGINE_SELECT_OTHER_PARENT: a codex.exe under any other parent is not an engine");
+        check(!set.Incomplete, "ENGINE_SELECT_COMPLETE: a selection inside its bound is complete");
+        var crowd = new Dictionary<uint, (uint Parent, string Name)> { [100] = (1, "Code.exe") };
+        for (uint pid = 1000; pid < 1000 + WindowsClientProcesses.MaximumEngineCandidates + 20; pid++) crowd[pid] = (100, "codex.exe");
+        var capped = WindowsClientProcesses.SelectCodexEngines(crowd, pid => pid == 100 ? (@"C:\Synthetic\Code.exe", 400UL, true) : (@"C:\Synthetic\codex.exe", 500UL, true));
+        check(capped.Incomplete && capped.Engines.Count == WindowsClientProcesses.MaximumEngineCandidates,
+            "ENGINE_SELECT_INCOMPLETE: a selection that stops at its bound says it is incomplete");
         var otherUser = WindowsClientProcesses.SelectCodexEngines(processes, pid => Metadata(pid) with { SameUser = pid != 10 }).Engines;
         check(!otherUser.Any(engine => engine.Pid == 10), "ENGINE_SELECT_SAME_USER: an engine of another user is not recognised");
         // The profile check's own selection stays strict (an unreadable engine refuses it), so it reads the set without 15.

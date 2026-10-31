@@ -48,10 +48,11 @@ public sealed class ClaudeNativeProvider : IClaudeNativeProvider
         // owner saw no row and no reason (N-broker-elevated-caller-01).
         if (unopenableThisPass > 0)
             // A note, not an adapter failure (review of 25a0c65, finding 5): the other sessions are healthy, so the pane keeps
-            // their wake line and shows this beside it. Short enough for a 120-character tray label with its marker.
+            // their wake line and shows this beside it. At most 116 characters for any count up to the 32-process bound, so it
+            // fits a 120-character tray label with its marker (the plural once ran to 117 and lost its final period).
             diagnostics.Add(new("claude_session_elevated", unopenableThisPass + " Claude Code session" + (unopenableThisPass == 1
-                ? " is elevated or another user's and cannot be woken; use register_agent or run it unelevated."
-                : "s are elevated or another user's and cannot be woken; use register_agent or run them unelevated."))
+                ? " is elevated or another user's and cannot be woken; use register_agent or run unelevated."
+                : "s are elevated or another user's and cannot be woken; use register_agent or run unelevated."))
             { Note = true });
         foreach (var key in profiles.Keys.Where(key => !live.Contains(key.Pid)).ToArray()) profiles.Remove(key);
         // Publish only a completed pass. A stale process cannot hide a supported one, and a later

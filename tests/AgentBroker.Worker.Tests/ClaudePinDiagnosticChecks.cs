@@ -176,9 +176,12 @@ internal static class ClaudePinDiagnosticChecks
         check(diagnostic?.Note == true, "CLAUDE_ELEVATED_NOTE: the elevated count is a note about some sessions, not an adapter failure");
         source.Processes[secondElevated.Pid] = secondElevated;
         await provider.DiscoverAsync(CancellationToken.None);
-        check(provider.DiscoveryDiagnostics.SingleOrDefault(item => item.Code == "claude_session_elevated")?.Description
-                .StartsWith("2 Claude Code sessions are elevated", StringComparison.Ordinal) == true,
+        string? plural = provider.DiscoveryDiagnostics.SingleOrDefault(item => item.Code == "claude_session_elevated")?.Description;
+        check(plural?.StartsWith("2 Claude Code sessions are elevated", StringComparison.Ordinal) == true,
             "CLAUDE_ELEVATED_PLURAL: two elevated sessions are counted as two");
+        // Review of d9c2967, item 3: the plural ran to 117 characters and lost its final period in the module's 116.
+        check(plural is not null && ("32" + plural[1..]).Length <= 116 && plural.EndsWith(".", StringComparison.Ordinal),
+            "CLAUDE_ELEVATED_PLURAL_FITS: the plural note fits 116 characters even at the 32-process bound");
         check(await provider.RefreshAsync(elevated.Pid, CancellationToken.None) is null,
             "CLAUDE_ELEVATED_REFRESH: a direct refresh of an elevated session still finds no target");
         source.Processes.Remove(elevated.Pid); source.Processes.Remove(secondElevated.Pid);

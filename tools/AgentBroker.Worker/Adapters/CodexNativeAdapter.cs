@@ -50,6 +50,7 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
     private int engineObserving;
     private readonly CancellationTokenSource engineStop = new();
     internal TimeSpan EngineObservationBudget { get; init; } = TimeSpan.FromSeconds(10);
+    internal TimeSpan EngineDisposeMargin { get; init; } = TimeSpan.FromSeconds(5);
     // The observation started by the latest pass that started one; for the checks, which wait for it.
     internal Task EngineObservation { get; private set; } = Task.CompletedTask;
     public EngineBinding? EngineBindingOf(SessionAddress address) => engineByRow.GetValueOrDefault(address);
@@ -175,7 +176,9 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
             skippedLastPass = skipped.Count;
             // Report only: each listed row's thread writer lock, observed after every capability and address above was decided,
             // in the background and kept beside the rows, never in them, so it can neither change one nor delay the pass.
-            BeginEngineObservation(sessions.Select(session => session.Address).ToArray());
+            // found also holds a conversation this pass skipped (its lookup ran out of time) with its earlier binding: its row
+            // stays registered and deliverable, so it keeps its observation as an unreached row does (review of d9c2967, item 8).
+            BeginEngineObservation(sessions.Select(session => session.Address).ToArray(), found.Keys.ToArray());
             return sessions;
         }
         catch (DesktopAdapterException error)
@@ -267,14 +270,15 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
 
     private static AdapterResult Observed(AdapterResult result, EngineBinding? engine) => engine is null ? result : result with { EngineBinding = engine };
 
-    // Called under the discovery gate with the pass's listed rows. A row no longer listed loses its observation now; the
-    // rest keep theirs until the background observation replaces them.
-    private void BeginEngineObservation(IReadOnlyList<SessionAddress> listed)
+    // Called under the discovery gate with the pass's listed rows (observed now) and every row it keeps (listed, or skipped
+    // with its earlier binding). A row in neither loses its observation now; the rest keep theirs until the background
+    // observation replaces them.
+    private void BeginEngineObservation(IReadOnlyList<SessionAddress> listed, IReadOnlyList<SessionAddress> kept)
     {
         if (engineBindings is null) return;
         lock (engineGate)
         {
-            engineListed = listed.ToHashSet();
+            engineListed = kept.Concat(listed).ToHashSet();
             engineByRow = engineByRow.Where(pair => engineListed.Contains(pair.Key)).ToDictionary(pair => pair.Key, pair => pair.Value);
         }
         if (listed.Count == 0 || engineStop.IsCancellationRequested || Interlocked.CompareExchange(ref engineObserving, 1, 0) != 0) return;
@@ -312,7 +316,8 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
         catch (Exception) { verdicts = Failed(threads); }
         var now = clock.GetUtcNow();
         foreach (var thread in threads)
-            if (verdicts.TryGetValue(thread, out var verdict) && verdict is not null) result[thread] = new(verdict.Bound, verdict.Reason, now);
+            if (verdicts.TryGetValue(thread, out var verdict) && verdict is not null)
+                result[thread] = new(verdict.Bound, verdict.Reason, verdict.ObservedAt ?? now);
         return result;
     }
 
@@ -416,7 +421,11 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
             // The background observation stops at its next thread (each query is about 0.1 s), and is waited for so nothing
             // queries a lock after disposal.
             engineStop.Cancel();
-            try { await EngineObservation; } catch (Exception) { }
+            // Bounded (review of d9c2967, item 7): a Restart Manager call that hangs must not hang disposal under the gate. The
+            // query was cancelled above; past its budget and a margin, disposal goes on and says so in the trace.
+            try { await EngineObservation.WaitAsync(EngineObservationBudget + EngineDisposeMargin); }
+            catch (TimeoutException) { System.Diagnostics.Trace.TraceWarning("AgentBroker: a Codex engine observation outlived disposal's wait."); }
+            catch (Exception) { }
             await provider.DisposeAsync();
         }
         finally { gate.Release(); }

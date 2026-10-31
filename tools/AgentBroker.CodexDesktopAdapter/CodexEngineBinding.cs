@@ -34,14 +34,17 @@ public sealed record WriterLockObservation(WriterLockState State, IReadOnlyList<
     public static readonly WriterLockObservation Failed = new(WriterLockState.Failed, []);
 }
 
-/// <summary>Bound, and why: code_engine or desktop_engine when bound; otherwise the reason it is not.</summary>
-public sealed record CodexEngineBindingVerdict(bool Bound, string Reason);
+/// <summary>Bound, and why: code_engine or desktop_engine when bound; otherwise the reason it is not. ObservedAt is when
+/// this thread's own query ran, when the source knows it; the broker otherwise stamps the end of the observation.</summary>
+public sealed record CodexEngineBindingVerdict(bool Bound, string Reason, DateTimeOffset? ObservedAt = null);
 
 /// <summary>The engines running now, and the codex.exe processes that looked like engines but could not be read (one that
 /// exited between the snapshot and the read, another user's, an elevated VS Code's). Only a lock held by one of those reads
 /// query_failed; every other lock is classified as usual (review of 25a0c65, finding 4: one unreadable process used to
-/// spoil every lock, the A-broker-03 shape).</summary>
-public sealed record CodexEngineSet(IReadOnlyList<CodexEngine> Engines, IReadOnlySet<uint> Unreadable);
+/// spoil every lock, the A-broker-03 shape).
+/// Incomplete: the selection stopped at its bound, so an unmatched holder may be an engine it never reached and reads
+/// query_failed, not foreign_holder.</summary>
+public sealed record CodexEngineSet(IReadOnlyList<CodexEngine> Engines, IReadOnlySet<uint> Unreadable, bool Incomplete = false);
 
 /// <summary>The broker's source of engine-binding observations, one verdict per thread. Never throws: a failure is a
 /// verdict (query_failed). Threads not reached before the token is cancelled are absent from the answer, so a slow
@@ -59,7 +62,7 @@ public static class CodexEngineBinding
     /// <summary>Pure: the verdict for one lock observation against the engines running now. Bound only for exactly one holder
     /// whose process ID AND start time are a recognised engine's.</summary>
     public static CodexEngineBindingVerdict Classify(WriterLockObservation observation, IReadOnlyList<CodexEngine> engines,
-        IReadOnlySet<uint>? unreadable = null)
+        IReadOnlySet<uint>? unreadable = null, bool incomplete = false)
     {
         switch (observation.State)
         {
@@ -72,7 +75,8 @@ public static class CodexEngineBinding
         var holder = observation.Holders[0];
         if (unreadable?.Contains(holder.Pid) == true) return new(false, "query_failed");
         var engine = engines.FirstOrDefault(candidate => candidate.Pid == holder.Pid);
-        if (engine is null) return new(false, "foreign_holder");
+        // A selection cut at its bound cannot say a holder is no engine: it may be one never reached.
+        if (engine is null) return new(false, incomplete ? "query_failed" : "foreign_holder");
         if (engine.CreationFileTime != holder.StartFileTime) return new(false, "start_time_mismatch");
         return new(true, engine.Host == CodexEngineHost.Code ? CodeEngine : DesktopEngine);
     }
@@ -144,8 +148,11 @@ public sealed class WindowsCodexEngineBindingSource : ICodexEngineBindingSource
                 catch (Exception error) when (error is DesktopAdapterException or Win32Exception or IOException or UnauthorizedAccessException or InvalidOperationException)
                 { snapshotFailed = true; }
             }
-            result[thread] = observation is { State: WriterLockState.Queried, Holders.Count: 1 } && snapshotFailed
-                ? new(false, "query_failed") : CodexEngineBinding.Classify(observation, engines?.Engines ?? [], engines?.Unreadable);
+            // Stamped per thread, when its own query ran (review of d9c2967, item 5): the observation can last its whole budget.
+            var verdict = observation is { State: WriterLockState.Queried, Holders.Count: 1 } && snapshotFailed
+                ? new(false, "query_failed") : CodexEngineBinding.Classify(observation, engines?.Engines ?? [], engines?.Unreadable,
+                    engines?.Incomplete == true);
+            result[thread] = verdict with { ObservedAt = DateTimeOffset.UtcNow };
         }
         return result;
     }

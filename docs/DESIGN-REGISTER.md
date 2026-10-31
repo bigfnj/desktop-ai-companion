@@ -6821,11 +6821,12 @@ forwards and reject a response not from the target's socket, or an owner-discove
 path, or each view would carry a credential. The engine binding above is as far as the broker can see on its own.
 
 **An elevated caller gets `caller_elevated`, and Medium is not bridged to High (N-broker-elevated-caller-01).** Two shapes,
-both measured on this workstation. For some elevated launches `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)` from the
-Medium-integrity broker fails with `ERROR_ACCESS_DENIED`, so `whoami` walked nothing and answered `caller_unresolved`; it
-now answers `caller_elevated` when the owner was found and exactly that refusal came back (`WindowsCallerProcessResolver.Compose`).
-For a same-user UAC elevation the review measured the limited query succeeding and the full one (`0x0410`) refused, so the
-walk succeeds, no adapter binds the elevated process, and the first fix still answered `no_native_session`; the nearest
+one of them measured. Measured on this workstation, for a same-user UAC elevation: the limited query succeeds and the full
+one (`0x0410`) is refused with error 5. The other shape, `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)` itself refused
+with `ERROR_ACCESS_DENIED`, is what another user's process or a protected one returns (this lane's Medium shell got it from
+five SYSTEM processes); it is handled by design (`whoami` answers `caller_elevated` when the owner was found and exactly that
+refusal came back, `WindowsCallerProcessResolver.Compose`, where it used to answer `caller_unresolved`) and was not measured
+as a same-user elevation. For the measured shape the walk succeeds, no adapter binds the elevated process, and the first fix still answered `no_native_session`; the nearest
 claude or codex process of an unbound chain is now asked whether a full query (`PROCESS_QUERY_INFORMATION`) is refused, its
 start time re-read first so a reused ID is never called elevated (`QueryDenied`). Claude discovery counts such sessions
 (`claude_session_elevated`) as a note beside the healthy sessions' line, not an adapter error, instead of skipping them in

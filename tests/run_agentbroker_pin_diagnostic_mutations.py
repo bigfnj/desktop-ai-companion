@@ -75,7 +75,7 @@ ASSEMBLIES = {
 # checks (adapter failure recorded, owner_discovery_rejected per row), and owner_discovery_rejected during owner
 # resolution now checked as a skipped row (two checks) instead of a failed pass (three).
 EXISTING_COUNTS = {"worker": 234, "desktop": 157}  # worker 213 -> 234: re-measured by lane broker-163; stale before it (no existing-suite check changed there)
-FOCUSED_COUNTS = {"worker": 89, "desktop": 15}  # worker 81 -> 89: lane broker-163 (CLAUDE_ELEVATED_* and RUNTIME_NOTE_APART)
+FOCUSED_COUNTS = {"worker": 91, "desktop": 15}  # worker 81 -> 91: lane broker-163 (CLAUDE_ELEVATED_* and RUNTIME_NOTE_*)
 CLAUDE_SCENARIOS = ("early-reject", "unsupported-version", "hash-mismatch", "mixed", "recovery", "bounded-snapshot")
 
 

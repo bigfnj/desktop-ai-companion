@@ -72,6 +72,26 @@ internal static class EngineBindingReportChecks
             "ENGINE_SOURCE_NULL: a source that answers null reads query_failed instead of throwing");
         source.Null = false;
 
+        // Review of d9c2967, item 5: a verdict that carries its own query time keeps it, instead of the observation's end.
+        var queried = clock.GetUtcNow().AddSeconds(-7);
+        source.Verdict = new(true, CodexEngineBinding.CodeEngine, queried);
+        await reporting.DiscoverAsync(broker, default);
+        await reporting.EngineObservation;
+        check(reporting.EngineBindingOf(row.Address)?.ObservedAt == queried,
+            "ENGINE_OBSERVED_PER_THREAD: a row's observedAt is its own query's time when the source knows it");
+        source.Verdict = new(true, CodexEngineBinding.CodeEngine);
+
+        // Item 8: a conversation the pass skipped (its owner lookup failed) keeps its observation, as its row stays registered.
+        await reporting.DiscoverAsync(broker, default);
+        await reporting.EngineObservation;
+        var beforeSkip = reporting.EngineBindingOf(row.Address);
+        provider.FailLookup = true;
+        var skippedPass = await reporting.DiscoverAsync(broker, default);
+        await reporting.EngineObservation;
+        provider.FailLookup = false;
+        check(skippedPass.Count == 0 && beforeSkip is not null && reporting.EngineBindingOf(row.Address) == beforeSkip,
+            "ENGINE_SKIPPED_KEEPS: a conversation skipped by its owner lookup keeps its previous observation");
+
         // Off the pass and inside a budget (finding 3): a source that never finishes neither holds the pass nor runs past its
         // budget, and a row it did not reach keeps its previous observation, whose ObservedAt says how old it is.
         var slow = new Source { Verdict = new(true, CodexEngineBinding.CodeEngine) };
@@ -91,6 +111,20 @@ internal static class EngineBindingReportChecks
             "ENGINE_OFF_THE_PASS: the pass returns while the observation still runs, and a row not reached keeps its previous observation");
         check(budgeted.EngineObservation.IsCompleted && timer.Elapsed < TimeSpan.FromSeconds(5) && slow.SawCancellation,
             $"ENGINE_BUDGET: the observation is cut at its budget ({timer.Elapsed.TotalMilliseconds:F0} ms for a 300 ms budget)");
+
+        // Item 7: a query that ignores cancellation (a hung Restart Manager call) cannot hang disposal.
+        using var release = new ManualResetEventSlim();
+        var hung = new Source { Verdict = new(true, CodexEngineBinding.CodeEngine), HangUntil = release };
+        var disposing = new CodexNativeAdapter(new Owner(provider.Thread, clock.GetUtcNow), enableDelivery: true, clock, engineBindings: hung)
+        { EngineObservationBudget = TimeSpan.FromMilliseconds(100), EngineDisposeMargin = TimeSpan.FromMilliseconds(200) };
+        await disposing.DiscoverAsync(broker, default);
+        var disposeTimer = System.Diagnostics.Stopwatch.StartNew();
+        var disposal = disposing.DisposeAsync().AsTask();
+        bool disposed = await Task.WhenAny(disposal, Task.Delay(TimeSpan.FromSeconds(5))) == disposal;
+        disposeTimer.Stop();
+        release.Set();
+        check(disposed && disposeTimer.Elapsed < TimeSpan.FromSeconds(3),
+            $"ENGINE_DISPOSE_BOUNDED: disposal waits for a hung observation only its budget and a margin ({disposeTimer.Elapsed.TotalMilliseconds:F0} ms)");
     }
 
     private static async Task RuntimeAsync(Action<bool, string> check)
@@ -174,12 +208,14 @@ internal static class EngineBindingReportChecks
     {
         internal volatile CodexEngineBindingVerdict Verdict = new(false, "lock_missing");
         internal volatile bool Throws, Null, BlockUntilCancelled, SawCancellation;
+        internal ManualResetEventSlim? HangUntil;
         internal List<Guid[]> Asked { get; } = [];
         public IReadOnlyDictionary<Guid, CodexEngineBindingVerdict> Observe(IReadOnlyCollection<Guid> threadIds, CancellationToken token)
         {
             lock (Asked) Asked.Add(threadIds.ToArray());
             if (Throws) throw new InvalidOperationException("Synthetic observation failure.");
             if (Null) return null!;
+            HangUntil?.Wait(TimeSpan.FromSeconds(30));
             if (BlockUntilCancelled)
             {
                 // Reaches nothing before the budget ends, as a Restart Manager pass over too many locks would.
@@ -198,14 +234,15 @@ internal static class EngineBindingReportChecks
         private readonly Guid owner = Guid.NewGuid(), connection = Guid.NewGuid();
         private int submissions;
         internal int Submissions => Volatile.Read(ref submissions);
-        internal volatile bool DeferNext;
+        internal volatile bool DeferNext, FailLookup;
         public bool NativeIdleGuard => true;
         private DesktopOwnerBinding Binding => new(Thread, owner, connection, 12345, 134000000000000000, true) { RouterTrust = DesktopRouterTrust.ExactPinned };
         public bool IsDeliveryAuthorized(DesktopOwnerBinding binding) => binding == Binding;
         public Task<IReadOnlyList<DesktopDirectorySession>> ObserveAsync(CancellationToken token) =>
             Task.FromResult<IReadOnlyList<DesktopDirectorySession>>([new(Thread, DesktopSessionActivity.Idle, now(), now())]);
-        public Task<DesktopOwnerBinding?> ResolveOwnerAsync(Guid conversationId, CancellationToken token) =>
-            Task.FromResult<DesktopOwnerBinding?>(conversationId == Thread ? Binding : null);
+        public Task<DesktopOwnerBinding?> ResolveOwnerAsync(Guid conversationId, CancellationToken token) => FailLookup
+            ? Task.FromException<DesktopOwnerBinding?>(new IOException("Synthetic owner lookup failure."))
+            : Task.FromResult<DesktopOwnerBinding?>(conversationId == Thread ? Binding : null);
         public Task<DesktopSubmissionResult> SubmitAsync(DesktopOwnerBinding binding, Guid messageId, string text, CancellationToken token)
         {
             if (DeferNext) { DeferNext = false; return Task.FromResult(new DesktopSubmissionResult(DesktopSubmissionOutcome.DeferredNotSubmitted)); }
