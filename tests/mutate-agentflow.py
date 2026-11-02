@@ -96,10 +96,11 @@ SESSIONLIMIT = os.path.join(MODULE_DIR, "SessionLimit.cs")
 SESSIONLIMIT_MODULE = os.path.join(MODULE_DIR, "AgentFlowModule.SessionLimit.cs")
 STATUS = os.path.join(MODULE_DIR, "AgentFlowModule.Status.cs")
 CODEXLIMIT = os.path.join(MODULE_DIR, "CodexLimit.cs")
+FOCUS = os.path.join(MODULE_DIR, "FocusHold.cs")
 
 TARGETS = (SPLITTER, RULES, DETECTOR, BUDGET, MODULE, READER, CDP, PROMPTOPTS, BUDGETPRESS,
            DOT, MODE, QUIPS, FEED, PETANIM, PANE, VSCODE, RULELOADER, CURSOR,
-           SESSIONLIMIT, SESSIONLIMIT_MODULE, STATUS, CODEXLIMIT)
+           SESSIONLIMIT, SESSIONLIMIT_MODULE, STATUS, CODEXLIMIT, FOCUS)
 
 # (name, file, find, replace, expected fragment of the assertion that must fail)
 CASES = (
@@ -1495,8 +1496,9 @@ CASES = (
     (
         "deadcode: Click stops reporting the outcome of the evaluated template",
         CDP,
-        "                        string result = session.Evaluate(sessionId, expression);\n                        return string.IsNullOrEmpty(result) ? \"gone\" : result;",
-        "                        string result = session.Evaluate(sessionId, expression);\n                        return \"gone\";",
+        # Re-anchored by 1.12.3 (agentflow-focus): the press now detaches before it reports, so the safety net can run.
+        "                    if (string.IsNullOrEmpty(result)) return \"gone\";",
+        "                    return \"gone\";",
         "WIRE the production callback presses through a second connection",
     ),
     (
@@ -2366,8 +2368,9 @@ CASES = (
     (
         "codex-queue: (1.12.0) Decide presses without naming the card",
         MODULE,
-        "decision.ChosenRaw, 1500, view.Agent, view.CardId);",
-        'decision.ChosenRaw, 1500, view.Agent, "");',
+        # Re-anchored by 1.12.3 (agentflow-focus): the press also carries the sweep's panel list.
+        "decision.ChosenRaw, 1500, view.Agent, view.CardId, view.Panels,",
+        'decision.ChosenRaw, 1500, view.Agent, "", view.Panels,',
         "each by its own id",
     ),
     (
@@ -2522,6 +2525,159 @@ CASES = (
         "                if (field.Kind == SettingKind.Info || field.Kind == SettingKind.Header) continue;\n                string edit;",
         "                string edit;",
         "pending edits: a display-only row is rendered afresh, never carried from the screen",
+    ),
+    # ---- lane feature/agentflow-no-focus-steal (1.12.3) ----
+    # The owner's report of 2026-11-02: a press took focus from the card they were working in. SelfCheckFocusHold runs
+    # the REAL press, probe and restore expressions in chakra.dll against FakeFocusPage's DOM model behind FakeCdpServer.
+    # Names carry the "agentflow-focus:" prefix so `--only=agentflow-focus:` runs the lane.
+    # Since Codex's audit of 2026-11-02 the hold is scoped to the card (until it settles, or a hard cap) and covers
+    # select(); since Codex's review of 35fe4e8 it is installed on every press and decides per call; since Codex's recheck
+    # of 52c5d3a the user's trusted pointer press opens a short gesture allowance, and the safety net that moved focus
+    # back is REMOVED by decision (only detection remains). Retired with the net, their promises gone with the code: the
+    # user's trusted input is not recorded; the net ignores the user's recorded intent; the user's panel does not watch
+    # for a command key; the restore ignores the user's navigation; the net leaves the user's panel watched when it
+    # declines; the safety net never puts focus back; the safety net remembers a body; the net restores from another
+    # press's memo. Retired with keydown observation (a key only reaches a focused document): the keydown observer is
+    # dropped.
+    (
+        "agentflow-focus: the Claude click holds nothing",
+        CDP,
+        '  var release = agentflowHoldFocus(d, function () {{ return !!d.querySelector(\'[class*=""permissionRequestContainer""]\'); }}, {3});\n',
+        "  var release = null;\n",
+        "a press in a card the user is not in leaves focus in the user's card",
+    ),
+    (
+        "agentflow-focus: the Codex click holds nothing",
+        CDP,
+        '  var release = agentflowHoldFocus(a.doc, function () { return !!a.doc.querySelector(\'[class*=""@container/approval-card""]\'); }, __ACTION__);\n',
+        "  var release = null;\n",
+        "a Codex press holds the card's synchronous and 50 ms focus and the follow-on card's autofocus",
+    ),
+    (
+        "agentflow-focus: the session-limit send holds nothing",
+        SESSIONLIMIT,
+        "  var release = agentflowHoldFocus(d, null, '');\n",
+        "  var release = null;\n",
+        "the session-limit send holds the panel's focus calls",
+    ),
+    (
+        "agentflow-focus: the live per-call focus check is removed",
+        FOCUS,
+        "              try { focused = d.hasFocus(); } catch (e) { }\n              if (!focused) return undefined;",
+        "              if (!focused) return undefined;",
+        "the card's own focus call made while the card has focus goes through",
+    ),
+    (
+        "agentflow-focus: the hold never puts the originals back",
+        FOCUS,
+        "        try { if (s.owner[s.name] === s.held) Object.defineProperty(s.owner, s.name, s.descriptor); } catch (e) { }\n",
+        "",
+        ("once the card has settled the hold lets go", "a click that throws releases the hold it made at once"),
+    ),
+    (
+        "agentflow-focus: the hold leaves its mousedown listener behind",
+        FOCUS,
+        "try { w.removeEventListener(inputs[ri], onInput, true); }",
+        "try { if (inputs[ri] !== 'mousedown') w.removeEventListener(inputs[ri], onInput, true); }",
+        "once the card has settled the hold lets go",
+    ),
+    (
+        "agentflow-focus: the hold's settle timer is never armed",
+        FOCUS,
+        "      h.timer = w.setTimeout(h.tick, __POLL_MS__);\n    } catch (e) { h.release(); return null; }",
+        "    } catch (e) { h.release(); return null; }",
+        "once the card has settled the hold lets go",
+    ),
+    (
+        "agentflow-focus: an overlapping press captures the first press's wrapper",
+        FOCUS,
+        "    if (h && h.active) {",
+        "    if (false) {",
+        "after overlapping presses, at the latest one's hard cap",
+    ),
+    (
+        "agentflow-focus: the hold ignores a card still standing",
+        FOCUS,
+        "      try { settling = !!(h.busy && h.busy()); } catch (e) { }\n",
+        "",
+        "Claude's diff path: the card clears ten seconds after the press",
+    ),
+    (
+        "agentflow-focus: the hard cap is not enforced",
+        FOCUS,
+        "      if (t >= h.capAt) { h.release(); return; }\n",
+        "",
+        "after overlapping presses, at the latest one's hard cap",
+    ),
+    (
+        "agentflow-focus: select() is not held",
+        FOCUS,
+        ", [w.HTMLInputElement, 'select'], [w.HTMLTextAreaElement, 'select']];",
+        "];",
+        "a press in a card the user is not in leaves focus in the user's card",
+    ),
+    (
+        "agentflow-focus: the gesture allowance is removed",
+        FOCUS,
+        "            if (h.active && t < h.capAt && t >= h.allowUntil) {",
+        "            if (h.active && t < h.capAt) {",
+        "with the card held, the user's own press on a dropdown that prevents native focus",
+    ),
+    (
+        "agentflow-focus: the gesture allowance never expires",
+        FOCUS,
+        "      h.allowUntil = Date.now() + __GESTURE_MS__;\n",
+        "      h.allowUntil = Infinity;\n",
+        "once the gesture allowance has passed, a background focus in that card is",
+    ),
+    (
+        "agentflow-focus: the user's press ends the hold",
+        FOCUS,
+        "      h.allowUntil = Date.now() + __GESTURE_MS__;\n",
+        "      h.allowUntil = Date.now() + __GESTURE_MS__;\n      h.release();\n",
+        "with the card held, the user's own press on a dropdown that prevents native focus",
+    ),
+    (
+        "agentflow-focus: the input observer acts on the user's event",
+        FOCUS,
+        "      if (!e || !e.isTrusted) return;\n      h.allowUntil = Date.now() + __GESTURE_MS__;",
+        "      if (!e || !e.isTrusted) return;\n      if (e.preventDefault) e.preventDefault();\n      h.allowUntil = Date.now() + __GESTURE_MS__;",
+        "the Codex clicker builds and dispatches no key, and its input observer only listens",
+    ),
+    (
+        "agentflow-focus: the Codex click dispatches a key",
+        CDP,
+        "  try {\n    b.click();",
+        "  try {\n    b.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));\n    b.click();",
+        "the Codex clicker builds and dispatches no key",
+    ),
+    (
+        "agentflow-focus: the detection ignores whether the card had focus at the act",
+        FOCUS,
+        "  if (!act.background) return 'was-focused';\n",
+        "",
+        "a press that found the user already in the card writes no detection line",
+    ),
+    (
+        "agentflow-focus: the detection takes another press's record",
+        FOCUS,
+        "  if (!act || act.id !== __ACTION__) return 'other';",
+        "  if (!act) return 'other';",
+        "the pressed panel's record answers only for its own press",
+    ),
+    (
+        "agentflow-focus: the detection line is never written",
+        FOCUS,
+        '                return string.Equals(moved, "moved", StringComparison.Ordinal) ? FocusMovedNote : null;',
+        "                return null;",
+        "a focus the hold cannot reach (an extension's reveal) is reported",
+    ),
+    (
+        "agentflow-focus: the sweep does not hand its panel list to the press",
+        CDP,
+        "                                view.Panels = panels;\n                                if (!HandleCard(view, agent, handle, handed, pressedNotes, refusals)) continue;\n                                pressedHere++;",
+        "                                if (!HandleCard(view, agent, handle, handed, pressedNotes, refusals)) continue;\n                                pressedHere++;",
+        "a focus the hold cannot reach (an extension's reveal) is reported",
     ),
 )
 

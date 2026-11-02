@@ -1191,8 +1191,11 @@ namespace DesktopAICompanion.AgentFlow
             }
 
             // The card by its element id (1.12.0): a Codex panel can hold several, and this press is for this one.
+            // With the sweep's panel list (1.12.3), so a press that moves focus out of the panel the user is in says so.
+            string focusNote;
             string outcome = CdpApprover.Click(port, view.TargetId, decision.Index,
-                                               decision.ChosenRaw, 1500, view.Agent, view.CardId);
+                                               decision.ChosenRaw, 1500, view.Agent, view.CardId, view.Panels,
+                                               out focusNote);
             pressed = string.Equals(outcome, "clicked", StringComparison.Ordinal);
             // No NotePromptCleared on 'clicked' (RA-049). A click that ran is not evidence that the
             // card went away, and the card that stays after a click is the loop the repeat guard
@@ -1200,7 +1203,7 @@ namespace DesktopAICompanion.AgentFlow
             // fingerprint in the signature is what tells the 1.4.0 collision apart now, and the
             // sweep that finds nothing is the one clear left. See PressBudget.NotePromptCleared.
             return "auto-approve " + outcome + " for " + DescribeSubject(view)
-                   + ": " + decision.Reason;
+                   + ": " + decision.Reason + (focusNote != null ? "; " + focusNote : "");
         }
 
         /// <summary>
@@ -3618,6 +3621,7 @@ namespace DesktopAICompanion.AgentFlow
                         SelfCheckStatusCard,
                         SelfCheckMultiPress,
                         SelfCheckCodexQueue,
+                        SelfCheckFocusHold,
                         SelfCheckTickBeat,
                         SelfCheckPendingEditsSurvivePetChange,
                         SelfCheckCacheBound,
@@ -5754,8 +5758,11 @@ namespace DesktopAICompanion.AgentFlow
                 probe.Check("WIRE a refused prompt on the first webview does not starve the second: its approve row is pressed",
                     pass.PressedAny && note != null
                     && note.IndexOf("auto-approve clicked", StringComparison.Ordinal) >= 0);
-                probe.Check("WIRE ...the sweep read both webviews and clicked once: three attaches, three evaluations",
-                    starved.AttachCount == 3 && starved.EvaluateCount == 3 && sawPanel);
+                // Four since 1.12.3: the press first asks the OTHER panel whether the user is in it (focus detection,
+                // CdpApprover.OtherPanelHasFocus), one attach and one evaluation on the press's own connection.
+                probe.Check("WIRE ...the sweep read both webviews and clicked once: two reads, one focus probe of the other "
+                            + "panel, one click; four attaches, four evaluations",
+                    starved.AttachCount == 4 && starved.EvaluateCount == 4 && sawPanel);
                 probe.Check("WITNESS the press note comes back alone, without the standing refusal beside it",
                     note != null && note.IndexOf("a plan", StringComparison.Ordinal) < 0
                     && note.IndexOf(" | ", StringComparison.Ordinal) < 0);
@@ -7074,7 +7081,16 @@ namespace DesktopAICompanion.AgentFlow
             // the Codex dialog is DENY -- the row literally reads "Deny Esc" -- so a keystroke sent
             // to "just close the menu" rejects the user's command. That happened once, by hand,
             // on 2026-09-21. Nothing this module sends to that panel may be a key.
-            string[] keyboard = { "KeyboardEvent", "keydown", "keyup", "keypress", "Escape" };
+            //
+            // OBSERVING IS NOT SENDING (1.12.3, agreed with Codex's review of 2026-11-02). The focus hold listens, in the
+            // capture phase, for the user's own trusted keydown to record their intent, so the bare word "keydown" is no
+            // longer the test. What is banned is what SENDS a key: building a keyboard event, dispatching any event, a
+            // synthetic Escape, a CDP Input method, execCommand. That the listener only listens (no preventDefault, no
+            // propagation change, no key built or dispatched when a press runs) is asserted by BEHAVIOUR in
+            // SelfCheckFocusHold, which runs this click in a JS engine.
+            string[] keyboard = { "KeyboardEvent", "keyup", "keypress", "Escape", "dispatchEvent", "Input.dispatchKeyEvent",
+                                  "Input.insertText", "execCommand", "preventDefault", "stopPropagation",
+                                  "stopImmediatePropagation" };
             foreach (string banned in keyboard)
             {
                 probe.Check("WITNESS the Codex reader sends no keyboard event (" + banned + ")",

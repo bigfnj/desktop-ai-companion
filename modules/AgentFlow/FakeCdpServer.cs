@@ -79,6 +79,12 @@ namespace DesktopAICompanion.AgentFlow
             /// at 0 lands before the click is answered, a later one on a timer, so a test can model the pressed card
             /// leaving, a gap, and the next request's card mounting. A click with no entry left changes nothing.</summary>
             public readonly Queue<KeyValuePair<int, string>[]> AfterClicks = new Queue<KeyValuePair<int, string>[]>();
+            /// <summary>When set, EVERY Runtime.evaluate on this target is answered by this function from the
+            /// expression's exact text (1.12.3), null meaning "no value", and the canned results above are not
+            /// consulted. Clicks are still counted. The focus checks hand it <see cref="FakeFocusPage"/>, which runs the
+            /// expression in a real JS engine against a small DOM model, because what they assert (focus calls held
+            /// and restored, timers, prototypes) is JS behaviour that a canned answer could only restate.</summary>
+            public Func<string, string> Evaluator;
         }
 
         internal int Port { get; private set; }
@@ -243,6 +249,20 @@ namespace DesktopAICompanion.AgentFlow
                             Send(socket, "{\"id\":" + id + ",\"result\":{\"result\":{\"type\":\"object\"},"
                                 + "\"exceptionDetails\":{\"text\":\"Uncaught\"}}}");
                         }
+                        else if (target.Evaluator != null)
+                        {
+                            if (IsClickTemplate(request))
+                                lock (_lock)
+                                {
+                                    target.Clicks++;
+                                    target.ClickedCards.Add(WantedCard(StringField(request, "expression")));
+                                }
+                            string value = target.Evaluator(ExpressionOf(request));
+                            Send(socket, value == null
+                                ? "{\"id\":" + id + ",\"result\":{\"result\":{\"type\":\"undefined\"}}}"
+                                : "{\"id\":" + id + ",\"result\":{\"result\":{\"type\":\"string\",\"value\":"
+                                  + Quote(value) + "}}}");
+                        }
                         else if (target.SendResult != null && IsSendTemplate(request))
                         {
                             lock (_lock) { target.LastSendExpression = StringField(request, "expression"); }
@@ -332,6 +352,20 @@ namespace DesktopAICompanion.AgentFlow
             rest = rest.Substring(quote.Length);
             int end = rest.IndexOf(quote, StringComparison.Ordinal);
             return end < 0 ? "" : rest.Substring(0, end);
+        }
+
+        /// <summary>The expression EXACTLY as sent, for <see cref="Target.Evaluator"/>. Decoded with System.Text.Json
+        /// rather than <see cref="StringField"/>, which drops every backslash and so turns an escaped newline into a
+        /// letter n: fine for matching a fragment, wrong for text a JS engine is about to run. This decodes the request
+        /// the module ENCODED, so it cannot mask a defect in the module's own reply parsing.</summary>
+        private static string ExpressionOf(string request)
+        {
+            try
+            {
+                using (System.Text.Json.JsonDocument document = System.Text.Json.JsonDocument.Parse(request))
+                    return document.RootElement.GetProperty("params").GetProperty("expression").GetString() ?? "";
+            }
+            catch (Exception) { return ""; }
         }
 
         /// <summary>The session-limit send template: the only expression in the module that builds a KeyboardEvent.
