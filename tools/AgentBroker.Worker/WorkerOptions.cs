@@ -14,6 +14,9 @@ public sealed record WorkerOptions(string DataDirectory, string Name, int Loopba
     public bool EnableCodexUpdateTolerantDelivery { get; init; }
     public bool EnableClaudeNativeDiscovery { get; init; } = true;
     public bool EnableClaudePeerCredentials { get; init; }
+    // Opt-in here as Codex's is: an Anthropic-signed Claude Code build that is not exactly pinned may deliver. The module
+    // passes it by default (the owner's decision of 2026-11-02); a worker started by hand without it keeps strict pins.
+    public bool EnableClaudeUpdateTolerantDelivery { get; init; }
     public System.Net.IPAddress LanListenAddress { get; init; } = System.Net.IPAddress.Any;
     public bool EnableBrokerDiscovery { get; init; } = true;
     public int DefaultMessageLifetimeMinutes { get; init; } = 1440;
@@ -36,7 +39,7 @@ public sealed record WorkerOptions(string DataDirectory, string Name, int Loopba
             if (i + 1 >= args.Length || args[i] is not ("--data" or "--name" or "--loopback-port" or "--lan-port" or
                 "--lan" or "--allow-unauthenticated-loopback" or "--parent-pid" or "--parent-start" or
                 "--codex-discovery" or "--codex-peer-messages" or "--codex-update-tolerant-delivery" or "--claude-discovery" or "--claude-peer-credentials" or
-                "--message-lifetime-minutes") ||
+                "--claude-update-tolerant-delivery" or "--message-lifetime-minutes") ||
                 !values.TryAdd(args[i], args[i + 1])) throw new ArgumentException("Invalid broker arguments.");
         }
         if (!values.TryGetValue("--data", out var directory)) throw new ArgumentException("--data is required.");
@@ -50,6 +53,7 @@ public sealed record WorkerOptions(string DataDirectory, string Name, int Loopba
             EnableCodexUpdateTolerantDelivery = Bool("--codex-update-tolerant-delivery", false),
             EnableClaudeNativeDiscovery = Bool("--claude-discovery", true),
             EnableClaudePeerCredentials = Bool("--claude-peer-credentials", false),
+            EnableClaudeUpdateTolerantDelivery = Bool("--claude-update-tolerant-delivery", false),
             DefaultMessageLifetimeMinutes = Int("--message-lifetime-minutes", 1440),
         };
         result.Validate(); return result;

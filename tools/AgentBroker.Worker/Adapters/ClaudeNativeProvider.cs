@@ -8,6 +8,8 @@ public sealed class ClaudeNativeProvider : IClaudeNativeProvider
     private readonly Dictionary<(int Pid, ulong Started, string Path), EngineProfile> profiles = [];
     private readonly IClaudeDiscoverySource source;
     private readonly bool enablePeerCredentials;
+    // Update-tolerant delivery (the owner's decision of 2026-11-02): effective only with credentials, as Codex's is with delivery.
+    private readonly bool updateTolerant;
     private readonly Func<string?> pinDocumentError;
     private IReadOnlyList<AdapterDiscoveryDiagnostic> discoveryDiagnostics = Array.Empty<AdapterDiscoveryDiagnostic>();
     // Sessions this pass found but could not open (see RefreshCoreAsync). Discovery runs one pass at a time.
@@ -15,16 +17,23 @@ public sealed class ClaudeNativeProvider : IClaudeNativeProvider
     private const int ErrorAccessDenied = 5;
     private bool disposed;
 
-    public ClaudeNativeProvider(bool enablePeerCredentials = false)
-        : this(new WindowsClaudeDiscoverySource(), enablePeerCredentials) { }
+    public ClaudeNativeProvider(bool enablePeerCredentials = false, bool updateTolerantDelivery = false)
+        : this(new WindowsClaudeDiscoverySource(), enablePeerCredentials, updateTolerantDelivery: updateTolerantDelivery) { }
 
-    internal ClaudeNativeProvider(IClaudeDiscoverySource source, bool enablePeerCredentials = false, Func<string?>? pinDocumentError = null)
+    internal ClaudeNativeProvider(IClaudeDiscoverySource source, bool enablePeerCredentials = false, Func<string?>? pinDocumentError = null,
+        bool updateTolerantDelivery = false)
     {
         this.source = source; this.enablePeerCredentials = enablePeerCredentials;
+        updateTolerant = enablePeerCredentials && updateTolerantDelivery;
         this.pinDocumentError = pinDocumentError ?? (() => EngineProfile.PinDocumentError);
     }
 
     public IReadOnlyList<AdapterDiscoveryDiagnostic> DiscoveryDiagnostics => discoveryDiagnostics;
+
+    /// <summary>The publisher check NativePeerAdapter runs on the connected image before a send to an unpinned build; null
+    /// (exact pins only) unless update-tolerant delivery is in effect. It observes through the same source as discovery.</summary>
+    internal AgentBroker.ClaudeAdapter.IPublisherImageTrust? DeliveryImageTrust
+        => updateTolerant ? new ClaudePublisherImageTrust(source.ObserveUnpinnedPublicImage) : null;
 
     public async Task<IReadOnlyList<ClaudeNativeCandidate>> DiscoverAsync(CancellationToken token)
     {
@@ -92,18 +101,12 @@ public sealed class ClaudeNativeProvider : IClaudeNativeProvider
                 // every supported candidate must still match the complete public executable hash.
                 string? version = source.ReadProductVersion(image);
                 if (!EngineProfile.IsSupportedPublicVersion(version))
-                {
-                    diagnostics?.Add(CompatibilityDiagnostic("unsupported_public_version", version));
-                    return Task.FromResult(ObserveUnpinned(processId, metadata, process, image, started, version, diagnostics, token));
-                }
+                    return Task.FromResult(Unpinned("unsupported_public_version", processId, metadata, process, image, started, version, diagnostics, token));
                 string hash = source.ReadImageSha256(image);
                 profile = EngineProfile.Verified
                     .SingleOrDefault(candidate => string.Equals(candidate.Sha256, hash, StringComparison.OrdinalIgnoreCase));
                 if (profile is null)
-                {
-                    diagnostics?.Add(CompatibilityDiagnostic("image_hash_mismatch", version));
-                    return Task.FromResult(ObserveUnpinned(processId, metadata, process, image, started, version, diagnostics, token));
-                }
+                    return Task.FromResult(Unpinned("image_hash_mismatch", processId, metadata, process, image, started, version, diagnostics, token));
                 if (profiles.Count >= 32) profiles.Remove(profiles.Keys.First());
                 profiles[key] = profile;
             }
@@ -124,6 +127,26 @@ public sealed class ClaudeNativeProvider : IClaudeNativeProvider
             InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException or OverflowException)
         { return Task.FromResult<ClaudeNativeCandidate?>(null); }
     }
+
+    private ClaudeNativeCandidate? Unpinned(string pinRefusal, int processId, NativeSessionMetadata metadata,
+        IClaudeDiscoveryProcess process, string image, ulong started, string? version,
+        List<AdapterDiscoveryDiagnostic>? diagnostics, CancellationToken token)
+    {
+        int reportAt = diagnostics?.Count ?? 0;
+        ClaudeNativeCandidate? observed = null;
+        try { return observed = ObserveUnpinned(processId, metadata, process, image, started, version, diagnostics, token); }
+        finally
+        {
+            // The failed exact pin stays the adapter's error, first, as before, unless update-tolerant delivery carries this
+            // session. Then it is a note (the owner, 2026-11-02: an end user should not have to know), not a failure.
+            if (observed?.Provenance == ClaudeDiscoveryProvenance.UpdateTolerant) diagnostics?.Add(UpdateTolerantNote(version));
+            else diagnostics?.Insert(reportAt, CompatibilityDiagnostic(pinRefusal, version));
+        }
+    }
+
+    internal static AdapterDiscoveryDiagnostic UpdateTolerantNote(string? version)
+        => new("claude_update_tolerant_delivery", "Claude Code " + Installed(version) +
+            " is not a reviewed build; it is woken because Windows verified Anthropic's signature.") { Note = true };
 
     private ClaudeNativeCandidate? ObserveUnpinned(int processId, NativeSessionMetadata metadata,
         IClaudeDiscoveryProcess process, string image, ulong started, string? version,
@@ -149,15 +172,19 @@ public sealed class ClaudeNativeProvider : IClaudeNativeProvider
         if (process.HasExited || !process.IsCurrentUser || process.StartFileTime != started ||
             !string.Equals(process.ImagePath, image, StringComparison.OrdinalIgnoreCase)) return null;
         bool plausible = metadata.HasPlausibleActivityTimestamp(DateTimeOffset.UtcNow);
+        // Update-tolerant delivery makes the same signed, identity-checked observation deliverable. NativePeerAdapter checks the
+        // publisher again on the connected pipe server's own image, and its hash against this one, before any credential read.
         return new(new(metadata.CanonicalPipe, processId, image, hash, version ?? "unknown",
             started, metadata.SessionId), plausible ? metadata.Status : null)
-        { Provenance = ClaudeDiscoveryProvenance.PublisherSignedObservation };
+        { Provenance = updateTolerant ? ClaudeDiscoveryProvenance.UpdateTolerant : ClaudeDiscoveryProvenance.PublisherSignedObservation };
     }
+
+    private static string Installed(string? version) => string.IsNullOrWhiteSpace(version) ? "unknown version" :
+        new string(version.Where(character => !char.IsControl(character)).Take(64).ToArray());
 
     internal static AdapterDiscoveryDiagnostic CompatibilityDiagnostic(string code, string? version)
     {
-        string installed = string.IsNullOrWhiteSpace(version) ? "unknown version" :
-            new string(version.Where(character => !char.IsControl(character)).Take(64).ToArray());
+        string installed = Installed(version);
         string verified = string.Join(", ", EngineProfile.Verified.Select(profile => profile.Version));
         // A build newer than every pin is the update case the owner asked the pane to name (lane broker-pins).
         if (code == "unsupported_public_version" && EngineProfile.IsNewerThanEveryVerified(version))
@@ -173,7 +200,7 @@ public sealed class ClaudeNativeProvider : IClaudeNativeProvider
             return Task.FromResult(new SubmissionResult(SubmissionStatus.Refused, "claude_credentials_disabled"));
         // This is the sole production credential boundary. An agent must obtain exact H05/W06 platform
         // approval before executing this path. Normal discovery/tests never construct or invoke it.
-        var adapter = new NativePeerAdapter(new WindowsNativePeerConnectionFactory(), new ProtectedPeerCredentialSource());
+        var adapter = new NativePeerAdapter(new WindowsNativePeerConnectionFactory(), new ProtectedPeerCredentialSource(), DeliveryImageTrust);
         return adapter.SendAsync(target, message, Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), cancellation: token);
     }
 

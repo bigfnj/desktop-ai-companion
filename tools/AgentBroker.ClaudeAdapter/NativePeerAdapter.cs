@@ -6,7 +6,11 @@ using System.Text.Json;
 namespace AgentBroker.ClaudeAdapter;
 
 /// <summary>Writes an authenticated native peer message. No native delivery ACK has been established.</summary>
-public sealed class NativePeerAdapter(INativePeerConnectionFactory connections, IPeerCredentialSource credentials)
+/// <remarks>An exactly pinned build is the strict mode. With <paramref name="updateTolerantTrust"/> (update-tolerant
+/// delivery, the owner's decision of 2026-11-02) a build that is not pinned is sent to as well, but only once the connected
+/// pipe server's own image passes that publisher check, before any credential read. Every other check is the same.</remarks>
+public sealed class NativePeerAdapter(INativePeerConnectionFactory connections, IPeerCredentialSource credentials,
+    IPublisherImageTrust? updateTolerantTrust = null)
 {
     // Core raw text stays16KiB. The formatted JSON peer envelope can expand ASCII controls sixfold.
     // Verified 2.1.304 native ingress bounds each JSONL line to1MiB chars; this byte bound is stricter.
@@ -14,7 +18,8 @@ public sealed class NativePeerAdapter(INativePeerConnectionFactory connections, 
     public async Task<SubmissionResult> SendAsync(NativeTarget target, NativeMessage message,
         string userHome, string? configDirectory = null, CancellationToken cancellation = default)
     {
-        if (EngineProfile.Find(target.EngineVersion, target.ImageSha256) is null)
+        bool pinned = EngineProfile.Find(target.EngineVersion, target.ImageSha256) is not null;
+        if (!pinned && updateTolerantTrust is null)
             return Refused("unsupported_engine_profile");
         if (target.ProcessId <= 0 || target.StartFileTime == 0 || !Path.IsPathFullyQualified(target.ImagePath) ||
             !target.ImagePath.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ||
@@ -45,13 +50,18 @@ public sealed class NativePeerAdapter(INativePeerConnectionFactory connections, 
         {
             cancellation.ThrowIfCancellationRequested();
             await using var connection = await connections.ConnectAsync(pipe.PipeName, cancellation).ConfigureAwait(false);
-            if (!connection.EnforcesCurrentUser || !Matches(target, connection.Identity)) return Refused("native_identity_mismatch");
+            if (!connection.EnforcesCurrentUser || !Matches(target, connection.Identity, pinned)) return Refused("native_identity_mismatch");
+            // An unpinned build: the image the pipe's server runs (the connection holds it, so it cannot be replaced until the
+            // connection closes) must be the expected publisher's, with the hash discovery attested. Null-safe on purpose, so
+            // losing the guard above refuses here rather than sending.
+            if (!pinned && updateTolerantTrust?.IsExpectedPublisher(connection.Identity.ImagePath, connection.Identity.ImageSha256) != true)
+                return Refused("native_publisher_unverified");
             // Actual protected credential reads are confined to this explicit injectable boundary.
             // An agent may invoke a production source only after exact platform approval for that target.
             using var credential = PeerCredential.ParseAndConsume(credentials.Read(credentialTarget));
             if ((credential.ProcessStartFileTime ?? credential.ProcessStart) != target.StartFileTime.ToString(CultureInfo.InvariantCulture))
                 return Refused("credential_start_mismatch");
-            if (!Matches(target, connection.Reinspect())) return Refused("native_identity_changed");
+            if (!Matches(target, connection.Reinspect(), pinned)) return Refused("native_identity_changed");
             byte[] auth = credential.AuthenticationFrame();
             try
             {
@@ -80,11 +90,12 @@ public sealed class NativePeerAdapter(INativePeerConnectionFactory connections, 
         }
     }
 
-    private static bool Matches(NativeTarget target, NativeProcessIdentity identity)
+    // For an unpinned build the hash equality is the whole binding between the attested image and the connected one.
+    private static bool Matches(NativeTarget target, NativeProcessIdentity identity, bool pinned)
         => identity.IsCurrentUser && identity.ProcessId == target.ProcessId && identity.StartFileTime == target.StartFileTime &&
             string.Equals(Path.GetFullPath(identity.ImagePath), Path.GetFullPath(target.ImagePath), StringComparison.OrdinalIgnoreCase) &&
             string.Equals(identity.ImageSha256, target.ImageSha256, StringComparison.OrdinalIgnoreCase) &&
-            EngineProfile.Find(target.EngineVersion, identity.ImageSha256) is not null;
+            (!pinned || EngineProfile.Find(target.EngineVersion, identity.ImageSha256) is not null);
 
     private static bool CanonicalSession(string id)
         => Guid.TryParseExact(id, "D", out Guid parsed) && id == parsed.ToString("D");

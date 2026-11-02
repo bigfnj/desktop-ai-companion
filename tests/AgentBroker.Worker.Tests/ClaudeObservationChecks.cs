@@ -27,6 +27,14 @@ internal static class ClaudeObservationChecks
             "Claude public-image smoke: Windows Authenticode selected the expected verified signer (" + trust.Trust + ")");
         check(trust.ImageSha256 is { Length: 64 } hash && hash.All(Uri.IsHexDigit),
             "Claude public-image smoke: held public executable has a complete SHA-256");
+        // Update-tolerant delivery's send-time rule (the owner's decision of 2026-11-02) through the real Windows check:
+        // read-only, no pipe, no credential, no delivery.
+        var rule = new ClaudePublisherImageTrust(WindowsClaudePublicImageTrust.Observe);
+        Console.WriteLine("Claude public-image smoke: version=" + FileVersionInfo.GetVersionInfo(image).ProductVersion +
+            " pinned=" + (EngineProfile.Find(FileVersionInfo.GetVersionInfo(image).ProductVersion ?? "", trust.ImageSha256 ?? "") is not null) +
+            " sha256=" + trust.ImageSha256);
+        check(trust.ImageSha256 is { } held && rule.IsExpectedPublisher(image, held) && !rule.IsExpectedPublisher(image, new string('0', 64)),
+            "Claude public-image smoke: the update-tolerant send-time rule accepts this image with its held hash and refuses another hash");
     }
 
     internal static async Task RunPublicDiscoveryCheckAsync(Action<bool, string> check)
@@ -47,6 +55,24 @@ internal static class ClaudeObservationChecks
             "Claude public observation smoke: an actual owned signed updated session is observable");
         check(rows.Where(row => row.Provenance == ClaudeDiscoveryProvenance.PublisherSignedObservation).All(row => !row.CanDeliver),
             "Claude public observation smoke: actual signed observations grant no native delivery authority");
+    }
+
+    // Discovery only, as the observation smoke above: no credential source exists in discovery, and nothing is sent.
+    internal static async Task RunPublicTolerantDiscoveryCheckAsync(Action<bool, string> check)
+    {
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await using var provider = new ClaudeNativeProvider(enablePeerCredentials: true, updateTolerantDelivery: true);
+        var rows = await provider.DiscoverAsync(deadline.Token);
+        Console.WriteLine("Claude update-tolerant discovery smoke: count=" + rows.Count +
+            " updateTolerantCount=" + rows.Count(row => row.Provenance == ClaudeDiscoveryProvenance.UpdateTolerant) +
+            " exactPinnedCount=" + rows.Count(row => row.CanDeliver) +
+            " versions=" + string.Join(",", rows.Select(row => row.Target.EngineVersion).Distinct().Order()) +
+            " diagnostics=" + string.Join(" | ", provider.DiscoveryDiagnostics.Select(item => (item.Note ? "note " : "error ") + item.ToStatusText())));
+        check(rows.Any(row => row.Provenance == ClaudeDiscoveryProvenance.UpdateTolerant),
+            "Claude update-tolerant discovery smoke: an actual owned session on an unpinned signed build is carried");
+        check(provider.DiscoveryDiagnostics.Any(item => item.Code == "claude_update_tolerant_delivery" && item.Note) &&
+            !provider.DiscoveryDiagnostics.Any(item => item.Code is "unsupported_public_version" or "image_hash_mismatch"),
+            "Claude update-tolerant discovery smoke: status carries the note and no failed-pin error");
     }
 
     private static void PublisherSubjectChecks(Action<bool, string> check)

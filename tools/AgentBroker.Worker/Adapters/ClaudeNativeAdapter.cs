@@ -6,7 +6,9 @@ using System.Text;
 
 namespace AgentBroker.Worker.Adapters;
 
-public enum ClaudeDiscoveryProvenance { Unverified, ExactPinned, PublisherSignedObservation }
+// UpdateTolerant: a PublisherSignedObservation discovered while update-tolerant delivery is in effect (the owner's
+// decision of 2026-11-02). It is deliverable only through an adapter that has the mode on too (ClaudeNativeAdapter.Deliverable).
+public enum ClaudeDiscoveryProvenance { Unverified, ExactPinned, PublisherSignedObservation, UpdateTolerant }
 
 public sealed record ClaudeNativeCandidate(NativeTarget Target, string? Status)
 {
@@ -40,6 +42,7 @@ public sealed class ClaudeNativeAdapter : ILocalAgentAdapter
 {
     private readonly IClaudeNativeProvider provider;
     private readonly bool enablePeerCredentials;
+    private readonly bool updateTolerant;
     private readonly TimeProvider clock;
     private readonly SemaphoreSlim gate = new(1, 1);
     private readonly Dictionary<SessionAddress, ClaudeNativeCandidate> candidates = [];
@@ -49,10 +52,18 @@ public sealed class ClaudeNativeAdapter : ILocalAgentAdapter
     public string Id => "claude-native";
     public IReadOnlyList<AdapterDiscoveryDiagnostic> DiscoveryDiagnostics => provider.DiscoveryDiagnostics;
 
-    public ClaudeNativeAdapter(bool enablePeerCredentials = false)
-        : this(new ClaudeNativeProvider(enablePeerCredentials), enablePeerCredentials) { }
-    public ClaudeNativeAdapter(IClaudeNativeProvider provider, bool enablePeerCredentials = false, TimeProvider? clock = null)
-    { this.provider = provider; this.enablePeerCredentials = enablePeerCredentials; this.clock = clock ?? TimeProvider.System; }
+    public ClaudeNativeAdapter(bool enablePeerCredentials = false, bool updateTolerantDelivery = false)
+        : this(new ClaudeNativeProvider(enablePeerCredentials, updateTolerantDelivery), enablePeerCredentials,
+            updateTolerantDelivery: updateTolerantDelivery) { }
+    public ClaudeNativeAdapter(IClaudeNativeProvider provider, bool enablePeerCredentials = false, TimeProvider? clock = null,
+        bool updateTolerantDelivery = false)
+    {
+        this.provider = provider; this.enablePeerCredentials = enablePeerCredentials; this.clock = clock ?? TimeProvider.System;
+        updateTolerant = enablePeerCredentials && updateTolerantDelivery;
+    }
+
+    /// <summary>Whether update-tolerant delivery is in effect here (the module's claudeUpdateTolerantDelivery, with credentials).</summary>
+    internal bool UpdateTolerantDelivery => updateTolerant;
 
     public async Task<IReadOnlyList<BrokerSession>> DiscoverAsync(Guid brokerId, CancellationToken token)
     {
@@ -71,7 +82,7 @@ public sealed class ClaudeNativeAdapter : ILocalAgentAdapter
                 if (!Valid(row)) continue;
                 var address = new SessionAddress(brokerId, "claude:" + row.Target.SessionId, row.NativeSessionIncarnation);
                 if (!found.TryAdd(address, row)) continue;
-                result.Add(new(address, "Claude " + row.Target.SessionId[..8], Id, enablePeerCredentials && row.CanDeliver
+                result.Add(new(address, "Claude " + row.Target.SessionId[..8], Id, enablePeerCredentials && Deliverable(row)
                     ? SessionCapabilities.Receive | SessionCapabilities.WakeIdle | SessionCapabilities.Reply : SessionCapabilities.None,
                     Activity(row.Status), clock.GetUtcNow().AddSeconds(30)));
             }
@@ -99,15 +110,18 @@ public sealed class ClaudeNativeAdapter : ILocalAgentAdapter
             ObjectDisposedException.ThrowIf(disposed, this);
             if (!enablePeerCredentials) return new(AdapterAdmission.Refused, "claude_credentials_disabled");
             if (!candidates.TryGetValue(message.Recipient, out var previous)) return Deferred("native_session_unavailable");
-            // A signature permits observation only. Refuse before refresh, transport or credentials.
-            if (!previous.CanDeliver) return new(AdapterAdmission.Refused, "claude_observation_only");
+            // A signature alone permits observation only. Refuse before refresh, transport or credentials.
+            if (!Deliverable(previous)) return new(AdapterAdmission.Refused, "claude_observation_only");
             ClaudeNativeCandidate? fresh;
             try { fresh = await provider.RefreshAsync(previous.Target.ProcessId, token); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or OperationCanceledException)
             { return Deferred("native_metadata_unavailable"); }
             if (fresh is null || !Valid(fresh) || fresh.NativeSessionIncarnation != message.Recipient.Incarnation)
                 return Deferred("native_owner_changed");
-            if (!fresh.CanDeliver) return new(AdapterAdmission.Refused, "claude_observation_only");
+            if (!Deliverable(fresh)) return new(AdapterAdmission.Refused, "claude_observation_only");
+            // An unpinned build is trusted for the image discovery attested, never for whatever the refresh found since.
+            if (!fresh.CanDeliver && !string.Equals(fresh.Target.ImageSha256, previous.Target.ImageSha256, StringComparison.OrdinalIgnoreCase))
+                return new(AdapterAdmission.Refused, "claude_image_changed");
             if (fresh.Status != "idle") return Deferred("native_recipient_not_idle");
             // Immediate metadata refresh occurred before any credential handling. The native gate is
             // authoritative for actual mode/settings and the idle snapshot can race with GUI activity.
@@ -145,8 +159,12 @@ public sealed class ClaudeNativeAdapter : ILocalAgentAdapter
 
     private static bool Valid(ClaudeNativeCandidate candidate) => candidate.Target.ProcessId > 1 && candidate.Target.StartFileTime > 0 &&
         Guid.TryParseExact(candidate.Target.SessionId, "D", out Guid id) && id != Guid.Empty && id.ToString("D") == candidate.Target.SessionId &&
-        (candidate.CanDeliver || candidate.Provenance == ClaudeDiscoveryProvenance.PublisherSignedObservation &&
+        (candidate.CanDeliver || candidate.Provenance is ClaudeDiscoveryProvenance.PublisherSignedObservation or ClaudeDiscoveryProvenance.UpdateTolerant &&
             candidate.Target.ImageSha256.Length == 64 && candidate.Target.ImageSha256.All(Uri.IsHexDigit));
+    // An exact pin, or under update-tolerant delivery (the owner's decision of 2026-11-02) a signed image discovery attested.
+    // The provider's refresh before each send and NativePeerAdapter's publisher check on the connected image still decide it.
+    private bool Deliverable(ClaudeNativeCandidate candidate) => candidate.CanDeliver ||
+        updateTolerant && candidate.Provenance == ClaudeDiscoveryProvenance.UpdateTolerant;
     private static SessionActivity Activity(string? status) => status switch
     {
         "idle" => SessionActivity.Idle,

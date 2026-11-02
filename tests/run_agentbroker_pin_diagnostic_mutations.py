@@ -57,6 +57,10 @@ SOURCES = {
     "models": "src/AgentBroker.Core/BrokerModels.cs",
     "pins": "tools/AgentBroker.Pins/PinDocument.cs",
     "diagnostic": "tools/AgentBroker.Worker/AdapterDiscoveryDiagnostic.cs",
+    "nativepeer": "tools/AgentBroker.ClaudeAdapter/NativePeerAdapter.cs",
+    "claudeadapter": "tools/AgentBroker.Worker/Adapters/ClaudeNativeAdapter.cs",
+    "claudetrust": "tools/AgentBroker.Worker/Adapters/WindowsClaudePublicImageTrust.cs",
+    "workeroptions": "tools/AgentBroker.Worker/WorkerOptions.cs",
 }
 PROJECTS = {
     "worker": "tests/AgentBroker.Worker.Tests/AgentBroker.Worker.Tests.csproj",
@@ -92,9 +96,10 @@ class Witness:
 
 
 WITNESSES = (
+    # Re-pointed by lane feature/claude-update-tolerant: both pin refusals now report through ClaudeNativeProvider.Unpinned,
+    # one line for the two codes (same intent: the specific compatibility diagnostic is gone).
     Witness("claude-reporting", "claude", "worker", (), "ClaudePinDiagnosticChecks.cs", (
-        ('                    diagnostics?.Add(CompatibilityDiagnostic("unsupported_public_version", version));', ""),
-        ('                    diagnostics?.Add(CompatibilityDiagnostic("image_hash_mismatch", version));', ""),
+        ("            else diagnostics?.Insert(reportAt, CompatibilityDiagnostic(pinRefusal, version));\n", ""),
     )),
     Witness("codex-error-code-reporting", "codex", "worker", ("--codex-pin-diagnostics-only",), "CodexPinDiagnosticChecks.cs", ((
         """        catch (DesktopAdapterException error)
@@ -582,6 +587,139 @@ WITNESSES = (
     Witness("repin-installed-version-dropped", "vscode", "desktop", ("--pin-document-case", "running-version"), "PinDocumentChecks.cs", ((
         "            { throw new DesktopAdapterException(error.Code, NewestRunningVersion(engines)); }",
         "            { throw; }",
+    ),)),
+    # ---- lane feature/claude-update-tolerant ----
+    # Update-tolerant Claude delivery (the owner's decision of 2026-11-02). Each runs one ClaudeUpdateTolerantChecks group,
+    # after the --existing-tests-only cut-off, so the existing pin stays 234; no mutation here changes a mode-off path.
+    Witness("claude-tolerant-provenance-never-carried", "claude", "worker", ("--claude-update-tolerant-case", "discovery"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "        { Provenance = updateTolerant ? ClaudeDiscoveryProvenance.UpdateTolerant : ClaudeDiscoveryProvenance.PublisherSignedObservation };",
+        "        { Provenance = ClaudeDiscoveryProvenance.PublisherSignedObservation };",
+    ),)),
+    Witness("claude-tolerant-provider-ignores-switch", "claude", "worker", ("--claude-update-tolerant-case", "discovery"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "        updateTolerant = enablePeerCredentials && updateTolerantDelivery;",
+        "        updateTolerant = enablePeerCredentials;",
+    ),)),
+    Witness("claude-tolerant-provider-ignores-switch-status", "claude", "worker", ("--claude-update-tolerant-case", "status"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "        updateTolerant = enablePeerCredentials && updateTolerantDelivery;",
+        "        updateTolerant = enablePeerCredentials;",
+    ),)),
+    Witness("claude-tolerant-provider-without-credentials", "claude", "worker", ("--claude-update-tolerant-case", "discovery"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "        updateTolerant = enablePeerCredentials && updateTolerantDelivery;",
+        "        updateTolerant = updateTolerantDelivery;",
+    ),)),
+    Witness("claude-tolerant-pinned-takes-signature-path", "claude", "worker", ("--claude-update-tolerant-case", "discovery"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "                if (!EngineProfile.IsSupportedPublicVersion(version))\n",
+        "                if (updateTolerant || !EngineProfile.IsSupportedPublicVersion(version))\n",
+    ),)),
+    Witness("claude-tolerant-pin-error-kept", "claude", "worker", ("--claude-update-tolerant-case", "status"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "            else diagnostics?.Insert(reportAt, CompatibilityDiagnostic(pinRefusal, version));",
+        "            diagnostics?.Insert(reportAt, CompatibilityDiagnostic(pinRefusal, version));",
+    ),)),
+    Witness("claude-tolerant-note-is-error", "claude", "worker", ("--claude-update-tolerant-case", "status"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        " is not a reviewed build; it is woken because Windows verified Anthropic's signature.\") { Note = true };",
+        " is not a reviewed build; it is woken because Windows verified Anthropic's signature.\");",
+    ),)),
+    Witness("claude-tolerant-note-unnamed", "claude", "worker", ("--claude-update-tolerant-case", "status"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "        => new(\"claude_update_tolerant_delivery\", \"Claude Code \" + Installed(version) +",
+        "        => new(\"claude_update_tolerant_delivery\", \"Claude Code\" +",
+    ),)),
+    Witness("claude-tolerant-pin-error-order", "claude", "worker", ("--claude-update-tolerant-case", "status"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "            else diagnostics?.Insert(reportAt, CompatibilityDiagnostic(pinRefusal, version));",
+        "            else diagnostics?.Add(CompatibilityDiagnostic(pinRefusal, version));",
+    ),)),
+    Witness("claude-tolerant-adapter-never-carries", "claudeadapter", "worker", ("--claude-update-tolerant-case", "capabilities"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "    private bool Deliverable(ClaudeNativeCandidate candidate) => candidate.CanDeliver ||\n"
+        "        updateTolerant && candidate.Provenance == ClaudeDiscoveryProvenance.UpdateTolerant;",
+        "    private bool Deliverable(ClaudeNativeCandidate candidate) => candidate.CanDeliver;",
+    ),)),
+    Witness("claude-tolerant-adapter-ignores-switch", "claudeadapter", "worker", ("--claude-update-tolerant-case", "capabilities"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "        updateTolerant && candidate.Provenance == ClaudeDiscoveryProvenance.UpdateTolerant;",
+        "        candidate.Provenance == ClaudeDiscoveryProvenance.UpdateTolerant;",
+    ),)),
+    Witness("claude-tolerant-image-change-unchecked", "claudeadapter", "worker", ("--claude-update-tolerant-case", "image-changed"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "            if (!fresh.CanDeliver && !string.Equals(fresh.Target.ImageSha256, previous.Target.ImageSha256, StringComparison.OrdinalIgnoreCase))\n"
+        "                return new(AdapterAdmission.Refused, \"claude_image_changed\");\n",
+        "",
+    ),)),
+    Witness("claude-tolerant-send-without-trust", "nativepeer", "worker", ("--claude-update-tolerant-case", "send"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "        if (!pinned && updateTolerantTrust is null)\n"
+        "            return Refused(\"unsupported_engine_profile\");\n",
+        "",
+    ),)),
+    Witness("claude-tolerant-send-publisher-unchecked", "nativepeer", "worker", ("--claude-update-tolerant-case", "send"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "            if (!pinned && updateTolerantTrust?.IsExpectedPublisher(connection.Identity.ImagePath, connection.Identity.ImageSha256) != true)\n"
+        "                return Refused(\"native_publisher_unverified\");\n",
+        "",
+    ),)),
+    Witness("claude-tolerant-send-hash-unbound", "nativepeer", "worker", ("--claude-update-tolerant-case", "send"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "            string.Equals(identity.ImageSha256, target.ImageSha256, StringComparison.OrdinalIgnoreCase) &&\n",
+        "",
+    ),)),
+    Witness("claude-tolerant-send-reinspection-skipped", "nativepeer", "worker", ("--claude-update-tolerant-case", "send"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "            if (!Matches(target, connection.Reinspect(), pinned)) return Refused(\"native_identity_changed\");",
+        "            if (!Matches(target, connection.Identity, pinned)) return Refused(\"native_identity_changed\");",
+    ),)),
+    Witness("claude-tolerant-pinned-consults-trust", "nativepeer", "worker", ("--claude-update-tolerant-case", "send"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "            if (!pinned && updateTolerantTrust?.IsExpectedPublisher(",
+        "            if (updateTolerantTrust?.IsExpectedPublisher(",
+    ),)),
+    Witness("claude-tolerant-trust-hash-unbound", "claudetrust", "worker", ("--claude-update-tolerant-case", "image-trust"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "            trust.ImageSha256 is { Length: 64 } hash && string.Equals(hash, imageSha256, StringComparison.OrdinalIgnoreCase);",
+        "            trust.ImageSha256 is { Length: 64 };",
+    ),)),
+    Witness("claude-tolerant-trust-case-sensitive", "claudetrust", "worker", ("--claude-update-tolerant-case", "image-trust"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "string.Equals(hash, imageSha256, StringComparison.OrdinalIgnoreCase);",
+        "string.Equals(hash, imageSha256, StringComparison.Ordinal);",
+    ),)),
+    Witness("claude-tolerant-trust-publisher-unchecked", "claudetrust", "worker", ("--claude-update-tolerant-case", "image-trust"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "        return trust.Trust == ClaudePublicImageTrust.ExpectedPublisher &&\n",
+        "        return\n",
+    ),)),
+    Witness("claude-tolerant-trust-lease-kept", "claudetrust", "worker", ("--claude-update-tolerant-case", "image-trust"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "        using var trust = observe(imagePath);",
+        "        var trust = observe(imagePath);",
+    ),)),
+    Witness("claude-tolerant-send-trust-never-handed", "claude", "worker", ("--claude-update-tolerant-case", "image-trust"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "        => updateTolerant ? new ClaudePublisherImageTrust(source.ObserveUnpinnedPublicImage) : null;",
+        "        => null;",
+    ),)),
+    Witness("claude-tolerant-send-trust-always-handed", "claude", "worker", ("--claude-update-tolerant-case", "image-trust"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "        => updateTolerant ? new ClaudePublisherImageTrust(source.ObserveUnpinnedPublicImage) : null;",
+        "        => new ClaudePublisherImageTrust(source.ObserveUnpinnedPublicImage);",
+    ),)),
+    Witness("claude-tolerant-worker-flag-ignored", "workeroptions", "worker", ("--claude-update-tolerant-case", "options"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "            EnableClaudeUpdateTolerantDelivery = Bool(\"--claude-update-tolerant-delivery\", false),",
+        "            EnableClaudeUpdateTolerantDelivery = false,",
+    ),)),
+    Witness("claude-tolerant-worker-flag-not-wired", "workerapp", "worker", ("--claude-update-tolerant-case", "options"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "        if (options.EnableClaudeNativeDiscovery) adapters.Add(new ClaudeNativeAdapter(options.EnableClaudePeerCredentials,\n"
+        "            options.EnableClaudeUpdateTolerantDelivery));",
+        "        if (options.EnableClaudeNativeDiscovery) adapters.Add(new ClaudeNativeAdapter(options.EnableClaudePeerCredentials));",
     ),)),
 )
 
