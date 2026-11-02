@@ -3698,7 +3698,8 @@ Assert-True ($agentFlowTickBody -cmatch 'SweepOnce\(cdpPort, pass, _pressBudget,
     'the tick sweeps through its pass and ends the sweep in its own live press budget (RA-047, BUG-018)')
 $agentFlowSweepOnceBody = Get-MethodBody $agentFlowModuleCode 'internal static string SweepOnce(' `
     @("`n        private ", "`n        internal ", "`n        public ")
-Assert-True ($agentFlowSweepOnceBody -cmatch 'CdpApprover\.Sweep\(port, pass\.Handle, timeoutMs, out sawPanel, out sawBlind, census\)') (
+# AgentFlow 1.12.3: SweepOnce also hands the pass's GuardFocus on (the standing focus guard).
+Assert-True ($agentFlowSweepOnceBody -cmatch 'CdpApprover\.Sweep\(port, pass\.Handle, timeoutMs, out sawPanel, out sawBlind, census, pass\.GuardFocus\)') (
     'SweepOnce sweeps through the pass, so the sweep can tell a press from a refusal, and fills the census (RA-047, BUG-018)')
 
 # THE MODE HAS ONE WRITER (R-005). `_pressArmed` mirrors the mode for the worker, which must not read the
