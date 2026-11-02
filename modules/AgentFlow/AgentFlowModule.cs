@@ -185,17 +185,18 @@ namespace DesktopAICompanion.AgentFlow
         {
             Id = "agentflow",
             Name = "AgentFlow",
-            Version = "1.12.3",  // 1.12.3: answering a card no longer takes focus from the card you are working in
-                                 //        (the owner's report of 2026-11-02; built with Codex's audit and three review
-                                 //        rounds). While AgentFlow presses a card, or types the session-limit message
-                                 //        into one, that card's own focus and select calls are held whenever the card
-                                 //        does not have focus, until its approval cards have cleared and settled (15
-                                 //        seconds at most). Calls made while you are in that card go through as normal,
-                                 //        and so does a menu you open in it yourself (1 second after your own pointer
-                                 //        press). If focus still moves to the pressed card, the press's log line says
-                                 //        so; AgentFlow never moves focus itself (a restoring safety net was built and
-                                 //        removed by design: it cannot tell your own selection through VS Code from a
-                                 //        steal).
+            Version = "1.12.3",  // 1.12.3: agent cards no longer take focus while you work elsewhere (the owner's
+                                 //        report of 2026-11-02; built with Codex's audit and review rounds, and a live
+                                 //        re-test after the first version missed a Codex approval card taking focus as
+                                 //        it appeared). In auto-approve, a standing guard installed on every sweep keeps
+                                 //        each Claude Code and Codex card from moving the keyboard to itself while you
+                                 //        are in another card, the editor or another app, including a Codex approval
+                                 //        card appearing and the card AgentFlow just answered. Your own clicks and typing
+                                 //        in a card work as normal (a menu you open in it gets 1 second after your own
+                                 //        pointer press), and so does switching to it. If focus still moves to a card
+                                 //        AgentFlow pressed, the press's log line says so; AgentFlow never moves focus
+                                 //        itself. New setting next to auto-approve, "Keep agent cards from taking focus",
+                                 //        on by default; off gives the previous behaviour.
                                  // 1.12.2: picking another pet keeps the pane's other unapplied edits; a threshold
                                  //        typed or a box unticked before the pet change used to come back as stored
                                  //        (N-host-options-01).
