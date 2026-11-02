@@ -30,6 +30,7 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
     private AdapterDiscoveryDiagnostic? profilePinDiagnostic, routerPinDiagnostic;
     private DesktopAdapterException? profilePinRefusal, routerPinRefusal;
     private (uint Pid, ulong CreationFileTime) observedRouter;
+    private bool routerPublisherVerifiedThisPass;
     private readonly Dictionary<(uint Pid, ulong CreationFileTime), DesktopAdapterException> ownerPins = [];
     public bool NativeIdleGuard => enableDelivery && profileTrust != DesktopRouterTrust.Unverified && adapter?.NativeIdleGuard == true;
     // Delivery is on and only the broker's own state stands in the way: the profile check could not complete, or (with
@@ -90,6 +91,7 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
         profilePinDiagnostic = routerPinDiagnostic = null;
         profilePinRefusal = routerPinRefusal = null;
         observedRouter = default;
+        routerPublisherVerifiedThisPass = false;
         ownerPins.Clear();
         profileTrust = DesktopRouterTrust.Unverified; profileUnavailable = false;
         if (enableDelivery)
@@ -110,12 +112,20 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
                     $"Codex VS Code compatibility verification could not complete; verified extension {VsCodeCompatibilityProfile.VerifiedVersions}."));
             }
         }
-        var observed = await observe(token);
+        IReadOnlyList<DesktopDirectorySession> observed;
+        try { observed = await observe(token); }
+        catch
+        {
+            // A failed snapshot retires the cached connection verdict. Do not leave a prior pass's note behind.
+            passDiagnostics = discoveryDiagnostics = Array.AsReadOnly(diagnostics.ToArray());
+            throw;
+        }
         if (directory?.ExactPinRefusal is { } routerPin)
         {
             routerPinRefusal = routerPin;
             routerPinDiagnostic = CodexNativeAdapter.DescribeDiscoveryFailure(routerPin);
             observedRouter = directory.RouterIdentity;
+            routerPublisherVerifiedThisPass = directory.PublisherVerifiedForReporting;
             diagnostics.Add(routerPinDiagnostic);
             if (!updateTolerant) diagnostics.Add(ObservationDiagnostic());
         }
@@ -131,36 +141,43 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
     private static AdapterDiscoveryDiagnostic ObservationDiagnostic() => new("codex_observation_only",
             "Codex sessions on a publisher-signed build that is not exactly reviewed are listed read-only; delivery is refused.");
 
-    public void CompleteDiscovery(IReadOnlyList<DesktopOwnerBinding> carriedBindings)
+    public void CompleteDiscovery(IReadOnlyList<DesktopOwnerBinding> carriedBindings, bool updateTolerantDelivery)
     {
-        // The adapter supplies only freshly admitted rows. Use that admission evidence, rather than re-authorizing after
-        // later owner lookups may have retired the connection. This reports the completed pass; it grants no authority.
-        DesktopOwnerBinding[] carried = updateTolerant ? carriedBindings.ToArray() : [];
+        // Publisher success is reportable even with no open chat or a skipped owner lookup. Keep both mode gates: a
+        // provider configured for tolerance cannot claim that the adapter enabled it. This never grants authority.
+        bool reportTolerant = updateTolerant && updateTolerantDelivery;
         var diagnostics = passDiagnostics.ToList();
-        if (carried.Length > 0)
+        var builds = new SortedSet<string>(StringComparer.Ordinal);
+        if (reportTolerant)
         {
-            var builds = new SortedSet<string>(StringComparer.Ordinal);
             if (profileTrust == DesktopRouterTrust.PublisherSigned && profilePinDiagnostic is not null && profilePinRefusal is not null)
             {
                 diagnostics.RemoveAll(item => ReferenceEquals(item, profilePinDiagnostic));
                 builds.Add(KnownBuild(profilePinRefusal));
             }
-            foreach (var binding in carried.Where(binding => binding.RouterTrust == DesktopRouterTrust.PublisherSigned))
+            // A successful snapshot confirms the same connection and PID/start incarnation. This is its cached
+            // connect-time publisher verdict for reporting only, not a fresh image check or delivery authority.
+            if (routerPublisherVerifiedThisPass && directory?.PublisherVerifiedForReporting == true &&
+                directory.RouterIdentity == observedRouter && observedRouter.Pid != 0 && observedRouter.CreationFileTime != 0 &&
+                routerPinDiagnostic is not null && routerPinRefusal is not null)
             {
-                var identity = (binding.ServerPid, binding.ServerCreationFileTime);
-                if (ownerPins.TryGetValue(identity, out var pin)) builds.Add(KnownBuild(pin));
-                // The directory and delivery connections are independent. A healthy carried owner must not hide an
-                // unrelated observer router's exact refusal, even if both are publisher signed.
+                diagnostics.RemoveAll(item => ReferenceEquals(item, routerPinDiagnostic));
+                builds.Add(KnownBuild(routerPinRefusal));
+            }
+            foreach (var (identity, pin) in ownerPins)
+            {
+                builds.Add(KnownBuild(pin));
+                // An independently verified owner must not hide another observer's failure.
                 if (identity == observedRouter && routerPinDiagnostic is not null && routerPinRefusal is not null)
                 {
                     diagnostics.RemoveAll(item => ReferenceEquals(item, routerPinDiagnostic));
                     builds.Add(KnownBuild(routerPinRefusal));
                 }
             }
-            if (builds.Count == 0) builds.Add("Codex router (version unknown)");
-            diagnostics.Add(new("codex_update_tolerant_delivery", "Known unreviewed builds: " + string.Join("; ", builds) +
-                ". Eligible sessions use Windows-verified publisher signatures.") { Note = true });
         }
+        if (builds.Count > 0)
+            diagnostics.Add(new("codex_update_tolerant_delivery", "Publisher-verified builds: " + string.Join("; ", builds) +
+                ". Update-tolerant delivery is enabled.") { Note = true });
         discoveryDiagnostics = Array.AsReadOnly(diagnostics.Distinct().ToArray());
     }
 
@@ -172,7 +189,9 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
             "unsupported_vscode_router" => "VS Code router",
             _ => "Codex VS Code extension",
         };
-        return component + " " + (refusal.InstalledVersion ?? "(version unknown)");
+        string mismatch = refusal.Code is "desktop_image_mismatch" or "vscode_image_mismatch" or "running_vscode_image_mismatch"
+            ? " (image differs from reviewed build)" : "";
+        return component + " " + (refusal.InstalledVersion ?? "(version unknown)") + mismatch;
     }
 
     // Strict mode stops at the exact refusal. Update-tolerant mode may stand in Windows-verified OpenAI engines for
@@ -244,7 +263,8 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
         try
         {
             var binding = await adapter.DiscoverAsync(conversationId, token);
-            if (binding is not null && adapter.ExactPinRefusal is { } pin)
+            if (binding is not null && binding.RouterTrust == DesktopRouterTrust.PublisherSigned &&
+                adapter.PublisherVerifiedForReporting && adapter.ExactPinRefusal is { } pin)
                 ownerPins[(binding.ServerPid, binding.ServerCreationFileTime)] = pin;
             return binding;
         }
@@ -255,6 +275,7 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
         catch (DesktopAdapterException error) when (error.Code is "owner_discovery_rejected" or "owner_capability_mismatch") { throw; }
         catch
         {
+            ownerPins.Clear();
             await adapter.DisposeAsync();
             adapter = null;
             BeginReconnect();
@@ -321,6 +342,7 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
     // the replacement is a new, fully verified connection, and it reaches delivery only through a discovery lookup.
     private async Task RetireOwnerConnectionAsync()
     {
+        ownerPins.Clear();
         var retired = adapter;
         adapter = null;
         if (retired is null) return;
@@ -401,12 +423,14 @@ internal interface ICodexDirectoryObserver : IAsyncDisposable
     (uint Pid, ulong CreationFileTime) RouterIdentity => default;
     // Diagnostic only: the exact pin a publisher-signed router fell back from. It never grants authority.
     DesktopAdapterException? ExactPinRefusal => null;
+    bool PublisherVerifiedForReporting => false;
 }
 
 internal sealed class CodexDirectoryObserver(DesktopDirectoryObserver observer) : ICodexDirectoryObserver
 {
     public IReadOnlyList<DesktopDirectorySession> Snapshot() => observer.Snapshot();
     public DesktopAdapterException? ExactPinRefusal => observer.ExactPinRefusal;
+    public bool PublisherVerifiedForReporting => observer.PublisherVerifiedForReporting;
     public (uint Pid, ulong CreationFileTime) RouterIdentity => observer.RouterIdentity;
     public ValueTask DisposeAsync() => observer.DisposeAsync();
 }
@@ -415,6 +439,7 @@ internal interface ICodexOwnerConnection : IAsyncDisposable
 {
     bool NativeIdleGuard { get; }
     DesktopAdapterException? ExactPinRefusal => null;
+    bool PublisherVerifiedForReporting => false;
     Task<DesktopOwnerBinding?> DiscoverAsync(Guid conversationId, CancellationToken token);
     Task<DesktopSubmissionResult> SubmitAsync(DesktopOwnerBinding binding, Guid messageId, string text, CancellationToken token);
 }
@@ -423,6 +448,8 @@ internal sealed class CodexOwnerConnection(DesktopAdapter adapter) : ICodexOwner
 {
     public bool NativeIdleGuard => adapter.NativeIdleGuard;
     public DesktopAdapterException? ExactPinRefusal => adapter.ExactPinRefusal;
+    // Used only after a successful DiscoverAsync, which verifies the connected owner's incarnation.
+    public bool PublisherVerifiedForReporting => adapter.RouterTrust == DesktopRouterTrust.PublisherSigned;
     public Task<DesktopOwnerBinding?> DiscoverAsync(Guid conversationId, CancellationToken token) => adapter.DiscoverAsync(conversationId, token);
     public Task<DesktopSubmissionResult> SubmitAsync(DesktopOwnerBinding binding, Guid messageId, string text, CancellationToken token)
         => adapter.SubmitExternalPeerAsync(binding, messageId, text, token);

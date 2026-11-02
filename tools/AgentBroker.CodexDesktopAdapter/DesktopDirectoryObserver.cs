@@ -4,7 +4,7 @@ namespace AgentBroker.CodexDesktopAdapter;
 
 /// <summary>
 /// Long-lived verified metadata observer. Never follows history, submits input, or starts/resumes a thread.
-/// Its connection is cryptographically pinned once and process incarnation is checked before every snapshot/write.
+/// Its connection is verified once (exact pin or publisher) and process incarnation is checked before every snapshot/write.
 /// </summary>
 public sealed class DesktopDirectoryObserver : IAsyncDisposable
 {
@@ -17,6 +17,7 @@ public sealed class DesktopDirectoryObserver : IAsyncDisposable
     private readonly CancellationTokenSource lifetime = new();
     private readonly Task readerTask, heartbeatTask;
     private int disposed, closed;
+    private bool reportPublisherVerified;
 
     internal DesktopDirectoryObserver(DesktopAdapter owner, IDesktopConnection connection, Guid clientId,
         DesktopDirectoryIndex index, TimeSpan heartbeatInterval)
@@ -45,6 +46,12 @@ public sealed class DesktopDirectoryObserver : IAsyncDisposable
     public DesktopAdapterException? ExactPinRefusal => connection.ExactPinRefusal;
     /// <summary>Report-only identity of this observer's already-verified router, for matching its diagnostics to a carried owner.</summary>
     public (uint Pid, ulong CreationFileTime) RouterIdentity => (connection.Identity.Pid, connection.Identity.CreationFileTime);
+    /// <summary>
+    /// The latest successful snapshot rechecked the same connection/process incarnation whose publisher was verified
+    /// at connect time. Reporting only: no new Authenticode read and no delivery authority, trust or capability change.
+    /// </summary>
+    public bool PublisherVerifiedForReporting => Volatile.Read(ref reportPublisherVerified)
+        && Volatile.Read(ref disposed) == 0 && Volatile.Read(ref closed) == 0;
 
     internal static async Task<DesktopDirectoryObserver> ConnectForTestAsync(IDesktopConnection connection,
         TimeSpan heartbeatInterval, CancellationToken token = default)
@@ -62,6 +69,7 @@ public sealed class DesktopDirectoryObserver : IAsyncDisposable
 
     public IReadOnlyList<DesktopDirectorySession> Snapshot()
     {
+        Volatile.Write(ref reportPublisherVerified, false);
         ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
         if (readerTask.IsCompleted || heartbeatTask.IsCompleted)
         {
@@ -69,7 +77,12 @@ public sealed class DesktopDirectoryObserver : IAsyncDisposable
             throw new DesktopAdapterException("directory_observer_disconnected");
         }
         connection.VerifyStillSameOwner();
-        lock (indexGate) return index.Snapshot();
+        lock (indexGate)
+        {
+            var rows = index.Snapshot();
+            Volatile.Write(ref reportPublisherVerified, connection.Trust == DesktopRouterTrust.PublisherSigned);
+            return rows;
+        }
     }
 
     private async Task ReadAsync(CancellationToken token)
@@ -130,11 +143,13 @@ public sealed class DesktopDirectoryObserver : IAsyncDisposable
 
     private async ValueTask CloseAsync()
     {
+        Volatile.Write(ref reportPublisherVerified, false);
         if (Interlocked.Exchange(ref closed, 1) == 0) await owner.DisposeAsync();
     }
 
     public async ValueTask DisposeAsync()
     {
+        Volatile.Write(ref reportPublisherVerified, false);
         if (Interlocked.Exchange(ref disposed, 1) != 0) return;
         lifetime.Cancel();
         var completion = Task.WhenAll(readerTask, heartbeatTask);

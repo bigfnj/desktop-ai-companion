@@ -20,8 +20,8 @@ public interface ICodexNativeProvider : IAsyncDisposable
     // owner connection is down after a failed lookup): NativeIdleGuard is false for a reason a retry can clear.
     bool VerificationPending => false;
     IReadOnlyList<AdapterDiscoveryDiagnostic> DiscoveryDiagnostics => Array.Empty<AdapterDiscoveryDiagnostic>();
-    // Report-only completion: a directory announcement is not proof that update tolerance carries a usable session.
-    void CompleteDiscovery(IReadOnlyList<DesktopOwnerBinding> carriedBindings) { }
+    // Report-only completion after the pass saves its bindings. The actual adapter mode also gates reporting.
+    void CompleteDiscovery(IReadOnlyList<DesktopOwnerBinding> carriedBindings, bool updateTolerantDelivery) { }
     bool IsDeliveryAuthorized(DesktopOwnerBinding binding) => NativeIdleGuard;
     // A provider without the update-tolerant policy can only ever report the reviewed exact path.
     CodexDeliveryAuthority Authorize(DesktopOwnerBinding binding)
@@ -167,8 +167,6 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
                 if (guarded && updateTolerant && provider.Authorize(binding) == CodexDeliveryAuthority.UpdateTolerant)
                     carried.Add(binding);
             }
-            // Only this pass's admitted rows count, never the skipped bindings retained below. Notes cannot grant trust.
-            provider.CompleteDiscovery(carried);
             // A skipped conversation keeps its earlier binding for as long as it keeps being skipped, as it did when a failed
             // pass left every binding in place; submission resolves the owner afresh before any input either way. Its
             // pending-since time is kept with it, so a skip never restarts the bound.
@@ -181,6 +179,9 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
             bindings.Clear(); foreach (var pair in found) bindings.Add(pair.Key, pair.Value);
             slowLookups.Clear(); slowLookups.UnionWith(slow);
             skippedLastPass = skipped.Count;
+            // Reporting cannot prevent a successfully resolved binding from being saved. Empty passes still report
+            // publisher verification; a note never grants delivery authority.
+            provider.CompleteDiscovery(carried, updateTolerant);
             // Report only: each listed row's thread writer lock, observed after every capability and address above was decided,
             // in the background and kept beside the rows, never in them, so it can neither change one nor delay the pass.
             // found also holds a conversation this pass skipped (its lookup ran out of time) with its earlier binding: its row

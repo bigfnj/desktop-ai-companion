@@ -88,7 +88,7 @@ public sealed partial class AgentBrokerModule
         return string.Join("\n", lines);
     }
 
-    private IEnumerable<string> ClientStateLines(string client)
+    private IEnumerable<string> ClientStateLines(string client, bool wrapTrayNotes = false)
     {
         string name = ClientName(client);
         // Broker running.
@@ -148,10 +148,15 @@ public sealed partial class AgentBrokerModule
         // Native receive and wake support.
         yield return NativeLine(client);
         // A note about some sessions (lane broker-163: elevated Claude Code sessions), beside the healthy line, not instead.
-        // One line per note, up to the worker's 320-character description bound. Combined build names must stay visible.
+        // The pane keeps each note whole within the worker's description bound; the tray uses bounded continuation items.
         if (snapshot?.AdapterNotes is { } notes && notes.TryGetValue(client == "claude" ? "claude-native" : "codex-native", out string? joined))
             foreach (string note in joined.Split(ControlProtocol.NoteSeparator, StringSplitOptions.RemoveEmptyEntries).Take(8))
-                yield return "\u26A0 " + Safe(StripCode(note), 320);
+            {
+                string description = Safe(StripCode(note), 320);
+                if (wrapTrayNotes)
+                    foreach (string part in TrayNoteLines(description)) yield return part;
+                else yield return "\u26A0 " + description;
+            }
         // Report only (lane broker-163, N-agentbroker-code-owner-provenance-01): whose engine holds each Codex row's thread.
         if (client == "codex" && EngineBindingLine() is { } engine) yield return engine;
 
@@ -254,6 +259,27 @@ public sealed partial class AgentBrokerModule
             " Codex sessions held by a Code or desktop engine" + (unbound.Length == 0 ? "" : "; unbound: " + unbound) + ". Nothing is refused on it.";
     }
 
+    private static IEnumerable<string> TrayNoteLines(string description)
+    {
+        string remaining = description;
+        bool first = true;
+        do
+        {
+            string prefix = first ? "\u26A0 " : "  ";
+            int length = Math.Min(120 - prefix.Length, remaining.Length);
+            if (length < remaining.Length)
+            {
+                int space = remaining.LastIndexOf(' ', length - 1, length);
+                if (space > 0) length = space;
+                // Keep a Unicode scalar together when an unbroken word needs a hard wrap.
+                if (char.IsHighSurrogate(remaining[length - 1]) && char.IsLowSurrogate(remaining[length])) length--;
+            }
+            yield return prefix + remaining[..length];
+            remaining = remaining[length..].TrimStart(' ');
+            first = false;
+        } while (remaining.Length > 0);
+    }
+
     private IEnumerable<TrayItem> ClientTrayItems()
     {
         foreach (string client in new[] { "claude", "codex" })
@@ -264,7 +290,7 @@ public sealed partial class AgentBrokerModule
                 Label = Safe(ClientName(current) + ": " + ClientHeadline(current), 120),
                 BuildChildren = () =>
                 {
-                    var children = ClientStateLines(current).Select(line => new TrayItem { Label = Safe(line, 120) }).ToList();
+                    var children = ClientStateLines(current, wrapTrayNotes: true).Select(line => new TrayItem { Label = Safe(line, 120) }).ToList();
                     children.Add(new TrayItem { Label = "Check client setup", Click = () => _ = CheckClientSetupAsync() });
                     if (Inspection(current)?.State == ClientConfiguration.Absent)
                         children.Add(new TrayItem { Label = "Connect " + (current == "claude" ? "Claude" : "Codex") + " MCP",

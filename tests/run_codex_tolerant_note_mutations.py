@@ -1,4 +1,4 @@
-"""Focused mutation witnesses for carried Codex build notes.
+"""Focused mutation witnesses for publisher-verified Codex build notes.
 
 Default: dry plan. --self-test uses scratch synthetic files, without builds.
 For an exclusive build window after offline restore:
@@ -40,16 +40,28 @@ class Family:
     failure_prefix: str
     healthy_label: str
     assertions: int
+    summary_pattern: str | None = None
 
 
 WORKER_OUTPUT = Path("tests/AgentBroker.Worker.Tests/bin/Release/net10.0-windows")
+DESKTOP_OUTPUT = Path("tests/AgentBroker.Desktop.Tests/bin/Release/net10.0-windows")
 MODULE_OUTPUT = Path("build/DesktopAICompanionPortable/bin/Release/x64")
 HOST = MODULE_OUTPUT / "DesktopAICompanion.exe"
 FAMILIES = {
     "worker": Family("tests/AgentBroker.Worker.Tests/AgentBroker.Worker.Tests.csproj",
                      WORKER_OUTPUT / "AgentBroker.Worker.Tests.dll", WORKER_OUTPUT / "AgentBroker.Worker.dll",
                      ("--codex-tolerant-note-only",), "CodexTolerantNoteChecks.cs",
-                     "System.InvalidOperationException: ", "CodexTolerantNoteChecks.cs: WITNESS:", 39),
+                     "System.InvalidOperationException: ", "CodexTolerantNoteChecks.cs: WITNESS:", 57),
+    "desktop-pin": Family("tests/AgentBroker.Desktop.Tests/AgentBroker.Desktop.Tests.csproj",
+                          DESKTOP_OUTPUT / "AgentBroker.Desktop.Tests.dll", DESKTOP_OUTPUT / "AgentBroker.CodexDesktopAdapter.dll",
+                          ("--pin-diagnostics-only",), "CodexPinMetadataChecks.cs", "System.InvalidOperationException: ",
+                          "AgentBroker desktop pin diagnostic checks passed:", 23,
+                          r"(?m)^AgentBroker desktop pin diagnostic checks passed: ([1-9][0-9]*)\r?$"),
+    "desktop-observer": Family("tests/AgentBroker.Desktop.Tests/AgentBroker.Desktop.Tests.csproj",
+                               DESKTOP_OUTPUT / "AgentBroker.Desktop.Tests.dll", DESKTOP_OUTPUT / "AgentBroker.CodexDesktopAdapter.dll",
+                               ("--directory-observer-reporting-only",), "DirectoryObserverChecks.cs", "System.InvalidOperationException: ",
+                               "AgentBroker directory observer reporting checks passed:", 13,
+                               r"(?m)^AgentBroker directory observer reporting checks passed: ([1-9][0-9]*)\r?$"),
     "module": Family("modules/AgentBroker/AgentBroker.csproj", HOST,
                      MODULE_OUTPUT / "modules/agentbroker/AgentBroker.dll",
                      ("--module-selftest=agentbroker",), "AgentBrokerOnboardingChecks.cs", "FAIL: ",
@@ -72,15 +84,21 @@ PROVIDER = "tools/AgentBroker.Worker/Adapters/CodexNativeProvider.cs"
 WITNESSES = (
     Witness("profile-error-reporting", PROVIDER,
             "                diagnostics.Add(profilePinDiagnostic);\n", "",
-            "a pass without an actual carried session preserves the exact failure and emits no carried note (capability)", case="no-carry"),
+            "effective update-tolerant mode off preserves the exact profile error (adapter-off)", case="no-carry"),
     Witness("router-error-reporting", PROVIDER,
             "            diagnostics.Add(routerPinDiagnostic);\n", "",
             "a different observer router keeps its exact error despite a carried owner (samePid=False)", case="observer"),
-    Witness("carry-required", PROVIDER, "        if (carried.Length > 0)\n", "        if (true)\n",
-            "a pass without an actual carried session preserves the exact failure and emits no carried note (capability)", case="no-carry"),
+    Witness("carrier-independent-notes", PROVIDER,
+            "        bool reportTolerant = updateTolerant && updateTolerantDelivery;",
+            "        bool reportTolerant = updateTolerant && updateTolerantDelivery && carriedBindings.Count > 0;",
+            "this pass's publisher-verified profile is a note even without an admitted session (capability)", case="no-carry"),
+    Witness("adapter-mode-off", PROVIDER,
+            "        bool reportTolerant = updateTolerant && updateTolerantDelivery;",
+            "        bool reportTolerant = updateTolerant;",
+            "effective update-tolerant mode off preserves the exact profile error (adapter-off)", case="no-carry"),
     Witness("note-flag", PROVIDER,
-            '                ". Eligible sessions use Windows-verified publisher signatures.") { Note = true });',
-            '                ". Eligible sessions use Windows-verified publisher signatures.") { Note = false });',
+            '                ". Update-tolerant delivery is enabled.") { Note = true });',
+            '                ". Update-tolerant delivery is enabled.") { Note = false });',
             "profile carry replaces its exact-pin failure with one build-naming note (unsupported_vscode_profile)", case="carried"),
     Witness("engine-pin-suppression", PROVIDER,
             "                diagnostics.RemoveAll(item => ReferenceEquals(item, profilePinDiagnostic));\n", "",
@@ -88,6 +106,28 @@ WITNESSES = (
     Witness("signature-error-retained", PROVIDER,
             "            diagnostics?.Add(CodexNativeAdapter.DescribeDiscoveryFailure(error));\n", "            _ = error;\n",
             "failed publisher evidence retains both real errors and never becomes a carried note (public_image_signature_untrusted)", case="refused"),
+    Witness("profile-publisher-proof", PROVIDER,
+            "            if (profileTrust == DesktopRouterTrust.PublisherSigned && profilePinDiagnostic is not null && profilePinRefusal is not null)",
+            "            if (profilePinDiagnostic is not null && profilePinRefusal is not null)",
+            "failed publisher evidence retains both real errors and never becomes a carried note (public_image_signature_untrusted)", case="refused"),
+    Witness("router-report-proof-present", PROVIDER,
+            "            routerPublisherVerifiedThisPass = directory.PublisherVerifiedForReporting;",
+            "            routerPublisherVerifiedThisPass = false;",
+            "WITNESS: an idle observer with explicit publisher reporting proof replaces its own exact error with a versioned note", case="router-reporting"),
+    # Retired captured-assignment=true mutant: the live-proof guard now independently blocks a false proof.
+    # These two mutations instead remove the live checks after a genuine successful captured proof.
+    Witness("router-live-report-proof", PROVIDER,
+            "            if (routerPublisherVerifiedThisPass && directory?.PublisherVerifiedForReporting == true &&",
+            "            if (routerPublisherVerifiedThisPass && directory is not null &&",
+            "an observer that loses live reporting proof after observation keeps its exact error at completion", case="router-reporting"),
+    Witness("router-live-report-identity", PROVIDER,
+            "                directory.RouterIdentity == observedRouter && observedRouter.Pid != 0 && observedRouter.CreationFileTime != 0 &&",
+            "                observedRouter.Pid != 0 && observedRouter.CreationFileTime != 0 &&",
+            "an observer whose live identity changes after observation cannot reuse the captured publisher verdict", case="router-reporting"),
+    Witness("owner-report-proof-required", PROVIDER,
+            "                adapter.PublisherVerifiedForReporting && adapter.ExactPinRefusal is { } pin)",
+            "                adapter.ExactPinRefusal is { } pin)",
+            "a successful owner lookup without explicit reporting proof cannot promote a matching router refusal", case="router-reporting"),
     Witness("observer-pid-match", PROVIDER,
             "                if (identity == observedRouter && routerPinDiagnostic is not null && routerPinRefusal is not null)",
             "                if (identity.Item2 == observedRouter.CreationFileTime && routerPinDiagnostic is not null && routerPinRefusal is not null)",
@@ -97,7 +137,7 @@ WITNESSES = (
             "                if (identity.Item1 == observedRouter.Pid && routerPinDiagnostic is not null && routerPinRefusal is not null)",
             "a different observer router keeps its exact error despite a carried owner (samePid=True)", case="observer"),
     Witness("adapter-completion", "tools/AgentBroker.Worker/Adapters/CodexNativeAdapter.cs",
-            "            provider.CompleteDiscovery(carried);\n", "",
+            "            provider.CompleteDiscovery(carried, updateTolerant);\n", "",
             "the real adapter completes discovery with its freshly resolved guarded update-tolerant binding", case="completion"),
     Witness("component-collision", PROVIDER,
             "        passDiagnostics = Array.AsReadOnly(diagnostics.ToArray());",
@@ -105,15 +145,61 @@ WITNESSES = (
             "equal-valued profile and unrelated observer refusals keep the observer error when only the profile is carried", case="observer"),
     Witness("notes-own-line", "modules/AgentBroker/AgentBrokerModule.Clients.cs",
             "            foreach (string note in joined.Split(ControlProtocol.NoteSeparator, StringSplitOptions.RemoveEmptyEntries).Take(8))",
-            "            foreach (string note in (client == \"codex\" ? new[] { joined } : joined.Split(ControlProtocol.NoteSeparator, StringSplitOptions.RemoveEmptyEntries)).Take(8))",
+            "            foreach (string note in (client == \"codex\" && !wrapTrayNotes ? new[] { joined } : joined.Split(ControlProtocol.NoteSeparator, StringSplitOptions.RemoveEmptyEntries)).Take(8))",
             "CODEX_TOLERANT_NOTE_LINE: a combined Codex build note and a second note are whole on separate lines beside the healthy native line", family="module"),
     Witness("notes-whole", "modules/AgentBroker/AgentBrokerModule.Clients.cs",
-            "Safe(StripCode(note), 320)", "Safe(StripCode(note), 116)",
+            "                else yield return \"\\u26A0 \" + description;",
+            "                else yield return \"\\u26A0 \" + Safe(description, 116);",
             "CODEX_TOLERANT_NOTE_LINE: a combined Codex build note and a second note are whole on separate lines beside the healthy native line", family="module"),
-    Witness("completed-admission-retained", PROVIDER,
-            "        DesktopOwnerBinding[] carried = updateTolerant ? carriedBindings.ToArray() : [];",
-            "        DesktopOwnerBinding[] carried = updateTolerant ? carriedBindings.Where(binding => Authorize(binding) == CodexDeliveryAuthority.UpdateTolerant).ToArray() : [];",
-            "later connection retirement preserves the earlier admission's carried note alongside the skipped-lookup diagnostic", case="completion"),
+    Witness("tray-notes-whole", "modules/AgentBroker/AgentBrokerModule.Clients.cs",
+            "ClientStateLines(current, wrapTrayNotes: true)", "ClientStateLines(current, wrapTrayNotes: false)",
+            "CODEX_TOLERANT_TRAY_NOTE_WHOLE: actual Codex tray children preserve both build names and the complete signature sentence in bounded continuation items", family="module"),
+    Witness("completion-binding-retained", "tools/AgentBroker.Worker/Adapters/CodexNativeAdapter.cs",
+            "            bindings.Clear(); foreach (var pair in found) bindings.Add(pair.Key, pair.Value);\n"
+            "            slowLookups.Clear(); slowLookups.UnionWith(slow);\n"
+            "            skippedLastPass = skipped.Count;\n"
+            "            // Reporting cannot prevent a successfully resolved binding from being saved. Empty passes still report\n"
+            "            // publisher verification; a note never grants delivery authority.\n"
+            "            provider.CompleteDiscovery(carried, updateTolerant);",
+            "            provider.CompleteDiscovery(carried, updateTolerant);\n"
+            "            bindings.Clear(); foreach (var pair in found) bindings.Add(pair.Key, pair.Value);\n"
+            "            slowLookups.Clear(); slowLookups.UnionWith(slow);\n"
+            "            skippedLastPass = skipped.Count;",
+            "report completion failure does not discard an admitted binding before a synthetic submission can use it", case="completion-failure"),
+    Witness("image-mismatch-note-meaning", PROVIDER,
+            '? " (image differs from reviewed build)" : "";', '? "" : "";',
+            "a publisher-verified extension with a reviewed version still says its image differs from the reviewed build", case="image-mismatch"),
+    Witness("installed-manifest-mismatch-version", "tools/AgentBroker.CodexDesktopAdapter/VsCodeCompatibilityProfile.cs",
+            "        { throw new DesktopAdapterException(error.Code, installedVersion); }",
+            "        { throw new DesktopAdapterException(error.Code); }",
+            "F4_IMAGE_MISMATCH_MANIFEST_LAYOUT_VERSION: a manifest mismatch names its checked layout, not the pin version", family="desktop-pin"),
+    Witness("installed-bundle-mismatch-version", "tools/AgentBroker.CodexDesktopAdapter/VsCodeCompatibilityProfile.cs",
+            '                throw new DesktopAdapterException("vscode_image_mismatch", installedVersion);',
+            '                throw new DesktopAdapterException("vscode_image_mismatch");',
+            "F4_IMAGE_MISMATCH_BUNDLE_LAYOUT_VERSION: a bundle mismatch names its checked layout, not the pin version", family="desktop-pin"),
+    Witness("installed-version-not-pin", "tools/AgentBroker.CodexDesktopAdapter/VsCodeCompatibilityProfile.cs",
+            "        string? installedVersion = InstalledExtensionVersion(root);", "        string? installedVersion = profile.Version;",
+            "F4_IMAGE_MISMATCH_MANIFEST_LAYOUT_VERSION: a manifest mismatch names its checked layout, not the pin version", family="desktop-pin"),
+    Witness("running-mismatch-version", "tools/AgentBroker.CodexDesktopAdapter/VsCodeCompatibilityProfile.cs",
+            '                throw new DesktopAdapterException("running_vscode_image_mismatch", PublisherEngineVersion(engine.Image, root));',
+            '                throw new DesktopAdapterException("running_vscode_image_mismatch");',
+            "F4_IMAGE_MISMATCH_RUNNING_LAYOUT_VERSION: a running image mismatch names its actual engine layout, not the pin version", family="desktop-pin"),
+    Witness("desktop-mismatch-version", "tools/AgentBroker.CodexDesktopAdapter/WindowsDesktopConnection.cs",
+            '            throw new DesktopAdapterException("desktop_image_mismatch", profile.ApplicationVersion);',
+            '            throw new DesktopAdapterException("desktop_image_mismatch");',
+            "F4_IMAGE_MISMATCH_DESKTOP_VERSION: a changed image reports the installed package-path version", family="desktop-pin"),
+    Witness("snapshot-report-proof-reset", "tools/AgentBroker.CodexDesktopAdapter/DesktopDirectoryObserver.cs",
+            "    public IReadOnlyList<DesktopDirectorySession> Snapshot()\n    {\n        Volatile.Write(ref reportPublisherVerified, false);",
+            "    public IReadOnlyList<DesktopDirectorySession> Snapshot()\n    {",
+            "OBSERVER_REPORT_RESET_ON_FAILURE: an identity failure clears a prior successful snapshot proof", family="desktop-observer"),
+    Witness("snapshot-report-exact-not-signed", "tools/AgentBroker.CodexDesktopAdapter/DesktopDirectoryObserver.cs",
+            "            Volatile.Write(ref reportPublisherVerified, connection.Trust == DesktopRouterTrust.PublisherSigned);",
+            "            Volatile.Write(ref reportPublisherVerified, true);",
+            "OBSERVER_REPORT_EXACT_GATE: exact trust alone is not publisher-verification reporting proof", family="desktop-observer"),
+    Witness("snapshot-report-signed", "tools/AgentBroker.CodexDesktopAdapter/DesktopDirectoryObserver.cs",
+            "            Volatile.Write(ref reportPublisherVerified, connection.Trust == DesktopRouterTrust.PublisherSigned);",
+            "            Volatile.Write(ref reportPublisherVerified, false);",
+            "OBSERVER_REPORT_SIGNED_GATE: a same-incarnation signed snapshot reports its connect-time publisher verdict", family="desktop-observer"),
 )
 
 
@@ -228,6 +314,13 @@ def grade_healthy(result: dict, family: str = "worker") -> int:
                 expected.healthy_label not in text):
             raise RuntimeError("Module checks lacked their host-load witness and clean verdict.")
         return 0
+    if expected.summary_pattern is not None:
+        summaries = re.findall(expected.summary_pattern, text)
+        if (result["exitCode"] != 0 or len(summaries) != 1 or int(summaries[0]) != expected.assertions or
+                re.search(r"(?m)^(?:FAIL:|RESULT=FAIL|EXC:|SKIP:|SKIPPED:)", text) or
+                expected.healthy_label not in text):
+            raise RuntimeError("Desktop focused checks lacked their exact nonempty passing inventory.")
+        return int(summaries[0])
     summaries = re.findall(r"(?m)^RESULT=PASS assertions=([1-9][0-9]*)\r?$", text)
     if (result["exitCode"] != 0 or len(summaries) != 1 or int(summaries[0]) != expected.assertions or
             re.search(r"(?m)^(?:FAIL:|RESULT=FAIL|SKIP:|SKIPPED:)", text) or
@@ -254,6 +347,12 @@ def grade_negative(result: dict, witness: Witness) -> None:
     else:
         failures = re.findall(r"(?m)^" + re.escape(expected.failure_prefix) + r"([^\r\n]*)", text)
         valid = len(failures) == 1 and expected.failure_file in failures[0] and witness.failure_label in failures[0]
+        exception_headers = re.findall(r"(?m)^[ \t]*(?:---> )?[A-Za-z_][A-Za-z0-9_.+`]*Exception:[^\r\n]*", text)
+        expected_header = expected.failure_prefix + failures[0] if len(failures) == 1 else None
+        if (exception_headers != [expected_header] or
+                re.search(r"(?m)^[ \t]*(?:\[[^\]\r\n]+\][ \t]*)?(?:FAIL:|EXC:|SKIP:|SKIPPED:)", text) or
+                expected.summary_pattern is not None and re.search(expected.summary_pattern, text)):
+            valid = False
     if (result["exitCode"] != 1 or len(re.findall(r"(?m)^RESULT=FAIL\r?$", text)) != 1 or
             not valid or re.search(r"(?m)^RESULT=PASS", text) or
             re.search(r"(?m)^[ \t]*(?:\[agentbroker\][ \t]*)?(?:EXC:|SKIP:)", text)):
@@ -273,12 +372,39 @@ def stop_owned(process: subprocess.Popen) -> None:
     process.wait(timeout=20)
 
 
+def wait_owned(process: subprocess.Popen, timeout: int, label: str, record: dict) -> None:
+    try:
+        record["exitCode"] = process.wait(timeout=timeout)
+    except BaseException as error:
+        record["waitError"] = type(error).__name__
+        if isinstance(error, subprocess.TimeoutExpired):
+            record["timedOut"] = True
+        # Reap before propagating an interruption: the caller may restore sources as soon as this returns.
+        stop_owned(process)
+        record["ownedProcessReaped"] = True
+        if isinstance(error, subprocess.TimeoutExpired):
+            raise RuntimeError("Owned build/check timed out: " + label) from error
+        raise
+
+
 class Runner:
     def __init__(self, evidence: Path, report: dict, restore_config: Path):
         self.evidence = evidence
         self.report = report
         self.restore_config = restore_config
         self.started = time.monotonic()
+        self.owned_process: subprocess.Popen | None = None
+
+    def restore_sources(self, sources: Sources) -> list[str]:
+        if self.owned_process is not None:
+            try:
+                if self.owned_process.poll() is None:
+                    return ["Owned command is still running; source restoration refused until it stops."]
+                self.owned_process.wait(timeout=20)
+                self.owned_process = None
+            except Exception as error:
+                return ["Cannot prove the owned command was reaped; source restoration refused: " + type(error).__name__]
+        return sources.restore()
 
     def invoke(self, label: str, argv: list[str], timeout: int) -> dict:
         remaining = int(45 * 60 - (time.monotonic() - self.started))
@@ -296,12 +422,12 @@ class Runner:
             process = subprocess.Popen(argv, cwd=ROOT, stdin=subprocess.DEVNULL, stdout=out, stderr=err, env=env,
                                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                                        start_new_session=os.name != "nt")
+            self.owned_process = process
             try:
-                record["exitCode"] = process.wait(timeout=timeout)
-            except subprocess.TimeoutExpired:
-                record["timedOut"] = True
-                stop_owned(process)
-                raise RuntimeError("Owned build/check timed out: " + label)
+                wait_owned(process, timeout, label, record)
+            finally:
+                if process.poll() is not None:
+                    self.owned_process = None
         if out_path.stat().st_size + err_path.stat().st_size > 2 << 20:
             raise RuntimeError("Command evidence exceeded its output bound: " + label)
         return {"exitCode": record["exitCode"],
@@ -373,11 +499,30 @@ def self_test(folder: Path) -> dict:
     negative = {"exitCode":1,"output":"System.InvalidOperationException: CodexTolerantNoteChecks.cs: EXACT_LABEL\nRESULT=FAIL\n"}
     grade_negative(negative,sample)
     checks.append("specific worker failure accepted")
+    grade_negative({**negative, "output": negative["output"].replace("RESULT=FAIL",
+        "   at Synthetic.Check() in synthetic.cs:line 1\nRESULT=FAIL")}, sample)
+    checks.append("normal negative stack trace accepted")
     rejects("exit zero refused", lambda: grade_negative({**negative,"exitCode":0},sample))
     rejects("wrong failure label refused", lambda: grade_negative({**negative,"output":negative["output"].replace("EXACT_LABEL","OTHER")},sample))
     rejects("missing verdict refused", lambda: grade_negative({**negative,"output":negative["output"].replace("RESULT=FAIL","")},sample))
-    grade_healthy({"exitCode":0,"output":"PASS: CodexTolerantNoteChecks.cs: WITNESS: synthetic\nRESULT=PASS assertions=39\n"})
-    rejects("healthy without witness refused", lambda: grade_healthy({"exitCode":0,"output":"RESULT=PASS assertions=39\n"}))
+    rejects("extra failure header refused", lambda: grade_negative({**negative,
+        "output": negative["output"] + "FAIL: UNEXPECTED\n"}, sample))
+    rejects("extra exception header refused", lambda: grade_negative({**negative,
+        "output": negative["output"] + "System.IO.IOException: UNEXPECTED\n"}, sample))
+    grade_healthy({"exitCode":0,"output":"PASS: CodexTolerantNoteChecks.cs: WITNESS: synthetic\nRESULT=PASS assertions=57\n"})
+    rejects("healthy without witness refused", lambda: grade_healthy({"exitCode":0,"output":"RESULT=PASS assertions=57\n"}))
+    for family in ("desktop-pin", "desktop-observer"):
+        expected = FAMILIES[family]
+        healthy = {"exitCode": 0, "output": expected.healthy_label + " " + str(expected.assertions) + "\n"}
+        grade_healthy(healthy, family)
+        rejects(family + " wrong inventory refused", lambda: grade_healthy({**healthy,
+            "output": expected.healthy_label + " " + str(expected.assertions + 1) + "\n"}, family))
+        witness = Witness("synthetic-" + family, "first.cs", "original", "mutated", "DESKTOP_LABEL", family)
+        negative_desktop = {"exitCode": 1, "output": "System.InvalidOperationException: " + expected.failure_file + ": DESKTOP_LABEL\nRESULT=FAIL\n"}
+        grade_negative(negative_desktop, witness)
+        rejects(family + " missing failure verdict refused", lambda: grade_negative({**negative_desktop,
+            "output": negative_desktop["output"].replace("RESULT=FAIL", "")}, witness))
+        checks.append(family + " grades its focused summary and named negative")
     module = Witness("synthetic-module","first.cs","original","mutated","MODULE_LABEL","module")
     module_negative = {"exitCode":1,"output":"  [agentbroker] FAIL: MODULE_LABEL\nFAIL: the module's own self-test passed\nRESULT=FAIL\n"}
     grade_negative(module_negative,module)
@@ -390,10 +535,51 @@ def self_test(folder: Path) -> dict:
     rejects("duplicate module target refused", lambda: grade_negative({**module_negative,
         "output":"  [agentbroker] FAIL: MODULE_LABEL\n"+module_negative["output"]},module))
     rejects("module exception is not a killed assertion", lambda: grade_negative({"exitCode":1,"output":"EXC: MODULE_LABEL\nRESULT=FAIL\n"},module))
+    events = []
+    class InterruptedProcess:
+        stopped = False
+        def wait(self, timeout):
+            if not self.stopped:
+                events.append("interrupted wait")
+                raise KeyboardInterrupt()
+            events.append("reaped")
+            return 130
+        def poll(self):
+            return 130 if self.stopped else None
+    process = InterruptedProcess()
+    def stop_synthetic(owned):
+        assert owned is process
+        events.append("stop owned")
+        owned.stopped = True
+        owned.wait(timeout=20)
+    saved_popen, saved_stop = subprocess.Popen, globals()["stop_owned"]
+    try:
+        subprocess.Popen = lambda *args, **kwargs: process
+        globals()["stop_owned"] = stop_synthetic
+        evidence = folder / "interrupted-invoke"
+        evidence.mkdir()
+        report = {"commands": []}
+        runner = Runner(evidence, report, folder / "offline.config")
+        try:
+            runner.invoke("interrupted-wait", ["synthetic-process"], 1)
+        except KeyboardInterrupt:
+            assert events == ["interrupted wait", "stop owned", "reaped"], "interrupted owned wait stops and reaps before propagation"
+            assert report["commands"][0]["ownedProcessReaped"], "interrupted owned wait stops and reaps before propagation"
+            checks.append("interrupted owned wait stops and reaps before propagation")
+        else:
+            raise AssertionError("interrupted owned wait stops and reaps before propagation")
+    finally:
+        subprocess.Popen, globals()["stop_owned"] = saved_popen, saved_stop
     first,later=folder/"first.cs",folder/"later.cs"
     first.write_bytes(b"original"); later.write_bytes(b"original")
     sources=Sources(folder,["first.cs","later.cs"])
     sources.mutate(sample)
+    live = InterruptedProcess()
+    runner.owned_process = live
+    assert runner.restore_sources(sources) and first.read_bytes() == b"mutated", "source restoration waits for an owned live command to stop"
+    live.stopped = True
+    assert not runner.restore_sources(sources) and first.read_bytes() == b"original", "source restoration waits for an owned live command to stop"
+    checks.append("source restoration waits for an owned live command to stop")
     assert not sources.restore() and first.read_bytes()==b"original"
     checks.append("owned bytes restored exactly")
     sources.owned["later.cs"]=b"mutated later"; later.write_bytes(b"mutated later"); first.write_bytes(b"foreign edit")
@@ -488,7 +674,7 @@ def main() -> int:
                 grade_negative(runner.test(witness.family, witness.name + "-negative", witness.case), witness)
                 record["verdict"] = "FIRED"
             finally:
-                errors = sources.restore()
+                errors = runner.restore_sources(sources)
                 if errors:
                     raise RuntimeError("; ".join(errors))
                 record["sourceSha256After"] = sources.hashes()[witness.source]
@@ -496,7 +682,7 @@ def main() -> int:
         interrupted = isinstance(error, KeyboardInterrupt)
         report["errors"].append(type(error).__name__ + ": " + str(error))
     finally:
-        report["errors"].extend(sources.restore())
+        report["errors"].extend(runner.restore_sources(sources))
         try:
             report["sourceSha256After"] = sources.hashes()
             report["sourceBytesRestored"] = report["sourceSha256After"] == originals

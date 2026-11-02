@@ -295,6 +295,7 @@ internal static class CodexTrustPolicyChecks
             {
                 ExactPinRefusal = new DesktopAdapterException("unsupported_desktop_version", "26.1021.3705.0"),
                 RouterIdentity = (owner.Binding.ServerPid, owner.Binding.ServerCreationFileTime),
+                PublisherVerifiedForReporting = true,
             };
             var provider = new CodexNativeProvider(true, _ => Task.FromResult<ICodexOwnerConnection>(owner), () => { }, null,
                 _ => Task.FromResult<ICodexDirectoryObserver>(directory), tolerant, () => { });
@@ -508,6 +509,7 @@ internal static class CodexTrustPolicyChecks
 
     private sealed class Observer(Guid thread) : ICodexDirectoryObserver
     {
+        public bool PublisherVerifiedForReporting { get; set; }
         public DesktopAdapterException? ExactPinRefusal { get; set; }
         public (uint Pid, ulong CreationFileTime) RouterIdentity { get; set; }
         public IReadOnlyList<DesktopDirectorySession> Snapshot() => [new(thread, DesktopSessionActivity.Unknown, DateTimeOffset.UtcNow, null)];

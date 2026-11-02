@@ -67,6 +67,21 @@ if (args.SequenceEqual(new[] { "--connection-profile-only" })
         return 1;
     }
 }
+if (args.SequenceEqual(new[] { "--directory-observer-reporting-only" }))
+{
+    try
+    {
+        await DirectoryObserverChecks.RunAsync(Check);
+        Console.WriteLine($"AgentBroker directory observer reporting checks passed: {passed}");
+        return 0;
+    }
+    catch (Exception error)
+    {
+        Console.Error.WriteLine(error);
+        Console.WriteLine("RESULT=FAIL");
+        return 1;
+    }
+}
 if (args.SequenceEqual(new[] { "--pin-diagnostics-only" }))
 {
     try
@@ -580,6 +595,7 @@ foreach (bool matching in new[] { false, true })
 }
 
 if (!args.SequenceEqual(new[] { "--existing-tests-only" })) CodexPinMetadataChecks.Run(Check);
+if (!args.SequenceEqual(new[] { "--existing-tests-only" })) await DirectoryObserverChecks.RunAsync(Check);
 if (!args.SequenceEqual(new[] { "--existing-tests-only" }) && !args.SequenceEqual(new[] { "--skip-discovery-timeouts" }))
     await DiscoveryTimeoutChecks.RunAsync(Check);
 if (!args.SequenceEqual(new[] { "--existing-tests-only" })) await ExactThreadMetadataChecks.RunAsync(Check);
