@@ -292,17 +292,22 @@ internal static class CodexTrustPolicyChecks
         {
             var owner = new Owner(DesktopRouterTrust.PublisherSigned);
             var directory = new Observer(owner.Binding.ConversationId)
-            { ExactPinRefusal = new DesktopAdapterException("unsupported_desktop_version", "26.1021.3705.0") };
+            {
+                ExactPinRefusal = new DesktopAdapterException("unsupported_desktop_version", "26.1021.3705.0"),
+                RouterIdentity = (owner.Binding.ServerPid, owner.Binding.ServerCreationFileTime),
+            };
             var provider = new CodexNativeProvider(true, _ => Task.FromResult<ICodexOwnerConnection>(owner), () => { }, null,
                 _ => Task.FromResult<ICodexDirectoryObserver>(directory), tolerant, () => { });
             await using var adapter = new CodexNativeAdapter(provider, enableDelivery: true, updateTolerantDelivery: tolerant);
             await adapter.DiscoverAsync(Guid.NewGuid(), default);
             var codes = adapter.DiscoveryDiagnostics.Select(item => item.Code).ToArray();
             string mode = tolerant ? "codex_update_tolerant_delivery" : "codex_observation_only";
-            check(codes.Contains("unsupported_desktop_version") && codes.Contains(mode) &&
-                adapter.DiscoveryDiagnostics.Any(item => item.Description.Contains("26.1021.3705.0 installed", StringComparison.Ordinal)),
-                File + "router diagnostics: a publisher-signed router reports its failed exact pin and mode on every pass (" + mode + ")");
+            check(codes.Contains("unsupported_desktop_version") == !tolerant && codes.Contains(mode) &&
+                adapter.DiscoveryDiagnostics.Any(item => item.Code == mode && item.Note == tolerant) &&
+                adapter.DiscoveryDiagnostics.Any(item => item.Description.Contains("26.1021.3705.0", StringComparison.Ordinal)),
+                File + "router diagnostics: a carried publisher-signed router reports a note; strict observation keeps its failed pin (" + mode + ")");
             directory.ExactPinRefusal = null;
+            owner.Binding = owner.Binding with { RouterTrust = DesktopRouterTrust.ExactPinned };
             await adapter.DiscoverAsync(Guid.NewGuid(), default);
             check(adapter.DiscoveryDiagnostics.Count == 0,
                 File + "router diagnostics: an exactly pinned router clears the observation warning");
@@ -332,8 +337,9 @@ internal static class CodexTrustPolicyChecks
         var mixedRow = (await mixedAdapter.DiscoverAsync(Guid.NewGuid(), default)).Single();
         check(mixedRow.Capabilities.HasFlag(SessionCapabilities.Receive | SessionCapabilities.WakeIdle) &&
             mixed.Authorize(exactRouter.Binding) == CodexDeliveryAuthority.UpdateTolerant && publisherChecks == 1 &&
-            mixedAdapter.DiscoveryDiagnostics.Any(item => item.Code == "running_vscode_image_mismatch"),
-            File + "update-tolerant profiles: publisher-verified updated engines stand in for exact pins and stay diagnosed");
+            !mixedAdapter.DiscoveryDiagnostics.Any(item => item.Code == "running_vscode_image_mismatch") &&
+            mixedAdapter.DiscoveryDiagnostics.Any(item => item is { Code: "codex_update_tolerant_delivery", Note: true }),
+            File + "update-tolerant profiles: publisher-verified updated engines stand in for exact pins and are noted");
         check((await mixedAdapter.SubmitAsync(Message(mixedRow), default)).Outcome == AdapterAdmission.Submitted && publisherChecks == 2,
             File + "update-tolerant profiles: actual submission repeats the fresh publisher check before model input");
 
@@ -503,6 +509,7 @@ internal static class CodexTrustPolicyChecks
     private sealed class Observer(Guid thread) : ICodexDirectoryObserver
     {
         public DesktopAdapterException? ExactPinRefusal { get; set; }
+        public (uint Pid, ulong CreationFileTime) RouterIdentity { get; set; }
         public IReadOnlyList<DesktopDirectorySession> Snapshot() => [new(thread, DesktopSessionActivity.Unknown, DateTimeOffset.UtcNow, null)];
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }

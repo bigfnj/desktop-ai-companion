@@ -43,6 +43,8 @@ public sealed class DesktopDirectoryObserver : IAsyncDisposable
 
     public DesktopRouterTrust RouterTrust => connection.Trust;
     public DesktopAdapterException? ExactPinRefusal => connection.ExactPinRefusal;
+    /// <summary>Report-only identity of this observer's already-verified router, for matching its diagnostics to a carried owner.</summary>
+    public (uint Pid, ulong CreationFileTime) RouterIdentity => (connection.Identity.Pid, connection.Identity.CreationFileTime);
 
     internal static async Task<DesktopDirectoryObserver> ConnectForTestAsync(IDesktopConnection connection,
         TimeSpan heartbeatInterval, CancellationToken token = default)

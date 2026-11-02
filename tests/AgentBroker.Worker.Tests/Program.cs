@@ -192,6 +192,18 @@ if (args.Length == 2 && args[0] == "--claude-public-image-trust")
     }
     catch (Exception ex) { Console.Error.WriteLine(ex); Console.WriteLine("RESULT=FAIL"); return 1; }
 }
+if (args.Length >= 1 && args[0] is "--codex-tolerant-note-only" or "--codex-tolerant-note-case")
+{
+    try
+    {
+        if (args[0] == "--codex-tolerant-note-only" && args.Length == 1) await CodexTolerantNoteChecks.RunAsync(Check);
+        else if (args[0] == "--codex-tolerant-note-case" && args.Length == 2) await CodexTolerantNoteChecks.RunAsync(Check, args[1]);
+        else throw new ArgumentException("Unexpected Codex tolerant-note test arguments.");
+        Console.WriteLine($"RESULT=PASS assertions={assertions}");
+        return 0;
+    }
+    catch (Exception ex) { Console.Error.WriteLine(ex); Console.WriteLine("RESULT=FAIL"); return 1; }
+}
 if (args.Length == 1 && args[0] == "--codex-trust-policy-only")
 {
     try
@@ -325,6 +337,7 @@ try
         await OnboardingChecks.RunAsync(Check);
         // Codex observation-only discovery and opt-in update-tolerant delivery (lane broker-b).
         await CodexTrustPolicyChecks.RunAsync(Check);
+        await CodexTolerantNoteChecks.RunAsync(Check);
         // Opt-in Claude Code channel bridge: push, explicit receipts, reply, mute and pairing gates.
         await ChannelBridgeChecks.RunAsync(Check);
         // The loopback listener's two authorities, localhost included (lane feature/agentbroker-backlog-d, N-bus-04).

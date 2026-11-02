@@ -98,10 +98,22 @@ settings, still checks idle twice before injection, and still uses the busy erro
 to mean "not submitted"; and that the unsigned extension JavaScript still matches
 the reviewed renderer bridge and owner manager. Leaving the setting on (the module's
 default since 1.5.0) accepts those gaps, which were the reason it was off by default
-before, and is why status reports `codex_update_tolerant_delivery` and the failed
-exact pin on every pass while it is in effect. Synthetic checks cover a compatible updated build, wrong publisher,
+before. While a completed discovery pass actually carries a guarded session using
+this mode, status reports one `codex_update_tolerant_delivery` note, separate from
+adapter errors. It names the component versions available from the exact-pin
+refusals, with unknown versions stated explicitly; it does not enumerate every
+running process or perform extra image checks for display. An exact-pin refusal
+for a carried component is replaced by the note. An unrelated directory router's
+refusal remains an error unless its process ID and creation time match a carried
+publisher-signed owner. Failed publisher verification and mode-off exact-pin
+refusals remain errors. The module shows each note on its own line, within the
+worker's 320-character description bound (`CodexNativeAdapter.DiscoverAsync`,
+`CodexNativeProvider.CompleteDiscovery`, `AgentBrokerModule.ClientStateLines`).
+Synthetic checks cover a compatible updated build, wrong publisher,
 invalid signature, changed protocol, held and refused admission, busy and
-reconnect (`CodexTrustPolicyChecks.cs`, `CodexObservationChecks.cs`). Live native
+reconnect (`CodexTrustPolicyChecks.cs`, `CodexObservationChecks.cs`); reporting
+checks include absent carriers, current-pass transitions and independent-router
+diagnostics (`CodexTolerantNoteChecks.cs`). Live native
 acceptance of an updated build has not been run.
 
 **Claude**: `claudeUpdateTolerantDelivery` ("Also wake updated Claude builds

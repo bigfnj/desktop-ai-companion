@@ -20,6 +20,8 @@ public interface ICodexNativeProvider : IAsyncDisposable
     // owner connection is down after a failed lookup): NativeIdleGuard is false for a reason a retry can clear.
     bool VerificationPending => false;
     IReadOnlyList<AdapterDiscoveryDiagnostic> DiscoveryDiagnostics => Array.Empty<AdapterDiscoveryDiagnostic>();
+    // Report-only completion: a directory announcement is not proof that update tolerance carries a usable session.
+    void CompleteDiscovery(IReadOnlyList<DesktopOwnerBinding> carriedBindings) { }
     bool IsDeliveryAuthorized(DesktopOwnerBinding binding) => NativeIdleGuard;
     // A provider without the update-tolerant policy can only ever report the reviewed exact path.
     CodexDeliveryAuthority Authorize(DesktopOwnerBinding binding)
@@ -97,6 +99,7 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
             if (rows.Count > 256) throw new BrokerException("session_limit", "Native directory exceeded its bound.");
             var found = new Dictionary<SessionAddress, DesktopOwnerBinding>();
             var sessions = new List<BrokerSession>();
+            var carried = new List<DesktopOwnerBinding>();
             // skipped: not renewed this pass; slow: the lookups that themselves timed out or failed. A conversation merely not
             // reached before the deadline keeps its place, mark included: it used to lose a mark it had, so a conversation
             // whose lookup times out on every pass went first again on the pass after one that did not reach it, and ended
@@ -161,7 +164,11 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
                     : pending && clock.GetUtcNow() - pendingNow[address] < VerificationPendingBound ? SessionCapabilities.Receive
                     : SessionCapabilities.None;
                 sessions.Add(new(address, row.DisplayLabel, Id, capabilities, activity, clock.GetUtcNow().AddSeconds(30)));
+                if (guarded && updateTolerant && provider.Authorize(binding) == CodexDeliveryAuthority.UpdateTolerant)
+                    carried.Add(binding);
             }
+            // Only this pass's admitted rows count, never the skipped bindings retained below. Notes cannot grant trust.
+            provider.CompleteDiscovery(carried);
             // A skipped conversation keeps its earlier binding for as long as it keeps being skipped, as it did when a failed
             // pass left every binding in place; submission resolves the owner afresh before any input either way. Its
             // pending-since time is kept with it, so a skip never restarts the bound.

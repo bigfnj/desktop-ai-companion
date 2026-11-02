@@ -122,7 +122,7 @@ WITNESSES = (
         '        catch (DesktopAdapterException) { bindings.Clear(); throw new IOException("Native Codex directory is unavailable."); }',
     ),)),
     Witness("codex-profile-reporting", "provider", "worker", ("--codex-provider-diagnostics-only",), "CodexProviderDiagnosticChecks.cs", (
-        ('                diagnostics.Add(CodexNativeAdapter.DescribeDiscoveryFailure(error));', "                _ = error;"),
+        ('                diagnostics.Add(profilePinDiagnostic);', "                _ = error;"),
         ('                diagnostics.Add(new("vscode_profile_unavailable",\n'
          '                    $"Codex VS Code compatibility verification could not complete; verified extension {VsCodeCompatibilityProfile.VerifiedVersions}."));', ""),
     )),
@@ -313,7 +313,7 @@ WITNESSES = (
         "            profileTrust = DesktopRouterTrust.PublisherSigned;",
     ),)),
     Witness("codex-worker-router-pin-diagnostic", "provider", "worker", ("--codex-trust-policy-only",), "CodexTrustPolicyChecks.cs", ((
-        "            diagnostics.Add(CodexNativeAdapter.DescribeDiscoveryFailure(routerPin));\n",
+        "            diagnostics.Add(routerPinDiagnostic);\n",
         "",
     ),)),
     # ---- lane feature/agentbroker-backlog-c ----
