@@ -649,6 +649,9 @@ namespace DesktopAICompanion.Wpf
             // A record that cannot be read, or is damaged, is said as such and offers no button (the 2026-10-29 audit,
             // A-host-06): read as "not allowed" it claimed the user's grant was gone while the store's gate answered
             // Unavailable, and its Allow then failed in HostCredentialStore.Record, which keeps such a record as it is.
+            // The button is docked at the row's right edge, apart from the rest (the owner, 2026-11-02): it sat where every
+            // other row has Uninstall and pushed that one along, so a hand used to the column pressed Revoke.
+            Button signIn = null;
             if (info != null && _seams.SignInGranted != null &&
                 (info.Permissions & ModulePermissions.ClaudeCodeSignIn) == ModulePermissions.ClaudeCodeSignIn)
             {
@@ -664,12 +667,12 @@ namespace DesktopAICompanion.Wpf
                 if (signInCaption != null)
                 {
                     bool allowed = granted == true;
-                    var signIn = new Button
+                    signIn = new Button
                     {
                         Content = signInCaption,
                         MinWidth = 100,
                         Padding = new Thickness(8, 1, 8, 1),
-                        Margin = new Thickness(0, 0, 6, 0),
+                        Margin = new Thickness(12, 0, 0, 0),
                         VerticalAlignment = VerticalAlignment.Center,
                         IsEnabled = !_updatingAll,
                         ToolTip = allowed
@@ -678,7 +681,6 @@ namespace DesktopAICompanion.Wpf
                     };
                     string signInName = info.Name;
                     signIn.Click += delegate { SetSignInAllowed(id, signInName, !allowed); };
-                    sp.Children.Add(signIn);
                 }
             }
 
@@ -689,7 +691,16 @@ namespace DesktopAICompanion.Wpf
             uninstall.Click += delegate { UninstallModule(id, info != null ? info.Name : id); };
             sp.Children.Add(uninstall);
 
-            row.Child = sp;
+            // The sign-in button is docked before the rest fills, so on a narrow pane it keeps its width and the
+            // left-hand content is what gets cut; Uninstall stays in the column it has on every other row.
+            var line = new DockPanel { LastChildFill = true };
+            if (signIn != null)
+            {
+                DockPanel.SetDock(signIn, Dock.Right);
+                line.Children.Add(signIn);
+            }
+            line.Children.Add(sp);
+            row.Child = line;
             return row;
         }
 

@@ -5647,6 +5647,19 @@ namespace DesktopAICompanion
             return ok;
         }
 
+        /// <summary>The installed-module row a button of the Modules pane sits in: its nearest Border in the logical tree,
+        /// which is the row's own, since the row's panels hold their buttons directly. Null for no button.</summary>
+        private static System.Windows.Controls.Border ModuleRowOf(System.Windows.FrameworkElement button)
+        {
+            for (var node = button == null ? null : button.Parent as System.Windows.FrameworkElement; node != null;
+                 node = node.Parent as System.Windows.FrameworkElement)
+            {
+                var border = node as System.Windows.Controls.Border;
+                if (border != null) return border;
+            }
+            return null;
+        }
+
         /// <summary>
         /// Lane feature/host-abi-180, BACKLOG N-cli-token-02 and the binding design review of 2026-10-29 (P1: a declared bit
         /// is no grant): where the user gives and takes back a module's grant of the shared Claude Code sign-in. An update
@@ -5714,6 +5727,38 @@ namespace DesktopAICompanion
                 ok &= Check(sb, "abi180: grant: a yes records the grant, and the row then says allowed and offers Revoke sign-in (" + row.Pane.StatusText + ")",
                     row.Granted.Contains("aibrain") && TextOf(row.Pane).Contains("Allowed the shared Claude Code sign-in.") &&
                     ModulesPaneProbe.Find(afterAllow, "Revoke sign-in") != null && ModulesPaneProbe.Find(afterAllow, "Allow sign-in") == null);
+
+                // SIGN-IN SITS APART (the owner, 2026-11-02: "align the token revokation to the right, i dont need users to
+                // mistakenly revoke"). Revoke sign-in stood where every other row has Uninstall and pushed that Uninstall
+                // along. Laid out at the settings window's pane width: the button ends at its row's right edge, starts past
+                // that row's Uninstall, and that Uninstall stands in the column of Beta's, a row with no sign-in button. A
+                // layout that measured nothing (a zero width anywhere) fails here; it must not read as aligned.
+                System.Windows.Controls.Button revokeButton = ModulesPaneProbe.Find(afterAllow, "Revoke sign-in");
+                var rowRender = new PaneRender(row.Pane, true);
+                rowRender.Save("dp-modules-signin-right.png");
+                System.Windows.Controls.Border signInRow = ModuleRowOf(revokeButton);
+                System.Windows.Controls.Button ownUninstall = null, plainUninstall = null;
+                foreach (System.Windows.Controls.Button b in afterAllow)
+                {
+                    if ((b.Content as string) != "Uninstall") continue;
+                    System.Windows.Controls.Border at = ModuleRowOf(b);
+                    if (at == null) continue;
+                    if (ReferenceEquals(at, signInRow)) ownUninstall = b; else plainUninstall = b;
+                }
+                System.Windows.Rect revokeBox = rowRender.BoundsOf(revokeButton);
+                System.Windows.Rect ownBox = rowRender.BoundsOf(ownUninstall);
+                System.Windows.Rect plainBox = rowRender.BoundsOf(plainUninstall);
+                System.Windows.Rect lineBox = signInRow != null ? rowRender.BoundsOf(signInRow.Child as System.Windows.FrameworkElement) : System.Windows.Rect.Empty;
+                bool rowLaidOut = !revokeBox.IsEmpty && !ownBox.IsEmpty && !plainBox.IsEmpty && !lineBox.IsEmpty &&
+                    revokeBox.Width > 0 && ownBox.Width > 0 && plainBox.Width > 0 && lineBox.Width > 0;
+                ok &= Check(sb, "signin-right: Revoke sign-in is docked at its row's right edge, past that row's Uninstall, and that Uninstall stands in the column of a row without sign-in (" +
+                    (rowLaidOut
+                        ? "gap " + Dips(revokeBox.Left - ownBox.Right) + " DIPs; Uninstall at " + Dips(ownBox.Left) + " and " + Dips(plainBox.Left) +
+                          "; Revoke ends at " + Dips(revokeBox.Right) + " of " + Dips(lineBox.Right)
+                        : "not laid out") + ")",
+                    rowLaidOut && revokeBox.Left - ownBox.Right >= 11.5 && Math.Abs(ownBox.Left - plainBox.Left) < 0.5 &&
+                    Math.Abs(lineBox.Right - revokeBox.Right) < 0.5);
+
                 int askedBeforeRevoke = row.Asked.Count;
                 ModulesPaneProbe.Press(ModulesPaneProbe.Find(afterAllow, "Revoke sign-in"));
                 ok &= Check(sb, "abi180: grant: Revoke sign-in takes the grant back without a question, and says the token stays for the others (" + row.Pane.StatusText + ")",

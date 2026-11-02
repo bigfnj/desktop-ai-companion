@@ -15999,6 +15999,16 @@ CASES = (
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "remembrance cloud: an Apply refused over the API key says why on the Status line, never the key"),
+    # ---- lane fix/modules-signin-right (the owner, 2026-11-02) ----
+    # The Modules row's Allow/Revoke sign-in button docked at the row's right edge, apart from Uninstall. The defect put
+    # back: the button inside the row's left-hand panel, straight before Uninstall, as host 1.8.0 shipped it.
+    ("signin-right: the sign-in button sits in the row's panel straight before Uninstall again",
+     os.path.join(REPO, "src", "Portable", "Wpf", "ModulesPaneControl.cs"),
+     b'            sp.Children.Add(uninstall);\n',
+     b'            if (signIn != null) sp.Children.Add(signIn);\n            sp.Children.Add(uninstall);\n            signIn = null;\n',
+     HOST_CSPROJ, EXE,
+     "--wpf-options-selftest", "dp-wpf-options-selftest.txt",
+     "signin-right: Revoke sign-in is docked at its row's right edge, past that row's Uninstall"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
