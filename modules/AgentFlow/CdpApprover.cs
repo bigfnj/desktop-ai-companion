@@ -436,7 +436,7 @@ namespace DesktopAICompanion.AgentFlow
         /// takes the card only when there is exactly ONE, which is the only case where "the card" is unambiguous.
         /// </summary>
         private const string CodexClickTemplate = @"
-(function () {" + DocumentPrelude + FocusHoldPrelude + @"
+(function () {" + DocumentPrelude + FocusActPrelude + @"
   var a = appDocument();
   if (!a.doc) return 'gone';
   var cards = a.doc.querySelectorAll('[class*=""@container/approval-card""]');
@@ -461,14 +461,9 @@ namespace DesktopAICompanion.AgentFlow
   var t = (b.innerText || b.textContent || '').replace(/\s+/g, ' ').trim();
   if (t !== __LABEL__) return 'moved';
   if (b.disabled) return 'disabled';
-  // The hold lasts while any approval card stands here: a follow-on card autofocuses its button on mount (1.12.3).
-  var release = agentflowHoldFocus(a.doc, function () { return !!a.doc.querySelector('[class*=""@container/approval-card""]'); }, __ACTION__);
-  try {
-    b.click();
-  } catch (e) {
-    if (release) release();
-    throw e;
-  }
+  // For focus detection (1.12.3): whether this panel had focus at the act.
+  agentflowNoteAct(a.doc, __ACTION__);
+  b.click();
   return 'clicked';
 })()";
 
@@ -491,7 +486,7 @@ namespace DesktopAICompanion.AgentFlow
         internal static string BuildCodexClick(int index, string expectedLabel, string cardId, string action)
         {
             // The hold's numbers and this module's own action id first: a label is page text and could spell a token.
-            return WithFocusHoldMs(CodexClickTemplate)
+            return CodexClickTemplate
                 .Replace("__ACTION__", JsonEncode(action ?? ""))
                 .Replace("__INDEX__", index.ToString(CultureInfo.InvariantCulture))
                 .Replace("__LABEL__", JsonEncode(expectedLabel ?? ""))
@@ -504,7 +499,7 @@ namespace DesktopAICompanion.AgentFlow
         {
             return string.Format(CultureInfo.InvariantCulture, ClickExpressionFormat,
                 index.ToString(CultureInfo.InvariantCulture), JsonEncode(expectedLabel ?? ""),
-                WithFocusHoldMs(FocusHoldPrelude), JsonEncode(action ?? ""));
+                FocusActPrelude, JsonEncode(action ?? ""));
         }
 
         private const string ClickExpressionFormat = @"
@@ -537,15 +532,9 @@ namespace DesktopAICompanion.AgentFlow
   if (n) t = t.substring((n.textContent || '').length);
   if (t.trim() !== {1}) return 'moved';
   if (b.disabled) return 'disabled';
-  // The hold lasts while a permission card stands here: the composer refocus runs 100 ms after the last one clears,
-  // which on the diff path is about ten seconds after this click (1.12.3).
-  var release = agentflowHoldFocus(d, function () {{ return !!d.querySelector('[class*=""permissionRequestContainer""]'); }}, {3});
-  try {{
-    b.click();
-  }} catch (e) {{
-    if (release) release();
-    throw e;
-  }}
+  // For focus detection (1.12.3): whether this panel had focus at the act.
+  agentflowNoteAct(d, {3});
+  b.click();
   return 'clicked';
 }})()";
 
@@ -606,6 +595,15 @@ namespace DesktopAICompanion.AgentFlow
         internal static string Sweep(int port, PromptHandler handle, int timeoutMs,
                                      out bool sawPanel, out bool sawBlind, SweepCensus census)
         {
+            return Sweep(port, handle, timeoutMs, out sawPanel, out sawBlind, census, false);
+        }
+
+        /// <summary>The sweep, and with <paramref name="guardFocus"/> (1.12.3) the standing focus guard installed in every
+        /// panel it attaches to, before that panel is read or pressed (see FocusGuardInstallTemplate), and the panel list
+        /// handed on with each card for focus detection. Off, it is the 1.12.2 sweep: no guard, no detection.</summary>
+        internal static string Sweep(int port, PromptHandler handle, int timeoutMs,
+                                     out bool sawPanel, out bool sawBlind, SweepCensus census, bool guardFocus)
+        {
             sawPanel = false;
             sawBlind = false;
             // The sweep's own clock, for the time it may spend following queues (1.12.0, FollowQueue).
@@ -623,8 +621,9 @@ namespace DesktopAICompanion.AgentFlow
             // After the empty-list return, which lists nothing either way.
             if (census != null)
                 foreach (KeyValuePair<string, string> listed in work) census.Listed.Add(listed.Key);
-            // Every panel listed, handed on with each card so a press can find the panel the user is in (1.12.3).
-            List<string> panels = work.ConvertAll(listed => listed.Key);
+            // Every panel listed, handed on with each card so a press can find the panel the user is in (1.12.3). Only
+            // with the guard on: off, a press makes no detection probe, as in 1.12.2.
+            List<string> panels = guardFocus ? work.ConvertAll(listed => listed.Key) : null;
 
             string browserUrl = BrowserSocketUrl(port, timeoutMs);
             if (string.IsNullOrEmpty(browserUrl)) return null;
@@ -648,6 +647,8 @@ namespace DesktopAICompanion.AgentFlow
                         if (sessionId == null) continue;
                         try
                         {
+                            // The standing guard first, so it is in place before anything here is read or pressed.
+                            if (guardFocus) InstallFocusGuard(session, sessionId);
                             string raw = session.Evaluate(sessionId,
                                 agent == AgentCodex ? CodexReadExpression : ReadExpression);
                             ReadOutcome outcome = Interpret(raw);

@@ -134,6 +134,8 @@ namespace DesktopAICompanion.AgentFlow
             "...and save it for all projects, not just this call (Claude)";
         internal const string ApproveSimilarLabel =
             "...and allow similar commands, not just this call (Codex)";
+        /// <summary>The focus guard's checkbox (1.12.3).</summary>
+        internal const string FocusGuardLabel = "Keep agent cards from taking focus";
 
         private const string GroupApprovals = "Recently auto-approved";
         private const string GroupAgentFlow = "AgentFlow";
@@ -198,6 +200,14 @@ namespace DesktopAICompanion.AgentFlow
                 {
                     Id = SettingApproveSimilar,
                     Label = ApproveSimilarLabel,
+                    Kind = SettingKind.Bool,
+                    Group = GroupAgentFlow,
+                    EnabledWhen = SettingMode + "=" + AgentMode.ToDisplay(AgentMode.AutoApprove),
+                },
+                new SettingField
+                {
+                    Id = SettingFocusGuard,
+                    Label = FocusGuardLabel,
                     Kind = SettingKind.Bool,
                     Group = GroupAgentFlow,
                     EnabledWhen = SettingMode + "=" + AgentMode.ToDisplay(AgentMode.AutoApprove),
@@ -759,6 +769,7 @@ namespace DesktopAICompanion.AgentFlow
                 { SettingNotifySound, NotifySoundOn ? "true" : "false" },
                 { SettingApproveAllProjects, ApproveForAllProjects ? "true" : "false" },
                 { SettingApproveSimilar, ApproveSimilarCommands ? "true" : "false" },
+                { SettingFocusGuard, KeepCardsFromTakingFocus ? "true" : "false" },
                 { SettingNotifySpeak, NotifySpeakOn ? "true" : "false" },
                 { SettingAnimPet, PetRowFor(pet) },
                 { SettingAnimName, StoredAnimName(pet) },
