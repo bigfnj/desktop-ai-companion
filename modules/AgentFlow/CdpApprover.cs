@@ -461,7 +461,7 @@ namespace DesktopAICompanion.AgentFlow
   if (t !== __LABEL__) return 'moved';
   if (b.disabled) return 'disabled';
   // The hold lasts while any approval card stands here: a follow-on card autofocuses its button on mount (1.12.3).
-  var release = agentflowHoldFocus(a.doc, function () { return !!a.doc.querySelector('[class*=""@container/approval-card""]'); });
+  var release = agentflowHoldFocus(a.doc, function () { return !!a.doc.querySelector('[class*=""@container/approval-card""]'); }, __ACTION__);
   try {
     b.click();
   } catch (e) {
@@ -483,20 +483,27 @@ namespace DesktopAICompanion.AgentFlow
         /// like the label, so an id is a string literal in the expression whatever it holds.</summary>
         internal static string BuildCodexClick(int index, string expectedLabel, string cardId)
         {
-            // The hold's duration first: a label is page text and could spell the token.
+            return BuildCodexClick(index, expectedLabel, cardId, "");
+        }
+
+        /// <summary>As above, for press <paramref name="action"/> (1.12.3): the id the focus safety net ties its steps to.</summary>
+        internal static string BuildCodexClick(int index, string expectedLabel, string cardId, string action)
+        {
+            // The hold's numbers and this module's own action id first: a label is page text and could spell a token.
             return WithFocusHoldMs(CodexClickTemplate)
+                .Replace("__ACTION__", JsonEncode(action ?? ""))
                 .Replace("__INDEX__", index.ToString(CultureInfo.InvariantCulture))
                 .Replace("__LABEL__", JsonEncode(expectedLabel ?? ""))
                 .Replace("__CARD__", JsonEncode(cardId ?? ""));
         }
 
-        /// <summary>The Claude click, built as <see cref="Click"/> builds it (1.12.3: with the focus hold). Internal so
-        /// the self-test runs the very expression production sends.</summary>
-        internal static string BuildClaudeClick(int index, string expectedLabel)
+        /// <summary>The Claude click, built as <see cref="Click"/> builds it (1.12.3: with the focus hold, for press
+        /// <paramref name="action"/>). Internal so the self-test runs the very expression production sends.</summary>
+        internal static string BuildClaudeClick(int index, string expectedLabel, string action)
         {
             return string.Format(CultureInfo.InvariantCulture, ClickExpressionFormat,
                 index.ToString(CultureInfo.InvariantCulture), JsonEncode(expectedLabel ?? ""),
-                WithFocusHoldMs(FocusHoldPrelude));
+                WithFocusHoldMs(FocusHoldPrelude), JsonEncode(action ?? ""));
         }
 
         private const string ClickExpressionFormat = @"
@@ -531,7 +538,7 @@ namespace DesktopAICompanion.AgentFlow
   if (b.disabled) return 'disabled';
   // The hold lasts while a permission card stands here: the composer refocus runs 100 ms after the last one clears,
   // which on the diff path is about ten seconds after this click (1.12.3).
-  var release = agentflowHoldFocus(d, function () {{ return !!d.querySelector('[class*=""permissionRequestContainer""]'); }});
+  var release = agentflowHoldFocus(d, function () {{ return !!d.querySelector('[class*=""permissionRequestContainer""]'); }}, {3});
   try {{
     b.click();
   }} catch (e) {{
@@ -916,15 +923,18 @@ namespace DesktopAICompanion.AgentFlow
             if (targetId == null || index < 0 || expectedLabel == null) return "gone";
             string browserUrl = BrowserSocketUrl(port, timeoutMs);
             if (string.IsNullOrEmpty(browserUrl)) return "gone";
+            // One id per press, carried by the remember, the act and the net's every look, so no step can act on
+            // another press's observation (1.12.3).
+            string action = NewFocusAction();
             string expression = string.Equals(agent, AgentCodex, StringComparison.Ordinal)
-                ? BuildCodexClick(index, expectedLabel, cardId)
-                : BuildClaudeClick(index, expectedLabel);
+                ? BuildCodexClick(index, expectedLabel, cardId, action)
+                : BuildClaudeClick(index, expectedLabel, action);
             try
             {
                 using (var session = new CdpSession(browserUrl, timeoutMs))
                 {
                     // Before the press, on this same connection: which other agent panel the user is in, if any.
-                    string heldBy = RememberFocus(session, panels, targetId);
+                    string heldBy = RememberFocus(session, panels, targetId, action);
                     string sessionId = session.Attach(targetId);
                     if (sessionId == null) return "gone";
                     string result;
@@ -932,7 +942,7 @@ namespace DesktopAICompanion.AgentFlow
                     finally { session.Detach(sessionId); }
                     if (string.IsNullOrEmpty(result)) return "gone";
                     if (heldBy != null && string.Equals(result, "clicked", StringComparison.Ordinal))
-                        focusNote = PutFocusBack(session, heldBy, targetId);
+                        focusNote = PutFocusBack(session, heldBy, targetId, action);
                     return result;
                 }
             }

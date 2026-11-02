@@ -587,10 +587,15 @@ namespace DesktopAICompanion.AgentFlow
   if (!box) return 'no-input';
   if ((box.textContent || '').trim()) return 'draft';
   var text = __MESSAGE__;
-  agentflowHoldFocus(d, null);
-  box.textContent = text;
-  box.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
-  box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
+  var release = agentflowHoldFocus(d, null, '');
+  try {
+    box.textContent = text;
+    box.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
+    box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
+  } catch (e) {
+    if (release) release();
+    throw e;
+  }
   return 'sent';
 })()";
 

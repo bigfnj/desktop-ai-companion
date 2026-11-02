@@ -7081,7 +7081,16 @@ namespace DesktopAICompanion.AgentFlow
             // the Codex dialog is DENY -- the row literally reads "Deny Esc" -- so a keystroke sent
             // to "just close the menu" rejects the user's command. That happened once, by hand,
             // on 2026-09-21. Nothing this module sends to that panel may be a key.
-            string[] keyboard = { "KeyboardEvent", "keydown", "keyup", "keypress", "Escape" };
+            //
+            // OBSERVING IS NOT SENDING (1.12.3, agreed with Codex's review of 2026-11-02). The focus hold listens, in the
+            // capture phase, for the user's own trusted keydown to record their intent, so the bare word "keydown" is no
+            // longer the test. What is banned is what SENDS a key: building a keyboard event, dispatching any event, a
+            // synthetic Escape, a CDP Input method, execCommand. That the listener only listens (no preventDefault, no
+            // propagation change, no key built or dispatched when a press runs) is asserted by BEHAVIOUR in
+            // SelfCheckFocusHold, which runs this click in a JS engine.
+            string[] keyboard = { "KeyboardEvent", "keyup", "keypress", "Escape", "dispatchEvent", "Input.dispatchKeyEvent",
+                                  "Input.insertText", "execCommand", "preventDefault", "stopPropagation",
+                                  "stopImmediatePropagation" };
             foreach (string banned in keyboard)
             {
                 probe.Check("WITNESS the Codex reader sends no keyboard event (" + banned + ")",

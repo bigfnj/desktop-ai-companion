@@ -137,6 +137,20 @@ namespace DesktopAICompanion.AgentFlow
         /// method, so no hold can stop it).</summary>
         internal void UserPointer(string frame) { Run("__page.userPointer('" + frame + "'); 'ok'"); }
 
+        /// <summary>The user types in <paramref name="frame"/>: a trusted keydown and beforeinput, no focus change.</summary>
+        internal void UserType(string frame) { Run("__page.userType('" + frame + "'); 'ok'"); }
+
+        /// <summary>The user leaves <paramref name="from"/> by keyboard alone: a trusted Ctrl keydown delivered there, then
+        /// the browser's own focus move to <paramref name="to"/>, or out of every panel when it is null.</summary>
+        internal void UserKeyTo(string from, string to)
+        {
+            Run("__page.userKeyTo('" + from + "', '" + (to ?? "") + "'); 'ok'");
+        }
+
+        /// <summary>A trusted Escape keydown to <paramref name="frame"/>'s listeners; the state's keyActions counts any
+        /// preventDefault or propagation change made on it.</summary>
+        internal void UserEscape(string frame) { Run("__page.userEscape('" + frame + "'); 'ok'"); }
+
         /// <summary>
         /// Evaluate a module expression AS frame <paramref name="frame"/>'s target, the way CDP's Runtime.evaluate
         /// does: its free identifiers (document, window, setTimeout, Date, InputEvent, KeyboardEvent) are that outer
@@ -154,7 +168,7 @@ namespace DesktopAICompanion.AgentFlow
 
         /// <summary>A frame named <paramref name="name"/>: shape 'claude', 'codex' or 'chat' (no card, only the chat
         /// box), and what its Yes button (or, for 'chat', its Enter key) does after approving: any of 'sync',
-        /// 'timeout', 'select', 'reveal', 'effect', 'diff', 'nextcard', 'throw' (the handler throws) or 'none'.</summary>
+        /// 'timeout', 'late' (600 ms), 'select', 'reveal', 'effect', 'diff', 'nextcard', 'throw' (the handler throws) or 'none'.</summary>
         internal void AddFrame(string name, string shape, string steal)
         {
             Run("__page.frame('" + name + "', '" + shape + "', '" + steal + "'); 'ok'");
@@ -186,7 +200,8 @@ namespace DesktopAICompanion.AgentFlow
         /// <summary>The DOM model. ES5, single quotes only, no backslashes.</summary>
         private const string Model = @"
 var __page = (function () {
-  var page = { now: 0, timers: [], seq: 0, focused: null, frames: {}, approved: {}, sent: {}, focusLog: [] };
+  var page = { now: 0, timers: [], seq: 0, focused: null, frames: {}, approved: {}, sent: {}, focusLog: [],
+               keysBuilt: 0, keysSent: 0, keyActions: 0 };
   page.pump = function (now) {
     for (;;) {
       var next = null, at = -1;
@@ -251,6 +266,7 @@ var __page = (function () {
       for (var i = 0; i < hs.length; i++) hs[i].call(this, { type: 'click' });
     };
     HTMLElement.prototype.dispatchEvent = function (ev) {
+      if (ev && typeof ev.type === 'string' && ev.type.indexOf('key') === 0) page.keysSent++;
       var hs = this.handlers[ev.type] || [];
       for (var i = 0; i < hs.length; i++) hs[i].call(this, ev);
       return true;
@@ -281,7 +297,7 @@ var __page = (function () {
     HTMLTextAreaElement.prototype = Object.create(HTMLElement.prototype);
     HTMLTextAreaElement.prototype.select = function () { page.focusTo(win, this); };
     function InputEvent(type, init) { this.type = type; this.isTrusted = false; for (var k in init) this[k] = init[k]; }
-    function KeyboardEvent(type, init) { this.type = type; this.isTrusted = false; for (var k in init) this[k] = init[k]; }
+    function KeyboardEvent(type, init) { page.keysBuilt++; this.type = type; this.isTrusted = false; for (var k in init) this[k] = init[k]; }
     win.listeners = {};
     win.addEventListener = function (type, fn, capture) { (win.listeners[type] = win.listeners[type] || []).push(fn); };
     win.removeEventListener = function (type, fn, capture) {
@@ -344,6 +360,8 @@ var __page = (function () {
     function stealAfter() {
       if (steal.indexOf('sync') >= 0) input.focus();
       if (steal.indexOf('timeout') >= 0) inner.setTimeout(function () { input.focus(); }, 50);
+      // A deferred refocus well after the press, inside the settle window: the case where the user leaves first.
+      if (steal.indexOf('late') >= 0) inner.setTimeout(function () { input.focus(); }, 600);
       if (steal.indexOf('select') >= 0) notes.select();
       if (steal.indexOf('reveal') >= 0) page.focusTo(inner, input);
       if (steal.indexOf('effect') >= 0) cardCleared();
@@ -386,6 +404,29 @@ var __page = (function () {
   };
   page.user = function (name) { var f = page.frames[name]; page.focusTo(f.inner, f.input); };
   page.userAt = function (name) { var f = page.frames[name]; page.focused = f.inner; f.inner.document.activeElement = f.inner.document.body; };
+  // A trusted event to a window's capture listeners, with spies on everything that would alter the user's key.
+  function trusted(win, init) {
+    var ev = { isTrusted: true, preventDefault: function () { page.keyActions++; },
+               stopPropagation: function () { page.keyActions++; }, stopImmediatePropagation: function () { page.keyActions++; } };
+    for (var k in init) ev[k] = init[k];
+    win.fire(ev);
+  }
+  // The user types in a frame they are in: a trusted keydown and beforeinput, no focus change.
+  page.userType = function (name) {
+    var f = page.frames[name];
+    trusted(f.inner, { type: 'keydown', key: 'a' });
+    trusted(f.inner, { type: 'beforeinput', inputType: 'insertText', data: 'a' });
+  };
+  // The user leaves one frame by keyboard alone (a Ctrl shortcut, delivered to the frame they are in), and the
+  // browser moves focus to another frame natively, or to nowhere (an editor) when to is empty.
+  page.userKeyTo = function (from, to) {
+    trusted(page.frames[from].inner, { type: 'keydown', key: '2', ctrlKey: true });
+    if (!to) { page.focused = null; page.focusLog.push('user:away'); return; }
+    var t = page.frames[to];
+    page.focused = t.inner; t.inner.document.activeElement = t.input; page.focusLog.push('user:' + to);
+  };
+  // A trusted Escape keydown to a frame's listeners, to see whether anything installed there acts on a key.
+  page.userEscape = function (name) { trusted(page.frames[name].inner, { type: 'keydown', key: 'Escape' }); };
   page.userPointer = function (name) {
     var f = page.frames[name];
     f.inner.fire({ type: 'pointerdown', isTrusted: true });
@@ -395,7 +436,8 @@ var __page = (function () {
   page.breakClick = function (name) { page.frames[name].yes.click = function () { throw new Error('click threw'); }; };
   page.state = function () {
     var own = Object.prototype.hasOwnProperty;
-    var o = { focused: page.focused ? page.focused.name_ : '', log: page.focusLog.join(','), timers: page.timers.length, frames: {} };
+    var o = { focused: page.focused ? page.focused.name_ : '', log: page.focusLog.join(','), timers: page.timers.length,
+              keysBuilt: page.keysBuilt, keysSent: page.keysSent, keyActions: page.keyActions, frames: {} };
     for (var n in page.frames) {
       var f = page.frames[n], p = f.inner.HTMLElement.prototype, sp = f.inner.SVGElement.prototype;
       var ip = f.inner.HTMLInputElement.prototype, tp = f.inner.HTMLTextAreaElement.prototype;
@@ -405,7 +447,10 @@ var __page = (function () {
         exact: p.focus === f.focus && own.call(p, 'focus') && sp.focus === f.svgFocus && own.call(sp, 'focus')
                && ip.select === f.inputSelect && own.call(ip, 'select') && tp.select === f.areaSelect && own.call(tp, 'select'),
         patched: p.focus !== f.focus || tp.select !== f.areaSelect,
-        listeners: (f.inner.listeners.pointerdown || []).length + (f.inner.listeners.beforeinput || []).length,
+        listeners: (f.inner.listeners.pointerdown || []).length + (f.inner.listeners.mousedown || []).length
+                   + (f.inner.listeners.keydown || []).length + (f.inner.listeners.beforeinput || []).length,
+        mousedown: (f.inner.listeners.mousedown || []).length,
+        intent: !!(f.inner.__agentflowAction && f.inner.__agentflowAction.intent),
         hold: !!f.inner.__agentflowFocusHold,
         shellTouched: f.outer.HTMLElement.prototype.focus !== f.shellFocus || !!f.outer.__agentflowFocusHold
       };
