@@ -195,7 +195,7 @@ The entry as it stood:
 
 **Blocker: needs the owner's source review of each drafted pin and a live acceptance after publish.**
 
-What clears it: Run `pwsh -NoProfile -File tools/agentbroker/Test-AgentBrokerRepin.ps1 -Vendor Codex -OutputDirectory <new empty dir>`; review the source of each draft (Codex extension 26.1021.22027, Codex desktop 26.1021.3705.0 if installed, and the VS Code router 1.144.0, which is now off its pin too); do the live acceptance; append the pins. The Claude half is done: Claude Code 2.1.310 and 2.1.312 are pinned. Update-tolerant delivery (on by default since AgentBroker 1.5.0) keeps updated Codex builds working meanwhile.
+What clears it: Run `pwsh -NoProfile -File tools/agentbroker/Test-AgentBrokerRepin.ps1 -Vendor Codex -OutputDirectory <new empty dir>`; review the source of each draft (Codex extension 26.1021.22027, Codex desktop 26.1021.3705.0 if installed, and the VS Code router 1.144.0, which is now off its pin too); do the live acceptance; append the pins. The Claude half was done for 2.1.310 and 2.1.312, and is open again: Claude Code 2.1.314 (installed by 2026-11-02 on both workstations) is off its pin, so every Claude row reads observation-only; the repin workflow drafted it on branch agentbroker-repin/claude-code-2.1.314-66e00df32e69 (f56da2a, one line in tools/AgentBroker.Pins/agentbroker-pins.json), not reviewed. Pins chase an update every few days; the pin-free route for Claude is N-agentbroker-claude-channel-01, and N-codex-wake-01 in BACKLOG.md tracks both directions. Update-tolerant delivery (on by default since AgentBroker 1.5.0) keeps updated Codex builds working meanwhile.
 
 The entry as it stood:
 
