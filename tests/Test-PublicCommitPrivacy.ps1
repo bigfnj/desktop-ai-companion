@@ -19,7 +19,9 @@
     -Range scans the commits of a revision range instead of the index: every added line of
     every commit (so a value added and later removed is still found), each commit message,
     and the author and committer lines. A merge is diffed against its first parent, so a line
-    written while resolving a conflict, and a path only the merge adds, are read too.
+    written while resolving a conflict, and a path only the merge adds, are read too. A rename
+    is read as a deletion and an addition, so its old path is checked against the protected
+    shapes before any contents are read.
 .EXAMPLE
     pwsh -NoProfile -File tests/Test-PublicCommitPrivacy.ps1
 .EXAMPLE
@@ -150,7 +152,12 @@ function Get-RangePrivacyFindings([string]$Range, [psobject]$Needles, [string]$R
     # but repeats the merge once per parent, and --cc prints a combined format the parser cannot read.
     # The price is a superset, never a gap: a merge repeats the lines its side branch brought in, so
     # a value on that branch is reported at its own commit AND at the merge.
-    $names = Invoke-IndexedGit @('log', '--no-color', '--diff-merges=first-parent', '--format=', '--name-only', '-z', '--end-of-options', $Range, '--') $Repository
+    # Both also pass --no-renames (Codex review 2026-11-02). With rename detection, the git default, --name-only
+    # prints only a rename's NEW path, so a protected file renamed to an ordinary name passed this check and the
+    # patch read below printed its old path and context; finding the rename also compares contents. Without it a
+    # rename is a deletion plus an addition in both passes: both paths are named here, and the patch reads every
+    # line of the new path as added (again a superset: the index mode reads that whole file too).
+    $names = Invoke-IndexedGit @('log', '--no-color', '--no-renames', '--diff-merges=first-parent', '--format=', '--name-only', '-z', '--end-of-options', $Range, '--') $Repository
     if ($names.ExitCode -ne 0) { throw 'Could not list the paths the range changes. No commit contents were scanned.' }
     # -CaseSensitive (N-audit-infra-01): -Unique alone compares ignoring case, so two paths that differ only in case,
     # two files to git and to any case-sensitive checkout, were listed and counted as one.
@@ -159,7 +166,7 @@ function Get-RangePrivacyFindings([string]$Range, [psobject]$Needles, [string]$R
         ForEach-Object { [pscustomobject]@{ Path = $_; Pattern = (Get-ProtectedPattern $_) } })
     $findings = New-Object 'Collections.Generic.List[object]'
     if ($protected.Count -gt 0) { return [pscustomobject]@{ Protected = $protected; Findings = @(); Commits = 0 } }
-    $log = Invoke-IndexedGit @('log', '--no-color', '--no-ext-diff', '--no-textconv', '-p', '--diff-merges=first-parent',
+    $log = Invoke-IndexedGit @('log', '--no-color', '--no-renames', '--no-ext-diff', '--no-textconv', '-p', '--diff-merges=first-parent',
         '--format=%x00%x01%H%n%an <%ae>%n%cn <%ce>%n%B%x00%x02', '--end-of-options', $Range, '--') $Repository -Lenient
     if ($log.ExitCode -ne 0) { throw 'Could not read the range. No findings were printed.' }
     $commits = 0
@@ -407,6 +414,43 @@ if ($SelfTest) {
         if (@($variantRefused.Protected).Count -ne 2 -or $variantPaths -cne ((@('keys/Site.PEM', 'keys/site.pem') | Sort-Object -CaseSensitive) -join '|') -or
             $variantRefused.Commits -ne 0) {
             throw ('Public privacy range self-test failed: two protected paths differing only in case were not both refused: ' + $variantPaths)
+        }
+        $count++
+        # Renames (Codex review 2026-11-02). With rename detection the names pass printed only a rename's new path, so a
+        # protected file renamed to an ordinary name reached the patch read. Detection is forced on in this repository,
+        # and proven to happen, so a global diff.renames=false cannot make the case pass without testing anything.
+        [void](Step @('config', 'diff.renames', 'true'))
+        $renameText = ((1..20 | ForEach-Object { 'neutral line ' + $_ }) -join "`n") + "`n"
+        [IO.File]::WriteAllText((Join-Path $synthetic 'renamed-from.pem'), $renameText)
+        [void](Step @('add', '-f', '--', 'renamed-from.pem'))
+        [void](Step ($identity + @('commit', '-q', '-m', 'add a key')))
+        $beforeRename = Step @('rev-parse', 'HEAD')
+        [void](Step @('mv', '--', 'renamed-from.pem', 'renamed-to.txt'))
+        [IO.File]::AppendAllText((Join-Path $synthetic 'renamed-to.txt'), "one more neutral line`n")
+        [void](Step @('add', '--', 'renamed-to.txt'))
+        [void](Step ($identity + @('commit', '-q', '-m', 'rename the key')))
+        if ((Step @('log', '-M', '--format=', '--name-only', ($beforeRename + '..HEAD'))) -cne 'renamed-to.txt') {
+            throw 'Synthetic repository step failed: git did not detect the rename the rename case needs.'
+        }
+        $renameRefused = Get-RangePrivacyFindings ($beforeRename + '..HEAD') $needles $synthetic
+        if (@($renameRefused.Protected).Count -ne 1 -or $renameRefused.Protected[0].Path -cne 'renamed-from.pem' -or
+            $renameRefused.Protected[0].Pattern -cne 'W05' -or $renameRefused.Commits -ne 0) {
+            throw 'Public privacy range self-test failed: a protected path renamed to an ordinary one was not refused before reading.'
+        }
+        $count++
+        # The patch pass reads a rename the same way, as a deletion plus an addition: a file carried into the range under
+        # a new name is read whole at the rename. Under rename detection a pure rename printed no lines at all.
+        [IO.File]::WriteAllText((Join-Path $synthetic 'carried.txt'), $renameText + "kept for Contoso`n")
+        [void](Step @('add', '--', 'carried.txt'))
+        [void](Step ($identity + @('commit', '-q', '-m', 'add a carried file')))
+        $beforeCarry = Step @('rev-parse', 'HEAD')
+        [void](Step @('mv', '--', 'carried.txt', 'carried-renamed.txt'))
+        [void](Step ($identity + @('commit', '-q', '-m', 'rename the carried file')))
+        $carryCommit = (Step @('rev-parse', 'HEAD')).Substring(0, 12)
+        $carried = Get-RangePrivacyFindings ($beforeCarry + '..HEAD') $needles $synthetic
+        $carriedSeen = @($carried.Findings | ForEach-Object { $_.Commit + ' ' + $_.Kind + ' ' + $_.Path + ' ' + $_.Count }) -join '|'
+        if ($carried.Commits -ne 1 -or $carriedSeen -cne ($carryCommit + ' added-line carried-renamed.txt 1')) {
+            throw ('Public privacy range self-test failed: a renamed file was not read whole at the rename: ' + $carriedSeen)
         }
         $count++
         # The DEFAULT mode (N-audit-20261029-15). Its matcher is git grep, not Test-PrivacyText, so nothing
