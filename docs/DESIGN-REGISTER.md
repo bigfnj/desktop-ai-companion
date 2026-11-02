@@ -6015,10 +6015,45 @@ unsigned extension JavaScript) is the gap the owner accepts by opting in, which 
 default and status names the mode and the failed pin on every pass. Refused alternative: withholding the guard,
 which makes Unknown-activity sessions unreachable and the switch inert in practice.
 
-**Claude has no update-tolerant switch.** Its delivery boundary (`NativePeerAdapter`) checks `EngineProfile` for
-the target and the connected image, and no bounded runtime check can show how an unreviewed build classifies a
-peer token. An unpinned Claude build stays observation-only and is re-pinned exactly, with the read-only
-`tools/agentbroker/Test-AgentBrokerRepin.ps1` drafting the pin.
+**Update-tolerant Claude delivery is the default (the owner's decision of 2026-11-02).** This replaces "Claude has no
+update-tolerant switch", which held an unpinned Claude build observation-only until an exact re-pin shipped. The owner's
+words: "this should Not be something an end-user should have to be aware of, if its "untrusted" but matches the
+signature then trust it and respond wakeidle or whatever". Claude Code updates itself every few days (2.1.292 to
+2.1.314 in three weeks), and every update made every Claude row observation-only (`claude-native=unsupported_public_version`)
+until a reviewed re-pin reached users in a module update; on the day of the decision both of the owner's workstations
+were in that state on 2.1.314. The channels route needs no pin, but the organisation's policy blocks it on the
+maintainer's workstation, so re-pins were chasing the vendor's release cadence with nothing else to wake a session. The
+module switch `claudeUpdateTolerantDelivery` ("Also wake updated Claude builds (publisher verified)") defaults on and
+takes effect with "Wake existing Claude sessions" (`claudePeerCredentials`, still off by default). As for Codex, the
+worker's own default stays strict and the module passes `--claude-update-tolerant-delivery true` while the switch is on.
+
+The rule: a build that fails its exact pin is deliverable when `WindowsClaudePublicImageTrust` answers `ExpectedPublisher`
+(valid Authenticode, signer "Anthropic, PBC") with a held SHA-256, and that hash is the image the native pipe's own
+server process reports. Discovery marks the session `UpdateTolerant` (`ClaudeNativeProvider.ObserveUnpinned`) and its row
+gets Receive and WakeIdle as a pinned one does. Before each send the adapter refreshes the session and refuses
+`claude_image_changed` when the refreshed hash is not the one discovery attested. `NativePeerAdapter.SendAsync` then binds
+the connected server's identity to that hash and runs the publisher check again on the connected image, which the
+connection holds open against writes, before any credential read (`native_publisher_unverified` otherwise). Every other
+check is the code a pinned build goes through: current user, PID, creation time, image path, credential creation time,
+re-inspection before the write, idle and inbound policy. Exact pins stay the strict mode; with the switch off an
+unpinned build is observation-only with the same error as before. While the mode carries a session, the failed pin is a
+note, `claude_update_tolerant_delivery` (the `AdapterNotes` channel), not an adapter error, so the Native line keeps its
+wake count. A refused signature keeps both errors, the failed pin first and then `public_image_*`.
+
+The gap the owner accepts: how an unreviewed build handles the authenticated peer frame is not re-proved. A re-pin review
+compares five peer-classification and admission sites token for token with a reviewed image; this rule cannot, and the
+inbox reports no classification at runtime. It is the same class of gap as the one accepted for Codex
+(`#### feature/broker-batch-2`). What still holds for every build: the write is the peer credential frame and one plain
+user frame (no `from`, no permission change, no `selfSent`), and its text is the broker's peer envelope, which marks it
+as another agent's message.
+
+Refused alternatives. A faster re-pin cadence: the scheduled re-pin check drafts pins, but each still needs a person's
+review and a module publish, so it trails every update by days. Trusting the signature at discovery alone: a send would
+rest on an observation up to a pass old, so the send boundary checks the publisher again on the connected image. Reporting
+the mode as an adapter error, as `codex_update_tolerant_delivery` is: the owner asked that an end user not have to know,
+and an error replaces the wake count in the pane's Native line. The channels route: blocked by policy on the maintainer's
+workstation. The read-only `tools/agentbroker/Test-AgentBrokerRepin.ps1` still drafts exact pins, which remain the
+reviewed path and the strict mode.
 
 **`IDesktopConnection.Trust` has no default member, and `DesktopOwnerBinding.RouterTrust` defaults to
 `Unverified`.** A test double or a new connection type must state its trust, and a binding nobody stamped grants
@@ -6482,7 +6517,8 @@ section's "why the switch is off by default" referred to. Turning the switch off
 The status line still names the mode and the failed pin on every pass. The worker's own default stays strict: the
 module passes `--codex-update-tolerant-delivery true` while the switch is on, and a worker started without it (by hand)
 admits exact pins only. An install that has saved the AgentBroker pane keeps the value it saved, since the pane saves
-every switch; one that never saved it gets the new default. Claude is unchanged: it has no update-tolerant mode.
+every switch; one that never saved it gets the new default. Claude is unchanged: it has no update-tolerant mode (until
+the owner's decision of 2026-11-02, recorded under `#### feature/agentbroker-backlog-b`).
 
 #### feature/modules-fixes
 

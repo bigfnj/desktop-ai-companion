@@ -28,6 +28,11 @@ An exclusive `procStart` or `procStartFt` numeric hint must match the actual OS 
 no .NET-tick epoch conversion/tolerance is allowed. Status is Unknown when the publisher's `updatedAt`
 is missing, future, or older than 2 minutes. Public image hash cache is bounded to 32 entries and scoped to native
 PID/start/path; the native connected-server identity is independently rehashed before any credential read.
+Claude delivery needs `claudePeerCredentials`. With `claudeUpdateTolerantDelivery` on (the module's default since the
+owner's decision of 2026-11-02; a worker launched without `--claude-update-tolerant-delivery` stays strict), a session
+whose image fails its exact pin but is Windows-verified as "Anthropic, PBC" is discovered as `UpdateTolerant` and gets
+the pinned capabilities. Each send refreshes it (`claude_image_changed` when the hash moved), and `NativePeerAdapter`
+checks the publisher again on the connected server's own image, bound to that hash, before any credential read.
 
 Claude credentials default disabled. Only the explicitly enabled Submit method constructs the native
 credential source. Before that boundary, the wrapper immediately refreshes the exact numeric record,

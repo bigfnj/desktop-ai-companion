@@ -56,12 +56,15 @@ is still a separate step.
 ### Update-tolerant native delivery contract
 
 Since AgentBroker 1.5.0 the module turns the Codex setting below on by default (the
-owner's decision of 2026-10-29); a worker started without it, and the module with it
-turned off, keep strict exact pins. It lets a build that is not exactly pinned deliver
-only when every listed runtime check passes. Any
+owner's decision of 2026-10-29), and the Claude setting below since the owner's
+decision of 2026-11-02; a worker started without them, and the module with them
+turned off, keep strict exact pins. For Codex it lets a build that is not exactly
+pinned deliver only when every listed runtime check passes. Any
 unmet check refuses with `unsupported_capability` before transport. A signature
 establishes publisher identity, not protocol compatibility, so the runtime checks
-are required in addition to it.
+are required in addition to it. Claude has no runtime check of that kind (below), so
+its rule is the signature plus the native process identity, and its accepted gap is
+the wider one.
 
 **Codex**: `codexUpdateTolerantDelivery` ("Also wake updated Codex builds (publisher
 verified)"), on by default since AgentBroker 1.5.0 (the owner's decision of 2026-10-29), effective only
@@ -101,18 +104,45 @@ invalid signature, changed protocol, held and refused admission, busy and
 reconnect (`CodexTrustPolicyChecks.cs`, `CodexObservationChecks.cs`). Live native
 acceptance of an updated build has not been run.
 
-**Claude**: no update-tolerant delivery. An unpinned Claude build stays
-observation-only, and exact re-pinning (below) is the supported path. Two separate
-reasons hold it there. The delivery boundary, `NativePeerAdapter.SendAsync` in
-`tools/AgentBroker.ClaudeAdapter/`, requires `EngineProfile.Find` for both the target
-and the connected server image. The vendor contract also has a gap no bounded
-runtime check can close. The published cross-session messaging page documents only
-the child-token route, whose `selfSent` classification bypasses default inbound
-parity (see "Claude child-token trust constraint"). Peer-token classification and
-inbound admission are source facts of each reviewed build, and the inbox returns
-no acknowledgement or classification at runtime. Clearing this needs a
-vendor-published peer-class ingress contract, or an inbox that reports its
-admission outcome.
+**Claude**: `claudeUpdateTolerantDelivery` ("Also wake updated Claude builds
+(publisher verified)"), on by default since the owner's decision of 2026-11-02,
+effective only with `claudePeerCredentials`; turned off, delivery is the strict mode,
+exact pins only, and an unpinned build is observation-only as before. Claude Code
+updates itself every few days, and before this every update left every Claude row
+observation-only until a re-pin shipped. Required, all of:
+
+1. Windows Authenticode verifies the running session's `claude.exe` with the signer
+   "Anthropic, PBC", and the held image's SHA-256 is read under that verification
+   (`WindowsClaudePublicImageTrust.Observe`), on each discovery pass and again on the
+   adapter's refresh before each send.
+2. The refreshed hash is the one discovery attested (`claude_image_changed`
+   otherwise).
+3. At the delivery boundary, `NativePeerAdapter.SendAsync` in
+   `tools/AgentBroker.ClaudeAdapter/`: the connected pipe server's image hash is that
+   attested hash, and the same publisher check passes on that connected image, which
+   the connection holds open against writes, before any credential read
+   (`native_publisher_unverified` otherwise).
+
+These stay exactly as for a pinned build: same-user server process, PID, creation
+FILETIME and image path; the credential's creation time; re-inspection of the
+server before the write; idle and inbound policy; and the frame itself, the peer
+credential frame and one plain user frame with no `from`, permission change or
+`selfSent`. While the mode carries a session, status reports the note
+`claude_update_tolerant_delivery`, not an error, and the Native line keeps its wake
+count. An unsigned image, another publisher, an invalid signature or a changed hash
+is refused with the switch on too.
+
+Not re-proven for an unreviewed build, and accepted by leaving the switch on: how it
+classifies and admits the authenticated peer frame. No bounded runtime check can
+close that. The published cross-session messaging page documents only the
+child-token route, whose `selfSent` classification bypasses default inbound parity
+(see "Claude child-token trust constraint"); peer-token classification and inbound
+admission are source facts of each reviewed build, and the inbox returns no
+acknowledgement or classification at runtime. The peer envelope still marks the text
+as another agent's message. Exact re-pinning (below) stays the reviewed path.
+Synthetic checks cover a signed updated build, the switch off, a refused signature,
+a changed hash and a pinned build (`ClaudeUpdateTolerantChecks.cs`). Live native
+delivery to an updated build has not been run.
 
 ## Pins as data, 2026-10-27
 
@@ -242,7 +272,9 @@ The owner's live wake check follows the module publish. In the AgentBroker pane,
 tick "Wake existing Claude sessions" and Apply. Open a new, dedicated Claude Code
 conversation on a pinned build and leave it idle; the Claude line should read
 "Native wake on: N of M discovered Claude sessions can be woken" with N at least
-one (a session on an unpinned build is named in the Native line instead). From
+one (with "Also wake updated Claude builds" off, a session on an unpinned build is
+named in the Native line instead; with it on, it is counted and a note names the
+build). From
 another agent connected to the broker's MCP, call `list_sessions`, then `send` that
 session one message, such as "Broker wake test: reply WAKE_OK and use no tools."
 The dedicated conversation should start a turn showing the peer message, reply
@@ -329,7 +361,10 @@ unavailable when Windows cannot verify it from its current cache. This changes
 Claude discovery only; Codex compatibility and native delivery profiles remain
 separate. Sources: `ClaudeNativeProvider.ObserveUnpinned`,
 `WindowsClaudePublicImageTrust.Observe`, and `ClaudeNativeAdapter.CanDeliver` in
-`tools/AgentBroker.Worker/Adapters/`.
+`tools/AgentBroker.Worker/Adapters/`. Since the owner's decision of 2026-11-02 that
+holds only with "Also wake updated Claude builds" off: with it on (the default) and
+credentials on, such a session is woken under the rule in "Update-tolerant native
+delivery contract".
 
 The owned management operation `peer-diagnostics` performs the existing pinned,
 authenticated directory request against current paired peers. A validated empty
