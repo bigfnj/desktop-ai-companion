@@ -117,7 +117,10 @@ prevalidation, fallback identity or the missing-cached-package code one at a
 time, against in-memory fake processes or the metadata of an absent GUID-named
 path. Exact source backups precede all builds, each witness proves its checker
 was rebuilt, and restoration plus the complete healthy suite (the count the
-wrapper expects) finish the run.
+wrapper expects) finish the run. Restoration puts back every source the run
+still owns before it names any it must leave (missing, unreadable, changed by
+someone else or not writable), and never recreates or overwrites one of those;
+`--self-test` checks that on synthetic files in a temporary folder, with no build.
 
 `tests/Invoke-OfflineScriptChecks.ps1` runs the checks that need no compiler,
 install, elevation or network: the fake-caller, path-safety, checker-timeout and

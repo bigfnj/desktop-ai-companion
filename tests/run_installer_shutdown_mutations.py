@@ -3,6 +3,8 @@
 Default: print a read-only plan. Execute in an exclusive native build window:
   python -X utf8 tests/run_installer_shutdown_mutations.py --apply
   python -X utf8 tests/run_installer_shutdown_mutations.py --apply --only=installer-tests:
+Check this runner's own restoration on synthetic files in a temporary folder (no build, no repository file):
+  python -X utf8 tests/run_installer_shutdown_mutations.py --self-test
 
 Only the explicit native sources a variant names are temporarily changed. Every
 negative check uses fake processes in memory or metadata of absent GUID-named
@@ -90,11 +92,108 @@ def write_new(path: Path, raw: bytes) -> None:
         os.fsync(stream.fileno())
 
 
+def restore_owned(root: Path, sources: list[str], original: dict, current: dict) -> None:
+    """Put back every source this run verifiably owns, then refuse once, naming every source left as found.
+
+    Owned means its bytes are the original or this run's mutation. A source that cannot be read (missing, unreadable),
+    holds anything else, or cannot be written is never recreated or overwritten here; it is named after the loop, and
+    the backups in the evidence folder stay for it. Stopping at the first such file left a later source still mutated:
+    first a foreign edit (Codex 01a1855c), then an I/O error on an earlier source (Codex review 2026-11-02).
+    """
+    left = []
+    for relative in sources:
+        path = root / relative
+        try:
+            raw = path.read_bytes()
+        except OSError as error:
+            left.append(relative + " (unreadable: " + type(error).__name__ + ")")
+            continue
+        if raw not in (original[relative], current[relative]):
+            left.append(relative + " (differs from original and owned mutation)")
+            continue
+        try:
+            path.write_bytes(original[relative])
+        except OSError as error:
+            left.append(relative + " (could not be restored: " + type(error).__name__ + ")")
+    if left:
+        raise RuntimeError("Source not restored; manual recovery required: " + "; ".join(left))
+
+
+def self_test() -> int:
+    """restore_owned on synthetic files, in the order the runner restores the real ones (the sorted variant sources).
+
+    Each case leaves the EARLIER source in a state this run must not touch, and the later one holding this run's
+    mutation: the later one must be restored, the earlier one left exactly as found, and the refusal must name the
+    earlier one alone. Everything is under a fresh temporary folder; no repository file is read or written.
+    """
+    import shutil
+    import stat
+    import tempfile
+    names = sorted({variant[2] for variant in VARIANTS})
+    if len(names) < 2:
+        names.append("synthetic/Later.cpp")
+    earlier, later = names[0], names[-1]
+    original = {name: b"synthetic original " + name.encode() + b"\n" for name in names}
+    mutated = {name: b"synthetic owned mutation " + name.encode() + b"\n" for name in names}
+    foreign = b"synthetic foreign edit\n"
+    # (case, how the earlier source starts, the word its refusal must carry, or None for no refusal)
+    cases = (("all-owned", "owned", None), ("foreign-earlier-source", "foreign", "differs"),
+             ("missing-earlier-source", "missing", "unreadable"),
+             ("unwritable-earlier-source", "readonly", "could not be restored"))
+    failed = []
+    for case, earlier_state, word in cases:
+        folder = Path(tempfile.mkdtemp(prefix="installer-shutdown-restore-selftest-"))
+        try:
+            for name in names:
+                (folder / name).parent.mkdir(parents=True, exist_ok=True)
+                (folder / name).write_bytes(mutated[name])
+            first = folder / earlier
+            if earlier_state == "foreign":
+                first.write_bytes(foreign)
+            elif earlier_state == "missing":
+                first.unlink()
+            elif earlier_state == "readonly":
+                os.chmod(first, stat.S_IREAD)
+                if os.access(first, os.W_OK):
+                    raise AssertionError("this host cannot make a file unwritable, so the case cannot be produced")
+            before = first.read_bytes() if first.exists() else None
+            try:
+                restore_owned(folder, names, original, mutated)
+                refusal = None
+            except RuntimeError as error:
+                refusal = str(error)
+            if (folder / later).read_bytes() != original[later]:
+                raise AssertionError("the later owned mutation was not restored")
+            after = first.read_bytes() if first.exists() else None
+            if word is None:
+                if refusal is not None or after != original[earlier]:
+                    raise AssertionError("an owned source was not restored without a refusal: " + str(refusal))
+            else:
+                if after != before:
+                    raise AssertionError("the earlier source was changed or recreated")
+                if refusal is None or (earlier + " (" + word) not in refusal or later in refusal:
+                    raise AssertionError("the refusal did not name the earlier source alone: " + str(refusal))
+            print("PASS " + case)
+        except Exception as error:  # every case runs; each failure is named
+            failed.append(case)
+            print("FAIL " + case + ": " + type(error).__name__ + ": " + str(error))
+        finally:
+            for path in folder.rglob("*"):
+                if path.is_file():
+                    os.chmod(path, stat.S_IWRITE | stat.S_IREAD)
+            shutil.rmtree(folder)
+    print(("FAIL %d of %d" % (len(failed), len(cases))) if failed else ("PASS %d restoration cases" % len(cases)))
+    return 1 if failed else 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--only", default="", help="run only variants whose name contains this text")
+    parser.add_argument("--self-test", action="store_true", help="check the restoration on synthetic files only")
     args = parser.parse_args()
+    if args.self_test:
+        return self_test()
     selected = [variant for variant in VARIANTS if args.only in variant[0]]
     if not selected:
         print("No variant name contains: " + args.only, file=sys.stderr)
@@ -191,19 +290,8 @@ def main() -> int:
         primary = str(error)
     finally:
         try:
-            # Restore every source this run owns before refusing anything: stopping at the first file someone else
-            # changed left a later source still mutated (Codex 01a1855c, review of the installer-tests lane). A file
-            # that is neither the original nor this run's mutation is never overwritten; it is named after the loop.
-            foreign = []
-            for relative in sources:
-                path = ROOT / relative
-                if path.read_bytes() not in (original[relative], current[relative]):
-                    foreign.append(relative)
-                    continue
-                path.write_bytes(original[relative])
-            if foreign:
-                raise RuntimeError("Source differs from original and owned mutation; manual recovery required: " +
-                                   ", ".join(foreign))
+            # Restore every source this run owns before refusing anything (restore_owned; checked by --self-test).
+            restore_owned(ROOT, sources, original, current)
             report["sourceRestoredExactly"] = all(
                 digest((ROOT / relative).read_bytes()) == digest(original[relative]) for relative in sources)
             build("after-build")
