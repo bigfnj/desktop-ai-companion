@@ -64,6 +64,10 @@ namespace DesktopAICompanion.AgentFlow
         public List<string> Options = new List<string>();
         /// <summary>Options the UI itself has disabled. Never pressable, whatever they say.</summary>
         public List<bool> Disabled = new List<bool>();
+        /// <summary>Every agent panel the sweep that read this card listed (1.12.3), so a press can find the panel
+        /// the user is working in and put focus back there if the press took it (CdpApprover.RememberFocus). Null
+        /// for a view built outside a sweep: the press then holds focus in the page and has no net.</summary>
+        public List<string> Panels;
     }
 
     /// <summary>
@@ -431,7 +435,7 @@ namespace DesktopAICompanion.AgentFlow
         /// takes the card only when there is exactly ONE, which is the only case where "the card" is unambiguous.
         /// </summary>
         private const string CodexClickTemplate = @"
-(function () {" + DocumentPrelude + @"
+(function () {" + DocumentPrelude + FocusHoldPrelude + @"
   var a = appDocument();
   if (!a.doc) return 'gone';
   var cards = a.doc.querySelectorAll('[class*=""@container/approval-card""]');
@@ -456,6 +460,7 @@ namespace DesktopAICompanion.AgentFlow
   var t = (b.innerText || b.textContent || '').replace(/\s+/g, ' ').trim();
   if (t !== __LABEL__) return 'moved';
   if (b.disabled) return 'disabled';
+  agentflowHoldFocus(a.doc);
   b.click();
   return 'clicked';
 })()";
@@ -472,10 +477,20 @@ namespace DesktopAICompanion.AgentFlow
         /// like the label, so an id is a string literal in the expression whatever it holds.</summary>
         internal static string BuildCodexClick(int index, string expectedLabel, string cardId)
         {
-            return CodexClickTemplate
+            // The hold's duration first: a label is page text and could spell the token.
+            return WithFocusHoldMs(CodexClickTemplate)
                 .Replace("__INDEX__", index.ToString(CultureInfo.InvariantCulture))
                 .Replace("__LABEL__", JsonEncode(expectedLabel ?? ""))
                 .Replace("__CARD__", JsonEncode(cardId ?? ""));
+        }
+
+        /// <summary>The Claude click, built as <see cref="Click"/> builds it (1.12.3: with the focus hold). Internal so
+        /// the self-test runs the very expression production sends.</summary>
+        internal static string BuildClaudeClick(int index, string expectedLabel)
+        {
+            return string.Format(CultureInfo.InvariantCulture, ClickExpressionFormat,
+                index.ToString(CultureInfo.InvariantCulture), JsonEncode(expectedLabel ?? ""),
+                WithFocusHoldMs(FocusHoldPrelude));
         }
 
         private const string ClickExpressionFormat = @"
@@ -492,7 +507,7 @@ namespace DesktopAICompanion.AgentFlow
       if (n > bestCount) {{ bestCount = n; best = docs[di]; }}
     }}
     return best;
-  }}
+  }}{2}
   var d = appDocument();
   if (!d) return 'gone';
   var c = d.querySelector('[class*=""permissionRequestContainer""]');
@@ -508,6 +523,7 @@ namespace DesktopAICompanion.AgentFlow
   if (n) t = t.substring((n.textContent || '').length);
   if (t.trim() !== {1}) return 'moved';
   if (b.disabled) return 'disabled';
+  agentflowHoldFocus(d);
   b.click();
   return 'clicked';
 }})()";
@@ -586,6 +602,8 @@ namespace DesktopAICompanion.AgentFlow
             // After the empty-list return, which lists nothing either way.
             if (census != null)
                 foreach (KeyValuePair<string, string> listed in work) census.Listed.Add(listed.Key);
+            // Every panel listed, handed on with each card so a press can find the panel the user is in (1.12.3).
+            List<string> panels = work.ConvertAll(listed => listed.Key);
 
             string browserUrl = BrowserSocketUrl(port, timeoutMs);
             if (string.IsNullOrEmpty(browserUrl)) return null;
@@ -653,6 +671,7 @@ namespace DesktopAICompanion.AgentFlow
                             bool followQueue = false;
                             foreach (PromptView view in views)
                             {
+                                view.Panels = panels;
                                 if (!HandleCard(view, agent, handle, handed, pressedNotes, refusals)) continue;
                                 pressedHere++;
                                 // Only a press of a card with an id is followed: without one, nothing could
@@ -666,7 +685,7 @@ namespace DesktopAICompanion.AgentFlow
                             if (followQueue && FollowsQueue(agent))
                                 FollowQueue(session, sessionId, targetId, agent, handle, handed, pressedHere,
                                             pressedNotes, refusals, clock, Math.Min(QueueBudgetMs, timeoutMs * 2),
-                                            ref sawUnreadableCard, ref blindAgent);
+                                            ref sawUnreadableCard, ref blindAgent, panels);
                         }
                         finally { session.Detach(sessionId); }
                     }
@@ -792,7 +811,7 @@ namespace DesktopAICompanion.AgentFlow
                                         PromptHandler handle, HashSet<string> handed, int presses,
                                         List<string> pressedNotes, List<string> refusals,
                                         System.Diagnostics.Stopwatch clock, int budgetMs,
-                                        ref bool sawUnreadableCard, ref string blindAgent)
+                                        ref bool sawUnreadableCard, ref string blindAgent, List<string> panels)
         {
             string expression = agent == AgentCodex ? CodexReadExpression : ReadExpression;
             // The read's own cards are all handed on, however many; the follow does not start once they reach the cap.
@@ -830,6 +849,7 @@ namespace DesktopAICompanion.AgentFlow
                 bool pressedThisRound = false;
                 foreach (PromptView view in ready)
                 {
+                    view.Panels = panels;
                     if (!HandleCard(view, agent, handle, handed, pressedNotes, refusals)) continue;
                     pressedThisRound = true;
                     // The cap, checked where it is reached: mid-round too, when several new cards mount at once.
@@ -864,25 +884,43 @@ namespace DesktopAICompanion.AgentFlow
         public static string Click(int port, string targetId, int index, string expectedLabel,
                                    int timeoutMs, string agent, string cardId)
         {
+            string focusNote;
+            return Click(port, targetId, index, expectedLabel, timeoutMs, agent, cardId, null, out focusNote);
+        }
+
+        /// <summary>
+        /// As above, with the focus safety net (1.12.3): <paramref name="panels"/> is every agent panel the sweep
+        /// listed, and the one among them (other than the pressed one) that holds focus before the press is put
+        /// back after it if the press took focus away (see <see cref="RememberFocus"/>). Null panels: no net, the
+        /// in-page hold only. <paramref name="focusNote"/> is non-null only when focus had to be put back, or
+        /// could not be.
+        /// </summary>
+        internal static string Click(int port, string targetId, int index, string expectedLabel,
+                                     int timeoutMs, string agent, string cardId, IList<string> panels,
+                                     out string focusNote)
+        {
+            focusNote = null;
             if (targetId == null || index < 0 || expectedLabel == null) return "gone";
             string browserUrl = BrowserSocketUrl(port, timeoutMs);
             if (string.IsNullOrEmpty(browserUrl)) return "gone";
             string expression = string.Equals(agent, AgentCodex, StringComparison.Ordinal)
                 ? BuildCodexClick(index, expectedLabel, cardId)
-                : string.Format(CultureInfo.InvariantCulture, ClickExpressionFormat,
-                      index.ToString(CultureInfo.InvariantCulture), JsonEncode(expectedLabel));
+                : BuildClaudeClick(index, expectedLabel);
             try
             {
                 using (var session = new CdpSession(browserUrl, timeoutMs))
                 {
+                    // Before the press, on this same connection: which other agent panel the user is in, if any.
+                    string heldBy = RememberFocus(session, panels, targetId);
                     string sessionId = session.Attach(targetId);
                     if (sessionId == null) return "gone";
-                    try
-                    {
-                        string result = session.Evaluate(sessionId, expression);
-                        return string.IsNullOrEmpty(result) ? "gone" : result;
-                    }
+                    string result;
+                    try { result = session.Evaluate(sessionId, expression); }
                     finally { session.Detach(sessionId); }
+                    if (string.IsNullOrEmpty(result)) return "gone";
+                    if (heldBy != null && string.Equals(result, "clicked", StringComparison.Ordinal))
+                        focusNote = PutFocusBack(session, heldBy, targetId);
+                    return result;
                 }
             }
             catch (Exception) { return "gone"; }

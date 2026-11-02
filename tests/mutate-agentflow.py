@@ -96,10 +96,11 @@ SESSIONLIMIT = os.path.join(MODULE_DIR, "SessionLimit.cs")
 SESSIONLIMIT_MODULE = os.path.join(MODULE_DIR, "AgentFlowModule.SessionLimit.cs")
 STATUS = os.path.join(MODULE_DIR, "AgentFlowModule.Status.cs")
 CODEXLIMIT = os.path.join(MODULE_DIR, "CodexLimit.cs")
+FOCUS = os.path.join(MODULE_DIR, "FocusHold.cs")
 
 TARGETS = (SPLITTER, RULES, DETECTOR, BUDGET, MODULE, READER, CDP, PROMPTOPTS, BUDGETPRESS,
            DOT, MODE, QUIPS, FEED, PETANIM, PANE, VSCODE, RULELOADER, CURSOR,
-           SESSIONLIMIT, SESSIONLIMIT_MODULE, STATUS, CODEXLIMIT)
+           SESSIONLIMIT, SESSIONLIMIT_MODULE, STATUS, CODEXLIMIT, FOCUS)
 
 # (name, file, find, replace, expected fragment of the assertion that must fail)
 CASES = (
@@ -1495,8 +1496,9 @@ CASES = (
     (
         "deadcode: Click stops reporting the outcome of the evaluated template",
         CDP,
-        "                        string result = session.Evaluate(sessionId, expression);\n                        return string.IsNullOrEmpty(result) ? \"gone\" : result;",
-        "                        string result = session.Evaluate(sessionId, expression);\n                        return \"gone\";",
+        # Re-anchored by 1.12.3 (agentflow-focus): the press now detaches before it reports, so the safety net can run.
+        "                    if (string.IsNullOrEmpty(result)) return \"gone\";",
+        "                    return \"gone\";",
         "WIRE the production callback presses through a second connection",
     ),
     (
@@ -2366,8 +2368,9 @@ CASES = (
     (
         "codex-queue: (1.12.0) Decide presses without naming the card",
         MODULE,
-        "decision.ChosenRaw, 1500, view.Agent, view.CardId);",
-        'decision.ChosenRaw, 1500, view.Agent, "");',
+        # Re-anchored by 1.12.3 (agentflow-focus): the press also carries the sweep's panel list.
+        "decision.ChosenRaw, 1500, view.Agent, view.CardId, view.Panels,",
+        'decision.ChosenRaw, 1500, view.Agent, "", view.Panels,',
         "each by its own id",
     ),
     (
@@ -2522,6 +2525,74 @@ CASES = (
         "                if (field.Kind == SettingKind.Info || field.Kind == SettingKind.Header) continue;\n                string edit;",
         "                string edit;",
         "pending edits: a display-only row is rendered afresh, never carried from the screen",
+    ),
+    # ---- lane feature/agentflow-no-focus-steal (1.12.3) ----
+    # The owner's report of 2026-11-02: a press took focus from the card they were working in. SelfCheckFocusHold runs
+    # the REAL press, probe and restore expressions in chakra.dll against FakeFocusPage's DOM model behind FakeCdpServer.
+    # Names carry the "agentflow-focus:" prefix so `--only=agentflow-focus:` runs the lane.
+    (
+        "agentflow-focus: the Claude click holds nothing",
+        CDP,
+        "  agentflowHoldFocus(d);\n  b.click();",
+        "  b.click();",
+        "a press in a card the user is not in leaves focus in the user's card",
+    ),
+    (
+        "agentflow-focus: the Codex click holds nothing",
+        CDP,
+        "  agentflowHoldFocus(a.doc);\n  b.click();",
+        "  b.click();",
+        "a Codex press holds the card's synchronous and 50 ms focus calls too",
+    ),
+    (
+        "agentflow-focus: the session-limit send holds nothing",
+        SESSIONLIMIT,
+        "  agentflowHoldFocus(d);\n  box.textContent = text;",
+        "  box.textContent = text;",
+        "the session-limit send holds the panel's focus calls",
+    ),
+    (
+        "agentflow-focus: the hold is applied even when the card has focus",
+        FOCUS,
+        "    try { if (d.hasFocus()) return; } catch (e) { return; }\n",
+        "",
+        "a press in the card the user is in holds nothing",
+    ),
+    (
+        "agentflow-focus: the hold never puts the originals back",
+        FOCUS,
+        "        try { if (s.owner[s.name] === s.held) s.owner[s.name] = s.original; } catch (e) { }\n",
+        "",
+        "after the hold's window the card's focus methods are the exact originals again",
+    ),
+    (
+        "agentflow-focus: the hold's release timer is never armed",
+        FOCUS,
+        "      h.timer = w.setTimeout(h.release, __HOLD_MS__);\n",
+        "",
+        ("after the hold's window the card's focus methods are the exact originals again",
+         "a click that throws still releases the hold exactly after its window"),
+    ),
+    (
+        "agentflow-focus: an overlapping press captures the first press's wrapper",
+        FOCUS,
+        "    if (h && h.active) {",
+        "    if (false) {",
+        "after overlapping presses the card's focus methods are the exact originals",
+    ),
+    (
+        "agentflow-focus: the safety net never puts focus back",
+        FOCUS,
+        "                if (!(pressedHasIt && heldLostIt)) return null;",
+        "                return null;",
+        "a focus the hold cannot reach (an extension's reveal) is put back",
+    ),
+    (
+        "agentflow-focus: the sweep does not hand its panel list to the press",
+        CDP,
+        "                                view.Panels = panels;\n                                if (!HandleCard(view, agent, handle, handed, pressedNotes, refusals)) continue;\n                                pressedHere++;",
+        "                                if (!HandleCard(view, agent, handle, handed, pressedNotes, refusals)) continue;\n                                pressedHere++;",
+        "a focus the hold cannot reach (an extension's reveal) is put back",
     ),
 )
 
