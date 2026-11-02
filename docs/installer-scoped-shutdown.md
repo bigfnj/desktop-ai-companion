@@ -120,7 +120,9 @@ was rebuilt, and restoration plus the complete healthy suite (the count the
 wrapper expects) finish the run. Restoration puts back every source the run
 still owns before it names any it must leave (missing, unreadable, changed by
 someone else or not writable), and never recreates or overwrites one of those;
-`--self-test` checks that on synthetic files in a temporary folder, with no build.
+`--self-test` checks that on synthetic files in a temporary folder, with no build,
+and also runs the runner itself there with fake builds, to prove it restores its
+sources before the final build and builds nothing over a missing source.
 
 `tests/Invoke-OfflineScriptChecks.ps1` runs the checks that need no compiler,
 install, elevation or network: the fake-caller, path-safety, checker-timeout and

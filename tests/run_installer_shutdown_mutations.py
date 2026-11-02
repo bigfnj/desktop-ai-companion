@@ -124,7 +124,8 @@ def self_test() -> int:
 
     Each case leaves the EARLIER source in a state this run must not touch, and the later one holding this run's
     mutation: the later one must be restored, the earlier one left exactly as found, and the refusal must name the
-    earlier one alone. Everything is under a fresh temporary folder; no repository file is read or written.
+    earlier one alone. Then main() itself runs twice with fake builds (main_wiring_case). Everything is under a fresh
+    temporary folder; no repository file is read or written and no build or checker is started.
     """
     import shutil
     import stat
@@ -182,16 +183,127 @@ def self_test() -> int:
                 if path.is_file():
                     os.chmod(path, stat.S_IWRITE | stat.S_IREAD)
             shutil.rmtree(folder)
-    print(("FAIL %d of %d" % (len(failed), len(cases))) if failed else ("PASS %d restoration cases" % len(cases)))
+    # main() itself (Codex recheck 2026-11-02): the cases above cover the helper, not main's call to it, so removing that
+    # call, guarding it with "if False" or moving it after the final build all passed them.
+    main_cases = (("main-restores-before-final-build", False), ("main-missing-earlier-source", True))
+    for case, missing_earlier in main_cases:
+        folder = Path(tempfile.mkdtemp(prefix="installer-shutdown-main-selftest-"))
+        try:
+            main_wiring_case(folder, missing_earlier)
+            print("PASS " + case)
+        except Exception as error:  # every case runs; each failure is named
+            failed.append(case)
+            print("FAIL " + case + ": " + type(error).__name__ + ": " + str(error))
+        finally:
+            shutil.rmtree(folder)
+    total = len(cases) + len(main_cases)
+    print(("FAIL %d of %d" % (len(failed), total)) if failed else
+          ("PASS %d restoration cases (%d of main itself)" % (total, len(main_cases))))
     return 1 if failed else 0
 
 
-def main() -> int:
+def main_wiring_case(folder: Path, missing_earlier: bool) -> None:
+    """Run the REAL main() with --apply on synthetic sources under folder, every child process a fake.
+
+    The sources keep the runner's real names and sorted order; the first variant mutates the later one, as the real
+    first variant does. The fake build of that mutant fails, so main's finally runs from a failure (and, for the
+    missing case, the earlier source is deleted during that build). Checked as a condition and an order, never as
+    source text: every source is original at the first final-build callback and when main returns; with a source
+    missing, no final build runs over the incomplete tree, the missing source is not recreated, and the refusal names
+    it. main's own globals are patched for the call and always put back; any path outside folder is refused.
+    """
+    import contextlib
+    import io
+    from types import SimpleNamespace
+    names = sorted({variant[2] for variant in VARIANTS})
+    if len(names) < 2:
+        names.append("synthetic/Later.cpp")
+    earlier, later = names[0], names[-1]
+    text = {name: "synthetic original line of " + name for name in names}
+    for name in names:
+        (folder / name).parent.mkdir(parents=True, exist_ok=True)
+        (folder / name).write_bytes((text[name] + "\n").encode())
+    original = {name: (folder / name).read_bytes() for name in names}
+    variants = tuple(("synthetic-" + Path(name).stem, "paths", name, text[name], "synthetic MUTATED line of " + name, None)
+                     for name in (later, earlier))
+    builds = []
+    problems = []
+
+    def state() -> dict:
+        return {name: (folder / name).read_bytes() if (folder / name).exists() else None for name in names}
+
+    class FakeProcess:
+        def __init__(self, argv, cwd, stdin, stdout, stderr):
+            self.code = 0
+            if Path(cwd) != folder:
+                problems.append("a child was started outside the synthetic root")
+                self.code = 99
+            elif argv[0] == "pwsh":
+                builds.append(state())
+                if len(builds) == 2:  # the first mutant's build: fail it while the mutation is in place
+                    if builds[-1][later] == original[later]:
+                        problems.append("the first mutant's build did not see its mutation")
+                    if missing_earlier:
+                        (folder / earlier).unlink()
+                    self.code = 1
+            else:
+                stdout.write(b"PASS 1 checks\n")
+
+        def wait(self, timeout=None):
+            return self.code
+
+    def confined(path: Path) -> None:
+        if not Path(path).resolve().is_relative_to(folder.resolve()):
+            raise RuntimeError("Self-test refused a path outside its synthetic root: " + str(path))
+
+    module = globals()
+    patches = {"ROOT": folder, "VARIANTS": variants, "BUILD": folder / "synthetic-build.ps1",
+               "CHECKS": folder / "synthetic-checks.exe", "healthy_count": lambda: 1, "refuse_links": confined,
+               "subprocess": SimpleNamespace(Popen=FakeProcess, DEVNULL=subprocess.DEVNULL,
+                                             TimeoutExpired=subprocess.TimeoutExpired)}
+    saved = {name: module[name] for name in patches}
+    module.update(patches)
+    try:
+        if module["ROOT"] is not folder or module["subprocess"].Popen is not FakeProcess:
+            raise AssertionError("the self-test could not redirect main; nothing was run")
+        with contextlib.redirect_stdout(io.StringIO()):
+            code = main(["--apply"])
+    finally:
+        module.update(saved)
+    returned = state()
+    results = list((folder / "build").glob("installer-shutdown-mutations-*/results.json"))
+    report = json.loads(results[0].read_text(encoding="utf-8")) if len(results) == 1 else {}
+    if problems:
+        raise AssertionError("; ".join(problems))
+    if code != 1 or report.get("result") != "FAIL" or "Build failure is not a killed witness" not in report.get("failure", ""):
+        raise AssertionError("main did not report the injected build failure: exit %s, %s" % (code, report.get("failure")))
+    if len(builds) < 2:
+        raise AssertionError("main did not reach the first mutant's build")
+    if returned[later] != original[later]:
+        raise AssertionError("the later source still held this run's mutation when main returned")
+    if missing_earlier:
+        if len(builds) != 2:
+            raise AssertionError("a final build ran over a tree with a missing source")
+        if returned[earlier] is not None:
+            raise AssertionError("the missing source was recreated")
+        if earlier + " (unreadable" not in report.get("failure", ""):
+            raise AssertionError("the refusal did not name the missing source: " + str(report.get("failure")))
+    else:
+        if len(builds) != 3:
+            raise AssertionError("main ran %d builds, not before, mutant and final" % len(builds))
+        if builds[2] != original:
+            raise AssertionError("the first final build saw a source that was not original")
+        if returned != original:
+            raise AssertionError("a source was not original when main returned")
+
+
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--only", default="", help="run only variants whose name contains this text")
-    parser.add_argument("--self-test", action="store_true", help="check the restoration on synthetic files only")
-    args = parser.parse_args()
+    parser.add_argument("--self-test", action="store_true",
+                        help="check the restoration, and main() with fake builds, on synthetic files only")
+    args = parser.parse_args(argv)
     if args.self_test:
         return self_test()
     selected = [variant for variant in VARIANTS if args.only in variant[0]]
