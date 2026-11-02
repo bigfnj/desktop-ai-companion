@@ -25,6 +25,16 @@ if (args.Length == 1 && args[0] == "--claude-public-discovery-observation")
     }
     catch (Exception ex) { Console.Error.WriteLine(ex); Console.WriteLine("RESULT=FAIL"); return 1; }
 }
+if (args.Length == 1 && args[0] == "--claude-public-discovery-tolerant")
+{
+    try
+    {
+        await ClaudeObservationChecks.RunPublicTolerantDiscoveryCheckAsync(Check);
+        Console.WriteLine($"RESULT=PASS assertions={assertions}");
+        return 0;
+    }
+    catch (Exception ex) { Console.Error.WriteLine(ex); Console.WriteLine("RESULT=FAIL"); return 1; }
+}
 if (args.Length >= 1 && args[0] is "--firewall-setup-only" or "--firewall-setup-case")
 {
     try
@@ -103,6 +113,20 @@ if (args.Length >= 1 && args[0] is "--pin-status-only" or "--pin-status-case")
         if (args[0] == "--pin-status-only" && args.Length == 1) await PinStatusChecks.RunAsync(Check);
         else if (args[0] == "--pin-status-case" && args.Length == 2) await PinStatusChecks.RunAsync(Check, args[1]);
         else throw new ArgumentException("Unexpected pin status test arguments.");
+        Console.WriteLine($"RESULT=PASS assertions={assertions}");
+        return 0;
+    }
+    catch (Exception ex) { Console.Error.WriteLine(ex); Console.WriteLine("RESULT=FAIL"); return 1; }
+}
+// Update-tolerant Claude delivery (the owner's decision of 2026-11-02). --claude-update-tolerant-case runs one group, so
+// each mutation witness fails on the check it targets.
+if (args.Length >= 1 && args[0] is "--claude-update-tolerant-only" or "--claude-update-tolerant-case")
+{
+    try
+    {
+        if (args[0] == "--claude-update-tolerant-only" && args.Length == 1) await ClaudeUpdateTolerantChecks.RunAsync(Check);
+        else if (args[0] == "--claude-update-tolerant-case" && args.Length == 2) await ClaudeUpdateTolerantChecks.RunAsync(Check, args[1]);
+        else throw new ArgumentException("Unexpected update-tolerant test arguments.");
         Console.WriteLine($"RESULT=PASS assertions={assertions}");
         return 0;
     }
@@ -309,6 +333,8 @@ try
         await TombstoneChecks.RunAsync(Check);
         // The embedded pin document in the Native status (lane broker-pins).
         await PinStatusChecks.RunAsync(Check);
+        // Update-tolerant Claude delivery (the owner's decision of 2026-11-02); after the --existing-tests-only cut-off.
+        await ClaudeUpdateTolerantChecks.RunAsync(Check);
     }
     try { WorkerOptions.Parse(["--data", scratch, "--lan", "false", "--lan", "true"]); throw new Exception("Accepted duplicate option."); }
     catch (ArgumentException) { Check(true, "duplicate worker options fail before startup"); }

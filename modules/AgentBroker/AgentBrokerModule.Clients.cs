@@ -148,8 +148,10 @@ public sealed partial class AgentBrokerModule
         // Native receive and wake support.
         yield return NativeLine(client);
         // A note about some sessions (lane broker-163: elevated Claude Code sessions), beside the healthy line, not instead.
-        if (snapshot?.AdapterNotes is { } notes && notes.TryGetValue(client == "claude" ? "claude-native" : "codex-native", out string? note))
-            yield return "\u26A0 " + Safe(StripCode(note), 116);
+        // One line per note, each whole within its own 116 characters: two notes once shared one cut and garbled each other.
+        if (snapshot?.AdapterNotes is { } notes && notes.TryGetValue(client == "claude" ? "claude-native" : "codex-native", out string? joined))
+            foreach (string note in joined.Split(ControlProtocol.NoteSeparator, StringSplitOptions.RemoveEmptyEntries).Take(8))
+                yield return "\u26A0 " + Safe(StripCode(note), 116);
         // Report only (lane broker-163, N-agentbroker-code-owner-provenance-01): whose engine holds each Codex row's thread.
         if (client == "codex" && EngineBindingLine() is { } engine) yield return engine;
 

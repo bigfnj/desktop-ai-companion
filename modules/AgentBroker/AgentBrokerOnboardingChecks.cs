@@ -205,6 +205,16 @@ public sealed partial class AgentBrokerModule
             module.ApplyStatus(new(true, true, "running", view with { AdapterNotes = new Dictionary<string, string> { ["claude-native"] = "claude_session_elevated: " + many } }));
             check(pane.Load()["claudeClient"].Contains("\n\u26A0 " + many, StringComparison.Ordinal),
                 "ELEVATED_NOTE_PLURAL_WHOLE: the plural note at the 32-session bound is shown whole, final period included");
+            // Lane claude-update-tolerant: two notes for one adapter used to share one 116-character cut and garble each other.
+            const string tolerant = "Claude Code 2.1.314 is not a reviewed build; it is woken because Windows verified Anthropic's signature.";
+            module.ApplyStatus(new(true, true, "running", view with { AdapterNotes = new Dictionary<string, string> { ["claude-native"] =
+                "claude_session_elevated: " + many + ControlProtocol.NoteSeparator + "claude_update_tolerant_delivery: " + tolerant } }));
+            string both = pane.Load()["claudeClient"];
+            check(both.Contains("\n⚠ " + many + "\n⚠ " + tolerant, StringComparison.Ordinal) &&
+                !both.Contains("claude_update_tolerant_delivery", StringComparison.Ordinal),
+                "NOTES_EACH_WHOLE: two notes for one adapter are each shown whole, on a line of their own");
+            check(pane.Load()["nativeStatus"].Contains(many + "; claude_update_tolerant_delivery: " + tolerant, StringComparison.Ordinal),
+                "NOTES_NATIVE_STATUS_SEPARATED: Native adapters lists both notes, each whole and separated");
             module.ApplyStatus(new(true, true, "running", view));
 
             // A settings change restarts the worker; a check made against the old settings no longer applies.

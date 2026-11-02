@@ -148,6 +148,8 @@ internal sealed class WorkerSupervisor(IBrokerControlClient control, IWorkerChil
         Add("--claude-peer-credentials", Bool(launch.Settings.ClaudePeerCredentials));
         // Sent only when the switch is on (the default since 1.5.0); off launches the worker in its strict default.
         if (launch.Settings.CodexUpdateTolerantDelivery) Add("--codex-update-tolerant-delivery", Bool(true));
+        // The same for Claude (on by default, the owner's decision of 2026-11-02); off launches the worker with exact pins only.
+        if (launch.Settings.ClaudeUpdateTolerantDelivery) Add("--claude-update-tolerant-delivery", Bool(true));
         Add("--message-lifetime-minutes", launch.Settings.MessageLifetimeHours * 60);
     }
 }

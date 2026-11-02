@@ -15,8 +15,11 @@ worker it attached to as standby. Shutdown withdraws questions and stops only th
 No settings field accepts a fabricated MCP app source ID.
 
 Updated Claude executables can remain visible through Windows-verified Anthropic
-publisher observation. Observation alone has no receive or wake capability; native
-delivery still requires a separately supported profile and explicit opt-in.
+publisher observation. Observation alone has no receive or wake capability. With
+"Wake existing Claude sessions" on, "Also wake updated Claude builds" (on by default,
+the owner's decision of 2026-11-02) makes such a session deliverable when its signed
+image is the one the native pipe's own server runs; turned off, delivery requires an
+exactly pinned profile.
 Observation rows follow the existing paired-directory sharing and per-session
 private controls; their labels contain a generic client name and short session ID.
 See `tools/AgentBroker.Worker/Adapters/ClaudeNativeProvider.cs` and

@@ -17,7 +17,24 @@ internal sealed record ClaudePublicImageTrustResult(ClaudePublicImageTrust Trust
 }
 
 /// <summary>
-/// Authenticode observation of one public executable. This never grants native delivery authority.
+/// The send-time publisher check of update-tolerant Claude delivery (the owner's decision of 2026-11-02): the image at a
+/// path is Windows-verified as "Anthropic, PBC" and its held SHA-256 is the expected one. Anything else, a check that
+/// could not complete included, answers false. Production observes through <see cref="WindowsClaudePublicImageTrust.Observe"/>.
+/// </summary>
+internal sealed class ClaudePublisherImageTrust(Func<string, ClaudePublicImageTrustResult> observe) : AgentBroker.ClaudeAdapter.IPublisherImageTrust
+{
+    public bool IsExpectedPublisher(string imagePath, string imageSha256)
+    {
+        using var trust = observe(imagePath);
+        return trust.Trust == ClaudePublicImageTrust.ExpectedPublisher &&
+            trust.ImageSha256 is { Length: 64 } hash && string.Equals(hash, imageSha256, StringComparison.OrdinalIgnoreCase);
+    }
+}
+
+/// <summary>
+/// Authenticode observation of one public executable. On its own this grants no native delivery authority: discovery
+/// uses it for observation, and update-tolerant delivery (off in the worker unless the module passes its switch) uses it
+/// as the publisher half of a rule whose other half is the native pipe's own process identity (NativePeerAdapter).
 /// The publisher is read from the signer selected by successful Windows trust verification. The WinVerifyTrust
 /// call, subject parse and held-path check are shared with the Codex adapter's check through one linked file
 /// (<c>tools/AgentBroker.Pins/WindowsAuthenticode.cs</c>); the claude.exe name, the publisher, the SHA-256 lease and

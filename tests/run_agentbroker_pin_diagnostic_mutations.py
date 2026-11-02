@@ -11,7 +11,10 @@ No pin, verification predicate, hash implementation or vendor file is changed.
 The original bytes are restored in finally, including on test/build failure.
 All builds are serial. Stdout/stderr go directly to ordinary evidence files,
 avoiding inherited-pipe reader waits during subprocess timeout handling.
-Reporting-only witnesses require existing regressions to pass while mutated.
+Reporting-only witnesses require existing regressions to pass while mutated,
+except a witness's own named overlap (Witness.allowed_existing_failures): then
+the existing run must fail at exactly its first named check, and every named
+check must pass by name in each healthy run, including the restored one.
 The separate concurrency witness intentionally restores the product race and
 runs its deterministic new check; existing regressions run after restoration.
 """
@@ -57,6 +60,10 @@ SOURCES = {
     "models": "src/AgentBroker.Core/BrokerModels.cs",
     "pins": "tools/AgentBroker.Pins/PinDocument.cs",
     "diagnostic": "tools/AgentBroker.Worker/AdapterDiscoveryDiagnostic.cs",
+    "nativepeer": "tools/AgentBroker.ClaudeAdapter/NativePeerAdapter.cs",
+    "claudeadapter": "tools/AgentBroker.Worker/Adapters/ClaudeNativeAdapter.cs",
+    "claudetrust": "tools/AgentBroker.Worker/Adapters/WindowsClaudePublicImageTrust.cs",
+    "workeroptions": "tools/AgentBroker.Worker/WorkerOptions.cs",
 }
 PROJECTS = {
     "worker": "tests/AgentBroker.Worker.Tests/AgentBroker.Worker.Tests.csproj",
@@ -75,7 +82,7 @@ ASSEMBLIES = {
 # checks (adapter failure recorded, owner_discovery_rejected per row), and owner_discovery_rejected during owner
 # resolution now checked as a skipped row (two checks) instead of a failed pass (three).
 EXISTING_COUNTS = {"worker": 234, "desktop": 157}  # worker 213 -> 234: re-measured by lane broker-163; stale before it (no existing-suite check changed there)
-FOCUSED_COUNTS = {"worker": 91, "desktop": 15}  # worker 81 -> 91: lane broker-163 (CLAUDE_ELEVATED_* and RUNTIME_NOTE_*)
+FOCUSED_COUNTS = {"worker": 92, "desktop": 15}  # worker 81 -> 91: lane broker-163 (CLAUDE_ELEVATED_* and RUNTIME_NOTE_*); 91 -> 92: lane claude-update-tolerant (RUNTIME_NOTES_SEPARATED)
 CLAUDE_SCENARIOS = ("early-reject", "unsupported-version", "hash-mismatch", "mixed", "recovery", "bounded-snapshot")
 
 
@@ -89,12 +96,22 @@ class Witness:
     replacements: tuple[tuple[str, str], ...]
     replacement_counts: tuple[int, ...] = ()
     kind: str = "reporting"
+    # Existing checks this mutation necessarily breaks, by check text in suite order. Empty for every witness but one.
+    allowed_existing_failures: tuple[str, ...] = ()
 
 
 WITNESSES = (
+    # Re-pointed by lane feature/claude-update-tolerant: both pin refusals now report through ClaudeNativeProvider.Unpinned,
+    # one line for the two codes (same intent: the specific compatibility diagnostic is gone).
+    # The deleted diagnostic is also asserted by two EXISTING checks (ClaudeObservationChecks.SignedObservationAsync,
+    # which runs before the --existing-tests-only cut-off), so the existing run while mutated cannot pass (Codex review
+    # 2026-11-02, P2). Named here in suite order. The C# suite throws at its first failed check, so that run must report
+    # exactly the first and never reaches the second; both must pass by name in every healthy run, the restored one too.
     Witness("claude-reporting", "claude", "worker", (), "ClaudePinDiagnosticChecks.cs", (
-        ('                    diagnostics?.Add(CompatibilityDiagnostic("unsupported_public_version", version));', ""),
-        ('                    diagnostics?.Add(CompatibilityDiagnostic("image_hash_mismatch", version));', ""),
+        ("            else diagnostics?.Insert(reportAt, CompatibilityDiagnostic(pinRefusal, version));\n", ""),
+    ), allowed_existing_failures=(
+        "Claude observation: unsupported native delivery stays diagnosed even when observation succeeds",
+        "Claude observation: signed same-version image mismatch never becomes an exact delivery profile",
     )),
     Witness("codex-error-code-reporting", "codex", "worker", ("--codex-pin-diagnostics-only",), "CodexPinDiagnosticChecks.cs", ((
         """        catch (DesktopAdapterException error)
@@ -583,6 +600,156 @@ WITNESSES = (
         "            { throw new DesktopAdapterException(error.Code, NewestRunningVersion(engines)); }",
         "            { throw; }",
     ),)),
+    # ---- lane feature/claude-update-tolerant ----
+    # Update-tolerant Claude delivery (the owner's decision of 2026-11-02). Each runs one ClaudeUpdateTolerantChecks group,
+    # after the --existing-tests-only cut-off, so the existing pin stays 234; no mutation here changes a mode-off path.
+    Witness("claude-tolerant-provenance-never-carried", "claude", "worker", ("--claude-update-tolerant-case", "discovery"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "        { Provenance = updateTolerant ? ClaudeDiscoveryProvenance.UpdateTolerant : ClaudeDiscoveryProvenance.PublisherSignedObservation };",
+        "        { Provenance = ClaudeDiscoveryProvenance.PublisherSignedObservation };",
+    ),)),
+    Witness("claude-tolerant-provider-ignores-switch", "claude", "worker", ("--claude-update-tolerant-case", "discovery"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "        updateTolerant = enablePeerCredentials && updateTolerantDelivery;",
+        "        updateTolerant = enablePeerCredentials;",
+    ),)),
+    Witness("claude-tolerant-provider-ignores-switch-status", "claude", "worker", ("--claude-update-tolerant-case", "status"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "        updateTolerant = enablePeerCredentials && updateTolerantDelivery;",
+        "        updateTolerant = enablePeerCredentials;",
+    ),)),
+    Witness("claude-tolerant-provider-without-credentials", "claude", "worker", ("--claude-update-tolerant-case", "discovery"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "        updateTolerant = enablePeerCredentials && updateTolerantDelivery;",
+        "        updateTolerant = updateTolerantDelivery;",
+    ),)),
+    Witness("claude-tolerant-pinned-takes-signature-path", "claude", "worker", ("--claude-update-tolerant-case", "discovery"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "                if (!EngineProfile.IsSupportedPublicVersion(version))\n",
+        "                if (updateTolerant || !EngineProfile.IsSupportedPublicVersion(version))\n",
+    ),)),
+    Witness("claude-tolerant-pin-error-kept", "claude", "worker", ("--claude-update-tolerant-case", "status"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "            else diagnostics?.Insert(reportAt, CompatibilityDiagnostic(pinRefusal, version));",
+        "            diagnostics?.Insert(reportAt, CompatibilityDiagnostic(pinRefusal, version));",
+    ),)),
+    Witness("claude-tolerant-note-is-error", "claude", "worker", ("--claude-update-tolerant-case", "status"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        " is not a reviewed build; it is woken because Windows verified Anthropic's signature.\") { Note = true };",
+        " is not a reviewed build; it is woken because Windows verified Anthropic's signature.\");",
+    ),)),
+    Witness("claude-tolerant-note-unnamed", "claude", "worker", ("--claude-update-tolerant-case", "status"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "        => new(\"claude_update_tolerant_delivery\", \"Claude Code \" + Installed(DisplayVersion(version)) +",
+        "        => new(\"claude_update_tolerant_delivery\", \"Claude Code\" +",
+    ),)),
+    # The note names the version as people see it (coordinator follow-up, 2026-11-02).
+    Witness("claude-tolerant-note-file-version", "claude", "worker", ("--claude-update-tolerant-case", "version"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "\"Claude Code \" + Installed(DisplayVersion(version)) +",
+        "\"Claude Code \" + Installed(version) +",
+    ),)),
+    Witness("claude-tolerant-note-drops-nonzero-revision", "claude", "worker", ("--claude-update-tolerant-case", "version"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "        => System.Version.TryParse(version, out var parsed) && parsed.Revision == 0\n",
+        "        => System.Version.TryParse(version, out var parsed) && parsed.Revision >= 0\n",
+    ),)),
+    # Two notes are carried one per line (coordinator follow-up, 2026-11-02); the runtime's own focused group.
+    Witness("claude-tolerant-runtime-notes-joined", "runtime", "worker", ("--runtime-pin-diagnostics-only",),
+            "AdapterDiagnosticChecks.cs", ((
+        "                else adapterNotes[adapter.Id] = string.Join(AgentBroker.Protocol.ControlProtocol.NoteSeparator, notes);",
+        "                else adapterNotes[adapter.Id] = string.Join(\"; \", notes);",
+    ),)),
+    Witness("claude-tolerant-pin-error-order", "claude", "worker", ("--claude-update-tolerant-case", "status"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "            else diagnostics?.Insert(reportAt, CompatibilityDiagnostic(pinRefusal, version));",
+        "            else diagnostics?.Add(CompatibilityDiagnostic(pinRefusal, version));",
+    ),)),
+    Witness("claude-tolerant-adapter-never-carries", "claudeadapter", "worker", ("--claude-update-tolerant-case", "capabilities"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "    private bool Deliverable(ClaudeNativeCandidate candidate) => candidate.CanDeliver ||\n"
+        "        updateTolerant && candidate.Provenance == ClaudeDiscoveryProvenance.UpdateTolerant;",
+        "    private bool Deliverable(ClaudeNativeCandidate candidate) => candidate.CanDeliver;",
+    ),)),
+    Witness("claude-tolerant-adapter-ignores-switch", "claudeadapter", "worker", ("--claude-update-tolerant-case", "capabilities"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "        updateTolerant && candidate.Provenance == ClaudeDiscoveryProvenance.UpdateTolerant;",
+        "        candidate.Provenance == ClaudeDiscoveryProvenance.UpdateTolerant;",
+    ),)),
+    Witness("claude-tolerant-image-change-unchecked", "claudeadapter", "worker", ("--claude-update-tolerant-case", "image-changed"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "            if (!fresh.CanDeliver && !string.Equals(fresh.Target.ImageSha256, previous.Target.ImageSha256, StringComparison.OrdinalIgnoreCase))\n"
+        "                return new(AdapterAdmission.Refused, \"claude_image_changed\");\n",
+        "",
+    ),)),
+    Witness("claude-tolerant-send-without-trust", "nativepeer", "worker", ("--claude-update-tolerant-case", "send"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "        if (!pinned && updateTolerantTrust is null)\n"
+        "            return Refused(\"unsupported_engine_profile\");\n",
+        "",
+    ),)),
+    Witness("claude-tolerant-send-publisher-unchecked", "nativepeer", "worker", ("--claude-update-tolerant-case", "send"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "            if (!pinned && updateTolerantTrust?.IsExpectedPublisher(connection.Identity.ImagePath, connection.Identity.ImageSha256) != true)\n"
+        "                return Refused(\"native_publisher_unverified\");\n",
+        "",
+    ),)),
+    Witness("claude-tolerant-send-hash-unbound", "nativepeer", "worker", ("--claude-update-tolerant-case", "send"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "            string.Equals(identity.ImageSha256, target.ImageSha256, StringComparison.OrdinalIgnoreCase) &&\n",
+        "",
+    ),)),
+    Witness("claude-tolerant-send-reinspection-skipped", "nativepeer", "worker", ("--claude-update-tolerant-case", "send"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "            if (!Matches(target, connection.Reinspect(), pinned)) return Refused(\"native_identity_changed\");",
+        "            if (!Matches(target, connection.Identity, pinned)) return Refused(\"native_identity_changed\");",
+    ),)),
+    Witness("claude-tolerant-pinned-consults-trust", "nativepeer", "worker", ("--claude-update-tolerant-case", "send"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "            if (!pinned && updateTolerantTrust?.IsExpectedPublisher(",
+        "            if (updateTolerantTrust?.IsExpectedPublisher(",
+    ),)),
+    Witness("claude-tolerant-trust-hash-unbound", "claudetrust", "worker", ("--claude-update-tolerant-case", "image-trust"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "            trust.ImageSha256 is { Length: 64 } hash && string.Equals(hash, imageSha256, StringComparison.OrdinalIgnoreCase);",
+        "            trust.ImageSha256 is { Length: 64 };",
+    ),)),
+    Witness("claude-tolerant-trust-case-sensitive", "claudetrust", "worker", ("--claude-update-tolerant-case", "image-trust"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "string.Equals(hash, imageSha256, StringComparison.OrdinalIgnoreCase);",
+        "string.Equals(hash, imageSha256, StringComparison.Ordinal);",
+    ),)),
+    Witness("claude-tolerant-trust-publisher-unchecked", "claudetrust", "worker", ("--claude-update-tolerant-case", "image-trust"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "        return trust.Trust == ClaudePublicImageTrust.ExpectedPublisher &&\n",
+        "        return\n",
+    ),)),
+    Witness("claude-tolerant-trust-lease-kept", "claudetrust", "worker", ("--claude-update-tolerant-case", "image-trust"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "        using var trust = observe(imagePath);",
+        "        var trust = observe(imagePath);",
+    ),)),
+    Witness("claude-tolerant-send-trust-never-handed", "claude", "worker", ("--claude-update-tolerant-case", "image-trust"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "        => updateTolerant ? new ClaudePublisherImageTrust(source.ObserveUnpinnedPublicImage) : null;",
+        "        => null;",
+    ),)),
+    Witness("claude-tolerant-send-trust-always-handed", "claude", "worker", ("--claude-update-tolerant-case", "image-trust"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "        => updateTolerant ? new ClaudePublisherImageTrust(source.ObserveUnpinnedPublicImage) : null;",
+        "        => new ClaudePublisherImageTrust(source.ObserveUnpinnedPublicImage);",
+    ),)),
+    Witness("claude-tolerant-worker-flag-ignored", "workeroptions", "worker", ("--claude-update-tolerant-case", "options"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "            EnableClaudeUpdateTolerantDelivery = Bool(\"--claude-update-tolerant-delivery\", false),",
+        "            EnableClaudeUpdateTolerantDelivery = false,",
+    ),)),
+    Witness("claude-tolerant-worker-flag-not-wired", "workerapp", "worker", ("--claude-update-tolerant-case", "options"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "        if (options.EnableClaudeNativeDiscovery) adapters.Add(new ClaudeNativeAdapter(options.EnableClaudePeerCredentials,\n"
+        "            options.EnableClaudeUpdateTolerantDelivery));",
+        "        if (options.EnableClaudeNativeDiscovery) adapters.Add(new ClaudeNativeAdapter(options.EnableClaudePeerCredentials));",
+    ),)),
 )
 
 
@@ -732,7 +899,8 @@ class Runner:
             raise RuntimeError("Healthy/mutant build failed; this is not a killed reporting mutation: " + label)
 
     def test(self, family: str, label: str, args: tuple[str, ...], *, failure_file: str | None = None,
-             existing: bool = False, focused: bool = False, expected_assertions: int | None = None) -> dict:
+             existing: bool = False, focused: bool = False, expected_assertions: int | None = None,
+             named_failures: tuple[str, ...] = ()) -> dict:
         result = self.invoke(label, ["dotnet", str(ASSEMBLIES[family].relative_to(ROOT)), *args], 180)
         output = result["output"]
         if failure_file is not None:
@@ -740,6 +908,18 @@ class Runner:
                 raise RuntimeError("Mutation did not fail cleanly with exit 1 in its specific new test file: " + label)
             result["expectedFailureFile"] = failure_file
             result["expectedOutcome"] = "new_test_failed"
+        elif named_failures:
+            # A witness's own named overlap with the existing suite. Check() throws at the first failed check, so exactly
+            # one failure is reported and it must be the first named one: a pass, an unnamed or a later named check, any
+            # other exception, or a second one is refused.
+            lines = [line.rstrip() for line in output.splitlines()]
+            prefix = "System.InvalidOperationException: "
+            failed = [line[len(prefix):] for line in lines if line.startswith(prefix)]
+            if result["exitCode"] != 1 or "RESULT=FAIL" not in lines or failed != [named_failures[0]]:
+                raise RuntimeError("Existing regressions did not fail at exactly the witness's first named check: " + label)
+            result["expectedOutcome"] = "named_existing_failure"
+            result["failedCheck"] = failed[0]
+            result["passedBeforeFailure"] = sum(line.startswith("PASS: ") for line in lines)
         else:
             if result["exitCode"] != 0:
                 raise RuntimeError("A required healthy or existing regression test failed: " + label)
@@ -759,7 +939,13 @@ class Runner:
             self.build(family, prefix + "-build-" + family)
         for family in families:
             self.test(family, prefix + "-new-" + family, ("--pin-diagnostics-only",), focused=True)
-            self.test(family, prefix + "-existing-" + family, ("--existing-tests-only",), existing=True)
+            existing = self.test(family, prefix + "-existing-" + family, ("--existing-tests-only",), existing=True)
+            # Each check a witness may fail while mutated is one real existing check, passing once by name when healthy.
+            lines = [line.rstrip() for line in existing["output"].splitlines()]
+            for witness in WITNESSES:
+                for check in witness.allowed_existing_failures if witness.family == family else ():
+                    if lines.count("PASS: " + check) != 1:
+                        raise RuntimeError("A named existing failure is not one passing existing check: " + witness.name)
         if "worker" in families:
             self.test("worker", prefix + "-deferred-claim", ("--deferred-claim-only",), expected_assertions=4)
 
@@ -782,6 +968,18 @@ class Runner:
             if witness.kind == "concurrency":
                 record["existingRegression"] = {"runWhileMutated": False,
                     "reason": "This witness intentionally restores the known legacy deferred-claim race; the old 130 checks run after source restoration."}
+            elif witness.allowed_existing_failures:
+                old = self.test(witness.family, witness.name + "-existing", ("--existing-tests-only",),
+                                named_failures=witness.allowed_existing_failures)
+                # Said on every run: the suite stopped at the named check, so the checks after it ran only when healthy.
+                not_run = EXISTING_COUNTS[witness.family] - old["passedBeforeFailure"] - 1
+                print(f"NOTE {witness.name}: existing suite failed only at its first named check; "
+                      f"{not_run} later existing checks run only in the healthy phases.", flush=True)
+                record["existingRegression"] = {"runWhileMutated": True, "exitCode": old["exitCode"],
+                    "allowedFailures": list(witness.allowed_existing_failures), "failedCheck": old["failedCheck"],
+                    "passedBeforeFailure": old["passedBeforeFailure"], "notRunWhileMutated": not_run,
+                    "requiredAfterRestoration": f"restored-existing-{witness.family}: all {EXISTING_COUNTS[witness.family]} "
+                                                "checks pass, each named one by name"}
             else:
                 old = self.test(witness.family, witness.name + "-existing", ("--existing-tests-only",), existing=True)
                 record["existingRegression"] = {"runWhileMutated": True, "exitCode": old["exitCode"], "assertions": old["assertions"]}
@@ -805,7 +1003,8 @@ def main() -> int:
                           "selectedFamilies": families, "expectedFailureExitCode": 1,
                           "witnesses": [{"name": item.name, "source": SOURCES[item.source],
                                          "classification": item.kind, "newFailureFile": item.failure_file,
-                                         "existingAssertions": EXISTING_COUNTS[item.family] if item.kind == "reporting" else None}
+                                         "existingAssertions": EXISTING_COUNTS[item.family] if item.kind == "reporting" else None,
+                                         "allowedExistingFailures": list(item.allowed_existing_failures)}
                                         for item in selected]}, indent=2))
         return 0
     artifacts = ROOT / "artifacts"

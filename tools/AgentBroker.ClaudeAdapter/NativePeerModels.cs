@@ -59,6 +59,17 @@ public interface IPeerCredentialSource
     byte[] Read(CredentialTarget target);
 }
 
+/// <summary>
+/// The publisher half of update-tolerant delivery (the owner's decision of 2026-11-02). True only when the executable at
+/// <paramref name="imagePath"/> carries a Windows-verified signature of the expected publisher AND hashes to
+/// <paramref name="imageSha256"/>; false for anything else, including a check that could not complete. Without one, a
+/// build that is not exactly pinned is refused as before.
+/// </summary>
+public interface IPublisherImageTrust
+{
+    bool IsExpectedPublisher(string imagePath, string imageSha256);
+}
+
 public interface INativePeerConnection : IAsyncDisposable
 {
     bool EnforcesCurrentUser { get; }

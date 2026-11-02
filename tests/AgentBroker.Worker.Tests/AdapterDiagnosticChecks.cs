@@ -33,6 +33,14 @@ internal static class AdapterDiagnosticChecks
             await UntilAsync(() => runtime.AdapterNotes.ContainsKey(adapter.Id));
             check(runtime.AdapterNotes[adapter.Id].Contains("synthetic_note", StringComparison.Ordinal) && !runtime.AdapterErrors.ContainsKey(adapter.Id),
                 "AdapterDiagnosticChecks.cs: RUNTIME_NOTE_APART: a note is reported as a note and never as the adapter's error");
+            // Lane claude-update-tolerant: two notes (elevated sessions and update-tolerant delivery, say) are each carried
+            // whole, one per line, so the module shows each on its own line instead of one shared cut.
+            adapter.TwoNotes = true;
+            await UntilAsync(() => runtime.AdapterNotes.TryGetValue(adapter.Id, out string? two) && two.Contains("second_note", StringComparison.Ordinal));
+            check(runtime.AdapterNotes[adapter.Id].Split(AgentBroker.Protocol.ControlProtocol.NoteSeparator) is [var first, var second] &&
+                first == "synthetic_note: 1 synthetic session is noted." && second == "second_note: 2 synthetic sessions are noted too; each is whole.",
+                "AdapterDiagnosticChecks.cs: RUNTIME_NOTES_SEPARATED: two notes are carried whole, one per line, never joined into one");
+            adapter.TwoNotes = false;
             // Review of d9c2967, item 4: an unexpected failure (adapter_failed) completed nothing to note either.
             adapter.Fails = true;
             await UntilAsync(() => runtime.AdapterErrors.TryGetValue(adapter.Id, out string? failed) && failed == "adapter_failed");
@@ -62,14 +70,16 @@ internal static class AdapterDiagnosticChecks
         private readonly Guid incarnation = Guid.NewGuid();
         private int calls;
         internal int Calls => Volatile.Read(ref calls);
-        internal volatile bool Recovered, Noting, Fails;
+        internal volatile bool Recovered, Noting, Fails, TwoNotes;
         public string Id => "synthetic-pin-diagnostics";
         public IReadOnlyList<AdapterDiscoveryDiagnostic> DiscoveryDiagnostics { get; private set; } = [];
         public Task<IReadOnlyList<BrokerSession>> DiscoverAsync(Guid brokerId, CancellationToken token)
         {
             token.ThrowIfCancellationRequested();
             if (Fails) throw new InvalidOperationException("Synthetic unexpected discovery failure.");
-            DiscoveryDiagnostics = Noting ? [new("synthetic_note", "1 synthetic session is noted.") { Note = true }] : Recovered ? [] : [new("unsupported_public_version",
+            DiscoveryDiagnostics = TwoNotes ? [new("synthetic_note", "1 synthetic session is noted.") { Note = true },
+                    new("second_note", "2 synthetic sessions are noted too; each is whole.") { Note = true }]
+                : Noting ? [new("synthetic_note", "1 synthetic session is noted.") { Note = true }] : Recovered ? [] : [new("unsupported_public_version",
                 "Claude Code 2.1.310 installed; verified 2.1.292, 2.1.304, 2.1.306")];
             Interlocked.Increment(ref calls);
             return Task.FromResult<IReadOnlyList<BrokerSession>>([new(new(brokerId, "synthetic-supported", incarnation),
