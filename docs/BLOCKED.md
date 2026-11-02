@@ -205,7 +205,7 @@ The entry as it stood:
 
 ## N-agentbroker-two-pc-01 (moved from BACKLOG.md 2026-10-29)
 
-**Blocker: needs two physical PCs on the same build.**
+**Blocker: needs two physical PCs on the same build. First half PASSED 2026-11-02 (AgentBroker 1.7.0 here; the second workstation's broker 6bb94efd, paired, peer diagnostics ok with authentication confirmed): a message from a generic mailbox there (Codex) reached this workstation's coordinator mailbox and was acknowledged Delivered; the correlated reply crossed back and was acknowledged Delivered 36 s later, the receipt returning across the pairing; a second reply (TWO-PC-B2) crossed again and was acknowledged. Left: the same after a worker restart, an app restart, a reboot and a DHCP renew, and a revoke that refuses sends. Seen on the way: the second workstation's clock runs about 20 s ahead (its createdAt stamps), and a send to its observation-only Claude row ended Uncertain, not Refused (N-broker-two-pc-02 in BACKLOG.md).**
 
 What clears it: Pair them. On each, register a fresh discoverable generic inbox; send a synthetic message A to B, B acknowledges and sends a correlated reply, A acknowledges; then B to A. Repeat after a worker restart, an app restart, a reboot and a DHCP renew, confirming trust persists. Revoke and confirm sends are refused. `tools/agentbroker/Test-AgentBrokerPeerAuthentication.ps1 -WorkerProcessId <pid>` reads the result.
 
