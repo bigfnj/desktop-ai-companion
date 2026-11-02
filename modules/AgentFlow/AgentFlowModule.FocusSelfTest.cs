@@ -16,7 +16,7 @@ namespace DesktopAICompanion.AgentFlow
         /// panel list reaches the press the way production hands it on. The focus paths are the ones Codex's audit of the
         /// installed bundles traced (2026-11-02): Claude Code's permission-clear effect (100 ms after the card clears,
         /// ten seconds later on its diff path) and a Codex follow-on card's autofocus on mount. Every "never left" check
-        /// reads the page's focus log, so focus that left and was put back fails it: the net cannot mask the hold.
+        /// reads the page's focus log, so focus that left at any moment fails it.
         /// </summary>
         private static bool SelfCheckFocusHold(SelfTestProbe probe)
         {
@@ -54,11 +54,11 @@ namespace DesktopAICompanion.AgentFlow
                                 + "synchronous, 50 ms, select() and 100 ms permission-clear focus were all held, and focus never "
                                 + "left (" + FocusBrief(state) + ")",
                         FocusStr(state, null, "focused") == "A" && FocusBool(state, "A", "inputActive") && FocusStr(state, null, "log") == "");
-                    probe.Check("(1.12.3) ...and the approval still happened, once, with nothing for the safety net to put back ("
+                    probe.Check("(1.12.3) ...and the approval still happened, once, with no detection line ("
                                 + (note ?? "<no note>") + ")",
                         pass.PressedAny && FocusInt(state, "B", "approved") == 1 && note != null
                         && note.IndexOf("auto-approve clicked", StringComparison.Ordinal) >= 0
-                        && note.IndexOf("took focus", StringComparison.Ordinal) < 0);
+                        && note.IndexOf(CdpApprover.FocusMovedNote, StringComparison.Ordinal) < 0);
                     page.Advance(settled);
                     string after = page.State();
                     probe.Check("WITNESS (1.12.3) once the card has settled the hold lets go: the exact original focus and select "
@@ -122,7 +122,7 @@ namespace DesktopAICompanion.AgentFlow
                     probe.Check("WITNESS (1.12.3) the user types in the card and then leaves it: the card's focus 600 ms after the "
                                 + "press is still suppressed, and the user stays where they went (" + FocusBrief(left) + ")",
                         FocusStr(left, null, "focused") == "A" && FocusStr(left, null, "log") == "B,user:A"
-                        && FocusBool(left, "B", "hold") && FocusBool(left, "B", "intent"));
+                        && FocusBool(left, "B", "hold"));
                     page.Advance(settled);
                     page.Run("__page.frames['B'].input.focus(); 'ok'");
                     string released = page.State();
@@ -190,7 +190,9 @@ namespace DesktopAICompanion.AgentFlow
                 }
             }
 
-            // ---- (d) the safety net: a focus the hold cannot reach is put back, and only onto the element remembered -----
+            // ---- (d) detection: a focus the hold cannot reach is reported, and nothing is moved back ------------------------
+            // There is no safety net that refocuses (removed by decision, see FocusHold.cs): B's card takes focus through
+            // reveal, which no in-page hold reaches, and the press says so in one line while focus stays where it went.
             using (FakeFocusPage page = FakeFocusPage.TryCreate(out why))
             {
                 page.AddFrame("A", "claude", "none");
@@ -203,42 +205,21 @@ namespace DesktopAICompanion.AgentFlow
                     var pass = new SweepPass(server.Port, true, false, false, budget, () => true);
                     string note = SweepOnce(server.Port, pass, budget, 4000, out bool sawPanel, out bool sawBlind);
                     string state = page.State();
-                    probe.Check("WITNESS (1.12.3) a focus the hold cannot reach (an extension's reveal) is put back on the element "
-                                + "the user was in (" + FocusBrief(state) + ")",
-                        pass.PressedAny && FocusInt(state, "B", "approved") == 1 && FocusStr(state, null, "log") == "B,A"
-                        && FocusStr(state, null, "focused") == "A" && FocusBool(state, "A", "inputActive")
-                        && FocusInt(state, "A", "listeners") == 0);
-                    probe.Check("(1.12.3) ...and the press's one log line says so (" + (note ?? "<no note>") + ")",
-                        note != null && note.IndexOf("took focus from the panel you were in, and it was put back", StringComparison.Ordinal) > 0);
-                }
-            }
-            using (FakeFocusPage page = FakeFocusPage.TryCreate(out why))
-            {
-                page.AddFrame("A", "claude", "none");
-                page.AddFrame("B", "claude", "reveal");
-                page.UserAtBody("A");
-                using (var server = new FakeCdpServer(new[] { FocusTarget(page, "A", CdpApprover.ClaudeTargetMarker, "none"),
-                                                              FocusTarget(page, "B", CdpApprover.ClaudeTargetMarker, ClaudeCard) }))
-                {
-                    var budget = new PressBudget();
-                    var pass = new SweepPass(server.Port, true, false, false, budget, () => true);
-                    string note = SweepOnce(server.Port, pass, budget, 4000, out bool sawPanel, out bool sawBlind);
-                    string state = page.State();
-                    probe.Check("WITNESS (1.12.3) the net never falls back to a body or root: with no element focused in the user's "
-                                + "panel it leaves focus where it went and says it could not put it back (" + FocusBrief(state) + "; "
-                                + (note ?? "<no note>") + ")",
-                        pass.PressedAny && FocusStr(state, null, "focused") == "B" && FocusStr(state, null, "log") == "B"
-                        && note != null && note.IndexOf("could not be put back (lost)", StringComparison.Ordinal) > 0);
+                    probe.Check("WITNESS (1.12.3) a focus the hold cannot reach (an extension's reveal) is reported on the press's "
+                                + "one log line, and AgentFlow moves nothing back (" + FocusBrief(state) + "; " + (note ?? "<no note>") + ")",
+                        pass.PressedAny && FocusInt(state, "B", "approved") == 1 && FocusStr(state, null, "log") == "B"
+                        && FocusStr(state, null, "focused") == "B" && FocusInt(state, "A", "listeners") == 0
+                        && note != null && note.IndexOf("; " + CdpApprover.FocusMovedNote, StringComparison.Ordinal) > 0);
                 }
             }
 
-            // ---- (e) the user's newer choice: the net never overrides it -----------------------------------------------------
-            // Three schedules, each with the user in A when the press begins and B's card not moving focus itself, so focus
-            // reaches B only by the user's own choice: (e1) a pointer press in B after the act (the control: the act's
-            // listeners see it), (e2) a pointer press in B BEFORE the act, while the press is attaching (Codex's review:
-            // no listener exists yet, so only the act's own observation can know), (e3) leaving A for B by keyboard alone,
-            // the Ctrl shortcut delivered to A, not to B.
-            for (int schedule = 1; schedule <= 3; schedule++)
+            // ---- (e) the user's own choice of the pressed card stays theirs ------------------------------------------------
+            // Four schedules, each with the user in A when the press begins and B's card not moving focus itself, so focus
+            // reaches B only by the user's own choice: (e1) a pointer press in B after the act, (e2) a pointer press in B
+            // BEFORE the act, while the press is attaching, (e3) leaving A for B by keyboard alone, (e4) choosing B through
+            // VS Code itself (the host focuses B's frame window, an unheld path, and no input reaches either page). Nothing
+            // may move the user back to A in any of them.
+            for (int schedule = 1; schedule <= 4; schedule++)
             {
                 using (FakeFocusPage page = FakeFocusPage.TryCreate(out why))
                 {
@@ -259,57 +240,77 @@ namespace DesktopAICompanion.AgentFlow
                         var pass = new SweepPass(server.Port, true, false, false, budget, () => true);
                         string note = null;
                         Task sweep = Task.Run(() => { note = SweepOnce(server.Port, pass, budget, 4000, out bool p, out bool b); });
-                        // (e1) and (e3) act after the press and before the net's look.
                         var waited = Stopwatch.StartNew();
                         while (FocusInt(page.State(), "B", "approved") < 1 && waited.ElapsedMilliseconds < 3000) Thread.Sleep(20);
                         if (schedule == 1) page.UserPointer("B");
                         if (schedule == 3) page.UserKeyTo("A", "B");
+                        if (schedule == 4) page.Run("__page.frames['B'].inner.focus(); 'ok'");
                         sweep.Wait(10000);
-                        // No clock advance: the user's panel's watch must already be gone, taken out by the net's own
-                        // decline or restore, not by the watch's timer.
+                        page.Advance(CdpApprover.FocusCheckAfterMs);
                         string state = page.State();
-                        const string expectLog = "user:B";
+                        string expectLog = schedule == 4 ? "B" : "user:B";
                         string[] names = { "", "a pointer press in the pressed card after the act",
                                            "a pointer press in the pressed card BEFORE the act, while the press was attaching",
-                                           "leaving the user's panel for the pressed card by keyboard alone" };
-                        probe.Check("WITNESS (1.12.3) the safety net never overrides the user's newer choice: " + names[schedule]
-                                    + " leaves them in the card they chose (" + FocusBrief(state) + "; " + (note ?? "<no note>") + ")",
+                                           "leaving the user's panel for the pressed card by keyboard alone",
+                                           "choosing the pressed card through VS Code itself" };
+                        probe.Check("WITNESS (1.12.3) the user's own choice of the pressed card stays theirs: " + names[schedule]
+                                    + " leaves them there, and nothing moves them back (" + FocusBrief(state) + "; " + (note ?? "<no note>") + ")",
                             sweep.IsCompleted && pass.PressedAny && FocusStr(state, null, "focused") == "B"
-                            && FocusStr(state, null, "log") == expectLog && FocusInt(state, "A", "listeners") == 0
-                            && note != null && note.IndexOf("took focus", StringComparison.Ordinal) < 0);
-                        if (schedule == 1)
-                            probe.Check("(1.12.3) ...and that press marks the user's intent without ending the hold (" + FocusBrief(state) + ")",
-                                FocusBool(state, "B", "intent") && FocusBool(state, "B", "hold"));
+                            && FocusStr(state, null, "log") == expectLog);
+                        if (schedule == 2)
+                            probe.Check("(1.12.3) ...and a press that found the user already in the card writes no detection line ("
+                                        + (note ?? "<no note>") + ")",
+                                note != null && note.IndexOf(CdpApprover.FocusMovedNote, StringComparison.Ordinal) < 0);
                     }
                 }
             }
 
-            // ---- (h) one press's observation never authorises another's -------------------------------------------------
-            // The net's steps compared directly, each a production expression: remember A for press X, act in B for press
-            // Y (B's card takes focus through reveal, which no hold reaches). Each step must refuse the other press's id,
-            // and accept its own (the controls), so the comparison is what decides.
+            // ---- (e5) the user's entry through a dropdown that prevents native focus is let through -------------------------
+            // Codex's recheck: the installed Codex "Approval options" trigger prevents the native pointer and mouse focus, and
+            // its menu focuses itself when it mounts. With B held and A focused, the user's trusted press opens the gesture
+            // allowance, so the menu's own focus 50 ms later lands in B; a background focus after the allowance is held again.
             using (FakeFocusPage page = FakeFocusPage.TryCreate(out why))
             {
                 page.AddFrame("A", "claude", "none");
+                page.AddFrame("C", "codex", "none");
+                page.UserIn(null);
+                using (var server = new FakeCdpServer(new[] { FocusTarget(page, "C", CdpApprover.CodexTargetMarker, CodexCards) }))
+                {
+                    string pressed = CdpApprover.Click(server.Port, "C", 1, "Allow once", 1500, CdpApprover.AgentCodex, "", null,
+                                                       out string ignoredNote);
+                    page.UserIn("A");
+                    page.UserPressNoFocus("C");
+                    page.Advance(100);
+                    string entered = page.State();
+                    probe.Check("WITNESS (1.12.3) with the card held, the user's own press on a dropdown that prevents native focus "
+                                + "still enters the card: the menu's focus 50 ms later goes through (" + pressed + ", "
+                                + FocusBrief(entered) + ")",
+                        pressed == "clicked" && FocusBool(entered, "C", "hold") && FocusStr(entered, null, "focused") == "C"
+                        && FocusStr(entered, null, "log") == "C");
+                    page.UserPointer("A");
+                    page.Advance(CdpApprover.FocusGestureMs);
+                    page.Run("__page.frames['C'].input.focus(); 'ok'");
+                    string later = page.State();
+                    probe.Check("WITNESS (1.12.3) ...and once the gesture allowance has passed, a background focus in that card is "
+                                + "held again: the hold did not end (" + FocusBrief(later) + ")",
+                        FocusBool(later, "C", "hold") && !FocusBool(later, "C", "allowing")
+                        && FocusStr(later, null, "focused") == "A" && FocusStr(later, null, "log") == "C,user:A");
+                }
+            }
+
+            // ---- (h) detection answers only for its own press ------------------------------------------------------------------
+            // The production expressions directly: act in B for press Y (B's card takes focus through reveal), then ask for
+            // press X and for press Y. Another press's id must not read as 'moved'; its own must (the control).
+            using (FakeFocusPage page = FakeFocusPage.TryCreate(out why))
+            {
                 page.AddFrame("B", "claude", "reveal");
-                page.UserIn("A");
-                string remembered = page.EvaluateAs("A", CdpApprover.FocusRememberForSelfTest("press-x"));
+                page.UserIn(null);
                 string acted = page.EvaluateAs("B", CdpApprover.BuildClaudeClick(0, "Yes", "press-y"));
-                string probeX = page.EvaluateAs("B", CdpApprover.FocusActionProbeForSelfTest("press-x"));
-                string probeY = page.EvaluateAs("B", CdpApprover.FocusActionProbeForSelfTest("press-y"));
-                string restoreY = page.EvaluateAs("A", CdpApprover.FocusRestoreForSelfTest("press-y"));
-                string stillB = page.State();
-                page.Run("__page.user('A'); 'ok'");
-                page.EvaluateAs("A", CdpApprover.FocusRememberForSelfTest("press-y"));
-                page.Run("__page.focusTo(__page.frames['B'].inner, __page.frames['B'].input); 'ok'");
-                string restoreOwn = page.EvaluateAs("A", CdpApprover.FocusRestoreForSelfTest("press-y"));
+                string probeX = page.EvaluateAs("B", CdpApprover.FocusMovedForSelfTest("press-x"));
+                string probeY = page.EvaluateAs("B", CdpApprover.FocusMovedForSelfTest("press-y"));
                 probe.Check("WITNESS (1.12.3) the pressed panel's record answers only for its own press: another press's id is "
-                            + "'other', its own is 'stolen' (" + remembered + ", " + acted + ", " + probeX + ", " + probeY + ")",
-                    remembered == "focused" && acted == "clicked" && probeX == "other" && probeY == "stolen");
-                probe.Check("WITNESS (1.12.3) the user's panel restores only for the press it was remembered for: another press's "
-                            + "memo is 'lost' and focus stays put, its own is 'restored' (" + restoreY + ", " + restoreOwn + ", "
-                            + FocusBrief(stillB) + ")",
-                    restoreY == "lost" && FocusStr(stillB, null, "focused") == "B" && restoreOwn == "restored");
+                            + "'other', its own is 'moved' (" + acted + ", " + probeX + ", " + probeY + ")",
+                    acted == "clicked" && probeX == "other" && probeY == "moved");
             }
 
             // ---- (f) Codex: a follow-on card's autofocus on mount is held --------------------------------------------------
@@ -331,14 +332,17 @@ namespace DesktopAICompanion.AgentFlow
                         pass.PressedAny && FocusInt(state, "C", "approved") == 1 && FocusStr(state, null, "log") == ""
                         && FocusStr(state, null, "focused") == "A" && FocusBool(state, "C", "hold"));
                     // SelfCheckCodexTransport's rule, by behaviour: the press built and dispatched no key, and what it
-                    // installed only listens. A trusted Escape to the panel is recorded as intent and left alone.
+                    // installed only listens. The user's trusted press opens the gesture allowance and is left alone; a
+                    // trusted Escape is not touched either.
+                    page.UserPressNoFocus("C");
                     page.UserEscape("C");
                     string keys = page.State();
-                    probe.Check("WITNESS (1.12.3) the Codex clicker builds and dispatches no key, and its keydown observer only "
-                                + "listens: a trusted Escape to the panel is recorded as the user's intent, never prevented or "
+                    probe.Check("WITNESS (1.12.3) the Codex clicker builds and dispatches no key, and its input observer only "
+                                + "listens: the user's trusted press is observed (the gesture allowance opens) and neither it nor a "
+                                + "trusted Escape is prevented or "
                                 + "stopped (" + FocusBrief(keys) + ")",
                         FocusInt(keys, null, "keysBuilt") == 0 && FocusInt(keys, null, "keysSent") == 0
-                        && FocusInt(keys, null, "keyActions") == 0 && FocusBool(keys, "C", "intent"));
+                        && FocusInt(keys, null, "keyActions") == 0 && FocusBool(keys, "C", "allowing"));
                     page.Advance(CdpApprover.FocusHoldCapMs + 1000);
                     string after = page.State();
                     probe.Check("(1.12.3) ...and with the follow-on card left standing, the hard cap still lets go, exactly ("

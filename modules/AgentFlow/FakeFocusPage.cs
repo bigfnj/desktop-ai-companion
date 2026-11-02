@@ -140,6 +140,10 @@ namespace DesktopAICompanion.AgentFlow
         /// <summary>The user types in <paramref name="frame"/>: a trusted keydown and beforeinput, no focus change.</summary>
         internal void UserType(string frame) { Run("__page.userType('" + frame + "'); 'ok'"); }
 
+        /// <summary>The user presses a dropdown trigger in <paramref name="frame"/> that prevents the native focus; its menu
+        /// mounts 50 ms later and focuses itself in script.</summary>
+        internal void UserPressNoFocus(string frame) { Run("__page.userPressNoFocus('" + frame + "'); 'ok'"); }
+
         /// <summary>The user leaves <paramref name="from"/> by keyboard alone: a trusted Ctrl keydown delivered there, then
         /// the browser's own focus move to <paramref name="to"/>, or out of every panel when it is null.</summary>
         internal void UserKeyTo(string from, string to)
@@ -427,6 +431,20 @@ var __page = (function () {
   };
   // A trusted Escape keydown to a frame's listeners, to see whether anything installed there acts on a key.
   page.userEscape = function (name) { trusted(page.frames[name].inner, { type: 'keydown', key: 'Escape' }); };
+  // The user presses a control whose own handler prevents the native pointer and mouse focus (a dropdown trigger):
+  // trusted pointerdown and mousedown, NO focus move, and the menu mounts on a later task and focuses itself in
+  // script, as the installed Codex dropdown does.
+  page.userPressNoFocus = function (name) {
+    var f = page.frames[name];
+    trusted(f.inner, { type: 'pointerdown' });
+    trusted(f.inner, { type: 'mousedown' });
+    f.inner.setTimeout(function () {
+      var menu = f.inner.make('div', { role: 'menu' });
+      f.inner.document.body.appendChild(menu);
+      f.menu = menu;
+      menu.focus();
+    }, 50);
+  };
   page.userPointer = function (name) {
     var f = page.frames[name];
     f.inner.fire({ type: 'pointerdown', isTrusted: true });
@@ -450,7 +468,7 @@ var __page = (function () {
         listeners: (f.inner.listeners.pointerdown || []).length + (f.inner.listeners.mousedown || []).length
                    + (f.inner.listeners.keydown || []).length + (f.inner.listeners.beforeinput || []).length,
         mousedown: (f.inner.listeners.mousedown || []).length,
-        intent: !!(f.inner.__agentflowAction && f.inner.__agentflowAction.intent),
+        allowing: !!(f.inner.__agentflowFocusHold && f.inner.__agentflowFocusHold.allowUntil > page.now),
         hold: !!f.inner.__agentflowFocusHold,
         shellTouched: f.outer.HTMLElement.prototype.focus !== f.shellFocus || !!f.outer.__agentflowFocusHold
       };

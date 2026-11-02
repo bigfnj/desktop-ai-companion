@@ -2530,10 +2530,15 @@ CASES = (
     # The owner's report of 2026-11-02: a press took focus from the card they were working in. SelfCheckFocusHold runs
     # the REAL press, probe and restore expressions in chakra.dll against FakeFocusPage's DOM model behind FakeCdpServer.
     # Names carry the "agentflow-focus:" prefix so `--only=agentflow-focus:` runs the lane.
-    # Since Codex's audit of 2026-11-02 the hold is scoped to the card (until it settles, or a hard cap) rather than to a
-    # 750 ms window, and covers select(); since Codex's review of 35fe4e8 it is installed on every press and decides per
-    # call, the user's trusted input marks intent (cancelling the net) without ending it, and the net acts only on THIS
-    # action's own observation at the act. Every case below is against that shape.
+    # Since Codex's audit of 2026-11-02 the hold is scoped to the card (until it settles, or a hard cap) and covers
+    # select(); since Codex's review of 35fe4e8 it is installed on every press and decides per call; since Codex's recheck
+    # of 52c5d3a the user's trusted pointer press opens a short gesture allowance, and the safety net that moved focus
+    # back is REMOVED by decision (only detection remains). Retired with the net, their promises gone with the code: the
+    # user's trusted input is not recorded; the net ignores the user's recorded intent; the user's panel does not watch
+    # for a command key; the restore ignores the user's navigation; the net leaves the user's panel watched when it
+    # declines; the safety net never puts focus back; the safety net remembers a body; the net restores from another
+    # press's memo. Retired with keydown observation (a key only reaches a focused document): the keydown observer is
+    # dropped.
     (
         "agentflow-focus: the Claude click holds nothing",
         CDP,
@@ -2612,32 +2617,32 @@ CASES = (
         "a press in a card the user is not in leaves focus in the user's card",
     ),
     (
-        "agentflow-focus: the user's trusted input ends the hold",
+        "agentflow-focus: the gesture allowance is removed",
         FOCUS,
-        "      if (act) act.intent = true;\n",
-        "      if (act) act.intent = true;\n      h.release();\n",
-        "the user types in the card and then leaves it",
+        "            if (h.active && t < h.capAt && t >= h.allowUntil) {",
+        "            if (h.active && t < h.capAt) {",
+        "with the card held, the user's own press on a dropdown that prevents native focus",
     ),
     (
-        "agentflow-focus: the user's trusted input is not recorded",
+        "agentflow-focus: the gesture allowance never expires",
         FOCUS,
-        "      if (act) act.intent = true;\n",
-        "",
-        "a pointer press in the pressed card after the act leaves them",
+        "      h.allowUntil = Date.now() + __GESTURE_MS__;\n",
+        "      h.allowUntil = Infinity;\n",
+        "once the gesture allowance has passed, a background focus in that card is",
     ),
     (
-        "agentflow-focus: the keydown observer is dropped",
+        "agentflow-focus: the user's press ends the hold",
         FOCUS,
-        "    var inputs = ['pointerdown', 'mousedown', 'keydown', 'beforeinput'];",
-        "    var inputs = ['pointerdown', 'mousedown', 'beforeinput'];",
-        "the Codex clicker builds and dispatches no key, and its keydown observer only listens",
+        "      h.allowUntil = Date.now() + __GESTURE_MS__;\n",
+        "      h.allowUntil = Date.now() + __GESTURE_MS__;\n      h.release();\n",
+        "with the card held, the user's own press on a dropdown that prevents native focus",
     ),
     (
-        "agentflow-focus: the keydown observer acts on the user's key",
+        "agentflow-focus: the input observer acts on the user's event",
         FOCUS,
-        "      if (!e || !e.isTrusted) return;\n      var act = w.__agentflowAction;",
-        "      if (!e || !e.isTrusted) return;\n      if (e.preventDefault) e.preventDefault();\n      var act = w.__agentflowAction;",
-        "the Codex clicker builds and dispatches no key, and its keydown observer only listens",
+        "      if (!e || !e.isTrusted) return;\n      h.allowUntil = Date.now() + __GESTURE_MS__;",
+        "      if (!e || !e.isTrusted) return;\n      if (e.preventDefault) e.preventDefault();\n      h.allowUntil = Date.now() + __GESTURE_MS__;",
+        "the Codex clicker builds and dispatches no key, and its input observer only listens",
     ),
     (
         "agentflow-focus: the Codex click dispatches a key",
@@ -2647,74 +2652,32 @@ CASES = (
         "the Codex clicker builds and dispatches no key",
     ),
     (
-        "agentflow-focus: the net ignores whether the card had focus at the act",
+        "agentflow-focus: the detection ignores whether the card had focus at the act",
         FOCUS,
         "  if (!act.background) return 'was-focused';\n",
         "",
-        "a pointer press in the pressed card BEFORE the act",
+        "a press that found the user already in the card writes no detection line",
     ),
     (
-        "agentflow-focus: the net ignores the user's recorded intent",
-        FOCUS,
-        "  if (act.intent) return 'user';\n",
-        "",
-        "a pointer press in the pressed card after the act leaves them",
-    ),
-    (
-        "agentflow-focus: the user's panel does not watch for a command key",
-        FOCUS,
-        "      if (e.type === 'pointerdown' || e.ctrlKey || e.altKey || e.metaKey\n          || e.key === 'Tab' || e.key === 'Escape' || /^F[0-9]+$/.test(e.key || '')) m.intent = true;",
-        "      if (e.type === 'pointerdown') m.intent = true;",
-        "leaving the user's panel for the pressed card by keyboard alone",
-    ),
-    (
-        "agentflow-focus: the restore ignores the user's navigation",
-        FOCUS,
-        "  if (m.intent) return 'user';\n",
-        "",
-        "leaving the user's panel for the pressed card by keyboard alone",
-    ),
-    (
-        "agentflow-focus: the net leaves the user's panel watched when it declines",
-        FOCUS,
-        "                    EvaluateIn(session, heldBy, ForAction(FocusForgetTemplate, action));\n",
-        "",
-        "a pointer press in the pressed card after the act leaves them",
-    ),
-    (
-        "agentflow-focus: the safety net never puts focus back",
-        FOCUS,
-        "                string restored = EvaluateIn(session, heldBy, ForAction(FocusRestoreTemplate, action));",
-        '                string restored = "lost";',
-        "a focus the hold cannot reach (an extension's reveal) is put back",
-    ),
-    (
-        "agentflow-focus: the safety net remembers a body",
-        FOCUS,
-        "  if (el && el !== d.body && el !== d.documentElement) {",
-        "  if (el) {",
-        "the net never falls back to a body or root",
-    ),
-    (
-        "agentflow-focus: the net takes another press's record in the pressed panel",
+        "agentflow-focus: the detection takes another press's record",
         FOCUS,
         "  if (!act || act.id !== __ACTION__) return 'other';",
         "  if (!act) return 'other';",
         "the pressed panel's record answers only for its own press",
     ),
     (
-        "agentflow-focus: the net restores from another press's memo",
+        "agentflow-focus: the detection line is never written",
         FOCUS,
-        "  if (!m || m.action !== __ACTION__) return 'lost';",
-        "  if (!m) return 'lost';",
-        "the user's panel restores only for the press it was remembered for",
+        '                return string.Equals(moved, "moved", StringComparison.Ordinal) ? FocusMovedNote : null;',
+        "                return null;",
+        "a focus the hold cannot reach (an extension's reveal) is reported",
     ),
     (
         "agentflow-focus: the sweep does not hand its panel list to the press",
         CDP,
         "                                view.Panels = panels;\n                                if (!HandleCard(view, agent, handle, handed, pressedNotes, refusals)) continue;\n                                pressedHere++;",
         "                                if (!HandleCard(view, agent, handle, handed, pressedNotes, refusals)) continue;\n                                pressedHere++;",
-        "a focus the hold cannot reach (an extension's reveal) is put back",
+        "a focus the hold cannot reach (an extension's reveal) is reported",
     ),
 )
 

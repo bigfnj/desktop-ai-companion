@@ -13,8 +13,11 @@ namespace DesktopAICompanion.AgentFlow
     // zero (index.js 2.1.314 byte 5897170), checking visibility and not document focus; a Codex follow-on approval card's
     // primary button has React autoFocus, focused in the mount commit (app-initial byte 550100). Real DOM focus is what
     // VS Code turns into "this webview's group is active" (its webview host samples document.hasFocus() every 250 ms).
-    // Two defences, both here: a hold in the pressed page while its card settles, and a net that puts the user back in
-    // the panel they were in if focus left it anyway.
+    //
+    // THE FIX IS THE HOLD, in the pressed page while its card settles. There is NO safety net that moves focus back: it was
+    // built, and removed by decision on Codex's recheck of 52c5d3a, because whether the user chose the pressed card cannot
+    // be told reliably from inside the webviews (a selection made through VS Code itself reaches neither page as input).
+    // What remains is detection: one line on the press when the pressed card took focus after it.
     internal static partial class CdpApprover
     {
         /// <summary>
@@ -37,15 +40,21 @@ namespace DesktopAICompanion.AgentFlow
         /// <summary>How often the hold looks at whether its card has settled, in the page's own timers.</summary>
         internal const int FocusPollMs = 250;
 
-        /// <summary>How long after a press the safety net looks at where focus went. Claude's plain path refocuses 100 ms
-        /// after the card clears, and the next Codex card mounted 26 to 240 ms after a press (measured 2026-10-21, see
-        /// <see cref="QueueQuietMs"/>), so this covers both with margin. Paid only when another agent panel had focus at
-        /// the press. Deferred paths past it (the diff path) are the hold's to cover; the net is secondary.</summary>
-        internal const int FocusCheckAfterMs = 800;
+        /// <summary>
+        /// The user's gesture allowance: for this long after a TRUSTED pointerdown or mousedown in the held
+        /// document, its focus and select calls go through although it does not have focus. Codex's recheck traced the
+        /// installed Codex "Approval options" control: its dropdown trigger prevents the native pointer and mouse focus,
+        /// and the menu focuses itself when it mounts (dropdown and dist modules, 26.1021.22027), so the user's own entry
+        /// arrives as a script focus call made while the page is still unfocused. A menu mounts on the next task or
+        /// animation frame after the press; a second covers that with a wide margin (a frame is 16 ms, a hidden page's
+        /// timers align to one second). After it, background suppression resumes; the hold itself does not end.
+        /// </summary>
+        internal const int FocusGestureMs = 1000;
 
-        /// <summary>How long the user's panel watches for the user's own navigation after it is remembered, at most: well
-        /// past the net's look, so the watch is always there when the net asks, and gone soon after.</summary>
-        internal const int FocusMemoMs = FocusCheckAfterMs * 4;
+        /// <summary>How long after a press the detection looks at where focus went: Claude's plain path refocuses 100 ms
+        /// after the card clears, and the next Codex card mounted 26 to 240 ms after a press (measured 2026-10-21, see
+        /// <see cref="QueueQuietMs"/>). Paid only when another agent panel had focus at the press.</summary>
+        internal const int FocusCheckAfterMs = 800;
 
         /// <summary>
         /// THE HOLD, in the pressed page, called immediately before the act (after every guard: card id, label
@@ -56,9 +65,10 @@ namespace DesktopAICompanion.AgentFlow
         /// lives in, never the webview shell, whose patch would not reach the iframe's own methods) the focus primitives
         /// are replaced by wrappers that ask, at every call, whether the document has focus: if it does, the call goes
         /// to the original (the user is in this card, and the card's own focus is theirs); if it does not, the call does
-        /// nothing while the hold lasts. So a press made while the user is in the card still protects them if they leave
-        /// before the card settles. Held: HTMLElement and SVGElement focus, and HTMLInputElement and HTMLTextAreaElement
-        /// select, which move DOM focus without going through HTMLElement.focus (Codex's Chromium probe, 2026-11-02).
+        /// nothing while the hold lasts, unless the user's gesture allowance is open (below). So a press made while the
+        /// user is in the card still protects them if they leave before it settles. Held: HTMLElement and SVGElement
+        /// focus, and HTMLInputElement and HTMLTextAreaElement select, which move DOM focus without going through
+        /// HTMLElement.focus (Codex's Chromium probe, 2026-11-02).
         ///
         /// SCOPED TO THE CARD, NOT TO A CLOCK. No finite window after a click covers the deferred paths, so the hold
         /// stays while <paramref name="busy"/> says a card is still on the page, and lets go <see cref="FocusSettleMs"/>
@@ -66,23 +76,26 @@ namespace DesktopAICompanion.AgentFlow
         /// bounds it whatever the card does. The user's input does NOT end it: typing in the card and then leaving must
         /// still leave the later background focus suppressed.
         ///
-        /// THE ACT'S OWN OBSERVATION, for the safety net: <c>w.__agentflowAction</c>, on the acted document's own window
-        /// (so another document, or the same frame after a navigation, has none), records this action's id
-        /// (<paramref name="action"/>) and whether the document lacked focus AT the act. TRUSTED
-        /// pointerdown, mousedown, keydown or beforeinput in that window (capture phase, listening only: no
-        /// preventDefault, no propagation change, no key action) marks the current action's <c>intent</c>, which cancels
-        /// the net. A focus event's isTrusted is never used: native focus events follow programmatic focus too.
+        /// THE USER'S GESTURE: a TRUSTED pointerdown or mousedown in that window (capture phase, listening only: no
+        /// preventDefault, no propagation change) opens <see cref="FocusGestureMs"/> in which the document's own focus
+        /// calls go through unfocused, so an entry whose native focus the control prevented (a dropdown whose menu
+        /// focuses itself) still lands. NOT keydown: a key is only delivered to a document that already has focus, so it
+        /// is never an entry whose focus was prevented, and counting it would only let a deferred steal through for a
+        /// second after the user typed in the card and left it. A focus event's isTrusted is never used: native focus
+        /// events follow programmatic focus too.
+        ///
+        /// THE ACT'S OWN OBSERVATION, for detection: <c>w.__agentflowAction</c>, on the acted document's own window,
+        /// records this action's id (<paramref name="action"/>) and whether the document lacked focus AT the act.
         ///
         /// RESTORED EXACTLY: each original property descriptor is put back on the object that owned it, and only where
         /// the wrapper is still the current value (a wrapper someone else wrapped over stays, and is transparent once
         /// <c>h.active</c> is false); every listener is removed. One state per realm (<c>w.__agentflowFocusHold</c>): a
         /// press while a hold is active only refreshes it (its card test, its cap, its quiet clock), and never captures,
-        /// so a wrapper can never be recorded as an "original". <c>bypass</c> lets the safety net refocus through a hold
-        /// of this page's own.
+        /// so a wrapper can never be recorded as an "original".
         ///
         /// NOT held: window.focus (VS Code's webview host focuses the frame through contentWindow.focus() when the user
-        /// activates the panel by keyboard, and holding it would eat that), the Selection API (no traced path reaches
-        /// it). No ".focus(" and no ".click()" in this text: the session-limit send's self-test forbids both.
+        /// activates the panel, and holding it would eat that), the Selection API (no traced path reaches it). No
+        /// ".focus(" and no ".click()" in this text: the session-limit send's self-test forbids both.
         /// </summary>
         private const string FocusHoldPrelude = @"
   function agentflowHoldFocus(d, busy, action) {
@@ -90,7 +103,7 @@ namespace DesktopAICompanion.AgentFlow
     if (!w) return null;
     var focusedAtAct = false;
     try { focusedAtAct = d.hasFocus(); } catch (e) { }
-    w.__agentflowAction = { id: action || '', background: !focusedAtAct, intent: false };
+    w.__agentflowAction = { id: action || '', background: !focusedAtAct };
     var now = Date.now();
     var h = w.__agentflowFocusHold;
     if (h && h.active) {
@@ -99,12 +112,11 @@ namespace DesktopAICompanion.AgentFlow
       h.quietSince = 0;
       return null;
     }
-    h = { active: true, bypass: false, busy: busy, capAt: now + __HOLD_CAP_MS__, quietSince: 0, saved: [], timer: 0 };
-    var inputs = ['pointerdown', 'mousedown', 'keydown', 'beforeinput'];
+    h = { active: true, busy: busy, capAt: now + __HOLD_CAP_MS__, quietSince: 0, allowUntil: 0, saved: [], timer: 0 };
+    var inputs = ['pointerdown', 'mousedown'];
     var onInput = function (e) {
       if (!e || !e.isTrusted) return;
-      var act = w.__agentflowAction;
-      if (act) act.intent = true;
+      h.allowUntil = Date.now() + __GESTURE_MS__;
     };
     h.release = function () {
       if (!h.active) return;
@@ -138,7 +150,8 @@ namespace DesktopAICompanion.AgentFlow
         if (!descriptor || typeof descriptor.value !== 'function') continue;
         var held = (function (original) {
           return function () {
-            if (h.active && !h.bypass && Date.now() < h.capAt) {
+            var t = Date.now();
+            if (h.active && t < h.capAt && t >= h.allowUntil) {
               var focused = false;
               try { focused = d.hasFocus(); } catch (e) { }
               if (!focused) return undefined;
@@ -165,64 +178,32 @@ namespace DesktopAICompanion.AgentFlow
                 .Replace("__HOLD_CAP_MS__", FocusHoldCapMs.ToString(CultureInfo.InvariantCulture))
                 .Replace("__SETTLE_MS__", FocusSettleMs.ToString(CultureInfo.InvariantCulture))
                 .Replace("__POLL_MS__", FocusPollMs.ToString(CultureInfo.InvariantCulture))
-                .Replace("__MEMO_MS__", FocusMemoMs.ToString(CultureInfo.InvariantCulture));
+                .Replace("__GESTURE_MS__", FocusGestureMs.ToString(CultureInfo.InvariantCulture));
         }
 
-        /// <summary>A fresh id for one press, so the safety net's every step can ask "this action?" (1.12.3).</summary>
+        /// <summary>A fresh id for one press, so detection asks about this press and no other (1.12.3).</summary>
         private static string NewFocusAction()
         {
             return Guid.NewGuid().ToString("N").Substring(0, 12);
         }
 
-        /// <summary>
-        /// Remember the user's panel for action <c>__ACTION__</c>: 'focused' when its app document has focus, with the
-        /// DEEP focused element (through open shadow roots) kept on that document's own window
-        /// (<c>__agentflowFocusMemo</c>, never a body or root) and a listening-only watch for the user's own navigation
-        /// (a trusted pointerdown, or a trusted keydown that could be a command: Ctrl, Alt or Meta held, Tab, Escape, a
-        /// function key), which marks the memo so the net declines. Plain typing is not navigation. 'blurred' or 'gone'
-        /// otherwise, dropping a stale memo. The watch removes itself after <see cref="FocusMemoMs"/>.
-        /// </summary>
-        private const string FocusRememberTemplate = @"
+        /// <summary>Whether a panel's app document has focus: 'focused', 'blurred' or 'gone'. Reads only; remembers nothing.</summary>
+        private const string FocusProbeExpression = @"
 (function () {" + DocumentPrelude + @"
   var a = appDocument();
-  if (!a.doc || !a.doc.defaultView) return 'gone';
-  var d = a.doc, w = d.defaultView;
-  var old = w.__agentflowFocusMemo;
-  if (old && old.dispose) old.dispose();
-  w.__agentflowFocusMemo = null;
+  if (!a.doc) return 'gone';
   var focused = false;
-  try { focused = d.hasFocus(); } catch (e) { }
-  if (!focused) return 'blurred';
-  var el = d.activeElement;
-  while (el && el.shadowRoot && el.shadowRoot.activeElement) el = el.shadowRoot.activeElement;
-  if (el && el !== d.body && el !== d.documentElement) {
-    var m = { el: el, action: __ACTION__, intent: false, timer: 0 };
-    var watch = function (e) {
-      if (!e || !e.isTrusted) return;
-      if (e.type === 'pointerdown' || e.ctrlKey || e.altKey || e.metaKey
-          || e.key === 'Tab' || e.key === 'Escape' || /^F[0-9]+$/.test(e.key || '')) m.intent = true;
-    };
-    m.dispose = function () {
-      try { w.removeEventListener('pointerdown', watch, true); } catch (e) { }
-      try { w.removeEventListener('keydown', watch, true); } catch (e) { }
-      try { w.clearTimeout(m.timer); } catch (e) { }
-      if (w.__agentflowFocusMemo === m) w.__agentflowFocusMemo = null;
-    };
-    w.addEventListener('pointerdown', watch, true);
-    w.addEventListener('keydown', watch, true);
-    m.timer = w.setTimeout(m.dispose, __MEMO_MS__);
-    w.__agentflowFocusMemo = m;
-  }
-  return 'focused';
+  try { focused = a.doc.hasFocus(); } catch (e) { }
+  return focused ? 'focused' : 'blurred';
 })()";
 
         /// <summary>
-        /// The pressed panel, after the press, for action <c>__ACTION__</c>: 'stolen' only when THIS action's record is
-        /// on this document's window, says the document lacked focus AT the act, records no trusted input since, and the
-        /// document has focus now. 'other' (another action's record, or none here), 'was-focused' (the user was already in
-        /// it at the act), 'user' (trusted input since the act) or 'blurred' otherwise. Only 'stolen' lets the net act.
+        /// The pressed panel, after the press, for action <c>__ACTION__</c>: 'moved' only when THIS action's record is on
+        /// this document's window, says the document lacked focus AT the act, and the document has focus now. 'other'
+        /// (another action's record, or none here), 'was-focused' (focus was already there at the act) or 'blurred'
+        /// otherwise. Reads only.
         /// </summary>
-        private const string FocusActionProbeTemplate = @"
+        private const string FocusMovedTemplate = @"
 (function () {" + DocumentPrelude + @"
   var a = appDocument();
   if (!a.doc || !a.doc.defaultView) return 'gone';
@@ -230,45 +211,9 @@ namespace DesktopAICompanion.AgentFlow
   var act = w.__agentflowAction;
   if (!act || act.id !== __ACTION__) return 'other';
   if (!act.background) return 'was-focused';
-  if (act.intent) return 'user';
   var focused = false;
   try { focused = d.hasFocus(); } catch (e) { }
-  return focused ? 'stolen' : 'blurred';
-})()";
-
-        /// <summary>Put focus back on the element remembered for action <c>__ACTION__</c>: 'restored', 'kept' (the panel
-        /// never lost focus), 'user' (the user navigated from it since), 'lost' (no memo for this action on this
-        /// document's window, or the element gone), 'refused' (the call ran and focus did not come) or 'gone'. Only the same live
-        /// document and the same still-connected element: never a body, a root or another panel. Through a hold of this
-        /// page's own, if one is active. The watch is removed whatever the answer.</summary>
-        private const string FocusRestoreTemplate = @"
-(function () {" + DocumentPrelude + @"
-  var a = appDocument();
-  if (!a.doc || !a.doc.defaultView) return 'gone';
-  var d = a.doc, w = d.defaultView;
-  var m = w.__agentflowFocusMemo;
-  if (m && m.dispose) m.dispose();
-  w.__agentflowFocusMemo = null;
-  if (!m || m.action !== __ACTION__) return 'lost';
-  if (m.intent) return 'user';
-  if (d.hasFocus()) return 'kept';
-  if (!m.el || !m.el.isConnected || typeof m.el.focus !== 'function') return 'lost';
-  var h = w.__agentflowFocusHold;
-  if (h) h.bypass = true;
-  try { m.el.focus({ preventScroll: true }); } catch (e) { }
-  finally { if (h) h.bypass = false; }
-  return d.hasFocus() ? 'restored' : 'refused';
-})()";
-
-        /// <summary>Drop the memo and its watch for action <c>__ACTION__</c> when the net declines: 'forgot' or 'gone'. A memo
-        /// of any other action is left to its own press.</summary>
-        private const string FocusForgetTemplate = @"
-(function () {" + DocumentPrelude + @"
-  var a = appDocument();
-  if (!a.doc || !a.doc.defaultView) return 'gone';
-  var m = a.doc.defaultView.__agentflowFocusMemo;
-  if (m && m.action === __ACTION__ && m.dispose) m.dispose();
-  return 'forgot';
+  return focused ? 'moved' : 'blurred';
 })()";
 
         private static string ForAction(string template, string action)
@@ -276,59 +221,42 @@ namespace DesktopAICompanion.AgentFlow
             return WithFocusHoldMs(template).Replace("__ACTION__", JsonEncode(action ?? ""));
         }
 
-        internal static string FocusRememberForSelfTest(string action) { return ForAction(FocusRememberTemplate, action); }
-        internal static string FocusActionProbeForSelfTest(string action) { return ForAction(FocusActionProbeTemplate, action); }
-        internal static string FocusRestoreForSelfTest(string action) { return ForAction(FocusRestoreTemplate, action); }
+        internal static string FocusMovedForSelfTest(string action) { return ForAction(FocusMovedTemplate, action); }
+
+        /// <summary>The line on the press when the pressed card took focus after it. Says what happened and that nothing
+        /// was moved back; it does not claim whose doing it was, because that cannot be known from here.</summary>
+        internal const string FocusMovedNote = "focus moved to the pressed card; AgentFlow did not move it back";
 
         /// <summary>
-        /// The safety net's first half: the panel, other than <paramref name="pressed"/>, whose app document has focus
-        /// now, remembered for <paramref name="action"/> in its own page; null when none does (the user is in an editor,
-        /// another app, or the pressed card itself). Never throws: a panel that cannot be probed is skipped, and the press
-        /// goes ahead without a net.
+        /// Before a press: whether any agent panel other than <paramref name="pressed"/> has focus, which is when a jump to
+        /// the pressed card would take the user out of their work and is worth a line. Reads only. Never throws: a panel
+        /// that cannot be probed counts as not focused.
         /// </summary>
-        private static string RememberFocus(CdpSession session, IList<string> panels, string pressed, string action)
+        private static bool OtherPanelHasFocus(CdpSession session, IList<string> panels, string pressed)
         {
-            if (panels == null) return null;
+            if (panels == null) return false;
             foreach (string panel in panels)
             {
                 if (string.IsNullOrEmpty(panel) || string.Equals(panel, pressed, StringComparison.Ordinal)) continue;
-                if (string.Equals(EvaluateIn(session, panel, ForAction(FocusRememberTemplate, action)), "focused",
-                                  StringComparison.Ordinal))
-                    return panel;
+                if (string.Equals(EvaluateIn(session, panel, FocusProbeExpression), "focused", StringComparison.Ordinal))
+                    return true;
             }
-            return null;
+            return false;
         }
 
         /// <summary>
-        /// The safety net's second half, after a press that clicked while the user was in <paramref name="heldBy"/>:
-        /// wait <see cref="FocusCheckAfterMs"/>, then act only on 'stolen' from the pressed panel (this action, which
-        /// found it WITHOUT focus at the act, no trusted input there since, and it has focus now), and even then the
-        /// restore declines if the user navigated from <paramref name="heldBy"/> since it was remembered. Anything
-        /// ambiguous is declined, never guessed. NOT atomic: the look and the restore are two calls to two pages, so a
-        /// user who picks an editor in the milliseconds between them is not seen. Secondary by nature: it cannot take
-        /// back a key already typed into the wrong card, and once the user types into the pressed card (even by mistake,
-        /// after a steal) it declines; the hold is the defence. The note, for the press's one log line, is null when
-        /// nothing had to be done or the net declined.
+        /// DETECTION ONLY, after a press that clicked while another agent panel had focus: wait
+        /// <see cref="FocusCheckAfterMs"/> and ask the pressed panel whether focus moved there after the act. The note,
+        /// for the press's one log line, is <see cref="FocusMovedNote"/> when it did and null otherwise. Nothing is ever
+        /// focused from here: there is no restore path, by decision (see the comment at the top of this file).
         /// </summary>
-        private static string PutFocusBack(CdpSession session, string heldBy, string pressed, string action)
+        private static string NoteFocusMoved(CdpSession session, string pressed, string action)
         {
             try
             {
                 Thread.Sleep(FocusCheckAfterMs);
-                if (!string.Equals(EvaluateIn(session, pressed, ForAction(FocusActionProbeTemplate, action)), "stolen",
-                                   StringComparison.Ordinal))
-                {
-                    // Declined: take the watch out of the user's panel now rather than at its own timer.
-                    EvaluateIn(session, heldBy, ForAction(FocusForgetTemplate, action));
-                    return null;
-                }
-                string restored = EvaluateIn(session, heldBy, ForAction(FocusRestoreTemplate, action));
-                if (string.Equals(restored, "kept", StringComparison.Ordinal)
-                    || string.Equals(restored, "user", StringComparison.Ordinal)) return null;
-                if (string.Equals(restored, "restored", StringComparison.Ordinal))
-                    return "the press took focus from the panel you were in, and it was put back";
-                return "the press took focus from the panel you were in, and it could not be put back ("
-                       + (string.IsNullOrEmpty(restored) ? "no answer" : restored) + ")";
+                string moved = EvaluateIn(session, pressed, ForAction(FocusMovedTemplate, action));
+                return string.Equals(moved, "moved", StringComparison.Ordinal) ? FocusMovedNote : null;
             }
             catch (Exception) { return null; }
         }

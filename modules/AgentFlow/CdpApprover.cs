@@ -65,7 +65,8 @@ namespace DesktopAICompanion.AgentFlow
         /// <summary>Options the UI itself has disabled. Never pressable, whatever they say.</summary>
         public List<bool> Disabled = new List<bool>();
         /// <summary>Every agent panel the sweep that read this card listed (1.12.3), so a press can find the panel
-        /// the user is working in and put focus back there if the press took it (CdpApprover.RememberFocus). Null
+        /// the user is working in, and say so on the press if focus then moved to the pressed card (no focus is ever
+        /// moved back: CdpApprover.NoteFocusMoved). Null
         /// for a view built outside a sweep: the press then holds focus in the page and has no net.</summary>
         public List<string> Panels;
     }
@@ -486,7 +487,7 @@ namespace DesktopAICompanion.AgentFlow
             return BuildCodexClick(index, expectedLabel, cardId, "");
         }
 
-        /// <summary>As above, for press <paramref name="action"/> (1.12.3): the id the focus safety net ties its steps to.</summary>
+        /// <summary>As above, for press <paramref name="action"/> (1.12.3): the id focus detection asks about.</summary>
         internal static string BuildCodexClick(int index, string expectedLabel, string cardId, string action)
         {
             // The hold's numbers and this module's own action id first: a label is page text and could spell a token.
@@ -909,11 +910,10 @@ namespace DesktopAICompanion.AgentFlow
         }
 
         /// <summary>
-        /// As above, with the focus safety net (1.12.3): <paramref name="panels"/> is every agent panel the sweep
-        /// listed, and the one among them (other than the pressed one) that holds focus before the press is put
-        /// back after it if the press took focus away (see <see cref="RememberFocus"/>). Null panels: no net, the
-        /// in-page hold only. <paramref name="focusNote"/> is non-null only when focus had to be put back, or
-        /// could not be.
+        /// As above, with focus detection (1.12.3): <paramref name="panels"/> is every agent panel the sweep
+        /// listed; when one of them other than the pressed one has focus before the press, the pressed panel is asked
+        /// afterwards whether focus moved there (see <see cref="NoteFocusMoved"/>). Nothing is ever moved back. Null
+        /// panels: the in-page hold only. <paramref name="focusNote"/> is non-null only when focus moved.
         /// </summary>
         internal static string Click(int port, string targetId, int index, string expectedLabel,
                                      int timeoutMs, string agent, string cardId, IList<string> panels,
@@ -934,15 +934,15 @@ namespace DesktopAICompanion.AgentFlow
                 using (var session = new CdpSession(browserUrl, timeoutMs))
                 {
                     // Before the press, on this same connection: which other agent panel the user is in, if any.
-                    string heldBy = RememberFocus(session, panels, targetId, action);
+                    bool elsewhere = OtherPanelHasFocus(session, panels, targetId);
                     string sessionId = session.Attach(targetId);
                     if (sessionId == null) return "gone";
                     string result;
                     try { result = session.Evaluate(sessionId, expression); }
                     finally { session.Detach(sessionId); }
                     if (string.IsNullOrEmpty(result)) return "gone";
-                    if (heldBy != null && string.Equals(result, "clicked", StringComparison.Ordinal))
-                        focusNote = PutFocusBack(session, heldBy, targetId, action);
+                    if (elsewhere && string.Equals(result, "clicked", StringComparison.Ordinal))
+                        focusNote = NoteFocusMoved(session, targetId, action);
                     return result;
                 }
             }
