@@ -10,8 +10,11 @@
     Identifiers come from the run, never from this file: -Identifier and -EmployerName, plus
     the business OneDrive folder and the employer it names when OneDriveCommercial is set.
     OneDrive is optional once an identifier is given. The user name is matched only as a
-    profile path (\Users\<name>\, /Users/<name>/ and the doubled-backslash form of the first),
+    profile path (\Users\<name>, /Users/<name> and the doubled-backslash form of the first),
     because a common profile name such as a dictionary word matches everywhere as a bare word.
+    The name must end there: at a separator, a quote, a space, the end of the line or any
+    other character that cannot continue a name, so the profile root itself is found, and a
+    longer name that merely starts with this one is not.
 
     -Range scans the commits of a revision range instead of the index: every added line of
     every commit (so a value added and later removed is still found), each commit message,
@@ -79,21 +82,30 @@ function Get-PrivacyIdentifiers([string[]]$Explicit, [string]$Employer, [string]
 }
 
 function Get-PrivacyNeedles([string[]]$Identifiers, [string]$UserName) {
-    # Fixed strings, all compared case-insensitively. The user name only ever as a profile path.
-    $needles = New-Object 'Collections.Generic.List[string]'
-    foreach ($value in $Identifiers) { if (-not $needles.Contains($value)) { $needles.Add($value) } }
+    # Identifiers are fixed strings; the user name only ever as a profile path. All compared case-insensitively.
+    # Fixed strings cannot say where a name ENDS, and a trailing separator on each needle missed the profile root
+    # itself, at the end of a line or before a quote (Codex review 2026-11-02), while dropping the separator would
+    # match a longer name too. So the profile rule is one pattern in the syntax both matchers read alike (.NET and
+    # git grep -E): a separator, Users, one or more separators (the doubled-backslash form too), the name, and then
+    # a boundary: any character that cannot continue a name, or the end of the line. A single trailing dot is
+    # allowed before it, as Win32 drops one and a sentence ends with one, but a dot that continues a name does not
+    # end it. The prefix is required, so the bare word never matches.
+    $fixed = New-Object 'Collections.Generic.List[string]'
+    foreach ($value in $Identifiers) { if (-not $fixed.Contains($value)) { $fixed.Add($value) } }
+    $profileRoot = ''
     if (-not [string]::IsNullOrEmpty($UserName)) {
-        $needles.Add('\Users\' + $UserName + '\')
-        $needles.Add('/Users/' + $UserName + '/')
-        $needles.Add('\\Users\\' + $UserName + '\\')
+        $name = [regex]::Replace($UserName, '[\\.\[()*+?{|^$]', '\$0')
+        $profileRoot = '[\\/]Users[\\/]+' + $name + '\.?([^A-Za-z0-9_.$-]|$)'
     }
-    return ,$needles.ToArray()
+    return [pscustomobject]@{ Fixed = $fixed.ToArray(); Profile = $profileRoot }
 }
 
-function Test-PrivacyText([string]$Text, [string[]]$Needles) {
-    foreach ($needle in $Needles) {
+function Test-PrivacyText([string]$Text, [psobject]$Needles) {
+    foreach ($needle in $Needles.Fixed) {
         if ($Text.IndexOf($needle, [StringComparison]::OrdinalIgnoreCase) -ge 0) { return $true }
     }
+    if ($Needles.Profile -and [regex]::IsMatch($Text, $Needles.Profile,
+            [Text.RegularExpressions.RegexOptions]'IgnoreCase, CultureInvariant')) { return $true }
     return $false
 }
 
@@ -126,7 +138,7 @@ function Invoke-IndexedGit([string[]]$Arguments, [string]$Repository = $repoRoot
     finally { $process.Dispose() }
 }
 
-function Get-RangePrivacyFindings([string]$Range, [string[]]$Needles, [string]$Repository = $repoRoot) {
+function Get-RangePrivacyFindings([string]$Range, [psobject]$Needles, [string]$Repository = $repoRoot) {
     if ($Range -notmatch '^[A-Za-z0-9_][A-Za-z0-9_./~^@{}-]*(\.\.\.?[A-Za-z0-9_][A-Za-z0-9_./~^@{}-]*)?$') {
         throw 'The range must be a plain revision range such as origin/master..HEAD.'
     }
@@ -200,27 +212,43 @@ function Get-IndexedProtectedPaths([string]$Repository = $repoRoot) {
     return ,$protected
 }
 
-# The default mode's matcher is git grep, not Test-PrivacyText: case-insensitive fixed strings, names only,
-# NUL-separated, with every protected shape excluded again as a second line behind the refusal above.
-function Get-IndexedPrivacyOffenders([string[]]$Needles, [string]$Repository = $repoRoot) {
-    $arguments = @('grep', '--cached', '--no-textconv', '-n', '-i', '-I', '-l', '-F', '-z')
-    foreach ($needle in $Needles) { $arguments += @('-e', $needle) }
-    $arguments += @('--', '.')
+# The default mode's matcher is git grep, not Test-PrivacyText: case-insensitive, names only, NUL-separated, with
+# every protected shape excluded again as a second line behind the refusal above. One git grep reads all of its
+# patterns in one syntax, so the identifiers run as fixed strings, exactly as before, and the profile root as the
+# extended regex Get-PrivacyNeedles builds, which is what lets it say where the user name ends.
+function Get-IndexedPrivacyOffenders([psobject]$Needles, [string]$Repository = $repoRoot) {
+    $passes = New-Object 'Collections.Generic.List[object]'
+    if (@($Needles.Fixed).Count -gt 0) {
+        $fixedPass = @('-F')
+        foreach ($needle in $Needles.Fixed) { $fixedPass += @('-e', $needle) }
+        $passes.Add($fixedPass)
+    }
+    if ($Needles.Profile) { $passes.Add(@('-E', '-e', $Needles.Profile)) }
+    $exclusions = @()
     foreach ($glob in @('*.env', '.env.*', '.npmrc', '*.pem', '*.key', '*.p12', '*.pfx',
                          '*.keystore', 'privatekey*', '.git/credentials')) {
-        $arguments += ":(top,glob,icase,exclude)**/$glob"
-        $arguments += ":(top,glob,icase,exclude)**/$glob/**"
+        $exclusions += ":(top,glob,icase,exclude)**/$glob"
+        $exclusions += ":(top,glob,icase,exclude)**/$glob/**"
     }
-    $result = Invoke-IndexedGit $arguments $Repository
-    if ($result.ExitCode -gt 1) { throw 'Indexed git grep failed. No matching contents were printed.' }
+    $matched = $false
+    $offenders = @()
+    foreach ($pass in $passes) {
+        $arguments = @('grep', '--cached', '--no-textconv', '-n', '-i', '-I', '-l', '-z') + $pass + @('--', '.') + $exclusions
+        $result = Invoke-IndexedGit $arguments $Repository
+        if ($result.ExitCode -gt 1) { throw 'Indexed git grep failed. No matching contents were printed.' }
+        if ($result.ExitCode -eq 0) {
+            $matched = $true
+            $offenders += @($result.Output.Split([char]0, [StringSplitOptions]::RemoveEmptyEntries))
+        }
+    }
     # -CaseSensitive, as in the range mode (N-audit-infra-01): two indexed paths differing only in case are two offenders.
     return [pscustomobject]@{
-        Matched = ($result.ExitCode -eq 0)
-        Offenders = @($result.Output.Split([char]0, [StringSplitOptions]::RemoveEmptyEntries) | Sort-Object -Unique -CaseSensitive)
+        Matched = $matched
+        Offenders = @($offenders | Sort-Object -Unique -CaseSensitive)
     }
 }
 
-function Get-IndexPrivacyFindings([string[]]$Needles, [string]$Repository = $repoRoot) {
+function Get-IndexPrivacyFindings([psobject]$Needles, [string]$Repository = $repoRoot) {
     $protected = Get-IndexedProtectedPaths $Repository
     if (@($protected).Count -gt 0) {
         return [pscustomobject]@{ Protected = $protected; Scanned = $false; Matched = $false; Offenders = @() }
@@ -263,8 +291,19 @@ if ($SelfTest) {
         @('C:\Users\ExampleProfile\AppData\Local\file.txt', $true, 'a Windows profile path'),
         @('/c/Users/exampleprofile/source', $true, 'a POSIX profile path, any case'),
         @('"C:\\Users\\ExampleProfile\\AppData"', $true, 'an escaped profile path in a string literal'),
+        # The profile root itself, where the name ends the path (Codex review 2026-11-02): every form used to pass.
+        @('cache=C:\Users\ExampleProfile', $true, 'a Windows profile root at the end of the line'),
+        @('"C:\Users\ExampleProfile"', $true, 'a quoted Windows profile root'),
+        @('home is /c/Users/EXAMPLEPROFILE', $true, 'a POSIX profile root at the end of the line, any case'),
+        @('"C:\\Users\\ExampleProfile"', $true, 'a quoted escaped profile root'),
+        @('cd /Users/ExampleProfile && ls', $true, 'a profile root before a space'),
+        @(('C:\Users\ExampleProfile' + "`r"), $true, 'a profile root before a carriage return'),
+        @('The cache is under C:\Users\ExampleProfile.', $true, 'a profile root ending a sentence'),
         @('Run as ExampleProfile, then open the ExampleProfile panel.', $false, 'the bare user name'),
+        @('open the panel as "ExampleProfile"', $false, 'the bare user name, quoted at the end of the line'),
         @('C:\Users\ExampleProfiles\file.txt', $false, 'a longer name sharing the prefix'),
+        @('"C:\Users\ExampleProfiles"', $false, 'a longer name sharing the prefix, as a quoted root'),
+        @('/c/Users/ExampleProfile.Old/cache', $false, 'a dotted longer name sharing the prefix'),
         @('Built for CONTOSO by its team', $true, 'an explicit identifier, any case'),
         @('nothing here identifies anyone', $false, 'unrelated text')
     )) {
@@ -372,13 +411,20 @@ if ($SelfTest) {
         $count++
         # The DEFAULT mode (N-audit-20261029-15). Its matcher is git grep, not Test-PrivacyText, so nothing
         # above vouches for it. This index holds the identifier in another case (found only with -i), a
-        # profile path, a bare user name and clean text, and the identifier inside a path of each protected
-        # shape the grep excludes, in mixed case (icase) and once as a directory (the /** form). The policy
-        # refuses those paths before the grep runs, so the grep is also driven directly to prove its own
-        # exclusions. .git/credentials has no case: git refuses to index any path with a .git component.
+        # profile path, a profile root at the end of a line and another quoted (the regex pass), a longer name
+        # and a dotted longer name as roots, a bare user name, quoted or not, and clean text, and the identifier
+        # inside a path of each protected shape the grep excludes, in mixed case (icase) and once as a directory
+        # (the /** form). The policy refuses those paths before the grep runs, so the grep is also driven directly
+        # to prove its own exclusions. .git/credentials has no case: git refuses to index any path with a .git
+        # component.
         $indexFiles = @(
             @('docs/Notes.txt', 'Built for CONTOSO by its team', 'found'),
             @('src/Cache.txt', 'cache at /c/Users/ExampleProfile/source', 'found'),
+            @('src/Root.txt', 'home=C:\Users\exampleprofile', 'found'),
+            @('src/Quoted.txt', 'home: "/c/Users/ExampleProfile"', 'found'),
+            @('src/Longer.txt', 'home="C:\Users\ExampleProfiles"', 'clean'),
+            @('src/Dotted.txt', 'cache at /c/Users/ExampleProfile.Old/source', 'clean'),
+            @('src/QuotedRole.txt', 'open the panel as "ExampleProfile"', 'clean'),
             @('src/Role.txt', 'ExampleProfile can open the panel', 'clean'),
             @('src/Clean.txt', 'nothing here identifies anyone', 'clean'),
             @('config/LOCAL.ENV', 'owner=Contoso', 'protected'),
@@ -409,14 +455,14 @@ if ($SelfTest) {
         $count++
         $grep = Get-IndexedPrivacyOffenders $needles $indexRepo
         if (-not $grep.Matched -or (@($grep.Offenders) -join '|') -cne $foundFixture) {
-            throw ('Public privacy index self-test failed: git grep did not report exactly the identifier in another case and the profile path, nothing excluded and no bare user name: ' +
+            throw ('Public privacy index self-test failed: git grep did not report exactly the identifier in another case and the profile paths and roots, nothing excluded, no longer name and no bare user name: ' +
                 (@($grep.Offenders) -join ', '))
         }
         $count++
         [void](Step (@('rm', '-q', '--cached', '--') + $protectedFixture) $indexRepo)
         $scanned = Get-IndexPrivacyFindings $needles $indexRepo
         if (-not $scanned.Scanned -or @($scanned.Protected).Count -ne 0 -or -not $scanned.Matched -or (@($scanned.Offenders) -join '|') -cne $foundFixture) {
-            throw 'Public privacy index self-test failed: the default mode did not grep, and report the same two files, once nothing protected was indexed.'
+            throw 'Public privacy index self-test failed: the default mode did not grep, and report the same files, once nothing protected was indexed.'
         }
         $count++
         # Two indexed paths that differ only in case (N-audit-infra-01) are two offenders, listed and counted apart. The
@@ -427,7 +473,7 @@ if ($SelfTest) {
         $variantScan = Get-IndexPrivacyFindings $needles $indexRepo
         $variantExpected = (@(@('docs/NOTES.txt') + @($foundFixture.Split('|')) | Sort-Object -CaseSensitive)) -join '|'
         $variantSeen = (@($variantScan.Offenders | Sort-Object -CaseSensitive)) -join '|'
-        if (-not $variantScan.Scanned -or @($variantScan.Offenders).Count -ne 3 -or $variantSeen -cne $variantExpected) {
+        if (-not $variantScan.Scanned -or @($variantScan.Offenders).Count -ne (1 + $foundFixture.Split('|').Count) -or $variantSeen -cne $variantExpected) {
             throw ('Public privacy index self-test failed: two indexed paths differing only in case were not both reported: ' + $variantSeen)
         }
         $count++
