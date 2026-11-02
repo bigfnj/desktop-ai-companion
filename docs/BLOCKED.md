@@ -231,7 +231,7 @@ The entry as it stood:
 
 **Blocker: needs one CLI session the owner consents to (research-preview channels).**
 
-What clears it: `claude mcp add --transport stdio --scope user agentbroker-channel -- "<module>\worker\AgentBroker.Worker.exe" --mcp-channel --data "<data dir>"`, then `claude --dangerously-load-development-channels server:agentbroker-channel`; accept the warning; send from a peer while idle (it should wake), use `acknowledge` then `reply`, then send while busy. A Team or Enterprise organisation must allow channels (`channelsEnabled`), which may need the admin.
+What clears it: `claude mcp add --transport stdio --scope user agentbroker-channel -- "<module>\worker\AgentBroker.Worker.exe" --mcp-channel --data "<data dir>"`, then `claude --dangerously-load-development-channels server:agentbroker-channel`; accept the warning; send from a peer while idle (it should wake), use `acknowledge` then `reply`, then send while busy. A Team or Enterprise organisation must allow channels (`channelsEnabled`), which may need the admin. Checked 2026-11-02 against the vendor docs (code.claude.com channels and settings references): on Team and Enterprise plans, and on Console accounts with managed settings, channel messages stay blocked until the managed setting channelsEnabled is true (Organization settings > Claude Code > Channels, Owner role); the MCP server still connects and its tools work, but nothing is pushed. On the maintainer's workstation the organisation's server-side managed settings (remote-settings.json, synced that morning) do not set it, so the bridge cannot wake a session there without the organisation's admin. A workstation on a personal plan has no such setting to wait for.
 
 The entry as it stood:
 
