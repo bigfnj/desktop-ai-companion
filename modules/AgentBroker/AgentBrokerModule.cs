@@ -41,7 +41,24 @@ public sealed partial class AgentBrokerModule : IModule
     {
         Id = "agentbroker",
         Name = "AgentBroker",
-        Version = "1.7.0",   // 1.7.0: four reported items (lane feature/broker-163). Codex rows report, never enforce,
+        Version = "1.7.1",   // 1.7.1: Claude Code sessions keep waking after Claude Code updates itself (the owner's
+                             //        decision of 2026-11-02). "Also wake updated Claude builds (publisher verified)", on
+                             //        by default, wakes a Claude Code build that is not exactly pinned as a pinned one is,
+                             //        when Windows verifies the running session's claude.exe as signed by "Anthropic, PBC"
+                             //        and its hash is the image the session's own native pipe server runs; checked at
+                             //        discovery, again before each send, and on the connected image before any credential
+                             //        is read. It takes effect with "Wake existing Claude sessions". While it carries a
+                             //        session the pane shows a note naming the build (2.1.314) instead of the
+                             //        unsupported_public_version error, and several notes each get a line of their own.
+                             //        The adapter now names a running claude.exe by the kernel's image path on a retained
+                             //        handle (QueryFullProcessImageNameW), compared again after the image lease and at
+                             //        re-inspection, refusing native_image_path_mismatch before any credential read, and
+                             //        refuses an elevated process on that handle (TokenElevation), so elevated sessions stay
+                             //        counted and skipped (N-broker-image-path-01, found and fixed by Codex; this also
+                             //        hardens exact pins). Not re-proven for an unreviewed build: how it handles the
+                             //        authenticated peer frame, the same class of gap accepted for Codex. MinHostVersion
+                             //        unchanged (1.6.1).
+                             // 1.7.0: four reported items (lane feature/broker-163). Codex rows report, never enforce,
                              //        which engine holds their thread: the adapter asks Restart Manager, read-only and
                              //        in the background after each discovery pass within a budget, who has the thread's
                              //        writer lock open and says bound (code_engine, desktop_engine) or unbound with the
