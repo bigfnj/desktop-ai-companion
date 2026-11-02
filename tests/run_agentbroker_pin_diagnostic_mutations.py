@@ -11,7 +11,10 @@ No pin, verification predicate, hash implementation or vendor file is changed.
 The original bytes are restored in finally, including on test/build failure.
 All builds are serial. Stdout/stderr go directly to ordinary evidence files,
 avoiding inherited-pipe reader waits during subprocess timeout handling.
-Reporting-only witnesses require existing regressions to pass while mutated.
+Reporting-only witnesses require existing regressions to pass while mutated,
+except a witness's own named overlap (Witness.allowed_existing_failures): then
+the existing run must fail at exactly its first named check, and every named
+check must pass by name in each healthy run, including the restored one.
 The separate concurrency witness intentionally restores the product race and
 runs its deterministic new check; existing regressions run after restoration.
 """
@@ -93,13 +96,22 @@ class Witness:
     replacements: tuple[tuple[str, str], ...]
     replacement_counts: tuple[int, ...] = ()
     kind: str = "reporting"
+    # Existing checks this mutation necessarily breaks, by check text in suite order. Empty for every witness but one.
+    allowed_existing_failures: tuple[str, ...] = ()
 
 
 WITNESSES = (
     # Re-pointed by lane feature/claude-update-tolerant: both pin refusals now report through ClaudeNativeProvider.Unpinned,
     # one line for the two codes (same intent: the specific compatibility diagnostic is gone).
+    # The deleted diagnostic is also asserted by two EXISTING checks (ClaudeObservationChecks.SignedObservationAsync,
+    # which runs before the --existing-tests-only cut-off), so the existing run while mutated cannot pass (Codex review
+    # 2026-11-02, P2). Named here in suite order. The C# suite throws at its first failed check, so that run must report
+    # exactly the first and never reaches the second; both must pass by name in every healthy run, the restored one too.
     Witness("claude-reporting", "claude", "worker", (), "ClaudePinDiagnosticChecks.cs", (
         ("            else diagnostics?.Insert(reportAt, CompatibilityDiagnostic(pinRefusal, version));\n", ""),
+    ), allowed_existing_failures=(
+        "Claude observation: unsupported native delivery stays diagnosed even when observation succeeds",
+        "Claude observation: signed same-version image mismatch never becomes an exact delivery profile",
     )),
     Witness("codex-error-code-reporting", "codex", "worker", ("--codex-pin-diagnostics-only",), "CodexPinDiagnosticChecks.cs", ((
         """        catch (DesktopAdapterException error)
@@ -887,7 +899,8 @@ class Runner:
             raise RuntimeError("Healthy/mutant build failed; this is not a killed reporting mutation: " + label)
 
     def test(self, family: str, label: str, args: tuple[str, ...], *, failure_file: str | None = None,
-             existing: bool = False, focused: bool = False, expected_assertions: int | None = None) -> dict:
+             existing: bool = False, focused: bool = False, expected_assertions: int | None = None,
+             named_failures: tuple[str, ...] = ()) -> dict:
         result = self.invoke(label, ["dotnet", str(ASSEMBLIES[family].relative_to(ROOT)), *args], 180)
         output = result["output"]
         if failure_file is not None:
@@ -895,6 +908,18 @@ class Runner:
                 raise RuntimeError("Mutation did not fail cleanly with exit 1 in its specific new test file: " + label)
             result["expectedFailureFile"] = failure_file
             result["expectedOutcome"] = "new_test_failed"
+        elif named_failures:
+            # A witness's own named overlap with the existing suite. Check() throws at the first failed check, so exactly
+            # one failure is reported and it must be the first named one: a pass, an unnamed or a later named check, any
+            # other exception, or a second one is refused.
+            lines = [line.rstrip() for line in output.splitlines()]
+            prefix = "System.InvalidOperationException: "
+            failed = [line[len(prefix):] for line in lines if line.startswith(prefix)]
+            if result["exitCode"] != 1 or "RESULT=FAIL" not in lines or failed != [named_failures[0]]:
+                raise RuntimeError("Existing regressions did not fail at exactly the witness's first named check: " + label)
+            result["expectedOutcome"] = "named_existing_failure"
+            result["failedCheck"] = failed[0]
+            result["passedBeforeFailure"] = sum(line.startswith("PASS: ") for line in lines)
         else:
             if result["exitCode"] != 0:
                 raise RuntimeError("A required healthy or existing regression test failed: " + label)
@@ -914,7 +939,13 @@ class Runner:
             self.build(family, prefix + "-build-" + family)
         for family in families:
             self.test(family, prefix + "-new-" + family, ("--pin-diagnostics-only",), focused=True)
-            self.test(family, prefix + "-existing-" + family, ("--existing-tests-only",), existing=True)
+            existing = self.test(family, prefix + "-existing-" + family, ("--existing-tests-only",), existing=True)
+            # Each check a witness may fail while mutated is one real existing check, passing once by name when healthy.
+            lines = [line.rstrip() for line in existing["output"].splitlines()]
+            for witness in WITNESSES:
+                for check in witness.allowed_existing_failures if witness.family == family else ():
+                    if lines.count("PASS: " + check) != 1:
+                        raise RuntimeError("A named existing failure is not one passing existing check: " + witness.name)
         if "worker" in families:
             self.test("worker", prefix + "-deferred-claim", ("--deferred-claim-only",), expected_assertions=4)
 
@@ -937,6 +968,18 @@ class Runner:
             if witness.kind == "concurrency":
                 record["existingRegression"] = {"runWhileMutated": False,
                     "reason": "This witness intentionally restores the known legacy deferred-claim race; the old 130 checks run after source restoration."}
+            elif witness.allowed_existing_failures:
+                old = self.test(witness.family, witness.name + "-existing", ("--existing-tests-only",),
+                                named_failures=witness.allowed_existing_failures)
+                # Said on every run: the suite stopped at the named check, so the checks after it ran only when healthy.
+                not_run = EXISTING_COUNTS[witness.family] - old["passedBeforeFailure"] - 1
+                print(f"NOTE {witness.name}: existing suite failed only at its first named check; "
+                      f"{not_run} later existing checks run only in the healthy phases.", flush=True)
+                record["existingRegression"] = {"runWhileMutated": True, "exitCode": old["exitCode"],
+                    "allowedFailures": list(witness.allowed_existing_failures), "failedCheck": old["failedCheck"],
+                    "passedBeforeFailure": old["passedBeforeFailure"], "notRunWhileMutated": not_run,
+                    "requiredAfterRestoration": f"restored-existing-{witness.family}: all {EXISTING_COUNTS[witness.family]} "
+                                                "checks pass, each named one by name"}
             else:
                 old = self.test(witness.family, witness.name + "-existing", ("--existing-tests-only",), existing=True)
                 record["existingRegression"] = {"runWhileMutated": True, "exitCode": old["exitCode"], "assertions": old["assertions"]}
@@ -960,7 +1003,8 @@ def main() -> int:
                           "selectedFamilies": families, "expectedFailureExitCode": 1,
                           "witnesses": [{"name": item.name, "source": SOURCES[item.source],
                                          "classification": item.kind, "newFailureFile": item.failure_file,
-                                         "existingAssertions": EXISTING_COUNTS[item.family] if item.kind == "reporting" else None}
+                                         "existingAssertions": EXISTING_COUNTS[item.family] if item.kind == "reporting" else None,
+                                         "allowedExistingFailures": list(item.allowed_existing_failures)}
                                         for item in selected]}, indent=2))
         return 0
     artifacts = ROOT / "artifacts"
