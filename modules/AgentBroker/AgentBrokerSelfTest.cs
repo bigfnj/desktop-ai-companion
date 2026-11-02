@@ -79,6 +79,24 @@ public sealed partial class AgentBrokerModule
             WorkerSupervisor.AddArguments(strictStart, launch with { Settings = launch.Settings with { CodexUpdateTolerantDelivery = false } });
             Check(!strictStart.ArgumentList.Contains("--codex-update-tolerant-delivery"),
                 "WITNESS: strict mode (the switch off) keeps the flag out of the worker launch, so the worker admits exact pins only");
+            // The owner's decision of 2026-11-02: update-tolerant Claude delivery is the default too; off is strict.
+            int claudeTolerantFlag = start.ArgumentList.IndexOf("--claude-update-tolerant-delivery");
+            Check(defaults["claudeUpdateTolerantDelivery"] == "true" && claudeTolerantFlag >= 0 && start.ArgumentList[claudeTolerantFlag + 1] == "true",
+                "update-tolerant Claude delivery defaults on and reaches the default worker launch");
+            var claudeStrictStart = new ProcessStartInfo("synthetic.exe");
+            WorkerSupervisor.AddArguments(claudeStrictStart, launch with { Settings = launch.Settings with { ClaudeUpdateTolerantDelivery = false } });
+            Check(!claudeStrictStart.ArgumentList.Contains("--claude-update-tolerant-delivery") &&
+                claudeStrictStart.ArgumentList.Contains("--codex-update-tolerant-delivery"),
+                "WITNESS: Claude strict mode keeps only the Claude flag out of the worker launch, so the worker admits exact Claude pins only");
+            Check(BrokerSettings.TryEdit(launch.Settings, new Dictionary<string, string> { ["claudeUpdateTolerantDelivery"] = "false" }, out var claudeStrict) &&
+                !claudeStrict.ClaudeUpdateTolerantDelivery && claudeStrict.CodexUpdateTolerantDelivery && claudeStrict.Values()["claudeUpdateTolerantDelivery"] == "false",
+                "turning update-tolerant Claude delivery off saves as off and leaves the Codex switch alone");
+            Check(pane.Schema.SingleOrDefault(field => field.Id == "claudeUpdateTolerantDelivery") is { Kind: SettingKind.Bool, Group: "Coding agents",
+                    EnabledWhen: "claudePeerCredentials=true" } claudeSwitch && claudeSwitch.Label.StartsWith("Also wake updated Claude builds", StringComparison.Ordinal),
+                "the pane offers \"Also wake updated Claude builds\" beside the Codex switch, enabled only while Claude wake is on");
+            Check(defaults["nativePrivacy"].Contains("For Claude, \"Also wake updated Claude builds\" (on by default)", StringComparison.Ordinal) &&
+                !defaults["nativePrivacy"].Contains("requires an exactly verified client version", StringComparison.Ordinal),
+                "the pane says updated Claude builds are woken by default, and how to turn that off");
 
             var peer = new PeerView(Guid.NewGuid(), "Peer&\nName" + new string('P', 70), "https://example.invalid:7433", new string('A', 64));
             var session = new SessionView("synthetic-session", Guid.NewGuid(), "Synthetic", "codex", "Unknown", false, false, false, false);

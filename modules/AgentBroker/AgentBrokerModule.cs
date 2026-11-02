@@ -232,6 +232,8 @@ public sealed partial class AgentBrokerModule : IModule
             new() { Id = "claudePeerCredentials", Label = "Wake existing Claude sessions", Kind = SettingKind.Bool, Group = "Coding agents" },
             new() { Id = "codexUpdateTolerantDelivery", Label = "Also wake updated Codex builds (publisher verified)", Kind = SettingKind.Bool,
                 Group = "Coding agents", EnabledWhen = "codexPeerMessages=true" },
+            new() { Id = "claudeUpdateTolerantDelivery", Label = "Also wake updated Claude builds (publisher verified)", Kind = SettingKind.Bool,
+                Group = "Coding agents", EnabledWhen = "claudePeerCredentials=true" },
             new() { Id = "nativePrivacy", Label = "Native delivery", Kind = SettingKind.Info, Group = "Coding agents" },
             new() { Id = "clientSetup", Label = "Client connection", Kind = SettingKind.Info, Group = "Coding agents" },
             new() { Id = "claudeClient", Label = "Claude Code (CLI and VS Code)", Kind = SettingKind.Info, Group = "Coding agents", FullWidth = true },
@@ -261,7 +263,7 @@ public sealed partial class AgentBrokerModule : IModule
         values["lanAccess"] = LanAccessText();
         values["sharing"] = "Pair brokers from the tray. Pairing shares current and future sessions. Mark a session private to hide it, or mute it to stop peer messages. LAN connections always authenticate.";
         values["manualPeer"] = "";
-        values["nativePrivacy"] = "The wake switches let messages reach existing idle client sessions automatically. MCP agents can still poll and reply without them. Claude wake-up requires an exactly verified client version. For Codex, \"Also wake updated Codex builds\" (on by default) accepts a valid OpenAI signature plus the native capability checks for a build that is not exactly pinned; turn it off to wake exactly verified builds only. Claude wake-up uses sensitive local peer credentials. Existing agent permission controls still apply.";
+        values["nativePrivacy"] = "The wake switches let messages reach existing idle client sessions automatically. MCP agents can still poll and reply without them. For Claude, \"Also wake updated Claude builds\" (on by default) accepts a valid Anthropic signature on the running session's own executable for a build that is not exactly verified; turn it off to wake exactly verified builds only. For Codex, \"Also wake updated Codex builds\" (on by default) accepts a valid OpenAI signature plus the native capability checks for a build that is not exactly pinned; turn it off to wake exactly verified builds only. Claude wake-up uses sensitive local peer credentials. Existing agent permission controls still apply.";
         // N-agentbroker-client-reconnect-01: a session that started while the worker was down (every companion restart
         // stops and starts it) keeps no broker tools, and neither client retries by itself.
         values["clientSetup"] = "Connect MCP once per client for receipt and reply tools. Claude Code uses the local HTTP endpoint when it needs no token; other connections use the stdio bridge. Client policy can require administrator approval. For Claude Code in VS Code, start a new conversation and check /mcp afterward. " + ReconnectAdvice;
