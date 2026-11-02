@@ -16002,13 +16002,29 @@ CASES = (
     # ---- lane fix/modules-signin-right (the owner, 2026-11-02) ----
     # The Modules row's Allow/Revoke sign-in button docked at the row's right edge, apart from Uninstall. The defect put
     # back: the button inside the row's left-hand panel, straight before Uninstall, as host 1.8.0 shipped it.
+    # Re-pointed by the same lane's uninstall-column change: Uninstall is now added straight after the name, before the
+    # sign-in button exists, so the button is put back by inserting it at Uninstall's place.
     ("signin-right: the sign-in button sits in the row's panel straight before Uninstall again",
      os.path.join(REPO, "src", "Portable", "Wpf", "ModulesPaneControl.cs"),
-     b'            sp.Children.Add(uninstall);\n',
-     b'            if (signIn != null) sp.Children.Add(signIn);\n            sp.Children.Add(uninstall);\n            signIn = null;\n',
+     b'                    signIn.Click += delegate { SetSignInAllowed(id, signInName, !allowed); };\n',
+     b'                    signIn.Click += delegate { SetSignInAllowed(id, signInName, !allowed); };\n'
+     b'                    sp.Children.Insert(sp.Children.IndexOf(uninstall), signIn);\n'
+     b'                    signIn = null;\n',
      HOST_CSPROJ, EXE,
      "--wpf-options-selftest", "dp-wpf-options-selftest.txt",
      "signin-right: Revoke sign-in is docked at its row's right edge, past that row's Uninstall"),
+    # Uninstall in one column on every installed row: added straight after the name, with Reinstall and Update after it.
+    # The defect put back: Uninstall last in the row's left-hand panel, after an Update or Reinstall button, as host 1.8.0
+    # shipped it.
+    ("uninstall-column: Uninstall goes back after the Update or Reinstall button",
+     os.path.join(REPO, "src", "Portable", "Wpf", "ModulesPaneControl.cs"),
+     b'            line.Children.Add(sp);\n',
+     b'            sp.Children.Remove(uninstall);\n'
+     b'            sp.Children.Add(uninstall);\n'
+     b'            line.Children.Add(sp);\n',
+     HOST_CSPROJ, EXE,
+     "--wpf-options-selftest", "dp-wpf-options-selftest.txt",
+     "uninstall-column: on a row offering Update and on one offering Reinstall, Uninstall stands in a plain row's column"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

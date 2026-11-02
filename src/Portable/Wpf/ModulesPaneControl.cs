@@ -504,8 +504,15 @@ namespace DesktopAICompanion.Wpf
 
         // Why a module on disk is not running, or null when it loaded fine (or the host isn't up). Without
         // this a broken module reads as "installed — restart to activate" forever, and the only way out is
-        // Uninstall, which deletes settings and keys the user never meant to lose.
-        private static DesktopAICompanion.Plugins.ModuleLoadFailure LoadFailure(string id)
+        // Uninstall, which deletes settings and keys the user never meant to lose. A probe that sets no
+        // LoadFailure seam has no failed module, as a headless pane with no host had before the seam.
+        private DesktopAICompanion.Plugins.ModuleLoadFailure LoadFailure(string id)
+        {
+            return _seams.LoadFailure != null ? _seams.LoadFailure(id) : null;
+        }
+
+        /// <summary>The shipped LoadFailure seam: the running host's record of why a module on disk did not load.</summary>
+        internal static DesktopAICompanion.Plugins.ModuleLoadFailure LiveLoadFailure(string id)
         {
             try
             {
@@ -553,6 +560,17 @@ namespace DesktopAICompanion.Wpf
             });
             sp.Children.Add(nameStack);
 
+            // UNINSTALL STANDS IN ONE COLUMN (the owner, 2026-11-02): straight after the name on every row, whatever else
+            // the row offers. Reinstall and Update follow it, and the sign-in button is docked at the row's right edge;
+            // each of them used to sit where other rows have Uninstall and push it along, so a hand that knew the column
+            // pressed the wrong button.
+            // Not while Update all runs: the run's own MarkForUpdate of the same module forgets a pending removal
+            // (F352), so an uninstall pressed mid-run would be silently undone, after asking for a restart of
+            // its own halfway through the run.
+            var uninstall = new Button { Content = "Uninstall", Width = 80, VerticalAlignment = VerticalAlignment.Center, IsEnabled = !_updatingAll };
+            uninstall.Click += delegate { UninstallModule(id, info != null ? info.Name : id); };
+            sp.Children.Add(uninstall);
+
             // A broken install has one non-destructive way out: replace the install folder from the catalog.
             // The existing install flow already does exactly that and leaves the module's data alone, so a
             // "Reinstall" is the same call as a first install -- it just needs the catalog fetched first.
@@ -564,7 +582,7 @@ namespace DesktopAICompanion.Wpf
                     Content = offered != null ? "Reinstall v" + offered.Version : "Reinstall",
                     MinWidth = 120,
                     Padding = new Thickness(8, 1, 8, 1),
-                    Margin = new Thickness(0, 0, 6, 0),
+                    Margin = new Thickness(6, 0, 0, 0),
                     VerticalAlignment = VerticalAlignment.Center,
                     IsEnabled = offered != null && !_updatingAll,
                     ToolTip = offered != null
@@ -616,7 +634,7 @@ namespace DesktopAICompanion.Wpf
                     Content = "Update to v" + newer.Version,
                     MinWidth = 120,
                     Padding = new Thickness(8, 1, 8, 1),
-                    Margin = new Thickness(0, 0, 6, 0),
+                    Margin = new Thickness(6, 0, 0, 0),
                     VerticalAlignment = VerticalAlignment.Center,
                     IsEnabled = !_updatingAll,   // Update all is staging this module, or another, right now
                 };
@@ -684,15 +702,8 @@ namespace DesktopAICompanion.Wpf
                 }
             }
 
-            // Not while Update all runs: the run's own MarkForUpdate of the same module forgets a pending removal
-            // (F352), so an uninstall pressed mid-run would be silently undone, after asking for a restart of
-            // its own halfway through the run.
-            var uninstall = new Button { Content = "Uninstall", Width = 80, VerticalAlignment = VerticalAlignment.Center, IsEnabled = !_updatingAll };
-            uninstall.Click += delegate { UninstallModule(id, info != null ? info.Name : id); };
-            sp.Children.Add(uninstall);
-
             // The sign-in button is docked before the rest fills, so on a narrow pane it keeps its width and the
-            // left-hand content is what gets cut; Uninstall stays in the column it has on every other row.
+            // left-hand content is what gets cut.
             var line = new DockPanel { LastChildFill = true };
             if (signIn != null)
             {
@@ -1532,6 +1543,9 @@ namespace DesktopAICompanion.Wpf
         /// allowed, null the record could not be read just now or is damaged, which is no answer either way.</summary>
         internal Func<string, bool?> SignInGranted;
         internal Func<string, bool, bool> SetSignInGrant;
+        /// <summary>Why a module on disk did not load, or null (2026-11-02, so a Reinstall row can be laid out under
+        /// --wpf-options-selftest): the running host's failures, shipped. Null in a probe that sets none: no module failed.</summary>
+        internal Func<string, DesktopAICompanion.Plugins.ModuleLoadFailure> LoadFailure;
 
         internal static ModulesPaneSeams Live()
         {
@@ -1564,6 +1578,7 @@ namespace DesktopAICompanion.Wpf
                     return DesktopAICompanion.Plugins.HostCredentialStore.SetGrant(DesktopAICompanion.Plugins.HostCredentialStore.DefaultDirectory,
                         id, allowed, ModulesPaneControl.LogGrant);
                 },
+                LoadFailure = ModulesPaneControl.LiveLoadFailure,
             };
         }
     }

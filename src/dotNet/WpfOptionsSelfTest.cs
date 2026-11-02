@@ -1697,6 +1697,8 @@ namespace DesktopAICompanion
                 // ---- lane feature/host-abi-180 ----
                 ok &= AbiVisibleWhen(sb);
                 ok &= AbiSignInGrant(sb);
+                // ---- lane fix/modules-signin-right ----
+                ok &= ModulesUninstallColumn(sb);
             }
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message); }
 
@@ -3569,6 +3571,12 @@ namespace DesktopAICompanion
                         if (allowed) Granted.Add(id); else Granted.Remove(id);
                         return true;
                     },
+                    // Why a module on disk did not load (2026-11-02): only the ids FailedToLoad named, never the running host's.
+                    LoadFailure = delegate (string id)
+                    {
+                        DesktopAICompanion.Plugins.ModuleLoadFailure failure;
+                        return Failures.TryGetValue(id, out failure) ? failure : null;
+                    },
                 };
                 Pane = new DesktopAICompanion.Wpf.ModulesPaneControl(seams);
                 Pane.ShowCatalog(Catalog);
@@ -3584,6 +3592,21 @@ namespace DesktopAICompanion
             internal Func<Task<RemoteCatalog>> Refresh;
             internal int Refreshes;
             internal readonly List<string> Copied = new List<string>();
+
+            /// <summary>The modules on disk that did not load, by id: the LoadFailure seam's answers.</summary>
+            internal readonly Dictionary<string, DesktopAICompanion.Plugins.ModuleLoadFailure> Failures =
+                new Dictionary<string, DesktopAICompanion.Plugins.ModuleLoadFailure>(StringComparer.OrdinalIgnoreCase);
+
+            /// <summary>A module on disk that failed to load for a reason a reinstall can fix (not NeedsNewerHost), with
+            /// the catalog's entry at <paramref name="offered"/> to reinstall from: the row offers "Reinstall v&lt;offered&gt;".</summary>
+            internal void FailedToLoad(string id, string name, string offered, string reason)
+            {
+                string folder = Path.Combine(ModulesRoot, id);
+                Directory.CreateDirectory(folder);
+                File.WriteAllText(Path.Combine(folder, name + ".dll"), id + " damaged");
+                Failures[id] = new DesktopAICompanion.Plugins.ModuleLoadFailure { Id = id, Reason = reason, NeedsNewerHost = false };
+                Available(id, name, offered);
+            }
 
             /// <summary>An installed, loaded module with NO catalog entry: the shape of a module whose entry the
             /// catalog read refused.</summary>
@@ -5643,6 +5666,77 @@ namespace DesktopAICompanion
             {
                 ok = false;
                 sb.AppendLine("FAIL: the host-abi-180 VisibleWhen probe threw " + ex.GetType().Name + ": " + ex.Message);
+            }
+            return ok;
+        }
+
+        /// <summary>
+        /// The owner, 2026-11-02: Uninstall stands in one column on every installed row. An Update or a Reinstall button sat
+        /// where other rows have Uninstall and pushed it along, as Revoke sign-in did (the signin-right check). Laid out at
+        /// the settings window's pane width: on a row offering an update and on a row offering a reinstall, Uninstall's left
+        /// edge is a plain row's, and the Update or Reinstall button starts past its right edge. A layout that measured
+        /// nothing (an empty box or a zero width anywhere) fails; it must not read as aligned.
+        /// </summary>
+        private static bool ModulesUninstallColumn(StringBuilder sb)
+        {
+            bool ok = true;
+            string root = DesktopAICompanion.Plugins.SelfTestScratch.Create("uninstall-column");
+            SynchronizationContext previousContext = SynchronizationContext.Current;
+            SynchronizationContext.SetSynchronizationContext(
+                new System.Windows.Threading.DispatcherSynchronizationContext(System.Windows.Threading.Dispatcher.CurrentDispatcher));
+            try
+            {
+                var probe = new ModulesPaneProbe(root, "columns");
+                probe.Offer("alpha", "Alpha", "1.0.0", "1.1.0");
+                probe.FailedToLoad("broken", "Broken", "2.0.0", "Could not load file or assembly 'Broken'.");
+                probe.Installed("plain", "Plain", "1.0.0");
+                probe.Build();
+                List<System.Windows.Controls.Button> buttons = probe.Buttons();
+                System.Windows.Controls.Button update = ModulesPaneProbe.Find(buttons, "Update to v1.1.0");
+                System.Windows.Controls.Button reinstall = ModulesPaneProbe.Find(buttons, "Reinstall v2.0.0");
+                var render = new PaneRender(probe.Pane, true);
+                render.Save("dp-modules-uninstall-column.png");
+                System.Windows.Controls.Border updateRow = ModuleRowOf(update), reinstallRow = ModuleRowOf(reinstall);
+                System.Windows.Controls.Button updateUninstall = null, reinstallUninstall = null, plainUninstall = null;
+                foreach (System.Windows.Controls.Button b in buttons)
+                {
+                    if ((b.Content as string) != "Uninstall") continue;
+                    System.Windows.Controls.Border at = ModuleRowOf(b);
+                    if (at == null) continue;
+                    if (ReferenceEquals(at, updateRow)) updateUninstall = b;
+                    else if (ReferenceEquals(at, reinstallRow)) reinstallUninstall = b;
+                    else plainUninstall = b;
+                }
+                System.Windows.Rect updateBox = render.BoundsOf(update), reinstallBox = render.BoundsOf(reinstall);
+                System.Windows.Rect updateUninstallBox = render.BoundsOf(updateUninstall);
+                System.Windows.Rect reinstallUninstallBox = render.BoundsOf(reinstallUninstall);
+                System.Windows.Rect plainBox = render.BoundsOf(plainUninstall);
+                bool laidOut = true;
+                foreach (System.Windows.Rect box in new[] { updateBox, reinstallBox, updateUninstallBox, reinstallUninstallBox, plainBox })
+                    laidOut &= !box.IsEmpty && box.Width > 0;
+                string detail = update == null || reinstall == null
+                    ? "no Update or Reinstall button: " + ModulesPaneProbe.Captions(buttons)
+                    : !laidOut
+                        ? "not laid out"
+                        : "Uninstall at " + Dips(updateUninstallBox.Left) + ", " + Dips(reinstallUninstallBox.Left) + " and " + Dips(plainBox.Left) +
+                          "; Update at " + Dips(updateBox.Left) + " after " + Dips(updateUninstallBox.Right) +
+                          "; Reinstall at " + Dips(reinstallBox.Left) + " after " + Dips(reinstallUninstallBox.Right);
+                ok &= Check(sb, "uninstall-column: on a row offering Update and on one offering Reinstall, Uninstall stands in a plain row's column and the Update or Reinstall button follows it (" +
+                    detail + ")",
+                    laidOut && update != null && reinstall != null &&
+                    Math.Abs(updateUninstallBox.Left - plainBox.Left) < 0.5 && Math.Abs(reinstallUninstallBox.Left - plainBox.Left) < 0.5 &&
+                    updateBox.Left > updateUninstallBox.Right && reinstallBox.Left > reinstallUninstallBox.Right);
+            }
+            catch (Exception ex)
+            {
+                ok = false;
+                sb.AppendLine("FAIL: the uninstall-column probe threw " + ex.GetType().Name + ": " + ex.Message);
+            }
+            finally
+            {
+                SynchronizationContext.SetSynchronizationContext(previousContext);
+                string releaseDetail;
+                DesktopAICompanion.Plugins.SelfTestScratch.TryRelease(root, out releaseDetail);
             }
             return ok;
         }
