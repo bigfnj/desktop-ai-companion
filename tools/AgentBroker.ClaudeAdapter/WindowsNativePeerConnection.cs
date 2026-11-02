@@ -1,5 +1,4 @@
 using System.ComponentModel;
-using System.Diagnostics;
 using System.IO.Pipes;
 using System.Runtime.InteropServices;
 using System.Security.AccessControl;
@@ -8,81 +7,121 @@ using Microsoft.Win32.SafeHandles;
 
 namespace AgentBroker.ClaudeAdapter;
 
-/// <summary>Prepared production transport. Synthetic tests never invoke this OS/process implementation.</summary>
-public sealed class WindowsNativePeerConnectionFactory(Action<string>? stageObserver = null) : INativePeerConnectionFactory
+internal interface INativePipeLease : IDisposable
 {
+    int ServerProcessId { get; }
+    Stream Outbound { get; }
+    void ValidateSecurity();
+}
+
+/// <summary>Production connection composition. Tests inject OS boundaries, not a replacement connection.</summary>
+public sealed class WindowsNativePeerConnectionFactory : INativePeerConnectionFactory
+{
+    private readonly Func<string, CancellationToken, Task<INativePipeLease>> connect;
+    private readonly Func<int, INativeImageProcess> openProcess;
+    private readonly Func<string, INativeImageLease> acquireImage;
+    private readonly Action<string>? stageObserver;
+
+    public WindowsNativePeerConnectionFactory(Action<string>? stageObserver = null)
+        : this(ConnectWindowsAsync, pid => new KernelProcessImage(pid), path => new LockedPublicImage(path), stageObserver) { }
+
+    internal WindowsNativePeerConnectionFactory(Func<string, CancellationToken, Task<INativePipeLease>> connect,
+        Func<int, INativeImageProcess> openProcess, Func<string, INativeImageLease> acquireImage,
+        Action<string>? stageObserver = null)
+    {
+        this.connect = connect; this.openProcess = openProcess; this.acquireImage = acquireImage;
+        this.stageObserver = stageObserver;
+    }
+
     public async Task<INativePeerConnection> ConnectAsync(string pipeName, CancellationToken cancellation)
     {
-        if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException();
         stageObserver?.Invoke("pipe_create");
+        stageObserver?.Invoke("pipe_connect");
+        var pipe = await connect(pipeName, cancellation).ConfigureAwait(false);
+        try
+        {
+            stageObserver?.Invoke("pipe_connected");
+            return new Connection(pipe, openProcess, acquireImage, stageObserver);
+        }
+        catch { pipe.Dispose(); throw; }
+    }
+
+    private static async Task<INativePipeLease> ConnectWindowsAsync(string pipeName, CancellationToken cancellation)
+    {
+        if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException();
         // .NET CurrentUserOnly compares pipe owner to the token's default Owner, which can differ
         // from its User SID. Validate actual connected server identity and pipe User ownership below.
         var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
         try
         {
-            stageObserver?.Invoke("pipe_connect");
             await pipe.ConnectAsync(5000, cancellation).ConfigureAwait(false);
-            stageObserver?.Invoke("pipe_connected");
-            return new Connection(pipe, stageObserver);
+            return new WindowsPipeLease(pipe);
         }
         catch { pipe.Dispose(); throw; }
     }
 
     private sealed class Connection : INativePeerConnection
     {
-        private readonly NamedPipeClientStream pipe;
-        private LockedPublicImage? image;
+        private readonly INativePipeLease pipe;
+        private NativeImageBinding? binding;
+        private bool disposed;
         public bool EnforcesCurrentUser => true;
-        public NativeProcessIdentity Identity { get; }
-        public Stream Outbound => pipe;
-        internal Connection(NamedPipeClientStream pipe, Action<string>? stageObserver)
+        public NativeProcessIdentity Identity => binding!.Identity;
+        public Stream Outbound => pipe.Outbound;
+        internal Connection(INativePipeLease pipe, Func<int, INativeImageProcess> openProcess,
+            Func<string, INativeImageLease> acquireImage, Action<string>? stageObserver)
         {
             this.pipe = pipe;
-            try { Identity = Inspect(pipe, path => { image = new LockedPublicImage(path); return image.Sha256; }, stageObserver); }
-            catch { image?.Dispose(); throw; }
+            INativeImageProcess? process = null;
+            try
+            {
+                stageObserver?.Invoke("server_pid");
+                int pid = pipe.ServerProcessId;
+                process = openProcess(pid);
+                stageObserver?.Invoke("pipe_owner_and_dacl");
+                pipe.ValidateSecurity();
+                stageObserver?.Invoke("server_public_image_hash");
+                // Transfer before construction: the binding owns cleanup even when its constructor throws.
+                var ownedProcess = process;
+                process = null;
+                binding = new NativeImageBinding(ownedProcess, acquireImage);
+                if (pipe.ServerProcessId != pid) throw new IOException("Native process identity changed.");
+                stageObserver?.Invoke("identity_observed");
+            }
+            catch { binding?.Dispose(); throw; }
+            finally { process?.Dispose(); }
         }
-        public NativeProcessIdentity Reinspect() => Inspect(pipe, path =>
+        public NativeProcessIdentity Reinspect()
         {
-            if (image is null) throw new ObjectDisposedException(nameof(Connection));
-            image.VerifyPath(path); return image.Sha256;
-        });
+            if (binding is null) throw new ObjectDisposedException(nameof(Connection));
+            if (pipe.ServerProcessId != Identity.ProcessId) throw new IOException("Native process identity changed.");
+            pipe.ValidateSecurity();
+            var identity = binding.Reinspect();
+            if (pipe.ServerProcessId != identity.ProcessId) throw new IOException("Native process identity changed.");
+            return identity;
+        }
         public ValueTask DisposeAsync()
         {
-            try { image?.Dispose(); image = null; }
+            if (disposed) return ValueTask.CompletedTask;
+            disposed = true;
+            try { binding?.Dispose(); binding = null; }
             finally { pipe.Dispose(); }
             return ValueTask.CompletedTask;
         }
     }
 
-    private static NativeProcessIdentity Inspect(NamedPipeClientStream pipe, Func<string, string> inspectImage, Action<string>? stageObserver = null)
+    private sealed class WindowsPipeLease(NamedPipeClientStream pipe) : INativePipeLease
     {
-        stageObserver?.Invoke("server_pid");
+        public int ServerProcessId => WindowsNativePeerConnectionFactory.ServerProcessId(pipe);
+        public Stream Outbound => pipe;
+        public void ValidateSecurity() => ValidatePipeSecurity(pipe.SafePipeHandle);
+        public void Dispose() => pipe.Dispose();
+    }
+
+    private static int ServerProcessId(NamedPipeClientStream pipe)
+    {
         if (!GetNamedPipeServerProcessId(pipe.SafePipeHandle, out uint pid) || pid > int.MaxValue) throw new Win32Exception(Marshal.GetLastWin32Error());
-        stageObserver?.Invoke("server_image_path");
-        using Process process = Process.GetProcessById((int)pid);
-        string image = process.MainModule?.FileName ?? throw new IOException("Native process image unavailable.");
-        if (!Path.IsPathFullyQualified(image) || !image.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
-            throw new IOException("Native process image invalid.");
-        stageObserver?.Invoke("server_creation_time");
-        if (!GetProcessTimes(process.SafeHandle, out var created, out _, out _, out _)) throw new Win32Exception(Marshal.GetLastWin32Error());
-        ulong start = ((ulong)created.High << 32) | created.Low;
-        stageObserver?.Invoke("server_user_identity");
-        if (!OpenProcessToken(process.SafeHandle, 0x0008, out var token)) throw new Win32Exception(Marshal.GetLastWin32Error());
-        bool sameUser;
-        using (token)
-        using (var server = new WindowsIdentity(token.DangerousGetHandle()))
-        using (var current = WindowsIdentity.GetCurrent())
-            sameUser = server.User is { } serverSid && current.User is { } currentSid && serverSid.Equals(currentSid);
-        if (!sameUser) throw new UnauthorizedAccessException("Native pipe server is not the current user.");
-        stageObserver?.Invoke("pipe_owner_and_dacl");
-        ValidatePipeSecurity(pipe.SafePipeHandle);
-        stageObserver?.Invoke("server_public_image_hash");
-        string hash = inspectImage(image);
-        stageObserver?.Invoke("server_recheck");
-        if (!GetNamedPipeServerProcessId(pipe.SafePipeHandle, out uint again) || again != pid || process.HasExited)
-            throw new IOException("Native process identity changed.");
-        stageObserver?.Invoke("identity_observed");
-        return new((int)pid, image, hash, start, sameUser);
+        return checked((int)pid);
     }
 
     private static void ValidatePipeSecurity(SafePipeHandle pipe)
@@ -102,18 +141,9 @@ public sealed class WindowsNativePeerConnectionFactory(Action<string>? stageObse
         finally { LocalFree(security); }
     }
 
-    [StructLayout(LayoutKind.Sequential)]
-    private struct FileTime { internal uint Low; internal uint High; }
-
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetNamedPipeServerProcessId(SafePipeHandle pipe, out uint processId);
-    [DllImport("kernel32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool GetProcessTimes(SafeProcessHandle process, out FileTime created, out FileTime exited, out FileTime kernel, out FileTime user);
-    [DllImport("advapi32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool OpenProcessToken(SafeProcessHandle process, uint access, out SafeAccessTokenHandle token);
     [DllImport("advapi32.dll")]
     private static extern uint GetSecurityInfo(SafePipeHandle handle, int kind, uint information, out IntPtr owner, out IntPtr group,
         out IntPtr dacl, out IntPtr sacl, out IntPtr descriptor);

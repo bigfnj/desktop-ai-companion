@@ -89,7 +89,7 @@ public sealed class ClaudeNativeProvider : IClaudeNativeProvider
             string? image = process.ImagePath;
             if (image is null || !Path.IsPathFullyQualified(image) ||
                 !string.Equals(Path.GetFileName(image), "claude.exe", StringComparison.OrdinalIgnoreCase)) return Task.FromResult<ClaudeNativeCandidate?>(null);
-            // ToFileTimeUtc converts the native process creation timestamp; DateTime.Ticks is not used.
+            // The native creation FILETIME comes from the same retained limited-query process handle.
             ulong started = process.StartFileTime;
             identifying = false;
             if (started != metadata.StartFileTime) return Task.FromResult<ClaudeNativeCandidate?>(null);
@@ -111,16 +111,20 @@ public sealed class ClaudeNativeProvider : IClaudeNativeProvider
                 profiles[key] = profile;
             }
             token.ThrowIfCancellationRequested();
+            // Pinned/cache discovery also re-queries the kernel image, not a stale module-list name.
+            if (process.StartFileTime != started ||
+                !string.Equals(process.ImagePath, image, StringComparison.Ordinal))
+                return Task.FromResult<ClaudeNativeCandidate?>(null);
             var now = DateTimeOffset.UtcNow;
             bool plausible = metadata.HasPlausibleActivityTimestamp(now);
             return Task.FromResult<ClaudeNativeCandidate?>(new(new(metadata.CanonicalPipe, processId, image,
                 profile.Sha256, profile.Version, started, metadata.SessionId), plausible ? metadata.Status : null));
         }
-        // A session whose record sits in THIS user's home (so it is this user's Claude Code) but whose process Windows will
-        // not let this Medium-integrity broker query (its image or start time: access denied): it runs elevated, or as
-        // another user. Still skipped, and never bridged (waking it would let any Medium process drive an elevated one), but
-        // counted for the pass's diagnostic. Only the identity reads count: a record that cannot be read is a missing or
-        // foreign session, and a denial later (an image file, a hash) is not about the process.
+        // A record in this user's home identifies a possible local session, but its process must still be admitted.
+        // KernelProcessImage rejects elevated tokens explicitly with error 5 even when the limited open succeeds;
+        // unavailable elevation or denied image/start identity reads also fail closed here. Such sessions are counted
+        // and skipped before a candidate can be published. Metadata reads and later image-file/hash denials are not
+        // counted as process elevation, so an unrelated unavailable file cannot hide the healthy sessions' wake state.
         catch (System.ComponentModel.Win32Exception ex) when (identifying && diagnostics is not null && ex.NativeErrorCode == ErrorAccessDenied)
         { unopenableThisPass++; return Task.FromResult<ClaudeNativeCandidate?>(null); }
         catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or
@@ -176,7 +180,7 @@ public sealed class ClaudeNativeProvider : IClaudeNativeProvider
             return null;
         }
         if (process.HasExited || !process.IsCurrentUser || process.StartFileTime != started ||
-            !string.Equals(process.ImagePath, image, StringComparison.OrdinalIgnoreCase)) return null;
+            !string.Equals(process.ImagePath, image, StringComparison.Ordinal)) return null;
         bool plausible = metadata.HasPlausibleActivityTimestamp(DateTimeOffset.UtcNow);
         // Update-tolerant delivery makes the same signed, identity-checked observation deliverable. NativePeerAdapter checks the
         // publisher again on the connected pipe server's own image, and its hash against this one, before any credential read.

@@ -33,6 +33,13 @@ internal interface IClaudeDiscoveryProcess : IDisposable
 
 internal sealed class WindowsClaudeDiscoverySource : IClaudeDiscoverySource
 {
+    private readonly Func<int, KernelProcessImage> openImage;
+
+    public WindowsClaudeDiscoverySource() : this(processId => new KernelProcessImage(processId)) { }
+
+    internal WindowsClaudeDiscoverySource(Func<int, KernelProcessImage> openImage)
+        => this.openImage = openImage ?? throw new ArgumentNullException(nameof(openImage));
+
     public IReadOnlyList<int> GetProcessIds()
     {
         var processes = Process.GetProcessesByName("claude");
@@ -41,7 +48,7 @@ internal sealed class WindowsClaudeDiscoverySource : IClaudeDiscoverySource
     }
 
     public NativeSessionMetadata ReadMetadata(int processId) => NativeMetadataReader.ReadDefaultHomeProcess(processId);
-    public IClaudeDiscoveryProcess OpenProcess(int processId) => new PublicProcess(Process.GetProcessById(processId));
+    public IClaudeDiscoveryProcess OpenProcess(int processId) => new PublicProcess(openImage(processId));
     public void RejectReparseComponents(string image) => CredentialPathPolicy.RejectReparseComponents(image, File.GetAttributes);
     public string? ReadProductVersion(string image) => FileVersionInfo.GetVersionInfo(image).ProductVersion;
     public string ReadImageSha256(string image)
@@ -53,13 +60,13 @@ internal sealed class WindowsClaudeDiscoverySource : IClaudeDiscoverySource
     public ClaudePublicImageTrustResult ObserveUnpinnedPublicImage(string image)
         => WindowsClaudePublicImageTrust.Observe(image);
 
-    private sealed class PublicProcess(Process process) : IClaudeDiscoveryProcess
+    private sealed class PublicProcess(KernelProcessImage process) : IClaudeDiscoveryProcess
     {
-        public string ProcessName => process.ProcessName;
-        public string? ImagePath => process.MainModule?.FileName;
-        // This is the unchanged native FILETIME conversion, not DateTime.Ticks.
-        public ulong StartFileTime => checked((ulong)process.StartTime.ToUniversalTime().ToFileTimeUtc());
-        public bool IsCurrentUser => WindowsClaudePublicImageTrust.IsCurrentUserProcess(process.SafeHandle);
+        public string ProcessName => Path.GetFileNameWithoutExtension(process.ImagePath);
+        public string? ImagePath => process.ImagePath;
+        // Native creation FILETIME from the same retained limited-query process handle.
+        public ulong StartFileTime => process.StartFileTime;
+        public bool IsCurrentUser => process.IsCurrentUser;
         public bool HasExited => process.HasExited;
         public void Dispose() => process.Dispose();
     }

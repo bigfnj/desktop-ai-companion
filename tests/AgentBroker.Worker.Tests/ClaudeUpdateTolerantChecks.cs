@@ -1,15 +1,17 @@
 using System.Text;
+using System.ComponentModel;
 using AgentBroker.ClaudeAdapter;
 using AgentBroker.Core;
 using AgentBroker.Worker;
 using AgentBroker.Worker.Adapters;
+using Microsoft.Win32.SafeHandles;
 
 // Update-tolerant Claude delivery (the owner's decision of 2026-11-02): an Anthropic-signed Claude Code build that fails its
 // exact pin is woken as a pinned one is, with every other check unchanged. --claude-update-tolerant-case runs one group, so
 // each mutation witness fails on the check it targets. Every label names this file for the witness harness.
 internal static class ClaudeUpdateTolerantChecks
 {
-    private static readonly string[] Cases = ["discovery", "status", "refusals", "capabilities", "image-changed", "send", "image-trust", "options", "version"];
+    private static readonly string[] Cases = ["discovery", "status", "refusals", "capabilities", "image-changed", "send", "image-trust", "options", "version", "image-path", "kernel-process"];
     private const string L = "ClaudeUpdateTolerantChecks.cs: ";
     private const string Pipe = @"\\.\pipe\cc-msg-0123456789abcdef0123456789abcdef";
     private const string SignedHash = "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD";
@@ -31,7 +33,94 @@ internal static class ClaudeUpdateTolerantChecks
                 case "image-trust": ImageTrust(check); break;
                 case "options": Options(check); break;
                 case "version": await VersionAsync(check); break;
+                case "image-path": await ImagePathAsync(check); break;
+                case "kernel-process": await KernelProcessAsync(check); break;
             }
+    }
+
+    private static async Task KernelProcessAsync(Action<bool, string> check)
+    {
+        foreach (bool tolerant in new[] { false, true })
+        {
+            var healthy = new Source { Version = Pin.Version, Hash = Pin.Sha256 };
+            var healthyOps = new DiscoveryKernelOperations(healthy.Image, healthy.Started);
+            healthy.ProcessFactory = new WindowsClaudeDiscoverySource(pid => new KernelProcessImage(pid, healthyOps)).OpenProcess;
+            await using (var provider = new ClaudeNativeProvider(healthy, enablePeerCredentials: true, updateTolerantDelivery: tolerant))
+            {
+                var rows = await provider.DiscoverAsync(CancellationToken.None);
+                check(rows.Count == 1 && rows[0].CanDeliver && provider.DiscoveryDiagnostics.Count == 0 &&
+                    healthyOps.Opens == 1 && healthyOps.Access == 0x1000 &&
+                    healthyOps.Queries == 3 && healthyOps.ExactHandle && healthyOps.Handle.IsClosed,
+                    L + "WITNESS: actual public-process wrapper discovers an unelevated pinned session through the retained kernel handle (tolerant=" + tolerant + ")");
+            }
+
+            var elevated = new Source { Version = Pin.Version, Hash = Pin.Sha256 };
+            var elevatedOps = new DiscoveryKernelOperations(elevated.Image, elevated.Started) { Elevated = true };
+            elevated.ProcessFactory = new WindowsClaudeDiscoverySource(pid => new KernelProcessImage(pid, elevatedOps)).OpenProcess;
+            await using (var provider = new ClaudeNativeProvider(elevated, enablePeerCredentials: true, updateTolerantDelivery: tolerant))
+            {
+                var rows = await provider.DiscoverAsync(CancellationToken.None);
+                check(rows.Count == 0 && provider.DiscoveryDiagnostics.SingleOrDefault() is { Code: "claude_session_elevated", Note: true } note &&
+                    note.Description.StartsWith("1 Claude Code session", StringComparison.Ordinal) &&
+                    elevatedOps.Opens == 1 && elevatedOps.Access == 0x1000 && elevatedOps.ElevationReads == 1 &&
+                    elevatedOps.Queries == 0 && elevated.ImageHashReads == 0 && elevated.TrustReads == 0 && elevatedOps.Handle.IsClosed,
+                    L + "limited-query open success with an elevated token is counted and skipped by actual discovery before image trust (tolerant=" + tolerant + ")");
+            }
+        }
+
+        var unavailable = new Source { Version = Pin.Version, Hash = Pin.Sha256 };
+        var unavailableOps = new DiscoveryKernelOperations(unavailable.Image, unavailable.Started) { ElevationUnavailable = true };
+        unavailable.ProcessFactory = new WindowsClaudeDiscoverySource(pid => new KernelProcessImage(pid, unavailableOps)).OpenProcess;
+        await using (var provider = new ClaudeNativeProvider(unavailable, enablePeerCredentials: true, updateTolerantDelivery: true))
+            check((await provider.DiscoverAsync(CancellationToken.None)).Count == 0 &&
+                provider.DiscoveryDiagnostics.SingleOrDefault() is { Code: "claude_session_elevated", Note: true } &&
+                unavailableOps.Queries == 0 && unavailableOps.Handle.IsClosed,
+                L + "an unavailable elevation query fails closed through actual discovery and closes the process handle");
+    }
+
+    private static async Task ImagePathAsync(Action<bool, string> check)
+    {
+        const string original = @"C:\Synthetic-Claude-Tolerant\claude.exe";
+        const string displaced = @"C:\Synthetic-Claude-Displaced\claude.exe";
+        var cold = new Source
+        {
+            Version = Pin.Version, Hash = Pin.Sha256, ImagePaths = [original, displaced],
+        };
+        await using (var provider = new ClaudeNativeProvider(cold, enablePeerCredentials: true, updateTolerantDelivery: true))
+            check((await provider.DiscoverAsync(CancellationToken.None)).Count == 0 && cold.ImagePathReads == 2 &&
+                cold.ImageHashReads == 1 && cold.TrustReads == 0,
+                L + "kernel path drift after a cold pinned image hash refuses discovery before advertising a session");
+
+        var cached = new Source { Version = Pin.Version, Hash = Pin.Sha256 };
+        await using (var provider = new ClaudeNativeProvider(cached, enablePeerCredentials: true, updateTolerantDelivery: true))
+        {
+            var warm = await provider.DiscoverAsync(CancellationToken.None);
+            check(warm.Count == 1 && warm[0].CanDeliver && cached.ImageHashReads == 1,
+                L + "WITNESS: the path-drift cache case first establishes one real provider pin-cache entry");
+            cached.ImagePathReads = 0; cached.ImagePaths = [original, displaced];
+            check((await provider.DiscoverAsync(CancellationToken.None)).Count == 0 && cached.ImagePathReads == 2 &&
+                cached.ImageHashReads == 1 && cached.TrustReads == 0,
+                L + "kernel path drift on a pinned cache hit refuses discovery without rehashing or publisher fallback");
+        }
+
+        var tolerant = new Source { ImagePaths = [original, displaced] };
+        await using (var provider = new ClaudeNativeProvider(tolerant, enablePeerCredentials: true, updateTolerantDelivery: true))
+            check((await provider.DiscoverAsync(CancellationToken.None)).Count == 0 && tolerant.ImagePathReads == 2 &&
+                tolerant.TrustReads == 1,
+                L + "kernel path drift after publisher observation refuses an unpinned session before capability publication");
+
+        const string caseVariant = @"C:\Synthetic-Claude-Tolerant\CLAUDE.exe";
+        var casePinned = new Source { Version = Pin.Version, Hash = Pin.Sha256, ImagePaths = [original, caseVariant] };
+        await using (var provider = new ClaudeNativeProvider(casePinned, enablePeerCredentials: true, updateTolerantDelivery: true))
+            check((await provider.DiscoverAsync(CancellationToken.None)).Count == 0 && casePinned.ImagePathReads == 2 &&
+                casePinned.ImageHashReads == 1 && casePinned.TrustReads == 0,
+                L + "case-only kernel path drift after a pinned image hash refuses discovery by ordinal identity");
+
+        var caseTolerant = new Source { ImagePaths = [original, caseVariant] };
+        await using (var provider = new ClaudeNativeProvider(caseTolerant, enablePeerCredentials: true, updateTolerantDelivery: true))
+            check((await provider.DiscoverAsync(CancellationToken.None)).Count == 0 && caseTolerant.ImagePathReads == 2 &&
+                caseTolerant.TrustReads == 1,
+                L + "case-only kernel path drift after publisher observation refuses discovery by ordinal identity");
     }
 
     // The note names the build as people see it (coordinator, 2026-11-02): the file version's zero fourth part is dropped.
@@ -351,7 +440,9 @@ internal static class ClaudeUpdateTolerantChecks
         internal string Image = @"C:\Synthetic-Claude-Tolerant\claude.exe";
         internal string Version = UpdatedVersion;
         internal string Hash = new('C', 64);
-        internal int TrustReads;
+        internal int TrustReads, ImageHashReads, ImagePathReads;
+        internal string[]? ImagePaths;
+        internal Func<int, IClaudeDiscoveryProcess>? ProcessFactory;
         internal ClaudePublicImageTrustResult Trust = new(ClaudePublicImageTrust.ExpectedPublisher, SignedHash);
         internal NativeSessionMetadata Metadata;
         internal Source()
@@ -361,19 +452,50 @@ internal static class ClaudeUpdateTolerantChecks
         }
         public IReadOnlyList<int> GetProcessIds() => [Pid];
         public NativeSessionMetadata ReadMetadata(int processId) => Metadata;
-        public IClaudeDiscoveryProcess OpenProcess(int processId) => new ProcessView(this);
+        public IClaudeDiscoveryProcess OpenProcess(int processId) => ProcessFactory?.Invoke(processId) ?? new ProcessView(this);
         public void RejectReparseComponents(string image) { }
         public string? ReadProductVersion(string image) => Version;
-        public string ReadImageSha256(string image) => Hash;
+        public string ReadImageSha256(string image) { ImageHashReads++; return Hash; }
         public ClaudePublicImageTrustResult ObserveUnpinnedPublicImage(string image) { TrustReads++; return Trust with { }; }
         private sealed class ProcessView(Source source) : IClaudeDiscoveryProcess
         {
             public string ProcessName => "claude";
-            public string ImagePath => source.Image;
+            public string ImagePath
+            {
+                get
+                {
+                    int index = source.ImagePathReads++;
+                    return source.ImagePaths is { Length: > 0 } paths ? paths[Math.Min(index, paths.Length - 1)] : source.Image;
+                }
+            }
             public ulong StartFileTime => source.Started;
             public bool IsCurrentUser => true;
             public bool HasExited => false;
             public void Dispose() { }
+        }
+    }
+
+    private sealed class DiscoveryKernelOperations(string image, ulong started) : IKernelProcessOperations
+    {
+        internal readonly SafeProcessHandle Handle = new(new IntPtr(1234), ownsHandle: false);
+        internal int Opens, ElevationReads, Queries;
+        internal uint Access;
+        internal bool Elevated, ElevationUnavailable, ExactHandle = true;
+        public SafeProcessHandle Open(int processId, uint access) { Opens++; Access = access; return Handle; }
+        private void Observe(SafeProcessHandle handle) => ExactHandle &= ReferenceEquals(handle, Handle) && !handle.IsClosed;
+        public bool QueryImagePath(SafeProcessHandle handle, uint flags, StringBuilder path, ref uint length)
+        {
+            Observe(handle); Queries++; ExactHandle &= flags == 0;
+            path.Clear().Append(image); length = (uint)image.Length; return true;
+        }
+        public ulong StartFileTime(SafeProcessHandle handle) { Observe(handle); return started; }
+        public uint ExitCode(SafeProcessHandle handle) { Observe(handle); return 259; }
+        public bool IsCurrentUser(SafeProcessHandle handle) { Observe(handle); return true; }
+        public bool IsElevated(SafeProcessHandle handle)
+        {
+            Observe(handle); ElevationReads++;
+            if (ElevationUnavailable) throw new Win32Exception(5);
+            return Elevated;
         }
     }
 }

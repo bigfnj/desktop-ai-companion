@@ -82,6 +82,8 @@ public sealed class NativePeerAdapter(INativePeerConnectionFactory connections, 
         }
         catch (OperationCanceledException) when (userWriteStarted)
         { return new(SubmissionStatus.SubmittedUnconfirmed, "native_write_uncertain"); }
+        catch (NativeImagePathMismatchException)
+        { return Refused("native_image_path_mismatch"); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException
             or System.ComponentModel.Win32Exception or InvalidOperationException or ArgumentException or NotSupportedException)
         {
