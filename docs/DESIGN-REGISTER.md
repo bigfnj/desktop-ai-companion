@@ -6050,11 +6050,18 @@ with `PROCESS_QUERY_LIMITED_INFORMATION`, rather than trusting `Process.MainModu
 process handle and its immutable image lease through the writes. `NativeImageBinding` compares the kernel path with the
 leased path after acquisition and before and after held-path validation at reinspection; disagreement returns
 `native_image_path_mismatch` before authentication (acquisition disagreement also precedes credentials). Pinned/cache
-discovery re-queries the image path too. Fake kernel readers and leases exercise the actual binding, credential-read and
-write ordering for both pin and publisher modes; the selected image-path mutation runner requires a rebuilt artifact,
-the named failing assertion and SHA-256 source restoration. The recorded synthetic Windows move/replacement probe is the
-OS primitive evidence. These kernel-path checks address that stale-name case; separate path samples or a file ID from a
-reopened pathname are not an atomic mapped-section identity attestation, and ancestor rename/reparse races remain unproved.
+discovery re-queries the image path too. A successful limited-query open does not admit an elevated session: TokenElevation
+must verify an unelevated token, and elevated or unknown elevation is counted and skipped before candidate publication.
+Injected OS leaves exercise the actual constructor, discovery process wrapper, connection composition and reinspection,
+credential-read and write ordering for both pin and publisher modes; the selected image-path mutation runner requires a newer rebuilt artifact
+whose SHA-256 differs from its healthy family baseline, the named failing assertion and SHA-256 source restoration.
+The kernel path reader refuses UNC, extended UNC, and all paths without a DOS drive letter, including local volume-GUID
+and non-DOS device paths. Mapped network drives have not been measured; a UNC result or a mismatch between kernel and
+final-handle paths is refused. Supported extended DOS paths are normalized before comparison.
+The recorded synthetic Windows move/replacement probe is the OS primitive evidence. These checks
+address that stale-name case. Hashing or signature-checking a file does not prove the code executing in the process.
+Separate path samples or a file ID from a reopened pathname are not an atomic mapped-section identity attestation,
+and ancestor rename/reparse races remain unproved.
 
 The gap the owner accepts: how an unreviewed build handles the authenticated peer frame is not re-proved. A re-pin review
 compares five peer-classification and admission sites token for token with a reviewed image; this rule cannot, and the

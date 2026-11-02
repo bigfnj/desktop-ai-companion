@@ -7,48 +7,85 @@ using Microsoft.Win32.SafeHandles;
 
 namespace AgentBroker.ClaudeAdapter;
 
-/// <summary>Prepared production transport. Synthetic tests never invoke this OS/process implementation.</summary>
-public sealed class WindowsNativePeerConnectionFactory(Action<string>? stageObserver = null) : INativePeerConnectionFactory
+internal interface INativePipeLease : IDisposable
 {
+    int ServerProcessId { get; }
+    Stream Outbound { get; }
+    void ValidateSecurity();
+}
+
+/// <summary>Production connection composition. Tests inject OS boundaries, not a replacement connection.</summary>
+public sealed class WindowsNativePeerConnectionFactory : INativePeerConnectionFactory
+{
+    private readonly Func<string, CancellationToken, Task<INativePipeLease>> connect;
+    private readonly Func<int, INativeImageProcess> openProcess;
+    private readonly Func<string, INativeImageLease> acquireImage;
+    private readonly Action<string>? stageObserver;
+
+    public WindowsNativePeerConnectionFactory(Action<string>? stageObserver = null)
+        : this(ConnectWindowsAsync, pid => new KernelProcessImage(pid), path => new LockedPublicImage(path), stageObserver) { }
+
+    internal WindowsNativePeerConnectionFactory(Func<string, CancellationToken, Task<INativePipeLease>> connect,
+        Func<int, INativeImageProcess> openProcess, Func<string, INativeImageLease> acquireImage,
+        Action<string>? stageObserver = null)
+    {
+        this.connect = connect; this.openProcess = openProcess; this.acquireImage = acquireImage;
+        this.stageObserver = stageObserver;
+    }
+
     public async Task<INativePeerConnection> ConnectAsync(string pipeName, CancellationToken cancellation)
     {
-        if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException();
         stageObserver?.Invoke("pipe_create");
+        stageObserver?.Invoke("pipe_connect");
+        var pipe = await connect(pipeName, cancellation).ConfigureAwait(false);
+        try
+        {
+            stageObserver?.Invoke("pipe_connected");
+            return new Connection(pipe, openProcess, acquireImage, stageObserver);
+        }
+        catch { pipe.Dispose(); throw; }
+    }
+
+    private static async Task<INativePipeLease> ConnectWindowsAsync(string pipeName, CancellationToken cancellation)
+    {
+        if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException();
         // .NET CurrentUserOnly compares pipe owner to the token's default Owner, which can differ
         // from its User SID. Validate actual connected server identity and pipe User ownership below.
         var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
         try
         {
-            stageObserver?.Invoke("pipe_connect");
             await pipe.ConnectAsync(5000, cancellation).ConfigureAwait(false);
-            stageObserver?.Invoke("pipe_connected");
-            return new Connection(pipe, stageObserver);
+            return new WindowsPipeLease(pipe);
         }
         catch { pipe.Dispose(); throw; }
     }
 
     private sealed class Connection : INativePeerConnection
     {
-        private readonly NamedPipeClientStream pipe;
+        private readonly INativePipeLease pipe;
         private NativeImageBinding? binding;
+        private bool disposed;
         public bool EnforcesCurrentUser => true;
         public NativeProcessIdentity Identity => binding!.Identity;
-        public Stream Outbound => pipe;
-        internal Connection(NamedPipeClientStream pipe, Action<string>? stageObserver)
+        public Stream Outbound => pipe.Outbound;
+        internal Connection(INativePipeLease pipe, Func<int, INativeImageProcess> openProcess,
+            Func<string, INativeImageLease> acquireImage, Action<string>? stageObserver)
         {
             this.pipe = pipe;
-            KernelProcessImage? process = null;
+            INativeImageProcess? process = null;
             try
             {
                 stageObserver?.Invoke("server_pid");
-                int pid = ServerProcessId(pipe);
-                process = new KernelProcessImage(pid);
+                int pid = pipe.ServerProcessId;
+                process = openProcess(pid);
                 stageObserver?.Invoke("pipe_owner_and_dacl");
-                ValidatePipeSecurity(pipe.SafePipeHandle);
+                pipe.ValidateSecurity();
                 stageObserver?.Invoke("server_public_image_hash");
-                binding = new NativeImageBinding(process, path => new LockedPublicImage(path));
-                process = null; // The binding owns the retained process handle as well as the file lease.
-                if (ServerProcessId(pipe) != pid) throw new IOException("Native process identity changed.");
+                // Transfer before construction: the binding owns cleanup even when its constructor throws.
+                var ownedProcess = process;
+                process = null;
+                binding = new NativeImageBinding(ownedProcess, acquireImage);
+                if (pipe.ServerProcessId != pid) throw new IOException("Native process identity changed.");
                 stageObserver?.Invoke("identity_observed");
             }
             catch { binding?.Dispose(); throw; }
@@ -57,18 +94,28 @@ public sealed class WindowsNativePeerConnectionFactory(Action<string>? stageObse
         public NativeProcessIdentity Reinspect()
         {
             if (binding is null) throw new ObjectDisposedException(nameof(Connection));
-            if (ServerProcessId(pipe) != Identity.ProcessId) throw new IOException("Native process identity changed.");
-            ValidatePipeSecurity(pipe.SafePipeHandle);
+            if (pipe.ServerProcessId != Identity.ProcessId) throw new IOException("Native process identity changed.");
+            pipe.ValidateSecurity();
             var identity = binding.Reinspect();
-            if (ServerProcessId(pipe) != identity.ProcessId) throw new IOException("Native process identity changed.");
+            if (pipe.ServerProcessId != identity.ProcessId) throw new IOException("Native process identity changed.");
             return identity;
         }
         public ValueTask DisposeAsync()
         {
+            if (disposed) return ValueTask.CompletedTask;
+            disposed = true;
             try { binding?.Dispose(); binding = null; }
             finally { pipe.Dispose(); }
             return ValueTask.CompletedTask;
         }
+    }
+
+    private sealed class WindowsPipeLease(NamedPipeClientStream pipe) : INativePipeLease
+    {
+        public int ServerProcessId => WindowsNativePeerConnectionFactory.ServerProcessId(pipe);
+        public Stream Outbound => pipe;
+        public void ValidateSecurity() => ValidatePipeSecurity(pipe.SafePipeHandle);
+        public void Dispose() => pipe.Dispose();
     }
 
     private static int ServerProcessId(NamedPipeClientStream pipe)

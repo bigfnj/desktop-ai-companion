@@ -47,11 +47,18 @@ before credential authentication; no credential or message is sent merely to tes
 Each connection hashes a retained read-only public executable handle once. `KernelProcessImage` queries
 `QueryFullProcessImageNameW` on one retained limited-query process handle; `NativeImageBinding` compares
 that kernel path after acquiring the image lease and around reinspection's held-path validation.
+A successful limited-query open does not admit an elevated session: `TokenElevation` must verify an
+unelevated token. Elevated or unknown elevation is counted and skipped before discovery publishes a candidate.
 `native_image_path_mismatch` refuses an acquisition disagreement before credentials, or a later
 disagreement before authentication. Both leases survive through the writes; the file sharing mode
 denies edits/replacement, and reinspection also checks server PID/start/user/ACL. No hash trust persists
-across connections. This addresses the stale module-list path after an executable move; path samples
-do not claim atomic mapped-section file identity. Discovery uses public version metadata only to refuse unsupported updates cheaply;
+across connections. The kernel path reader refuses UNC, extended UNC, and all paths without a DOS drive
+letter, including local volume-GUID and non-DOS device paths. Mapped network drives have not been measured;
+a UNC result or a mismatch between kernel and final-handle paths is refused. Supported extended DOS paths
+are normalized before comparison. This addresses
+the stale module-list path after an executable move. Hashing or signature-checking the file does not prove
+the code executing in the process, and separate path samples do not prove atomic mapped-section file identity.
+Discovery uses public version metadata only to refuse unsupported updates cheaply;
 a supported version still needs the exact full-image hash. Unknown versions never gain trust from
 version text alone.
 

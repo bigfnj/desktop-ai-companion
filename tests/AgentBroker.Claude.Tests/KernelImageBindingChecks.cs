@@ -6,12 +6,13 @@ using AgentBroker.ClaudeAdapter;
 using Microsoft.Win32.SafeHandles;
 
 // All paths, process/image leases, credentials and writes here are synthetic and in memory.
-// The fake transport invokes the production NativeImageBinding rather than supplying a preapproved identity.
+// Only the OS leaves are fake: the production connection constructs and reinspects the production binding.
 internal static class KernelImageBindingChecks
 {
     private const string L = "KernelImageBindingChecks.cs: ";
     private const string Image = @"C:\SyntheticPublic\claude.exe";
     private const string Displaced = @"C:\SyntheticDisplaced\claude.exe";
+    private const string CaseVariant = @"C:\SyntheticPublic\CLAUDE.exe";
     private const string Pipe = @"\\.\pipe\cc-msg-0123456789abcdef0123456789abcdef";
     private const string Session = "11111111-2222-4333-8444-555555555555";
     private const string TolerantHash = "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD";
@@ -50,6 +51,19 @@ internal static class KernelImageBindingChecks
         await ReinspectionRefusal(check, target, afterVerify, expectedReads: 4, expectedVerifications: 1,
             "after held-path verification");
 
+        var caseAcquire = new Factory(pin.Sha256, [Image, CaseVariant]);
+        var caseAcquireCredentials = new Credentials(caseAcquire);
+        var caseAcquireResult = await new NativePeerAdapter(caseAcquire, caseAcquireCredentials).SendAsync(target, Message(), @"C:\SyntheticUser");
+        check(IsPathRefusal(caseAcquireResult) && caseAcquireCredentials.Reads == 0 && caseAcquire.Output.Frames.Count == 0 &&
+            DisposedOnce(caseAcquire),
+            L + "case-variant post-lease kernel path refuses by ordinal identity before credentials");
+        var caseReinspect = new Factory(pin.Sha256, [Image, Image, CaseVariant]);
+        var caseReinspectCredentials = new Credentials(caseReinspect);
+        var caseReinspectResult = await new NativePeerAdapter(caseReinspect, caseReinspectCredentials).SendAsync(target, Message(), @"C:\SyntheticUser");
+        check(IsPathRefusal(caseReinspectResult) && caseReinspectCredentials.Reads == 1 && caseReinspectCredentials.BytesWiped &&
+            caseReinspect.Output.Frames.Count == 0 && caseReinspect.Process.PathReads == 3 && DisposedOnce(caseReinspect),
+            L + "case-variant reinspection kernel path refuses by ordinal identity before authentication");
+
         var pinned = new Factory(pin.Sha256, [Image]);
         var pinnedCredentials = new Credentials(pinned);
         var neverAsked = new Trust(pinned, accepts: false);
@@ -62,6 +76,9 @@ internal static class KernelImageBindingChecks
             L + "WITNESS: pinned writes use the production four-query binding with both leases alive inside each write");
         check(DisposedOnce(pinned) && DisposedAfterWrites(pinned),
             L + "pinned success releases process and image leases only after both frame writes");
+        await pinned.LastConnection!.DisposeAsync();
+        check(DisposedOnce(pinned),
+            L + "disposing the actual production connection again does not release process image or pipe twice");
 
         var tolerantTarget = target with { EngineVersion = "2.1.999", ImageSha256 = TolerantHash };
         var tolerant = new Factory(TolerantHash, [Image]);
@@ -88,40 +105,55 @@ internal static class KernelImageBindingChecks
 
     private static void KernelQuery(Action<bool, string> check)
     {
-        int calls = 0;
-        bool exact = true;
+        var ops = new KernelOperations();
         bool queried = false;
         string? first = null, second = null;
+        bool metadata = false;
         try
         {
-            using var handle = new SafeProcessHandle(new IntPtr(1234), ownsHandle: false);
-            using var process = new KernelProcessImage(12345, handle,
-                (SafeProcessHandle observed, uint flags, StringBuilder path, ref uint size) =>
-                {
-                    calls++; exact &= ReferenceEquals(observed, handle) && flags == 0;
-                    path.Clear().Append(Image); size = (uint)Image.Length; return true;
-                });
+            using var process = new KernelProcessImage(12345, ops);
             first = process.ImagePath; second = process.ImagePath; queried = true;
+            metadata = process.ProcessId == 12345 && process.StartFileTime == Start && !process.HasExited && process.IsCurrentUser;
         }
         // A mutant that bypasses the injectable query calls the real API with this deliberately invalid handle.
         // Convert that expected native error to this specific witness failure, rather than an unlabeled outer crash.
         catch (Exception error) when (error is Win32Exception or IOException or InvalidOperationException or ArgumentException) { }
-        check(queried && first == Image && second == Image && calls == 2 && exact,
+        check(queried && first == Image && second == Image && ops.Queries == 2 && ops.ExactHandle && ops.QueryFlagsZero,
             L + "WITNESS: each ImagePath read invokes the supplied kernel query on the same process handle with flags zero");
-        int failures = 0;
+        check(metadata && ops.Opens == 1 && ops.ProcessId == 12345 && ops.Access == 0x1000 &&
+            ops.ElevationReads == 1 && ops.StartReads == 1 && ops.ExitReads == 1 && ops.UserReads == 1 && ops.ExactHandle,
+            L + "production kernel construction opens limited-query only and reads token and metadata from that retained handle");
+        check(ops.Handle.IsClosed,
+            L + "production kernel success closes its retained process handle after all metadata reads");
+        var deniedQuery = new KernelOperations { QueryAllowed = false };
         bool refused = false;
-        using (var handle = new SafeProcessHandle(new IntPtr(1234), ownsHandle: false))
-        using (var process = new KernelProcessImage(12345, handle,
-            (SafeProcessHandle observed, uint flags, StringBuilder path, ref uint size) =>
-            {
-                failures++; Marshal.SetLastPInvokeError(5); return false;
-            }))
+        using (var process = new KernelProcessImage(12345, deniedQuery))
         {
             try { _ = process.ImagePath; }
             catch (Win32Exception) { refused = true; }
         }
-        check(refused && failures == 1,
+        check(refused && deniedQuery.Queries == 1 && deniedQuery.Handle.IsClosed,
             L + "a refused kernel image query fails closed without a MainModule or pathname fallback");
+
+        var elevated = new KernelOperations { Elevated = true };
+        bool elevatedRefused = false;
+        try { using var process = new KernelProcessImage(12345, elevated); }
+        catch (Win32Exception error) when (error.NativeErrorCode == 5) { elevatedRefused = true; }
+        check(elevatedRefused && elevated.Opens == 1 && elevated.Access == 0x1000 && elevated.ElevationReads == 1 &&
+            elevated.Queries == 0 && elevated.StartReads == 0 && elevated.Handle.IsClosed,
+            L + "limited-query open success with an elevated token is refused by access-denied before image metadata and closes the handle");
+
+        check(KernelProcessImage.NormalizePath(@"\\?\C:\SyntheticPublic\claude.exe") == Image &&
+            KernelProcessImage.NormalizePath(Image) == Image,
+            L + "kernel path normalization strips a local extended prefix and preserves an ordinary local executable path");
+        bool invalidRefused = true;
+        foreach (string invalid in new[] { @"\\server\share\claude.exe", @"\\?\UNC\server\share\claude.exe", @"relative\claude.exe", @"C:\SyntheticPublic\claude.txt" })
+        {
+            try { _ = KernelProcessImage.NormalizePath(invalid); invalidRefused = false; }
+            catch (IOException) { }
+        }
+        check(invalidRefused,
+            L + "kernel path normalization refuses UNC extended-UNC relative and non-executable paths");
     }
 
     private static async Task ReinspectionRefusal(Action<bool, string> check, NativeTarget target, Factory factory,
@@ -142,13 +174,15 @@ internal static class KernelImageBindingChecks
     private static bool IsPathRefusal(SubmissionResult result)
         => result.Status == SubmissionStatus.Refused && result.Reason == "native_image_path_mismatch";
     private static bool DisposedOnce(Factory factory)
-        => factory.Process.Disposals == 1 && factory.Lease?.Disposals == 1;
+        => factory.Process.Disposals == 1 && factory.Lease?.Disposals == 1 && factory.Pipe.Disposals == 1;
     private static bool DisposedAfterWrites(Factory factory)
         => factory.Events.IndexOf("process.dispose") > factory.Events.IndexOf("write.2") &&
             factory.Events.IndexOf("image.dispose") > factory.Events.IndexOf("write.2");
     private static bool CompleteBindingWitness(Factory factory)
         => factory.Process.PathReads == 4 && factory.Lease?.Verifications == 1 &&
-            factory.Output.LeasesAlive.SequenceEqual([true, true]);
+            factory.Output.LeasesAlive.SequenceEqual([true, true]) && factory.Pipe.PidReads == 4 && factory.Pipe.SecurityChecks == 2 &&
+            factory.Events.Contains("connection.identity_observed") &&
+            factory.Events.IndexOf("connection.identity_observed") < factory.Events.IndexOf("credential.read");
     private static bool TwoOrderedFrames(Factory factory)
     {
         if (factory.Output.Frames.Count != 2) return false;
@@ -159,6 +193,27 @@ internal static class KernelImageBindingChecks
     }
     private static NativeMessage Message() => new(Guid.Parse("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"),
         Session, "Synthetic kernel-bound peer delivery.", RecipientMode.Prompting, Activity: NativeActivity.Idle);
+
+    private sealed class KernelOperations : IKernelProcessOperations
+    {
+        internal readonly SafeProcessHandle Handle = new(new IntPtr(1234), ownsHandle: false);
+        internal int Opens, ProcessId, Queries, ElevationReads, StartReads, ExitReads, UserReads;
+        internal uint Access;
+        internal bool ExactHandle = true, QueryFlagsZero = true, QueryAllowed = true, Elevated;
+        public SafeProcessHandle Open(int processId, uint access)
+        { Opens++; ProcessId = processId; Access = access; return Handle; }
+        private void Observe(SafeProcessHandle handle) => ExactHandle &= ReferenceEquals(handle, Handle) && !handle.IsClosed;
+        public bool QueryImagePath(SafeProcessHandle handle, uint flags, StringBuilder path, ref uint length)
+        {
+            Observe(handle); Queries++; QueryFlagsZero &= flags == 0;
+            if (!QueryAllowed) { Marshal.SetLastPInvokeError(5); return false; }
+            path.Clear().Append(Image); length = (uint)Image.Length; return true;
+        }
+        public ulong StartFileTime(SafeProcessHandle handle) { Observe(handle); StartReads++; return Start; }
+        public uint ExitCode(SafeProcessHandle handle) { Observe(handle); ExitReads++; return 259; }
+        public bool IsCurrentUser(SafeProcessHandle handle) { Observe(handle); UserReads++; return true; }
+        public bool IsElevated(SafeProcessHandle handle) { Observe(handle); ElevationReads++; return Elevated; }
+    }
 
     private sealed class Process(List<string> events, string[] paths) : INativeImageProcess
     {
@@ -199,33 +254,35 @@ internal static class KernelImageBindingChecks
         internal readonly List<string> Events = [];
         internal readonly Process Process;
         internal readonly Output Output;
+        internal readonly PipeLease Pipe;
         internal ImageLease? Lease;
+        internal INativePeerConnection? LastConnection;
         internal string LeasePath = Image;
         internal int Acquires, Connects;
         private readonly string hash;
         internal Factory(string hash, string[] paths)
         {
-            this.hash = hash; Process = new(Events, paths); Output = new(this);
+            this.hash = hash; Process = new(Events, paths); Output = new(this); Pipe = new(this);
         }
-        internal bool LeasesAlive => !Process.Disposed && Lease is { Disposed: false };
-        public Task<INativePeerConnection> ConnectAsync(string pipeName, CancellationToken cancellation)
+        internal bool LeasesAlive => !Process.Disposed && Lease is { Disposed: false } && Pipe.Disposals == 0;
+        public async Task<INativePeerConnection> ConnectAsync(string pipeName, CancellationToken cancellation)
         {
             Connects++;
-            var binding = new NativeImageBinding(Process, path =>
-            {
-                Acquires++; Events.Add("image.acquire");
-                return Lease = new ImageLease(Events, LeasePath, hash);
-            });
-            return Task.FromResult<INativePeerConnection>(new Connection(binding, Output));
+            var factory = new WindowsNativePeerConnectionFactory(
+                (_, token) => { token.ThrowIfCancellationRequested(); Events.Add("pipe.connect"); return Task.FromResult<INativePipeLease>(Pipe); },
+                pid => { Events.Add("process.open"); if (pid != Process.ProcessId) throw new IOException("Synthetic PID mismatch."); return Process; },
+                path => { Acquires++; Events.Add("image.acquire"); return Lease = new ImageLease(Events, LeasePath, hash); },
+                stage => Events.Add("connection." + stage));
+            return LastConnection = await factory.ConnectAsync(pipeName, cancellation);
         }
     }
-    private sealed class Connection(NativeImageBinding binding, Output output) : INativePeerConnection
+    private sealed class PipeLease(Factory factory) : INativePipeLease
     {
-        public bool EnforcesCurrentUser => true;
-        public NativeProcessIdentity Identity => binding.Identity;
-        public Stream Outbound => output;
-        public NativeProcessIdentity Reinspect() => binding.Reinspect();
-        public ValueTask DisposeAsync() { binding.Dispose(); return ValueTask.CompletedTask; }
+        internal int PidReads, SecurityChecks, Disposals;
+        public int ServerProcessId { get { PidReads++; factory.Events.Add("pipe.pid"); return 12345; } }
+        public Stream Outbound => factory.Output;
+        public void ValidateSecurity() { SecurityChecks++; factory.Events.Add("pipe.security"); }
+        public void Dispose() { Disposals++; factory.Events.Add("pipe.dispose"); }
     }
     private sealed class Credentials(Factory factory) : IPeerCredentialSource
     {

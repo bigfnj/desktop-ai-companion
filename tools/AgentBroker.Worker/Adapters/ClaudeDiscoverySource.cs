@@ -33,6 +33,13 @@ internal interface IClaudeDiscoveryProcess : IDisposable
 
 internal sealed class WindowsClaudeDiscoverySource : IClaudeDiscoverySource
 {
+    private readonly Func<int, KernelProcessImage> openImage;
+
+    public WindowsClaudeDiscoverySource() : this(processId => new KernelProcessImage(processId)) { }
+
+    internal WindowsClaudeDiscoverySource(Func<int, KernelProcessImage> openImage)
+        => this.openImage = openImage ?? throw new ArgumentNullException(nameof(openImage));
+
     public IReadOnlyList<int> GetProcessIds()
     {
         var processes = Process.GetProcessesByName("claude");
@@ -41,7 +48,7 @@ internal sealed class WindowsClaudeDiscoverySource : IClaudeDiscoverySource
     }
 
     public NativeSessionMetadata ReadMetadata(int processId) => NativeMetadataReader.ReadDefaultHomeProcess(processId);
-    public IClaudeDiscoveryProcess OpenProcess(int processId) => new PublicProcess(new KernelProcessImage(processId));
+    public IClaudeDiscoveryProcess OpenProcess(int processId) => new PublicProcess(openImage(processId));
     public void RejectReparseComponents(string image) => CredentialPathPolicy.RejectReparseComponents(image, File.GetAttributes);
     public string? ReadProductVersion(string image) => FileVersionInfo.GetVersionInfo(image).ProductVersion;
     public string ReadImageSha256(string image)

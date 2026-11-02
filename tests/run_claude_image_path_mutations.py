@@ -1,4 +1,4 @@
-"""Five focused, rebuilt witnesses for Claude's kernel image-path binding.
+"""Focused, rebuilt witnesses for Claude's kernel image-path binding.
 
 The default prints a plan and changes nothing. In an exclusive build window:
   python tests/run_claude_image_path_mutations.py --apply --report <scratch/report.json>
@@ -52,13 +52,19 @@ FAMILIES = {
                      CLAUDE_OUTPUT / "AgentBroker.ClaudeAdapter.dll",
                      ("--kernel-image-binding-only",), "KernelImageBindingChecks.cs",
                      "FAIL: System.InvalidOperationException: ",
-                     "KernelImageBindingChecks.cs: WITNESS", 24),
+                     "KernelImageBindingChecks.cs: WITNESS", 32),
     "worker": Family("tests/AgentBroker.Worker.Tests/AgentBroker.Worker.Tests.csproj",
                      WORKER_OUTPUT / "AgentBroker.Worker.Tests.dll",
                      WORKER_OUTPUT / "AgentBroker.Worker.dll",
                      ("--claude-update-tolerant-case", "image-path"), "ClaudeUpdateTolerantChecks.cs",
                      "System.InvalidOperationException: ",
-                     "ClaudeUpdateTolerantChecks.cs: WITNESS: the path-drift cache case first establishes one real provider pin-cache entry", 4),
+                     "ClaudeUpdateTolerantChecks.cs: WITNESS: the path-drift cache case first establishes one real provider pin-cache entry", 6),
+    "worker-kernel": Family("tests/AgentBroker.Worker.Tests/AgentBroker.Worker.Tests.csproj",
+                            WORKER_OUTPUT / "AgentBroker.Worker.Tests.dll",
+                            WORKER_OUTPUT / "AgentBroker.ClaudeAdapter.dll",
+                            ("--claude-update-tolerant-case", "kernel-process"), "ClaudeUpdateTolerantChecks.cs",
+                            "System.InvalidOperationException: ",
+                            "ClaudeUpdateTolerantChecks.cs: WITNESS: actual public-process wrapper discovers an unelevated pinned session through the retained kernel handle (tolerant=False)", 5),
 }
 
 
@@ -76,7 +82,7 @@ WITNESSES = (
     Witness("kernel-query-seam", "tools/AgentBroker.ClaudeAdapter/KernelProcessImage.cs",
             "            if (!query(process, 0, path, ref length)) throw new Win32Exception(Marshal.GetLastWin32Error());",
             "            _ = query; // Keep the field read; only the query seam is bypassed.\n"
-            "            if (!QueryFullProcessImageNameW(process, 0, path, ref length)) throw new Win32Exception(Marshal.GetLastWin32Error());",
+            "            if (!WindowsKernelProcessOperations.Instance.QueryImagePath(process, 0, path, ref length)) throw new Win32Exception(Marshal.GetLastWin32Error());",
             "WITNESS: each ImagePath read invokes the supplied kernel query on the same process handle with flags zero"),
     Witness("post-lease-binding", "tools/AgentBroker.ClaudeAdapter/NativeImageBinding.cs",
             "            RequireSamePath(process.ImagePath, image.ImagePath); // Post-lease kernel query.\n",
@@ -90,7 +96,7 @@ WITNESSES = (
             "kernel path change before held-path verification at reinspection refuses by name before the auth frame"),
     Witness("worker-discovery-post-path", "tools/AgentBroker.Worker/Adapters/ClaudeNativeProvider.cs",
             "            if (process.StartFileTime != started ||\n"
-            "                !string.Equals(process.ImagePath, image, StringComparison.OrdinalIgnoreCase))\n"
+            "                !string.Equals(process.ImagePath, image, StringComparison.Ordinal))\n"
             "                return Task.FromResult<ClaudeNativeCandidate?>(null);\n",
             "",
             "kernel path drift after a cold pinned image hash refuses discovery before advertising a session",
@@ -99,6 +105,35 @@ WITNESSES = (
             "            RequireSamePath(before, image.ImagePath);\n",
             "",
             "an image lease for a different initial kernel path refuses before credentials"),
+    Witness("ordinal-path-binding", "tools/AgentBroker.ClaudeAdapter/NativeImageBinding.cs",
+            "        if (!string.Equals(KernelProcessImage.NormalizePath(current), KernelProcessImage.NormalizePath(expected), StringComparison.Ordinal))",
+            "        if (!string.Equals(KernelProcessImage.NormalizePath(current), KernelProcessImage.NormalizePath(expected), StringComparison.OrdinalIgnoreCase))",
+            "case-variant post-lease kernel path refuses by ordinal identity before credentials"),
+    Witness("connection-reinspection-binding", "tools/AgentBroker.ClaudeAdapter/WindowsNativePeerConnection.cs",
+            "            var identity = binding.Reinspect();",
+            "            var identity = binding.Identity;",
+            "kernel path change before held-path verification at reinspection refuses by name before the auth frame"),
+    Witness("kernel-elevation-admission", "tools/AgentBroker.ClaudeAdapter/KernelProcessImage.cs",
+            "            if (operations.IsElevated(process)) throw new Win32Exception(5);\n",
+            "",
+            "limited-query open success with an elevated token is counted and skipped by actual discovery before image trust (tolerant=False)",
+            family="worker-kernel"),
+    Witness("worker-pinned-ordinal-path", "tools/AgentBroker.Worker/Adapters/ClaudeNativeProvider.cs",
+            "            if (process.StartFileTime != started ||\n"
+            "                !string.Equals(process.ImagePath, image, StringComparison.Ordinal))\n"
+            "                return Task.FromResult<ClaudeNativeCandidate?>(null);\n",
+            "            if (process.StartFileTime != started ||\n"
+            "                !string.Equals(process.ImagePath, image, StringComparison.OrdinalIgnoreCase))\n"
+            "                return Task.FromResult<ClaudeNativeCandidate?>(null);\n",
+            "case-only kernel path drift after a pinned image hash refuses discovery by ordinal identity",
+            family="worker"),
+    Witness("worker-unpinned-ordinal-path", "tools/AgentBroker.Worker/Adapters/ClaudeNativeProvider.cs",
+            "        if (process.HasExited || !process.IsCurrentUser || process.StartFileTime != started ||\n"
+            "            !string.Equals(process.ImagePath, image, StringComparison.Ordinal)) return null;\n",
+            "        if (process.HasExited || !process.IsCurrentUser || process.StartFileTime != started ||\n"
+            "            !string.Equals(process.ImagePath, image, StringComparison.OrdinalIgnoreCase)) return null;\n",
+            "case-only kernel path drift after publisher observation refuses discovery by ordinal identity",
+            family="worker"),
 )
 
 
@@ -198,6 +233,12 @@ def require_rebuilt(before: dict, after: dict) -> None:
         raise RuntimeError("Loaded adapter artifact was not proven rebuilt.")
 
 
+def require_mutant_artifact(healthy: dict, mutated: dict) -> None:
+    if (healthy["sha256"] is None or mutated["sha256"] is None or
+            mutated["sha256"] == healthy["sha256"]):
+        raise RuntimeError("Mutant product artifact did not differ from its healthy family baseline.")
+
+
 def grade_healthy(result: dict, family: str = "claude") -> int:
     expected = FAMILIES[family]
     text = result["output"]
@@ -258,7 +299,7 @@ class Runner:
                 "output": out_path.read_text(encoding="utf-8", errors="replace") + "\n" +
                           err_path.read_text(encoding="utf-8", errors="replace")}
 
-    def build(self, family: str, label: str) -> dict:
+    def build(self, family: str, label: str, healthy_artifact: dict | None = None) -> dict:
         expected = FAMILIES[family]
         before = artifact_state(ROOT / expected.artifact)
         result = self.invoke(label, ["dotnet", "build", expected.project, "-c", "Release", "--no-restore",
@@ -268,7 +309,11 @@ class Runner:
             raise RuntimeError("Build failure is not a killed witness: " + label)
         after = artifact_state(ROOT / expected.artifact)
         require_rebuilt(before, after)
-        return {"loadedProductArtifact": expected.artifact.as_posix(), "before": before, "after": after, "rebuilt": True}
+        record = {"loadedProductArtifact": expected.artifact.as_posix(), "before": before, "after": after, "rebuilt": True}
+        if healthy_artifact is not None:
+            require_mutant_artifact(healthy_artifact, after)
+            record.update({"healthyBaselineSha256": healthy_artifact["sha256"], "differsFromHealthy": True})
+        return record
 
     def test(self, family: str, label: str) -> dict:
         expected = FAMILIES[family]
@@ -288,6 +333,10 @@ def self_test(folder: Path) -> dict:
     for name, callback in (
         ("stale artifact refused", lambda: require_rebuilt({"mtimeNs": 2, "sha256": "A"}, {"mtimeNs": 2, "sha256": "B"})),
         ("missing artifact refused", lambda: require_rebuilt({"mtimeNs": 0, "sha256": None}, {"mtimeNs": 0, "sha256": None})),
+        ("newer artifact with healthy hash refused", lambda: require_mutant_artifact(
+            {"mtimeNs": 1, "sha256": "A"}, {"mtimeNs": 2, "sha256": "A"})),
+        ("missing healthy artifact refused", lambda: require_mutant_artifact(
+            {"mtimeNs": 1, "sha256": None}, {"mtimeNs": 2, "sha256": "B"})),
     ):
         try:
             callback()
@@ -297,6 +346,8 @@ def self_test(folder: Path) -> dict:
             raise AssertionError(name)
     require_rebuilt({"mtimeNs": 1, "sha256": "A"}, {"mtimeNs": 2, "sha256": "B"})
     checks.append("advanced artifact accepted")
+    require_mutant_artifact({"mtimeNs": 1, "sha256": "A"}, {"mtimeNs": 2, "sha256": "B"})
+    checks.append("mutant artifact differs from healthy family baseline")
     sample = Witness("synthetic", "first.cs", "original", "mutated", "EXACT_LABEL")
     failure_file = FAMILIES["claude"].failure_file
     failure_prefix = FAMILIES["claude"].failure_prefix
@@ -316,17 +367,18 @@ def self_test(folder: Path) -> dict:
             checks.append(name)
         else:
             raise AssertionError(name)
-    grade_healthy({"exitCode": 0, "output": "PASS: " + healthy_label + "\nRESULT=PASS assertions=24\n"})
+    healthy_count = FAMILIES["claude"].assertions
+    grade_healthy({"exitCode": 0, "output": "PASS: " + healthy_label + f"\nRESULT=PASS assertions={healthy_count}\n"})
     checks.append("healthy witness accepted")
     try:
-        grade_healthy({"exitCode": 0, "output": "RESULT=PASS assertions=24\n"})
+        grade_healthy({"exitCode": 0, "output": f"RESULT=PASS assertions={healthy_count}\n"})
     except RuntimeError:
         checks.append("missing healthy witness refused")
     else:
         raise AssertionError("missing healthy witness refused")
     worker = Witness("synthetic-worker", "first.cs", "original", "mutated", "EXACT_LABEL", "worker")
     grade_negative({"exitCode": 1, "output": "System.InvalidOperationException: ClaudeUpdateTolerantChecks.cs: EXACT_LABEL\nRESULT=FAIL\n"}, worker)
-    grade_healthy({"exitCode": 0, "output": "PASS: " + FAMILIES["worker"].healthy_label + "\nRESULT=PASS assertions=4\n"}, "worker")
+    grade_healthy({"exitCode": 0, "output": "PASS: " + FAMILIES["worker"].healthy_label + "\nRESULT=PASS assertions=6\n"}, "worker")
     checks.append("worker family grades its own witness and inventory")
     try:
         grade_negative(valid_negative, worker)
@@ -334,6 +386,10 @@ def self_test(folder: Path) -> dict:
         checks.append("wrong family test file refused")
     else:
         raise AssertionError("wrong family test file refused")
+    worker_kernel = Witness("synthetic-worker-kernel", "first.cs", "original", "mutated", "EXACT_LABEL", "worker-kernel")
+    grade_negative({"exitCode": 1, "output": "System.InvalidOperationException: ClaudeUpdateTolerantChecks.cs: EXACT_LABEL\nRESULT=FAIL\n"}, worker_kernel)
+    grade_healthy({"exitCode": 0, "output": "PASS: " + FAMILIES["worker-kernel"].healthy_label + "\nRESULT=PASS assertions=5\n"}, "worker-kernel")
+    checks.append("kernel discovery family grades its own witness and inventory")
     first, later = folder / "first.cs", folder / "later.cs"
     first.write_bytes(b"original")
     later.write_bytes(b"original")
@@ -432,7 +488,8 @@ def main() -> int:
             report["witnesses"].append(record)
             try:
                 record["mutatedSourceSha256"] = sources.mutate(witness)
-                record["artifact"] = runner.build(witness.family, witness.name + "-build")
+                record["artifact"] = runner.build(witness.family, witness.name + "-build",
+                                                  report["healthyBefore"][witness.family]["build"]["after"])
                 grade_negative(runner.test(witness.family, witness.name + "-negative"), witness)
                 record["verdict"] = "FIRED"
             finally:

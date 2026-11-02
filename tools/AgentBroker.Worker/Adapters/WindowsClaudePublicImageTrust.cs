@@ -1,9 +1,7 @@
 using System.ComponentModel;
 using System.Formats.Asn1;
-using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
-using System.Security.Principal;
 using AgentBroker.Pins;
 using Microsoft.Win32.SafeHandles;
 
@@ -74,16 +72,6 @@ internal static class WindowsClaudePublicImageTrust
         finally { image?.Dispose(); }
     }
 
-    internal static bool IsCurrentUserProcess(SafeProcessHandle process)
-    {
-        if (!OperatingSystem.IsWindows() || process.IsInvalid ||
-            !OpenProcessToken(process, 0x0008, out var token)) return false;
-        using (token)
-        using (var owner = new WindowsIdentity(token.DangerousGetHandle()))
-        using (var current = WindowsIdentity.GetCurrent())
-            return owner.User is { } ownerSid && current.User is { } currentSid && ownerSid.Equals(currentSid);
-    }
-
     private static ClaudePublicImageTrust VerifyAuthenticode(SafeFileHandle image, string path)
         => WindowsAuthenticode.VerifySigner(image, path, out var subject) switch
         {
@@ -101,7 +89,4 @@ internal static class WindowsClaudePublicImageTrust
 
     private static void VerifyHeldPath(SafeFileHandle image, string expected) => WindowsAuthenticode.VerifyHeldPath(image, expected);
 
-    [DllImport("advapi32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool OpenProcessToken(SafeProcessHandle process, uint access, out SafeAccessTokenHandle token);
 }

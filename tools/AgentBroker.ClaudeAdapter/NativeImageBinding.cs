@@ -58,7 +58,7 @@ internal sealed class NativeImageBinding : IDisposable
 
     private static void RequireSamePath(string current, string expected)
     {
-        if (!string.Equals(KernelProcessImage.NormalizePath(current), KernelProcessImage.NormalizePath(expected), StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(KernelProcessImage.NormalizePath(current), KernelProcessImage.NormalizePath(expected), StringComparison.Ordinal))
             throw new NativeImagePathMismatchException();
     }
 
