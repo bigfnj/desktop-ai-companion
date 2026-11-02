@@ -578,7 +578,7 @@ namespace DesktopAICompanion.AgentFlow
         /// user is doing.
         /// </summary>
         private const string SendTemplate = @"
-(function () {" + DocumentPrelude + FocusHoldPrelude + @"
+(function () {" + DocumentPrelude + @"
   var a = appDocument();
   if (!a.doc || a.elements < MinElements) return 'unreachable';
   var d = a.doc;
@@ -587,15 +587,9 @@ namespace DesktopAICompanion.AgentFlow
   if (!box) return 'no-input';
   if ((box.textContent || '').trim()) return 'draft';
   var text = __MESSAGE__;
-  var release = agentflowHoldFocus(d, null, '');
-  try {
-    box.textContent = text;
-    box.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
-    box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
-  } catch (e) {
-    if (release) release();
-    throw e;
-  }
+  box.textContent = text;
+  box.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
+  box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
   return 'sent';
 })()";
 
@@ -621,8 +615,7 @@ namespace DesktopAICompanion.AgentFlow
 
         private static string BuildSend(string message)
         {
-            // The hold's duration first, so no text substituted after it can carry the token.
-            return WithFocusHoldMs(SendTemplate).Replace("__MESSAGE__", JsonEncode(message ?? ""));
+            return SendTemplate.Replace("__MESSAGE__", JsonEncode(message ?? ""));
         }
 
         private static string BuildConfirm(string message)

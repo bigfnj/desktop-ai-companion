@@ -6,48 +6,35 @@ using System.Threading;
 namespace DesktopAICompanion.AgentFlow
 {
     // 1.12.3, the owner's report of 2026-11-02: "when it sends a response to an agent card it 'steals' focus ... I have to
-    // manually re-focus on the card I was in". AgentFlow never focuses anything itself: it clicks a button in the card's
-    // page over CDP. Codex's static audit of the installed bundles (2026-11-02; Claude Code 2.1.314, Codex 26.1021.22027,
-    // VS Code 1.144.0) found the cards' OWN code focusing afterwards: Claude Code's parent effect
-    // runs setTimeout(100) -> the composer's safeFocus -> the "Message input" .focus() once the permission count drops to
-    // zero (index.js 2.1.314 byte 5897170), checking visibility and not document focus; a Codex follow-on approval card's
-    // primary button has React autoFocus, focused in the mount commit (app-initial byte 550100). Real DOM focus is what
-    // VS Code turns into "this webview's group is active" (its webview host samples document.hasFocus() every 250 ms).
+    // manually re-focus on the card I was in". AgentFlow never focuses anything itself. Codex's static audit of the
+    // installed bundles (2026-11-02; Claude Code 2.1.314, Codex 26.1021.22027, VS Code 1.144.0) found the cards' OWN code
+    // focusing: Claude Code's parent effect runs setTimeout(100) -> the composer's safeFocus -> the "Message input"
+    // .focus() once the permission count drops to zero (index.js byte 5897170), checking visibility and not document
+    // focus; a Codex approval card's primary button has React autoFocus, focused in the mount commit (app-initial byte
+    // 550100). Real DOM focus is what VS Code turns into "this webview's group is active".
     //
-    // THE FIX IS THE HOLD, in the pressed page while its card settles. There is NO safety net that moves focus back: it was
-    // built, and removed by decision on Codex's recheck of 52c5d3a, because whether the user chose the pressed card cannot
-    // be told reliably from inside the webviews (a selection made through VS Code itself reaches neither page as input).
-    // What remains is detection: one line on the press when the pressed card took focus after it.
+    // THE FIX IS A STANDING GUARD (round 4). The owner's live test of the press-time hold failed: each Codex approval card
+    // took focus the moment it MOUNTED, before any press, and the owner's typing went into it (where Enter approves and
+    // Escape denies). So every sweep installs the guard, idempotently, in every agent webview it reads, and it stays while
+    // AgentFlow is approving with the setting on; it is removed from every known panel when either goes off and at
+    // Shutdown. The press-time hold is gone: the standing guard is already in place in a panel before that panel is
+    // pressed, so one mechanism covers mounts, deferred refocus and press-time steals alike.
+    //
+    // There is NO safety net that moves focus back (removed by decision on Codex's recheck of 52c5d3a: whether the user
+    // chose a card cannot be told reliably from inside the webviews). What remains on presses is detection: one line when
+    // the pressed card took focus after it.
     internal static partial class CdpApprover
     {
         /// <summary>
-        /// How long the pressed card must stay quiet (no approval card left on it) before the hold lets go. Claude's
-        /// composer refocus is a setTimeout(100) inside a React effect that runs when the card clears (audit, above);
-        /// this is that 100 ms, a render, and up to a second of background-timer alignment, with margin.
-        /// </summary>
-        internal const int FocusSettleMs = 1500;
-
-        /// <summary>
-        /// The hard cap, from the latest press. Past it a wrapper stops suppressing anything, even if the page's timers
-        /// have stalled, because each call checks the cap itself; the original descriptors and the listeners are put
-        /// back when the page next runs the hold's timer, so a page whose timers never run again keeps transparent
-        /// wrappers until it does. Claude's diff path races its acceptance against 5000 ms and then schedules a further
-        /// 5000 ms fallback before the card clears (index.js byte 5576136), so a refocus can come about ten seconds after
-        /// the press. This bounds the suppression; it is NOT a claim that every deferred focus lands inside it.
-        /// </summary>
-        internal const int FocusHoldCapMs = 15000;
-
-        /// <summary>How often the hold looks at whether its card has settled, in the page's own timers.</summary>
-        internal const int FocusPollMs = 250;
-
-        /// <summary>
-        /// The user's gesture allowance: for this long after a TRUSTED pointerdown or mousedown in the held
-        /// document, its focus and select calls go through although it does not have focus. Codex's recheck traced the
-        /// installed Codex "Approval options" control: its dropdown trigger prevents the native pointer and mouse focus,
-        /// and the menu focuses itself when it mounts (dropdown and dist modules, 26.1021.22027), so the user's own entry
-        /// arrives as a script focus call made while the page is still unfocused. A menu mounts on the next task or
-        /// animation frame after the press; a second covers that with a wide margin (a frame is 16 ms, a hidden page's
-        /// timers align to one second). After it, background suppression resumes; the hold itself does not end.
+        /// The user's gesture allowance: for this long after a TRUSTED pointerdown or mousedown in a guarded document, its
+        /// focus and select calls go through although it does not have focus. Codex's recheck traced the installed Codex
+        /// "Approval options" control: its dropdown trigger prevents the native pointer and mouse focus, and the menu
+        /// focuses itself when it mounts (dropdown and dist modules, 26.1021.22027), so the user's own entry arrives as a
+        /// script focus call made while the page is still unfocused. A menu mounts on the next task or animation frame
+        /// after the press; a second covers that with a wide margin (a frame is 16 ms, a hidden page's timers align to one
+        /// second). After it, suppression resumes. NOT keydown: a key only reaches a document that already has focus, so it
+        /// is never an entry whose focus was prevented, and counting it would let a background refocus through for a second
+        /// after the user typed in the card and left it.
         /// </summary>
         internal const int FocusGestureMs = 1000;
 
@@ -57,128 +44,151 @@ namespace DesktopAICompanion.AgentFlow
         internal const int FocusCheckAfterMs = 800;
 
         /// <summary>
-        /// THE HOLD, in the pressed page, called immediately before the act (after every guard: card id, label
-        /// re-check, disabled). Returns the hold's release when THIS call created it, so the caller can release it at
-        /// once if the act throws; null otherwise.
+        /// INSTALL THE STANDING GUARD in this panel's app document: 'installed', 'kept' (already there: a no-op, nothing
+        /// captured again), 'unreachable' (no conversation document yet; the next sweep tries again) or 'failed' (a throw
+        /// half way, unwound at once).
         ///
-        /// ALWAYS INSTALLED, decided per call. In THAT document's realm (<c>d.defaultView</c>: the nested iframe the card
-        /// lives in, never the webview shell, whose patch would not reach the iframe's own methods) the focus primitives
-        /// are replaced by wrappers that ask, at every call, whether the document has focus: if it does, the call goes
-        /// to the original (the user is in this card, and the card's own focus is theirs); if it does not, the call does
-        /// nothing while the hold lasts, unless the user's gesture allowance is open (below). So a press made while the
-        /// user is in the card still protects them if they leave before it settles. Held: HTMLElement and SVGElement
-        /// focus, and HTMLInputElement and HTMLTextAreaElement select, which move DOM focus without going through
-        /// HTMLElement.focus (Codex's Chromium probe, 2026-11-02).
-        ///
-        /// SCOPED TO THE CARD, NOT TO A CLOCK. No finite window after a click covers the deferred paths, so the hold
-        /// stays while <paramref name="busy"/> says a card is still on the page, and lets go <see cref="FocusSettleMs"/>
-        /// after it last did, polled every <see cref="FocusPollMs"/>; <see cref="FocusHoldCapMs"/> from the latest press
-        /// bounds it whatever the card does. The user's input does NOT end it: typing in the card and then leaving must
-        /// still leave the later background focus suppressed.
-        ///
-        /// THE USER'S GESTURE: a TRUSTED pointerdown or mousedown in that window (capture phase, listening only: no
-        /// preventDefault, no propagation change) opens <see cref="FocusGestureMs"/> in which the document's own focus
-        /// calls go through unfocused, so an entry whose native focus the control prevented (a dropdown whose menu
-        /// focuses itself) still lands. NOT keydown: a key is only delivered to a document that already has focus, so it
-        /// is never an entry whose focus was prevented, and counting it would only let a deferred steal through for a
-        /// second after the user typed in the card and left it. A focus event's isTrusted is never used: native focus
+        /// In THAT document's realm (<c>d.defaultView</c>: the iframe the card lives in, never the webview shell, whose
+        /// patch would not reach the iframe's own methods) the own-property descriptors of HTMLElement and SVGElement
+        /// focus and HTMLInputElement and HTMLTextAreaElement select (which move DOM focus without going through
+        /// HTMLElement.focus, Codex's Chromium probe) are replaced by wrappers that decide AT EVERY CALL: if the document
+        /// has focus the original runs, so the user's own card works normally, and switching to it through VS Code (which
+        /// focuses the frame first, through window.focus, which is never wrapped) or by the host's keyboard navigation works
+        /// too; if it does not, the call does nothing, unless the user's gesture allowance is open
+        /// (<see cref="FocusGestureMs"/>, opened by a TRUSTED pointerdown or mousedown in that window; capture phase,
+        /// listening only: no preventDefault, no propagation change). A focus event's isTrusted is never used: native focus
         /// events follow programmatic focus too.
         ///
-        /// THE ACT'S OWN OBSERVATION, for detection: <c>w.__agentflowAction</c>, on the acted document's own window,
-        /// records this action's id (<paramref name="action"/>) and whether the document lacked focus AT the act.
-        ///
-        /// RESTORED EXACTLY: each original property descriptor is put back on the object that owned it, and only where
-        /// the wrapper is still the current value (a wrapper someone else wrapped over stays, and is transparent once
-        /// <c>h.active</c> is false); every listener is removed. One state per realm (<c>w.__agentflowFocusHold</c>): a
-        /// press while a hold is active only refreshes it (its card test, its cap, its quiet clock), and never captures,
-        /// so a wrapper can never be recorded as an "original".
-        ///
-        /// NOT held: window.focus (VS Code's webview host focuses the frame through contentWindow.focus() when the user
-        /// activates the panel, and holding it would eat that), the Selection API (no traced path reaches it). No
-        /// ".focus(" and no ".click()" in this text: the session-limit send's self-test forbids both.
+        /// No settle and no cap: it stays until <see cref="FocusGuardRemoveExpression"/> runs or the page is replaced (a
+        /// reloaded page has a fresh window and is guarded again at the next sweep). One state per realm
+        /// (<c>w.__agentflowFocusGuard</c>), so a second install never captures a wrapper as an "original".
         /// </summary>
-        private const string FocusHoldPrelude = @"
-  function agentflowHoldFocus(d, busy, action) {
-    var w = d && d.defaultView;
-    if (!w) return null;
-    var focusedAtAct = false;
-    try { focusedAtAct = d.hasFocus(); } catch (e) { }
-    w.__agentflowAction = { id: action || '', background: !focusedAtAct };
-    var now = Date.now();
-    var h = w.__agentflowFocusHold;
-    if (h && h.active) {
-      h.busy = busy;
-      h.capAt = now + __HOLD_CAP_MS__;
-      h.quietSince = 0;
-      return null;
+        private const string FocusGuardInstallTemplate = @"
+(function () {" + DocumentPrelude + @"
+  var a = appDocument();
+  if (!a.doc || !a.doc.defaultView || a.elements < MinElements) return 'unreachable';
+  var d = a.doc, w = d.defaultView;
+  var g = w.__agentflowFocusGuard;
+  if (g && g.active) return 'kept';
+  g = { active: true, allowUntil: 0, saved: [] };
+  var inputs = ['pointerdown', 'mousedown'];
+  var onInput = function (e) {
+    if (!e || !e.isTrusted) return;
+    g.allowUntil = Date.now() + __GESTURE_MS__;
+  };
+  g.remove = function () {
+    if (!g.active) return;
+    g.active = false;
+    for (var ri = 0; ri < inputs.length; ri++) { try { w.removeEventListener(inputs[ri], onInput, true); } catch (e) { } }
+    for (var si = g.saved.length - 1; si >= 0; si--) {
+      var s = g.saved[si];
+      try { if (s.owner[s.name] === s.held) Object.defineProperty(s.owner, s.name, s.descriptor); } catch (e) { }
     }
-    h = { active: true, busy: busy, capAt: now + __HOLD_CAP_MS__, quietSince: 0, allowUntil: 0, saved: [], timer: 0 };
-    var inputs = ['pointerdown', 'mousedown'];
-    var onInput = function (e) {
-      if (!e || !e.isTrusted) return;
-      h.allowUntil = Date.now() + __GESTURE_MS__;
-    };
-    h.release = function () {
-      if (!h.active) return;
-      h.active = false;
-      try { w.clearTimeout(h.timer); } catch (e) { }
-      for (var ri = 0; ri < inputs.length; ri++) { try { w.removeEventListener(inputs[ri], onInput, true); } catch (e) { } }
-      for (var si = h.saved.length - 1; si >= 0; si--) {
-        var s = h.saved[si];
-        try { if (s.owner[s.name] === s.held) Object.defineProperty(s.owner, s.name, s.descriptor); } catch (e) { }
-      }
-      if (w.__agentflowFocusHold === h) w.__agentflowFocusHold = null;
-    };
-    h.tick = function () {
-      if (!h.active) return;
-      var t = Date.now();
-      if (t >= h.capAt) { h.release(); return; }
-      var settling = false;
-      try { settling = !!(h.busy && h.busy()); } catch (e) { }
-      if (settling) h.quietSince = 0;
-      else if (!h.quietSince) h.quietSince = t;
-      else if (t - h.quietSince >= __SETTLE_MS__) { h.release(); return; }
-      h.timer = w.setTimeout(h.tick, __POLL_MS__);
-    };
-    w.__agentflowFocusHold = h;
-    try {
-      var targets = [[w.HTMLElement, 'focus'], [w.SVGElement, 'focus'], [w.HTMLInputElement, 'select'], [w.HTMLTextAreaElement, 'select']];
-      for (var hi = 0; hi < targets.length; hi++) {
-        var owner = targets[hi][0] && targets[hi][0].prototype, name = targets[hi][1];
-        if (!owner) continue;
-        var descriptor = Object.getOwnPropertyDescriptor(owner, name);
-        if (!descriptor || typeof descriptor.value !== 'function') continue;
-        var held = (function (original) {
-          return function () {
-            var t = Date.now();
-            if (h.active && t < h.capAt && t >= h.allowUntil) {
-              var focused = false;
-              try { focused = d.hasFocus(); } catch (e) { }
-              if (!focused) return undefined;
-            }
-            return original.apply(this, arguments);
-          };
-        })(descriptor.value);
-        h.saved.push({ owner: owner, name: name, descriptor: descriptor, held: held });
-        Object.defineProperty(owner, name, { value: held, writable: descriptor.writable,
-                                             enumerable: descriptor.enumerable, configurable: descriptor.configurable });
-      }
-      for (var ai = 0; ai < inputs.length; ai++) w.addEventListener(inputs[ai], onInput, true);
-      h.timer = w.setTimeout(h.tick, __POLL_MS__);
-    } catch (e) { h.release(); return null; }
-    return h.release;
+    if (w.__agentflowFocusGuard === g) w.__agentflowFocusGuard = null;
+  };
+  w.__agentflowFocusGuard = g;
+  try {
+    var targets = [[w.HTMLElement, 'focus'], [w.SVGElement, 'focus'], [w.HTMLInputElement, 'select'], [w.HTMLTextAreaElement, 'select']];
+    for (var hi = 0; hi < targets.length; hi++) {
+      var owner = targets[hi][0] && targets[hi][0].prototype, name = targets[hi][1];
+      if (!owner) continue;
+      var descriptor = Object.getOwnPropertyDescriptor(owner, name);
+      if (!descriptor || typeof descriptor.value !== 'function') continue;
+      var held = (function (original) {
+        return function () {
+          if (g.active && Date.now() >= g.allowUntil) {
+            var focused = false;
+            try { focused = d.hasFocus(); } catch (e) { }
+            if (!focused) return undefined;
+          }
+          return original.apply(this, arguments);
+        };
+      })(descriptor.value);
+      g.saved.push({ owner: owner, name: name, descriptor: descriptor, held: held });
+      Object.defineProperty(owner, name, { value: held, writable: descriptor.writable,
+                                           enumerable: descriptor.enumerable, configurable: descriptor.configurable });
+    }
+    for (var ai = 0; ai < inputs.length; ai++) w.addEventListener(inputs[ai], onInput, true);
+  } catch (e) { g.remove(); return 'failed'; }
+  return 'installed';
+})()";
+
+        /// <summary>
+        /// REMOVE THE GUARD from every document of this panel (the shell and each reachable iframe, not only the one
+        /// appDocument picks today, so a guard installed when another document was the richest is not left behind): each
+        /// original descriptor goes back exactly where its wrapper is still the current value, and the listeners are
+        /// removed. Answers the number of guards removed, as a string.
+        /// </summary>
+        private const string FocusGuardRemoveExpression = @"
+(function () {
+  var docs = [document];
+  var frames = document.querySelectorAll('iframe');
+  for (var fi = 0; fi < frames.length; fi++) {
+    try { if (frames[fi].contentDocument) docs.push(frames[fi].contentDocument); } catch (e) { }
+  }
+  var removed = 0;
+  for (var di = 0; di < docs.length; di++) {
+    var w = docs[di].defaultView;
+    var g = w && w.__agentflowFocusGuard;
+    if (g && g.active) { g.remove(); removed++; }
+  }
+  return String(removed);
+})()";
+
+        /// <summary>The act's own observation, for detection: called immediately before the click, it records on the acted
+        /// document's own window this press's id and whether the document lacked focus AT the act.</summary>
+        private const string FocusActPrelude = @"
+  function agentflowNoteAct(d, action) {
+    var w = d && d.defaultView;
+    if (!w) return;
+    var focused = false;
+    try { focused = d.hasFocus(); } catch (e) { }
+    w.__agentflowAction = { id: action || '', background: !focused };
   }
 ";
 
-        /// <summary>The prelude with its numbers filled in. Applied to a template BEFORE any page text is substituted
-        /// into it, so a label can never spell a token.</summary>
-        private static string WithFocusHoldMs(string template)
+        /// <summary>A template with the guard's numbers filled in, before any page text is substituted into it.</summary>
+        private static string WithFocusGuardNumbers(string template)
         {
-            return template
-                .Replace("__HOLD_CAP_MS__", FocusHoldCapMs.ToString(CultureInfo.InvariantCulture))
-                .Replace("__SETTLE_MS__", FocusSettleMs.ToString(CultureInfo.InvariantCulture))
-                .Replace("__POLL_MS__", FocusPollMs.ToString(CultureInfo.InvariantCulture))
-                .Replace("__GESTURE_MS__", FocusGestureMs.ToString(CultureInfo.InvariantCulture));
+            return template.Replace("__GESTURE_MS__", FocusGestureMs.ToString(CultureInfo.InvariantCulture));
+        }
+
+        internal static string FocusGuardInstallForSelfTest { get { return WithFocusGuardNumbers(FocusGuardInstallTemplate); } }
+        internal static string FocusGuardRemoveForSelfTest { get { return FocusGuardRemoveExpression; } }
+
+        /// <summary>Install the standing guard in one attached panel, on the sweep's own connection. Never throws.</summary>
+        private static string InstallFocusGuard(CdpSession session, string sessionId)
+        {
+            try { return session.Evaluate(sessionId, WithFocusGuardNumbers(FocusGuardInstallTemplate)); }
+            catch (Exception) { return null; }
+        }
+
+        /// <summary>
+        /// Remove the standing guard from every agent panel on the port (module Shutdown, and when auto-approve or the
+        /// setting goes off). Returns the guards removed; a panel that is gone needs nothing and is skipped. Never throws.
+        /// </summary>
+        internal static int RemoveFocusGuard(int port, int timeoutMs)
+        {
+            int removed = 0;
+            try
+            {
+                List<KeyValuePair<string, string>> work = AgentTargets(port, timeoutMs);
+                if (work.Count == 0) return 0;
+                string browserUrl = BrowserSocketUrl(port, timeoutMs);
+                if (string.IsNullOrEmpty(browserUrl)) return 0;
+                using (var session = new CdpSession(browserUrl, timeoutMs))
+                {
+                    foreach (KeyValuePair<string, string> item in work)
+                    {
+                        int count;
+                        if (int.TryParse(EvaluateIn(session, item.Key, FocusGuardRemoveExpression), NumberStyles.Integer,
+                                         CultureInfo.InvariantCulture, out count))
+                            removed += count;
+                    }
+                }
+            }
+            catch (Exception) { }
+            return removed;
         }
 
         /// <summary>A fresh id for one press, so detection asks about this press and no other (1.12.3).</summary>
@@ -187,7 +197,7 @@ namespace DesktopAICompanion.AgentFlow
             return Guid.NewGuid().ToString("N").Substring(0, 12);
         }
 
-        /// <summary>Whether a panel's app document has focus: 'focused', 'blurred' or 'gone'. Reads only; remembers nothing.</summary>
+        /// <summary>Whether a panel's app document has focus: 'focused', 'blurred' or 'gone'. Reads only.</summary>
         private const string FocusProbeExpression = @"
 (function () {" + DocumentPrelude + @"
   var a = appDocument();
@@ -218,7 +228,7 @@ namespace DesktopAICompanion.AgentFlow
 
         private static string ForAction(string template, string action)
         {
-            return WithFocusHoldMs(template).Replace("__ACTION__", JsonEncode(action ?? ""));
+            return template.Replace("__ACTION__", JsonEncode(action ?? ""));
         }
 
         internal static string FocusMovedForSelfTest(string action) { return ForAction(FocusMovedTemplate, action); }
@@ -229,8 +239,7 @@ namespace DesktopAICompanion.AgentFlow
 
         /// <summary>
         /// Before a press: whether any agent panel other than <paramref name="pressed"/> has focus, which is when a jump to
-        /// the pressed card would take the user out of their work and is worth a line. Reads only. Never throws: a panel
-        /// that cannot be probed counts as not focused.
+        /// the pressed card would take the user out of their work and is worth a line. Reads only. Never throws.
         /// </summary>
         private static bool OtherPanelHasFocus(CdpSession session, IList<string> panels, string pressed)
         {
@@ -261,7 +270,7 @@ namespace DesktopAICompanion.AgentFlow
             catch (Exception) { return null; }
         }
 
-        /// <summary>Attach, evaluate one expression, detach, on the press's own connection. Null on any failure.</summary>
+        /// <summary>Attach, evaluate one expression, detach, on one connection. Null on any failure.</summary>
         private static string EvaluateIn(CdpSession session, string targetId, string expression)
         {
             try

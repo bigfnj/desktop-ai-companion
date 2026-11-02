@@ -82,6 +82,12 @@ namespace DesktopAICompanion.AgentFlow
         /// </summary>
         private const string SettingApproveAllProjects = "approveAllProjects";
         private const string SettingApproveSimilar = "approveSimilar";
+        /// <summary>
+        /// Keep agent cards from taking focus (1.12.3). ON by default: an approval card that takes the keyboard while
+        /// the user types elsewhere can be answered by their keystrokes (Enter approves, Escape denies in Codex), which
+        /// is the owner's live failure of 2026-11-02. Only while approving; off, AgentFlow behaves as 1.12.2 did.
+        /// </summary>
+        private const string SettingFocusGuard = "keepCardsFromTakingFocus";
         private const string SettingNotifySpeak = "notifySpeak";
         private const string SettingAnimPet = "animPet";
         private const string SettingAnimName = "animName";
@@ -685,6 +691,12 @@ namespace DesktopAICompanion.AgentFlow
         public void Shutdown()
         {
             BeginShutdown();
+            // The standing focus guard leaves with the module (1.12.3): every panel's originals back exactly.
+            if (_focusGuardOn)
+            {
+                _focusGuardOn = false;
+                CdpApprover.RemoveFocusGuard(CdpPort, 1000);
+            }
             if (_timer != null)
             {
                 _timer.Stop();
@@ -849,6 +861,13 @@ namespace DesktopAICompanion.AgentFlow
         private void OnTick(object sender, EventArgs args)
         {
             TicksEnteredForSelfTest++;
+            // Before the Enabled gate (1.12.3), so switching AgentFlow off takes the focus guard out too. On a worker:
+            // removal is CDP round trips, and this is the UI thread.
+            if (_focusGuardOn && !FocusGuardWanted)
+            {
+                int guardPort = CdpPort;
+                System.Threading.Tasks.Task.Run(() => SyncFocusGuard(guardPort, false));
+            }
             if (!Enabled) return;
             // A self-test seam, and nothing else sets it. SelfCheckAutoApprove has to drive the
             // tray's Off -> Watching transition, which calls this, and a scan started from a
@@ -871,6 +890,7 @@ namespace DesktopAICompanion.AgentFlow
             double threshold = ThresholdSeconds;
             bool watchClaude = WatchClaude, watchCodex = WatchCodex;
             bool autoApprove = AutoApprove;
+            bool guardFocus = FocusGuardWanted;
             bool allProjects = ApproveForAllProjects;
             bool similar = ApproveSimilarCommands;
             int cdpPort = CdpPort;
@@ -987,10 +1007,12 @@ namespace DesktopAICompanion.AgentFlow
                     // read once, before a sweep that is several round trips long, and nothing inside it
                     // re-read the switch until then (F026).
                     var pass = new SweepPass(cdpPort, mayPress, allProjects, similar, _pressBudget, StillArmed);
+                    pass.GuardFocus = guardFocus;
                     ScreenPrompt found = null;
                     try
                     {
                         approvalNote = SweepOnce(cdpPort, pass, _pressBudget, 1500, out sawPanel, out sawBlind);
+                        if (guardFocus) _focusGuardOn = true;
                         // Every prompt the pass read and left alone: since 1.11.0 the sweep reads every panel
                         // whatever it pressed, so this is every unpressed prompt on screen.
                         found = ScreenPrompt.Combine(pass.Unpressed);
@@ -1229,7 +1251,7 @@ namespace DesktopAICompanion.AgentFlow
                                          out bool sawPanel, out bool sawBlind)
         {
             var census = new SweepCensus();
-            string note = CdpApprover.Sweep(port, pass.Handle, timeoutMs, out sawPanel, out sawBlind, census);
+            string note = CdpApprover.Sweep(port, pass.Handle, timeoutMs, out sawPanel, out sawBlind, census, pass.GuardFocus);
             if (budget == null) return note;
             budget.EndSweep(census.Listed, census.Read);
             return note;
@@ -2469,6 +2491,35 @@ namespace DesktopAICompanion.AgentFlow
 
         private bool AutoApprove { get { return AgentMode.Presses(Mode); } }
 
+        /// <summary>The setting's value, ON unless the user turned it off (1.12.3).</summary>
+        internal bool KeepCardsFromTakingFocus
+        {
+            get { return _settings == null || _settings.GetBool(SettingFocusGuard, true); }
+        }
+
+        /// <summary>Whether the standing focus guard should be in the agent panels now: AgentFlow is on, approving, and the
+        /// setting is on (1.12.3). One place, read by the tick, the off path and the self-test.</summary>
+        internal bool FocusGuardWanted
+        {
+            get { return Enabled && AutoApprove && KeepCardsFromTakingFocus; }
+        }
+
+        /// <summary>True once a sweep has installed the guard and until it has been removed again, so the off path and
+        /// Shutdown touch the panels only when there is something to take out.</summary>
+        private volatile bool _focusGuardOn;
+
+        /// <summary>
+        /// The off path (1.12.3): when the guard is no longer wanted (auto-approve or the setting turned off, AgentFlow
+        /// switched off) but was installed, take it out of every agent panel on <paramref name="port"/>. Blocking: CDP
+        /// round trips, so the tick runs it on a worker, with wanted read on the UI thread (the worker reads nothing from _settings).
+        /// </summary>
+        internal int SyncFocusGuard(int port, bool wanted)
+        {
+            if (wanted || !_focusGuardOn) return 0;
+            _focusGuardOn = false;
+            return CdpApprover.RemoveFocusGuard(port, 1500);
+        }
+
         internal bool ApproveForAllProjects
         {
             get { return _settings != null && _settings.GetBool(SettingApproveAllProjects, false); }
@@ -2782,6 +2833,10 @@ namespace DesktopAICompanion.AgentFlow
 
             /// <summary>Every prompt read and left alone, in target order, for the screen announcement.</summary>
             public readonly List<ScreenPrompt> Unpressed = new List<ScreenPrompt>();
+
+            /// <summary>Install the standing focus guard in every panel this sweep reads (1.12.3). Off unless set: the
+            /// tick sets it from FocusGuardWanted.</summary>
+            public bool GuardFocus;
 
             /// <summary>Every press note, in target order (1.11.0): the sweep presses a prompt in each panel, and the
             /// log writes each press on its own line.</summary>
@@ -5758,11 +5813,8 @@ namespace DesktopAICompanion.AgentFlow
                 probe.Check("WIRE a refused prompt on the first webview does not starve the second: its approve row is pressed",
                     pass.PressedAny && note != null
                     && note.IndexOf("auto-approve clicked", StringComparison.Ordinal) >= 0);
-                // Four since 1.12.3: the press first asks the OTHER panel whether the user is in it (focus detection,
-                // CdpApprover.OtherPanelHasFocus), one attach and one evaluation on the press's own connection.
-                probe.Check("WIRE ...the sweep read both webviews and clicked once: two reads, one focus probe of the other "
-                            + "panel, one click; four attaches, four evaluations",
-                    starved.AttachCount == 4 && starved.EvaluateCount == 4 && sawPanel);
+                probe.Check("WIRE ...the sweep read both webviews and clicked once: three attaches, three evaluations",
+                    starved.AttachCount == 3 && starved.EvaluateCount == 3 && sawPanel);
                 probe.Check("WITNESS the press note comes back alone, without the standing refusal beside it",
                     note != null && note.IndexOf("a plan", StringComparison.Ordinal) < 0
                     && note.IndexOf(" | ", StringComparison.Ordinal) < 0);

@@ -187,6 +187,15 @@ namespace DesktopAICompanion.AgentFlow
         /// <summary>Put the user's focus in <paramref name="frame"/> with no element focused (its body), and clear the log.</summary>
         internal void UserAtBody(string frame) { Run("__page.userAt('" + frame + "'); __page.focusLog = []; 'ok'"); }
 
+        /// <summary>A Codex approval card mounts in <paramref name="frame"/> on its own and autofocuses its button.</summary>
+        internal void MountCard(string frame) { Run("__page.mountCard('" + frame + "'); 'ok'"); }
+
+        /// <summary>Claude Code's card in <paramref name="frame"/> clears on its own; its composer refocus follows 100 ms later.</summary>
+        internal void ClearCard(string frame) { Run("__page.clearCard('" + frame + "'); 'ok'"); }
+
+        /// <summary><paramref name="frame"/> reloads: fresh documents and realms, no guard, same target.</summary>
+        internal void ReloadFrame(string frame) { Run("__page.reloadFrame('" + frame + "'); 'ok'"); }
+
         /// <summary>The whole page's state as JSON: see __page.state in <see cref="Model"/>.</summary>
         internal string State() { return Run("__page.state()"); }
 
@@ -399,6 +408,12 @@ var __page = (function () {
       if (f.yes) f.yes.handlers.click = [function () { page.approved[name] = (page.approved[name] || 0) + 1; stealAfter(); }];
     }
     build(shape);
+    f.shape = shape; f.steal = steal;
+    // A Codex approval card mounting on its own, no press anywhere: its primary button autofocuses in the mount
+    // commit unless an editable in THIS document is active (the owner's live failure of 2026-11-02).
+    f.mount = function () { build('codex'); if (!editable(inner.document.activeElement)) f.yes.focus(); };
+    // Claude Code's permission card clearing on its own (answered elsewhere): the parent effect's 100 ms refocus.
+    f.clear = cardCleared;
     input.handlers.keydown = [function (ev) {
       if (ev.key !== 'Enter') return;
       page.sent[name] = input.textContent; input.textContent = '';
@@ -451,6 +466,14 @@ var __page = (function () {
     f.inner.fire({ type: 'mousedown', isTrusted: true });
     page.focused = f.inner; f.inner.document.activeElement = f.input; page.focusLog.push('user:' + name);
   };
+  page.mountCard = function (name) { page.frames[name].mount(); };
+  page.clearCard = function (name) { page.frames[name].clear(); };
+  // A reload: the frame's documents and windows are replaced by fresh ones (fresh realms, no guard), same target.
+  page.reloadFrame = function (name) {
+    var old = page.frames[name];
+    if (page.focused === old.inner || page.focused === old.outer) page.focused = null;
+    page.frame(name, old.shape, old.steal);
+  };
   page.breakClick = function (name) { page.frames[name].yes.click = function () { throw new Error('click threw'); }; };
   page.state = function () {
     var own = Object.prototype.hasOwnProperty;
@@ -468,8 +491,9 @@ var __page = (function () {
         listeners: (f.inner.listeners.pointerdown || []).length + (f.inner.listeners.mousedown || []).length
                    + (f.inner.listeners.keydown || []).length + (f.inner.listeners.beforeinput || []).length,
         mousedown: (f.inner.listeners.mousedown || []).length,
-        allowing: !!(f.inner.__agentflowFocusHold && f.inner.__agentflowFocusHold.allowUntil > page.now),
-        hold: !!f.inner.__agentflowFocusHold,
+        allowing: !!(f.inner.__agentflowFocusGuard && f.inner.__agentflowFocusGuard.allowUntil > page.now),
+        hold: !!(f.inner.__agentflowFocusGuard && f.inner.__agentflowFocusGuard.active),
+        shellGuard: !!f.outer.__agentflowFocusGuard,
         shellTouched: f.outer.HTMLElement.prototype.focus !== f.shellFocus || !!f.outer.__agentflowFocusHold
       };
     }

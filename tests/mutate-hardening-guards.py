@@ -1752,8 +1752,9 @@ CASES = (
     (
         "agentflow 1.11.0: SweepOnce sweeps past the pass it is handed",
         AGENTFLOW_MODULE,
-        b"CdpApprover.Sweep(port, pass.Handle, timeoutMs, out sawPanel, out sawBlind, census)",
-        b"CdpApprover.Sweep(port, new SweepPass(port, false, false, false, null, null).Handle, timeoutMs, out sawPanel, out sawBlind, census)",
+        # Re-anchored by AgentFlow 1.12.3 (agentflow-focus): SweepOnce also hands the pass's GuardFocus on.
+        b"CdpApprover.Sweep(port, pass.Handle, timeoutMs, out sawPanel, out sawBlind, census, pass.GuardFocus)",
+        b"CdpApprover.Sweep(port, new SweepPass(port, false, false, false, null, null).Handle, timeoutMs, out sawPanel, out sawBlind, census, pass.GuardFocus)",
         "SweepOnce sweeps through the pass, so the sweep can tell a press from a refusal",
     ),
     # R-005: a second, bare writer of the mode grows back beside SetMode. It even mirrors the flag correctly,
