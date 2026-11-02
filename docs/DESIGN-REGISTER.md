@@ -6038,7 +6038,11 @@ check is the code a pinned build goes through: current user, PID, creation time,
 re-inspection before the write, idle and inbound policy. Exact pins stay the strict mode; with the switch off an
 unpinned build is observation-only with the same error as before. While the mode carries a session, the failed pin is a
 note, `claude_update_tolerant_delivery` (the `AdapterNotes` channel), not an adapter error, so the Native line keeps its
-wake count. A refused signature keeps both errors, the failed pin first and then `public_image_*`.
+wake count. A refused signature keeps both errors, the failed pin first and then `public_image_*`. The note names the
+version as people see it (2.1.314, not the file version 2.1.314.0). An adapter's notes travel one per line in the
+`AdapterNotes` value (`ControlProtocol.NoteSeparator`, a character a note never holds), and the pane shows each whole on
+its own line: joined with "; " under one 116-character cut, the elevated-session note and this one garbled each other.
+The snapshot keeps its shape, so an older module still reads one string.
 
 The gap the owner accepts: how an unreviewed build handles the authenticated peer frame is not re-proved. A re-pin review
 compares five peer-classification and admission sites token for token with a reviewed image; this rule cannot, and the

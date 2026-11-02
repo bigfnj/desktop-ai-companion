@@ -273,7 +273,7 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
                 else adapterErrors[adapter.Id] = string.Join("; ", diagnostics);
                 var notes = reported.Where(item => item.Note).Select(item => item.ToStatusText()).Distinct().ToArray();
                 if (notes.Length == 0) adapterNotes.TryRemove(adapter.Id, out _);
-                else adapterNotes[adapter.Id] = string.Join("; ", notes);
+                else adapterNotes[adapter.Id] = string.Join(AgentBroker.Protocol.ControlProtocol.NoteSeparator, notes);
             }
             catch (Exception e) when (e is IOException or InvalidDataException or BrokerException or
                 UnauthorizedAccessException or System.ComponentModel.Win32Exception or OperationCanceledException)

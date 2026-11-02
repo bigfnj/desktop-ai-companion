@@ -61,6 +61,10 @@ public sealed record ControlResponse(bool Success, string Code, BrokerSnapshot? 
 public static class ControlProtocol
 {
     public const int MaximumFrameBytes = 512 * 1024;
+    // Between an adapter's notes in BrokerSnapshot.AdapterNotes, one per line. A note's status text never holds a control
+    // character (AdapterDiscoveryDiagnostic.ToStatusText), so a module splits on it without ambiguity, and the snapshot keeps
+    // its shape: an older module, which strips control characters, still reads one string.
+    public const char NoteSeparator = '\n';
     public static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     { UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow,
       MaxDepth = 16 };

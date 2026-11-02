@@ -145,8 +145,14 @@ public sealed class ClaudeNativeProvider : IClaudeNativeProvider
     }
 
     internal static AdapterDiscoveryDiagnostic UpdateTolerantNote(string? version)
-        => new("claude_update_tolerant_delivery", "Claude Code " + Installed(version) +
+        => new("claude_update_tolerant_delivery", "Claude Code " + Installed(DisplayVersion(version)) +
             " is not a reviewed build; it is woken because Windows verified Anthropic's signature.") { Note = true };
+
+    // The version as people see it: "2.1.314", not the file version "2.1.314.0". A zero fourth part is dropped only when
+    // the first three parts parse; a non-zero one, or anything that does not parse, is kept as it was.
+    internal static string? DisplayVersion(string? version)
+        => System.Version.TryParse(version, out var parsed) && parsed.Revision == 0
+            ? string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{parsed.Major}.{parsed.Minor}.{parsed.Build}") : version;
 
     private ClaudeNativeCandidate? ObserveUnpinned(int processId, NativeSessionMetadata metadata,
         IClaudeDiscoveryProcess process, string image, ulong started, string? version,

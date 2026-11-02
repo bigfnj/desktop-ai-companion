@@ -9,7 +9,7 @@ using AgentBroker.Worker.Adapters;
 // each mutation witness fails on the check it targets. Every label names this file for the witness harness.
 internal static class ClaudeUpdateTolerantChecks
 {
-    private static readonly string[] Cases = ["discovery", "status", "refusals", "capabilities", "image-changed", "send", "image-trust", "options"];
+    private static readonly string[] Cases = ["discovery", "status", "refusals", "capabilities", "image-changed", "send", "image-trust", "options", "version"];
     private const string L = "ClaudeUpdateTolerantChecks.cs: ";
     private const string Pipe = @"\\.\pipe\cc-msg-0123456789abcdef0123456789abcdef";
     private const string SignedHash = "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD";
@@ -30,7 +30,25 @@ internal static class ClaudeUpdateTolerantChecks
                 case "send": await SendAsync(check); break;
                 case "image-trust": ImageTrust(check); break;
                 case "options": Options(check); break;
+                case "version": await VersionAsync(check); break;
             }
+    }
+
+    // The note names the build as people see it (coordinator, 2026-11-02): the file version's zero fourth part is dropped.
+    private static async Task VersionAsync(Action<bool, string> check)
+    {
+        await using (var provider = new ClaudeNativeProvider(new Source { Version = "2.1.314.0" }, enablePeerCredentials: true, updateTolerantDelivery: true))
+        {
+            await provider.DiscoverAsync(CancellationToken.None);
+            string text = provider.DiscoveryDiagnostics.SingleOrDefault()?.Description ?? "";
+            check(text.StartsWith("Claude Code 2.1.314 is not a reviewed build;", StringComparison.Ordinal),
+                L + "the note names a file version 2.1.314.0 as 2.1.314");
+        }
+        check(ClaudeNativeProvider.UpdateTolerantNote("2.1.314.7").Description.StartsWith("Claude Code 2.1.314.7 is", StringComparison.Ordinal) &&
+            ClaudeNativeProvider.UpdateTolerantNote("2.1.314").Description.StartsWith("Claude Code 2.1.314 is", StringComparison.Ordinal) &&
+            ClaudeNativeProvider.UpdateTolerantNote("not-a-version").Description.StartsWith("Claude Code not-a-version is", StringComparison.Ordinal) &&
+            ClaudeNativeProvider.UpdateTolerantNote(null).Description.StartsWith("Claude Code unknown version is", StringComparison.Ordinal),
+            L + "the note keeps a non-zero fourth part, a three-part version and a version that does not parse as they were");
     }
 
     private static async Task DiscoveryAsync(Action<bool, string> check)

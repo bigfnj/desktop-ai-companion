@@ -14179,6 +14179,22 @@ CASES = (
      AGENTBROKER_CSPROJ, AGENTBROKER_DLL,
      "--module-selftest=agentbroker", "dp-module-agentbroker-selftest.txt",
      "the pane says updated Claude builds are woken by default"),
+    # Two notes for one adapter (elevated sessions and update-tolerant delivery) each on a whole line of their own
+    # (coordinator follow-up, 2026-11-02); each case puts back the shared line.
+    ("claude-tolerant: an adapter's notes share one cut line again",
+     AGENTBROKER_CLIENTS,
+     b"            foreach (string note in joined.Split(ControlProtocol.NoteSeparator, StringSplitOptions.RemoveEmptyEntries).Take(8))\n",
+     b"            foreach (string note in new[] { joined })\n",
+     AGENTBROKER_CSPROJ, AGENTBROKER_DLL,
+     "--module-selftest=agentbroker", "dp-module-agentbroker-selftest.txt",
+     "NOTES_EACH_WHOLE"),
+    ("claude-tolerant: Native adapters runs an adapter's notes together",
+     AGENTBROKER_MODULE,
+     b"            Safe(x.Value.Replace(ControlProtocol.NoteSeparator.ToString(), \"; \", StringComparison.Ordinal), 512)).Take(8)) : \"\");\n",
+     b"            Safe(x.Value, 512)).Take(8)) : \"\");\n",
+     AGENTBROKER_CSPROJ, AGENTBROKER_DLL,
+     "--module-selftest=agentbroker", "dp-module-agentbroker-selftest.txt",
+     "NOTES_NATIVE_STATUS_SEPARATED"),
     # ---- lane feature/abi-pane-actions ----
     # Host 1.7.0's two additive members, each case putting back a shortcut the design refuses. Named "abi-pane-actions:"
     # for one --only. First, PaneAction.EnabledWhen's adopters (BACKLOG N-cli-model-effort-05): Remove token ungated

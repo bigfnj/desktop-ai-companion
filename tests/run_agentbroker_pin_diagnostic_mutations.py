@@ -79,7 +79,7 @@ ASSEMBLIES = {
 # checks (adapter failure recorded, owner_discovery_rejected per row), and owner_discovery_rejected during owner
 # resolution now checked as a skipped row (two checks) instead of a failed pass (three).
 EXISTING_COUNTS = {"worker": 234, "desktop": 157}  # worker 213 -> 234: re-measured by lane broker-163; stale before it (no existing-suite check changed there)
-FOCUSED_COUNTS = {"worker": 91, "desktop": 15}  # worker 81 -> 91: lane broker-163 (CLAUDE_ELEVATED_* and RUNTIME_NOTE_*)
+FOCUSED_COUNTS = {"worker": 92, "desktop": 15}  # worker 81 -> 91: lane broker-163 (CLAUDE_ELEVATED_* and RUNTIME_NOTE_*); 91 -> 92: lane claude-update-tolerant (RUNTIME_NOTES_SEPARATED)
 CLAUDE_SCENARIOS = ("early-reject", "unsupported-version", "hash-mismatch", "mixed", "recovery", "bounded-snapshot")
 
 
@@ -628,8 +628,25 @@ WITNESSES = (
     ),)),
     Witness("claude-tolerant-note-unnamed", "claude", "worker", ("--claude-update-tolerant-case", "status"),
             "ClaudeUpdateTolerantChecks.cs", ((
-        "        => new(\"claude_update_tolerant_delivery\", \"Claude Code \" + Installed(version) +",
+        "        => new(\"claude_update_tolerant_delivery\", \"Claude Code \" + Installed(DisplayVersion(version)) +",
         "        => new(\"claude_update_tolerant_delivery\", \"Claude Code\" +",
+    ),)),
+    # The note names the version as people see it (coordinator follow-up, 2026-11-02).
+    Witness("claude-tolerant-note-file-version", "claude", "worker", ("--claude-update-tolerant-case", "version"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "\"Claude Code \" + Installed(DisplayVersion(version)) +",
+        "\"Claude Code \" + Installed(version) +",
+    ),)),
+    Witness("claude-tolerant-note-drops-nonzero-revision", "claude", "worker", ("--claude-update-tolerant-case", "version"),
+            "ClaudeUpdateTolerantChecks.cs", ((
+        "        => System.Version.TryParse(version, out var parsed) && parsed.Revision == 0\n",
+        "        => System.Version.TryParse(version, out var parsed) && parsed.Revision >= 0\n",
+    ),)),
+    # Two notes are carried one per line (coordinator follow-up, 2026-11-02); the runtime's own focused group.
+    Witness("claude-tolerant-runtime-notes-joined", "runtime", "worker", ("--runtime-pin-diagnostics-only",),
+            "AdapterDiagnosticChecks.cs", ((
+        "                else adapterNotes[adapter.Id] = string.Join(AgentBroker.Protocol.ControlProtocol.NoteSeparator, notes);",
+        "                else adapterNotes[adapter.Id] = string.Join(\"; \", notes);",
     ),)),
     Witness("claude-tolerant-pin-error-order", "claude", "worker", ("--claude-update-tolerant-case", "status"),
             "ClaudeUpdateTolerantChecks.cs", ((

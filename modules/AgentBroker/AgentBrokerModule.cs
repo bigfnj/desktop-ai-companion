@@ -279,7 +279,8 @@ public sealed partial class AgentBrokerModule : IModule
         ? "No adapter errors reported."
         : string.Join("; ", snapshot.AdapterErrors.Select(x => Safe(x.Key, 32) + ": " + Safe(x.Value, 512)).Take(8))) +
         // Notes about some sessions (lane broker-163), after the errors and never counted as one.
-        (snapshot.AdapterNotes is { Count: > 0 } notes ? " Notes: " + string.Join("; ", notes.Select(x => Safe(x.Key, 32) + ": " + Safe(x.Value, 512)).Take(8)) : "");
+        (snapshot.AdapterNotes is { Count: > 0 } notes ? " Notes: " + string.Join("; ", notes.Select(x => Safe(x.Key, 32) + ": " +
+            Safe(x.Value.Replace(ControlProtocol.NoteSeparator.ToString(), "; ", StringComparison.Ordinal), 512)).Take(8)) : "");
 
     private void SetStatus(string value)
     {
