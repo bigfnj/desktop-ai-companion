@@ -460,8 +460,14 @@ namespace DesktopAICompanion.AgentFlow
   var t = (b.innerText || b.textContent || '').replace(/\s+/g, ' ').trim();
   if (t !== __LABEL__) return 'moved';
   if (b.disabled) return 'disabled';
-  agentflowHoldFocus(a.doc);
-  b.click();
+  // The hold lasts while any approval card stands here: a follow-on card autofocuses its button on mount (1.12.3).
+  var release = agentflowHoldFocus(a.doc, function () { return !!a.doc.querySelector('[class*=""@container/approval-card""]'); });
+  try {
+    b.click();
+  } catch (e) {
+    if (release) release();
+    throw e;
+  }
   return 'clicked';
 })()";
 
@@ -523,8 +529,15 @@ namespace DesktopAICompanion.AgentFlow
   if (n) t = t.substring((n.textContent || '').length);
   if (t.trim() !== {1}) return 'moved';
   if (b.disabled) return 'disabled';
-  agentflowHoldFocus(d);
-  b.click();
+  // The hold lasts while a permission card stands here: the composer refocus runs 100 ms after the last one clears,
+  // which on the diff path is about ten seconds after this click (1.12.3).
+  var release = agentflowHoldFocus(d, function () {{ return !!d.querySelector('[class*=""permissionRequestContainer""]'); }});
+  try {{
+    b.click();
+  }} catch (e) {{
+    if (release) release();
+    throw e;
+  }}
   return 'clicked';
 }})()";
 

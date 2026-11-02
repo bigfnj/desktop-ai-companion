@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Threading;
 
 namespace DesktopAICompanion.AgentFlow
 {
@@ -17,18 +18,22 @@ namespace DesktopAICompanion.AgentFlow
     /// card's app, each window its own realm (its own HTMLElement constructor and prototype, as in a browser). One page
     /// focus, held by at most one window (null = focus outside every agent panel, an editor say). A focus() call takes
     /// the page's focus for that window, which is the steal as the owner sees it: VS Code activates the webview that
-    /// took DOM focus. <c>document.hasFocus()</c> is true for the focused window and its ancestors. setTimeout and Date
-    /// run on a clock that follows real time, and due timers run in due order (with the clock AT their due time) before
-    /// every evaluation and on <see cref="Pump"/>. A card's Yes button runs a handler that approves and then steals
-    /// focus as told: synchronously, in a 50 ms timeout, or through <c>reveal</c>, a path no in-page hold can reach
-    /// (an extension calling reveal() on its view). The Claude and Codex card shapes the click templates look for, and
-    /// the chat box the session-limit send types into.
+    /// took DOM focus. input/textarea select() move focus without going through HTMLElement.focus, as in Chromium.
+    /// <c>document.hasFocus()</c> is true for the focused window and its ancestors. setTimeout and Date run on a clock
+    /// that follows real time plus every <see cref="Advance"/>, and due timers run in due order (with the clock AT their
+    /// due time) before every evaluation and on <see cref="Pump"/>. Window capture listeners, and the user's trusted
+    /// pointer press (<see cref="UserPointer"/>), which moves focus natively. A card's Yes button runs a handler that
+    /// approves and then focuses as told: synchronously, in a 50 ms timeout, through select(), through <c>reveal</c> (a
+    /// path no in-page hold can reach: an extension calling reveal() on its view), Claude Code's permission-clear
+    /// effect (card removed, setTimeout 100, composer focus unless an editable is active), its diff path (the same, ten
+    /// seconds later), or a Codex follow-on card whose primary button autofocuses on mount. The Claude and Codex card
+    /// shapes the click templates look for, and the chat box the session-limit send types into.
     ///
     /// WHAT IT DOES NOT MODEL. Real Chromium focus rules (user activation, cross-origin frame restrictions), focus and
-    /// blur events, VS Code's webview host and its did-focus message, microtasks, requestAnimationFrame, the Selection
-    /// API, and the READ expressions (cloneNode and friends are absent): reads stay canned, as in every other
-    /// FakeCdpServer test. Selectors: a tag, `*`, and one [attr="v"] or [attr*="v"], which is all the press, probe and
-    /// restore expressions use.
+    /// blur events, VS Code's webview host and its did-focus message, React scheduling, microtasks,
+    /// requestAnimationFrame, background-timer throttling, shadow roots, the Selection API, and the READ expressions
+    /// (cloneNode and friends are absent): reads stay canned, as in every other FakeCdpServer test. Selectors: a tag,
+    /// `*`, and one [attr="v"] or [attr*="v"], which is all the press, probe and restore expressions use.
     /// </summary>
     internal sealed class FakeFocusPage : IDisposable
     {
@@ -111,10 +116,26 @@ namespace DesktopAICompanion.AgentFlow
             return Marshal.PtrToStringUni(chars, (int)length.ToUInt32());
         }
 
-        private long Now { get { return _clock.ElapsedMilliseconds; } }
+        private long _skewMs;
+
+        /// <summary>The page clock: real time since the page was made, plus every <see cref="Advance"/>.</summary>
+        private long Now { get { return _clock.ElapsedMilliseconds + Interlocked.Read(ref _skewMs); } }
 
         /// <summary>Run due timers up to now.</summary>
         internal void Pump() { Run("__page.pump(" + Now + "); 'ok'"); }
+
+        /// <summary>Move the page clock <paramref name="ms"/> ahead of real time and run what fell due, in due order, so
+        /// a card's ten-second deferred path costs the check no ten seconds.</summary>
+        internal void Advance(int ms)
+        {
+            Interlocked.Add(ref _skewMs, ms);
+            Pump();
+        }
+
+        /// <summary>The user presses the pointer in <paramref name="frame"/>'s chat box: a TRUSTED pointerdown and
+        /// mousedown to the app window's capture listeners, then the browser's own focus move (not through any focus
+        /// method, so no hold can stop it).</summary>
+        internal void UserPointer(string frame) { Run("__page.userPointer('" + frame + "'); 'ok'"); }
 
         /// <summary>
         /// Evaluate a module expression AS frame <paramref name="frame"/>'s target, the way CDP's Runtime.evaluate
@@ -133,7 +154,7 @@ namespace DesktopAICompanion.AgentFlow
 
         /// <summary>A frame named <paramref name="name"/>: shape 'claude', 'codex' or 'chat' (no card, only the chat
         /// box), and what its Yes button (or, for 'chat', its Enter key) does after approving: any of 'sync',
-        /// 'timeout', 'reveal', 'throw' (the handler throws) or 'none'.</summary>
+        /// 'timeout', 'select', 'reveal', 'effect', 'diff', 'nextcard', 'throw' (the handler throws) or 'none'.</summary>
         internal void AddFrame(string name, string shape, string steal)
         {
             Run("__page.frame('" + name + "', '" + shape + "', '" + steal + "'); 'ok'");
@@ -144,6 +165,9 @@ namespace DesktopAICompanion.AgentFlow
         {
             Run((frame == null ? "__page.focused = null;" : "__page.user('" + frame + "');") + " __page.focusLog = []; 'ok'");
         }
+
+        /// <summary>Put the user's focus in <paramref name="frame"/> with no element focused (its body), and clear the log.</summary>
+        internal void UserAtBody(string frame) { Run("__page.userAt('" + frame + "'); __page.focusLog = []; 'ok'"); }
 
         /// <summary>The whole page's state as JSON: see __page.state in <see cref="Model"/>.</summary>
         internal string State() { return Run("__page.state()"); }
@@ -232,6 +256,11 @@ var __page = (function () {
       return true;
     };
     HTMLElement.prototype.appendChild = function (c) { c.parentNode = this; this.children.push(c); return c; };
+    HTMLElement.prototype.removeChild = function (c) {
+      var at = this.children.indexOf(c);
+      if (at >= 0) { this.children.splice(at, 1); c.parentNode = null; }
+      return c;
+    };
     HTMLElement.prototype.querySelectorAll = function (sel) { return select(this, sel, false); };
     HTMLElement.prototype.querySelector = function (sel) { var r = select(this, sel, false); return r.length ? r[0] : null; };
     Object.defineProperty(HTMLElement.prototype, 'textContent', {
@@ -244,9 +273,24 @@ var __page = (function () {
     });
     function SVGElement() { }
     SVGElement.prototype.focus = function (options) { page.focusTo(win, this); };
-    function InputEvent(type, init) { this.type = type; for (var k in init) this[k] = init[k]; }
-    function KeyboardEvent(type, init) { this.type = type; for (var k in init) this[k] = init[k]; }
+    // select() moves DOM focus without going through HTMLElement.focus, as Codex's Chromium probe measured.
+    function HTMLInputElement() { }
+    HTMLInputElement.prototype = Object.create(HTMLElement.prototype);
+    HTMLInputElement.prototype.select = function () { page.focusTo(win, this); };
+    function HTMLTextAreaElement() { }
+    HTMLTextAreaElement.prototype = Object.create(HTMLElement.prototype);
+    HTMLTextAreaElement.prototype.select = function () { page.focusTo(win, this); };
+    function InputEvent(type, init) { this.type = type; this.isTrusted = false; for (var k in init) this[k] = init[k]; }
+    function KeyboardEvent(type, init) { this.type = type; this.isTrusted = false; for (var k in init) this[k] = init[k]; }
+    win.listeners = {};
+    win.addEventListener = function (type, fn, capture) { (win.listeners[type] = win.listeners[type] || []).push(fn); };
+    win.removeEventListener = function (type, fn, capture) {
+      var list = win.listeners[type] || [], at = list.indexOf(fn);
+      if (at >= 0) list.splice(at, 1);
+    };
+    win.fire = function (ev) { var list = (win.listeners[ev.type] || []).slice(); for (var i = 0; i < list.length; i++) list[i].call(win, ev); };
     win.HTMLElement = HTMLElement; win.SVGElement = SVGElement;
+    win.HTMLInputElement = HTMLInputElement; win.HTMLTextAreaElement = HTMLTextAreaElement;
     win.InputEvent = InputEvent; win.KeyboardEvent = KeyboardEvent;
     win.setTimeout = setTimeoutModel; win.clearTimeout = clearTimeoutModel; win.Date = clock;
     win.focus = function () { page.focusTo(win, null); };
@@ -257,7 +301,8 @@ var __page = (function () {
     doc.querySelector = function (sel) { var r = doc.querySelectorAll(sel); return r.length ? r[0] : null; };
     win.document = doc;
     win.make = function (tag, attrs, text) {
-      var e = Object.create(HTMLElement.prototype);
+      var e = Object.create(tag === 'textarea' ? HTMLTextAreaElement.prototype
+                          : tag === 'input' ? HTMLInputElement.prototype : HTMLElement.prototype);
       e.tagName = tag.toUpperCase(); e.attrs = attrs || {}; e.children = []; e.parentNode = null;
       e.ownText = text || ''; e.handlers = {}; e.disabled = false; e.ownerDocument = doc;
       return e;
@@ -275,34 +320,63 @@ var __page = (function () {
     inner.document.body.appendChild(input);
     // A conversation's worth of elements, so appDocument() picks the app over the shell and the send's floor is met.
     for (var pi = 0; pi < 40; pi++) inner.document.body.appendChild(inner.make('div', { 'class': 'message' }, 'm'));
-    var f = { outer: outer, inner: inner, input: input, yes: null, shellFocus: outer.HTMLElement.prototype.focus,
-              focus: inner.HTMLElement.prototype.focus, svgFocus: inner.SVGElement.prototype.focus };
+    var notes = inner.make('textarea', { 'class': 'notes' });
+    inner.document.body.appendChild(notes);
+    var f = { outer: outer, inner: inner, input: input, yes: null, card: null, shellFocus: outer.HTMLElement.prototype.focus,
+              focus: inner.HTMLElement.prototype.focus, svgFocus: inner.SVGElement.prototype.focus,
+              inputSelect: inner.HTMLInputElement.prototype.select, areaSelect: inner.HTMLTextAreaElement.prototype.select };
+    function editable(el) { return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || (el.attrs && el.attrs.contenteditable)); }
+    // Claude Code's parent effect when the permission count drops to zero: setTimeout(100), then the composer's
+    // safeFocus, which checks visibility and not document focus (audit: index.js 2.1.314 byte 5897170).
+    function cardCleared() {
+      if (f.card && f.card.parentNode) f.card.parentNode.removeChild(f.card);
+      inner.setTimeout(function () { if (!editable(inner.document.activeElement)) input.focus(); }, 100);
+    }
+    // A Codex follow-on approval card: its primary button has React autoFocus, focused in the mount commit unless an
+    // editable in THIS document is active (audit: app-initial byte 550100). 150 ms: inside the 26-240 ms measured.
+    function nextCard() {
+      if (f.card && f.card.parentNode) f.card.parentNode.removeChild(f.card);
+      inner.setTimeout(function () {
+        build('codex');
+        if (!editable(inner.document.activeElement)) f.yes.focus();
+      }, 150);
+    }
     function stealAfter() {
       if (steal.indexOf('sync') >= 0) input.focus();
       if (steal.indexOf('timeout') >= 0) inner.setTimeout(function () { input.focus(); }, 50);
+      if (steal.indexOf('select') >= 0) notes.select();
       if (steal.indexOf('reveal') >= 0) page.focusTo(inner, input);
+      if (steal.indexOf('effect') >= 0) cardCleared();
+      // Claude's diff path: acceptance raced against 5000 ms, then a further 5000 ms fallback, before the card clears.
+      if (steal.indexOf('diff') >= 0) inner.setTimeout(cardCleared, 10000);
+      if (steal.indexOf('nextcard') >= 0) nextCard();
       if (steal.indexOf('throw') >= 0) throw new Error('the card handler threw');
     }
-    if (shape === 'claude') {
-      var c = inner.make('div', { 'class': 'permissionRequestContainer_q1' });
-      var bc = inner.make('div', { 'class': 'buttonContainer_q2' });
-      c.appendChild(bc); inner.document.body.appendChild(c);
-      var labels = ['Yes', 'No'];
-      for (var li = 0; li < labels.length; li++) {
-        var b = inner.make('button');
-        b.appendChild(inner.make('span', { 'class': 'shortcutNum_q3' }, String(li + 1)));
-        b.appendChild(inner.make('span', {}, labels[li]));
-        bc.appendChild(b);
-        if (li === 0) f.yes = b;
+    function build(kind) {
+      if (kind === 'claude') {
+        var c = inner.make('div', { 'class': 'permissionRequestContainer_q1' });
+        var bc = inner.make('div', { 'class': 'buttonContainer_q2' });
+        c.appendChild(bc); inner.document.body.appendChild(c);
+        var labels = ['Yes', 'No'];
+        for (var li = 0; li < labels.length; li++) {
+          var b = inner.make('button');
+          b.appendChild(inner.make('span', { 'class': 'shortcutNum_q3' }, String(li + 1)));
+          b.appendChild(inner.make('span', {}, labels[li]));
+          bc.appendChild(b);
+          if (li === 0) f.yes = b;
+        }
+        f.card = c;
+      } else if (kind === 'codex') {
+        var card = inner.make('div', { 'class': 'flex @container/approval-card' });
+        var form = inner.make('form');
+        card.appendChild(form); inner.document.body.appendChild(card);
+        form.appendChild(inner.make('button', {}, 'Deny'));
+        f.yes = form.appendChild(inner.make('button', {}, 'Allow once'));
+        f.card = card;
       }
-    } else if (shape === 'codex') {
-      var card = inner.make('div', { 'class': 'flex @container/approval-card' });
-      var form = inner.make('form');
-      card.appendChild(form); inner.document.body.appendChild(card);
-      form.appendChild(inner.make('button', {}, 'Deny'));
-      f.yes = form.appendChild(inner.make('button', {}, 'Allow once'));
+      if (f.yes) f.yes.handlers.click = [function () { page.approved[name] = (page.approved[name] || 0) + 1; stealAfter(); }];
     }
-    if (f.yes) f.yes.handlers.click = [function () { page.approved[name] = (page.approved[name] || 0) + 1; stealAfter(); }];
+    build(shape);
     input.handlers.keydown = [function (ev) {
       if (ev.key !== 'Enter') return;
       page.sent[name] = input.textContent; input.textContent = '';
@@ -311,17 +385,27 @@ var __page = (function () {
     page.frames[name] = f;
   };
   page.user = function (name) { var f = page.frames[name]; page.focusTo(f.inner, f.input); };
+  page.userAt = function (name) { var f = page.frames[name]; page.focused = f.inner; f.inner.document.activeElement = f.inner.document.body; };
+  page.userPointer = function (name) {
+    var f = page.frames[name];
+    f.inner.fire({ type: 'pointerdown', isTrusted: true });
+    f.inner.fire({ type: 'mousedown', isTrusted: true });
+    page.focused = f.inner; f.inner.document.activeElement = f.input; page.focusLog.push('user:' + name);
+  };
   page.breakClick = function (name) { page.frames[name].yes.click = function () { throw new Error('click threw'); }; };
   page.state = function () {
     var own = Object.prototype.hasOwnProperty;
     var o = { focused: page.focused ? page.focused.name_ : '', log: page.focusLog.join(','), timers: page.timers.length, frames: {} };
     for (var n in page.frames) {
       var f = page.frames[n], p = f.inner.HTMLElement.prototype, sp = f.inner.SVGElement.prototype;
+      var ip = f.inner.HTMLInputElement.prototype, tp = f.inner.HTMLTextAreaElement.prototype;
       o.frames[n] = {
         approved: page.approved[n] || 0, sent: page.sent[n] || '',
         inputActive: f.inner.document.activeElement === f.input,
-        exact: p.focus === f.focus && own.call(p, 'focus') && sp.focus === f.svgFocus && own.call(sp, 'focus'),
-        patched: p.focus !== f.focus,
+        exact: p.focus === f.focus && own.call(p, 'focus') && sp.focus === f.svgFocus && own.call(sp, 'focus')
+               && ip.select === f.inputSelect && own.call(ip, 'select') && tp.select === f.areaSelect && own.call(tp, 'select'),
+        patched: p.focus !== f.focus || tp.select !== f.areaSelect,
+        listeners: (f.inner.listeners.pointerdown || []).length + (f.inner.listeners.beforeinput || []).length,
         hold: !!f.inner.__agentflowFocusHold,
         shellTouched: f.outer.HTMLElement.prototype.focus !== f.shellFocus || !!f.outer.__agentflowFocusHold
       };
