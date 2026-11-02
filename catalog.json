@@ -2358,10 +2358,10 @@
       "id": "agentflow",
       "name": "AgentFlow",
       "desc": "Notices when a coding agent (Claude Code, Codex) is stuck on a permission prompt, and tells you which app is waiting: Claude desktop, Claude Code in VS Code or the CLI, Codex desktop, Codex in VS Code, or codex exec. It can also APPROVE the prompt for you in VS Code, if you switch that on. By default it presses only the option that approves THAT ONE CALL: never \"don't ask again\", never \"allow all edits this session\", never a permission-mode change. Two opt-ins let it press Claude's \"for all projects\" row (a saved permission rule) or Codex's \"Allow similar commands\" instead. If it cannot recognise even one option it touches nothing. Another pauses working VS Code sessions near your Claude session limit, to resume after the reset. It cannot act in the desktop apps or a terminal, and says so. READS YOUR CODING-AGENT TRANSCRIPTS AND PERMISSION SETTINGS: those files contain every command you ran and everything you typed to the agent. It never speaks or logs command text or a file path.",
-      "version": "1.12.2",
+      "version": "1.12.3",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/agentflow.zip",
-      "sha256": "79928d460938ce3dd75909e7f3b4e8610936c18b9bbed2559d241cf642ed1146",
-      "bytes": 214434,
+      "sha256": "8a9f2fa0e1c143946eed24ee566aceec5367b097da7cc25ed7aad8cc2d5e1557",
+      "bytes": 238425,
       "permissions": "Speech, Animation, Storage, AgentTranscripts, InputSynthesis, Network, Companions, Audio",
       "minHostVersion": "1.2.0"
     },
