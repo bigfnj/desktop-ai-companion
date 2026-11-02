@@ -33,6 +33,12 @@ byte[] Credential() => Encoding.UTF8.GetBytes("{\"peerToken\":\"" + token + "\",
 
 try
 {
+    if (args is ["--kernel-image-binding-only"])
+    {
+        await KernelImageBindingChecks.RunAsync(Check);
+        Console.WriteLine("RESULT=PASS assertions=" + checks);
+        return 0;
+    }
     var standard = CanonicalPeerTarget.Parse(pipe);
     var variants = new[]
     {
@@ -304,6 +310,7 @@ try
     var tooLargeFactory = new FakeFactory(identity); var tooLargeSource = new MemorySource(Credential);
     Check((await new NativePeerAdapter(tooLargeFactory, tooLargeSource).SendAsync(Target(), largeMessage with { Text = largeMessage.Text + "x" }, home)).Status == SubmissionStatus.Refused &&
         tooLargeFactory.Connects == 0 && tooLargeSource.Reads == 0, "oversized native envelope refuses before transport or credentials");
+    await KernelImageBindingChecks.RunAsync(Check);
     Console.WriteLine("RESULT=PASS assertions=" + checks);
     return 0;
 }

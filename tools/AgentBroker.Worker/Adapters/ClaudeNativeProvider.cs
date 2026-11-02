@@ -111,6 +111,10 @@ public sealed class ClaudeNativeProvider : IClaudeNativeProvider
                 profiles[key] = profile;
             }
             token.ThrowIfCancellationRequested();
+            // Pinned/cache discovery also re-queries the kernel image, not a stale module-list name.
+            if (process.StartFileTime != started ||
+                !string.Equals(process.ImagePath, image, StringComparison.OrdinalIgnoreCase))
+                return Task.FromResult<ClaudeNativeCandidate?>(null);
             var now = DateTimeOffset.UtcNow;
             bool plausible = metadata.HasPlausibleActivityTimestamp(now);
             return Task.FromResult<ClaudeNativeCandidate?>(new(new(metadata.CanonicalPipe, processId, image,

@@ -8,12 +8,13 @@ using Microsoft.Win32.SafeHandles;
 namespace AgentBroker.ClaudeAdapter;
 
 /// <summary>One connection's immutable public executable attestation, never a cross-connection cache.</summary>
-internal sealed class LockedPublicImage : IDisposable
+internal sealed class LockedPublicImage : INativeImageLease
 {
     private readonly FileStream image;
     private readonly string expectedPath;
     private bool disposed;
-    internal string Sha256 { get; }
+    public string ImagePath => expectedPath;
+    public string Sha256 { get; }
 
     internal LockedPublicImage(string path)
     {
@@ -30,7 +31,7 @@ internal sealed class LockedPublicImage : IDisposable
         catch { image.Dispose(); throw; }
     }
 
-    internal void VerifyPath(string observedPath)
+    public void VerifyPath(string observedPath)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
         if (!string.Equals(Path.GetFullPath(observedPath), expectedPath, StringComparison.OrdinalIgnoreCase))

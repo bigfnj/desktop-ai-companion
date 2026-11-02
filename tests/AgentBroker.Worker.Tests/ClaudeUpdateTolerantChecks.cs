@@ -9,7 +9,7 @@ using AgentBroker.Worker.Adapters;
 // each mutation witness fails on the check it targets. Every label names this file for the witness harness.
 internal static class ClaudeUpdateTolerantChecks
 {
-    private static readonly string[] Cases = ["discovery", "status", "refusals", "capabilities", "image-changed", "send", "image-trust", "options", "version"];
+    private static readonly string[] Cases = ["discovery", "status", "refusals", "capabilities", "image-changed", "send", "image-trust", "options", "version", "image-path"];
     private const string L = "ClaudeUpdateTolerantChecks.cs: ";
     private const string Pipe = @"\\.\pipe\cc-msg-0123456789abcdef0123456789abcdef";
     private const string SignedHash = "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD";
@@ -31,7 +31,40 @@ internal static class ClaudeUpdateTolerantChecks
                 case "image-trust": ImageTrust(check); break;
                 case "options": Options(check); break;
                 case "version": await VersionAsync(check); break;
+                case "image-path": await ImagePathAsync(check); break;
             }
+    }
+
+    private static async Task ImagePathAsync(Action<bool, string> check)
+    {
+        const string original = @"C:\Synthetic-Claude-Tolerant\claude.exe";
+        const string displaced = @"C:\Synthetic-Claude-Displaced\claude.exe";
+        var cold = new Source
+        {
+            Version = Pin.Version, Hash = Pin.Sha256, ImagePaths = [original, displaced],
+        };
+        await using (var provider = new ClaudeNativeProvider(cold, enablePeerCredentials: true, updateTolerantDelivery: true))
+            check((await provider.DiscoverAsync(CancellationToken.None)).Count == 0 && cold.ImagePathReads == 2 &&
+                cold.ImageHashReads == 1 && cold.TrustReads == 0,
+                L + "kernel path drift after a cold pinned image hash refuses discovery before advertising a session");
+
+        var cached = new Source { Version = Pin.Version, Hash = Pin.Sha256 };
+        await using (var provider = new ClaudeNativeProvider(cached, enablePeerCredentials: true, updateTolerantDelivery: true))
+        {
+            var warm = await provider.DiscoverAsync(CancellationToken.None);
+            check(warm.Count == 1 && warm[0].CanDeliver && cached.ImageHashReads == 1,
+                L + "WITNESS: the path-drift cache case first establishes one real provider pin-cache entry");
+            cached.ImagePathReads = 0; cached.ImagePaths = [original, displaced];
+            check((await provider.DiscoverAsync(CancellationToken.None)).Count == 0 && cached.ImagePathReads == 2 &&
+                cached.ImageHashReads == 1 && cached.TrustReads == 0,
+                L + "kernel path drift on a pinned cache hit refuses discovery without rehashing or publisher fallback");
+        }
+
+        var tolerant = new Source { ImagePaths = [original, displaced] };
+        await using (var provider = new ClaudeNativeProvider(tolerant, enablePeerCredentials: true, updateTolerantDelivery: true))
+            check((await provider.DiscoverAsync(CancellationToken.None)).Count == 0 && tolerant.ImagePathReads == 2 &&
+                tolerant.TrustReads == 1,
+                L + "kernel path drift after publisher observation refuses an unpinned session before capability publication");
     }
 
     // The note names the build as people see it (coordinator, 2026-11-02): the file version's zero fourth part is dropped.
@@ -351,7 +384,8 @@ internal static class ClaudeUpdateTolerantChecks
         internal string Image = @"C:\Synthetic-Claude-Tolerant\claude.exe";
         internal string Version = UpdatedVersion;
         internal string Hash = new('C', 64);
-        internal int TrustReads;
+        internal int TrustReads, ImageHashReads, ImagePathReads;
+        internal string[]? ImagePaths;
         internal ClaudePublicImageTrustResult Trust = new(ClaudePublicImageTrust.ExpectedPublisher, SignedHash);
         internal NativeSessionMetadata Metadata;
         internal Source()
@@ -364,12 +398,19 @@ internal static class ClaudeUpdateTolerantChecks
         public IClaudeDiscoveryProcess OpenProcess(int processId) => new ProcessView(this);
         public void RejectReparseComponents(string image) { }
         public string? ReadProductVersion(string image) => Version;
-        public string ReadImageSha256(string image) => Hash;
+        public string ReadImageSha256(string image) { ImageHashReads++; return Hash; }
         public ClaudePublicImageTrustResult ObserveUnpinnedPublicImage(string image) { TrustReads++; return Trust with { }; }
         private sealed class ProcessView(Source source) : IClaudeDiscoveryProcess
         {
             public string ProcessName => "claude";
-            public string ImagePath => source.Image;
+            public string ImagePath
+            {
+                get
+                {
+                    int index = source.ImagePathReads++;
+                    return source.ImagePaths is { Length: > 0 } paths ? paths[Math.Min(index, paths.Length - 1)] : source.Image;
+                }
+            }
             public ulong StartFileTime => source.Started;
             public bool IsCurrentUser => true;
             public bool HasExited => false;

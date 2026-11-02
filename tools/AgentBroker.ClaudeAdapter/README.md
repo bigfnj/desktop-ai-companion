@@ -16,8 +16,11 @@ Three exact public native executable profiles are supported:
 
 These profiles do not establish the version or behavior of a Desktop-bundled runtime.
 Source equivalence and reproducible static inspection are recorded in [VERIFICATION.md](VERIFICATION.md).
-Unknown versions or hashes are refused before a connection or credential read. Binary hash identifies
-the exact verified engine version; caller-supplied names are not version proof.
+Without an `IPublisherImageTrust`, unknown versions or hashes are refused before a connection or credential read.
+An update-tolerant caller can supply that publisher check; an unpinned send then requires its success on the
+connected held image and equality with the discovery-attested hash before credentials. This does not establish
+the updated build's peer-protocol behavior. Binary hash identifies an exact reviewed profile; caller-supplied
+names are not version proof.
 
 Canonicalization follows the inspected public native OJ/YE behavior: accept only a local Windows message
 pipe with `cc-msg-` and 32 hex digits, retain an optional `LOCAL` namespace, and ASCII-lowercase the full
@@ -26,11 +29,12 @@ and the native suffix; its directory is NFC-normalized `CLAUDE_CONFIG_DIR/sessio
 `<explicit user home>/.claude/sessions`. Derivation is pure and neither enumerates nor accesses files.
 
 The prepared production transport uses a current-user-only named pipe and checks the connected server's
-PID, executable path, current-user SID, exact image hash/version profile, and native creation FILETIME.
+PID, kernel executable path, current-user SID, image hash, and native creation FILETIME. The adapter then requires
+an exact reviewed profile or the caller's update-tolerant publisher check before credentials.
 FILETIME is the unsigned result of Win32 `GetProcessTimes`, not `.NET DateTime.Ticks`. Identity is checked
 again after credential parsing and before any token is transmitted. The ordinary no-write transport
-probe passed against a live VS Code 2.1.306 test recipient; credential access and user input remain
-separate protected/live checks.
+probe historically passed against a live VS Code 2.1.306 test recipient, before the kernel-path hardening;
+it does not validate the new query implementation. Credential access and user input remain separate protected/live checks.
 
 On Windows the factory validates pipe ownership against `WindowsIdentity.User` explicitly. The .NET
 `CurrentUserOnly` convenience option compares against the token's default `Owner`, which can differ
@@ -40,11 +44,14 @@ other than that user, SYSTEM or Administrators. Unknown/callback ACEs fail close
 server's process token must independently be the current user. These checks repeat during reinspection
 before credential authentication; no credential or message is sent merely to test a pipe.
 
-Each connection hashes a retained read-only public executable handle once. Its sharing mode denies
-writes and replacement until that short-lived connection is disposed; reinspection checks the same
-handle's resolved identity along with current server PID/start/user/path/ACL. No hash trust persists
-across connections. This avoids a redundant full-image pass while keeping the bytes immutable through
-authentication. Discovery uses public version metadata only to refuse unsupported updates cheaply;
+Each connection hashes a retained read-only public executable handle once. `KernelProcessImage` queries
+`QueryFullProcessImageNameW` on one retained limited-query process handle; `NativeImageBinding` compares
+that kernel path after acquiring the image lease and around reinspection's held-path validation.
+`native_image_path_mismatch` refuses an acquisition disagreement before credentials, or a later
+disagreement before authentication. Both leases survive through the writes; the file sharing mode
+denies edits/replacement, and reinspection also checks server PID/start/user/ACL. No hash trust persists
+across connections. This addresses the stale module-list path after an executable move; path samples
+do not claim atomic mapped-section file identity. Discovery uses public version metadata only to refuse unsupported updates cheaply;
 a supported version still needs the exact full-image hash. Unknown versions never gain trust from
 version text alone.
 

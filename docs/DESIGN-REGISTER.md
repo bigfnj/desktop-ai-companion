@@ -6044,6 +6044,18 @@ version as people see it (2.1.314, not the file version 2.1.314.0). An adapter's
 its own line: joined with "; " under one 116-character cut, the elevated-session note and this one garbled each other.
 The snapshot keeps its shape, so an older module still reads one string.
 
+N-broker-image-path-01 closes a stale module-list pathname gap shared by exact pins and update-tolerant delivery.
+Discovery and the connected-server check now query `QueryFullProcessImageNameW` through a retained process handle opened
+with `PROCESS_QUERY_LIMITED_INFORMATION`, rather than trusting `Process.MainModule.FileName`. The connection owns that
+process handle and its immutable image lease through the writes. `NativeImageBinding` compares the kernel path with the
+leased path after acquisition and before and after held-path validation at reinspection; disagreement returns
+`native_image_path_mismatch` before authentication (acquisition disagreement also precedes credentials). Pinned/cache
+discovery re-queries the image path too. Fake kernel readers and leases exercise the actual binding, credential-read and
+write ordering for both pin and publisher modes; the selected image-path mutation runner requires a rebuilt artifact,
+the named failing assertion and SHA-256 source restoration. The recorded synthetic Windows move/replacement probe is the
+OS primitive evidence. These kernel-path checks address that stale-name case; separate path samples or a file ID from a
+reopened pathname are not an atomic mapped-section identity attestation, and ancestor rename/reparse races remain unproved.
+
 The gap the owner accepts: how an unreviewed build handles the authenticated peer frame is not re-proved. A re-pin review
 compares five peer-classification and admission sites token for token with a reviewed image; this rule cannot, and the
 inbox reports no classification at runtime. It is the same class of gap as the one accepted for Codex
