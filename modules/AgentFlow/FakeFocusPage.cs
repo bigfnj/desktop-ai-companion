@@ -238,7 +238,10 @@ var __page = (function () {
   function clearTimeoutModel(id) {
     for (var i = 0; i < page.timers.length; i++) if (page.timers[i].id === id) { page.timers.splice(i, 1); return; }
   }
-  var clock = { now: function () { return page.now; } };
+  // Two axes (round 6): performance.now() follows the scheduler; Date.now() is the wall clock, which can be moved.
+  page.wallSkew = 0;
+  var clock = { now: function () { return page.now + page.wallSkew; } };
+  var monotonic = { now: function () { return page.now; } };
   page.focusTo = function (win, el) {
     page.focused = win;
     win.document.activeElement = el || win.document.body;
@@ -321,7 +324,7 @@ var __page = (function () {
     win.HTMLElement = HTMLElement; win.SVGElement = SVGElement;
     win.HTMLInputElement = HTMLInputElement; win.HTMLTextAreaElement = HTMLTextAreaElement;
     win.InputEvent = InputEvent; win.KeyboardEvent = KeyboardEvent;
-    win.setTimeout = setTimeoutModel; win.clearTimeout = clearTimeoutModel; win.Date = clock;
+    win.setTimeout = setTimeoutModel; win.clearTimeout = clearTimeoutModel; win.Date = clock; win.performance = monotonic;
     win.focus = function () { page.focusTo(win, null); };
     win.window = win;
     var doc = { defaultView: win, activeElement: null, body: null, documentElement: null };

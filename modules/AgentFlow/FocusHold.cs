@@ -42,6 +42,10 @@ namespace DesktopAICompanion.AgentFlow
         /// on its own. A minute, so one slow or skipped sweep does not drop it between sweeps.</summary>
         internal const int FocusGuardLeaseFloorMs = 60000;
 
+        /// <summary>The guard's implementation version (round 6). A guard of any other version, or none (round 4's guard,
+        /// still running in a page when this build arrives, had no lease), is removed exactly and replaced, never renewed.</summary>
+        internal const int FocusGuardVersion = 6;
+
         /// <summary>The lease in check intervals: three sweeps' worth, so two missed sweeps in a row still keep it.</summary>
         internal const int FocusGuardLeaseIntervals = 3;
 
@@ -95,16 +99,25 @@ namespace DesktopAICompanion.AgentFlow
   var a = appDocument();
   if (!a.doc || !a.doc.defaultView || a.elements < MinElements) return 'unreachable';
   var d = a.doc, w = d.defaultView;
+  // One MONOTONIC clock for every duration (round 6): a wall-clock change must not stretch the lease or the allowance.
+  var now = function () { return w.performance.now(); };
   var g = w.__agentflowFocusGuard;
-  if (g && g.active) {
-    g.expiresAt = Date.now() + __LEASE_MS__;
+  if (g && g.active && g.version === __VERSION__) {
+    g.expiresAt = now() + __LEASE_MS__;
     return 'kept';
   }
-  g = { active: true, allowUntil: 0, saved: [], expiresAt: Date.now() + __LEASE_MS__, timer: 0 };
+  // A guard from another build (round 4's had no lease at all) is taken out first, exactly, by its own removal (its
+  // saved originals back where its wrappers are still in place, its listeners and timer gone), so nothing of it stays
+  // and no active old wrapper is ever captured as an original below.
+  if (g && g.active) {
+    try { if (typeof g.remove === 'function') g.remove(); } catch (e) { }
+    if (w.__agentflowFocusGuard === g) return 'failed';
+  }
+  g = { active: true, version: __VERSION__, allowUntil: 0, saved: [], expiresAt: now() + __LEASE_MS__, timer: 0 };
   var inputs = ['pointerdown', 'mousedown'];
   var onInput = function (e) {
     if (!e || !e.isTrusted) return;
-    g.allowUntil = Date.now() + __GESTURE_MS__;
+    g.allowUntil = now() + __GESTURE_MS__;
   };
   g.remove = function () {
     if (!g.active) return;
@@ -120,7 +133,7 @@ namespace DesktopAICompanion.AgentFlow
   // The guard's one timer: at the lease's end it removes the guard, or waits out a renewal.
   var lapse = function () {
     if (!g.active) return;
-    var left = g.expiresAt - Date.now();
+    var left = g.expiresAt - now();
     if (left <= 0) { g.remove(); return; }
     g.timer = w.setTimeout(lapse, left);
   };
@@ -134,7 +147,7 @@ namespace DesktopAICompanion.AgentFlow
       if (!descriptor || typeof descriptor.value !== 'function') continue;
       var held = (function (original) {
         return function () {
-          var t = Date.now();
+          var t = now();
           if (g.active && t >= g.expiresAt) g.remove();
           else if (g.active && t >= g.allowUntil) {
             var focused = false;
@@ -188,10 +201,71 @@ namespace DesktopAICompanion.AgentFlow
   }
 ";
 
+        /// <summary>The round-4 guard installer, verbatim from a299c3c (round 6 migration test): its guard has no
+        /// version, no lease and no timer, and is what the owner's app runs when this build arrives.</summary>
+        internal static string LegacyRound4GuardInstall
+        {
+            get
+            {
+                return ("\n(function () {" + DocumentPreludeForSelfTest + @"
+  var a = appDocument();
+  if (!a.doc || !a.doc.defaultView || a.elements < MinElements) return 'unreachable';
+  var d = a.doc, w = d.defaultView;
+  var g = w.__agentflowFocusGuard;
+  if (g && g.active) return 'kept';
+  g = { active: true, allowUntil: 0, saved: [] };
+  var inputs = ['pointerdown', 'mousedown'];
+  var onInput = function (e) {
+    if (!e || !e.isTrusted) return;
+    g.allowUntil = Date.now() + __GESTURE_MS__;
+  };
+  g.remove = function () {
+    if (!g.active) return;
+    g.active = false;
+    for (var ri = 0; ri < inputs.length; ri++) { try { w.removeEventListener(inputs[ri], onInput, true); } catch (e) { } }
+    for (var si = g.saved.length - 1; si >= 0; si--) {
+      var s = g.saved[si];
+      try { if (s.owner[s.name] === s.held) Object.defineProperty(s.owner, s.name, s.descriptor); } catch (e) { }
+    }
+    if (w.__agentflowFocusGuard === g) w.__agentflowFocusGuard = null;
+  };
+  w.__agentflowFocusGuard = g;
+  try {
+    var targets = [[w.HTMLElement, 'focus'], [w.SVGElement, 'focus'], [w.HTMLInputElement, 'select'], [w.HTMLTextAreaElement, 'select']];
+    for (var hi = 0; hi < targets.length; hi++) {
+      var owner = targets[hi][0] && targets[hi][0].prototype, name = targets[hi][1];
+      if (!owner) continue;
+      var descriptor = Object.getOwnPropertyDescriptor(owner, name);
+      if (!descriptor || typeof descriptor.value !== 'function') continue;
+      var held = (function (original) {
+        return function () {
+          if (g.active && Date.now() >= g.allowUntil) {
+            var focused = false;
+            try { focused = d.hasFocus(); } catch (e) { }
+            if (!focused) return undefined;
+          }
+          return original.apply(this, arguments);
+        };
+      })(descriptor.value);
+      g.saved.push({ owner: owner, name: name, descriptor: descriptor, held: held });
+      Object.defineProperty(owner, name, { value: held, writable: descriptor.writable,
+                                           enumerable: descriptor.enumerable, configurable: descriptor.configurable });
+    }
+    for (var ai = 0; ai < inputs.length; ai++) w.addEventListener(inputs[ai], onInput, true);
+  } catch (e) { g.remove(); return 'failed'; }
+  return 'installed';
+})()")
+                    .Replace("__GESTURE_MS__", "1000");
+            }
+        }
+
+        internal static string DocumentPreludeForSelfTest { get { return DocumentPrelude; } }
+
         /// <summary>The install with its numbers filled in, for a lease of <paramref name="leaseMs"/>.</summary>
         internal static string FocusGuardInstall(int leaseMs)
         {
             return FocusGuardInstallTemplate
+                .Replace("__VERSION__", FocusGuardVersion.ToString(CultureInfo.InvariantCulture))
                 .Replace("__GESTURE_MS__", FocusGestureMs.ToString(CultureInfo.InvariantCulture))
                 .Replace("__LEASE_MS__", leaseMs.ToString(CultureInfo.InvariantCulture));
         }
@@ -209,16 +283,17 @@ namespace DesktopAICompanion.AgentFlow
             return GuardedReadPrefix + FocusGuardInstall(guard.LeaseMs) + GuardedReadMiddle + readExpression + GuardedReadSuffix;
         }
 
-        /// <summary>Split a guarded read's answer into the install's outcome and the read's own answer. A failed or
-        /// missing install outcome is recorded on <paramref name="guard"/> for the degraded line; 'unreachable' (no
-        /// conversation yet) is not a failure.</summary>
+        /// <summary>Split a guarded read's answer into the install's outcome and the read's own answer. 'failed' is recorded
+        /// as a failed install; no answer at all only as unconfirmed (round 6: a missing acknowledgement does not prove the
+        /// install failed); 'unreachable' (no conversation yet) is neither.</summary>
         internal static string SplitGuardedRead(string raw, string targetId, string agent, FocusGuardTicket guard)
         {
             string outcome = null;
             int bar = raw == null ? -1 : raw.IndexOf('|');
             if (bar >= 0) { outcome = raw.Substring(0, bar); raw = raw.Substring(bar + 1); }
             if (outcome == "installed" || outcome == "kept") guard.Installed.Add(targetId);
-            else if (outcome != "unreachable") guard.Failed.Add(new KeyValuePair<string, string>(targetId, agent));
+            else if (outcome == "failed") guard.Failed.Add(new KeyValuePair<string, string>(targetId, agent));
+            else if (outcome != "unreachable") guard.Unconfirmed.Add(new KeyValuePair<string, string>(targetId, agent));
             return raw;
         }
         internal static string FocusGuardRemoveForSelfTest { get { return FocusGuardRemoveExpression; } }
@@ -354,5 +429,8 @@ namespace DesktopAICompanion.AgentFlow
         public int LeaseMs = CdpApprover.FocusGuardLeaseFloorMs;
         public readonly List<string> Installed = new List<string>();
         public readonly List<KeyValuePair<string, string>> Failed = new List<KeyValuePair<string, string>>();
+        /// <summary>Panels whose protection could not be confirmed (round 6): the attach was refused, the read threw, or no
+        /// answer came. Not proof of a failed install.</summary>
+        public readonly List<KeyValuePair<string, string>> Unconfirmed = new List<KeyValuePair<string, string>>();
     }
 }

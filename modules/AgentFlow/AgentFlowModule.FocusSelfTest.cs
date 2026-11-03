@@ -555,6 +555,76 @@ namespace DesktopAICompanion.AgentFlow
                         && FocusBool(state, "A", "hold") && !FocusBool(state, "C", "hold"));
                 }
             }
+            // ---- (V) a guard from another build is replaced, never renewed (round 6) ------------------------------------------
+            using (FakeFocusPage page = FakeFocusPage.TryCreate(out why))
+            {
+                page.AddFrame("B", "claude", "none");
+                page.UserIn(null);
+                string legacy = page.EvaluateAs("B", CdpApprover.LegacyRound4GuardInstall);
+                string legacyState = page.State();
+                string current = page.EvaluateAs("B", CdpApprover.FocusGuardInstall(60000));
+                string version = page.Run("String(__page.frames['B'].inner.__agentflowFocusGuard && __page.frames['B'].inner.__agentflowFocusGuard.version)");
+                page.Advance(61000);
+                string lapsed = page.State();
+                probe.Check("WITNESS (1.12.3) a round-4 guard (no version, no lease) found by this build is removed exactly and "
+                            + "replaced by a leased one, which lapses after one lease with no renewal, restoring everything ("
+                            + legacy + ", " + current + ", version " + version + "; " + FocusBrief(lapsed) + ")",
+                    legacy == "installed" && FocusBool(legacyState, "B", "hold") && current == "installed"
+                    && version == CdpApprover.FocusGuardVersion.ToString(CultureInfo.InvariantCulture)
+                    && !FocusBool(lapsed, "B", "hold") && FocusBool(lapsed, "B", "exact")
+                    && FocusInt(lapsed, "B", "listeners") == 0 && FocusInt(lapsed, null, "timers") == 0);
+            }
+
+            // ---- (W) the lease and the allowance run on the monotonic clock, not the wall clock (round 6) -----------------------
+            using (FakeFocusPage page = FakeFocusPage.TryCreate(out why))
+            {
+                page.AddFrame("A", "claude", "none");
+                page.AddFrame("B", "claude", "none");
+                page.UserIn("A");
+                page.EvaluateAs("B", CdpApprover.FocusGuardInstall(60000));
+                page.UserPressNoFocus("B");
+                page.Advance(100);
+                string entered = page.State();
+                page.UserPointer("A");
+                page.Run("__page.wallSkew = -3600000; 'ok'");
+                page.Advance(2000);
+                page.Run("__page.frames['B'].input.focus(); 'ok'");
+                string allowance = page.State();
+                page.Advance(60000);
+                string lapsed = page.State();
+                probe.Check("WITNESS (1.12.3) with the wall clock set back an hour, the gesture allowance still closes after a second "
+                            + "and the lease still lapses after a minute: both run on performance.now() (" + FocusBrief(entered)
+                            + " then " + FocusBrief(allowance) + " then " + FocusBrief(lapsed) + ")",
+                    FocusStr(entered, null, "focused") == "B" && FocusStr(allowance, null, "focused") == "A"
+                    && FocusBool(allowance, "B", "hold") && !FocusBool(lapsed, "B", "hold") && FocusBool(lapsed, "B", "exact"));
+            }
+
+            // ---- (U) a panel that does not answer is reported as unconfirmed, not as a failed install (round 6) -------------------
+            using (FakeFocusPage page = FakeFocusPage.TryCreate(out why))
+            using (var storage = new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-focus-unconfirmed"))
+            {
+                page.AddFrame("A", "claude", "none");
+                page.AddFrame("C", "codex", "none");
+                page.UserIn(null);
+                var targetC = FocusTarget(page, "C", codexMarker, "none");
+                targetC.RefuseAttach = true;
+                using (var server = new FakeCdpServer(new[] { FocusTarget(page, "A", claudeMarker, "none"), targetC }))
+                {
+                    var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                    AgentFlowModule module = SpeakingModule(host, storage, AgentMode.AutoApprove);
+                    var ticket = new FocusGuardTicket { LeaseMs = 60000 };
+                    FocusSweep(server, true, ticket, out pass);
+                    module.LogFocusGuardOutcome(ticket);
+                    module.LogFocusGuardOutcome(ticket);
+                    probe.Check("WITNESS (1.12.3) a panel whose attach is refused is reported once as unconfirmed, apart from a failed "
+                                + "install, beside a healthy panel that is guarded ("
+                                + CountLoggedContaining(host.LoggedLines, "could not be confirmed").ToString(CultureInfo.InvariantCulture) + " line(s))",
+                        ticket.Installed.Contains("A") && ticket.Unconfirmed.Count == 1 && ticket.Unconfirmed[0].Key == "C"
+                        && ticket.Failed.Count == 0
+                        && CountLoggedContaining(host.LoggedLines, FocusGuardUnconfirmedNote(CdpApprover.AgentCodex)) == 1
+                        && CountLoggedContaining(host.LoggedLines, "could not be installed") == 0);
+                }
+            }
             return true;
         }
 

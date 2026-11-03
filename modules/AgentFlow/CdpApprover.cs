@@ -644,13 +644,23 @@ namespace DesktopAICompanion.AgentFlow
                         string targetId = item.Key;
                         string agent = item.Value;
                         string sessionId = session.Attach(targetId);
-                        if (sessionId == null) continue;
+                        if (sessionId == null)
+                        {
+                            if (guard != null) guard.Unconfirmed.Add(new KeyValuePair<string, string>(targetId, agent));
+                            continue;
+                        }
                         try
                         {
                             // The standing guard rides on the read (1.12.3): installed or renewed in the same evaluate, so
                             // it is in place before anything here is pressed and costs no extra round trip.
                             string read = agent == AgentCodex ? CodexReadExpression : ReadExpression;
-                            string raw = session.Evaluate(sessionId, guard != null ? GuardedRead(read, guard) : read);
+                            string raw;
+                            try { raw = session.Evaluate(sessionId, guard != null ? GuardedRead(read, guard) : read); }
+                            catch (Exception)
+                            {
+                                if (guard != null) guard.Unconfirmed.Add(new KeyValuePair<string, string>(targetId, agent));
+                                throw;
+                            }
                             if (guard != null) raw = SplitGuardedRead(raw, targetId, agent, guard);
                             ReadOutcome outcome = Interpret(raw);
                             // Unreachable is NOT "no prompt", and the difference is load-bearing:

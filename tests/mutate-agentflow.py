@@ -2541,15 +2541,15 @@ CASES = (
     (
         "agentflow-focus: the sweep never installs the standing guard",
         CDP,
-        "                            string raw = session.Evaluate(sessionId, guard != null ? GuardedRead(read, guard) : read);",
-        "                            string raw = session.Evaluate(sessionId, read);",
+        "                            try { raw = session.Evaluate(sessionId, guard != null ? GuardedRead(read, guard) : read); }",
+        "                            try { raw = session.Evaluate(sessionId, read); }",
         "with the guard on, a Codex approval card that mounts on its own",
     ),
     (
         "agentflow-focus: the guard installs in the webview shell's realm",
         FOCUS,
-        "  var d = a.doc, w = d.defaultView;\n  var g = w.__agentflowFocusGuard;",
-        "  var d = a.doc, w = window;\n  var g = w.__agentflowFocusGuard;",
+        "  var d = a.doc, w = d.defaultView;\n  // One MONOTONIC clock",
+        "  var d = a.doc, w = window;\n  // One MONOTONIC clock",
         "with the guard on, a Codex approval card that mounts on its own",
     ),
     (
@@ -2562,15 +2562,15 @@ CASES = (
     (
         "agentflow-focus: the live per-call focus check is removed",
         FOCUS,
-        "            try { focused = d.hasFocus(); } catch (e) { }\n            if (!focused) return undefined;",
-        "            if (!focused) return undefined;",
+        "          else if (g.active && t >= g.allowUntil) {\n            var focused = false;\n            try { focused = d.hasFocus(); } catch (e) { }\n            if (!focused) return undefined;",
+        "          else if (g.active && t >= g.allowUntil) {\n            var focused = false;\n            if (!focused) return undefined;",
         "the card's own focus call made while the card has focus goes through",
     ),
     (
         "agentflow-focus: select() is not guarded",
         FOCUS,
-        ", [w.HTMLInputElement, 'select'], [w.HTMLTextAreaElement, 'select']];",
-        "];",
+        "    g.timer = w.setTimeout(lapse, left);\n  };\n  w.__agentflowFocusGuard = g;\n  try {\n    var targets = [[w.HTMLElement, 'focus'], [w.SVGElement, 'focus'], [w.HTMLInputElement, 'select'], [w.HTMLTextAreaElement, 'select']];",
+        "    g.timer = w.setTimeout(lapse, left);\n  };\n  w.__agentflowFocusGuard = g;\n  try {\n    var targets = [[w.HTMLElement, 'focus'], [w.SVGElement, 'focus']];",
         "a press in a card the user is not in leaves focus in the user's card",
     ),
     (
@@ -2583,36 +2583,36 @@ CASES = (
     (
         "agentflow-focus: the gesture allowance never expires",
         FOCUS,
-        "    g.allowUntil = Date.now() + __GESTURE_MS__;\n",
+        "    g.allowUntil = now() + __GESTURE_MS__;\n",
         "    g.allowUntil = Infinity;\n",
         "once the gesture allowance has passed, a background focus in that card is",
     ),
     (
         "agentflow-focus: the input observer acts on the user's event",
         FOCUS,
-        "    if (!e || !e.isTrusted) return;\n    g.allowUntil = Date.now() + __GESTURE_MS__;",
-        "    if (!e || !e.isTrusted) return;\n    if (e.preventDefault) e.preventDefault();\n    g.allowUntil = Date.now() + __GESTURE_MS__;",
+        "    if (!e || !e.isTrusted) return;\n    g.allowUntil = now() + __GESTURE_MS__;",
+        "    if (!e || !e.isTrusted) return;\n    if (e.preventDefault) e.preventDefault();\n    g.allowUntil = now() + __GESTURE_MS__;",
         "the Codex clicker builds and dispatches no key, and the guard's input observer only",
     ),
     (
         "agentflow-focus: a reinstall captures the wrapper",
         FOCUS,
-        "  if (g && g.active) {\n    g.expiresAt",
-        "  if (false) {\n    g.expiresAt",
+        "  if (g && g.active && g.version === __VERSION__) {",
+        "  if (false) {",
         "a sweep's install is a no-op where the guard stands",
     ),
     (
         "agentflow-focus: removal never puts the originals back",
         FOCUS,
-        "      try { if (s.owner[s.name] === s.held) Object.defineProperty(s.owner, s.name, s.descriptor); } catch (e) { }\n",
-        "",
+        "    try { w.clearTimeout(g.timer); } catch (e) { }\n    for (var ri = 0; ri < inputs.length; ri++) { try { w.removeEventListener(inputs[ri], onInput, true); } catch (e) { } }\n    for (var si = g.saved.length - 1; si >= 0; si--) {\n      var s = g.saved[si];\n      try { if (s.owner[s.name] === s.held) Object.defineProperty(s.owner, s.name, s.descriptor); } catch (e) { }\n",
+        "    try { w.clearTimeout(g.timer); } catch (e) { }\n    for (var ri = 0; ri < inputs.length; ri++) { try { w.removeEventListener(inputs[ri], onInput, true); } catch (e) { } }\n    for (var si = g.saved.length - 1; si >= 0; si--) {\n      var s = g.saved[si];\n",
         "removing the guard puts the exact original focus and select methods back",
     ),
     (
         "agentflow-focus: removal leaves the mousedown listener behind",
         FOCUS,
-        "try { w.removeEventListener(inputs[ri], onInput, true); }",
-        "try { if (inputs[ri] !== 'mousedown') w.removeEventListener(inputs[ri], onInput, true); }",
+        "    try { w.clearTimeout(g.timer); } catch (e) { }\n    for (var ri = 0; ri < inputs.length; ri++) { try { w.removeEventListener(inputs[ri], onInput, true); }",
+        "    try { w.clearTimeout(g.timer); } catch (e) { }\n    for (var ri = 0; ri < inputs.length; ri++) { try { if (inputs[ri] !== 'mousedown') w.removeEventListener(inputs[ri], onInput, true); }",
         "removing the guard puts the exact original focus and select methods back",
     ),
     (
@@ -2684,14 +2684,14 @@ CASES = (
     (
         "agentflow-focus: the lease never expires",
         FOCUS,
-        "  g = { active: true, allowUntil: 0, saved: [], expiresAt: Date.now() + __LEASE_MS__, timer: 0 };",
-        "  g = { active: true, allowUntil: 0, saved: [], expiresAt: Infinity, timer: 0 };",
+        "  g = { active: true, version: __VERSION__, allowUntil: 0, saved: [], expiresAt: now() + __LEASE_MS__, timer: 0 };",
+        "  g = { active: true, version: __VERSION__, allowUntil: 0, saved: [], expiresAt: Infinity, timer: 0 };",
         "with the page's timers stalled, the first call past the lease goes through",
     ),
     (
         "agentflow-focus: the sweep does not renew the lease",
         FOCUS,
-        "    g.expiresAt = Date.now() + __LEASE_MS__;\n    return 'kept';",
+        "    g.expiresAt = now() + __LEASE_MS__;\n    return 'kept';",
         "    return 'kept';",
         "every sweep renews the lease on the read it already sends",
     ),
@@ -2712,9 +2712,32 @@ CASES = (
     (
         "agentflow-focus: a failed install is not reported",
         FOCUS,
-        "            else if (outcome != \"unreachable\") guard.Failed.Add(new KeyValuePair<string, string>(targetId, agent));\n",
+        "            else if (outcome == \"failed\") guard.Failed.Add(new KeyValuePair<string, string>(targetId, agent));\n",
         "",
         "a panel where the guard could not be installed is reported once as not protected",
+    ),
+    # Round 6 (Codex's recheck of 8c24240): a guard from another build is replaced, not renewed; one monotonic clock; a
+    # panel that does not answer is unconfirmed, not a failed install.
+    (
+        "agentflow-focus: a guard from another build is kept and renewed",
+        FOCUS,
+        "  if (g && g.active) {\n    try { if (typeof g.remove === 'function') g.remove(); } catch (e) { }\n    if (w.__agentflowFocusGuard === g) return 'failed';\n  }\n",
+        "",
+        "a round-4 guard (no version, no lease) found by this build is removed exactly and",
+    ),
+    (
+        "agentflow-focus: the guard's clock is the wall clock",
+        FOCUS,
+        "  var now = function () { return w.performance.now(); };",
+        "  var now = function () { return Date.now(); };",
+        "with the wall clock set back an hour, the gesture allowance still closes after a second",
+    ),
+    (
+        "agentflow-focus: a panel that does not answer is not reported",
+        CDP,
+        "                            if (guard != null) guard.Unconfirmed.Add(new KeyValuePair<string, string>(targetId, agent));\n                            continue;",
+        "                            continue;",
+        "a panel whose attach is refused is reported once as unconfirmed",
     ),
 )
 

@@ -2524,6 +2524,15 @@ namespace DesktopAICompanion.AgentFlow
             foreach (string targetId in ticket.Installed) _guardDegradedSaid.Remove(targetId);
             foreach (KeyValuePair<string, string> failed in ticket.Failed)
                 if (_guardDegradedSaid.Add(failed.Key)) Log(FocusGuardDegradedNote(failed.Value));
+            foreach (KeyValuePair<string, string> unknown in ticket.Unconfirmed)
+                if (_guardDegradedSaid.Add(unknown.Key)) Log(FocusGuardUnconfirmedNote(unknown.Value));
+        }
+
+        /// <summary>The unconfirmed line's words (round 6): the panel did not answer, so its protection is not known.</summary>
+        internal static string FocusGuardUnconfirmedNote(string agent)
+        {
+            return "protection from taking focus could not be confirmed for a " + (agent == CdpApprover.AgentCodex ? "Codex" : "Claude Code")
+                   + " panel: it did not answer";
         }
 
         /// <summary>The degraded line's words, naming the panel by its agent. Never page text.</summary>
