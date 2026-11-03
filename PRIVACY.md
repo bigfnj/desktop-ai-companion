@@ -1,6 +1,6 @@
 ﻿# Desktop AI Companion privacy
 
-Last updated: 2026-10-27
+Last updated: 2026-11-03
 
 DesktopAICompanion does not include advertising, analytics, crash reporting, or telemetry. Fortunes and
 smart-fortune matching run locally. The optional AI brain is disabled by default. Claude Code, when the AI brain
@@ -155,6 +155,17 @@ DesktopAICompanion sends data only when a network feature is used:
 - The explicit **Refresh model list** and connection-test controls contact the configured provider.
   Granting cloud-data consent by itself remains network-silent. Configured model warm-up and
   Ollama model-unload operations can also contact that provider.
+- **Since Reminder 1.3.0 the optional Reminder module can read your Zoom meetings**, and only once you set it up: the
+  **Zoom** card (Calendar 5) set to Zoom, the client ID of a Zoom app you made yourself pasted in, and **Sign in to
+  Zoom** pressed. The sign-in happens in your browser on Zoom's own pages, so the module never sees your Zoom
+  password. The browser comes back to the module on `127.0.0.1`, this computer only. From then on the module asks
+  `api.zoom.us`, every five minutes while it runs, for the scheduled meetings you host and, if you tick **Also read
+  meetings I'm invited to**, the meetings you are invited to in the next 24 hours. Zoom answers with each
+  meeting's number, title, times, join link and agenda. Once an hour it renews the sign-in with `zoom.us`. What it
+  sends is its own request and that sign-in, and nothing else from this computer. The meetings are used like any
+  calendar's events and are not kept on disk. No meeting title, link, code or token is written to the diagnostic
+  log. **Sign out of Zoom** deletes the saved sign-in; the app's permission at Zoom stays until you remove it under
+  Zoom's **Added Apps**. Setup and details: [`modules/Reminder/ZOOM.md`](modules/Reminder/ZOOM.md).
 - Optional companion or fortune-pack downloads contact the source shown in the application. Every
   download is integrity-checked against a SHA-256 recorded in the catalog before it is installed. The
   catalog URLs are **branch-pinned**, not commit-pinned, and there is no per-pack redistribution gate:
@@ -319,6 +330,9 @@ drive-relative, and current-drive-rooted overrides are rejected or ignored. Data
   wording, which can carry a meeting title, is never written there.
 - since app 1.8.0, the shared Claude Code sign-in token (DPAPI-encrypted, in `credentials`) and the record
   of which modules you allow it, both described above.
+- since Reminder 1.3.0, once you sign in on its Zoom card, the Zoom sign-in: Zoom's refresh token and your Zoom
+  app's client ID, DPAPI-encrypted for your Windows user, in the Reminder module's folder as `zoom-signin.dpapi`.
+  **Sign out of Zoom** deletes it.
 
 Questions by the clock (app 1.6.0) keep nothing on disk: the tray's "No answer" list is held in memory
 for the session and is gone when the app closes. The question card is excluded from screen capture, so

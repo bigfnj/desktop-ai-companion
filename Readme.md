@@ -408,9 +408,12 @@ what could not be carried over, then previews and installs it.
 <img align="left" width="66" src="Companions/blue_sheep/icon.png" alt="Ben the blue sheep">
 
 Point the companion at your calendar and it announces each event a few minutes before it starts. Watch **up to
-five calendars at once**, each read from a local JSON feed a work process writes, a **Calendar URL**
+five calendars at once**: four that each read a local JSON feed a work process writes, a **Calendar URL**
 (Google's secret `.ics`, a published Outlook / Microsoft 365 calendar, or iCloud — recurrence and time
-zones handled), or a **running desktop Outlook** over COM. Every calendar has its own name, its own
+zones handled), or a **running desktop Outlook** over COM; and, since Reminder 1.3.0, a **Zoom** card that reads
+the meetings you host in Zoom after a browser sign-in to a Zoom app you make yourself
+([`modules/Reminder/ZOOM.md`](modules/Reminder/ZOOM.md) says how). A Zoom meeting that is also on your calendar is
+announced once. Every calendar has its own name, its own
 speech font/size/colour, and its own chime (browse for any WAV/MP3, or turn it off) so a Home event and a
 Work event read and sound different.
 

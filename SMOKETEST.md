@@ -310,6 +310,28 @@ Run the MSI **over a running app** — that is the path that used to fail.
       restart, and it asks again then. Leave that card for its five minutes: snoozed ten minutes once more; leave the
       next one too and the row is unticked (missed). A `daily` reminder offers only `Done` and `Snooze 10 min`, and
       left alone it is still ticked for the next day. With quiet hours covering now, nothing is asked until they end.
+- [ ] **H7e. The Zoom card (Reminder 1.3.0).** Make the Zoom app as `modules/Reminder/ZOOM.md` says. **Options →
+      Reminders** shows Calendars 1-4 as before and a `Zoom` card where Calendar 5 was. Set it to `Zoom`, paste the
+      public client ID, Apply, press `Sign in to Zoom…`: the browser opens Zoom's consent page; allow it; the tab
+      reads `Zoom has answered`; the card's `Zoom sign-in` line reads `✓ Signed in` and, after `Check now`, counts the
+      meetings you host in the next 48 hours. Schedule a Zoom meeting starting in 8 minutes with NO calendar invite: it
+      is announced with `(Zoom)` and offers Join. Schedule one WITH the Outlook invite: announced once, from the
+      Outlook calendar, and the card counts it `also on a calendar`. A recurring meeting shows its next occurrence.
+      **Invited meetings:** add the `meeting:read:list_upcoming_meetings` scope to the app, sign in again, tick `Also
+      read meetings I'm invited to`, Apply, `Check now`. A meeting someone else hosts that you see in the Zoom desktop
+      app (from its connected calendar) within the next 24 hours should now be announced with `(Zoom)` and offer Join.
+      If it never appears while the card reads `✓ Signed in` with no warning, Zoom does not return that invite through
+      its API: record which kind of invite it was in the walk log. That is the one thing this row exists to learn.
+      If the card instead warns `Zoom sent an empty answer for the meetings you are invited to`, that is Zoom's own
+      acknowledged fault on that request (2026, reported with connected calendars, a fix tentatively targeted for
+      Zoom's November release), not an answer about your invites: record it with the date and repeat this step once
+      the Zoom Meetings API changelog lists the fix. An invite on the Outlook slot that you have DECLINED there, and
+      that the Zoom app also shows: no reminder and no Join question from either card.
+      **Leave the app running at least 70 minutes after signing in** and press `Check now`: still `✓ Signed in`.
+      That is the hourly renewal, the one step not confirmed against Zoom before release. If it reads `Zoom refused
+      the sign-in` or `no longer accepts`, record it in the walk log. `Sign out of Zoom` reads `✓ Signed out`, and
+      `diagnostics.log` has `zoom: signed in` / `zoom: signed out` and no title, link or token. `zoom-signin.dpapi`
+      in the Reminder data folder is gone after the sign-out.
 - [ ] **H8. Remembrance.** Record something and confirm it captures and transcribes.
 - [ ] **H8b. Remembrance's settings pane (mockup R2).** Needs Remembrance 2.1.0 on host 1.4.0. **Options → Remembrance**
       opens with the full-width Status card first, then Sources, Hotkeys, (since 2.4.0) Meetings, Storage, Transcription, Summary, Local Ollama

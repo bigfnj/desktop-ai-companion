@@ -16089,6 +16089,200 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--wpf-options-selftest", "dp-wpf-options-selftest.txt",
      "uninstall-column: on a row offering Update and on one offering Reinstall, Uninstall stands in a plain row's column"),
+
+    # ---- lane feature/reminder-zoom-slot (Reminder 1.3.0, the owner, 2026-11-03) ----
+    # Calendar 5 becomes the Zoom slot. Each case puts back one hole the design review with Codex named, and must be
+    # caught by the synthetic check written for it; none reaches Zoom, the network or the user's installed data.
+    ("zoom: the callback's state is no longer compared, so any state's code is taken",
+     os.path.join(REPO, "modules", "Reminder", "ZoomSignIn.cs"),
+     b'            if (!query.TryGetValue("state", out state) || !FixedTimeEquals(state, expectedState)) return ignored;\n',
+     b'            if (!query.TryGetValue("state", out state)) return ignored;\n',
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "a wrong state is ignored"),
+
+    ("zoom: a repeated state, code or error parameter is accepted again",
+     os.path.join(REPO, "modules", "Reminder", "ZoomSignIn.cs"),
+     b'            if (repeated.Contains("state") || repeated.Contains("code") || repeated.Contains("error")) return ignored;\n',
+     b'            if (repeated.Count < 0) return ignored;\n',
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "a repeated state or code is not an answer"),
+
+    ("zoom: a callback addressed to another host is taken",
+     os.path.join(REPO, "modules", "Reminder", "ZoomSignIn.cs"),
+     b'                if (hosts != 1 || !string.Equals(host, expectedHost, StringComparison.OrdinalIgnoreCase)) return ignored;\n',
+     b'                if (hosts < 0) return ignored;\n',
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "naming another host"),
+
+    ("zoom: a sign-in begun before a sign-out is kept over it",
+     os.path.join(REPO, "modules", "Reminder", "ZoomTokenStore.cs"),
+     b'                if (_generation != startedAt)\n',
+     b'                if (_generation < 0)\n',
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "a sign-in begun before the store changed is not kept"),
+
+    ("zoom: a renewal that lands after a sign-out is written back",
+     os.path.join(REPO, "modules", "Reminder", "ZoomTokenStore.cs"),
+     b'                    if (_generation != generation)\n',
+     b'                    if (_generation < 0)\n',
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "a renewal that lands after a sign-out is dropped"),
+
+    ("zoom: two attempts that met the same 401 each spend a rotation",
+     os.path.join(REPO, "modules", "Reminder", "ZoomTokenStore.cs"),
+     b'                    if (usable && !string.Equals(_accessToken, rejected, StringComparison.Ordinal))\n',
+     b'                    if (usable && rejected == null)\n',
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "a second attempt holding the same refusal gets the new one"),
+
+    ("zoom: a meetings answer with no meetings array is a healthy empty calendar again",
+     os.path.join(REPO, "modules", "Reminder", "ZoomMeetingsSource.cs"),
+     b'                if (!root.TryGetProperty("meetings", out list) || list.ValueKind != JsonValueKind.Array) return false;\n',
+     b'                if (!root.TryGetProperty("meetings", out list) || list.ValueKind != JsonValueKind.Array) return true;\n',
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "no meetings array) is not an empty calendar"),
+
+    ("zoom: the occurrence cap truncates in silence",
+     os.path.join(REPO, "modules", "Reminder", "ZoomMeetingsSource.cs"),
+     b'                if (events.Count >= MaximumOccurrences) { overflow++; return; }\n',
+     b'                if (events.Count >= MaximumOccurrences) { return; }\n',
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "one past the occurrence cap is a warning"),
+
+    # RETIRED 2026-11-03 as an EQUIVALENT mutant, not a missing check: "zoom: a mark spent this tick is
+    # saved without reaching the other copy" deleted CheckDue's FINAL MirrorTwinFired (the one before the
+    # save) and SURVIVED the lane's first baseline-clean run (19/20). It cannot change the set today. Marks
+    # enter _fired only at the due loop (mirrored at once, the "At once, so a second copy" call), at the
+    # join prompt (mirrored at once in CheckJoinPrompts), and at LoadFired (before the pre-due mirror).
+    # Snooze, Join & record and the briefing add none. Production twin and alias pairs form a star through
+    # the cal5 alias, so the earlier mirrors already close. The call stays as a defensive closure before the
+    # save, and the through-tick, restart, lead and @join assertions it backs are kept as they are. Codex
+    # concurred (AgentBroker, 2026-11-03). Revisit, and restore this case, if a spend, removal or reload
+    # site, or anything that grows the twin/alias graph mid-tick, is added.
+
+    ("zoom: a moved Calendar 5 copies only the keys it set, inheriting the Off slot's leftovers",
+     os.path.join(REPO, "modules", "Reminder", "ReminderModule.Zoom.cs"),
+     b'                        _settings.Set(SlotKey(free, key.Key), EffectiveSlotValue(ZoomSlot, key));\n',
+     b'                    { string present = _settings.Get(SlotKey(ZoomSlot, key.Key), null); if (present != null) _settings.Set(SlotKey(free, key.Key), present); }\n',
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "a key it never set takes the default"),
+
+    ("zoom: the prune drops a calendar meeting's Zoom alias mark, so the tick rewrites it every time",
+     REMINDER_MODULE,
+     b'            foreach (string alias in ZoomAliasPairs(snap).Values) feedIds.Add(alias);\n',
+     b'',
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "keeps its alias mark steady"),
+
+    ("zoom: a copy marked earlier in this tick is announced anyway",
+     REMINDER_MODULE,
+     b'                        if (_fired.Contains(due.FiredId)) continue;\n',
+     b'                        if (_fired.Count < 0) continue;\n',
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "the same Zoom invite on two calendars due in one tick is announced once"),
+
+    ("zoom: an announcement's mark reaches the other copies only after the due list is spent",
+     REMINDER_MODULE,
+     b'                        MirrorTwinFired(snap, _fired);\n',
+     b'',
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "the same Zoom invite on two calendars due in one tick is announced once"),
+
+    ("zoom: a second copy of the same Zoom meeting asks Join again in the same tick",
+     os.path.join(REPO, "modules", "Reminder", "ReminderModule.Questions.cs"),
+     b'                if (_fired.Contains(firedId)) continue;\n',
+     b'                if (_fired.Count < 0) continue;\n',
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "asks Join once at the start"),
+
+    ("zoom: the invited switch never reaches the read, so invited meetings are never asked for",
+     os.path.join(REPO, "modules", "Reminder", "ZoomMeetingsSource.cs"),
+     b'                + "|" + (_readInvited() ? "1" : "0");\n',
+     b'                + "|" + "0";\n',
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "with the switch on the meetings you are invited to are read"),
+
+    ("zoom: an invited meeting is reported as accepted, so its answer is guessed",
+     os.path.join(REPO, "modules", "Reminder", "ZoomMeetingsSource.cs"),
+     b'                    ResponseStatus = m.Invited ? "" : "accepted",\n',
+     b'                    ResponseStatus = "accepted",\n',
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "its answer is left unknown"),
+
+    # Retargeted 2026-11-03 when LeaveOutTwins grew its second owner map: the old pattern was the
+    # `if (!eligible) continue;` line that map replaced. Same regression, same expected suite.
+    ("zoom: a calendar copy the announce filter rejects takes a hosted Zoom copy with it",
+     os.path.join(REPO, "modules", "Reminder", "AggregateCalendarSource.cs"),
+     b'                if (eligible && !owners.ContainsKey(key)) owners[key] = e.Id;\n',
+     b'                if (!owners.ContainsKey(key)) owners[key] = e.Id;\n',
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "AggregateCalendarSource"),
+
+    # Review of the invited delta (2026-11-03): an invited Zoom copy knows no answer, so it must yield to a
+    # calendar copy the filter rejects too, or an invite declined in Outlook is announced from Zoom. Caught
+    # end to end through the module's own filter, where "skip declined" is on by default.
+    ("zoom: an invited Zoom copy yields only to a kept calendar copy, so a declined invite comes back",
+     os.path.join(REPO, "modules", "Reminder", "AggregateCalendarSource.cs"),
+     b'                    || (string.IsNullOrEmpty(e.ResponseStatus) && anyOwners.TryGetValue(key, out owner))))\n',
+     b'                    || (e == null && anyOwners.TryGetValue(key, out owner))))\n',
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "not brought back by the Zoom card's invited read"),
+
+    # The same regression, graded on the join question instead of the lead: Codex asked for @join coverage
+    # beside the leads, and a guard is only proved on the check that names it.
+    ("zoom: an invited Zoom copy yields only to a kept calendar copy, so a declined invite asks Join",
+     os.path.join(REPO, "modules", "Reminder", "AggregateCalendarSource.cs"),
+     b'                    || (string.IsNullOrEmpty(e.ResponseStatus) && anyOwners.TryGetValue(key, out owner))))\n',
+     b'                    || (e == null && anyOwners.TryGetValue(key, out owner))))\n',
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "an invite declined in Outlook asks no Join"),
+
+    # Review of the invited delta (Codex, 2026-11-03): an invited row with no readable time passed ParseList
+    # (which demands a time of type 2 only) and vanished in Expand, a healthy partial list for the prune.
+    ("zoom: an invited row with no readable time is dropped in silence again",
+     os.path.join(REPO, "modules", "Reminder", "ZoomMeetingsSource.cs"),
+     b'                if (m.StartUtc == null) { unreadable++; continue; }\n',
+     b'',
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "an invited row with no readable time is counted unreadable"),
+
+    ("zoom: an invited Zoom copy's twin is a filtered calendar copy even when a kept one is there",
+     os.path.join(REPO, "modules", "Reminder", "AggregateCalendarSource.cs"),
+     b'                if (key != null && (owners.TryGetValue(key, out owner)\n'
+     b'                    || (string.IsNullOrEmpty(e.ResponseStatus) && anyOwners.TryGetValue(key, out owner))))\n',
+     b'                if (key != null && (string.IsNullOrEmpty(e.ResponseStatus) ? anyOwners : owners).TryGetValue(key, out owner))\n',
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "AggregateCalendarSource"),
+
+    # Zoom's acknowledged {} fault on upcoming_meetings: named apart from other unreadable answers so the
+    # owner's H7e check can tell "Zoom sent nothing" from "Zoom sent no such meeting".
+    ("zoom: Zoom's empty {} invited answer reads as an unreadable answer again",
+     os.path.join(REPO, "modules", "Reminder", "ZoomMeetingsSource.cs"),
+     b'                    warning = IsEmptyObject(response.Body)\n',
+     b'                    warning = IsEmptyObject(null)\n',
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "empty {} answer is named as Zoom's empty answer"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

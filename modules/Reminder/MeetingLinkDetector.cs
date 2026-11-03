@@ -48,6 +48,38 @@ namespace DesktopAICompanion.ReminderModule
                 || TryFindIn(Clip(e.Description), out url, out kind);
         }
 
+        // The meeting number in a Zoom join link's path: /j/<id>, /w/<id> (webinar) or /s/<id> (host start). Read ONLY
+        // from a URL the Zoom provider above matched, so a number in a title, on another host or on a look-alike host
+        // is never taken for one.
+        private static readonly Regex ZoomMeetingNumber = new Regex(@"^https://[^/]+/(?:j|w|s)/(\d{9,13})(?:[/?#]|$)",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+        /// <summary>
+        /// The Zoom meeting number an event's join link carries, or null. How the aggregate recognises the same Zoom
+        /// meeting arriving twice, once from the Zoom slot and once as a calendar invite (1.3.0). Every Zoom link in
+        /// the location and then the clipped description is tried, not only the first meeting link: an invite whose
+        /// body names a Teams link first can still carry the Zoom one. A personal-room link (/my/name) has no number
+        /// and gives null, so such a meeting is never merged.
+        /// </summary>
+        internal static string ZoomMeetingId(CalendarEvent e)
+        {
+            if (e == null) return null;
+            foreach (string text in new[] { e.Location, Clip(e.Description) })
+            {
+                if (string.IsNullOrEmpty(text)) continue;
+                foreach (Provider p in Providers)
+                {
+                    if (!string.Equals(p.Kind, "Zoom", StringComparison.Ordinal)) continue;
+                    for (Match m = p.Pattern.Match(text); m.Success; m = m.NextMatch())
+                    {
+                        Match n = ZoomMeetingNumber.Match(TrimTrailing(m.Value));
+                        if (n.Success) return n.Groups[1].Value;
+                    }
+                }
+            }
+            return null;
+        }
+
         private static bool TryFindIn(string text, out string url, out string kind)
         {
             url = null; kind = null;
@@ -132,6 +164,17 @@ namespace DesktopAICompanion.ReminderModule
                 failed.Add("a host that merely ends in webex.com or zoom.us is not a meeting host");
             if (TryFind(new CalendarEvent { Location = "Room 4B", Description = "agenda doc at https://example.com/agenda" }, out u, out k))
                 failed.Add("a non-meeting https must be ignored");
+            // The Zoom meeting number (1.3.0), what the aggregate merges a Zoom slot copy on: only from a matched Zoom
+            // link, any Zoom link in the text rather than the first meeting link, and never from a look-alike host,
+            // bare text or a personal room.
+            if (ZoomMeetingId(new CalendarEvent { Description = "https://acme.zoom.us/j/91234567890?pwd=Ab12" }) != "91234567890")
+                failed.Add("zoom meeting number read from a vanity-host join link");
+            if (ZoomMeetingId(new CalendarEvent { Description = "Teams: " + "https://teams.microsoft.com/l/meetup-join/abc" + " or Zoom: https://zoom.us/j/81234567890." }) != "81234567890")
+                failed.Add("zoom meeting number found after a Teams link");
+            if (ZoomMeetingId(new CalendarEvent { Location = "https://notzoom.us/j/91234567890", Description = "Call 91234567890, /j/91234567890" }) != null)
+                failed.Add("zoom meeting number taken from a look-alike host or bare text");
+            if (ZoomMeetingId(new CalendarEvent { Location = "https://acme.zoom.us/my/jdoe" }) != null)
+                failed.Add("a Zoom personal room has no meeting number");
             var sb = new System.Text.StringBuilder();
             foreach (string f in failed) sb.AppendLine("FAIL: " + f);
             sb.Append(failed.Count == 0

@@ -44,5 +44,12 @@ namespace DesktopAICompanion.ReminderModule
         /// combined Error is set whenever ANY slot fails, and a prune gated on it alone never ran while one slot
         /// stayed broken, so a healthy slot beside it grew the persisted set without bound.</summary>
         public System.Collections.Generic.Dictionary<string, bool> SlotHealthy { get; set; }
+        /// <summary>Filled only by <see cref="AggregateCalendarSource"/> (1.3.0): aggregate id of an event left out
+        /// as a copy of another slot's event -> the aggregate id of the event it is a copy of. Today that is the Zoom
+        /// slot's copy of a meeting an Outlook or .ics slot also carries. The left-out id is still part of its slot's
+        /// calendar for the fired-id prune (it is not cancelled, only not shown twice), and a reminder or join
+        /// question either copy has had counts for both (ReminderModule.MirrorTwinFired). Null or empty: no
+        /// copies.</summary>
+        public System.Collections.Generic.Dictionary<string, string> Twins { get; set; }
     }
 }

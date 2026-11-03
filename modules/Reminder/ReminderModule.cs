@@ -11,8 +11,9 @@ namespace DesktopAICompanion.ReminderModule
 {
     /// <summary>
     /// The pet reads one or more calendar feeds and announces each event a few minutes before it starts. Up to
-    /// <see cref="MaxSlots"/> feeds are configured independently (each a Local file, a Calendar URL / ICS, or the
-    /// running desktop Outlook), and each carries its OWN name and speech style, so a Home event and a Work event
+    /// <see cref="MaxSlots"/> feeds are configured independently (slots 1-4 each a Local file, a Calendar URL / ICS,
+    /// or the running desktop Outlook; slot 5, since 1.3.0, the meetings the user hosts in Zoom,
+    /// ReminderModule.Zoom.cs), and each carries its OWN name and speech style, so a Home event and a Work event
     /// can look different in the bubble. A single UI-thread WinForms timer polls the aggregated feed, fires any
     /// due reminders through <see cref="IHost.SayAll"/> in that feed's style, and remembers which fired so a
     /// restart never re-nags. Since 1.1.0 it also ASKS, on the host's card by the tray clock: whether to join a meeting
@@ -30,6 +31,8 @@ namespace DesktopAICompanion.ReminderModule
         private const string SourceLocalFile = "Local file";
         private const string SourceCalendarUrl = "Calendar URL (ICS)";
         private const string SourceOutlook = "Local Outlook";
+        // Slot 5's only feed besides Off since 1.3.0, and no other slot's (ReminderModule.Zoom.cs).
+        private const string SourceZoom = "Zoom";
 
         private static readonly string[] LegacyStyleKeys =
         {
@@ -62,7 +65,16 @@ namespace DesktopAICompanion.ReminderModule
         {
             Id = Id,
             Name = "Reminder",
-            Version = "1.2.1",  // 1.2.1: comments only: QUNS_QUIET_TIME is Windows' quiet period, not Do Not Disturb
+            Version = "1.3.0",  // 1.3.0: Calendar 5 becomes the Zoom slot (the owner, 2026-11-03): the meetings the user
+                                //        HOSTS in Zoom, read from Zoom's REST API after a browser sign-in to a Zoom
+                                //        app the user creates (OAuth with PKCE, a loopback redirect, no secret; the
+                                //        refresh token sealed with DPAPI in this module's folder). A meeting that is
+                                //        also an Outlook or .ics invite is announced once, from the calendar, and a
+                                //        fired mark counts for both copies. A Calendar 5 configured before 1.3.0 moves
+                                //        to the first free slot, or is parked with a note when all four are in use.
+                                //        No host change: MinHostVersion stays 1.6.0. MINOR: a new feed. ZOOM.md says
+                                //        how to make the app.
+                                // 1.2.1: comments only: QUNS_QUIET_TIME is Windows' quiet period, not Do Not Disturb
                                 //        (N-tray-questions-03); republished so the published payload matches its
                                 //        source.
                                 // 1.2.0: Join & record (the owner's request of 2026-10-16). While Remembrance says it
@@ -209,6 +221,10 @@ namespace DesktopAICompanion.ReminderModule
             _questions = host as ITrayQuestions;
             _shutDown = false;
             MigrateLegacy();
+            // Slot 5 became the Zoom slot in 1.3.0: a feed configured there before moves out (or is parked), and its
+            // fired marks move with it, so this runs before LoadFired reads them (ReminderModule.Zoom.cs).
+            MigrateZoomSlot();
+            _zoomTokens = new ZoomTokenStore(ZoomFolder(host));
             _source = BuildSource();
             LoadFired();
 
@@ -252,6 +268,8 @@ namespace DesktopAICompanion.ReminderModule
             // Take down every question still on the card: a "join" or a "Snooze" answered after the module is gone
             // would act on state Init no longer holds. A one-off withdrawn here is asked again at the next start.
             WithdrawAllQuestions();
+            // A Zoom sign-in still waiting on the browser: close its port now rather than at its three-minute timeout.
+            CancelZoomSignIn();
             // Drop the pet subscription and the handles with it: a module that stays wired to CompanionSpawned after
             // shutdown keeps every pet it ever saw alive in this list, and gets called after Init's state is gone.
             if (_petSpawned != null && _host != null)
@@ -317,14 +335,25 @@ namespace DesktopAICompanion.ReminderModule
                     Id = SlotId(i),
                     Label = _settings.Get(SlotKey(i, "label"), ""),
                     Source = src,
+                    // The Zoom slot's copy of a meeting a calendar also carries is left out (1.3.0).
+                    YieldsToOthers = i == ZoomSlot,
                 });
             }
-            return new AggregateCalendarSource(slots);
+            // A calendar copy the announce filter drops (declined, all-day) must not take a hosted Zoom copy with it; an
+            // invited Zoom copy, which knows no answer, yields to it anyway, so a declined invite stays silent.
+            return new AggregateCalendarSource(slots) { TwinOwnerFilter = PassesFilter };
         }
 
         // `i` is a method parameter (fresh per call), so capturing it in the getter is safe -- no for-loop capture trap.
         private ICalendarSource BuildSlotSource(int i, string type)
         {
+            // Slot 5 reads Zoom and nothing else since 1.3.0, and no other slot reads Zoom: a hand-edited settings file
+            // naming another type there, or Zoom elsewhere, is not polled rather than half-honoured.
+            if (i == ZoomSlot)
+                return string.Equals(type, SourceZoom, StringComparison.Ordinal)
+                    ? new ZoomMeetingsSource(() => _settings.Get(SlotKey(i, ZoomClientIdKey), ""),
+                        () => _settings.GetBool(SlotKey(i, ZoomInvitedKey), false), _zoomTokens, ZoomGetForSelfTest)
+                    : null;
             if (string.Equals(type, SourceCalendarUrl, StringComparison.Ordinal))
                 return new IcsUrlSource(() => _settings.Get(SlotKey(i, "url"), ""));
             if (string.Equals(type, SourceOutlook, StringComparison.Ordinal))
@@ -350,6 +379,9 @@ namespace DesktopAICompanion.ReminderModule
                 IReadOnlyList<CalendarEvent> events = snap.Events ?? (IReadOnlyList<CalendarEvent>)Array.Empty<CalendarEvent>();
 
                 bool changed = PruneFiredAgainstFeed(snap, _fired);
+                // A meeting both the Zoom slot and a calendar carry is one meeting: what either copy has fired counts
+                // for the other, so the copies merging or parting never announce it twice (1.3.0).
+                if (MirrorTwinFired(snap, _fired)) changed = true;
 
                 DateTimeOffset now = ReminderClock();
                 PublishMeetingContext(now, events);
@@ -372,6 +404,11 @@ namespace DesktopAICompanion.ReminderModule
                     Dictionary<string, SpeechStyle> styleBySlot = StyleBySlot();
                     foreach (DueReminder due in ReminderScheduler.DueNowMulti(Schedulable(events), now, Leads(), _fired))
                     {
+                        // Another copy of this Zoom meeting was announced earlier in THIS tick (two calendars carrying
+                        // the same invite, both due at once): the due list was computed before either was spent, and
+                        // the mirror below has since marked this one (1.3.0). Without it the rule would depend on load
+                        // order: two copies loaded together both announced, one loaded a tick later did not.
+                        if (_fired.Contains(due.FiredId)) continue;
                         if (chime && SlotChimeOn(due.Event.SourceId)) Chime.Play(_host, SlotChimePath(due.Event.SourceId));
                         SpeechStyle style;
                         styleBySlot.TryGetValue(due.Event.SourceId ?? "", out style);
@@ -381,6 +418,8 @@ namespace DesktopAICompanion.ReminderModule
                         SpeakReminder(due.Event.SourceId, FormatReminder(due.Event, now, SlotLabel(due.Event.SourceId)), style);
                         _fired.Add(due.FiredId);
                         changed = true;
+                        // At once, so a second copy of the same Zoom meeting further down this due list is skipped above.
+                        MirrorTwinFired(snap, _fired);
                     }
                 }
                 // Personal reminders ASK on the card by the clock since 1.1.0, so nobody being on screen no longer
@@ -389,7 +428,14 @@ namespace DesktopAICompanion.ReminderModule
                 if (!quiet && !hush && (_questions != null || !nobody)) CheckPersonal(now);
                 // The join question at a meeting's start (1.1.0): needs no companion either, and handles quiet hours
                 // itself because it must still withdraw an open question while they last.
-                if (CheckJoinPrompts(now, events, quiet)) changed = true;
+                if (CheckJoinPrompts(now, snap, events, quiet)) changed = true;
+                // Again after spending, before the save: a lead or a join mark spent THIS tick reaches the other copy
+                // now, so the copy that was announced going away before the next tick (or a restart) cannot leave
+                // the other one free to announce the same meeting again (1.3.0). A defensive closure today: every
+                // spend site mirrors at once (the due loop above, CheckJoinPrompts), so deleting this changes nothing
+                // the self-test can see, and its mutation case is retired as equivalent (tests/mutate-selftest-guards.py).
+                // Kept for the next spend site that forgets to mirror.
+                if (MirrorTwinFired(snap, _fired)) changed = true;
                 MaybeBriefing(now, suppress);
                 // Also when an earlier write failed: the module holds one settings handle, so its dictionary
                 // still carries every unsaved value and one successful Save persists them all (RA-178).
@@ -759,11 +805,20 @@ namespace DesktopAICompanion.ReminderModule
             fields.Add(new SettingField { Id = "status", Label = "Feed status", Kind = SettingKind.Info, Group = "Status", FullWidth = true, PinTop = true });
             for (int i = 1; i <= MaxSlots; i++)
             {
-                string g = "Calendar " + i.ToString(CultureInfo.InvariantCulture);
-                fields.Add(new SettingField { Id = SlotKey(i, "type"), Label = "Feed type", Kind = SettingKind.Enum, Options = new[] { SourceOff, SourceLocalFile, SourceCalendarUrl, SourceOutlook }, Group = g });
-                fields.Add(new SettingField { Id = SlotKey(i, "label"), Label = "Name (spoken with the reminder, e.g. Home / Work)", Kind = SettingKind.Text, Group = g });
-                fields.Add(new SettingField { Id = SlotKey(i, "url"), Label = "Calendar URL (Google/Outlook secret .ics)", Kind = SettingKind.Text, Group = g });
-                fields.Add(new SettingField { Id = SlotKey(i, "file"), Label = "Reminder feed file (JSON)", Kind = SettingKind.Text, Group = g });
+                string g = SlotGroup(i);
+                if (i == ZoomSlot)
+                {
+                    // The Zoom card (1.3.0): its own feed choice, the app's client ID and the sign-in state in place of
+                    // a URL and a file; the companion, chime and style rows below are every other card's.
+                    fields.AddRange(ZoomSlotFields(g));
+                }
+                else
+                {
+                    fields.Add(new SettingField { Id = SlotKey(i, "type"), Label = "Feed type", Kind = SettingKind.Enum, Options = new[] { SourceOff, SourceLocalFile, SourceCalendarUrl, SourceOutlook }, Group = g });
+                    fields.Add(new SettingField { Id = SlotKey(i, "label"), Label = "Name (spoken with the reminder, e.g. Home / Work)", Kind = SettingKind.Text, Group = g });
+                    fields.Add(new SettingField { Id = SlotKey(i, "url"), Label = "Calendar URL (Google/Outlook secret .ics)", Kind = SettingKind.Text, Group = g });
+                    fields.Add(new SettingField { Id = SlotKey(i, "file"), Label = "Reminder feed file (JSON)", Kind = SettingKind.Text, Group = g });
+                }
                 // Which pet delivers THIS calendar's reminders. Held by reference so RefreshSpeakerOptions can
                 // repopulate it from the live pets each time the pane opens.
                 _speakerFields[i] = new SettingField
@@ -858,14 +913,18 @@ namespace DesktopAICompanion.ReminderModule
                         values[SlotKey(i, "companion")] = _speakerTypeToLabel.TryGetValue(savedPet ?? "", out petLabel)
                             ? petLabel
                             : SpeakerAnyLabel;
-                        values[SlotKey(i, "type")] = _settings.Get(SlotKey(i, "type"), SourceOff);
+                        values[SlotKey(i, "type")] = i == ZoomSlot ? ZoomSlotType() : _settings.Get(SlotKey(i, "type"), SourceOff);
                         values[SlotKey(i, "label")] = _settings.Get(SlotKey(i, "label"), "");
-                        values[SlotKey(i, "url")] = _settings.Get(SlotKey(i, "url"), "");
-                        values[SlotKey(i, "file")] = _settings.Get(SlotKey(i, "file"), "");
+                        if (i != ZoomSlot)
+                        {
+                            values[SlotKey(i, "url")] = _settings.Get(SlotKey(i, "url"), "");
+                            values[SlotKey(i, "file")] = _settings.Get(SlotKey(i, "file"), "");
+                        }
                         values[SlotKey(i, "chimeOn")] = _settings.GetBool(SlotKey(i, "chimeOn"), true) ? "true" : "false";
                         values[SlotKey(i, "chime")] = _settings.Get(SlotKey(i, "chime"), "");
                         SpeechStyleSettings.AddLoadValues(values, _settings, SlotId(i) + ".");
                     }
+                    AddZoomLoadValues(values);
                     values["personalChimeOn"] = _settings.GetBool("personalChimeOn", true) ? "true" : "false";
                     values["personalChime"] = _settings.Get("personalChime", "");
                     SpeechStyleSettings.AddLoadValues(values, _settings, "personal.");
@@ -889,10 +948,11 @@ namespace DesktopAICompanion.ReminderModule
                     string v;
                     for (int i = 1; i <= MaxSlots; i++)
                     {
-                        if (values.TryGetValue(SlotKey(i, "type"), out v) && !string.IsNullOrWhiteSpace(v)) _settings.Set(SlotKey(i, "type"), v.Trim());
+                        if (values.TryGetValue(SlotKey(i, "type"), out v) && !string.IsNullOrWhiteSpace(v))
+                            _settings.Set(SlotKey(i, "type"), i == ZoomSlot ? CoerceZoomSlotType(v) : v.Trim());
                         if (values.TryGetValue(SlotKey(i, "label"), out v)) _settings.Set(SlotKey(i, "label"), (v ?? "").Trim());
-                        if (values.TryGetValue(SlotKey(i, "url"), out v)) _settings.Set(SlotKey(i, "url"), (v ?? "").Trim());
-                        if (values.TryGetValue(SlotKey(i, "file"), out v)) _settings.Set(SlotKey(i, "file"), (v ?? "").Trim());
+                        if (i != ZoomSlot && values.TryGetValue(SlotKey(i, "url"), out v)) _settings.Set(SlotKey(i, "url"), (v ?? "").Trim());
+                        if (i != ZoomSlot && values.TryGetValue(SlotKey(i, "file"), out v)) _settings.Set(SlotKey(i, "file"), (v ?? "").Trim());
                         // An unrecognized label (the pet was removed while the window was open) leaves the
                         // saved choice alone rather than silently rewriting it to "any".
                         if (values.TryGetValue(SlotKey(i, "companion"), out v))
@@ -905,6 +965,7 @@ namespace DesktopAICompanion.ReminderModule
                         if (values.TryGetValue(SlotKey(i, "chime"), out v)) _settings.Set(SlotKey(i, "chime"), (v ?? "").Trim());
                         SpeechStyleSettings.Save(_settings, values, SlotId(i) + ".");
                     }
+                    SaveZoomValues(values);
                     if (values.TryGetValue("personalChimeOn", out v)) { bool pb; if (bool.TryParse(v, out pb)) _settings.Set("personalChimeOn", pb ? "true" : "false"); }
                     if (values.TryGetValue("personalChime", out v)) _settings.Set("personalChime", (v ?? "").Trim());
                     SpeechStyleSettings.Save(_settings, values, "personal.");
@@ -936,17 +997,19 @@ namespace DesktopAICompanion.ReminderModule
             for (int i = 1; i <= MaxSlots; i++)
             {
                 int slot = i;   // capture a per-iteration copy, not the shared loop variable
+                // The Zoom card's sign-in and sign-out come first in its card, where the setup happens (1.3.0).
+                if (slot == ZoomSlot) actions.AddRange(ZoomSlotActions(SlotGroup(slot)));
                 actions.Add(new PaneAction
                 {
                     Label = "Browse for a chime…",
-                    Group = "Calendar " + slot.ToString(CultureInfo.InvariantCulture),
+                    Group = SlotGroup(slot),
                     ReloadPaneAfter = true,
                     InvokeAsync = () => System.Threading.Tasks.Task.FromResult(BrowseChime(slot)),
                 });
                 actions.Add(new PaneAction
                 {
                     Label = "Test this reminder",
-                    Group = "Calendar " + slot.ToString(CultureInfo.InvariantCulture),
+                    Group = SlotGroup(slot),
                     ReloadPaneAfter = false,   // no settings change: don't reload and lose other unsaved edits
                     InvokeAsync = () => TestReminderAsync(slot),
                 });
@@ -1037,7 +1100,7 @@ namespace DesktopAICompanion.ReminderModule
                 if (!AnyCompanionOnScreen())
                     return chime == null ? NoCompanionStatus : NoCompanionChimedStatus + await ChimeOutcome(chime);
                 string label = _settings.Get(SlotKey(slot, "label"), "");
-                string name = string.IsNullOrWhiteSpace(label) ? ("Calendar " + slot.ToString(CultureInfo.InvariantCulture)) : label.Trim();
+                string name = string.IsNullOrWhiteSpace(label) ? SlotGroup(slot) : label.Trim();
                 SpeechStyle style = SpeechStyleSettings.ToStyle(_settings, SlotId(slot) + ".");
                 // Also fire the reaction here: waiting for a real calendar event is a poor way to find out
                 // whether your pets actually animate, and this button is the only on-demand trigger.
@@ -1071,7 +1134,7 @@ namespace DesktopAICompanion.ReminderModule
         // silent fall-back to the default chime at reminder time (F202).
         private string BrowseChime(int slot)
         {
-            return BrowseChimeInto(SlotKey(slot, "chime"), "Choose a chime sound (Calendar " + slot.ToString(CultureInfo.InvariantCulture) + ")");
+            return BrowseChimeInto(SlotKey(slot, "chime"), "Choose a chime sound (" + SlotGroup(slot) + ")");
         }
 
         private string BrowsePersonalChime()
@@ -1230,24 +1293,30 @@ namespace DesktopAICompanion.ReminderModule
             return best;
         }
 
-        private void OpenUrl(string url)
+        private void OpenUrl(string url) { TryOpenUrl(url, "join link"); }
+
+        /// <summary>Hand a web address to the shell, or to the self-test's seam. True when it was handed over; false for
+        /// an address that is not http(s) or a launch that threw, which is logged under <paramref name="what"/>. The
+        /// Zoom sign-in (1.3.0) needs the answer: a browser that never opened is not three minutes of waiting.</summary>
+        private bool TryOpenUrl(string url, string what)
         {
             try
             {
-                if (string.IsNullOrWhiteSpace(url)) return;
+                if (string.IsNullOrWhiteSpace(url)) return false;
                 Uri uri;
-                if (!Uri.TryCreate(url, UriKind.Absolute, out uri)) return;
-                if (uri.Scheme != Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttp) return;   // never launch a non-web scheme
+                if (!Uri.TryCreate(url, UriKind.Absolute, out uri)) return false;
+                if (uri.Scheme != Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttp) return false;   // never launch a non-web scheme
                 // The self-test's seam (1.1.0), AFTER the checks above so the join question's Join is seen through
                 // them, and BEFORE the launch so a self-test never opens a browser on the machine running it.
                 Action<string> opener = OpenUrlForSelfTest;
-                if (opener != null) { opener(uri.AbsoluteUri); return; }
+                if (opener != null) { opener(uri.AbsoluteUri); return true; }
                 // Disposed, like every other Start site in the tree: with UseShellExecute the returned Process (null
                 // when the shell handed back no handle, which a using accepts) otherwise waited for the finalizer,
                 // one handle per Join click (RA-123, the Reminder site; the Fortunes folder button was the first).
                 using (System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true })) { }
+                return true;
             }
-            catch (Exception ex) { try { _host.Log(Id, "join link failed: " + ex.Message); } catch { } }
+            catch (Exception ex) { try { _host.Log(Id, what + " failed: " + ex.Message); } catch { } return false; }
         }
 
         // --- agenda + daily briefing -----------------------------------------------------------------
@@ -1663,6 +1732,12 @@ namespace DesktopAICompanion.ReminderModule
             // Fired ids are "<eventId>@<lead>", so compare on the event-id part.
             var feedIds = new HashSet<string>(StringComparer.Ordinal);
             foreach (CalendarEvent e in events) if (e != null && e.Id != null) feedIds.Add(e.Id);
+            // A Zoom copy the aggregate left out beside a calendar's copy is still in its slot's calendar: not shown
+            // twice is not cancelled, and pruning its marks would let it fire again the moment the copies part (1.3.0).
+            if (snap.Twins != null) foreach (string twin in snap.Twins.Keys) feedIds.Add(twin);
+            // Likewise the id the Zoom slot gives (or would give) a calendar meeting that carries a Zoom link: the mark
+            // MirrorTwinFired keeps there belongs to the calendar copy, and lives as long as that copy does.
+            foreach (string alias in ZoomAliasPairs(snap).Values) feedIds.Add(alias);
 
             Dictionary<string, bool> slots = snap.SlotHealthy;
             if (slots == null)
@@ -2892,6 +2967,11 @@ namespace DesktopAICompanion.ReminderModule
             try { CheckQuestions(check); }
             catch (Exception ex) { check("questions: the checks ran to the end (" + ex.GetType().Name + ": " + ex.Message + ")", false); }
             finally { ReminderClock = () => DateTimeOffset.Now; }
+
+            // ---- the Zoom slot (1.3.0): sign-in, token store, meetings, twins, the card and the move out of slot 5 ----
+            // ReminderModule.ZoomSelfTest.cs. Nothing here reaches Zoom: a loopback browser and fixtures stand in.
+            try { CheckZoom(check); }
+            catch (Exception ex) { check("zoom: the checks ran to the end (" + ex.GetType().Name + ": " + ex.Message + ")", false); }
 
             detail = sb.ToString();
             return ok;

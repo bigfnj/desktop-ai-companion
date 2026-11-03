@@ -7259,6 +7259,88 @@ reader could take either for a defect; both are deliberate.
 sender's receipt); `acknowledge_message` is not (the recipient's own). Refused: a flat new shape, and leaving
 `reply_to_message` out, which would have kept one sender tool echoing its own text.
 
+#### feature/reminder-zoom-slot
+
+Reminder 1.3.0. The owner, 2026-11-03: "replace calendar 5 with a dedicated Zoom slot", and then: "I don't think we
+NEED 5 calendar integrations AND zoom, I think 5 TOTAL makes sense". Built with Codex over AgentBroker, which reviewed the
+design and two rounds of code; the decisions below marked (review) came from it.
+
+**Five in all, Zoom a card of its own.** `MaxSlots` stays 5: slots 1-4 are unchanged and slot 5 (still `cal5`, so its keys
+and fired marks keep their prefix) reads Zoom or nothing. A Zoom choice in every slot was considered: it would put the
+client ID and the sign-in buttons on every card, greyed, or need host 1.8.0's `VisibleWhen` to hide them, and a
+one-Zoom-slot rule. A Calendar 5 set up before 1.3.0 moves to the first Off slot among 1-4 with its effective settings
+(every key, so a key it never set takes the default rather than what an Off slot held before, (review)) and its fired
+marks; with all four in use it is parked under `cal5.parked.*` with a note. Nothing is deleted.
+
+**What it reads: the meetings the user HOSTS, from Zoom's REST API.** `GET /users/me/meetings?type=upcoming` and, per
+distinct recurring series, `GET /meetings/{id}` for its occurrences, because the list may carry one time of a series.
+Refused: Zoom's Calendar API (needs a Zoom Calendar licence and admin-managed scopes), and the Zoom client's local
+databases (encrypted, undocumented, and decrypting another application's protected store is not something this app
+does). Meetings someone else hosts are calendar invites and arrive through slots 1-4. In an organisation on Microsoft
+365 the Zoom Workplace calendar tab is a view of the Microsoft 365 calendar, which the Outlook slot already reads.
+
+**The user's own Zoom app, PKCE, loopback.** No client ID ships: the user makes a user-managed General app with Public
+Client OAuth and pastes its public client ID (ZOOM.md). The redirect is `http://127.0.0.1:<free port>/zoom/callback`,
+which Zoom matches ignoring the port, served by a `TcpListener` on the IPv4 loopback rather than `HttpListener`, whose
+http.sys prefix a standard user cannot register. State is compared before a code or an error is looked at, and a
+repeated parameter, a code with an error, or a Host other than `127.0.0.1:<port>` is not an answer (review). The page
+the browser lands on says "Zoom has answered", not "signed in", because the exchange is still to come (review). The
+public-client REFRESH form (client_id in the body, no secret) is inferred, not documented by Zoom; SMOKETEST H7e
+checks the first renewal an hour in.
+
+**The sign-in in DPAPI in the module's folder, not IHostCredentials.** That store holds one fixed credential and a second
+would be a host release. Zoom rotates refresh tokens, so renewals are serialised under one lock covering read, request,
+save and publish, with a separate lock for the fields that never waits on the network; a generation fence drops a
+renewal or a sign-in that lands after a sign-out, a new sign-in or an Apply that changed the client ID or turned the
+card Off (review). A renewal whose save fails keeps working from memory and says so on the slot, and the save is
+retried every read: refusing the new token would protect nothing, since Zoom has already spent the old one (argued with
+the review, which agreed).
+
+**A partial read is a warning, never a healthy short list (review, the F204 rule).** The page cap with more to come, the
+series cap, a series that could not be read, an entry that could not be read, the 2000-occurrence cap, and a 200 with
+no `meetings` array all leave the slot unvouched, so the fired-id prune never takes a meeting it did not see for a
+cancelled one. One 60-second budget covers the meeting requests; a token renewal has its own 30 seconds outside it.
+
+**One meeting, two copies.** The Zoom slot yields: its copy of a meeting a calendar also carries (same Zoom meeting number
+in a host-matched join link, same start minute in UTC) is left out, and the calendar's copy is announced. Only a copy
+the announce filter keeps can stand in (a declined invite does not take the Zoom copy with it) (review). The left-out
+copy is recorded as a twin; every calendar meeting with a Zoom link also has a deterministic alias, the id the Zoom slot
+gives it (`cal5|<number>@<start minute UTC>`, one function for both). The prune counts twins and aliases as present,
+and `MirrorTwinFired` copies every fired mark, leads and `@join` alike, across each pair before the due check and again
+after spending, before the save, so the copies merging, parting, or a restart where the calendar loads before Zoom never
+announce a meeting twice (review: the post-spend mirror and the restart case). Not covered: a calendar copy whose link
+has no meeting number (a personal room) is a different meeting as far as the module can tell.
+
+**Invited meetings: an opt-in second read, not a reverse-engineered one (the owner, 2026-11-03).** The owner's client
+meetings reach the Zoom desktop app through a calendar connected to the Zoom account, and reach no calendar this app can
+read. Zoom's documented `GET /users/me/upcoming_meetings` (the meetings the user is invited to, next 24 hours) is added
+behind the card's "Also read meetings I'm invited to", off by default so a sign-in set up for hosted meetings only is
+never refused on the extra scope (`meeting:read:list_upcoming_meetings`). It runs after the hosted read, so a failure of
+its own is a warning beside the hosted meetings, never a reason to drop them; its meetings are taken at the time Zoom
+gives (the series detail call is the host's), their answer left unknown so "skip declined" never guesses, and a meeting
+the user hosts that also appears there keeps its hosted copy. Whether it returns invites a connected calendar brings in
+is not documented: SMOKETEST H7e is where the owner learns it. An invited copy knows no answer, so it yields to ANY
+calendar copy of the meeting, not only one the announce filter keeps, preferring a kept one. With the hosted rule
+alone, a calendar copy declined in Outlook could not absorb the Zoom copy, the default "skip declined" let the Zoom
+copy through, and the declined meeting was announced from Zoom (found reviewing the invited delta; Codex confirmed it).
+Zoom's acknowledged fault on this endpoint, a 200 whose body is a bare `{}` (its developer forum, 2026, reported with
+a connected calendar, a fix tentatively targeted for November), stays a warning like any answer with no `meetings`
+array, since taking it for an empty list would let the prune drop marks for meetings that are still there. It is
+worded apart ("Zoom sent an empty answer…") so the owner's H7e check can tell "Zoom sent nothing" from "Zoom sent no
+such meeting". Every invited row must carry a readable start (review): a hosted type-8 row may lean on the series
+call, an invited one cannot, so a row with no time is counted unreadable, a warning, rather than dropped in silence,
+where the slot would read healthy and the prune would take the meeting for cancelled. Refused: reading the Zoom desktop app's local stores to
+get at the same meetings. They are encrypted, undocumented and break with Zoom updates, and opening another
+application's protected data on a managed device is not something this app does, directly or through another agent.
+
+**Two calendars with the same Zoom invite: announced once while the Zoom card is on (review).** The alias joins them, so
+leaving them independent, as before 1.3.0, turned out to depend on load order: two copies loaded in one tick both
+announced, and one loaded a tick later was silenced by the first one's alias mark. Two consistent rules were on the table:
+tell an alias mark the Zoom copy really fired apart from one a calendar wrote, or join every copy of the meeting. Joined:
+the mirror runs after each announcement too, so a second copy due in the same tick is skipped, and the first slot in
+order speaks. For a user whose invites reach two mailboxes that is one reminder where there were two. With the Zoom card
+Off nothing is joined, so calendars without it behave exactly as before.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

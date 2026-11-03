@@ -103,7 +103,7 @@ namespace DesktopAICompanion.ReminderModule
         /// changed. The asked mark is written as the question goes out, and persisted with the rest of the fired set, so
         /// neither a second tick nor a restart inside the window asks again, whatever the answer was.
         /// </summary>
-        private bool CheckJoinPrompts(DateTimeOffset now, IReadOnlyList<CalendarEvent> events, bool quiet)
+        private bool CheckJoinPrompts(DateTimeOffset now, CalendarSnapshot snap, IReadOnlyList<CalendarEvent> events, bool quiet)
         {
             if (_questions == null) return false;
             WithdrawJoinPromptsIfJoined();
@@ -134,9 +134,15 @@ namespace DesktopAICompanion.ReminderModule
             int room = QuestionRoom(now);
             foreach (KeyValuePair<CalendarEvent, string> candidate in candidates)
             {
+                string firedId = JoinFiredId(candidate.Key.Id);
+                // Another copy of this Zoom meeting (the same invite on a second calendar) was asked about earlier in
+                // this loop, and the mirror below marked this one (1.3.0, the rule the leads follow). Checked before the
+                // room is counted, so a copy takes no place on the card.
+                if (_fired.Contains(firedId)) continue;
                 if (room-- <= 0) break;   // left for a later tick inside the window, unmarked
                 AskJoin(candidate.Key, candidate.Value, now);
-                _fired.Add(JoinFiredId(candidate.Key.Id));
+                _fired.Add(firedId);
+                MirrorTwinFired(snap, _fired);
                 changed = true;
             }
             return changed;
