@@ -194,11 +194,11 @@ namespace DesktopAICompanion.AgentFlow
                                  //        card appearing and the card AgentFlow just answered. Your own clicks and typing
                                  //        in a card work as normal (a menu you open in it gets 1 second after your own
                                  //        pointer press), and so does switching to it. The protection renews on every
-                                 //        check and removes itself within a minute or so if AgentFlow stops (a lease, at
-                                 //        one evaluate per card per check as before). If focus still moves to a card
-                                 //        AgentFlow pressed, the press's log line says so; AgentFlow never moves focus
-                                 //        itself. New setting next to auto-approve, "Keep agent cards from taking focus",
-                                 //        on by default; off gives the previous behaviour.
+                                 //        check and removes itself within a minute or so of the last check if AgentFlow
+                                 //        stops (a lease, at one evaluate per card per check as before). If focus still
+                                 //        moves to a card AgentFlow pressed, the press's log line says so; AgentFlow
+                                 //        never moves focus itself. New setting next to auto-approve, "Keep agent cards
+                                 //        from taking focus", on by default; off gives the previous behaviour.
                                  // 1.12.2: picking another pet keeps the pane's other unapplied edits; a threshold
                                  //        typed or a box unticked before the pet change used to come back as stored
                                  //        (N-host-options-01).
