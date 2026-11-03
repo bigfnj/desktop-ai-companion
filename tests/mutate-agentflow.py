@@ -2541,8 +2541,8 @@ CASES = (
     (
         "agentflow-focus: the sweep never installs the standing guard",
         CDP,
-        "                            if (guardFocus) InstallFocusGuard(session, sessionId);\n",
-        "",
+        "                            string raw = session.Evaluate(sessionId, guard != null ? GuardedRead(read, guard) : read);",
+        "                            string raw = session.Evaluate(sessionId, read);",
         "with the guard on, a Codex approval card that mounts on its own",
     ),
     (
@@ -2576,8 +2576,8 @@ CASES = (
     (
         "agentflow-focus: the gesture allowance is removed",
         FOCUS,
-        "          if (g.active && Date.now() >= g.allowUntil) {",
-        "          if (g.active) {",
+        "          else if (g.active && t >= g.allowUntil) {",
+        "          else if (g.active) {",
         "with the card guarded, the user's own press on a dropdown that prevents native",
     ),
     (
@@ -2597,8 +2597,8 @@ CASES = (
     (
         "agentflow-focus: a reinstall captures the wrapper",
         FOCUS,
-        "  if (g && g.active) return 'kept';",
-        "  if (false) return 'kept';",
+        "  if (g && g.active) {\n    g.expiresAt",
+        "  if (false) {\n    g.expiresAt",
         "a sweep's install is a no-op where the guard stands",
     ),
     (
@@ -2640,8 +2640,8 @@ CASES = (
     (
         "agentflow-focus: the off path never removes the guard",
         MODULE,
-        "            _focusGuardOn = false;\n            return CdpApprover.RemoveFocusGuard(port, 1500);",
-        "            _focusGuardOn = false;\n            return 0;",
+        "            int removed = CdpApprover.RemoveFocusGuard(port, 1500);",
+        "            int removed = 0;",
         "turning the setting off takes the guard out of every panel",
     ),
     (
@@ -2678,6 +2678,43 @@ CASES = (
         "                                view.Panels = panels;\n                                if (!HandleCard(view, agent, handle, handed, pressedNotes, refusals)) continue;\n                                pressedHere++;",
         "                                if (!HandleCard(view, agent, handle, handed, pressedNotes, refusals)) continue;\n                                pressedHere++;",
         "a focus no in-page guard reaches (an extension's reveal) is reported",
+    ),
+    # Round 5 (Codex's review of c7cd714, minimal by the owner's call): the in-page LEASE, renewed on the read every sweep
+    # already sends; the cleanup fallback for every lifecycle failure. And the degraded-install line.
+    (
+        "agentflow-focus: the lease never expires",
+        FOCUS,
+        "  g = { active: true, allowUntil: 0, saved: [], expiresAt: Date.now() + __LEASE_MS__, timer: 0 };",
+        "  g = { active: true, allowUntil: 0, saved: [], expiresAt: Infinity, timer: 0 };",
+        "with the page's timers stalled, the first call past the lease goes through",
+    ),
+    (
+        "agentflow-focus: the sweep does not renew the lease",
+        FOCUS,
+        "    g.expiresAt = Date.now() + __LEASE_MS__;\n    return 'kept';",
+        "    return 'kept';",
+        "every sweep renews the lease on the read it already sends",
+    ),
+    (
+        "agentflow-focus: expiry does not restore exactly",
+        FOCUS,
+        "    if (left <= 0) { g.remove(); return; }",
+        "    if (left <= 0) { g.active = false; return; }",
+        "a guard nobody renews lapses on its own within one lease, restoring exactly",
+    ),
+    (
+        "agentflow-focus: a call past the lease still suppresses",
+        FOCUS,
+        "          if (g.active && t >= g.expiresAt) g.remove();\n          else if",
+        "          if (false) g.remove();\n          else if",
+        "with the page's timers stalled, the first call past the lease goes through",
+    ),
+    (
+        "agentflow-focus: a failed install is not reported",
+        FOCUS,
+        "            else if (outcome != \"unreachable\") guard.Failed.Add(new KeyValuePair<string, string>(targetId, agent));\n",
+        "",
+        "a panel where the guard could not be installed is reported once as not protected",
     ),
 )
 

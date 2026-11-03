@@ -467,6 +467,11 @@ var __page = (function () {
     page.focused = f.inner; f.inner.document.activeElement = f.input; page.focusLog.push('user:' + name);
   };
   page.mountCard = function (name) { page.frames[name].mount(); };
+  // A realm whose focus cannot be redefined (non-writable, non-configurable): the guard's install throws half way.
+  page.freezeFocus = function (name) {
+    var p = page.frames[name].inner.HTMLElement.prototype;
+    Object.defineProperty(p, 'focus', { value: p.focus, writable: false, configurable: false });
+  };
   page.clearCard = function (name) { page.frames[name].clear(); };
   // A reload: the frame's documents and windows are replaced by fresh ones (fresh realms, no guard), same target.
   page.reloadFrame = function (name) {
