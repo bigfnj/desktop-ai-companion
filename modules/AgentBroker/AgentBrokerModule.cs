@@ -41,7 +41,16 @@ public sealed partial class AgentBrokerModule : IModule
     {
         Id = "agentbroker",
         Name = "AgentBroker",
-        Version = "1.7.1",   // 1.7.1: Claude Code sessions keep waking after Claude Code updates itself (the owner's
+        Version = "1.7.2",   // 1.7.2: a Codex build that is not exactly pinned but that Windows verifies as signed by its
+                             //        publisher (the VS Code extension, the desktop app or the VS Code router) is reported
+                             //        as a note naming the build ("Publisher-verified builds: ... Update-tolerant delivery is
+                             //        enabled.") instead of an adapter error, as Claude's has been since 1.7.1 (the owner's
+                             //        rule of 2026-11-02: a user should not have to know about a build trusted on its
+                             //        signature; built by Codex). The note appears even when no Codex chat is open. A
+                             //        failed signature, update-tolerant delivery turned off, or a router other than the one
+                             //        verified keeps its error. A long note now wraps onto further lines in the tray menu
+                             //        instead of being cut, and the pane shows each note whole.
+                             // 1.7.1: Claude Code sessions keep waking after Claude Code updates itself (the owner's
                              //        decision of 2026-11-02). "Also wake updated Claude builds (publisher verified)", on
                              //        by default, wakes a Claude Code build that is not exactly pinned as a pinned one is,
                              //        when Windows verifies the running session's claude.exe as signed by "Anthropic, PBC"
