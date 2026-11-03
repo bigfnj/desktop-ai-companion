@@ -52,11 +52,19 @@ public static class VsCodeCompatibilityProfile
 
     internal static void VerifyInstalledAt(string root, ExtensionProfile profile)
     {
+        // Report the folder that was checked, never a reviewed version substituted from the pin. This metadata
+        // grants no trust, including when the manifest or a bundle at that folder has different content.
+        string? installedVersion = InstalledExtensionVersion(root);
         string manifest = Path.Combine(root, "package.json");
         if (!File.Exists(manifest)) throw new DesktopAdapterException("unsupported_vscode_profile");
         DesktopCompatibilityProfile.VerifyRegularPath(manifest);
-        using (var stream = File.OpenRead(manifest))
+        try
+        {
+            using var stream = File.OpenRead(manifest);
             VsCodeManifestProfile.Verify(VsCodeManifestProfile.ReadBounded(stream), profile.ManifestFunctionalSha256);
+        }
+        catch (DesktopAdapterException error) when (error.Code == "vscode_image_mismatch")
+        { throw new DesktopAdapterException(error.Code, installedVersion); }
         foreach (var image in profile.Images)
         {
             string file = Path.Combine(root, image.Key.Replace('/', Path.DirectorySeparatorChar));
@@ -64,7 +72,7 @@ public static class VsCodeCompatibilityProfile
             DesktopCompatibilityProfile.VerifyRegularPath(file);
             using var stream = File.OpenRead(file);
             if (Convert.ToHexString(SHA256.HashData(stream)) != image.Value)
-                throw new DesktopAdapterException("vscode_image_mismatch");
+                throw new DesktopAdapterException("vscode_image_mismatch", installedVersion);
         }
     }
 
@@ -107,28 +115,41 @@ public static class VsCodeCompatibilityProfile
         => ValidateRunningClients(engines, engines.Count == 0 ? [] : Profiles);
 
     internal static int ValidateRunningClients(IReadOnlyList<CodeOwnedEngine> engines, IReadOnlyList<ExtensionProfile> profiles)
+        => ValidateRunningClients(engines, profiles, ExtensionsRoot);
+
+    // The explicit root keeps synthetic image/hash checks inside their owned fixture. Production uses ExtensionsRoot.
+    internal static int ValidateRunningClients(IReadOnlyList<CodeOwnedEngine> engines, IReadOnlyList<ExtensionProfile> profiles,
+        string extensionsRoot)
     {
+        string root = Path.GetFullPath(extensionsRoot);
         foreach (var engine in engines)
         {
             // The engine's own image path selects the reviewed build it belongs to; its hash must be that build's.
             var profile = profiles.FirstOrDefault(candidate => string.Equals(Path.GetFullPath(engine.Image),
-                Path.GetFullPath(EngineImage(candidate)), StringComparison.OrdinalIgnoreCase));
+                Path.GetFullPath(EngineImage(candidate, root)), StringComparison.OrdinalIgnoreCase));
             if (!engine.SameUser || engine.ParentCreationFileTime > engine.CreationFileTime
                 || !string.Equals(Path.GetFileName(engine.ParentImage), "Code.exe", StringComparison.OrdinalIgnoreCase)
                 || profile is null)
                 // The version an OpenAI extension layout declares, for status text; null for any other path.
                 throw new DesktopAdapterException("unsupported_running_vscode_profile",
-                    PublisherEngineVersion(engine.Image, Path.GetFullPath(ExtensionsRoot)));
+                    PublisherEngineVersion(engine.Image, root));
             DesktopCompatibilityProfile.VerifyRegularPath(engine.Image);
             using var stream = File.OpenRead(engine.Image);
             if (Convert.ToHexString(SHA256.HashData(stream)) != profile.NativeImageSha256)
-                throw new DesktopAdapterException("running_vscode_image_mismatch");
+                throw new DesktopAdapterException("running_vscode_image_mismatch", PublisherEngineVersion(engine.Image, root));
         }
         return engines.Count;
     }
 
-    private static string EngineImage(ExtensionProfile profile)
-        => Path.Combine(ExtensionsRoot, profile.DirectoryName, "bin", "windows-x86_64", "codex.exe");
+    private static string EngineImage(ExtensionProfile profile, string extensionsRoot)
+        => Path.Combine(extensionsRoot, profile.DirectoryName, "bin", "windows-x86_64", "codex.exe");
+
+    private static string? InstalledExtensionVersion(string extensionRoot)
+    {
+        string extension = Path.TrimEndingDirectorySeparator(Path.GetFullPath(extensionRoot));
+        string? parent = Path.GetDirectoryName(extension);
+        return parent is null ? null : PublisherEngineVersion(Path.Combine(extension, "bin", "windows-x86_64", "codex.exe"), parent);
+    }
 
     /// <summary>
     /// Publisher counterpart of <see cref="VerifyRunningClients"/> for a build that is not exactly pinned: every direct

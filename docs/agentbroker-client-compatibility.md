@@ -98,10 +98,30 @@ settings, still checks idle twice before injection, and still uses the busy erro
 to mean "not submitted"; and that the unsigned extension JavaScript still matches
 the reviewed renderer bridge and owner manager. Leaving the setting on (the module's
 default since 1.5.0) accepts those gaps, which were the reason it was off by default
-before, and is why status reports `codex_update_tolerant_delivery` and the failed
-exact pin on every pass while it is in effect. Synthetic checks cover a compatible updated build, wrong publisher,
+before. With the mode enabled in both provider and adapter, a completed discovery
+pass reports publisher-verified off-pin components in one
+`codex_update_tolerant_delivery` note, separate from adapter errors. This includes
+an idle component with no open chat or a skipped owner lookup. The note names
+installed versions from the exact-pin refusals, states unknown versions explicitly,
+and preserves the meaning of an image mismatch. Display performs no extra image
+checks. Engine evidence comes from the pass's publisher verification. Router
+evidence reuses the verdict at connect time, only after a successful same-owner
+snapshot or lookup on that connection and process ID/creation-time incarnation.
+A snapshot failure, closed connection or reconnect drops that reporting evidence;
+a replacement must establish its own verdict. These reporting fields grant no
+trust, capability or send authority. An unrelated router's refusal stays an error
+unless its own publisher evidence passes or a verified owner has the same process
+ID and creation time. Failed publisher checks and mode-off exact-pin refusals stay
+errors. The pane shows each note on its own line within the worker's 320-character
+description bound. The tray wraps that same bounded note into continuation items
+of at most 120 characters, preserving its words (`CodexNativeProvider.CompleteDiscovery`,
+`DesktopDirectoryObserver.Snapshot`, `AgentBrokerModule.ClientStateLines`,
+`AgentBrokerModule.TrayNoteLines`).
+Synthetic checks cover a compatible updated build, wrong publisher,
 invalid signature, changed protocol, held and refused admission, busy and
-reconnect (`CodexTrustPolicyChecks.cs`, `CodexObservationChecks.cs`). Live native
+reconnect (`CodexTrustPolicyChecks.cs`, `CodexObservationChecks.cs`); reporting
+checks include absent carriers, current-pass transitions and independent-router
+diagnostics (`CodexTolerantNoteChecks.cs`). Live native
 acceptance of an updated build has not been run.
 
 **Claude**: `claudeUpdateTolerantDelivery` ("Also wake updated Claude builds

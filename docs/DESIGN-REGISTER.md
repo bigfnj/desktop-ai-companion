@@ -6073,10 +6073,18 @@ as another agent's message.
 Refused alternatives. A faster re-pin cadence: the scheduled re-pin check drafts pins, but each still needs a person's
 review and a module publish, so it trails every update by days. Trusting the signature at discovery alone: a send would
 rest on an observation up to a pass old, so the send boundary checks the publisher again on the connected image. Reporting
-the mode as an adapter error, as `codex_update_tolerant_delivery` is: the owner asked that an end user not have to know,
+either client's verified mode as an adapter error: the owner asked that an end user not have to know,
 and an error replaces the wake count in the pane's Native line. The channels route: blocked by policy on the maintainer's
 workstation. The read-only `tools/agentbroker/Test-AgentBrokerRepin.ps1` still drafts exact pins, which remain the
 reviewed path and the strict mode.
+
+Codex reporting also covers idle publisher-verified components, without requiring an admitted chat. Engine evidence
+comes from the discovery pass; router reporting reuses the verdict at connect time only after a successful snapshot
+or lookup confirms the same connection and process ID/start incarnation. A failed snapshot, closed connection or
+reconnect drops that reporting evidence. A nonnull exact-pin refusal is not proof of publisher verification. These
+fields only choose notes versus errors and never feed trust, capabilities or submission. Failed publisher checks,
+mode-off refusals and unrelated router failures remain errors. Notes name installed versions and preserve image-
+mismatch meaning; the pane keeps each bounded note separate and the tray wraps it into complete continuation items.
 
 **`IDesktopConnection.Trust` has no default member, and `DesktopOwnerBinding.RouterTrust` defaults to
 `Unverified`.** A test double or a new connection type must state its trust, and a binding nobody stamped grants

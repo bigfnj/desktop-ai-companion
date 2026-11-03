@@ -215,6 +215,34 @@ public sealed partial class AgentBrokerModule
                 "NOTES_EACH_WHOLE: two notes for one adapter are each shown whole, on a line of their own");
             check(pane.Load()["nativeStatus"].Contains(many + "; claude_update_tolerant_delivery: " + tolerant, StringComparison.Ordinal),
                 "NOTES_NATIVE_STATUS_SEPARATED: Native adapters lists both notes, each whole and separated");
+            const string codexTolerant = "Known unreviewed builds: Codex VS Code extension 26.1021.22027; VS Code router 1.144.0. " +
+                "Eligible sessions use Windows-verified publisher signatures.";
+            const string codexOtherNote = "A separate Codex session note remains on its own line.";
+            module.ApplyStatus(new(true, true, "running", view with { Sessions = [native, Codex(null)],
+                AdapterNotes = new Dictionary<string, string> { ["codex-native"] = "codex_update_tolerant_delivery: " +
+                    codexTolerant + ControlProtocol.NoteSeparator + "codex_synthetic_note: " + codexOtherNote } }));
+            string codexNoted = pane.Load()["codexClient"];
+            string[] codexNoteLines = codexNoted.Split('\n');
+            check(codexNoteLines.Contains("\u26A0 " + codexTolerant) && codexNoteLines.Contains("\u26A0 " + codexOtherNote) &&
+                codexNoted.Contains("Native wake off: 1 open Codex session", StringComparison.Ordinal) &&
+                !codexNoted.Contains("\u2717 Native", StringComparison.Ordinal) &&
+                !codexNoted.Contains("codex_update_tolerant_delivery", StringComparison.Ordinal) &&
+                !pane.Load()["claudeClient"].Contains("Known unreviewed builds", StringComparison.Ordinal) &&
+                pane.Load()["nativeStatus"].Contains(codexTolerant + "; codex_synthetic_note: " + codexOtherNote, StringComparison.Ordinal),
+                "CODEX_TOLERANT_NOTE_LINE: a combined Codex build note and a second note are whole on separate lines beside the healthy native line");
+            string[] codexTrayNotes = host.TrayItems.Single().BuildChildren()
+                .Single(item => item.Label.StartsWith("Codex: ", StringComparison.Ordinal)).BuildChildren()
+                .Select(item => item.Label).ToArray();
+            int noteStart = Array.FindIndex(codexTrayNotes, label => label.StartsWith("\u26A0 Known unreviewed builds: ", StringComparison.Ordinal));
+            int nextNote = Array.IndexOf(codexTrayNotes, "\u26A0 " + codexOtherNote);
+            string[] wrappedNote = noteStart >= 0 && nextNote > noteStart
+                ? codexTrayNotes.Skip(noteStart).Take(nextNote - noteStart).ToArray() : [];
+            check(wrappedNote.Length > 1 && wrappedNote.Skip(1).All(label => label.StartsWith("  ", StringComparison.Ordinal)) &&
+                string.Join(" ", wrappedNote.Select(label => label[2..])) == codexTolerant &&
+                codexTrayNotes.All(label => label.Length <= 120) &&
+                codexTrayNotes.Any(label => label.Contains("Native wake off: 1 open Codex session", StringComparison.Ordinal)) &&
+                !codexTrayNotes.Any(label => label.Contains("codex_update_tolerant_delivery", StringComparison.Ordinal)),
+                "CODEX_TOLERANT_TRAY_NOTE_WHOLE: actual Codex tray children preserve both build names and the complete signature sentence in bounded continuation items");
             module.ApplyStatus(new(true, true, "running", view));
 
             // A settings change restarts the worker; a check made against the old settings no longer applies.
