@@ -2,8 +2,8 @@
 <#
 .SYNOPSIS
     Run the script-level checks that need no compiler, no install, no elevation and no network, and collect every
-    failure: the installer's fake-caller, path-safety, checker-timeout and log-observation checks, and the
-    public-commit privacy self-test.
+    failure: the installer's fake-caller, path-safety, checker-timeout and log-observation checks, the tray icon record
+    cleanup check, and the public-commit privacy self-test.
 
 .DESCRIPTION
     N-installer-tests-02 (lane feature/followups, 2026-10-29). These five ran only by hand, so the reparse-tag,
@@ -15,8 +15,9 @@
     What each leaves behind is an evidence folder under build\ (gitignored). Along the way they create and remove a
     junction under build\ and a sentinel folder under artifacts\, start one hidden synthetic PowerShell child that the
     timeout check kills after 2.5 s, create and remove a synthetic git repository under build\privacy-selftest\, and
-    read the Desktop and local application data folder PATHS without opening anything in them. No MSI is executed and
-    no native binary is built or launched.
+    read the Desktop and local application data folder PATHS without opening anything in them. Test-TrayIconRecords.ps1
+    (added 2026-11-02) creates and removes a scratch key under HKCU\Software and never opens the real tray records. No
+    MSI is executed and no native binary is built or launched.
 
     The four installer checks signal failure by throwing, so they run in this process inside a try/catch. The privacy
     self-test is `#requires -Version 7`, which Windows PowerShell refuses to run in-process, so it always runs in a
@@ -37,7 +38,7 @@ $failures = New-Object 'Collections.Generic.List[string]'
 $ran = 0
 
 foreach ($name in @('Test-InstallerMsiCallerSafety.ps1', 'Test-InstallerNativeCheckTimeout.ps1',
-                    'Test-InstallerPathSafety.ps1', 'Test-InstallerMsiLogObservation.ps1')) {
+                    'Test-InstallerPathSafety.ps1', 'Test-InstallerMsiLogObservation.ps1', 'Test-TrayIconRecords.ps1')) {
     Write-Host "=== $name"
     $ran++
     # Its result lines (the JSON verdict and the Evidence= folder) are shown, not returned: this runner's own output is
@@ -71,4 +72,4 @@ else {
 if ($failures.Count -gt 0) {
     throw ("$($failures.Count) of $ran offline script check(s) failed: " + ($failures -join ' | '))
 }
-Write-Host "PASS: $ran offline script checks (installer fake callers and paths, privacy self-test)."
+Write-Host "PASS: $ran offline script checks (installer fake callers and paths, tray icon records, privacy self-test)."

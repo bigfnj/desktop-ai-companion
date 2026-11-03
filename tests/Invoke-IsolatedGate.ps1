@@ -182,6 +182,16 @@ finally {
             [Environment]::SetEnvironmentVariable($name, $previous[$name], 'Process')
         }
     }
+    # Windows keeps a tray icon record for every DesktopAICompanion.exe path that ever showed an icon, and lists them all
+    # in Settings > Personalization > Taskbar > Other system tray icons. This run's builds and host self-tests run from
+    # this worktree, never from the installed app, so their records are removed here, pass or fail (38 had piled up on
+    # the maintainer's workstation by 2026-11-02). A cleanup that cannot finish says so; it never fails the gate.
+    try {
+        & (Join-Path $repoRoot 'tools\Remove-TrayIconRecords.ps1') -UnderPath $repoRoot | ForEach-Object { Write-Host "$_" }
+    }
+    catch {
+        Write-Warning ('Tray icon records of this worktree were not removed: ' + $_.Exception.Message)
+    }
 }
 if ($gateExit -eq 0) {
         # This owner has finished the selected gate. Keep its logs and test
