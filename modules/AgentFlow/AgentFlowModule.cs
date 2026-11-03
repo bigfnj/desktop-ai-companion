@@ -706,8 +706,9 @@ namespace DesktopAICompanion.AgentFlow
             // The standing focus guard leaves with the module (1.12.3): every panel's originals back exactly.
             if (_focusGuardOn)
             {
-                _focusGuardOn = false;
+                // Best effort; whatever this cannot reach, and any install still on its way, lapses with its lease.
                 CdpApprover.RemoveFocusGuard(CdpPort, 1000);
+                _focusGuardOn = false;
             }
             if (_timer != null)
             {
@@ -902,7 +903,8 @@ namespace DesktopAICompanion.AgentFlow
             double threshold = ThresholdSeconds;
             bool watchClaude = WatchClaude, watchCodex = WatchCodex;
             bool autoApprove = AutoApprove;
-            bool guardFocus = FocusGuardWanted;
+            // The sweep's standing guard (1.12.3), with this check interval's lease, or none.
+            FocusGuardTicket guardTicket = FocusGuardWanted ? new FocusGuardTicket { LeaseMs = CdpApprover.FocusGuardLeaseMs(CheckSeconds) } : null;
             bool allProjects = ApproveForAllProjects;
             bool similar = ApproveSimilarCommands;
             int cdpPort = CdpPort;
@@ -1019,12 +1021,13 @@ namespace DesktopAICompanion.AgentFlow
                     // read once, before a sweep that is several round trips long, and nothing inside it
                     // re-read the switch until then (F026).
                     var pass = new SweepPass(cdpPort, mayPress, allProjects, similar, _pressBudget, StillArmed);
-                    pass.GuardFocus = guardFocus;
+                    pass.GuardFocus = guardTicket;
+                    // Owned from before the first install can land, so Shutdown and the off path see it (round 5).
+                    if (guardTicket != null) _focusGuardOn = true;
                     ScreenPrompt found = null;
                     try
                     {
                         approvalNote = SweepOnce(cdpPort, pass, _pressBudget, 1500, out sawPanel, out sawBlind);
-                        if (guardFocus) _focusGuardOn = true;
                         // Every prompt the pass read and left alone: since 1.11.0 the sweep reads every panel
                         // whatever it pressed, so this is every unpressed prompt on screen.
                         found = ScreenPrompt.Combine(pass.Unpressed);
@@ -1085,6 +1088,7 @@ namespace DesktopAICompanion.AgentFlow
                     bool forPressed = pressedThisTick;
                     List<string> forPressNotes = pressNotes;
                     LimitOutcome forLimit = limit;
+                    FocusGuardTicket forGuard = guardTicket;
                     PostToUi(() =>
                     {
                         // The instance may have been torn down between the worker finishing and
@@ -1108,6 +1112,7 @@ namespace DesktopAICompanion.AgentFlow
                         }
                         LogScanNotes(forResets);
                         LogApprovalAttempts(note, forPressed, forPressNotes);
+                        LogFocusGuardOutcome(forGuard);
                         AnnounceScreenPrompt(forSpeech);
                         ReportSessionLimit(forLimit);
                     });
@@ -2520,6 +2525,26 @@ namespace DesktopAICompanion.AgentFlow
         /// Shutdown touch the panels only when there is something to take out.</summary>
         private volatile bool _focusGuardOn;
 
+        /// <summary>Panels already reported as not protected, so the degraded line is said once per panel (UI thread).</summary>
+        private readonly HashSet<string> _guardDegradedSaid = new HashSet<string>(StringComparer.Ordinal);
+
+        /// <summary>The degraded-install line (1.12.3): once per panel whose guard could not be installed, apart from a
+        /// panel that is simply not ready; said again only after that panel was guarded in between (UI thread).</summary>
+        internal void LogFocusGuardOutcome(FocusGuardTicket ticket)
+        {
+            if (ticket == null) return;
+            foreach (string targetId in ticket.Installed) _guardDegradedSaid.Remove(targetId);
+            foreach (KeyValuePair<string, string> failed in ticket.Failed)
+                if (_guardDegradedSaid.Add(failed.Key)) Log(FocusGuardDegradedNote(failed.Value));
+        }
+
+        /// <summary>The degraded line's words, naming the panel by its agent. Never page text.</summary>
+        internal static string FocusGuardDegradedNote(string agent)
+        {
+            return "a " + (agent == CdpApprover.AgentCodex ? "Codex" : "Claude Code")
+                   + " panel is not protected from taking focus: the focus guard could not be installed in it";
+        }
+
         /// <summary>
         /// The off path (1.12.3): when the guard is no longer wanted (auto-approve or the setting turned off, AgentFlow
         /// switched off) but was installed, take it out of every agent panel on <paramref name="port"/>. Blocking: CDP
@@ -2528,8 +2553,10 @@ namespace DesktopAICompanion.AgentFlow
         internal int SyncFocusGuard(int port, bool wanted)
         {
             if (wanted || !_focusGuardOn) return 0;
+            // Attempted first, the flag cleared after (round 5). Whatever this cannot reach lapses with its lease.
+            int removed = CdpApprover.RemoveFocusGuard(port, 1500);
             _focusGuardOn = false;
-            return CdpApprover.RemoveFocusGuard(port, 1500);
+            return removed;
         }
 
         internal bool ApproveForAllProjects
@@ -2846,9 +2873,9 @@ namespace DesktopAICompanion.AgentFlow
             /// <summary>Every prompt read and left alone, in target order, for the screen announcement.</summary>
             public readonly List<ScreenPrompt> Unpressed = new List<ScreenPrompt>();
 
-            /// <summary>Install the standing focus guard in every panel this sweep reads (1.12.3). Off unless set: the
-            /// tick sets it from FocusGuardWanted.</summary>
-            public bool GuardFocus;
+            /// <summary>The standing focus guard for this sweep (1.12.3): installed or renewed on every panel's read. Null
+            /// (off) unless set: the tick sets it when FocusGuardWanted.</summary>
+            public FocusGuardTicket GuardFocus;
 
             /// <summary>Every press note, in target order (1.11.0): the sweep presses a prompt in each panel, and the
             /// log writes each press on its own line.</summary>

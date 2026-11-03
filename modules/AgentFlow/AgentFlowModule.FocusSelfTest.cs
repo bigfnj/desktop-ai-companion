@@ -398,6 +398,58 @@ namespace DesktopAICompanion.AgentFlow
                 }
             }
 
+            // ---- (L) the lease: renewed on every sweep's read, lapses exactly when nobody renews it ---------------------------
+            int lease = CdpApprover.FocusGuardLeaseMs(10);
+            using (FakeFocusPage page = FakeFocusPage.TryCreate(out why))
+            {
+                page.AddFrame("A", "claude", "none");
+                page.AddFrame("B", "claude", "none");
+                page.UserIn("A");
+                using (var server = new FakeCdpServer(new[] { FocusTarget(page, "A", claudeMarker, "none"),
+                                                              FocusTarget(page, "B", claudeMarker, "none") }))
+                {
+                    FocusSweep(server, true, true, out pass);
+                    int evaluations = server.EvaluateCount;
+                    page.Advance(lease - 20000);
+                    FocusSweep(server, true, true, out pass);
+                    int renewalCost = server.EvaluateCount - evaluations;
+                    page.Advance(lease - 20000);
+                    page.ClearCard("B");
+                    page.Advance(300);
+                    string renewed = page.State();
+                    probe.Check("WITNESS (1.12.3) every sweep renews the lease on the read it already sends: past the first lease, "
+                                + "inside the renewed one, the card's refocus is still held, and a sweep costs one evaluate per panel ("
+                                + renewalCost.ToString(CultureInfo.InvariantCulture) + "; " + FocusBrief(renewed) + ")",
+                        renewalCost == 2 && FocusBool(renewed, "B", "hold") && FocusStr(renewed, null, "focused") == "A"
+                        && FocusStr(renewed, null, "log") == "");
+                    page.Advance(lease);
+                    string lapsed = page.State();
+                    page.Run("__page.frames['B'].input.focus(); 'ok'");
+                    string after = page.State();
+                    probe.Check("WITNESS (1.12.3) a guard nobody renews lapses on its own within one lease, restoring exactly: the "
+                                + "original methods back, no listener or timer left, and a background focus goes through again ("
+                                + FocusBrief(lapsed) + " then " + FocusBrief(after) + ")",
+                        !FocusBool(lapsed, "A", "hold") && !FocusBool(lapsed, "B", "hold") && FocusBool(lapsed, "A", "exact")
+                        && FocusBool(lapsed, "B", "exact") && FocusInt(lapsed, "B", "listeners") == 0
+                        && FocusInt(lapsed, null, "timers") == 0 && FocusStr(after, null, "focused") == "B");
+                }
+            }
+            // With the page's timers stalled, the first call past the lease stops suppressing and restores exactly itself.
+            using (FakeFocusPage page = FakeFocusPage.TryCreate(out why))
+            {
+                page.AddFrame("B", "claude", "none");
+                page.UserIn(null);
+                string installed = page.EvaluateAs("B", CdpApprover.FocusGuardInstall(60000));
+                page.Run("__page.timers = []; 'ok'");
+                page.Advance(61000);
+                page.Run("__page.frames['B'].input.focus(); 'ok'");
+                string state = page.State();
+                probe.Check("WITNESS (1.12.3) with the page's timers stalled, the first call past the lease goes through and takes "
+                            + "the guard out itself, exactly (" + installed + ", " + FocusBrief(state) + ")",
+                    installed == "installed" && FocusStr(state, null, "focused") == "B" && !FocusBool(state, "B", "hold")
+                    && FocusBool(state, "B", "exact") && FocusInt(state, "B", "listeners") == 0);
+            }
+
             // ---- (m) the module: the setting, the off path, Shutdown ---------------------------------------------------------------
             using (FakeFocusPage page = FakeFocusPage.TryCreate(out why))
             using (var storage = new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-focus"))
@@ -445,16 +497,79 @@ namespace DesktopAICompanion.AgentFlow
                         FocusBool(shut, "A", "exact") && FocusBool(shut, "B", "exact")
                         && !FocusBool(shut, "A", "hold") && !FocusBool(shut, "B", "hold")
                         && FocusInt(shut, "A", "listeners") == 0 && FocusInt(shut, "B", "listeners") == 0);
+
+                    // A late install after Shutdown (a sweep that was already on its way) and a removal that failed both lapse
+                    // within one lease: the cleanup fallback.
+                    FocusSweep(server, true, true, out pass);
+                    string late = page.State();
+                    page.Advance(lease + 1000);
+                    string lateLapsed = page.State();
+                    probe.Check("WITNESS (1.12.3) a guard installed after Shutdown lapses within one lease, exactly ("
+                                + FocusBrief(late) + " then " + FocusBrief(lateLapsed) + ")",
+                        FocusBool(late, "A", "hold") && !FocusBool(lateLapsed, "A", "hold") && !FocusBool(lateLapsed, "B", "hold")
+                        && FocusBool(lateLapsed, "A", "exact") && FocusBool(lateLapsed, "B", "exact"));
+                }
+            }
+            // A removal that fails (the panel does not answer) leaves the guard; it lapses within one lease, and the degraded
+            // line names a panel whose install failed, once.
+            using (FakeFocusPage page = FakeFocusPage.TryCreate(out why))
+            using (var storage = new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-focus-lapse"))
+            {
+                page.AddFrame("A", "claude", "none");
+                page.AddFrame("C", "codex", "none");
+                page.UserIn(null);
+                var targetA = FocusTarget(page, "A", claudeMarker, "none");
+                using (var server = new FakeCdpServer(new[] { targetA, FocusTarget(page, "C", codexMarker, "none") }))
+                {
+                    var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                    AgentFlowModule module = SpeakingModule(host, storage, AgentMode.AutoApprove);
+                    module._settings.Set(SettingCdpPort, server.Port.ToString(CultureInfo.InvariantCulture));
+                    FocusSweep(server, true, true, out pass);
+                    module._focusGuardOn = true;
+                    targetA.RefuseAttach = true;
+                    module._settings.Set(SettingFocusGuard, "false");
+                    module.SyncFocusGuard(module.CdpPort, module.FocusGuardWanted);
+                    targetA.RefuseAttach = false;
+                    string failedRemoval = page.State();
+                    page.Advance(lease + 1000);
+                    string lapsed = page.State();
+                    probe.Check("WITNESS (1.12.3) a removal that failed leaves the guard only until its lease lapses, then it is "
+                                + "gone exactly (" + FocusBrief(failedRemoval) + " then " + FocusBrief(lapsed) + ")",
+                        FocusBool(failedRemoval, "A", "hold") && !FocusBool(failedRemoval, "C", "hold")
+                        && !FocusBool(lapsed, "A", "hold") && FocusBool(lapsed, "A", "exact"));
+
+                    page.Run("__page.freezeFocus('C'); 'ok'");
+                    var ticket = new FocusGuardTicket { LeaseMs = lease };
+                    FocusSweep(server, true, ticket, out pass);
+                    module.LogFocusGuardOutcome(ticket);
+                    module.LogFocusGuardOutcome(ticket);
+                    string expected = FocusGuardDegradedNote(CdpApprover.AgentCodex);
+                    string state = page.State();
+                    probe.Check("WITNESS (1.12.3) a panel where the guard could not be installed is reported once as not protected, "
+                                + "naming its agent, while the others are guarded ("
+                                + CountLoggedContaining(host.LoggedLines, "is not protected from taking focus").ToString(CultureInfo.InvariantCulture)
+                                + " line(s); " + FocusBrief(state) + ")",
+                        ticket.Failed.Count == 1 && ticket.Failed[0].Key == "C" && ticket.Installed.Contains("A")
+                        && CountLoggedContaining(host.LoggedLines, "is not protected from taking focus") == 1
+                        && CountLoggedContaining(host.LoggedLines, expected) == 1
+                        && FocusBool(state, "A", "hold") && !FocusBool(state, "C", "hold"));
                 }
             }
             return true;
         }
 
-        /// <summary>One sweep as the tick runs it, with GuardFocus set to <paramref name="guard"/>.</summary>
+        /// <summary>One sweep as the tick runs it, guarded with a ten-second interval's lease, or not.</summary>
         private static string FocusSweep(FakeCdpServer server, bool mayPress, bool guard, out SweepPass pass)
         {
+            return FocusSweep(server, mayPress,
+                guard ? new FocusGuardTicket { LeaseMs = CdpApprover.FocusGuardLeaseMs(10) } : null, out pass);
+        }
+
+        /// <summary>One sweep as the tick runs it, with this guard (null: off).</summary>
+        private static string FocusSweep(FakeCdpServer server, bool mayPress, FocusGuardTicket ticket, out SweepPass pass)
+        {
             var budget = new PressBudget();
-            pass = new SweepPass(server.Port, mayPress, false, false, budget, () => true) { GuardFocus = guard };
+            pass = new SweepPass(server.Port, mayPress, false, false, budget, () => true) { GuardFocus = ticket };
             bool sawPanel, sawBlind;
             return SweepOnce(server.Port, pass, budget, 4000, out sawPanel, out sawBlind);
         }
@@ -479,6 +594,17 @@ namespace DesktopAICompanion.AgentFlow
                 {
                     if (expression == CdpApprover.ReadExpressionForSelfTest || expression == CdpApprover.CodexReadExpressionForSelfTest)
                         return cannedRead;
+                    // A guarded read (1.12.3): the real frame and install run in the page, the read itself stays canned,
+                    // spliced in as a string literal in place of the read expression.
+                    foreach (string read in new[] { CdpApprover.ReadExpressionForSelfTest, CdpApprover.CodexReadExpressionForSelfTest })
+                    {
+                        string tail = CdpApprover.GuardedReadMiddle + read + CdpApprover.GuardedReadSuffix;
+                        if (!expression.StartsWith(CdpApprover.GuardedReadPrefix, StringComparison.Ordinal)
+                            || !expression.EndsWith(tail, StringComparison.Ordinal)) continue;
+                        string head = expression.Substring(0, expression.Length - tail.Length);
+                        return page.EvaluateAs(frame, head + CdpApprover.GuardedReadMiddle + CdpApprover.JsonEncode(cannedRead)
+                                                      + CdpApprover.GuardedReadSuffix);
+                    }
                     if (before != null) before(expression);
                     return page.EvaluateAs(frame, expression);
                 },

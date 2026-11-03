@@ -38,6 +38,25 @@ namespace DesktopAICompanion.AgentFlow
         /// </summary>
         internal const int FocusGestureMs = 1000;
 
+        /// <summary>The lease's floor (round 5, Codex's review of c7cd714): a guard no sweep has renewed for this long lapses
+        /// on its own. A minute, so one slow or skipped sweep does not drop it between sweeps.</summary>
+        internal const int FocusGuardLeaseFloorMs = 60000;
+
+        /// <summary>The lease in check intervals: three sweeps' worth, so two missed sweeps in a row still keep it.</summary>
+        internal const int FocusGuardLeaseIntervals = 3;
+
+        /// <summary>
+        /// The lease for a check interval of <paramref name="checkSeconds"/>: max(<see cref="FocusGuardLeaseFloorMs"/>,
+        /// <see cref="FocusGuardLeaseIntervals"/> x the interval). Every sweep renews it on the read it already sends. It
+        /// is the cleanup FALLBACK: whatever removal could not do (AgentFlow stopped or crashed, a removal that failed, an
+        /// install that landed after Shutdown, a page CDP could not reach) lapses within one lease.
+        /// </summary>
+        internal static int FocusGuardLeaseMs(int checkSeconds)
+        {
+            long byInterval = (long)Math.Max(1, checkSeconds) * 1000L * FocusGuardLeaseIntervals;
+            return (int)Math.Max(FocusGuardLeaseFloorMs, Math.Min(int.MaxValue, byInterval));
+        }
+
         /// <summary>How long after a press the detection looks at where focus went: Claude's plain path refocuses 100 ms
         /// after the card clears, and the next Codex card mounted 26 to 240 ms after a press (measured 2026-10-21, see
         /// <see cref="QueueQuietMs"/>). Paid only when another agent panel had focus at the press.</summary>
@@ -59,9 +78,17 @@ namespace DesktopAICompanion.AgentFlow
         /// listening only: no preventDefault, no propagation change). A focus event's isTrusted is never used: native focus
         /// events follow programmatic focus too.
         ///
-        /// No settle and no cap: it stays until <see cref="FocusGuardRemoveExpression"/> runs or the page is replaced (a
-        /// reloaded page has a fresh window and is guarded again at the next sweep). One state per realm
-        /// (<c>w.__agentflowFocusGuard</c>), so a second install never captures a wrapper as an "original".
+        /// THE LEASE (<c>__LEASE_MS__</c>, renewed by every install, which every sweep sends on its read): once
+        /// <c>expiresAt</c> has passed, a wrapped call stops suppressing and removes the guard (each call reads the lease, so
+        /// this holds even if the page's timers stall), and the guard's one timer removes it too. It stays until
+        /// <see cref="FocusGuardRemoveExpression"/> runs, the lease lapses, or the page is replaced (a reloaded page has a
+        /// fresh window and is guarded again at the next sweep). One state per realm (<c>w.__agentflowFocusGuard</c>), so a
+        /// second install never captures a wrapper as an "original".
+        ///
+        /// KNOWN LIMIT (Codex's round-4 review): a card could defeat the guard by calling window.focus() and then focusing
+        /// an element, since window.focus is deliberately not wrapped (VS Code activates the frame through
+        /// contentWindow.focus(), and wrapping it would break switching to a card). No traced Claude Code or Codex path
+        /// does this.
         /// </summary>
         private const string FocusGuardInstallTemplate = @"
 (function () {" + DocumentPrelude + @"
@@ -69,8 +96,11 @@ namespace DesktopAICompanion.AgentFlow
   if (!a.doc || !a.doc.defaultView || a.elements < MinElements) return 'unreachable';
   var d = a.doc, w = d.defaultView;
   var g = w.__agentflowFocusGuard;
-  if (g && g.active) return 'kept';
-  g = { active: true, allowUntil: 0, saved: [] };
+  if (g && g.active) {
+    g.expiresAt = Date.now() + __LEASE_MS__;
+    return 'kept';
+  }
+  g = { active: true, allowUntil: 0, saved: [], expiresAt: Date.now() + __LEASE_MS__, timer: 0 };
   var inputs = ['pointerdown', 'mousedown'];
   var onInput = function (e) {
     if (!e || !e.isTrusted) return;
@@ -79,12 +109,20 @@ namespace DesktopAICompanion.AgentFlow
   g.remove = function () {
     if (!g.active) return;
     g.active = false;
+    try { w.clearTimeout(g.timer); } catch (e) { }
     for (var ri = 0; ri < inputs.length; ri++) { try { w.removeEventListener(inputs[ri], onInput, true); } catch (e) { } }
     for (var si = g.saved.length - 1; si >= 0; si--) {
       var s = g.saved[si];
       try { if (s.owner[s.name] === s.held) Object.defineProperty(s.owner, s.name, s.descriptor); } catch (e) { }
     }
     if (w.__agentflowFocusGuard === g) w.__agentflowFocusGuard = null;
+  };
+  // The guard's one timer: at the lease's end it removes the guard, or waits out a renewal.
+  var lapse = function () {
+    if (!g.active) return;
+    var left = g.expiresAt - Date.now();
+    if (left <= 0) { g.remove(); return; }
+    g.timer = w.setTimeout(lapse, left);
   };
   w.__agentflowFocusGuard = g;
   try {
@@ -96,7 +134,9 @@ namespace DesktopAICompanion.AgentFlow
       if (!descriptor || typeof descriptor.value !== 'function') continue;
       var held = (function (original) {
         return function () {
-          if (g.active && Date.now() >= g.allowUntil) {
+          var t = Date.now();
+          if (g.active && t >= g.expiresAt) g.remove();
+          else if (g.active && t >= g.allowUntil) {
             var focused = false;
             try { focused = d.hasFocus(); } catch (e) { }
             if (!focused) return undefined;
@@ -109,6 +149,7 @@ namespace DesktopAICompanion.AgentFlow
                                            enumerable: descriptor.enumerable, configurable: descriptor.configurable });
     }
     for (var ai = 0; ai < inputs.length; ai++) w.addEventListener(inputs[ai], onInput, true);
+    g.timer = w.setTimeout(lapse, __LEASE_MS__);
   } catch (e) { g.remove(); return 'failed'; }
   return 'installed';
 })()";
@@ -147,21 +188,40 @@ namespace DesktopAICompanion.AgentFlow
   }
 ";
 
-        /// <summary>A template with the guard's numbers filled in, before any page text is substituted into it.</summary>
-        private static string WithFocusGuardNumbers(string template)
+        /// <summary>The install with its numbers filled in, for a lease of <paramref name="leaseMs"/>.</summary>
+        internal static string FocusGuardInstall(int leaseMs)
         {
-            return template.Replace("__GESTURE_MS__", FocusGestureMs.ToString(CultureInfo.InvariantCulture));
+            return FocusGuardInstallTemplate
+                .Replace("__GESTURE_MS__", FocusGestureMs.ToString(CultureInfo.InvariantCulture))
+                .Replace("__LEASE_MS__", leaseMs.ToString(CultureInfo.InvariantCulture));
         }
 
-        internal static string FocusGuardInstallForSelfTest { get { return WithFocusGuardNumbers(FocusGuardInstallTemplate); } }
+        /// <summary>The guarded read's frame (round 5): the install rides on the read the sweep already sends, so
+        /// renewing the guard costs no extra round trip. It answers <c>outcome|read</c>; an install that throws cannot
+        /// take the read with it.</summary>
+        internal const string GuardedReadPrefix = "(function () {\n  var agentflowGuard;\n  try { agentflowGuard = ";
+        internal const string GuardedReadMiddle = "; } catch (e) { agentflowGuard = 'failed'; }\n  return agentflowGuard + '|' + ";
+        internal const string GuardedReadSuffix = ";\n})()";
+
+        /// <summary>A read with the guard's install (or renewal) in front of it.</summary>
+        internal static string GuardedRead(string readExpression, FocusGuardTicket guard)
+        {
+            return GuardedReadPrefix + FocusGuardInstall(guard.LeaseMs) + GuardedReadMiddle + readExpression + GuardedReadSuffix;
+        }
+
+        /// <summary>Split a guarded read's answer into the install's outcome and the read's own answer. A failed or
+        /// missing install outcome is recorded on <paramref name="guard"/> for the degraded line; 'unreachable' (no
+        /// conversation yet) is not a failure.</summary>
+        internal static string SplitGuardedRead(string raw, string targetId, string agent, FocusGuardTicket guard)
+        {
+            string outcome = null;
+            int bar = raw == null ? -1 : raw.IndexOf('|');
+            if (bar >= 0) { outcome = raw.Substring(0, bar); raw = raw.Substring(bar + 1); }
+            if (outcome == "installed" || outcome == "kept") guard.Installed.Add(targetId);
+            else if (outcome != "unreachable") guard.Failed.Add(new KeyValuePair<string, string>(targetId, agent));
+            return raw;
+        }
         internal static string FocusGuardRemoveForSelfTest { get { return FocusGuardRemoveExpression; } }
-
-        /// <summary>Install the standing guard in one attached panel, on the sweep's own connection. Never throws.</summary>
-        private static string InstallFocusGuard(CdpSession session, string sessionId)
-        {
-            try { return session.Evaluate(sessionId, WithFocusGuardNumbers(FocusGuardInstallTemplate)); }
-            catch (Exception) { return null; }
-        }
 
         /// <summary>
         /// Remove the standing guard from every agent panel on the port (module Shutdown, and when auto-approve or the
@@ -282,5 +342,17 @@ namespace DesktopAICompanion.AgentFlow
             }
             catch (Exception) { return null; }
         }
+    }
+
+    /// <summary>
+    /// One sweep's standing focus guard (1.12.3): the lease to stamp on every panel's read, and what the sweep found: the
+    /// panels guarded, and the ones where the install failed (agent beside each), for the degraded log line. Null on a
+    /// sweep means the guard is off.
+    /// </summary>
+    internal sealed class FocusGuardTicket
+    {
+        public int LeaseMs = CdpApprover.FocusGuardLeaseFloorMs;
+        public readonly List<string> Installed = new List<string>();
+        public readonly List<KeyValuePair<string, string>> Failed = new List<KeyValuePair<string, string>>();
     }
 }

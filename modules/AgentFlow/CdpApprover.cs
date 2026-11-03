@@ -595,14 +595,14 @@ namespace DesktopAICompanion.AgentFlow
         internal static string Sweep(int port, PromptHandler handle, int timeoutMs,
                                      out bool sawPanel, out bool sawBlind, SweepCensus census)
         {
-            return Sweep(port, handle, timeoutMs, out sawPanel, out sawBlind, census, false);
+            return Sweep(port, handle, timeoutMs, out sawPanel, out sawBlind, census, null);
         }
 
-        /// <summary>The sweep, and with <paramref name="guardFocus"/> (1.12.3) the standing focus guard installed in every
-        /// panel it attaches to, before that panel is read or pressed (see FocusGuardInstallTemplate), and the panel list
+        /// <summary>The sweep, and with a <paramref name="guard"/> (1.12.3) the standing focus guard installed in every
+        /// panel it attaches to, on that panel's own read, before it is pressed (see FocusGuardInstallTemplate), and the panel list
         /// handed on with each card for focus detection. Off, it is the 1.12.2 sweep: no guard, no detection.</summary>
         internal static string Sweep(int port, PromptHandler handle, int timeoutMs,
-                                     out bool sawPanel, out bool sawBlind, SweepCensus census, bool guardFocus)
+                                     out bool sawPanel, out bool sawBlind, SweepCensus census, FocusGuardTicket guard)
         {
             sawPanel = false;
             sawBlind = false;
@@ -623,7 +623,7 @@ namespace DesktopAICompanion.AgentFlow
                 foreach (KeyValuePair<string, string> listed in work) census.Listed.Add(listed.Key);
             // Every panel listed, handed on with each card so a press can find the panel the user is in (1.12.3). Only
             // with the guard on: off, a press makes no detection probe, as in 1.12.2.
-            List<string> panels = guardFocus ? work.ConvertAll(listed => listed.Key) : null;
+            List<string> panels = guard != null ? work.ConvertAll(listed => listed.Key) : null;
 
             string browserUrl = BrowserSocketUrl(port, timeoutMs);
             if (string.IsNullOrEmpty(browserUrl)) return null;
@@ -647,10 +647,11 @@ namespace DesktopAICompanion.AgentFlow
                         if (sessionId == null) continue;
                         try
                         {
-                            // The standing guard first, so it is in place before anything here is read or pressed.
-                            if (guardFocus) InstallFocusGuard(session, sessionId);
-                            string raw = session.Evaluate(sessionId,
-                                agent == AgentCodex ? CodexReadExpression : ReadExpression);
+                            // The standing guard rides on the read (1.12.3): installed or renewed in the same evaluate, so
+                            // it is in place before anything here is pressed and costs no extra round trip.
+                            string read = agent == AgentCodex ? CodexReadExpression : ReadExpression;
+                            string raw = session.Evaluate(sessionId, guard != null ? GuardedRead(read, guard) : read);
+                            if (guard != null) raw = SplitGuardedRead(raw, targetId, agent, guard);
                             ReadOutcome outcome = Interpret(raw);
                             // Unreachable is NOT "no prompt", and the difference is load-bearing:
                             // conflating them is precisely how this shipped unable to see anything
