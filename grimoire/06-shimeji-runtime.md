@@ -65,8 +65,9 @@ run.
   which a new companion of this type starts as. Arriving as an egg is a separate per-type user preference, offered
   only when `<startup member>` names a member whose `role` is `egg`.
 - **`<constants>`.** Named values bound into behaviour-selection conditions only (`Configuration.java:64-67, 184-188`).
-- **`<toggles>`.** One entry per `Toggleable` source behaviour. The user can turn each on or off per type; this is a
-  recorded divergence, since the source toggles per mascot.
+- **`<toggles>`.** One entry per `Toggleable` source behaviour. The user can turn each on or off per type, as the source
+  does: it keys every per-mascot setting by the mascot's current image set (`Main.java:1382-1389`, and
+  `DisabledBehaviours.<imageSet>` from `:1420`), so a transformed companion takes the target type's settings.
 
 ---
 

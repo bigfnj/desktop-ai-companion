@@ -71,6 +71,12 @@ namespace DesktopAICompanion
                 Run("ModuleKit settings doubles", TestModuleKitSettingsDoubles);
                 Run("ModuleKit shipped symbols", TestModuleKitShippedSymbols);
                 Run("ModuleKit wav audio", TestModuleKitWavAudio);
+                Run("SafeScript arithmetic and precedence", TestSafeScriptArithmeticAndPrecedence);
+                Run("SafeScript logic and comparison", TestSafeScriptLogicAndComparison);
+                Run("SafeScript object model", TestSafeScriptObjectModel);
+                Run("SafeScript variables and names", TestSafeScriptVariablesAndNames);
+                Run("SafeScript random draws and Math", TestSafeScriptRandomAndMath);
+                Run("SafeScript refusals and faults", TestSafeScriptRefusalsAndFaults);
             }
             finally
             {
