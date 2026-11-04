@@ -2314,10 +2314,10 @@
       "id": "petstudio",
       "name": "Companion Studio",
       "desc": "Check a companion's animations.xml before you use it: what the host would reject, which animations can never play, and how it actually looks running on your desktop. Edit the XML in place, watch any animation's real sprite frames, preview the companion temporarily on your desktop, then install it.",
-      "version": "1.1.19",
+      "version": "1.1.20",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/petstudio.zip",
-      "sha256": "fabbf60f82fe3c426dba0b2a73ef5751d509f1e829d207802e12e67d3ef46f2e",
-      "bytes": 426415,
+      "sha256": "322f5afa9251d944c5ff12c19b87107ed767ce57a62c2b9369df2355fa209666",
+      "bytes": 428723,
       "permissions": "Speech, Animation, Companions, Storage, LaunchProcess",
       "minHostVersion": "1.0.0"
     },
