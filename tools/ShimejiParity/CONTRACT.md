@@ -170,7 +170,6 @@ behaviour; each runtime proves this once per build with a trace-on/trace-off pai
 | `policy:window-off-plays` | With window actions off, the animation plays and nothing moves. The source ends the action. |
 | `policy:birth-cap` | Births count toward the host's 16-companion cap. At the cap, a `birth-refused` event with reason `cap` is written. |
 | `policy:session-only-births` | Bred companions are not saved into the user's companion mix. |
-| `policy:settings-per-type` | Toggles apply per companion type, not per mascot. |
 | `policy:scaninteract-precedence` | ScanInteract honours Condition and Duration. The source's operator-precedence slip lets animation time bypass them. |
 | `policy:breed-parent-reposition` | A disabled born behaviour does not move the PARENT, as the source's fallback does. |
 | `policy:complexmove-guarded` | ComplexMove's arrival is guarded when scanning is off. The source dereferences a null target. |
