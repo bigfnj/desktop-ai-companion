@@ -173,6 +173,64 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                         failures.Add("the note for a mixed pack does not name the skin that will use the bundled conf: " + (mixedNote ?? "(none)"));
                 }
 
+                // ---- FOLDERS THAT ARE NOT SKINS: an icon-only img/ and a set of transformation frames ----
+                // The shape of a common download: img/icon.png beside img/<Skin>/ with its own conf, and an
+                // img/<Skin>Evo/ of evo*.png frames. Both PNG folders were offered in the picker and failed on
+                // "Sprite not found: shime1.png" when chosen (394 of 1315 entries over 381 downloads, 2026-11-04).
+                string download = Path.Combine(root, "Download");
+                string pikaConf = Path.Combine(download, "img", "Pika", "conf");
+                Directory.CreateDirectory(pikaConf);
+                WriteUtf8(Path.Combine(pikaConf, "actions.xml"), EnglishActionsXml);
+                WriteSprites(Path.Combine(download, "img", "Pika"), 3);
+                WriteNamedSprites(Path.Combine(download, "img"), "icon", 1);
+                WriteNamedSprites(Path.Combine(download, "img", "PikaEvo"), "evo", 3);
+                string downloadNote;
+                List<DetectedSkin> downloadSkins = SkinLayout.Detect(download, out downloadNote);
+                if (downloadSkins.Count != 1 || downloadSkins[0].Name != "Pika" || !SamePath(downloadSkins[0].ConfDir, pikaConf))
+                    failures.Add("a download holding an icon-only img/ and a folder of transformation frames beside one skin offered "
+                        + downloadSkins.Count + " skin(s) (" + string.Join(", ", downloadSkins.ConvertAll(delegate(DetectedSkin s) { return s.Name; }).ToArray())
+                        + "), expected only Pika with its own conf: a PNG folder its conf never draws from is not a skin");
+                if (downloadNote == null || downloadNote.IndexOf("Skipped 2 image folder(s)", StringComparison.Ordinal) < 0)
+                    failures.Add("the note does not say which image folders were skipped: " + (downloadNote ?? "(none)"));
+
+                // WITNESS: a lone folder is still offered even though no conf draws from it, so its conversion
+                // names the missing sprite instead of the import saying nothing was found.
+                string lone = Path.Combine(root, "Lone");
+                WriteNamedSprites(Path.Combine(lone, "img", "Odd"), "frame", 2);
+                string loneNote;
+                List<DetectedSkin> loneSkins = SkinLayout.Detect(lone, out loneNote);
+                if (loneSkins.Count != 1 || loneSkins[0].Name != "Odd")
+                    failures.Add("WITNESS: a single sprite folder that no conf draws from was not offered (got " + loneSkins.Count
+                        + " skin(s)); removing every candidate would turn the converter's 'Sprite not found' into 'no skin found'");
+
+                // WITNESS: the rule asks what the conf DRAWS, not whether the files are called shime*. An egg skin whose
+                // conf draws egg1.png keeps its folder beside a sprites-only one.
+                string eggPack = Path.Combine(root, "EggPack");
+                string eggConf = Path.Combine(eggPack, "img", "Egg", "conf");
+                Directory.CreateDirectory(eggConf);
+                WriteUtf8(Path.Combine(eggConf, "actions.xml"), EggActionsXml);
+                WriteNamedSprites(Path.Combine(eggPack, "img", "Egg"), "egg", 2);
+                WriteSprites(Path.Combine(eggPack, "img", "Hatchling"), 2);
+                string eggNote;
+                List<DetectedSkin> eggSkins = SkinLayout.Detect(eggPack, out eggNote);
+                if (eggSkins.Find(delegate(DetectedSkin s) { return s.Name == "Egg"; }) == null
+                    || eggSkins.Find(delegate(DetectedSkin s) { return s.Name == "Hatchling"; }) == null)
+                    failures.Add("WITNESS: a skin whose own conf draws egg*.png was dropped, or the sprites-only one beside it was (got "
+                        + string.Join(", ", eggSkins.ConvertAll(delegate(DetectedSkin s) { return s.Name; }).ToArray()) + ")");
+
+                // WITNESS: a conf that does not parse is an unknown, not a "no": its folder stays and the conversion
+                // reports the parse error.
+                string broken = Path.Combine(root, "Broken");
+                string brokenConf = Path.Combine(broken, "img", "Cracked", "conf");
+                Directory.CreateDirectory(brokenConf);
+                WriteUtf8(Path.Combine(brokenConf, "actions.xml"), "<Mascot><ActionList>");
+                WriteNamedSprites(Path.Combine(broken, "img", "Cracked"), "pose", 2);
+                WriteSprites(Path.Combine(broken, "img", "Fine"), 2);
+                string brokenNote;
+                List<DetectedSkin> brokenSkins = SkinLayout.Detect(broken, out brokenNote);
+                if (brokenSkins.Find(delegate(DetectedSkin s) { return s.Name == "Cracked"; }) == null)
+                    failures.Add("WITNESS: a folder whose conf does not parse was dropped; an unknown must keep it so the conversion can say why");
+
                 // ---- WITNESS: a plain single skin still resolves and is still named as it always was ----
                 string plain = Path.Combine(root, "Plain");
                 string plainConf = Path.Combine(plain, "conf");
@@ -198,7 +256,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             if (failures.Count == 0)
             {
                 sb.Append("  動作.xml + 行動.xml and actions.xml + Behavior.xml both read; a sibling pack, a per-set override and a mixed "
-                    + "pack each resolve per skin; the plain layout is unchanged");
+                    + "pack each resolve per skin; an icon folder and a set of transformation frames are not offered as skins; "
+                    + "the plain layout is unchanged");
                 detail = sb.ToString();
                 return true;
             }
@@ -226,6 +285,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         /// <summary>shime1..shimeN.png, one solid colour each, in <paramref name="dir"/>.</summary>
         private static void WriteSprites(string dir, int count)
         {
+            WriteNamedSprites(dir, "shime", count);
+        }
+
+        /// <summary><paramref name="prefix"/>1..N.png, one solid colour each, in <paramref name="dir"/>.</summary>
+        private static void WriteNamedSprites(string dir, string prefix, int count)
+        {
             Directory.CreateDirectory(dir);
             for (int i = 1; i <= count; i++)
             {
@@ -236,7 +301,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                         g.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceCopy;
                         g.Clear(Color.FromArgb(255, 40 * i, 120, 200 - 20 * i));
                     }
-                    bmp.Save(Path.Combine(dir, "shime" + i + ".png"), ImageFormat.Png);
+                    bmp.Save(Path.Combine(dir, prefix + i + ".png"), ImageFormat.Png);
                 }
             }
         }
@@ -256,6 +321,20 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
     </Action>
     <Action Name=""Falling"" Type=""Embedded"" Class=""com.group_finity.mascot.action.Fall"" Gravity=""2"">
       <Animation><Pose Image=""/shime2.png"" ImageAnchor=""4,12"" Velocity=""0,2"" Duration=""4"" /></Animation>
+    </Action>
+  </ActionList>
+</Mascot>";
+
+        // An egg's conf: every pose draws egg*.png and none draws shime*.png.
+        private const string EggActionsXml =
+@"<?xml version=""1.0"" encoding=""UTF-8"" ?>
+<Mascot xmlns=""http://www.group-finity.com/Mascot"">
+  <ActionList>
+    <Action Name=""Stand"" Type=""Stay"" BorderType=""Floor"">
+      <Animation>
+        <Pose Image=""/egg1.png"" ImageAnchor=""4,12"" Velocity=""0,0"" Duration=""250"" />
+        <Pose Image=""/egg2.png"" ImageAnchor=""4,12"" Velocity=""0,0"" Duration=""250"" />
+      </Animation>
     </Action>
   </ActionList>
 </Mascot>";

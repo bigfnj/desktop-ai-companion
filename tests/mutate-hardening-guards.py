@@ -386,6 +386,22 @@ CASES = (
         b"                await ImportSkinFromRootCoreAsync(destination);",
         "sets _importing before its extraction await",
     ),
+    # studio-import (2026-11-04): the skin zip is unpacked through SkinZip, off the UI thread. Inline again, or back
+    # on ZipFile.ExtractToDirectory, which refuses every Dropbox folder download for its "/" entry.
+    (
+        "studio-import: the skin zip is unpacked on the UI thread again",
+        PETSTUDIO_WINDOW,
+        b"                await Task.Run(delegate { SkinZip.ExtractToDirectory(zipPath, destination); });",
+        b"                SkinZip.ExtractToDirectory(zipPath, destination); await Task.Yield();",
+        "Companion Studio extracts and converts off the UI thread",
+    ),
+    (
+        "studio-import: the skin zip goes back to ZipFile.ExtractToDirectory",
+        PETSTUDIO_WINDOW,
+        b"                await Task.Run(delegate { SkinZip.ExtractToDirectory(zipPath, destination); });",
+        b"                await Task.Run(delegate { ZipFile.ExtractToDirectory(zipPath, destination); });",
+        "Companion Studio extracts and converts off the UI thread",
+    ),
     # F163: one of the two document-swap guards is weakened to a condition that never holds there.
     (
         "Open is no longer refused during an import",

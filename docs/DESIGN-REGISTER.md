@@ -7341,6 +7341,43 @@ the mirror runs after each announcement too, so a second copy due in the same ti
 order speaks. For a user whose invites reach two mailboxes that is one reminder where there were two. With the Zoom card
 Off nothing is joined, so calendars without it behave exactly as before.
 
+#### fix/studio-shimeji-import
+
+Companion Studio's import, run over 381 downloaded Shimeji packs on 2026-11-04 (private local testing; none of them
+is in this repository). Every one failed at the zip step, and the skin picker offered 394 entries that were not skins.
+
+**A skin .zip is unpacked by `SkinZip`, which skips an entry named "/".** Dropbox writes that entry at the top of
+every shared-folder download, and `ZipFile.ExtractToDirectory` refuses the whole archive over it ("Extracting Zip
+entry would have resulted in a file outside the specified destination directory"): 381 of 381. A name made only of
+separators names the destination itself, so skipping it creates nothing. Everything else is .NET's rule, kept on
+purpose, and a differential run over 33 archive shapes found the two agreeing on all of it: an entry that resolves
+outside the destination refuses the archive, names are sanitised the way .NET sanitises them on Windows (`a:b.txt`
+becomes `a_b.txt`), and no entry overwrites another. One difference is deliberate: every entry is checked before
+anything is written, so a refused archive leaves the destination empty, where `ExtractToDirectory` has already
+written the entries ahead of the bad one. Declined: catching the refusal and extracting again with a filter, which
+unpacks tens of MB twice and retries a real escape as readily as the Dropbox entry. The source invariant that keeps
+the extraction off the UI thread now names `SkinZip.ExtractToDirectory`.
+
+**`SkinLayout.Detect` offers a folder of PNGs only when its conf draws one of its images.** `FindImgDirs` collects
+every folder holding a PNG, and real packs carry PNG folders that no conf uses as a skin: an `img/` holding only
+`icon.png` (named after the extraction root, so the picker read `petstudio-shimeji-<guid> (bundled behaviour set)`),
+transformation-frame folders, and partial sets. Each failed with "Sprite not found: shime1.png" when picked. The rule
+asks the parsed conf, or the bundled base conf, for its pose images, and keeps a folder when one of them is a file
+in it, resolved the way `SpriteSheetBuilder.FileLoader` resolves it. Declined: "holds shime*.png", which drops an egg
+whose conf draws `egg1.png`, and "holds every image its conf draws", which a script reading the packs' member
+lists put at 150 of the 920 folders that convert dropped, because a conf names images for actions the converter
+leaves out. Two cases keep the folder rather than
+guess: a conf that does not parse, whose conversion then reports the parse error, and a conf with no poses. And
+nothing is removed when every folder would go, so a lone sprite folder still converts and its error still names the
+missing sprite instead of the import saying no skin was found. Detect's note names the folders it skipped.
+
+Measured on the 381 packs, old engine against new, candidate by candidate: 1315 entries became 921, and the 394
+removed were exactly the 394 that had failed; none of the 920 that convert was removed, none was added, no verdict
+changed, and the preselected skin is the same in every pack. 204 packs now import without a picker. The one failure
+left is a real skin missing one sprite. Detect now parses each conf once more before the conversion parses it again;
+on these packs it took tens of milliseconds (two uncontrolled runs on one box, so indicative only) against seconds
+for the conversion that follows.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

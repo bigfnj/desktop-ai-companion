@@ -373,7 +373,9 @@ $petStudioWindowSource = Get-Content -LiteralPath (
     Join-Path $repoRoot 'modules\PetStudio\PetStudioWindow.cs') -Raw
 $petStudioFlat = ($petStudioWindowSource -replace '\s+', ' ')
 Assert-True (
-    $petStudioFlat.Contains('await Task.Run(delegate { ZipFile.ExtractToDirectory(') -and
+    # SkinZip since 2026-11-04: ZipFile.ExtractToDirectory refused every Dropbox folder download (an entry
+    # named "/"). The name changed; the rule asserted here, extraction off the UI thread, did not.
+    $petStudioFlat.Contains('await Task.Run(delegate { SkinZip.ExtractToDirectory(') -and
     $petStudioFlat.Contains('await Task.Run(delegate { string e; ConversionResult r = ShimejiEngine.ConvertSkin(') -and
     $petStudioFlat.Contains('await Task.Run(delegate { string e; ConversionResult r = BundleConverter.ConvertBundle(')
 ) 'Companion Studio extracts and converts off the UI thread, not inline from the click handler'

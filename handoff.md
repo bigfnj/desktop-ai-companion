@@ -1129,7 +1129,8 @@ so read this before assuming the converter is settled.**
   chars), plus named zips at that root and the Shimeji-EE bundle.
 - **Hornet carries a hand edit**: its `fall` and `Grapple3` frame lists are swapped by request. Re-conversion
   wipes it, so re-apply BY NAME (frame indices change with the sheet).
-- **Two batch-harness gotchas:** `ZipFile.ExtractToDirectory` refuses skins containing an entry named `/`;
+- **Two batch-harness gotchas:** `ZipFile.ExtractToDirectory` refuses skins containing an entry named `/` (every
+  Dropbox folder download has one; PetStudio's own zip import goes through `SkinZip`, which skips it, since 2026-11-04);
   and Shimeji-EE allows a PER-SKIN conf at `img\<Skin>\conf`, so pairing a top-level conf with another
   skin's sprites fails (Gengar).
 

@@ -820,7 +820,9 @@ namespace DesktopAICompanion.PetStudioModule
                     DeleteTree(previous);
                     Directory.CreateDirectory(destination);
                 });
-                await Task.Run(delegate { ZipFile.ExtractToDirectory(zipPath, destination); });
+                // SkinZip, not ZipFile.ExtractToDirectory: that call refuses every Dropbox folder download,
+                // because each one carries an entry named "/" (2026-11-04). SkinZip keeps its other rules.
+                await Task.Run(delegate { SkinZip.ExtractToDirectory(zipPath, destination); });
                 await ImportSkinFromRootCoreAsync(destination);
             }
             catch (Exception ex)

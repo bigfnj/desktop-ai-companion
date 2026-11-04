@@ -20,7 +20,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
     /// this is heuristic and tolerant:
     ///   * each img folder = a folder containing shimeN-style PNGs (root/img/*, or the root itself);
     ///   * each img folder's conf = resolved PER SKIN in the reference loader's order (its own conf/, the
-    ///     root's conf/&lt;Skin&gt;/, then up the tree toward the root), and only then the root-wide search.
+    ///     root's conf/&lt;Skin&gt;/, then up the tree toward the root), and only then the root-wide search;
+    ///   * a folder is returned as a skin only when that conf draws at least one of its images (see
+    ///     DropFoldersTheConfNeverDraws), so an icon folder or a set of transformation frames is not offered.
     /// A skin with NO actions file IS converted here, using the bundled base conf: such a skin is
     /// returned with <see cref="DetectedSkin.UsesBundledConf"/> set, and ShimejiParser.ParseBundledConf
     /// supplies the behaviour. Only a skin with no sprite folder at all returns no skins, with a reason.
@@ -92,6 +94,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 });
             }
 
+            List<string> notSkins = DropFoldersTheConfNeverDraws(ref skins);
+
             if (skins.Count == 0)
             {
                 if (!rootConfSearched) rootConf = FindConfDir(rootDir);
@@ -109,7 +113,74 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 note = "this skin has no behaviour config of its own; the bundled Shimeji base behaviour will be used.";
             else if (bundledNames.Count > 0)
                 note = bundledNames.Count + " of " + skins.Count + " skins have no behaviour config of their own and would use the bundled Shimeji base behaviour: " + string.Join(", ", bundledNames) + ".";
+            if (notSkins.Count > 0)
+                note = (note == null ? "" : note + " ") + "Skipped " + notSkins.Count + " image folder(s) that no behaviour config draws from (icons or extra frames, not skins): " + string.Join(", ", notSkins) + ".";
             return skins;
+        }
+
+        /// <summary>
+        /// Removes the sprite folders that are not skins, and returns their names. A folder counts as a skin only
+        /// when the conf it resolved (or the bundled base conf) draws at least one of its images. FindImgDirs
+        /// offers every folder holding a PNG. Real downloads also carry PNG folders that no conf uses as a skin:
+        /// img/ holding only icon.png, transformation-frame folders (evo1.png...) and partial sprite sets. Each was
+        /// offered in the picker and failed on "Sprite not found: shime1.png" when chosen. Over 381 downloaded
+        /// packs (2026-11-04) that was 394 of 1315 entries. This rule removes all 394 and keeps all 920 that
+        /// convert; the one failure left is a real skin missing one sprite.
+        ///
+        /// Nothing is removed when the answer is unknown: a conf that fails to parse, or one with no poses,
+        /// keeps its folder, and the conversion reports the real error. Nothing is removed when every folder
+        /// would go either, so a lone sprite folder still converts and its error still names the missing sprite.
+        /// </summary>
+        private static List<string> DropFoldersTheConfNeverDraws(ref List<DetectedSkin> skins)
+        {
+            var notSkins = new List<string>();
+            var imagesByConf = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            var kept = new List<DetectedSkin>();
+            foreach (DetectedSkin s in skins)
+            {
+                List<string> images = PoseImages(s.ConfDir, imagesByConf);
+                if (images == null || images.Count == 0 || DrawsFrom(images, s.ImgDir)) kept.Add(s);
+                else notSkins.Add(s.Name);
+            }
+            if (kept.Count == 0 || notSkins.Count == 0)
+                return new List<string>();
+            skins = kept;
+            return notSkins;
+        }
+
+        /// <summary>The distinct pose image names of one conf (the bundled base conf when
+        /// <paramref name="confDir"/> is null), parsed once per conf; null when the conf does not parse.</summary>
+        private static List<string> PoseImages(string confDir, Dictionary<string, List<string>> cache)
+        {
+            string key = confDir == null ? "<bundled base conf>" : FullPathOrSelf(confDir);   // < > cannot occur in a path
+            List<string> images;
+            if (cache.TryGetValue(key, out images)) return images;
+            try
+            {
+                ShimejiConfig config = confDir == null ? ShimejiParser.ParseBundledConf() : ShimejiParser.ParseConfDirectory(confDir);
+                var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                images = new List<string>();
+                foreach (ShimejiPose pose in config.Poses)
+                    if (!string.IsNullOrWhiteSpace(pose.Image) && seen.Add(pose.Image)) images.Add(pose.Image);
+            }
+            catch { images = null; }
+            cache[key] = images;
+            return images;
+        }
+
+        /// <summary>True when at least one pose image resolves to a file in <paramref name="imgDir"/>, resolved the
+        /// way SpriteSheetBuilder.FileLoader resolves it for the conversion.</summary>
+        private static bool DrawsFrom(List<string> images, string imgDir)
+        {
+            foreach (string image in images)
+            {
+                try
+                {
+                    if (File.Exists(Path.Combine(imgDir, image.TrimStart('/', '\\')))) return true;
+                }
+                catch { }
+            }
+            return false;
         }
 
         /// <summary>

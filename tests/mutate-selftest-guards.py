@@ -75,6 +75,7 @@ PETSTUDIO_MODULE = os.path.join(REPO, "modules", "PetStudio", "PetStudioModule.c
 BEHAVIOUR_CHAIN = os.path.join(REPO, "modules", "PetStudio", "BehaviourChain.cs")
 PETREPORT = os.path.join(REPO, "modules", "PetStudio", "PetReport.cs")
 PETSTUDIO_WINDOW = os.path.join(REPO, "modules", "PetStudio", "PetStudioWindow.cs")
+PETSTUDIO_SKINZIP = os.path.join(REPO, "modules", "PetStudio", "SkinZip.cs")
 ANIM_CAPABILITY = os.path.join(REPO, "modules", "PetStudio", "AnimCapability.cs")
 BLINKINGLED_DLL = os.path.join(BIN, "modules", "blinkingled", "BlinkingLed.dll")
 PETSTUDIO_DLL = os.path.join(BIN, "modules", "petstudio", "PetStudio.dll")
@@ -3239,6 +3240,38 @@ CASES = (
      b"                    return new DirectoryInfo(root).Name;",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
      SHIMEJI, None, "expected Bob (richer, first) and Alice"),
+
+    # studio-import (2026-11-04): Detect offers a PNG folder as a skin only when its conf draws one of its images, so
+    # an icon-only img/ and a folder of transformation frames are not put in Studio's picker. Unknowns keep their folder,
+    # and nothing is removed when every folder would go.
+    ("studio-import: Detect offers every PNG folder again",
+     SKIN_LAYOUT,
+     b"            skins = kept;\n",
+     b"",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "a download holding an icon-only img/"),
+
+    ("studio-import: Detect removes the last folder too",
+     SKIN_LAYOUT,
+     b"if (kept.Count == 0 || notSkins.Count == 0)",
+     b"if (notSkins.Count == 0)",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "WITNESS: a single sprite folder"),
+
+    ("studio-import: a conf that does not parse counts as drawing nothing",
+     SKIN_LAYOUT,
+     b"images == null || images.Count == 0 || DrawsFrom(images, s.ImgDir)",
+     b"images != null && (images.Count == 0 || DrawsFrom(images, s.ImgDir))",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "WITNESS: a folder whose conf does not parse"),
+
+    ("studio-import: the rule becomes 'holds shime*.png' instead of 'its conf draws one of its images'",
+     SKIN_LAYOUT,
+     b"                    if (File.Exists(Path.Combine(imgDir, image.TrimStart(",
+     b"                    if (Directory.GetFiles(imgDir, \"shime*.png\").Length > 0) return true;\n"
+     b"                    if (imgDir == null && File.Exists(Path.Combine(imgDir, image.TrimStart(",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "WITNESS: a skin whose own conf draws egg"),
 
     # RA-389: the duplicates' bitmaps are released before the compose loop, or six stay resident for four pictures.
     ("burn-tools: duplicate bitmaps stay resident through the compose loop",
@@ -13275,6 +13308,38 @@ CASES = (
      PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
      "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
      "a sweep that cannot list its folder says so by the exception's type"),
+
+    # studio-import (2026-11-04): Companion Studio's zip import unpacks through SkinZip, which skips the "/" entry
+    # Dropbox writes at the top of every folder download and still refuses an entry that climbs out of the destination,
+    # before writing anything. Every case runs the module's own SelfTest (SelfCheckSkinZip) through the convention flag.
+
+    # The archive-root entry is no longer skipped, so every Dropbox download is refused again.
+    ("studio-import: petstudio: the Dropbox root entry refuses the zip again",
+     PETSTUDIO_SKINZIP,
+     b"                    if (IsArchiveRootEntry(entry.FullName)) { skipped++; continue; }\n",
+     b"",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "a skin zip carrying Dropbox's"),
+
+    # ...an entry that climbs out of the destination is extracted.
+    ("studio-import: petstudio: an entry outside the destination is extracted",
+     PETSTUDIO_SKINZIP,
+     b"if (!target.StartsWith(root, StringComparison.OrdinalIgnoreCase))",
+     b"if (target == null)",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "an entry that would land outside the destination"),
+
+    # ...the first entry is written while the rest are still being checked, so a refused archive leaves it behind.
+    ("studio-import: petstudio: a refused zip leaves the entry ahead of the bad one",
+     PETSTUDIO_SKINZIP,
+     b"                    plan.Add(new KeyValuePair<ZipArchiveEntry, string>(entry, target));\n",
+     b"                    plan.Add(new KeyValuePair<ZipArchiveEntry, string>(entry, target));\n"
+     b"                    if (entry.Name.Length > 0 && plan.Count == 1) { Directory.CreateDirectory(Path.GetDirectoryName(target)); entry.ExtractToFile(target, true); }\n",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "a refused archive writes nothing"),
 
     # Blinking LED: a pane Apply writes only what the user changed on that pane, against what the pane last loaded or
     # last applied (N-blinkingled-resume-03, the owner's decision: module-side). Every case runs the module's own SelfTest

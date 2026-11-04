@@ -619,6 +619,7 @@ namespace DesktopAICompanion.PetStudioModule
                     !unsaid && writable.Get(PetStudioPaths.LastOpenDirKey, "") == @"C:\pets\wip" && quietHost.LoggedLines.Count == 0);
 
                 SelfCheckExtractionDeletes(probe);
+                SelfCheckSkinZip(probe);
 
                 string fixture = EmbeddedResources.LoadText(typeof(PetStudioModule).Assembly, "selftest-companion.xml");
                 if (!probe.Check("the self-test companion is embedded (" + fixture.Length + " chars)", fixture.Length > 1000))
@@ -835,6 +836,84 @@ namespace DesktopAICompanion.PetStudioModule
             finally
             {
                 if (held != null) held.Dispose();
+                try { System.IO.Directory.Delete(root, true); } catch { }
+            }
+        }
+
+        /// <summary>
+        /// "Import Shimeji .zip" over the archive shape Dropbox writes, which is the shape every shared-folder
+        /// skin arrives in: an entry named "/" ahead of the skin. ZipFile.ExtractToDirectory refused all 381 of the
+        /// downloaded packs tested on 2026-11-04 for that one entry. SkinZip skips it and must still refuse an
+        /// entry that climbs out of the destination, before writing anything. Fixture zips are built under this
+        /// run's TEMP and removed in the finally.
+        /// </summary>
+        private static void SelfCheckSkinZip(SelfTestProbe probe)
+        {
+            string root = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "dp-petstudio-skinzip-" + Guid.NewGuid().ToString("N"));
+            System.IO.Directory.CreateDirectory(root);
+            try
+            {
+                Func<string, string[], string> makeZip = delegate (string name, string[] entries)
+                {
+                    string path = System.IO.Path.Combine(root, name + ".zip");
+                    using (var zip = System.IO.Compression.ZipFile.Open(path, System.IO.Compression.ZipArchiveMode.Create))
+                        foreach (string entry in entries)
+                        {
+                            System.IO.Compression.ZipArchiveEntry e = zip.CreateEntry(entry);
+                            if (!entry.EndsWith("/", StringComparison.Ordinal))
+                                using (var w = new System.IO.StreamWriter(e.Open())) w.Write("content of " + entry);
+                        }
+                    return path;
+                };
+
+                // The Dropbox shape: "/" first, then an ordinary Shimeji-EE layout with directory entries.
+                string dropbox = makeZip("dropbox", new[] { "/", "conf/", "conf/actions.xml", "img/", "img/Set/shime1.png" });
+                string witnessDest = System.IO.Path.Combine(root, "witness");
+                System.IO.Directory.CreateDirectory(witnessDest);
+                bool frameworkRefused = false;
+                try { System.IO.Compression.ZipFile.ExtractToDirectory(dropbox, witnessDest); }
+                catch (System.IO.IOException) { frameworkRefused = true; }
+                probe.Check("WITNESS ZipFile.ExtractToDirectory refuses the Dropbox-shaped fixture, so the fixture carries the defect",
+                    frameworkRefused);
+
+                string dest = System.IO.Path.Combine(root, "dropbox-out");
+                int skipped = -1;
+                string error = null;
+                try { skipped = SkinZip.ExtractToDirectory(dropbox, dest); }
+                catch (Exception ex) { error = ex.GetType().Name + ": " + ex.Message; }
+                string sprite = System.IO.Path.Combine(dest, "img", "Set", "shime1.png");
+                probe.Check("a skin zip carrying Dropbox's \"/\" root entry extracts, skipping only that entry ("
+                            + (error ?? "skipped " + skipped) + ")",
+                    error == null && skipped == 1
+                    && System.IO.File.Exists(System.IO.Path.Combine(dest, "conf", "actions.xml"))
+                    && System.IO.File.Exists(sprite)
+                    && System.IO.File.ReadAllText(sprite) == "content of img/Set/shime1.png");
+
+                // An entry that climbs out refuses the archive, and the entry ahead of it is not written either.
+                string escaping = makeZip("escaping", new[] { "kept.txt", "../escaped.txt" });
+                string escDest = System.IO.Path.Combine(root, "escaping-out");
+                bool escRefused = false;
+                try { SkinZip.ExtractToDirectory(escaping, escDest); }
+                catch (System.IO.IOException) { escRefused = true; }
+                probe.Check("an entry that would land outside the destination (../) still refuses the whole archive",
+                    escRefused && !System.IO.File.Exists(System.IO.Path.Combine(root, "escaped.txt")));
+                probe.Check("a refused archive writes nothing, not even the entries ahead of the bad one",
+                    escRefused && !System.IO.File.Exists(System.IO.Path.Combine(escDest, "kept.txt")));
+
+                // A ROOTED name is not a root entry: "/x" names a file at the drive root, and is refused.
+                string rooted = makeZip("rooted", new[] { "/dp-petstudio-skinzip-" + Guid.NewGuid().ToString("N") + ".txt" });
+                bool rootedRefused = false;
+                try { SkinZip.ExtractToDirectory(rooted, System.IO.Path.Combine(root, "rooted-out")); }
+                catch (System.IO.IOException) { rootedRefused = true; }
+                probe.Check("WITNESS only a name made of separators is skipped: a rooted file name (/x.txt) is refused",
+                    rootedRefused);
+                probe.Check("WITNESS the root-entry test: \"/\" and \"//\" name the root; \"\", \"img/\" and \"/img\" do not",
+                    SkinZip.IsArchiveRootEntry("/") && SkinZip.IsArchiveRootEntry("//")
+                    && !SkinZip.IsArchiveRootEntry("") && !SkinZip.IsArchiveRootEntry("img/") && !SkinZip.IsArchiveRootEntry("/img"));
+            }
+            catch (Exception ex) { probe.Check("the skin zip checks threw: " + ex.GetType().Name + ": " + ex.Message, false); }
+            finally
+            {
                 try { System.IO.Directory.Delete(root, true); } catch { }
             }
         }
