@@ -26,7 +26,11 @@ namespace DesktopAICompanion.PetStudioModule
         {
             Id = "petstudio",
             Name = "Companion Studio",
-            Version = "1.1.19",  // 1.1.19: deleting the extracted copy of an imported skin zip logs one line, with the
+            Version = "1.1.20",  // 1.1.20: "Import .zip" accepts a Dropbox folder download (its "/" root entry is
+                                 //        skipped, every other rule of ZipFile.ExtractToDirectory kept, and a refused
+                                 //        archive writes nothing), and the skin picker offers only folders whose conf
+                                 //        draws one of their images (no icon folder or transformation frames).
+                                 // 1.1.19: deleting the extracted copy of an imported skin zip logs one line, with the
                                  //        failure's type when it will not go, and the orphan sweep logs one line when
                                  //        it removed or failed anything and none when nothing was due
                                  //        (N-remembrance-delete-logging-01, -02).
