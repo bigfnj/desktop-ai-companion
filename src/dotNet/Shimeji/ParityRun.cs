@@ -358,7 +358,7 @@ namespace DesktopAICompanion.Shimeji
                 w.Raw("origin", "[" + (m.Anchor.X - c.X) + "," + (m.Anchor.Y - c.Y) + "]");
             }
             w.Bool("lookRight", m.LookRight).Raw("velocity", "[" + velocity.X + "," + velocity.Y + "]")
-                .StrList("affordances", m.Affordances).Raw("target", "null").Bool("dragging", m.Dragging)
+                .StrList("affordances", m.Affordances).Str("target", m.Target == null ? null : m.Target.Sid).Bool("dragging", m.Dragging)
                 .Bool("pending", pending).Bool("disposing", m.Disposing).Raw("vars", Vars(m));
             _out.WriteLine(w.End());
             _states++;
@@ -439,6 +439,18 @@ namespace DesktopAICompanion.Shimeji
         public void Muted(TickMascot mascot, string clip)
         {
             _out.WriteLine(Event(mascot, "mute").Str("clip", clip).End());
+        }
+
+        public void ScanTargeted(TickMascot mascot, string affordance, TickMascot target)
+        {
+            _out.WriteLine(Event(mascot, "scan-target").Str("affordance", affordance).Str("target", target == null ? null : target.Sid).End());
+        }
+
+        public void Interacted(TickMascot mascot, IReadOnlyList<TickMascot> with)
+        {
+            var sids = new List<string>();
+            foreach (TickMascot m in with) sids.Add(m.Sid);
+            _out.WriteLine(Event(mascot, "interact").StrList("with", sids).End());
         }
 
         public void Footer(int ticks, string status)

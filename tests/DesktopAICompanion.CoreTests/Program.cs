@@ -112,6 +112,18 @@ namespace DesktopAICompanion
                 Run("Tick motion BreedJump: breeds at its new anchor each BornInterval step, capped as Breed is", TestTickMotionBreedJump);
                 Run("Tick motion BreedFall: breeds as it falls, under the Breeding toggle", TestTickMotionBreedFall);
                 Run("Tick motion Breed variants: BornCount or BornInterval below 1 cannot start", TestTickMotionBreedValidation);
+                Run("Tick social ScanMove: picks the first offering companion in manager order, once, and reserves nothing", TestTickSocialScanMoveFirst);
+                Run("Tick social ScanMove: exact arrival enters its Behavior, then the target's TargetBehavior, then TargetLook", TestTickSocialScanMoveArrival);
+                Run("Tick social ScanMove: a missing name is reported and leaves its companion as it was", TestTickSocialScanMoveMissing);
+                Run("Tick social ScanMove: ends when its target stops offering", TestTickSocialScanMoveLost);
+                Run("Tick social ScanJump: jumps at its target with the arc and lands within one step", TestTickSocialScanJump);
+                Run("Tick social ScanInteract: rescans when its target stops offering and faces the new one", TestTickSocialScanInteractReacquire);
+                Run("Tick social ScanInteract: on its last tick a non-blank Behavior enters both; a blank one blocks the target's", TestTickSocialScanInteractEnd);
+                Run("Tick social ScanInteract: Condition and Duration end it (policy:scaninteract-precedence)", TestTickSocialScanInteractPolicy);
+                Run("Tick social Interact: holds while two or more companions share its anchor", TestTickSocialInteract);
+                Run("Tick social ComplexMove: Characteristics split exactly; it breeds (not while turning) and scans as named", TestTickSocialComplexMove);
+                Run("Tick social ComplexMove: arrival is guarded when scanning is off (policy:complexmove-guarded)", TestTickSocialComplexMovePolicy);
+                Run("Tick social ComplexJump: scanning it lands on its target; plain, it jumps and breeds", TestTickSocialComplexJump);
             }
             finally
             {

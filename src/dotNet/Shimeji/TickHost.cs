@@ -270,6 +270,8 @@ namespace DesktopAICompanion.Shimeji
         }
 
         public void Muted(TickMascot mascot, string clip) { }
+        public void ScanTargeted(TickMascot mascot, string affordance, TickMascot target) { }
+        public void Interacted(TickMascot mascot, IReadOnlyList<TickMascot> with) { }
 
         public void Dispose()
         {

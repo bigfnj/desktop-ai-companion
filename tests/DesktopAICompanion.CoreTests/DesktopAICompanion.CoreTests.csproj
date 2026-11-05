@@ -75,6 +75,7 @@
     <Compile Include="TickInstantTests.cs" />
     <Compile Include="TickInputTests.cs" />
     <Compile Include="TickMotionTests.cs" />
+    <Compile Include="TickSocialTests.cs" />
     <Compile Include="..\..\src\Portable\AppPaths.cs">
       <Link>Production\AppPaths.cs</Link>
     </Compile>
