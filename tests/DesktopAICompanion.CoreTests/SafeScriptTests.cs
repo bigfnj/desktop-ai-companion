@@ -100,7 +100,7 @@ namespace DesktopAICompanion
             AssertTrue(Eval("'a' < 'b'").IsTruthy, "Strings do not compare ordinally.");
             AssertFalse(Eval("NaN < 1").IsTruthy || Eval("NaN >= 1").IsTruthy, "A NaN comparison is not false.");
             AssertTrue(Eval("1 == '1'").IsTruthy && !Eval("1 === '1'").IsTruthy, "== is not loose or === is not strict.");
-            AssertTrue(Eval("true == 1").IsTruthy && Eval("null == undefined").IsTruthy, "Loose equality of bool/number or null/undefined is wrong.");
+            AssertTrue(Eval("true == 1").IsTruthy && Eval("null == null").IsTruthy && !Eval("null == 0").IsTruthy, "Loose equality of bool/number or null is wrong.");
             AssertTrue(Eval("1 != 2").IsTruthy && !Eval("2 !== 2").IsTruthy, "!= or !== is wrong.");
             AssertEqual("b", Eval("1 > 2 ? 'a' : 'b'").Text, "The conditional operator picks the wrong arm.");
             AssertEqual("c", Eval("false ? 'a' : false ? 'b' : 'c'").Text, "Nested conditionals do not associate to the right.");
@@ -198,6 +198,71 @@ namespace DesktopAICompanion
             var right = new FakeScriptContext { AnchorX = 900 };
             AssertTrue(!shared.EvaluateCondition(left) && shared.EvaluateCondition(right) && !shared.EvaluateCondition(left),
                 "A shared program carried state from one companion's evaluation to another's.");
+        }
+
+        /// <summary>The places where a JS engine (Nashorn, ES5.1) and a naive C# reading disagree, each pinned by the
+        /// input that tells them apart.</summary>
+        private static void TestSafeScriptJsEdges()
+        {
+            // A fault ABORTS the expression: nothing after it runs, so it draws nothing and writes nothing.
+            var c = new FakeScriptContext();
+            AssertEqual(ScriptValueKind.Null, Eval("mascot.environment.floor.isOn(1) || Math.random() < 2", c).Kind, "A faulting expression did not yield null.");
+            AssertEqual(1, c.Faults.Count, "The fault was not reported exactly once.");
+            AssertEqual(0, c.DrawSites.Count, "A fault did not abort the expression: the random site after it still drew.");
+            Eval("mascot.environment.floor.isOn(1) || (mascot.variables['w'] = 1)", c);
+            AssertFalse(c.Vars.ContainsKey("w"), "A fault did not abort the expression: the variable write after it still ran.");
+
+            // .put returns the previous value (null for a new key); an index assignment returns what it wrote.
+            var v = new FakeScriptContext();
+            AssertEqual(ScriptValueKind.Null, Eval("mascot.variables.put('k', 5)", v).Kind, "put on a new key did not return null, as VariableMap.put does.");
+            AssertEqual(5.0, Eval("mascot.variables.put('k', 6)", v).Number, "put on an existing key did not return the previous value.");
+            AssertEqual(7.0, Eval("mascot.variables['k'] = 7", v).Number, "An index assignment did not return the value written.");
+
+            // Area.contains ignores visibility: a hidden window keeps its geometry.
+            var hidden = new FakeScriptContext();
+            hidden.ActiveWindow.Visible = false;
+            AssertTrue(Eval("mascot.environment.activeIE.contains(200, 200)", hidden).IsTruthy, "contains on a hidden window was false; the source ignores visibility.");
+
+            AssertTrue(ParseError("undefined == null").Contains("'undefined' is outside"), "undefined was accepted; it has no meaning here and must be refused.");
+
+            // Hex literals are unsigned, and one too long for a ulong is refused by name rather than overflowing.
+            AssertEqual(18446744073709551615.0, Eval("0xffffffffffffffff").Number, "0xffffffffffffffff did not read as 18446744073709551615 (a signed read gives -1).");
+            AssertTrue(ParseError("0x1ffffffffffffffff").Contains("hex number too large"), "A 17-digit hex literal was not refused by name.");
+
+            // String to number is ES5.1's: hex strings read, Infinity is case-sensitive, junk is NaN, blank is 0.
+            AssertEqual(16.0, Eval("'0x10' * 1").Number, "'0x10' did not convert to 16.");
+            AssertEqual(12.0, Eval("' 12 ' * 1").Number, "A padded decimal string did not convert.");
+            AssertTrue(double.IsNaN(Eval("'infinity' * 1").Number), "'infinity' converted; JS reads only 'Infinity'.");
+            AssertTrue(double.IsPositiveInfinity(Eval("'Infinity' * 1").Number), "'Infinity' did not convert.");
+            AssertTrue(double.IsNaN(Eval("'-0x10' * 1").Number), "'-0x10' converted; a signed hex string is NaN in JS.");
+            AssertTrue(double.IsNaN(Eval("'12px' * 1").Number), "'12px' converted; JS reads it as NaN.");
+            AssertEqual(0.0, Eval("'' * 1").Number, "A blank string did not convert to 0.");
+
+            // Escapes: \b \f \v \0 \xHH mean what JS says; octal escapes are refused.
+            char bs = (char)92;
+            AssertEqual("\b", Eval("'" + bs + "b'").Text, "An escaped b is not a backspace.");
+            AssertEqual("A", Eval("'" + bs + "x41'").Text, "An escaped x41 is not 'A'.");
+            AssertEqual("\0", Eval("'" + bs + "0'").Text, "An escaped 0 is not NUL.");
+            AssertTrue(ParseError("'" + bs + "1'").Contains("octal escapes"), "An octal escape was not refused.");
+
+            // % keeps the dividend's sign, -0 included, and never overflows a quotient.
+            AssertTrue(double.IsNegativeInfinity(Eval("1 / (-6 % 3)").Number), "-6 % 3 is not -0.");
+            double r = Eval("1e308 % 1e-308").Number;
+            AssertTrue(!double.IsNaN(r) && r >= 0 && r < 1e-308, "1e308 % 1e-308 is not the exact small remainder (a quotient overflowed).");
+
+            // Math.round: -0 for -0.5 <= x < 0, large integers unchanged, 0.49999999999999994 rounds down.
+            AssertTrue(double.IsNegativeInfinity(Eval("1 / Math.round(-0.1)").Number), "Math.round(-0.1) is not -0.");
+            AssertEqual(4503599627370497.0, Eval("Math.round(4503599627370497)").Number, "Math.round moved an integer above 2^52.");
+            AssertEqual(0.0, Eval("Math.round(0.49999999999999994)").Number, "Math.round(0.49999999999999994) is not 0.");
+
+            // Number to string is JS's: plain from 1e-6 to 1e21, exponent written e+n outside, -0 is "0".
+            AssertEqual("1e+21", Eval("'' + 1e21").Text, "1e21 is not written 1e+21.");
+            AssertEqual("100000000000000000000", Eval("'' + 1e20").Text, "1e20 is not written out in full.");
+            AssertEqual("1000000000000000", Eval("'' + 1e15").Text, "1e15 is not written out in full (.NET writes 1E+15).");
+            AssertEqual("0.000001", Eval("'' + 0.000001").Text, "0.000001 is not written plainly.");
+            AssertEqual("1.5e-7", Eval("'' + 1.5e-7").Text, "1.5e-7 is not written 1.5e-7.");
+            AssertEqual("123.45", Eval("'' + 123.45").Text, "123.45 is not written plainly.");
+            AssertEqual("0", Eval("'' + (-6 % 3)").Text, "-0 is not written 0.");
         }
     }
 }

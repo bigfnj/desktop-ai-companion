@@ -143,6 +143,44 @@ namespace DesktopAICompanion
                   && !CompanionXmlValidator.TryParseWithFeatures(Serialize(classicZero), new string[0], out parsed, out error)
                   && Contains(error, "has no positive-probability transition"),
                 "extension gate: WITNESS a classic pet whose list weighs 0 is still refused (" + error + ")", ref failures, output);
+
+            // A next-list entry is a behaviour node of its own, off the route, sharing its root behaviour's name.
+            XmlData.RootNode entry = WithNextListEntry(TickFixture(classic), "Stand");
+            Check(CompanionXmlValidator.TryParseWithFeatures(Serialize(entry), AllExtensionFeatures, out parsed, out error),
+                "extension gate: a next-list entry sharing its root behaviour's name validates" + FormatError(error), ref failures, output);
+            ExpectRefused(classic, r => WithNextListEntry(r, "Ghost"), "which no behaviour on the route is",
+                "an off-route behaviour whose name no root behaviour has is refused", ref failures, output);
+            ExpectRefused(classic, r =>
+                {
+                    WithNextListEntry(r, "Stand");
+                    r.Animations.Animation[0].Sequence.Next = new[]
+                    {
+                        new XmlData.NextNode { Value = 2, Probability = 1 }, new XmlData.NextNode { Value = 4, Probability = 1 },
+                    };
+                }, "unique among the route's behaviours", "two route behaviours with one name are refused", ref failures, output);
+            ExpectRefused(classic, r => r.Animations.Animation[0].Sequence.Next[0].Value = 3, "which is not a behaviour",
+                "a route edge to an action node is refused", ref failures, output);
+            ExpectRefused(classic, r => r.Animations.Animation[2].Sequence.Next = new[] { new XmlData.NextNode { Value = 2, Probability = 1 } },
+                "is an action with an edge", "an action node with an edge is refused", ref failures, output);
+        }
+
+        /// <summary>Add behaviour node 4, named <paramref name="name"/>, running Stand, reached only from beh:Stand's
+        /// own list (so it is off the route).</summary>
+        private static XmlData.RootNode WithNextListEntry(XmlData.RootNode r, string name)
+        {
+            XmlData.MovingNode still = new XmlData.MovingNode { X = "0", Y = "0", Interval = "40" };
+            var nodes = new System.Collections.Generic.List<XmlData.AnimationNode>(r.Animations.Animation)
+            {
+                new XmlData.AnimationNode
+                {
+                    Id = 4, Name = "beh:Stand@next1", Start = still, End = still,
+                    Behaviour = new XmlData.BehaviourNode { Name = name, Runs = "Stand", Frequency = 1 },
+                    Sequence = new XmlData.SequenceNode { RepeatCount = "0", Next = new XmlData.NextNode[0] },
+                },
+            };
+            r.Animations.Animation = nodes.ToArray();
+            r.Animations.Animation[1].Sequence.Next = new[] { new XmlData.NextNode { Value = 4, Probability = 1 } };
+            return r;
         }
 
         private static void ExpectRefused(XmlData.RootNode classic, Action<XmlData.RootNode> breakIt, string expected,

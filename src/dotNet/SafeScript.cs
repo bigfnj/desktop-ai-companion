@@ -81,6 +81,13 @@ namespace DesktopAICompanion
                 "<", ">", "+", "-", "*", "/", "%", "!", "?", ":", "(", ")", "[", "]", ".", ",", "=",
             };
 
+            private static bool IsHexRun(string s, int at, int width)
+            {
+                for (int k = 0; k < width; k++)
+                    if (!Uri.IsHexDigit(s[at + k])) return false;
+                return true;
+            }
+
             public static bool TryLex(string s, out List<Token> tokens, out string error)
             {
                 tokens = new List<Token>();
@@ -99,8 +106,12 @@ namespace DesktopAICompanion
                             int hexStart = i;
                             while (i < s.Length && Uri.IsHexDigit(s[i])) i++;
                             if (i == hexStart) { error = "malformed hex number at " + start; return false; }
-                            tokens.Add(new Token { Kind = TokenKind.Number, Offset = start,
-                                Number = (double)long.Parse(s.Substring(hexStart, i - hexStart), NumberStyles.HexNumber, CultureInfo.InvariantCulture) });
+                            // Unsigned, as JS reads it (0xffffffffffffffff is 18446744073709551615, never -1). Past 16
+                            // digits a ulong cannot hold the value exactly, so the literal is refused by name.
+                            ulong hex;
+                            if (i - hexStart > 16 || !ulong.TryParse(s.Substring(hexStart, i - hexStart), NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out hex))
+                            { error = "hex number too large at " + start; return false; }
+                            tokens.Add(new Token { Kind = TokenKind.Number, Offset = start, Number = (double)hex });
                             continue;
                         }
                         while (i < s.Length && char.IsDigit(s[i])) i++;
@@ -139,15 +150,35 @@ namespace DesktopAICompanion
                                     case 'n': sb.Append('\n'); break;
                                     case 't': sb.Append('\t'); break;
                                     case 'r': sb.Append('\r'); break;
+                                    case 'b': sb.Append('\b'); break;
+                                    case 'f': sb.Append('\f'); break;
+                                    case 'v': sb.Append('\v'); break;
+                                    case 'x':
                                     case 'u':
-                                        if (i + 4 > s.Length) { error = "malformed escape at " + (i - 2); return false; }
+                                    {
+                                        int width = e == 'x' ? 2 : 4;
                                         int code;
-                                        if (!int.TryParse(s.Substring(i, 4), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out code))
+                                        if (i + width > s.Length || !IsHexRun(s, i, width)
+                                            || !int.TryParse(s.Substring(i, width), NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out code))
                                         { error = "malformed escape at " + (i - 2); return false; }
                                         sb.Append((char)code);
-                                        i += 4;
+                                        i += width;
                                         break;
-                                    default: sb.Append(e); break;   // \\ \' \" and anything else stand for themselves
+                                    }
+                                    case '0':
+                                        // \0 is NUL only when no digit follows; \01 and \1..\9 are legacy octal, refused.
+                                        if (i < s.Length && char.IsDigit(s[i])) { error = "octal escapes are outside the supported subset (at " + (i - 2) + ")"; return false; }
+                                        sb.Append('\0');
+                                        break;
+                                    case '1': case '2': case '3': case '4': case '5': case '6': case '7': case '8': case '9':
+                                        error = "octal escapes are outside the supported subset (at " + (i - 2) + ")";
+                                        return false;
+                                    case '\r':
+                                        // A line continuation contributes nothing; \r\n counts as one line terminator.
+                                        if (i < s.Length && s[i] == '\n') i++;
+                                        break;
+                                    case '\n': case '\u2028': case '\u2029': break;
+                                    default: sb.Append(e); break;   // \\ \' \" and any other character stand for themselves
                                 }
                                 continue;
                             }
@@ -245,7 +276,7 @@ namespace DesktopAICompanion
                     var index = left as VariableIndexNode;
                     if (index == null) throw new ScriptSyntaxException("only mascot.variables['name'] can be assigned (at " + at + ")");
                     Node value = ParseExpression();
-                    return new VariablePutNode(index.Key, value);
+                    return new VariablePutNode(index.Key, value, false);
                 }
                 return left;
             }
@@ -308,7 +339,10 @@ namespace DesktopAICompanion
                 {
                     case "true": return new LiteralNode(ScriptValue.True);
                     case "false": return new LiteralNode(ScriptValue.False);
-                    case "null": case "undefined": return new LiteralNode(ScriptValue.Null);
+                    // `undefined` is outside the subset: it is not null in JS (undefined === null is false, undefined + 1
+                    // is NaN), and no value kind here models it, so it is refused rather than read as null.
+                    case "undefined": throw new ScriptSyntaxException("'undefined' is outside the supported subset (at " + t.Offset + ")");
+                    case "null": return new LiteralNode(ScriptValue.Null);
                     case "NaN": return new LiteralNode(ScriptValue.FromNumber(double.NaN));
                     case "Infinity": return new LiteralNode(ScriptValue.FromNumber(double.PositiveInfinity));
                     case "mascot": return ParseChain(ObjectKind.Mascot, ScriptBorderId.None, ScriptAreaId.None, "mascot", t.Offset);
@@ -464,7 +498,7 @@ namespace DesktopAICompanion
                             {
                                 List<Node> args = ParseArguments();
                                 if (member == "get" && args.Count == 1) return new VariableIndexNode(args[0]);
-                                if (member == "put" && args.Count == 2) return new VariablePutNode(args[0], args[1]);
+                                if (member == "put" && args.Count == 2) return new VariablePutNode(args[0], args[1], true);
                                 throw new ScriptSyntaxException(next + " has the wrong number of arguments (at " + offset + ")");
                             }
                             break;
@@ -491,9 +525,16 @@ namespace DesktopAICompanion
         internal sealed class ScriptRun
         {
             public readonly IScriptContext Context;
-            public string Fault;
             public ScriptRun(IScriptContext context) { Context = context; }
-            public ScriptValue Fail(string message) { if (Fault == null) Fault = message; return ScriptValue.Null; }
+
+            /// <summary>A runtime fault ABORTS the expression, as the source's compiled eval throws: nothing after it
+            /// runs, so no later random draw or variable write happens. The caller reports it and gets null.</summary>
+            public ScriptValue Fail(string message) { throw new ScriptFault(message); }
+        }
+
+        internal sealed class ScriptFault : Exception
+        {
+            public ScriptFault(string message) : base(message) { }
         }
 
         private sealed class LiteralNode : Node
@@ -586,12 +627,13 @@ namespace DesktopAICompanion
                 return run.Fail("unknown operator " + _op);
             }
 
-            // JS %: the remainder of TRUNCATED division, so it takes the dividend's sign (-7 % 3 is -1).
+            // JS %: the remainder of TRUNCATED division, so it takes the dividend's sign (-7 % 3 is -1, -6 % 3 is -0).
+            // C#'s % on doubles is that operation computed exactly (fmod), with no overflowing a / b quotient.
             private static double JsRemainder(double a, double b)
             {
                 if (double.IsNaN(a) || double.IsNaN(b) || double.IsInfinity(a) || b == 0) return double.NaN;
                 if (double.IsInfinity(b)) return a;
-                return a - b * Math.Truncate(a / b);
+                return a % b;
             }
 
             private static ScriptValue Compare(ScriptValue l, ScriptValue r, Func<int, bool> test)
@@ -618,6 +660,18 @@ namespace DesktopAICompanion
             private readonly MathFunction _f;
             private readonly Node[] _args;
             public MathNode(MathFunction f, Node[] args) { _f = f; _args = args; }
+
+            /// <summary>JS Math.round: the nearest integer, halves toward +Infinity, -0 kept for -0.5 &lt;= x &lt; 0, and an
+            /// already-integral large value returned as is (floor(x + 0.5) rounds 2^52 + 1 up and 0.49999999999999994
+            /// to 1, both wrong).</summary>
+            public static double JsRound(double x)
+            {
+                if (double.IsNaN(x) || double.IsInfinity(x) || x == 0) return x;
+                if (x > 0 && x < 0.5) return 0.0;
+                if (x < 0 && x >= -0.5) return -0.0;
+                double f = Math.Floor(x);
+                return x - f >= 0.5 ? f + 1 : f;
+            }
 
             public static bool TryResolve(string name, int arity, out MathFunction f)
             {
@@ -652,7 +706,7 @@ namespace DesktopAICompanion
                     case MathFunction.Abs: return ScriptValue.FromNumber(Math.Abs(a));
                     case MathFunction.Floor: return ScriptValue.FromNumber(Math.Floor(a));
                     case MathFunction.Ceil: return ScriptValue.FromNumber(Math.Ceiling(a));
-                    case MathFunction.Round: return ScriptValue.FromNumber(Math.Floor(a + 0.5));   // JS rounds .5 up
+                    case MathFunction.Round: return ScriptValue.FromNumber(JsRound(a));
                     case MathFunction.Sqrt: return ScriptValue.FromNumber(Math.Sqrt(a));
                     case MathFunction.Sin: return ScriptValue.FromNumber(Math.Sin(a));
                     case MathFunction.Cos: return ScriptValue.FromNumber(Math.Cos(a));
@@ -793,7 +847,8 @@ namespace DesktopAICompanion
             {
                 ScriptArea a = run.Context.GetArea(_area);
                 double x = _x.Eval(run).ToNumber(), y = _y.Eval(run).ToNumber();
-                return ScriptValue.FromBool(a.Visible && x >= a.Left && x <= a.Right && y >= a.Top && y <= a.Bottom);
+                // Area.contains ignores visibility: a hidden window still has its geometry (Area.java 147-149).
+                return ScriptValue.FromBool(x >= a.Left && x <= a.Right && y >= a.Top && y <= a.Bottom);
             }
         }
 
@@ -862,16 +917,26 @@ namespace DesktopAICompanion
             }
         }
 
+        /// <summary>
+        /// A write to mascot.variables. Bracket assignment returns the value written, as a JS assignment does.
+        /// <c>.put(key, value)</c> returns what the source's VariableMap.put returns: null for a new key. For a key that
+        /// already had a value the source returns its Java wrapper, which has no SafeScript meaning; this returns the
+        /// previous value instead, and the converter marks an expression that uses that result as approximate.
+        /// </summary>
         private sealed class VariablePutNode : Node
         {
             private readonly Node _key, _value;
-            public VariablePutNode(Node key, Node value) { _key = key; _value = value; }
+            private readonly bool _isPutCall;
+            public VariablePutNode(Node key, Node value, bool isPutCall) { _key = key; _value = value; _isPutCall = isPutCall; }
             public override ScriptValue Eval(ScriptRun run)
             {
                 string key = _key.Eval(run).ToDisplayString();
                 ScriptValue value = _value.Eval(run);
+                ScriptValue previous;
+                bool had = run.Context.TryGetVariable(key, out previous);
                 run.Context.SetVariable(key, value);
-                return value;
+                if (!_isPutCall) return value;
+                return had ? previous : ScriptValue.Null;
             }
         }
     }
@@ -896,13 +961,15 @@ namespace DesktopAICompanion
         public ScriptValue Evaluate(IScriptContext context)
         {
             var run = new SafeScript.ScriptRun(context);
-            ScriptValue v = _root.Eval(run);
-            if (run.Fault != null)
+            try
             {
-                context.ReportFault(Source, run.Fault);
+                return _root.Eval(run);
+            }
+            catch (SafeScript.ScriptFault fault)
+            {
+                context.ReportFault(Source, fault.Message);
                 return ScriptValue.Null;
             }
-            return v;
         }
 
         /// <summary>Evaluate as a condition: JS truthiness, and a faulted evaluation is false.</summary>
@@ -959,15 +1026,74 @@ namespace DesktopAICompanion
                 case ScriptValueKind.Null: return 0;
                 case ScriptValueKind.Boolean:
                 case ScriptValueKind.Number: return Number;
-                case ScriptValueKind.String:
-                {
-                    string t = Text.Trim();
-                    if (t.Length == 0) return 0;
-                    double d;
-                    return double.TryParse(t, NumberStyles.Float, CultureInfo.InvariantCulture, out d) ? d : double.NaN;
-                }
+                case ScriptValueKind.String: return StringToNumber(Text);
                 default: return double.NaN;
             }
+        }
+
+        /// <summary>
+        /// ES5.1 ToNumber on a string (section 9.3.1), which Nashorn implements: JS white space trimmed, empty is 0, a
+        /// 0x/0X hex integer (unsigned), or an optionally signed decimal or Infinity (case-sensitive); anything else is
+        /// NaN. .NET's parser differs on hex, on "infinity" in any case, and on the white space set.
+        /// </summary>
+        public static double StringToNumber(string text)
+        {
+            int start = 0, end = text.Length;
+            while (start < end && IsJsWhiteSpace(text[start])) start++;
+            while (end > start && IsJsWhiteSpace(text[end - 1])) end--;
+            if (start == end) return 0;
+            string t = text.Substring(start, end - start);
+            if (t.Length > 2 && t[0] == '0' && (t[1] == 'x' || t[1] == 'X'))
+            {
+                var value = System.Numerics.BigInteger.Zero;
+                for (int i = 2; i < t.Length; i++)
+                {
+                    int digit = HexDigit(t[i]);
+                    if (digit < 0) return double.NaN;
+                    value = value * 16 + digit;
+                }
+                return (double)value;
+            }
+            int p = 0;
+            if (t[0] == '+' || t[0] == '-') p = 1;
+            string body = t.Substring(p);
+            if (body == "Infinity") return t[0] == '-' ? double.NegativeInfinity : double.PositiveInfinity;
+            int digits = 0, k = 0;
+            while (k < body.Length && body[k] >= '0' && body[k] <= '9') { k++; digits++; }
+            if (k < body.Length && body[k] == '.')
+            {
+                k++;
+                while (k < body.Length && body[k] >= '0' && body[k] <= '9') { k++; digits++; }
+            }
+            if (digits == 0) return double.NaN;
+            if (k < body.Length && (body[k] == 'e' || body[k] == 'E'))
+            {
+                k++;
+                if (k < body.Length && (body[k] == '+' || body[k] == '-')) k++;
+                int exp = 0;
+                while (k < body.Length && body[k] >= '0' && body[k] <= '9') { k++; exp++; }
+                if (exp == 0) return double.NaN;
+            }
+            if (k != body.Length) return double.NaN;
+            double d;
+            return double.TryParse(t, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint | NumberStyles.AllowExponent,
+                CultureInfo.InvariantCulture, out d) ? d : double.NaN;
+        }
+
+        private static bool IsJsWhiteSpace(char c)
+        {
+            // StrWhiteSpaceChar: TAB VT FF SP NBSP BOM, any Zs, and the line terminators LF CR LS PS.
+            return c == '\t' || c == '\v' || c == '\f' || c == ' ' || c == '\u00A0' || c == '\uFEFF'
+                || c == '\n' || c == '\r' || c == '\u2028' || c == '\u2029'
+                || CharUnicodeInfo.GetUnicodeCategory(c) == UnicodeCategory.SpaceSeparator;
+        }
+
+        private static int HexDigit(char c)
+        {
+            if (c >= '0' && c <= '9') return c - '0';
+            if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+            if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+            return -1;
         }
 
         public string ToDisplayString()
@@ -982,14 +1108,39 @@ namespace DesktopAICompanion
             }
         }
 
-        /// <summary>JS number-to-string for the values a skin can produce: integers without a decimal point.</summary>
-        public static string FormatNumber(double n)
+        /// <summary>
+        /// JS Number.prototype.toString (ES5.1 section 9.8.1): the shortest digits that round-trip, written plainly
+        /// for a decimal exponent from -6 to 21 and as d.ddde+n outside it; -0 is "0". String concatenation and
+        /// variable keys go through this, so its thresholds and spelling must be JS's, not .NET's "1E+15".
+        /// </summary>
+        public static string FormatNumber(double m)
         {
-            if (double.IsNaN(n)) return "NaN";
-            if (double.IsPositiveInfinity(n)) return "Infinity";
-            if (double.IsNegativeInfinity(n)) return "-Infinity";
-            if (n == Math.Floor(n) && Math.Abs(n) < 1e15) return ((long)n).ToString(CultureInfo.InvariantCulture);
-            return n.ToString("R", CultureInfo.InvariantCulture);
+            if (double.IsNaN(m)) return "NaN";
+            if (m == 0) return "0";
+            if (m < 0) return "-" + FormatNumber(-m);
+            if (double.IsPositiveInfinity(m)) return "Infinity";
+            // .NET's "R" is the shortest round-trip form; only its layout is rewritten.
+            string r = m.ToString("R", CultureInfo.InvariantCulture);
+            int e = 0;
+            string mantissa = r;
+            int ei = r.IndexOfAny(new[] { 'E', 'e' });
+            if (ei >= 0)
+            {
+                e = int.Parse(r.Substring(ei + 1), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture);
+                mantissa = r.Substring(0, ei);
+            }
+            int dot = mantissa.IndexOf('.');
+            string whole = dot >= 0 ? mantissa.Substring(0, dot) : mantissa;
+            string all = whole + (dot >= 0 ? mantissa.Substring(dot + 1) : "");
+            string digits = all.TrimStart('0');
+            int n = whole.Length + e - (all.Length - digits.Length);   // value = 0.digits x 10^n
+            digits = digits.TrimEnd('0');
+            int k = digits.Length;
+            if (k <= n && n <= 21) return digits + new string('0', n - k);
+            if (0 < n && n <= 21) return digits.Substring(0, n) + "." + digits.Substring(n);
+            if (-6 < n && n <= 0) return "0." + new string('0', -n) + digits;
+            string exponent = (n - 1 >= 0 ? "+" : "-") + Math.Abs(n - 1).ToString(CultureInfo.InvariantCulture);
+            return k == 1 ? digits + "e" + exponent : digits.Substring(0, 1) + "." + digits.Substring(1) + "e" + exponent;
         }
 
         public static bool StrictEquals(ScriptValue a, ScriptValue b)

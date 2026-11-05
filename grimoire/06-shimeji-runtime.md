@@ -160,8 +160,8 @@ variant.
 - A child with no poses that ends at once is an instant action (`InstantAction.java:24-37`). An empty composite is
   refused.
 
-**`<sequence><next>` on an action node.** These edges are taken only when the action is a behaviour's root and ends
-without the behaviour layer redirecting it. Normally the behaviour layer (4.2) decides what follows.
+**No edges on an action node.** An action never chains on by itself: when a behaviour's action ends, the behaviour
+layer selects what follows (4.3). An action node's `<sequence>` is empty, and the validator refuses an edge on one.
 
 ### 4.2 Behaviour node, `<behaviour>`: one Shimeji behaviour
 
@@ -191,12 +191,18 @@ without the behaviour layer redirecting it. Normally the behaviour layer (4.2) d
   means `true`, which is the source's reading of a behaviour with no `NextBehaviorList`. A `NextBehaviorList` whose
   `Add` is false OR MISSING is `add="false"`: the source parses a missing attribute as false
   (`BehaviorBuilder.java:80-91`). With several `NextBehaviorList` elements, their entries append in order and the
-  last one's `Add` decides.
+  last one's `Add` decides. A `<NextBehavior>` element is not read at all in 1.0.23 (only `NextBehaviorList` is,
+  `BehaviorBuilder.java:82`), so a behaviour carrying one keeps the root list and has no edges of its own, even though the
+  official default configuration uses that element.
 - A next-list entry is a behaviour of its own. The source builds it from the `BehaviorReference` element (its Name,
   Action, Frequency, Condition and extra attributes), not from the root definition of that name
   (`BehaviorBuilder.java:102-120`), so the converter lowers each entry to its own behaviour node unless it is identical
   to the root one. When it ends, the next selection uses the ROOT definition's list, found by name
   (`Configuration.java:208-212`).
+- **Names.** The route's behaviours (the root list) have unique names, and every name lookup (Fall, a born or
+  transform target, a hotspot) finds one of them. A behaviour node off the route, a next-list entry, carries the name of
+  the root behaviour it stands for: the source finds what follows it by that name, and a name with no root behaviour
+  ends the companion there, so the validator refuses one.
 
 ### 4.3 Route node, `<route>`: the root behaviour list
 
@@ -279,8 +285,12 @@ ordinary step, and the first evaluation of a step sees the frame cache the previ
 
 Each row's semantics are the official source's; its paths (`src/com/group_finity/mascot/action/<Class>.java`) point into
 the archive the parity tooling fetches. Parameter names are the source's English schema names
-(`conf/schema_en.properties`); the converter maps the Japanese and British aliases to them. Every row is proven by a
-parity scenario before `tools/ShimejiConvert/ACTIONS.md` may call it supported.
+(`conf/schema_en.properties`). The source reads ONE vocabulary per document: Japanese when the root has a
+`動作リスト` or `行動リスト` child, English otherwise, with exact matching and the Japanese schema falling back to English for
+the keys it lacks (`Configuration.java:50-62`). The converter resolves names the same way. British spellings
+(`BehaviourList`, `BornBehaviour`) are not names the source reads, so an attribute or element spelled that way is ignored
+by the source and stays unconverted. Every row is proven by a parity scenario before `tools/ShimejiConvert/ACTIONS.md`
+may call it supported.
 
 | class | base | parameters (default) | host behaviour |
 |---|---|---|---|
@@ -426,6 +436,8 @@ lane before freeze.
   - expressions parse;
   - `cache` values are legal;
   - a tick-mode list may weigh 0 in total (the source's drop-in, 4.3); a classic list may not;
+  - route and behaviour edges lead to behaviour nodes, and action nodes have none (4.1);
+  - route behaviours have unique names, and an off-route behaviour carries a route behaviour's name (4.2);
   - `<startup>` only on a `main` member;
   - an action with Breed or Transform keeps a fallback edge, so a missing member does not respawn the companion.
 - **Pack-level (`PackValidator`):**

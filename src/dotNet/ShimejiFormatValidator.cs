@@ -249,6 +249,15 @@ namespace DesktopAICompanion
             XmlData.AnimationNode[] animations = root.Animations.Animation;
             var actByName = new Dictionary<string, XmlData.AnimationNode>(StringComparer.Ordinal);
             var behaviourByName = new Dictionary<string, XmlData.AnimationNode>(StringComparer.Ordinal);
+            var offRoute = new List<XmlData.AnimationNode>();
+            var kindById = new Dictionary<int, string>();
+            foreach (XmlData.AnimationNode a in animations)
+                kindById[a.Id] = a.Act != null ? "act" : a.Behaviour != null ? "behaviour" : a.Route != null ? "route" : "?";
+            // The route's targets are the ROOT behaviours (the source's BehaviorList, found by name).
+            var rootIds = new HashSet<int>();
+            foreach (XmlData.AnimationNode a in animations)
+                if (a.Route != null)
+                    foreach (XmlData.NextNode n in EdgesOf(a)) rootIds.Add(n.Value);
             int routes = 0;
             foreach (XmlData.AnimationNode a in animations)
             {
@@ -269,14 +278,34 @@ namespace DesktopAICompanion
                 else if (a.Behaviour != null)
                 {
                     string n = a.Behaviour.Name;
-                    if (string.IsNullOrWhiteSpace(n) || behaviourByName.ContainsKey(n))
-                        throw new InvalidDataException(where + " needs a behaviour name unique in the companion (got '" + n + "').");
-                    behaviourByName[n] = a;
+                    if (string.IsNullOrWhiteSpace(n))
+                        throw new InvalidDataException(where + " needs a behaviour name.");
+                    if (!rootIds.Contains(a.Id)) offRoute.Add(a);
+                    else if (behaviourByName.ContainsKey(n))
+                        throw new InvalidDataException(where + " needs a name unique among the route's behaviours (got '" + n + "').");
+                    else behaviourByName[n] = a;
                 }
                 else routes++;
+                // In tick mode only behaviour and route nodes have edges, and they lead to behaviours: an action never
+                // chains on by itself, the behaviour layer chooses what follows (grimoire/06 4.3, 4.5).
+                foreach (XmlData.NextNode e in EdgesOf(a))
+                {
+                    if (a.Act != null)
+                        throw new InvalidDataException(where + " is an action with an edge; in a tick-clock companion the behaviour layer chooses what follows.");
+                    string kind;
+                    if (!kindById.TryGetValue(e.Value, out kind) || kind != "behaviour")
+                        throw new InvalidDataException(where + " has an edge to " + e.Value + ", which is not a behaviour.");
+                }
             }
             if (declared.Contains(CompanionFormatFeatures.Behaviours) && routes != 1)
                 throw new InvalidDataException("A companion with behaviours needs exactly one <route> node (found " + routes + ").");
+            // A next-list entry is a behaviour of its own (BehaviorBuilder 102-120) and shares its name with the root
+            // behaviour whose list it continues into: when it ends, the source looks the next list up by that name, and
+            // a name with no root behaviour ends the companion there. So an off-route behaviour must carry a root name.
+            foreach (XmlData.AnimationNode a in offRoute)
+                if (!behaviourByName.ContainsKey(a.Behaviour.Name))
+                    throw new InvalidDataException("animation " + a.Id + " is off the route and named '" + a.Behaviour.Name
+                        + "', which no behaviour on the route is; the source finds what follows it by that name.");
 
             var soundIds = new HashSet<string>(StringComparer.Ordinal);
             if (root.Sounds != null && root.Sounds.Sound != null)
