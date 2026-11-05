@@ -174,6 +174,8 @@
     <Compile Include="dotNet\Shimeji\TickSocialFamily.cs" />
     <Compile Include="dotNet\Shimeji\TickWindowFamily.cs" />
     <Compile Include="dotNet\Shimeji\ParityRun.cs" />
+    <Compile Include="dotNet\Shimeji\TickHost.cs" />
+    <Compile Include="dotNet\Shimeji\ShimejiWindowSelfTest.cs" />
     <Compile Include="dotNet\AudioOutputSelfTest.cs" />
     <Compile Include="dotNet\SecuritySelfTest.cs" />
     <Compile Include="dotNet\SecuritySelfTest.ShimejiGate.cs" />

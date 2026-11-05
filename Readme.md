@@ -753,7 +753,7 @@ core test harness use `net10.0`. AI Brain and Remembrance pin
 
 ```powershell
 .\tests\run-gate.ps1                                        # the one that matters: build + CoreTests +
-                                                            # 16 self-tests + source-text invariants +
+                                                            # 17 self-tests + source-text invariants +
                                                             # module payload freshness + the module
                                                             # template. Fails on a SKIP. (The soaks and
                                                             # --online-selftest are deliberately out:

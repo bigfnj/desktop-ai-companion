@@ -246,6 +246,10 @@ namespace DesktopAICompanion
             }
             // Shimeji parity (tools/ShimejiParity/CONTRACT.md): one scenario, headless, written as a trace. Refused
             // outside an overridden test data root; it opens no window and reads no real input or display.
+            if (args != null && Array.IndexOf(args, Shimeji.ShimejiWindowSelfTest.Flag) >= 0)
+            {
+                Environment.Exit(Shimeji.ShimejiWindowSelfTest.Run(Console.Out) ? 0 : 1);
+            }
             int parityAt = args == null ? -1 : Array.IndexOf(args, Shimeji.ParityRunCommand.Flag);
             if (parityAt >= 0)
             {
@@ -453,7 +457,7 @@ namespace DesktopAICompanion
                 "--wpf-options-selftest", "--trayquestions-selftest", "--fullscreen-selftest",
                 "--desktopwindows-selftest", "--traywatcher-selftest", "--catalog-selftest",
                 "--online-selftest", "--security-selftest", "--resource-churn-selftest",
-                Shimeji.ParityRunCommand.Flag
+                Shimeji.ParityRunCommand.Flag, Shimeji.ShimejiWindowSelfTest.Flag
             };
             foreach (string arg in args)
             {

@@ -320,6 +320,67 @@ namespace DesktopAICompanion
             Show();
         }
 
+        // ---- tick mode (the Shimeji runtime, src/dotNet/Shimeji): an outside clock drives this window
+
+        /// <summary>The tick host driving this window, or null for a classic pet. While set, the window's own timer
+        /// never runs and the left button's events go to the host as tick input.</summary>
+        internal Shimeji.TickHost TickHost { get; private set; }
+
+        /// <summary>Hand this window to a tick host: its own timer stops for good, and the pointer's moves are
+        /// forwarded while the host may need them (a held hotspot follows the pointer).</summary>
+        internal void AttachTick(Shimeji.TickHost host, Shimeji.TickMascot mascot)
+        {
+            TickHost = host;
+            timer1.Enabled = false;
+            pictureBox1.MouseMove += TickPointerMove;
+        }
+
+        /// <summary>
+        /// Draw one tick frame with the window's top-left at (<paramref name="left"/>, <paramref name="top"/>), or hide
+        /// the window (an image-less pose, a disposed companion). Left and Top move BEFORE the frame is pushed, because
+        /// an alpha pet's push draws at the window's current position.
+        /// </summary>
+        internal void RenderTick(Image frame, int left, int top, int width, int height, bool visible, double opacity = 1.0)
+        {
+            if (!visible || frame == null)
+            {
+                if (Visible) Visible = false;
+                return;
+            }
+            if (Width != width || Height != height)
+            {
+                Width = width;
+                Height = height;
+                pictureBox1.Width = width;
+                pictureBox1.Height = height;
+            }
+            Left = left;
+            Top = top;
+            if (petOpacity != opacity) SetPetOpacity(opacity);
+            RenderCurrentFrame(frame);
+            if (!Visible) Visible = true;
+        }
+
+        private void TickPointerMove(object sender, MouseEventArgs e)
+        {
+            if (TickHost != null) TickHost.Pointer(this, Shimeji.TickInputKind.Move, Cursor.Position);
+        }
+
+        /// <summary>Self-test: re-arm the classic timer the way Play or the debug menu would, fire it once, and say
+        /// whether it is still running afterwards (a tick-driven window must leave it off).</summary>
+        internal bool ClassicTimerSurvivesForSelfTest()
+        {
+            timer1.Enabled = true;
+            Timer1_Tick(timer1, EventArgs.Empty);
+            return timer1.Enabled;
+        }
+
+        /// <summary>Self-test: a left-button press through the real handler, as a click on the window delivers it.</summary>
+        internal void LeftPressForSelfTest()
+        {
+            PictureBox1_MouseDown(pictureBox1, new MouseEventArgs(MouseButtons.Left, 1, 0, 0, 0));
+        }
+
         private Image GetSpriteFrame(int index)
         {
             if (Xml == null)
@@ -814,6 +875,9 @@ namespace DesktopAICompanion
         private void Timer1_Tick(object sender, EventArgs e)
         {
             timer1.Enabled = false;
+            // A tick-driven window never runs the classic engine: whatever re-armed the timer (Play, PlayChild, the
+            // debug menu, a fault respawn) stops here, and the timer stays off.
+            if (TickHost != null) return;
             if (AnimationStep < 0) AnimationStep = 0;
             try
             {
@@ -2362,6 +2426,11 @@ namespace DesktopAICompanion
             /// <param name="e">Mouse event values.</param>
         private void PictureBox1_MouseDown(object sender, MouseEventArgs e)
         {
+            if (TickHost != null && e.Button == MouseButtons.Left)
+            {
+                TickHost.Pointer(this, Shimeji.TickInputKind.Press, Cursor.Position);
+                return;
+            }
             if (e.Button == MouseButtons.Left && Name.IndexOf("child") < 0)
             {
                 hwndWindow = (IntPtr)0;             // Remove window handles
@@ -2453,6 +2522,11 @@ namespace DesktopAICompanion
             /// <param name="e">Mouse event values.</param>
         private void PictureBox1_MouseUp(object sender, MouseEventArgs e)
         {
+            if (TickHost != null)
+            {
+                if (e.Button == MouseButtons.Left) TickHost.Pointer(this, Shimeji.TickInputKind.Release, Cursor.Position);
+                return;
+            }
             if (e.Button == MouseButtons.Left && Name.IndexOf("child") < 0)
             {
                 SetNewAnimation(Animations.AnimationFall);
@@ -2672,6 +2746,9 @@ namespace DesktopAICompanion
         private void Form2_FormClosed(object sender, FormClosedEventArgs e)
         {
             timer1.Stop();
+            // A tick companion closed from outside (the user removed it) leaves the tick world too; one the host
+            // closed itself is already unmapped, so this does nothing then.
+            if (TickHost != null) TickHost.FormClosed(this);
             CloseChildren();
             pictureBox1.Image = null;
             if (_speech != null) _speech.Dispose();
