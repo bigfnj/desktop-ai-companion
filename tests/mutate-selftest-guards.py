@@ -19400,12 +19400,21 @@ CASES = (
      b"                Check(_source.Actions.Root);\n",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
      SHIMEJI, None, "unrecognised source attribute 'xsi:schemaLocation'"),
-    ("convert-corpus: a root's stray text is no longer refused",
+    # Round 2 replaced this case's intent: a root's text is now ignored, as the source never reads it, so the
+    # mutants put a text refusal back (on the root, and in every checked element) and stray-text-ignored names it.
+    ("convert-corpus: a root's stray text is refused again",
      os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
+     b"            // Nothing on a configuration root is read: not its attributes, not its text.\n",
      b"            if (!string.IsNullOrWhiteSpace(root.Text)) Fail(root, \"unexpected source text\");\n",
-     b"",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
-     SHIMEJI, None, "conversion accepted an input requiring refusal: unexpected source text"),
+     SHIMEJI, None, "stray-text-ignored: actions.xml#/Mascot[1] ("),
+    ("convert-corpus: an element's stray text is refused again",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
+     b"                if (!allowed.Contains(attribute.SchemaKey)) Fail(source, \"unsupported attribute '\" + attribute.QualifiedName + \"'\");\n",
+     b"                if (!allowed.Contains(attribute.SchemaKey)) Fail(source, \"unsupported attribute '\" + attribute.QualifiedName + \"'\");\n"
+     b"            if (!string.IsNullOrWhiteSpace(source.Text)) Fail(source, \"unexpected source text\");\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "stray-text-ignored: actions.xml#/Mascot[1]/ActionList[1] ("),
     # Instant embedded classes need no Animation; every other posed action still does.
     ("convert-corpus: an instant action without an Animation is refused again",
      os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),

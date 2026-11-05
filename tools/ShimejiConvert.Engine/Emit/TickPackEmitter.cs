@@ -1236,10 +1236,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         /// only asks the root for its children (hasChild, selectChildren; Configuration.java:41-102), and Main hands it the
         /// document element and nothing else (Main.java:371, 418, 437). So a root attribute, such as the schema-location
         /// pair the stock configuration's root carries, is ignored here exactly as there, and writes nothing. Its direct
-        /// text is still refused, as everywhere.</summary>
+        /// text is not read either (see Check).</summary>
         private static void CheckRoot(ShimejiSourceElement root)
         {
-            if (!string.IsNullOrWhiteSpace(root.Text)) Fail(root, "unexpected source text");
+            // Nothing on a configuration root is read: not its attributes, not its text.
         }
         // A name a script can read: an ASCII identifier, as the host's grammar reads one; and one inside a script.
         private static readonly Regex ScriptToken = new Regex(@"[A-Za-z_$][A-Za-z0-9_$]*");
@@ -1281,11 +1281,14 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             }
         }
 
+        /// <summary>An element's attributes against the keys it may carry. Its direct text is not judged: the source's
+        /// Entry lists element children only (Entry.java:117-123) and reads text only for an Information child
+        /// (Configuration.java:133-172, through Entry.getText), so a stray text node in an Animation, an Action or a
+        /// list (in the corpus, a pose that lost its opening bracket) is never read there, and is ignored here.</summary>
         private static void Check(ShimejiSourceElement source, params string[] allowed)
         {
             foreach (ShimejiSourceAttribute attribute in Attributes(source))
                 if (!allowed.Contains(attribute.SchemaKey)) Fail(source, "unsupported attribute '" + attribute.QualifiedName + "'");
-            if (!string.IsNullOrWhiteSpace(source.Text)) Fail(source, "unexpected source text");
         }
         private static string Value(ShimejiSourceElement source, string key)
         {

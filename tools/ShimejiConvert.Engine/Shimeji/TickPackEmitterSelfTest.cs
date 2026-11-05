@@ -66,6 +66,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "toggle-required-names", Run = (Action)ToggleRequiredNames },
                 new { Name = "toggle-id-refusal", Run = (Action)ToggleIdRefusal },
                 new { Name = "root-attributes-ignored", Run = (Action)RootAttributesIgnored },
+                new { Name = "stray-text-ignored", Run = (Action)StrayTextIgnored },
                 new { Name = "instant-without-animation", Run = (Action)InstantWithoutAnimation },
                 new { Name = "anonymous-nested-actions", Run = (Action)AnonymousNestedActions },
                 new { Name = "custom-variables", Run = (Action)CustomVariables },
@@ -1234,12 +1235,32 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 string decorated = fixture.Convert().ToString();
                 Require(decorated == plain, "a root attribute the source never reads changed the emitted member");
             }
+        }
+
+        // Direct text in a configuration element is never read by the source (its Entry lists element children only),
+        // so text on the roots, in an ActionList, an Action, an Animation, a BehaviorList and a Behavior converts to
+        // exactly the bytes the member has without it. Replaces root-attributes-ignored's root-text refusal.
+        private static void StrayTextIgnored()
+        {
+            string plain;
+            using (var fixture = new Fixture())
+                plain = fixture.Convert().ToString();
             using (var fixture = new Fixture())
             {
                 XDocument actions = BuildActions();
-                actions.Root.AddFirst("stray text");
+                actions.Root.AddFirst("root text");
+                actions.Root.Element("ActionList").AddFirst("list text");
+                XElement stand = actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Stand");
+                stand.AddFirst("action text");
+                stand.Element("Animation").AddFirst("Pose Image=/p.png ImageAnchor=2,3 Velocity=0,0 Duration=2 /");
                 fixture.Actions(actions);
-                Refusal(fixture, "unexpected source text");
+                XDocument behaviours = BuildBehaviors();
+                behaviours.Root.Element("BehaviorList").AddFirst("behaviour list text");
+                behaviours.Descendants("Behavior").First().AddFirst("behaviour text");
+                fixture.Behaviors(behaviours);
+                XDocument document = fixture.Convert();
+                Validate(document, "stray-text member");
+                Require(document.ToString() == plain, "stray text the source never reads changed the emitted member");
             }
         }
 
