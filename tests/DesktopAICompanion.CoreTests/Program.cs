@@ -146,6 +146,11 @@ namespace DesktopAICompanion
                 Run("Tick sound Mute: a named Sound stops the initiator's running clips by prefix, at any volume, wherever they play", TestTickSoundMuteNamed);
                 Run("Tick sound Mute: no Sound stops every clip of every type, only while the initiator's sounds are on", TestTickSoundMuteAll);
                 Run("Tick sound volume: decibels of gain, read from the pose, clamped to the control's range", TestTickSoundVolume);
+                Run("Tick settings store: a per-type choice survives a restart, a merge and a save that could not read the file", TestTickSettingsPersist);
+                Run("Tick settings defaults: lifecycle on, window actions off, a toggle its header default, anything else off", TestTickSettingsDefaults);
+                Run("Tick settings toggles: a turned-off toggle keeps its behaviour from being chosen or entered", TestTickSettingsToggleOff);
+                Run("Tick settings transform: a transformed companion reads its new type's switches", TestTickSettingsTransform);
+                Run("Tick settings rows: the pane offers only what the type uses", TestTickSettingsRows);
             }
             finally
             {

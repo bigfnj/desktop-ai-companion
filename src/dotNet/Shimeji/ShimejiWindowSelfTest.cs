@@ -69,6 +69,8 @@ namespace DesktopAICompanion.Shimeji
                 check(settings.Get("Breeding", "Alpha") && settings.Get("Transients", "Alpha") && settings.Get("Transformation", "Alpha")
                       && settings.Get("Throwing", "Alpha") && !settings.Get(TickWindowFamily.Setting, "Alpha") && !settings.Get("NoSuchSwitch", "Alpha"),
                     "tick settings: lifecycle switches on, window actions off, an unknown setting off");
+                CheckStoredSwitches(check, host, scratch);
+                CheckPutWindowsBack(check, host);
 
                 Rectangle work = System.Windows.Forms.Screen.PrimaryScreen.WorkingArea;
                 int x = work.Left + work.Width / 2, floor = work.Bottom;
@@ -177,6 +179,105 @@ namespace DesktopAICompanion.Shimeji
         }
 
         /// <summary>
+        /// The user's per-type switches as the running host reads them (lane feature/shimeji-host-settings): stored in the
+        /// app's settings under the companion type's id, read afresh at each decision (a change reaches live companions
+        /// with no restart), separate per type, honoured for a header toggle, and still there after a restart.
+        /// </summary>
+        private static void CheckStoredSwitches(Action<bool, string> check, TickHost host, string scratch)
+        {
+            // A second type, Beta, stored under its own id, as a transformed companion's new type would be.
+            TickType beta = TickType.Compile("Beta", Document());
+            var betaSprites = new Xml(new List<Bitmap> { new Bitmap(64, 64), new Bitmap(64, 64), new Bitmap(64, 64), new Bitmap(64, 64) }, 64, 64);
+            beta.ApplyScale(1.0, 64, 64);
+            host.AddType(new TickHostType("beta-id", beta, betaSprites));
+            ITickSettings live = host.World.Settings;
+            bool before = live.Get("Breeding", "Alpha") && !live.Get(TickWindowFamily.Setting, "Alpha");
+            Program.MyData.SetCompanionSwitch("selftest", "Breeding", false);
+            Program.MyData.SetCompanionSwitch("selftest", TickWindowFamily.Setting, true);
+            check(before && !live.Get("Breeding", "Alpha") && live.Get(TickWindowFamily.Setting, "Alpha"),
+                "switches: the running host reads a choice stored under the type's id at its next question, no restart");
+            check(live.Get("Breeding", "Beta") && !live.Get(TickWindowFamily.Setting, "Beta"),
+                "switches: one type's choices do not reach another type (Beta keeps its defaults)");
+
+            var waving = new TickBehaviourDef { Name = "Wave", Toggle = "Waving", ToggleDefault = true };
+            bool waveBefore = live.IsBehaviourEnabled(waving, "Alpha");
+            Program.MyData.SetCompanionSwitch("selftest", "toggle:Waving", false);
+            check(waveBefore && !live.IsBehaviourEnabled(waving, "Alpha") && live.IsBehaviourEnabled(waving, "Beta"),
+                "switches: a header toggle turned off disables its behaviour for that type only");
+
+            var restarted = new LocalData(new AppSettingsStore(Path.Combine(scratch, "settings.json"), null));
+            check(restarted.GetCompanionSwitch("selftest", "Breeding") == false && restarted.GetCompanionSwitch("SELFTEST", TickWindowFamily.Setting) == true
+                  && restarted.GetCompanionSwitch("selftest", "toggle:Waving") == false && restarted.GetCompanionSwitch("beta-id", "Breeding") == null,
+                "switches: the choices survive a restart, keyed by type id");
+            Program.MyData.SetCompanionSwitch("selftest", "Breeding", null);
+            Program.MyData.SetCompanionSwitch("selftest", TickWindowFamily.Setting, null);
+            Program.MyData.SetCompanionSwitch("selftest", "toggle:Waving", null);
+            check(live.Get("Breeding", "Alpha") && !live.Get(TickWindowFamily.Setting, "Alpha") && live.IsBehaviourEnabled(waving, "Alpha"),
+                "switches: a forgotten choice returns the type to its defaults");
+        }
+
+        /// <summary>A window record that acts on nothing: what "Put windows back" sees and does, counted.</summary>
+        private sealed class FakeWindowRecord : ITickWindowRecord
+        {
+            public int Count;
+            public int Restores = -1;   // how many a put-back restores; -1 = all of them
+            public int Calls;
+            public int RecordedCount { get { return Count; } }
+            public int PutWindowsBack()
+            {
+                Calls++;
+                int restored = Restores < 0 ? Count : Restores;
+                Count = 0;
+                return restored;
+            }
+        }
+
+        /// <summary>
+        /// The tray's "Put windows back", through the window seam with a fake record, so no real window is touched: hidden
+        /// with nothing to put back, shown with a count when something was moved, its action goes through the record once
+        /// and says how many went back, and it hides again after.
+        /// </summary>
+        private static void CheckPutWindowsBack(Action<bool, string> check, TickHost host)
+        {
+            check(host.WindowRecord != null && ReferenceEquals(host.WindowRecord, host.Environment.Interactive),
+                "put back: the host's record is the desktop's interactive window by default");
+            var fake = new FakeWindowRecord();
+            host.WindowRecord = fake;
+            using (var item = new System.Windows.Forms.ToolStripMenuItem())
+            {
+                TickWindowsTray.Refresh(item, host);
+                bool hiddenEmpty = !item.Available;
+                fake.Count = 2;
+                TickWindowsTray.Refresh(item, host);
+                bool shown = item.Available && item.Text.Contains("2");
+                string said = TickWindowsTray.PutBack(host);
+                TickWindowsTray.Refresh(item, host);
+                check(hiddenEmpty && shown && fake.Calls == 1 && said == "Put 2 windows back." && !item.Available,
+                    "put back: the tray item shows only with windows to put back, puts them back once and says how many ("
+                    + said + ")");
+                fake.Count = 3;
+                fake.Restores = 1;
+                said = TickWindowsTray.PutBack(host);
+                check(fake.Calls == 2 && said.StartsWith("Put 1 of 3 windows back", StringComparison.Ordinal),
+                    "put back: a partial put-back says how many of how many (" + said + ")");
+                said = TickWindowsTray.PutBack(host);
+                check(fake.Calls == 2 && said == "No window needed putting back.",
+                    "put back: with nothing recorded the record is not asked");
+            }
+            // The tray menu carries the item, hidden until a window was moved.
+            var menus = new ContextMenus();
+            try
+            {
+                System.Windows.Forms.ContextMenuStrip strip = menus.Create();
+                System.Windows.Forms.ToolStripItem found = null;
+                foreach (System.Windows.Forms.ToolStripItem i in strip.Items)
+                    if (i.Text == "Put &windows back") found = i;
+                check(found != null && !found.Available, "put back: the tray menu has the item, hidden until a window was moved");
+            }
+            finally { menus.Dispose(); }
+        }
+
+        /// <summary>
         /// The app's staging of a tick-clock document (StartUp.TryStageRuntime): it compiles a tick type beside the Xml,
         /// scaled to the frames' staged size, and leaves the classic animation set empty; a classic document stages as it
         /// always has, with no tick type. The document is the extension gate's fixture, on the bundled pet's real sheet.
@@ -210,6 +311,18 @@ namespace DesktopAICompanion.Shimeji
                 if (animations != null) animations.Dispose();
                 if (xml != null) xml.Dispose();
             }
+
+            // The Pets pane's switches for an installed companion come from its document: a tick-clock one with a header
+            // toggle offers that toggle (and nothing it does not use); a classic one offers nothing, so its card is unchanged.
+            XmlData.RootNode toggled = SecuritySelfTest.TickFixture(classic);
+            toggled.Header.Toggles = new XmlData.TogglesNode { Toggle = new[] { new XmlData.ToggleNode { Id = "Standing", Label = "Stands about", Default = false } } };
+            toggled.Animations.Animation[1].Behaviour.Toggle = "Standing";
+            List<TickSettingRow> tickRows = TickPaneRows.ForPetXml(SecuritySelfTest.Serialize(toggled));
+            check(tickRows.Count == 1 && tickRows[0].Key == "toggle:Standing" && tickRows[0].Label == "Stands about" && !tickRows[0].DefaultOn,
+                "pane rows: a tick companion's document offers its header toggle and nothing it does not use ("
+                + tickRows.Count + " rows)");
+            check(TickPaneRows.ForPetXml(Properties.Resources.animations).Count == 0,
+                "pane rows: a classic companion's document offers no switch");
 
             // WITNESS: a classic document stages classically, with no tick type beside it.
             staged = StartUp.TryStageRuntime(Properties.Resources.animations, 1.0, out xml, out animations, out error);
@@ -276,13 +389,15 @@ namespace DesktopAICompanion.Shimeji
                     CreateNoWindow = true,
                     UseShellExecute = false,
                     RedirectStandardOutput = true,
+                    // Pinned and drained asynchronously (the hardening invariants): a synchronous read would block until
+                    // mklink exits and leave the timeout below unreachable. The text is discarded either way.
                     StandardOutputEncoding = Encoding.UTF8,
                 };
                 using (System.Diagnostics.Process p = System.Diagnostics.Process.Start(psi))
                 {
-                    // Drained asynchronously, so the timeout below stays reachable (the hardening invariants' rule).
-                    _ = p.StandardOutput.ReadToEndAsync();
+                    System.Threading.Tasks.Task<string> drained = p.StandardOutput.ReadToEndAsync();
                     p.WaitForExit(5000);
+                    GC.KeepAlive(drained);
                 }
                 return Directory.Exists(link) && (File.GetAttributes(link) & FileAttributes.ReparsePoint) != 0;
             }

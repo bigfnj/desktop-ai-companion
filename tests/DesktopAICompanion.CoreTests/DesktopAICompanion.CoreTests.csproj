@@ -77,6 +77,7 @@
     <Compile Include="TickMotionTests.cs" />
     <Compile Include="TickSocialTests.cs" />
     <Compile Include="TickWindowTests.cs" />
+    <Compile Include="TickSettingsTests.cs" />
     <Compile Include="..\..\src\Portable\AppPaths.cs">
       <Link>Production\AppPaths.cs</Link>
     </Compile>
@@ -132,6 +133,9 @@
     <Compile Include="TickSoundTests.cs" />
     <Compile Include="..\..\src\dotNet\Shimeji\TickSound.cs">
       <Link>Production\Shimeji\TickSound.cs</Link>
+    </Compile>
+    <Compile Include="..\..\src\dotNet\Shimeji\TickTypeSettings.cs">
+      <Link>Production\Shimeji\TickTypeSettings.cs</Link>
     </Compile>
   </ItemGroup>
 

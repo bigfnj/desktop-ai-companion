@@ -717,6 +717,18 @@ namespace DesktopAICompanion
             return tickHost;
         }
 
+        /// <summary>The tick host, or null before the first tick companion: what the tray's "Put windows back" asks.</summary>
+        internal Shimeji.TickHost TickHostOrNull { get { return tickHost; } }
+
+        /// <summary>The tray's "Put windows back": every window a companion moved or minimised this session goes back,
+        /// and a notification says how many did.</summary>
+        internal void PutWindowsBackFromTray()
+        {
+            string said = Shimeji.TickWindowsTray.PutBack(tickHost);
+            AddDebugInfo(DEBUG_TYPE.info, "[tick] " + said);
+            if (pi != null) pi.ShowBalloon("Put windows back", said, null);
+        }
+
         private int ClassicPetCount()
         {
             int n = 0;
