@@ -51,6 +51,9 @@ public final class Main {
          "hidden-origin-frozen"),
         ("hidden-anchor-invented", "Point center = !appliedPose || image == null ? null : image.getCenter();",
          "Point center = image == null ? (appliedPose ? new Point(0, 0) : null) : image.getCenter();", "hidden-anchor-null"),
+        ("empty-window-origin-invented", "Rectangle bounds = appliedPose ? mascot.getBounds() : null;",
+         "Rectangle bounds = appliedPose ? mascot.getBounds() : null;\n        if (bounds != null && image == null && bounds.width == 0 && bounds.height == 0) bounds = new Rectangle(mascot.getAnchor().x, mascot.getAnchor().y, 0, 0);",
+         "first-hidden-virtual-origin"),
     ]
     runs = [("baseline", geometry, driver, None)]
     if args.mutate:

@@ -146,9 +146,15 @@ memory. Canonical bytes are ordinal key, NUL, XML read name and LF, encoded as U
 Its private test substitutes only the sound-setting dependency of `Main`, allocates a mascot without its native
 constructor and attaches an in-memory JPanel window. No display windows or native input are created. It checks
 startup nulls, a visible pose, two image-less anchor moves with frozen bounds, reappearance, and the actual
-feasibility state formatter. Fresh-build mutants recompute the hidden origin, invent a hidden anchor, and
+feasibility state formatter. It also constructs the unchanged virtual panel, without its GUI environment, and
+checks that a first applied image-less pose retains its initial zero bounds. Fresh-build mutants recompute
+the hidden origin, invent an initial empty-window origin or a hidden anchor, and
 disconnect either of the writer's geometry fields; each must fail its named witness. This is a focused geometry proof,
 not an execution of the manager, scenario environment or complete shared-protocol writer.
+Initial zero bounds are specific to the virtual panel. Native Windows and generic windows inherit JWindow's
+initial location, which JDK 8 offsets by the selected graphics configuration's screen origin and top/left screen
+insets (java/awt/Window.java:503-510). Their initial size is zero, but their initial origin need not be zero.
+The Mac window delegates to the generic implementation. This headless proof does not measure native windows.
 
 `Failures` requires current successful runtime probes first. It launches isolated negative probes with an
 incorrect expected offset and an incorrect runtime fingerprint, requiring named failures and exited child

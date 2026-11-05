@@ -10,6 +10,7 @@ import java.awt.Dimension;
 import java.awt.Point;
 import java.awt.Window;
 import java.io.StringWriter;
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
@@ -95,10 +96,27 @@ public final class PoseGeometryProbe {
         require(window.panel.isVisible(), "reappeared-window-visible");
         String shownState = ((String)formatter.invoke(null, mascot, true)).replace(" ", "");
         require(shownState.contains("\"origin\":[173,199]") && shownState.contains("\"poseAnchor\":[7,11]"), "feasibility-writer-reappeared-geometry");
+        Constructor<?> virtualConstructor = Class.forName("com.group_finity.mascot.virtual.VirtualTranslucentPanel").getDeclaredConstructor();
+        virtualConstructor.setAccessible(true);
+        TranslucentWindow sourceVirtual = (TranslucentWindow)virtualConstructor.newInstance();
+        require(sourceVirtual.asComponent().getBounds().equals(new java.awt.Rectangle()), "source-virtual-initial-zero-bounds");
+        Mascot firstHidden = (Mascot)unsafe.allocateInstance(Mascot.class);
+        set(firstHidden, "window", sourceVirtual);
+        set(firstHidden, "animating", true);
+        set(firstHidden, "imageSet", "A");
+        set(firstHidden, "behavior", mascot.getBehavior());
+        set(firstHidden, "time", 1);
+        firstHidden.setAnchor(new Point(330, 440));
+        firstHidden.apply();
+        Map<String, Object> firstHiddenState = DraftPoseGeometry.observe(firstHidden, true);
+        expect(firstHiddenState, 0, 0, "first-hidden-virtual-origin");
+        require(firstHiddenState.get("poseAnchor") == null && !sourceVirtual.asComponent().isVisible(), "first-hidden-virtual-invisible");
+        String firstHiddenRecord = ((String)formatter.invoke(null, firstHidden, true)).replace(" ", "");
+        require(firstHiddenRecord.contains("\"origin\":[0,0]") && firstHiddenRecord.contains("\"poseAnchor\":null"), "first-hidden-virtual-formatter");
         StringWriter text = new StringWriter();
         new DraftTraceWriter(text).writeRecord(hidden);
         require(text.toString().contains("\"origin\":[93,79]") && text.toString().contains("\"poseAnchor\":null"), "transport-preserves-hidden-geometry");
         require(Window.getWindows().length == 0, "no-display-windows");
-        System.out.println("{\"status\":\"pass\",\"nativeOperations\":0,\"displayWindows\":0,\"formatterExecuted\":true,\"hiddenOrigin\":[93,79],\"reappearedOrigin\":[173,199]}");
+        System.out.println("{\"status\":\"pass\",\"nativeOperations\":0,\"displayWindows\":0,\"formatterExecuted\":true,\"firstHiddenVirtualOrigin\":[0,0],\"hiddenOrigin\":[93,79],\"reappearedOrigin\":[173,199]}");
     }
 }
