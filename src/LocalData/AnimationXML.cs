@@ -85,6 +85,22 @@ namespace XmlData
         /// </summary>
         [XmlElement("icon")]
         public string Icon;
+        // ---- Shimeji runtime extensions (grimoire/06). Every one is optional and null on a classic companion, so a
+        // classic document serialises exactly as before.
+        /// <summary>Space-separated feature tokens the companion uses (grimoire/06 section 1).</summary>
+        [XmlElement("features")]
+        public string Features;
+        /// <summary>"tick" for the 40 ms logical tick; absent for classic interval timing.</summary>
+        [XmlElement("clock")]
+        public string Clock;
+        [XmlElement("pack")]
+        public PackNode Pack;
+        [XmlElement("startup")]
+        public StartupNode Startup;
+        [XmlElement("constants")]
+        public ConstantsNode Constants;
+        [XmlElement("toggles")]
+        public TogglesNode Toggles;
     }
 
     /// <summary>
@@ -112,6 +128,15 @@ namespace XmlData
         /// </summary>
         [XmlElement("transparency")]
         public string Transparency;
+        /// <summary>The contact point (Shimeji ImageAnchor) in cell pixels before scaling; default bottom-centre.</summary>
+        [XmlElement("anchorx")]
+        public int AnchorX;
+        [XmlIgnore]
+        public bool AnchorXSpecified;
+        [XmlElement("anchory")]
+        public int AnchorY;
+        [XmlIgnore]
+        public bool AnchorYSpecified;
     }
 
     /// <summary>
@@ -234,6 +259,15 @@ namespace XmlData
         /// </summary>
         [XmlElement("gravity")]
         public HitNode Gravity;
+        /// <summary>A Shimeji action node (grimoire/06 section 4.1); null on a classic animation.</summary>
+        [XmlElement("act")]
+        public ActNode Act;
+        /// <summary>A Shimeji behaviour node (section 4.2).</summary>
+        [XmlElement("behaviour")]
+        public BehaviourNode Behaviour;
+        /// <summary>The route node: the root behaviour list (section 4.3).</summary>
+        [XmlElement("route")]
+        public RouteNode Route;
     }
 
     /// <summary>
@@ -273,6 +307,9 @@ namespace XmlData
         /// </summary>
         [XmlAttribute("animationid")]
         public int Id;
+        /// <summary>A name a tick-mode pose refers to (<see cref="PoseNode.Sound"/>); null on a classic sound.</summary>
+        [XmlAttribute("id")]
+        public string SoundId;
         /// <summary>
         ///  Probability (in %) that this sound will be played together with the animation.
         /// </summary>
@@ -385,11 +422,217 @@ namespace XmlData
         /// </summary>
         [XmlAttribute("only")]
         public string OnlyFlag;
+        /// <summary>A SafeScript condition (grimoire/06 section 6); the edge is eligible only while it holds. Null on
+        /// a classic edge.</summary>
+        [XmlAttribute("when")]
+        public string When;
         /// <summary>
         ///  Next animation ID.
         /// </summary>
         [XmlText]
         public int Value;
+    }
+
+    // ================================================================ Shimeji runtime extensions (grimoire/06)
+
+    public class PackNode
+    {
+        [XmlAttribute("id")] public string Id;
+        [XmlAttribute("member")] public string Member;
+        /// <summary>main, egg, form or helper.</summary>
+        [XmlAttribute("role")] public string Role;
+        [XmlAttribute("hidden")] public bool Hidden;
+        [XmlIgnore] public bool HiddenSpecified;
+    }
+
+    public class StartupNode
+    {
+        [XmlAttribute("member")] public string Member;
+        [XmlAttribute("behaviour")] public string Behaviour;
+    }
+
+    public class ConstantsNode
+    {
+        [XmlElement("constant")] public ConstantNode[] Constant;
+    }
+
+    public class ConstantNode
+    {
+        [XmlAttribute("name")] public string Name;
+        [XmlAttribute("value")] public string Value;
+    }
+
+    public class TogglesNode
+    {
+        [XmlElement("toggle")] public ToggleNode[] Toggle;
+    }
+
+    public class ToggleNode
+    {
+        [XmlAttribute("id")] public string Id;
+        [XmlAttribute("label")] public string Label;
+        [XmlAttribute("default")] public bool Default = true;
+    }
+
+    /// <summary>One Shimeji action (section 4.1). Child order is the schema's: param, guard, offers, variants, children.</summary>
+    public class ActNode
+    {
+        /// <summary>Stay, Move, Animate, Sequence, Select or Embedded.</summary>
+        [XmlAttribute("type")] public string Type;
+        /// <summary>The embedded class's short name (section 5); empty unless Type is Embedded.</summary>
+        [XmlAttribute("class")] public string Class;
+        /// <summary>Floor, Wall, Ceiling or empty.</summary>
+        [XmlAttribute("border")] public string Border;
+        [XmlAttribute("loop")] public bool Loop;
+        [XmlIgnore] public bool LoopSpecified;
+        [XmlElement("param")] public ParamNode[] Params;
+        [XmlElement("guard")] public GuardNode Guard;
+        [XmlElement("offers")] public OffersNode Offers;
+        [XmlElement("variants")] public VariantsNode Variants;
+        [XmlElement("children")] public ChildrenNode Children;
+    }
+
+    public class ParamNode
+    {
+        [XmlAttribute("name")] public string Name;
+        [XmlAttribute("value")] public string Value;
+        /// <summary>action (source ${}), frame (source #{}) or none (a literal).</summary>
+        [XmlAttribute("cache")] public string Cache;
+    }
+
+    public class GuardNode
+    {
+        [XmlAttribute("when")] public string When;
+        [XmlAttribute("duration")] public string Duration;
+        [XmlAttribute("draggable")] public string Draggable;
+    }
+
+    public class OffersNode
+    {
+        [XmlElement("offer")] public OfferNode[] Offer;
+    }
+
+    public class OfferNode
+    {
+        [XmlAttribute("value")] public string Value;
+    }
+
+    public class VariantsNode
+    {
+        [XmlElement("variant")] public VariantNode[] Variant;
+    }
+
+    public class VariantNode
+    {
+        [XmlAttribute("when")] public string When;
+        [XmlAttribute("turn")] public bool Turn;
+        [XmlIgnore] public bool TurnSpecified;
+        [XmlElement("pose")] public PoseNode[] Pose;
+        [XmlElement("hotspots")] public HotspotsNode Hotspots;
+    }
+
+    /// <summary>One pose (section 3): a sheet frame (or -1, which hides the companion), an optional right-facing
+    /// frame, a duration in ticks and a per-tick velocity.</summary>
+    public class PoseNode
+    {
+        [XmlAttribute("frame")] public int Frame;
+        [XmlAttribute("right")] public int Right;
+        [XmlIgnore] public bool RightSpecified;
+        [XmlAttribute("ticks")] public int Ticks;
+        [XmlAttribute("dx")] public int DX;
+        [XmlAttribute("dy")] public int DY;
+        [XmlAttribute("sound")] public string Sound;
+        [XmlAttribute("volume")] public double Volume;
+        [XmlIgnore] public bool VolumeSpecified;
+    }
+
+    public class HotspotsNode
+    {
+        [XmlElement("hotspot")] public HotspotNode[] Hotspot;
+    }
+
+    public class HotspotNode
+    {
+        /// <summary>rect or ellipse.</summary>
+        [XmlAttribute("shape")] public string Shape;
+        /// <summary>"x,y" in cell pixels.</summary>
+        [XmlAttribute("origin")] public string Origin;
+        /// <summary>"w,h" in cell pixels.</summary>
+        [XmlAttribute("size")] public string Size;
+        /// <summary>The behaviour a press enters; null for a held-click (head-pat) hotspot.</summary>
+        [XmlAttribute("behaviour")] public string Behaviour;
+    }
+
+    public class ChildrenNode
+    {
+        /// <summary>sequence or select.</summary>
+        [XmlAttribute("mode")] public string Mode;
+        [XmlElement("child")] public CompositeChildNode[] Child;
+    }
+
+    /// <summary>One reference inside a Sequence or Select: the action node by name, and this reference's bindings.</summary>
+    public class CompositeChildNode
+    {
+        [XmlAttribute("animation")] public string Animation;
+        [XmlElement("bind")] public BindNode[] Bind;
+    }
+
+    public class BindNode
+    {
+        [XmlAttribute("name")] public string Name;
+        [XmlAttribute("value")] public string Value;
+        /// <summary>As <see cref="ParamNode.Cache"/>: action, frame or none (a literal).</summary>
+        [XmlAttribute("cache")] public string Cache;
+    }
+
+    /// <summary>One Shimeji behaviour (section 4.2). Its sequence's edges are its NextBehaviorList.</summary>
+    public class BehaviourNode
+    {
+        [XmlAttribute("name")] public string Name;
+        /// <summary>The root action node it runs (the source's Behavior Action=, defaulting to Name).</summary>
+        [XmlAttribute("runs")] public string Runs;
+        [XmlAttribute("frequency")] public int Frequency;
+        [XmlAttribute("hidden")] public bool Hidden;
+        [XmlIgnore] public bool HiddenSpecified;
+        [XmlAttribute("toggle")] public string Toggle;
+        [XmlElement("bind")] public BindNode[] Bind;
+    }
+
+    /// <summary>The route node (section 4.3): its sequence's edges are the root behaviour list.</summary>
+    public class RouteNode
+    {
+    }
+
+    /// <summary>
+    /// A complete deep copy of any node in this file, so a caller that clones a document (Companion Studio's
+    /// behaviour-chain builder, the converter's migrations) cannot drop a field it did not know about: every public
+    /// instance field is copied, arrays element by element, nested nodes recursively. A self-test serialises a clone
+    /// and its source and requires byte-identical output.
+    /// </summary>
+    public static class NodeCopy
+    {
+        public static T Deep<T>(T source) where T : class
+        {
+            return (T)DeepObject(source);
+        }
+
+        private static object DeepObject(object source)
+        {
+            if (source == null) return null;
+            Type type = source.GetType();
+            if (type.IsPrimitive || type.IsEnum || type == typeof(string) || type == typeof(decimal)) return source;
+            if (type.IsArray)
+            {
+                var array = (Array)source;
+                Array copy = Array.CreateInstance(type.GetElementType(), array.Length);
+                for (int i = 0; i < array.Length; i++) copy.SetValue(DeepObject(array.GetValue(i)), i);
+                return copy;
+            }
+            object clone = Activator.CreateInstance(type);
+            foreach (var field in type.GetFields(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public))
+                field.SetValue(clone, DeepObject(field.GetValue(source)));
+            return clone;
+        }
     }
 
 }

@@ -50,6 +50,48 @@
                   <xsd:documentation>Icon as CDATA base64 encoded, see https://esheep.petrucci.ch/?p=tools&amp;s=icon to convert a PNG to ICO and https://esheep.petrucci.ch/?p=tools&amp;s=base64 to convert it to a base64 string.</xsd:documentation>
                 </xsd:annotation>
               </xsd:element>
+              <!-- Shimeji runtime extensions (grimoire/06). All optional; each use must also be declared in features. -->
+              <xsd:element name='features' type='xsd:string' minOccurs='0' maxOccurs='1' />
+              <xsd:element name='clock' type='clockType' minOccurs='0' maxOccurs='1' />
+              <xsd:element name='pack' minOccurs='0' maxOccurs='1'>
+                <xsd:complexType>
+                  <xsd:attribute name='id' type='xsd:string' use='required' />
+                  <xsd:attribute name='member' type='xsd:string' use='required' />
+                  <xsd:attribute name='role' type='packRole' use='required' />
+                  <xsd:attribute name='hidden' type='xsd:boolean' />
+                </xsd:complexType>
+              </xsd:element>
+              <xsd:element name='startup' minOccurs='0' maxOccurs='1'>
+                <xsd:complexType>
+                  <xsd:attribute name='member' type='xsd:string' use='required' />
+                  <xsd:attribute name='behaviour' type='xsd:string' use='required' />
+                </xsd:complexType>
+              </xsd:element>
+              <xsd:element name='constants' minOccurs='0' maxOccurs='1'>
+                <xsd:complexType>
+                  <xsd:sequence>
+                    <xsd:element name='constant' minOccurs='0' maxOccurs='256'>
+                      <xsd:complexType>
+                        <xsd:attribute name='name' type='xsd:string' use='required' />
+                        <xsd:attribute name='value' type='xsd:string' use='required' />
+                      </xsd:complexType>
+                    </xsd:element>
+                  </xsd:sequence>
+                </xsd:complexType>
+              </xsd:element>
+              <xsd:element name='toggles' minOccurs='0' maxOccurs='1'>
+                <xsd:complexType>
+                  <xsd:sequence>
+                    <xsd:element name='toggle' minOccurs='0' maxOccurs='256'>
+                      <xsd:complexType>
+                        <xsd:attribute name='id' type='xsd:string' use='required' />
+                        <xsd:attribute name='label' type='xsd:string' />
+                        <xsd:attribute name='default' type='xsd:boolean' />
+                      </xsd:complexType>
+                    </xsd:element>
+                  </xsd:sequence>
+                </xsd:complexType>
+              </xsd:element>
             </xsd:all>
           </xsd:complexType>
         </xsd:element>
@@ -79,6 +121,8 @@
                   <xsd:documentation>Transparency: color key used to show transparency. Default: Magenta</xsd:documentation>
                 </xsd:annotation>
               </xsd:element>
+              <xsd:element name='anchorx' type='xsd:integer' minOccurs='0' maxOccurs='1' />
+              <xsd:element name='anchory' type='xsd:integer' minOccurs='0' maxOccurs='1' />
             </xsd:all>
           </xsd:complexType>
         </xsd:element>
@@ -128,7 +172,9 @@
                     </xsd:element>
                     <xsd:element name='sequence' minOccurs='1' maxOccurs='1'>
                       <xsd:complexType>
-                        <xsd:choice maxOccurs="unbounded">
+                        <!-- minOccurs 0: a tick-clock action node may have no edges (grimoire/06); the validator still
+                             requires frames on every classic animation. -->
+                        <xsd:choice minOccurs="0" maxOccurs="unbounded">
                           <xsd:element name='frame' type='xsd:integer' minOccurs='1' maxOccurs='unbounded' />
                           <xsd:element name='action' type='xsd:string' minOccurs='0' />
                           <xsd:element ref='next' />
@@ -151,6 +197,9 @@
                         </xsd:choice>
                       </xsd:complexType>
                     </xsd:element>
+                    <xsd:element name='act' type='actType' minOccurs='0' maxOccurs='1' />
+                    <xsd:element name='behaviour' type='behaviourType' minOccurs='0' maxOccurs='1' />
+                    <xsd:element name='route' type='routeType' minOccurs='0' maxOccurs='1' />
                   </xsd:all>
                   <xsd:attribute name="id" type="xsd:integer"/>
                 </xsd:complexType>
@@ -195,12 +244,13 @@
                     <xsd:element name='base64' type='xsd:string' minOccurs='1' maxOccurs='1' />
                   </xsd:all>
                   <xsd:attribute name="animationid" type="xsd:int"/>
+                  <xsd:attribute name="id" type="xsd:string"/>
                 </xsd:complexType>
               </xsd:element>
             </xsd:sequence>
           </xsd:complexType>
         </xsd:element>
-        
+
       </xsd:sequence>
     </xsd:complexType>
   </xsd:element>
@@ -238,6 +288,7 @@
         <xsd:extension base='xsd:integer'>
           <xsd:attribute name="probability" type="xsd:integer" />
           <xsd:attribute name="only" type="borderType" />
+          <xsd:attribute name="when" type="xsd:string" />
         </xsd:extension>
       </xsd:simpleContent>
     </xsd:complexType>
@@ -250,4 +301,170 @@
       </xsd:choice>
     </xsd:complexType>
   </xsd:element>
+
+  <!-- ===================== Shimeji runtime extensions (grimoire/06-shimeji-runtime.md) ===================== -->
+
+  <xsd:simpleType name="clockType">
+    <xsd:restriction base="xsd:string">
+      <xsd:enumeration value="tick" />
+    </xsd:restriction>
+  </xsd:simpleType>
+
+  <xsd:simpleType name="packRole">
+    <xsd:restriction base="xsd:string">
+      <xsd:enumeration value="main" />
+      <xsd:enumeration value="egg" />
+      <xsd:enumeration value="form" />
+      <xsd:enumeration value="helper" />
+    </xsd:restriction>
+  </xsd:simpleType>
+
+  <xsd:simpleType name="actKind">
+    <xsd:restriction base="xsd:string">
+      <xsd:enumeration value="Stay" />
+      <xsd:enumeration value="Move" />
+      <xsd:enumeration value="Animate" />
+      <xsd:enumeration value="Sequence" />
+      <xsd:enumeration value="Select" />
+      <xsd:enumeration value="Embedded" />
+    </xsd:restriction>
+  </xsd:simpleType>
+
+  <xsd:simpleType name="actBorder">
+    <xsd:restriction base="xsd:string">
+      <xsd:enumeration value="" />
+      <xsd:enumeration value="Floor" />
+      <xsd:enumeration value="Wall" />
+      <xsd:enumeration value="Ceiling" />
+    </xsd:restriction>
+  </xsd:simpleType>
+
+  <xsd:simpleType name="cacheKind">
+    <xsd:restriction base="xsd:string">
+      <xsd:enumeration value="action" />
+      <xsd:enumeration value="frame" />
+      <xsd:enumeration value="none" />
+    </xsd:restriction>
+  </xsd:simpleType>
+
+  <xsd:simpleType name="composeMode">
+    <xsd:restriction base="xsd:string">
+      <xsd:enumeration value="sequence" />
+      <xsd:enumeration value="select" />
+    </xsd:restriction>
+  </xsd:simpleType>
+
+  <xsd:simpleType name="hotspotShape">
+    <xsd:restriction base="xsd:string">
+      <xsd:enumeration value="rect" />
+      <xsd:enumeration value="ellipse" />
+    </xsd:restriction>
+  </xsd:simpleType>
+
+  <xsd:complexType name="bindType">
+    <xsd:attribute name="name" type="xsd:string" use="required" />
+    <xsd:attribute name="value" type="xsd:string" use="required" />
+    <xsd:attribute name="cache" type="cacheKind" />
+  </xsd:complexType>
+
+  <xsd:complexType name="actType">
+    <xsd:sequence>
+      <xsd:element name="param" minOccurs="0" maxOccurs="64">
+        <xsd:complexType>
+          <xsd:attribute name="name" type="xsd:string" use="required" />
+          <xsd:attribute name="value" type="xsd:string" use="required" />
+          <xsd:attribute name="cache" type="cacheKind" />
+        </xsd:complexType>
+      </xsd:element>
+      <xsd:element name="guard" minOccurs="0" maxOccurs="1">
+        <xsd:complexType>
+          <xsd:attribute name="when" type="xsd:string" />
+          <xsd:attribute name="duration" type="xsd:string" />
+          <xsd:attribute name="draggable" type="xsd:string" />
+        </xsd:complexType>
+      </xsd:element>
+      <xsd:element name="offers" minOccurs="0" maxOccurs="1">
+        <xsd:complexType>
+          <xsd:sequence>
+            <xsd:element name="offer" minOccurs="1" maxOccurs="8">
+              <xsd:complexType>
+                <xsd:attribute name="value" type="xsd:string" use="required" />
+              </xsd:complexType>
+            </xsd:element>
+          </xsd:sequence>
+        </xsd:complexType>
+      </xsd:element>
+      <xsd:element name="variants" minOccurs="0" maxOccurs="1">
+        <xsd:complexType>
+          <xsd:sequence>
+            <xsd:element name="variant" minOccurs="1" maxOccurs="32">
+              <xsd:complexType>
+                <xsd:sequence>
+                  <xsd:element name="pose" minOccurs="1" maxOccurs="512">
+                    <xsd:complexType>
+                      <xsd:attribute name="frame" type="xsd:int" use="required" />
+                      <xsd:attribute name="right" type="xsd:int" />
+                      <xsd:attribute name="ticks" type="xsd:int" use="required" />
+                      <xsd:attribute name="dx" type="xsd:int" />
+                      <xsd:attribute name="dy" type="xsd:int" />
+                      <xsd:attribute name="sound" type="xsd:string" />
+                      <xsd:attribute name="volume" type="xsd:double" />
+                    </xsd:complexType>
+                  </xsd:element>
+                  <xsd:element name="hotspots" minOccurs="0" maxOccurs="1">
+                    <xsd:complexType>
+                      <xsd:sequence>
+                        <xsd:element name="hotspot" minOccurs="1" maxOccurs="64">
+                          <xsd:complexType>
+                            <xsd:attribute name="shape" type="hotspotShape" use="required" />
+                            <xsd:attribute name="origin" type="xsd:string" use="required" />
+                            <xsd:attribute name="size" type="xsd:string" use="required" />
+                            <xsd:attribute name="behaviour" type="xsd:string" />
+                          </xsd:complexType>
+                        </xsd:element>
+                      </xsd:sequence>
+                    </xsd:complexType>
+                  </xsd:element>
+                </xsd:sequence>
+                <xsd:attribute name="when" type="xsd:string" />
+                <xsd:attribute name="turn" type="xsd:boolean" />
+              </xsd:complexType>
+            </xsd:element>
+          </xsd:sequence>
+        </xsd:complexType>
+      </xsd:element>
+      <xsd:element name="children" minOccurs="0" maxOccurs="1">
+        <xsd:complexType>
+          <xsd:sequence>
+            <xsd:element name="child" minOccurs="1" maxOccurs="64">
+              <xsd:complexType>
+                <xsd:sequence>
+                  <xsd:element name="bind" type="bindType" minOccurs="0" maxOccurs="64" />
+                </xsd:sequence>
+                <xsd:attribute name="animation" type="xsd:string" use="required" />
+              </xsd:complexType>
+            </xsd:element>
+          </xsd:sequence>
+          <xsd:attribute name="mode" type="composeMode" use="required" />
+        </xsd:complexType>
+      </xsd:element>
+    </xsd:sequence>
+    <xsd:attribute name="type" type="actKind" use="required" />
+    <xsd:attribute name="class" type="xsd:string" />
+    <xsd:attribute name="border" type="actBorder" />
+    <xsd:attribute name="loop" type="xsd:boolean" />
+  </xsd:complexType>
+
+  <xsd:complexType name="behaviourType">
+    <xsd:sequence>
+      <xsd:element name="bind" type="bindType" minOccurs="0" maxOccurs="64" />
+    </xsd:sequence>
+    <xsd:attribute name="name" type="xsd:string" use="required" />
+    <xsd:attribute name="runs" type="xsd:string" use="required" />
+    <xsd:attribute name="frequency" type="xsd:int" use="required" />
+    <xsd:attribute name="hidden" type="xsd:boolean" />
+    <xsd:attribute name="toggle" type="xsd:string" />
+  </xsd:complexType>
+
+  <xsd:complexType name="routeType" />
 </xsd:schema>

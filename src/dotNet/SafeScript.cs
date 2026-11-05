@@ -18,7 +18,7 @@ namespace DesktopAICompanion
     /// truthiness, and a division by zero is an infinity. A runtime fault (a member read on null, a wrong argument
     /// kind) yields null and is reported once through the context, never thrown at the caller.
     /// </summary>
-    public static class SafeScript
+    internal static class SafeScript
     {
         public const int MaximumLength = 4096;
         public const int MaximumTokens = 1024;
@@ -877,7 +877,7 @@ namespace DesktopAICompanion
     }
 
     /// <summary>A parsed SafeScript expression: immutable, shareable, evaluated against a context.</summary>
-    public sealed class ScriptProgram
+    internal sealed class ScriptProgram
     {
         private readonly SafeScript.Node _root;
         public string Source { get; }
@@ -909,10 +909,10 @@ namespace DesktopAICompanion
         public bool EvaluateCondition(IScriptContext context) { return Evaluate(context).IsTruthy; }
     }
 
-    public enum ScriptValueKind : byte { Null, Number, Boolean, String, Point }
+    internal enum ScriptValueKind : byte { Null, Number, Boolean, String, Point }
 
     /// <summary>A SafeScript value: a JS-like number, boolean, string, null, or a point (an anchor or cursor).</summary>
-    public readonly struct ScriptValue
+    internal readonly struct ScriptValue
     {
         public readonly ScriptValueKind Kind;
         public readonly double Number;   // the number, the boolean as 1/0, or the point's x
@@ -1015,11 +1015,11 @@ namespace DesktopAICompanion
         public override string ToString() { return ToDisplayString(); }
     }
 
-    public enum ScriptAreaId { None = 0, WorkArea = 1, Screen = 2, ComplexScreen = 3, ActiveWindow = 4 }
+    internal enum ScriptAreaId { None = 0, WorkArea = 1, Screen = 2, ComplexScreen = 3, ActiveWindow = 4 }
 
     /// <summary>Borders: the environment's contextual floor/ceiling/wall, then four per area (left, top, right, bottom)
     /// in <see cref="ScriptAreaId"/> order.</summary>
-    public enum ScriptBorderId
+    internal enum ScriptBorderId
     {
         None = 0, Floor = 1, Ceiling = 2, Wall = 3,
         WorkAreaLeft = 4, WorkAreaTop, WorkAreaRight, WorkAreaBottom,
@@ -1030,23 +1030,35 @@ namespace DesktopAICompanion
 
     /// <summary>An Area as a script sees it (environment/Area.java): edges, visibility and the edges' movement since the
     /// previous tick.</summary>
-    public struct ScriptArea
+    internal struct ScriptArea
     {
         public double Left, Top, Right, Bottom, DLeft, DTop, DRight, DBottom;
         public bool Visible;
+
+        public ScriptArea(double left, double top, double right, double bottom, bool visible,
+            double dleft = 0, double dtop = 0, double dright = 0, double dbottom = 0)
+        {
+            Left = left; Top = top; Right = right; Bottom = bottom; Visible = visible;
+            DLeft = dleft; DTop = dtop; DRight = dright; DBottom = dbottom;
+        }
     }
 
     /// <summary>A border as a script sees it: a horizontal one (floor/ceiling) has Y and spans Start..End in x; a
     /// vertical one (wall) has X and spans Start..End in y.</summary>
-    public struct ScriptBorder
+    internal struct ScriptBorder
     {
         public double X, Y, Start, End;
+
+        public ScriptBorder(double x, double y, double start, double end)
+        {
+            X = x; Y = y; Start = start; End = end;
+        }
     }
 
     /// <summary>What an evaluation reads. Implemented by the host per companion (live state) and by tests; every
     /// member is a plain read except <see cref="Random"/> (one draw from the companion's stream) and
     /// <see cref="SetVariable"/>.</summary>
-    public interface IScriptContext
+    internal interface IScriptContext
     {
         bool TryGetName(string name, out ScriptValue value);
         void GetAnchor(out double x, out double y);

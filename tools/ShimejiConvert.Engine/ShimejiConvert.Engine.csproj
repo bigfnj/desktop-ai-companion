@@ -86,6 +86,12 @@
     <Compile Include="..\..\src\dotNet\CompanionXmlValidator.cs">
       <Link>Shared\CompanionXmlValidator.cs</Link>
     </Compile>
+    <Compile Include="..\..\src\dotNet\SafeScript.cs">
+      <Link>Shared\SafeScript.cs</Link>
+    </Compile>
+    <Compile Include="..\..\src\dotNet\ShimejiFormatValidator.cs">
+      <Link>Shared\ShimejiFormatValidator.cs</Link>
+    </Compile>
     <Compile Include="..\..\src\dotNet\SafeExpression.cs">
       <Link>Shared\SafeExpression.cs</Link>
     </Compile>

@@ -55,6 +55,8 @@
     <Compile Include="..\..\src\dotNet\Animations.cs" Link="Engine\Animations.cs" />
     <Compile Include="..\..\src\dotNet\Xml.cs" Link="Engine\Xml.cs" />
     <Compile Include="..\..\src\dotNet\CompanionXmlValidator.cs" Link="Engine\CompanionXmlValidator.cs" />
+    <Compile Include="..\..\src\dotNet\SafeScript.cs" Link="Engine\SafeScript.cs" />
+    <Compile Include="..\..\src\dotNet\ShimejiFormatValidator.cs" Link="Engine\ShimejiFormatValidator.cs" />
     <Compile Include="..\..\src\dotNet\SafeExpression.cs" Link="Engine\SafeExpression.cs" />
     <!-- Still source-linked: the linked Xml.cs needs DesktopGeometry from this same file, which is pet-engine
          geometry rather than a general helper and so does not belong in ModuleKit. UnicodeTextProgress left this

@@ -164,8 +164,11 @@
     <Compile Include="dotNet\RemoteCatalog.cs" />
     <Compile Include="dotNet\SafeExpression.cs" />
     <Compile Include="dotNet\CompanionXmlValidator.cs" />
+    <Compile Include="dotNet\SafeScript.cs" />
+    <Compile Include="dotNet\ShimejiFormatValidator.cs" />
     <Compile Include="dotNet\AudioOutputSelfTest.cs" />
     <Compile Include="dotNet\SecuritySelfTest.cs" />
+    <Compile Include="dotNet\SecuritySelfTest.ShimejiGate.cs" />
     <Compile Include="dotNet\FormCompanion.cs">
       <SubType>Form</SubType>
     </Compile>

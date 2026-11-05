@@ -7378,6 +7378,35 @@ left is a real skin missing one sprite. Detect now parses each conf once more be
 on these packs it took tens of milliseconds (two uncontrolled runs on one box, so indicative only) against seconds
 for the conversion that follows.
 
+#### feature/shimeji-format
+
+The companion format's Shimeji runtime extensions (grimoire/06): the schema, the DTOs, SafeScript and the
+validator's rules, with the host still unable to run any of it.
+
+**This build runs no extension, and says so by name.** `CompanionFormatFeatures.Supported` is empty, so a companion
+that declares `tick`, `actions` or any other extension is refused with "uses feature 'tick', which this version of
+Desktop AI Companion does not run yet", and one naming a token this build has never heard of is told it needs a newer
+app. The schema and validator land before the runtime on purpose: Studio and the converter can build against a
+frozen format while the host lane works, and an older host never half-plays a companion written for a newer one.
+Each runtime piece adds its token to `Supported` in the commit that makes it run.
+
+**The feature gate is checked once, before the schema, and not again on the parsed document.** The pre-check reads
+`header/features` with a non-validating reader, so a companion written for a newer host gets the feature message
+instead of a schema error about an element this schema does not know. A second, identical check over the parsed
+document was written and removed: every document reaching it had already passed the same test, so it could not
+fail. What the parsed pass does check is the other direction, that every extension a document USES is declared.
+
+**Studio's behaviour chain and the converter's migrations do not yet carry the new fields.** `BehaviourChain`'s
+`CopyEdges` drops an edge's `when`, and `CloneAnimation` builds classic nodes only. Neither is reachable today: the
+gate above refuses any document declaring a feature before Studio or a migration sees it. They change, with tests
+that can fail, in the lane that first adds a token to `Supported` (Studio packs for the chain, the converter lane for
+the migrations). A guard added now would be a check no input can reach.
+
+**`NodeCopy.Deep` copies DTOs by reflection over public fields.** The DTOs are plain public fields for
+`XmlSerializer`, and every hand-written copy in this codebase has dropped a field the format later gained. A
+reflection copy cannot fall behind the format. The security self-test proves both properties it needs: the copy
+serialises identically to its source, and changing the copy changes nothing in the source.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

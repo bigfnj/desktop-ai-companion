@@ -420,6 +420,38 @@ namespace DesktopAICompanion
             return TryParse(xml, out root, out spriteBytes, out iconBytes, out soundBytes, out error, CancellationToken.None);
         }
 
+        /// <summary>
+        /// As the three-argument form, against an explicit set of supported Shimeji runtime features instead of this
+        /// build's <see cref="CompanionFormatFeatures.Supported"/>. For self-tests and the converter's checks, which
+        /// must validate an extension document before (or regardless of whether) the host runtime runs it. Nothing
+        /// that LOADS a companion calls this.
+        /// </summary>
+        internal static bool TryParseWithFeatures(
+            string xml,
+            IReadOnlyCollection<string> supportedFeatures,
+            out XmlData.RootNode root,
+            out string error)
+        {
+            byte[] spriteBytes;
+            byte[] iconBytes;
+            byte[][] soundBytes;
+            return TryParse(xml, out root, out spriteBytes, out iconBytes, out soundBytes, out error, CancellationToken.None,
+                supportedFeatures ?? CompanionFormatFeatures.Supported);
+        }
+
+        private static bool TryParse(
+            string xml,
+            out XmlData.RootNode root,
+            out byte[] spriteBytes,
+            out byte[] iconBytes,
+            out byte[][] soundBytes,
+            out string error,
+            CancellationToken cancellationToken)
+        {
+            return TryParse(xml, out root, out spriteBytes, out iconBytes, out soundBytes, out error, cancellationToken,
+                CompanionFormatFeatures.Supported);
+        }
+
         // No public token-taking TryParse. Every caller in the tree (the loader, the catalog, the pane, the
         // converter, the self-tests) reaches the private parse below through the overloads above, which pass
         // CancellationToken.None, and the one caller holding a live token parses synchronously on the UI thread,
@@ -432,7 +464,8 @@ namespace DesktopAICompanion
             out byte[] iconBytes,
             out byte[][] soundBytes,
             out string error,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            IReadOnlyCollection<string> supportedFeatures)
         {
             root = null;
             spriteBytes = null;
@@ -452,6 +485,10 @@ namespace DesktopAICompanion
                 if (xml.Length > MaximumXmlBytes ||
                     Encoding.UTF8.GetByteCount(xml) > MaximumXmlBytes)
                     throw new InvalidDataException("Pet XML exceeds the " + MebibytesOf(MaximumXmlBytes) + " limit.");
+
+                // BEFORE the schema: a companion written for a newer host is told which feature it needs, instead of
+                // failing on an element this schema has never heard of (grimoire/06 section 1).
+                ShimejiFormatValidator.PreCheckFeatures(xml, supportedFeatures);
 
                 XmlSchemaSet schemas = LoadSchema();
                 string schemaError = null;
@@ -473,7 +510,7 @@ namespace DesktopAICompanion
                 if (!string.IsNullOrEmpty(schemaError))
                     throw new InvalidDataException("XSD validation failed: " + schemaError);
 
-                Validate(root, cancellationToken, out spriteBytes, out iconBytes, out soundBytes);
+                Validate(root, cancellationToken, out spriteBytes, out iconBytes, out soundBytes, supportedFeatures);
                 return true;
             }
             catch (OperationCanceledException)
@@ -519,7 +556,8 @@ namespace DesktopAICompanion
             CancellationToken cancellationToken,
             out byte[] spriteBytesOut,
             out byte[] iconBytesOut,
-            out byte[][] soundBytesOut)
+            out byte[][] soundBytesOut,
+            IReadOnlyCollection<string> supportedFeatures)
         {
             spriteBytesOut = null;
             iconBytesOut = null;
@@ -535,6 +573,14 @@ namespace DesktopAICompanion
             RequireText(root.Header.Title, 1, 1024, "header/title");
             RequireText(root.Header.Author, 1, 1024, "header/author");
             RequireText(root.Header.Info, 0, 65536, "header/info");
+
+            // The Shimeji runtime extensions (grimoire/06): every extension the document USES must be declared (the
+            // pre-check before the schema already refused any declared feature this build does not run), and a
+            // tick-clock companion gets the tick-mode limits and rules.
+            HashSet<string> declared = ShimejiFormatValidator.CheckDeclaredUsage(root);
+            bool tick = ShimejiFormatValidator.IsTickMode(root);
+            int maximumAnimations = tick ? ShimejiFormatValidator.TickMaximumAnimations : MaximumAnimations;
+            int maximumTransitions = tick ? ShimejiFormatValidator.TickMaximumTransitions : MaximumTransitions;
 
             if (root.Image.TilesX < 1 || root.Image.TilesX > 256 ||
                 root.Image.TilesY < 1 || root.Image.TilesY > 256)
@@ -574,8 +620,8 @@ namespace DesktopAICompanion
             iconBytesOut = iconBytes;
 
             XmlData.AnimationNode[] animations = root.Animations.Animation;
-            if (animations.Length < 1 || animations.Length > MaximumAnimations)
-                throw new InvalidDataException("Pet must define 1 to " + MaximumAnimations + " animations.");
+            if (animations.Length < 1 || animations.Length > maximumAnimations)
+                throw new InvalidDataException("Pet must define 1 to " + maximumAnimations + " animations.");
 
             var ids = new HashSet<int>();
             foreach (XmlData.AnimationNode animation in animations)
@@ -590,24 +636,29 @@ namespace DesktopAICompanion
             foreach (XmlData.AnimationNode animation in animations)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                // A tick-clock node plays poses inside its <act> and has no classic frames; the tick-mode rules
+                // (ShimejiFormatValidator.ValidateTickDocument, below) refuse classic frames there.
                 if (animation.Start == null || animation.End == null || animation.Sequence == null ||
-                    animation.Sequence.Frame == null || animation.Sequence.Frame.Length == 0)
+                    (!tick && (animation.Sequence.Frame == null || animation.Sequence.Frame.Length == 0)))
                     throw new InvalidDataException("Animation " + animation.Id + " is incomplete.");
 
                 ValidateMoving(animation.Start, "animation " + animation.Id + " start");
                 ValidateMoving(animation.End, "animation " + animation.Id + " end");
                 ValidateExpression(animation.Sequence.RepeatCount, "animation " + animation.Id + " repeat");
 
-                framesTotal = checked(framesTotal + animation.Sequence.Frame.Length);
-                if (framesTotal > MaximumFramesTotal)
-                    throw new InvalidDataException("Pet defines too many animation frames.");
-                foreach (int frame in animation.Sequence.Frame)
-                    if (frame < 0 || frame >= tileCount)
-                        throw new InvalidDataException("Animation " + animation.Id + " references an invalid frame.");
+                if (!tick)
+                {
+                    framesTotal = checked(framesTotal + animation.Sequence.Frame.Length);
+                    if (framesTotal > MaximumFramesTotal)
+                        throw new InvalidDataException("Pet defines too many animation frames.");
+                    foreach (int frame in animation.Sequence.Frame)
+                        if (frame < 0 || frame >= tileCount)
+                            throw new InvalidDataException("Animation " + animation.Id + " references an invalid frame.");
 
-                if (animation.Sequence.RepeatFromFrame < 0 ||
-                    animation.Sequence.RepeatFromFrame >= animation.Sequence.Frame.Length)
-                    throw new InvalidDataException("Animation " + animation.Id + " has an invalid repeat-from frame.");
+                    if (animation.Sequence.RepeatFromFrame < 0 ||
+                        animation.Sequence.RepeatFromFrame >= animation.Sequence.Frame.Length)
+                        throw new InvalidDataException("Animation " + animation.Id + " has an invalid repeat-from frame.");
+                }
 
                 if (!string.IsNullOrWhiteSpace(animation.Sequence.Action) &&
                     !string.Equals(animation.Sequence.Action, "none", StringComparison.OrdinalIgnoreCase) &&
@@ -622,20 +673,25 @@ namespace DesktopAICompanion
                     animation.Sequence.Next,
                     ids,
                     "animation " + animation.Id + " sequence",
-                    cancellationToken);
+                    cancellationToken,
+                    maximumTransitions);
                 if (animation.Border != null)
                     ValidateNextSet(
                         animation.Border.Next,
                         ids,
                         "animation " + animation.Id + " border",
-                        cancellationToken);
+                        cancellationToken,
+                        maximumTransitions);
                 if (animation.Gravity != null)
                     ValidateNextSet(
                         animation.Gravity.Next,
                         ids,
                         "animation " + animation.Id + " gravity",
-                        cancellationToken);
+                        cancellationToken,
+                        maximumTransitions);
             }
+            if (tick)
+                ShimejiFormatValidator.ValidateTickDocument(root, tileCount, declared);
 
             int spawnWeight = 0;
             var spawnIds = new HashSet<int>();
@@ -730,10 +786,11 @@ namespace DesktopAICompanion
             XmlData.NextNode[] nextNodes,
             HashSet<int> ids,
             string location,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            int maximumTransitions)
         {
             if (nextNodes == null || nextNodes.Length == 0) return;
-            if (nextNodes.Length > MaximumTransitions)
+            if (nextNodes.Length > maximumTransitions)
                 throw new InvalidDataException(location + " contains too many transitions.");
             int total = 0;
             foreach (XmlData.NextNode next in nextNodes)
