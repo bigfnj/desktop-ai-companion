@@ -5459,6 +5459,31 @@ Assert-True ($hpaPacks -cmatch 'tickPacks\.StagePreviewMember = \(scope, key\) =
     'catch { registry.DropIfUnused(entry); throw; }' -cnotmatch 'catch \{ previewPacks\.Close\(id\); registry\.DropIfUnused\(entry\); throw; \}') (
     "host-pack-abi: the app's binding stages a preview's members from the preview namespaces (WITNESS: the single preview's catch does not satisfy the pack's)")
 
+# Companion Studio's pack report window (the review of Studio's pack import, items 1, 4 and 5). No headless self-test
+# builds the WPF window, so the shape is pinned: picking another member forgets the file the previous one was saved to
+# before the editor takes the new text (the F157 guard OnInstalledPicked keeps), a refused member and a pack with no
+# prepared main member leave an empty editor with nothing to save rather than the previous document, a pack with no
+# members states its error once, and the withheld single install's tooltip shows on the disabled button.
+$hpaStudioStops = @("`n        private ", "`n        internal ", "`n        public ")
+$hpaPicked = Get-MethodBody $petStudioWindowCode 'private void OnPackMemberPicked()' $hpaStudioStops
+$hpaLoad = Get-MethodBody $petStudioWindowCode 'private void LoadPackReport(PackConversionResult result, PackConversionOptions options, string title)' $hpaStudioStops
+$hpaClear = Get-MethodBody $petStudioWindowCode 'private void ClearPackDocument()' $hpaStudioStops
+Assert-True ($hpaPicked.Length -gt 0 -and $hpaLoad.Length -gt 0 -and $hpaClear.Length -gt 0) 'host-pack-abi: the pack report window methods could be sliced out'
+$hpaFirstReturn = $hpaPicked.IndexOf('return;', $hpaPicked.IndexOf('PackMemberDisposition.Prepared'))
+Assert-True ($hpaPicked.IndexOf('_openedPath = null;') -ge 0 -and
+    $hpaPicked.IndexOf('_openedPath = null;') -lt $hpaPicked.IndexOf('SetEditorText(member.EmittedXml);') -and
+    $hpaPicked.IndexOf('ClearPackDocument();') -ge 0 -and $hpaPicked.IndexOf('ClearPackDocument();') -lt $hpaFirstReturn) (
+    'host-pack-abi: picking another pack member forgets the saved path before the editor takes it, and a refused member clears the editor')
+Assert-True ($hpaLoad.IndexOf('ClearPackDocument();') -ge 0 -and
+    $hpaLoad.IndexOf('ClearPackDocument();') -lt $hpaLoad.IndexOf('foreach (PackMemberConversionResult member in result.Members)') -and
+    $hpaLoad -cmatch 'SetStatus\(PackStatusPrefix\(\) \+ "It has no members to open\."\);' -and $hpaLoad -cnotmatch 'result\.Error \?\?' -and
+    'SetStatus(PackStatusPrefix() + (result.Error ?? ""));' -cmatch 'result\.Error \?\?') (
+    'host-pack-abi: a pack report clears the previous document before its rows, and a pack with no members states its error once (WITNESS: the old status line matches the pattern)')
+Assert-True ($hpaLoad -cmatch 'ToolTipService\.SetShowOnDisabled\(_installButton, true\);') (
+    "host-pack-abi: the withheld single install's tooltip shows on its disabled button")
+Assert-True ($hpaClear -cmatch 'SetEditorText\(""\);' -and $hpaClear -cmatch '_openedPath = null;' -and $hpaClear -cmatch '_saveButton\.IsEnabled = false;') (
+    'host-pack-abi: an empty pack document has no text, no file it came from and nothing to save')
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever

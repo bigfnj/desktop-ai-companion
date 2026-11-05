@@ -3920,6 +3920,48 @@ CASES = (
         b"            Func<string, string, CompanionTypeRegistry.Entry> unused = (scope, key) => previewPacks.Stage(registry, scope, key, PreviewScaleFactor(),\n",
         "host-pack-abi: the app's binding stages a preview's members from the preview namespaces",
     ),
+    (
+        "host-pack-abi: picking another pack member keeps the saved path",
+        PETSTUDIO_WINDOW,
+        b"            _openedPath = null;\n            _path.Text = \"Imported pack: \" + _packTitle;\n",
+        b"            _path.Text = \"Imported pack: \" + _packTitle;\n",
+        "host-pack-abi: picking another pack member forgets the saved path",
+    ),
+    (
+        "host-pack-abi: a refused member leaves the previous document in the editor",
+        PETSTUDIO_WINDOW,
+        b"                ClearPackDocument();\n                SetStatus(PackStatusPrefix() + \"'\" + member.SourceKey",
+        b"                SetStatus(PackStatusPrefix() + \"'\" + member.SourceKey",
+        "host-pack-abi: picking another pack member forgets the saved path",
+    ),
+    (
+        "host-pack-abi: a pack report keeps the previous document",
+        PETSTUDIO_WINDOW,
+        b"            ClearPackDocument();\n            int select = -1;\n",
+        b"            int select = -1;\n",
+        "host-pack-abi: a pack report clears the previous document before its rows",
+    ),
+    (
+        "host-pack-abi: a pack with no members states its error twice",
+        PETSTUDIO_WINDOW,
+        b"                SetStatus(PackStatusPrefix() + \"It has no members to open.\");\n",
+        b"                SetStatus(PackStatusPrefix() + (result.Error ?? \"\"));\n",
+        "host-pack-abi: a pack report clears the previous document before its rows",
+    ),
+    (
+        "host-pack-abi: the withheld install's tooltip stays hidden on the disabled button",
+        PETSTUDIO_WINDOW,
+        b"            ToolTipService.SetShowOnDisabled(_installButton, true);\n",
+        b"            ToolTipService.SetShowOnDisabled(_installButton, false);\n",
+        "host-pack-abi: the withheld single install's tooltip shows on its disabled button",
+    ),
+    (
+        "host-pack-abi: an empty pack document can still be saved",
+        PETSTUDIO_WINDOW,
+        b"            _openedPath = null;\n            _saveButton.IsEnabled = false;\n            _map.Children.Clear();\n",
+        b"            _openedPath = null;\n            _saveButton.IsEnabled = true;\n            _map.Children.Clear();\n",
+        "host-pack-abi: an empty pack document has no text, no file it came from and nothing to save",
+    ),
 )
 
 
