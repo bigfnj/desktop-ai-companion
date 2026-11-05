@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Xml;
 using System.Xml.Linq;
 
 namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
@@ -59,14 +60,19 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             string behaviorsPath = FindBehaviorsFile(confDir);
 
             var config = new ShimejiConfig();
-            ParseActions(XDocument.Load(actionsPath), config);
+            XDocument actions = XDocument.Load(actionsPath, LoadOptions.SetLineInfo | LoadOptions.PreserveWhitespace);
+            ShimejiSourceDocument actionSource = ReadSource(actions, Path.GetFileName(actionsPath));
+            ParseActions(actions, config);
+            ShimejiSourceDocument behaviorSource = null;
             if (behaviorsPath != null)
             {
-                XDocument behaviors = XDocument.Load(behaviorsPath);
+                XDocument behaviors = XDocument.Load(behaviorsPath, LoadOptions.SetLineInfo | LoadOptions.PreserveWhitespace);
+                behaviorSource = ReadSource(behaviors, Path.GetFileName(behaviorsPath));
                 ParseBehaviorConditions(behaviors, config);
                 ParseBehaviorFrequencies(behaviors, config);
                 config.BehaviorsFile = behaviorsPath;
             }
+            config.Source = new ShimejiSourceConfig(actionSource, behaviorSource);
             return config;
         }
 
@@ -114,7 +120,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         public static ShimejiConfig ParseActionsXml(string actionsXml)
         {
             var config = new ShimejiConfig();
-            ParseActions(XDocument.Parse(actionsXml), config);
+            XDocument actions = XDocument.Parse(actionsXml, LoadOptions.SetLineInfo | LoadOptions.PreserveWhitespace);
+            config.Source = new ShimejiSourceConfig(ReadSource(actions, "actions.xml"), null);
+            ParseActions(actions, config);
             return config;
         }
 
@@ -125,13 +133,18 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         public static ShimejiConfig ParseConfXml(string actionsXml, string behaviorsXml)
         {
             var config = new ShimejiConfig();
-            ParseActions(XDocument.Parse(actionsXml), config);
+            XDocument actions = XDocument.Parse(actionsXml, LoadOptions.SetLineInfo | LoadOptions.PreserveWhitespace);
+            ShimejiSourceDocument actionSource = ReadSource(actions, "actions.xml");
+            ParseActions(actions, config);
+            ShimejiSourceDocument behaviorSource = null;
             if (!string.IsNullOrEmpty(behaviorsXml))
             {
-                XDocument behaviors = XDocument.Parse(behaviorsXml);
+                XDocument behaviors = XDocument.Parse(behaviorsXml, LoadOptions.SetLineInfo | LoadOptions.PreserveWhitespace);
+                behaviorSource = ReadSource(behaviors, "behaviors.xml");
                 ParseBehaviorConditions(behaviors, config);
                 ParseBehaviorFrequencies(behaviors, config);
             }
+            config.Source = new ShimejiSourceConfig(actionSource, behaviorSource);
             return config;
         }
 
@@ -140,7 +153,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         public static ShimejiConfig ParseBundledConf()
         {
             var config = new ShimejiConfig();
-            ParseActions(LoadEmbeddedXml("base-actions.xml"), config);
+            XDocument actions = LoadEmbeddedXml("base-actions.xml");
+            ShimejiSourceDocument actionSource = ReadSource(actions, "base-actions.xml");
+            ParseActions(actions, config);
             // REQUIRED, like the actions. This served only the bundle, which always ships a behaviours file,
             // so its absence is a build defect and not a skin choice -- yet it was loaded as optional and
             // skipped in silence, leaving every behaviour frequency at zero (so every hub spoke got the
@@ -150,8 +165,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             // callers requiring their resource it was a `required` parameter that was constant-true and a
             // return-null branch nothing could reach.
             XDocument behaviors = LoadEmbeddedXml("base-behaviors.xml");
+            ShimejiSourceDocument behaviorSource = ReadSource(behaviors, "base-behaviors.xml");
             ParseBehaviorConditions(behaviors, config);
             ParseBehaviorFrequencies(behaviors, config);
+            config.Source = new ShimejiSourceConfig(actionSource, behaviorSource);
             return config;
         }
 
@@ -161,8 +178,62 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             using (Stream s = asm.GetManifestResourceStream(logicalName))
             {
                 if (s == null) throw new InvalidOperationException("Bundled Shimeji conf resource missing: " + logicalName);
-                return XDocument.Load(s);
+                return XDocument.Load(s, LoadOptions.SetLineInfo | LoadOptions.PreserveWhitespace);
             }
+        }
+
+        private static ShimejiSourceDocument ReadSource(XDocument document, string fileName)
+        {
+            if (document.Root == null) throw new InvalidDataException("Shimeji configuration has no root element: " + fileName);
+            var elements = document.Root.DescendantsAndSelf().ToList();
+            var paths = new Dictionary<XElement, string>();
+            var counts = new Dictionary<XElement, Dictionary<string, int>>();
+            foreach (XElement element in elements)
+            {
+                string name = CanonLocal(element);
+                int ordinal = 1;
+                string parentPath = "";
+                if (element.Parent != null)
+                {
+                    Dictionary<string, int> siblings;
+                    if (!counts.TryGetValue(element.Parent, out siblings))
+                    {
+                        siblings = new Dictionary<string, int>(StringComparer.Ordinal);
+                        counts.Add(element.Parent, siblings);
+                    }
+                    int previous;
+                    siblings.TryGetValue(name, out previous);
+                    ordinal = previous + 1;
+                    siblings[name] = ordinal;
+                    parentPath = paths[element.Parent];
+                }
+                paths[element] = parentPath + "/" + name + "[" + ordinal.ToString(System.Globalization.CultureInfo.InvariantCulture) + "]";
+            }
+            var nodes = new Dictionary<XElement, ShimejiSourceElement>();
+            // Bottom-up construction avoids recursive parsing of deeply nested source composites.
+            for (int index = elements.Count - 1; index >= 0; index--)
+            {
+                XElement element = elements[index];
+                string key = fileName + "#" + paths[element];
+                var attributes = new List<ShimejiSourceAttribute>();
+                var attributeCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+                foreach (XAttribute attribute in element.Attributes())
+                {
+                    string name = Canon(attribute.Name.LocalName);
+                    int previous;
+                    attributeCounts.TryGetValue(name, out previous);
+                    attributeCounts[name] = previous + 1;
+                    attributes.Add(new ShimejiSourceAttribute(name, attribute.Name.LocalName, attribute.Name.NamespaceName,
+                        attribute.Value, key + "@" + name + "[" + (previous + 1).ToString(System.Globalization.CultureInfo.InvariantCulture) + "]"));
+                }
+                var children = new List<ShimejiSourceElement>();
+                foreach (XElement child in element.Elements()) children.Add(nodes[child]);
+                IXmlLineInfo line = element;
+                nodes[element] = new ShimejiSourceElement(CanonLocal(element), element.Name.LocalName,
+                    element.Name.NamespaceName, paths[element], key, line.HasLineInfo() ? line.LineNumber : 0,
+                    line.HasLineInfo() ? line.LinePosition : 0, element.Value, attributes, children);
+            }
+            return new ShimejiSourceDocument(fileName, nodes[document.Root]);
         }
 
         // Shimeji XML ships in three vocabularies: English (Pose/Image/...), British (Behaviour...), and the
@@ -182,6 +253,11 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             { "名前", "Name" }, { "種類", "Type" }, { "クラス", "Class" }, { "枠", "BorderType" },
             { "画像", "Image" }, { "基準座標", "ImageAnchor" }, { "移動速度", "Velocity" }, { "長さ", "Duration" },
             { "頻度", "Frequency" }, { "繰り返し", "Loop" }, { "追加", "Add" }, { "重力", "Gravity" }, { "値", "Value" },
+            { "目的地X", "TargetX" }, { "目的地Y", "TargetY" }, { "速度", "VelocityParam" },
+            { "初速X", "InitialVX" }, { "初速Y", "InitialVY" }, { "空気抵抗X", "ResistanceX" }, { "空気抵抗Y", "ResistanceY" },
+            { "右向き", "LookRight" }, { "IEの端X", "IeOffsetX" }, { "IEの端Y", "IeOffsetY" },
+            { "生まれる場所X", "BornX" }, { "生まれる場所Y", "BornY" }, { "生まれた時の行動", "BornBehavior" },
+            { "端X", "OffsetX" }, { "端Y", "OffsetY" },
             // Type values
             { "組み込み", "Embedded" }, { "移動", "Move" }, { "静止", "Stay" }, { "固定", "Animate" },
             { "複合", "Sequence" }, { "選択", "Select" },
@@ -196,6 +272,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             // British conf's inline transition weights were counted as ROOT selection frequencies and
             // every hub weight for that skin came out skewed.
             { "NextBehaviour", "NextBehavior" },
+            { "BornBehaviour", "BornBehavior" }, { "TransformBehaviour", "TransformBehavior" }, { "TargetBehaviour", "TargetBehavior" },
         };
 
         private static string Canon(string name)
