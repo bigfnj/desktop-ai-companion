@@ -92,7 +92,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             Console.Error.WriteLine("  classify <ConfDir> Parse a Shimeji conf dir (actions.xml + behaviors.xml) and print the");
             Console.Error.WriteLine("                     Group 1/2/3 fidelity census: what converts cleanly, what degrades,");
             Console.Error.WriteLine("                     and what is dropped as residue.");
-            Console.Error.WriteLine("  selftest [source-ir|tick-emitter]");
+            Console.Error.WriteLine("  selftest [source-ir|tick-emitter|pack-conversion]");
             Console.Error.WriteLine("                     Run all engine self-tests or one focused synthetic group.");
             Console.Error.WriteLine("  paritypack <PackDir> <OutDir> [MainMember]");
             Console.Error.WriteLine("                     Test tooling: lower the supported literal tick subset and write each member");
@@ -389,6 +389,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             bool ok;
             if (group == "source-ir") ok = SourceIrSelfTest.Run(out detail);
             else if (group == "tick-emitter") ok = TickPackEmitterSelfTest.Run(out detail);
+            else if (group == "pack-conversion") ok = PackConversionSelfTest.Run(out detail);
+            else if (group.StartsWith("pack-conversion/", StringComparison.Ordinal))
+                ok = PackConversionSelfTest.Run(out detail, group.Substring("pack-conversion/".Length));
             else if (group.StartsWith("tick-emitter/", StringComparison.Ordinal))
                 ok = TickPackEmitterSelfTest.Run(out detail, group.Substring("tick-emitter/".Length));
             else return Usage();

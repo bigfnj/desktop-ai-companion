@@ -3,7 +3,7 @@
   <!-- ShimejiConvert conversion engine. Shared by the ShimejiConvert CLI (tools/ShimejiConvert) and Pet
        Studio (modules/PetStudio, which source-links these files), so the conversion rules live in one place.
 
-       It recompiles three production sources (AnimationXML, CompanionXmlValidator, SafeExpression) instead of
+       It recompiles the production XML model, validators and expression parser instead of
        referencing the app (the app is a WinExe and CompanionXmlValidator is internal). That is the same trick
        tests\DesktopAICompanion.CoreTests uses, and it is load-bearing: the converter MUST be graded by the app's
        real validator, not by a second copy of the rules that can drift. net10.0-windows + UseWindowsForms so
@@ -51,6 +51,7 @@
   <ItemGroup>
     <Compile Include="AssemblyInfo.cs" />
     <Compile Include="Engine.cs" />
+    <Compile Include="PackConversion.cs" />
     <Compile Include="PetGraph.cs" />
     <Compile Include="ValidatorResources.cs" />
     <Compile Include="Shimeji\ShimejiModel.cs" />
@@ -69,6 +70,7 @@
     <Compile Include="Shimeji\CompositorSelfTest.cs" />
     <Compile Include="Shimeji\EmitterSelfTest.cs" />
     <Compile Include="Shimeji\TickPackEmitterSelfTest.cs" />
+    <Compile Include="Shimeji\PackConversionSelfTest.cs" />
     <Compile Include="Shimeji\BundledConfSelfTest.cs" />
     <Compile Include="Shimeji\BundleSelfTest.cs" />
     <Compile Include="Shimeji\VocabSelfTest.cs" />
@@ -94,6 +96,9 @@
     </Compile>
     <Compile Include="..\..\src\dotNet\ShimejiFormatValidator.cs">
       <Link>Shared\ShimejiFormatValidator.cs</Link>
+    </Compile>
+    <Compile Include="..\..\src\dotNet\PackValidator.cs">
+      <Link>Shared\PackValidator.cs</Link>
     </Compile>
     <Compile Include="..\..\src\dotNet\SafeExpression.cs">
       <Link>Shared\SafeExpression.cs</Link>

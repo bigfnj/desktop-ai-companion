@@ -20,6 +20,33 @@ Other members are forms, except the source chooser's hidden members (a leading d
 which are hidden helpers. It omits own-set member defaults and keeps a binding when dropping it would expose a
 different inherited member. This prototype is for parity testing; it is not the Studio installation API.
 
+Studio can prepare the same literal subset through the production, in-memory engine API:
+
+```csharp
+string error;
+PackConversionResult result = ShimejiEngine.ConvertPack(extractedPackRoot,
+    new PackConversionOptions { MainMember = "Main", IncludeParityMaps = true }, out error);
+```
+
+`MainMember` is an exact source image-set key. Optional `Members` metadata selects each member's role and
+visibility; `Startup` supplies the initial member and behaviour. Egg roles and startup are caller choices.
+Every member receives pack metadata, including a pack with one member. Long member keys remain exact while
+the generated display petname is bounded by the host's shorter display-name limit.
+
+Keep the extracted source unchanged during the call, which writes no files. Each member report carries a parsed
+`Root`, canonical `EmittedXml`, optional
+`ParityMapJson`, residue and graph diagnostics, `Valid`, `RoundTrips`, and its disposition. It checks the real
+document validator with the tick-format features enabled, deep-copy and serialization preservation, then the
+shared pack validator. The classic validator entry point keeps its existing feature gate. Missing member
+references produce warnings and retain the runtime's current-type fallback. Unreachable nodes remain in the
+document and graph report.
+
+The caller must require the whole result's `Accepted` before saving or installing any member. Successful
+members can remain as diagnostic previews when a sibling is refused; a refused member exposes no document,
+XML or parity map. If source preparation refuses any member, the result's `PackId` is null. Returned roots are
+independent mutable copies; `EmittedXml` records the validated result before any caller edits. The API is linked
+into Studio, but the import UI and its installation transaction are separate work.
+
 | Source action | Converter stage | Supported | Evidence available |
 |---|---|---|---|
 | Stay | Literal lowering | pending | Host execution: S-slice-stand-walk-01 |
@@ -31,7 +58,7 @@ different inherited member. This prototype is for parity testing; it is not the 
 | Embedded Fall, Dragged | Reserved definitions retained | pending | Present in slice packs; action semantics unexercised |
 | Other embedded classes | Refused by this initial lowering | pending | No tick conversion evidence |
 
-This command targets the headless parity runner. It does not infer egg roles or startup metadata and does not
+The command targets the headless parity runner. It does not infer egg roles or startup metadata and does not
 replace the classic conversion commands or Studio import. It refuses expressions, unsupported attributes and
 classes, sounds, hotspots, constants, toggles, information metadata, anonymous
 nested actions and next references without a root definition. This first emitter refuses non-base action schemas.
@@ -48,6 +75,6 @@ images are not resized. A member-local ImageRight must start with a separator. R
 because they can depend on an earlier cache entry. Java hexadecimal floating literals are refused until the
 host's literal parser can preserve their meaning.
 
-Synthetic self-tests run through the existing emitter suite. Private slice traces and source archives remain
+Synthetic self-tests run through the emitter suite and `selftest pack-conversion`. Private slice traces and source archives remain
 outside the repository. Controlled oracle traces and class-specific branch scenarios are required before any
 row above changes to supported.

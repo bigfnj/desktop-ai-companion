@@ -8,9 +8,8 @@
        Two things make this a module rather than a tool. It reaches the pet engine through the plugin ABI
        (ICompanionManager.SpawnPreview puts a transient pet on the user's actual desktop), and it SOURCE-LINKS the
        host's own validator instead of carrying a copy. Source-linking across a boundary is normally how you
-       get skew; here it is safe precisely because the host is frozen (those files stop moving), and it
-       means this tool's verdict cannot drift from what the host will actually run. If the host ever does
-       ship again and touches one of the linked files, republish this module to match.
+       get skew; compiling the same production sources keeps the format checks shared. Republish this
+       module whenever those linked files change so its shipped validator matches the host.
 
        Unlike every other module so far, this one owns a WINDOW. Modules have been data + delegates with the
        host rendering everything, which is right for settings panes; an authoring canvas is not expressible
@@ -57,6 +56,7 @@
     <Compile Include="..\..\src\dotNet\CompanionXmlValidator.cs" Link="Engine\CompanionXmlValidator.cs" />
     <Compile Include="..\..\src\dotNet\SafeScript.cs" Link="Engine\SafeScript.cs" />
     <Compile Include="..\..\src\dotNet\ShimejiFormatValidator.cs" Link="Engine\ShimejiFormatValidator.cs" />
+    <Compile Include="..\..\src\dotNet\PackValidator.cs" Link="Engine\PackValidator.cs" />
     <Compile Include="..\..\src\dotNet\SafeExpression.cs" Link="Engine\SafeExpression.cs" />
     <!-- Still source-linked: the linked Xml.cs needs DesktopGeometry from this same file, which is pet-engine
          geometry rather than a general helper and so does not belong in ModuleKit. UnicodeTextProgress left this
@@ -76,6 +76,7 @@
        in Pet Studio; the standalone catalog module was retired, and the shimeji ship as ordinary catalog pets. -->
   <ItemGroup>
     <Compile Include="..\..\tools\ShimejiConvert.Engine\Engine.cs" Link="Import\Engine.cs" />
+    <Compile Include="..\..\tools\ShimejiConvert.Engine\PackConversion.cs" Link="Import\PackConversion.cs" />
     <Compile Include="..\..\tools\ShimejiConvert.Engine\PetGraph.cs" Link="Import\PetGraph.cs" />
     <Compile Include="..\..\tools\ShimejiConvert.Engine\Shimeji\ShimejiModel.cs" Link="Import\ShimejiModel.cs" />
     <Compile Include="..\..\tools\ShimejiConvert.Engine\Shimeji\ShimejiParser.cs" Link="Import\ShimejiParser.cs" />
@@ -85,6 +86,7 @@
     <Compile Include="..\..\tools\ShimejiConvert.Engine\Emit\IconBuilder.cs" Link="Import\IconBuilder.cs" />
     <Compile Include="..\..\tools\ShimejiConvert.Engine\Emit\ResidueReport.cs" Link="Import\ResidueReport.cs" />
     <Compile Include="..\..\tools\ShimejiConvert.Engine\Emit\PetEmitter.cs" Link="Import\PetEmitter.cs" />
+    <Compile Include="..\..\tools\ShimejiConvert.Engine\Emit\TickPackEmitter.cs" Link="Import\TickPackEmitter.cs" />
     <!-- Android JSON+WebP bundle path: BundleParser/BundleConverter map manifest.json + animation.json into the
          same ShimejiConfig the desktop parser produces, and WebPLoader decodes the .webp sprites (through the
          bundled dwebp below). This is what lets Pet Studio import Android-format shimeji, not just desktop skins. -->
