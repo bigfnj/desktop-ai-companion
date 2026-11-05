@@ -656,16 +656,27 @@ def v1_self_test(args, labels):
         expect_refusal(lambda: require_v1_results(["S-a", "S-b"], [{"scenario": "S-a"}]), "V1_SCENARIO_SKIPPED S-b", "V1_SKIPPED_WITNESS")
         labels.append("v1-skipped-scenario-refused")
         state_line = {"type": "state", "tick": 2, "sid": "m1", "anchor": [1, 2], "velocity": [0, 0]}
-        on = [{"type": "header", "scenario": {"id": "S-a"}}, state_line, {"type": "footer", "ticks": 2, "draws": 1, "events": 3}]
-        off = [on[0], dict(state_line, velocity=[5, 5]), {"type": "footer", "ticks": 2, "unobservedDraws": 1, "unobservedEvents": 3}]
-        for name, rows in (("on.jsonl", on), ("off.jsonl", off)):
-            (root / name).write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
-        v1_observation_proof(root / "on.jsonl", root / "off.jsonl")
-        off[1] = dict(state_line, anchor=[1, 3])
-        (root / "off.jsonl").write_text("\n".join(json.dumps(row) for row in off) + "\n", encoding="utf-8")
-        expect_refusal(lambda: v1_observation_proof(root / "on.jsonl", root / "off.jsonl"),
-                       "V1_OBSERVATION_CHANGED_BEHAVIOUR", "V1_OBSERVATION_WITNESS")
-        labels.append("v1-observation-proof-refuses-a-changed-final-tick")
+        on = [{"type": "header", "scenario": {"id": "S-a"}}, state_line,
+              {"type": "footer", "ticks": 2, "status": "complete", "draws": 1, "events": 3}]
+        off = [on[0], dict(state_line, velocity=[5, 5]),
+               {"type": "footer", "ticks": 2, "status": "complete", "unobservedDraws": 1, "unobservedEvents": 3}]
+
+        def proof(on_rows, off_rows):
+            for name, rows in (("on.jsonl", on_rows), ("off.jsonl", off_rows)):
+                (root / name).write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+            return lambda: v1_observation_proof(root / "on.jsonl", root / "off.jsonl")
+        proof(on, off)()
+        expect_refusal(proof(on, [off[0], dict(state_line, anchor=[1, 3]), off[2]]),
+                       "V1_OBSERVATION_CHANGED_BEHAVIOUR final tick differs", "V1_OBSERVATION_WITNESS")
+        expect_refusal(proof(on, [off[0], dict(off[2], status="error")]),
+                       "V1_OBSERVATION_CHANGED_BEHAVIOUR a run did not complete", "V1_OBSERVATION_STATUS_WITNESS")
+        # F4: every companion disposed before the last tick, equal on both sides: an empty final population passes.
+        gone = [on[0], dict(state_line, tick=0), {"type": "event", "tick": 1, "sid": "m1", "kind": "dispose"}, on[2]]
+        try:
+            proof(gone, [off[0], off[2]])()
+        except Refusal as failure:
+            raise AssertionError("V1_EMPTY_FINAL_WITNESS equal empty final populations refused: " + str(failure))
+        labels.append("v1-observation-proof-refuses-a-changed-final-tick-or-an-incomplete-run-accepts-all-disposed")
 
         # F1: a scenario id is one safe leaf name; nothing is written for a traversal, rooted or separator id.
         runs = root / "runs"
@@ -868,7 +879,11 @@ def mutate(args):
         ("v1-truncated", [('if footer.get("type") ' + '!= "footer":', 'if False:')], "V1_TRUNCATED_WITNESS"),
         ("v1-footer-status", [('footer.get("status") in ' + '("timeout", "aborted", "error"):', 'False:')], "V1_TIMEOUT_WITNESS"),
         ("v1-skipped", [('if missing:\n        raise Refusal("V1_SCENARIO_' + 'SKIPPED "', 'if False:\n        raise Refusal("V1_SCENARIO_SKIPPED "')], "V1_SKIPPED_WITNESS"),
-        ("v1-observation", [('if not final_on or final_on ' + '!= final_off:', 'if False:')], "V1_OBSERVATION_WITNESS")])
+        ("v1-observation", [('if final_on ' + '!= final_off:', 'if False:')], "V1_OBSERVATION_WITNESS")])
+    # Review fix F4 (an equal empty final population, and both runs complete).
+    legs.extend([
+        ("v1-empty-final", [('if final_on ' + '!= final_off:', 'if not final_on or final_on != final_off:')], "V1_EMPTY_FINAL_WITNESS"),
+        ("v1-observation-status", [('if on[-1].get("status") != "complete" or off[-1].get("status") ' + '!= "complete"', 'if False')], "V1_OBSERVATION_STATUS_WITNESS")])
     # Review fixes F1 (scenario id paths) and F2 (helper inventory).
     legs.extend([
         ("v1-scenario-id", [('if not isinstance(scenario_id, str) or not V1_SCENARIO_ID.fullmatch(scenario_id) ' + 'or scenario_id.endswith("."):', 'if False:')], "V1_SCENARIO_ID_WITNESS"),
@@ -1245,10 +1260,16 @@ def v1_observation_proof(on_trace, off_trace):
         return [json.loads(line) for line in Path(path).read_text(encoding="utf-8").splitlines() if line.strip()]
     on, off = load(on_trace), load(off_trace)
     ticks = on[-1]["ticks"]
+    # Both runs must have reached the last tick: an off run that crashed early would otherwise show the same empty
+    # final population as a run whose companions all disposed.
+    if on[-1].get("status") != "complete" or off[-1].get("status") != "complete" or off[-1].get("ticks") != ticks:
+        raise Refusal("V1_OBSERVATION_CHANGED_BEHAVIOUR a run did not complete all its ticks")
     strip = lambda row: {k: v for k, v in row.items() if k != "velocity"}
     final_on = [strip(row) for row in on if row.get("type") == "state" and row["tick"] == ticks]
     final_off = [strip(row) for row in off if row.get("type") == "state" and row["tick"] == ticks]
-    if not final_on or final_on != final_off:
+    # Equal populations pass, an empty one included (every companion disposed: review F4); the traced run's own
+    # checks already require each companion that stops early to have its dispose event.
+    if final_on != final_off:
         raise Refusal("V1_OBSERVATION_CHANGED_BEHAVIOUR final tick differs")
     if (on[-1]["draws"], on[-1]["events"]) != (off[-1].get("unobservedDraws"), off[-1].get("unobservedEvents")):
         raise Refusal("V1_OBSERVATION_CHANGED_BEHAVIOUR draw or event totals differ")
