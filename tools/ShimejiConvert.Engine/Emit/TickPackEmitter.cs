@@ -54,24 +54,25 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             }
             if (mainMember != null && !prepared.Any(m => m.Name == mainMember))
                 throw new InvalidDataException("TICK_PACK_MAIN_UNKNOWN: the requested main image set is not in this pack.");
-            if (prepared.Any(m => m.CrossMember))
+            if (prepared.Any(m => m.CrossMember) || mainMember != null || prepared.Any(m => HiddenInSourceChooser(m.Name)))
             {
                 if (mainMember == null)
-                    throw new InvalidDataException("TICK_PACK_MAIN_REQUIRED: provide the main image set for cross-member output.");
-                string packId;
-                using (SHA256 sha = SHA256.Create())
-                    packId = "shimeji-" + BitConverter.ToString(sha.ComputeHash(Encoding.UTF8.GetBytes(
-                        string.Join("\n", prepared.Select(m => m.Name + "\n" + m.Xml))))).Replace("-", "").ToLowerInvariant().Substring(0, 24);
+                    throw new InvalidDataException("TICK_PACK_MAIN_REQUIRED: provide the main image set for pack output.");
+                // Output formatting and converter changes must not change a source pack's identity.
+                string packId = "shimeji-" + Hash(Encoding.UTF8.GetBytes("shimeji-source-pack/1\n"
+                    + string.Join("\n", prepared.Select(m => m.Name + "\n" + m.SourceIdentity)))).Substring(0, 24);
                 foreach (MemberOutput member in prepared)
                 {
                     XDocument document = XDocument.Parse(member.Xml);
                     XElement header = document.Root.Element(Ns + "header");
                     XElement features = header.Element(Ns + "features");
                     if (!features.Value.Split(' ').Contains("packs")) features.Value += " packs";
-                    // The caller chooses the main member; other members remain neutral forms.
-                    // Roles such as egg/helper and startup behaviour are not guessed from names.
+                    // Preserve the source chooser's explicit visibility rule. Startup and egg roles
+                    // still require caller metadata rather than inference from a name.
+                    bool hidden = HiddenInSourceChooser(member.Name);
+                    string role = member.Name == mainMember ? "main" : hidden ? "helper" : "form";
                     header.Add(E("pack", new XAttribute("id", packId), new XAttribute("member", member.Name),
-                        new XAttribute("role", member.Name == mainMember ? "main" : "form")));
+                        new XAttribute("role", role), new XAttribute("hidden", hidden)));
                     member.Xml = document.ToString();
                 }
             }
@@ -92,7 +93,13 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             return paths.AsReadOnly();
         }
 
-        private sealed class MemberOutput { public string Name, Xml, Map; public bool CrossMember; }
+        private static bool HiddenInSourceChooser(string name)
+        {
+            return name.StartsWith(".", StringComparison.Ordinal)
+                || string.Equals(name, "unused", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private sealed class MemberOutput { public string Name, Xml, Map, SourceIdentity; public bool CrossMember; }
         private sealed class RootBehaviour
         {
             public ShimejiSourceElement Source;
@@ -108,6 +115,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
 
         private sealed class MemberBuilder
         {
+            // Match the host's per-activation limits before preparing any output files.
+            private const int ActivationDepthLimit = 32, ActivationSizeLimit = 4096;
+            private sealed class ActivationBounds { public int Count, Depth; }
             private readonly string _pack, _member;
             private readonly ShimejiSourceConfig _source;
             private readonly List<XElement> _nodes = new List<XElement>();
@@ -161,6 +171,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 // excludes the authored anchor, so later poses with the same pair use the first one.
                 foreach (ShimejiSourceElement action in _actionOrder) IndexPairAnchors(action);
                 foreach (ShimejiSourceElement action in _actionOrder) EmitAction(action, false);
+                ValidateActivations();
                 foreach (string name in _rootOrder) _roots[name].Id = _next++;
                 foreach (string name in _rootOrder)
                 {
@@ -203,7 +214,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 bool crossMember = _nodes.SelectMany(n => n.Descendants()).Any(n =>
                     (n.Name == Ns + "param" || n.Name == Ns + "bind") &&
                     IsMemberParameter((string)n.Attribute("name")));
-                return new MemberOutput { Name = _member, Xml = xml, Map = map + "\n", CrossMember = crossMember };
+                return new MemberOutput { Name = _member, Xml = xml, Map = map + "\n", CrossMember = crossMember,
+                    SourceIdentity = SourceIdentity() };
             }
 
             private void CollectRoots(ShimejiSourceElement parent, string condition)
@@ -305,6 +317,52 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 return id;
             }
 
+            private void ValidateActivations()
+            {
+                var known = new Dictionary<string, ActivationBounds>(StringComparer.Ordinal);
+                var active = new HashSet<string>(StringComparer.Ordinal);
+                var path = new List<string>();
+                foreach (ShimejiSourceElement action in _actions.Values)
+                    InspectActivation(action, known, active, path);
+            }
+
+            private ActivationBounds InspectActivation(ShimejiSourceElement source,
+                Dictionary<string, ActivationBounds> known, HashSet<string> active, List<string> path)
+            {
+                string name = Required(source, "Name");
+                if (active.Contains(name))
+                    Fail(source, "TICK_COMPOSITE_CYCLE: activation repeats '" + name + "' (" + string.Join(" -> ", path) + ").");
+                if (path.Count >= ActivationDepthLimit)
+                    Fail(source, "TICK_COMPOSITE_DEPTH: activation exceeds " + ActivationDepthLimit + " actions deep.");
+                ActivationBounds cached;
+                if (known.TryGetValue(name, out cached))
+                {
+                    // Reused subtrees still consume the caller's remaining depth budget.
+                    if (path.Count + cached.Depth > ActivationDepthLimit)
+                        Fail(source, "TICK_COMPOSITE_DEPTH: activation exceeds " + ActivationDepthLimit + " actions deep.");
+                    return cached;
+                }
+                active.Add(name);
+                path.Add(name);
+                int count = 1, depth = 1;
+                string type = Required(source, "Type");
+                if (type == "Sequence" || type == "Select")
+                    foreach (ShimejiSourceElement child in source.Children)
+                    {
+                        if (child.Kind != ShimejiSourceKind.Action && child.Kind != ShimejiSourceKind.ActionReference) continue;
+                        ActivationBounds bounds = InspectActivation(_actions[Required(child, "Name")], known, active, path);
+                        count += bounds.Count;
+                        if (count > ActivationSizeLimit)
+                            Fail(source, "TICK_COMPOSITE_SIZE: activation builds more than " + ActivationSizeLimit + " actions.");
+                        depth = Math.Max(depth, 1 + bounds.Depth);
+                    }
+                path.RemoveAt(path.Count - 1);
+                active.Remove(name);
+                var result = new ActivationBounds { Count = count, Depth = depth };
+                known.Add(name, result);
+                return result;
+            }
+
             private XElement EmitVariant(ShimejiSourceElement source)
             {
                 Check(source, "Condition", "IsTurn");
@@ -327,14 +385,14 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     {
                         int x, y;
                         Pair(Required(child, "ImageAnchor"), child, out x, out y);
-                        int frame = AddFrame(image, x, y, child);
                         PairAnchor effective = _pairAnchors[PairKey(image, right, child)];
+                        int frame = AddFrame(image, effective.X, effective.Y, child);
                         pose.SetAttributeValue("frame", frame);
                         pose.Add(new XAttribute("ax", effective.X), new XAttribute("ay", effective.Y),
                             new XAttribute("w", _frames[frame].Width), new XAttribute("h", _frames[frame].Height));
                         if (right != null)
                         {
-                            int rightFrame = AddFrame(right, x, y, child);
+                            int rightFrame = AddFrame(right, effective.X, effective.Y, child);
                             pose.Add(new XAttribute("right", rightFrame),
                                 new XAttribute("rw", _frames[rightFrame].Width), new XAttribute("rh", _frames[rightFrame].Height));
                         }
@@ -465,6 +523,25 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 return string.Join("/", relative.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries));
             }
 
+            private string SourceIdentity()
+            {
+                // Hash only known source inputs, never generated XML, cache paths or output files.
+                // Parsing and image loading already restrict these entries to the source pack.
+                var paths = new SortedSet<string>(StringComparer.Ordinal);
+                paths.Add(_source.Actions.PackRelativePath.Replace('\\', '/'));
+                paths.Add(_source.Behaviors.PackRelativePath.Replace('\\', '/'));
+                foreach (Frame frame in _frames) paths.Add(frame.Image);
+                var manifest = new StringBuilder();
+                foreach (string relative in paths)
+                {
+                    string path = Path.GetFullPath(Path.Combine(_pack, relative.Replace('/', Path.DirectorySeparatorChar)));
+                    if (!Inside(_pack, path)) throw new InvalidDataException("Source identity input leaves its pack.");
+                    SafeEntry(path);
+                    manifest.Append(Hash(File.ReadAllBytes(path))).Append("  ").Append(relative).Append('\n');
+                }
+                return Hash(Encoding.UTF8.GetBytes(manifest.ToString()));
+            }
+
             private XElement MemberParameter(string tag, ShimejiSourceAttribute attribute, ShimejiSourceElement target)
             {
                 if (IsMemberParameter(attribute.Name) && attribute.RawValue == _member)
@@ -557,6 +634,11 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         }
         private static bool IsMemberParameter(string name)
         { return name == "BornMascot" || name == "TransformMascot"; }
+        private static string Hash(byte[] bytes)
+        {
+            using (SHA256 sha = SHA256.Create())
+                return BitConverter.ToString(sha.ComputeHash(bytes)).Replace("-", "").ToLowerInvariant();
+        }
         private static IEnumerable<ShimejiSourceAttribute> Attributes(ShimejiSourceElement source)
         {
             foreach (ShimejiSourceAttribute attribute in source.Attributes)

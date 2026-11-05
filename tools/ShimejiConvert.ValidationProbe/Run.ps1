@@ -26,6 +26,9 @@ foreach ($path in $XmlPath) {
     $full = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($path)
     if ([IO.Path]::GetFileName($full) -cne 'animations.xml') { throw 'PROBE_INPUT_NAME: explicit animations.xml paths are required.' }
     $inputHashes[$full] = (Get-FileHash -LiteralPath $full -Algorithm SHA256).Hash.ToLowerInvariant()
+    $mapPath = Join-Path ([IO.Path]::GetDirectoryName($full)) 'parity-map.json'
+    if (-not (Test-Path -LiteralPath $mapPath -PathType Leaf)) { throw ('PROBE_MAP_MISSING: ' + $mapPath) }
+    $inputHashes[$mapPath] = (Get-FileHash -LiteralPath $mapPath -Algorithm SHA256).Hash.ToLowerInvariant()
     $inputPaths += $full
 }
 $actualCommit = $null
@@ -92,7 +95,7 @@ if ($record.artifactSha256 -cne $artifactHash) { throw 'PROBE_EXECUTED_ARTIFACT_
 foreach ($relative in $links) {
     if ((Get-FileHash -LiteralPath (Join-Path $HostSourceRoot $relative) -Algorithm SHA256).Hash.ToLowerInvariant() -cne $sourceHashes[$relative]) { throw ('PROBE_SOURCE_CHANGED: ' + $relative) }
 }
-foreach ($path in $inputPaths) {
+foreach ($path in $inputHashes.Keys) {
     if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $inputHashes[$path]) { throw ('PROBE_INPUT_CHANGED: ' + $path) }
 }
 if ($ExpectedCommit) {

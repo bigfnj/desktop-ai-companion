@@ -34,6 +34,11 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "existing-output-refusal", Run = (Action)ExistingOutputRefusal },
                 new { Name = "private-action-reference-refusal", Run = (Action)PrivateReferenceRefusal },
                 new { Name = "private-behavior-action-refusal", Run = (Action)PrivateBehaviorRefusal },
+                new { Name = "composite-cycle-refusal", Run = (Action)CompositeCycleRefusal },
+                new { Name = "composite-depth-refusal", Run = (Action)CompositeDepthRefusal },
+                new { Name = "composite-size-refusal", Run = (Action)CompositeSizeRefusal },
+                new { Name = "hidden-pack-members", Run = (Action)HiddenPackMembers },
+                new { Name = "explicit-pack-metadata", Run = (Action)ExplicitPackMetadata },
                 new { Name = "java-literal-refusal", Run = (Action)JavaLiteralRefusal },
                 new { Name = "declaration-order", Run = (Action)DeclarationOrder },
                 new { Name = "missing-add-false", Run = (Action)MissingAddFalse },
@@ -47,6 +52,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "action-schema-refusal", Run = (Action)ActionSchemaRefusal },
                 new { Name = "ignored-reference-lists", Run = (Action)IgnoredReferenceLists },
                 new { Name = "cross-member-pack-metadata", Run = (Action)CrossMemberPackMetadata },
+                new { Name = "pack-source-identity", Run = (Action)PackSourceIdentity },
             };
             if (onlyCase != null && !cases.Any(c => c.Name == onlyCase))
             {
@@ -312,6 +318,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 animation.RemoveNodes();
                 XElement first = Pose("/q.png", 2), second = Pose("/q.png", 3);
                 first.SetAttributeValue("ImageAnchor", "1,5"); second.SetAttributeValue("ImageAnchor", "-3,8");
+                first.SetAttributeValue("ImageRight", "/p.png"); second.SetAttributeValue("ImageRight", "/p.png");
                 animation.Add(first, second);
                 // Other actions must not preload this pair with the fixture's default anchor.
                 foreach (XElement other in source.Descendants("Action").Where(a => (string)a.Attribute("Name") != "Stand").Descendants("Pose"))
@@ -326,9 +333,15 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 {
                     JsonElement[] frames = map.RootElement.GetProperty("frames").EnumerateArray()
                         .Where(f => f.GetProperty("image").GetString() == "img/A/q.png").ToArray();
-                    Require(frames.Length == 2 && frames.Select(f => string.Join(",", f.GetProperty("anchor").EnumerateArray().Select(v => v.GetInt32())))
-                        .SequenceEqual(new[] { "1,5", "-3,8" }),
-                        "pair-cache parity map lost the independently authored pose anchors");
+                    Require(frames.Length == 1 && frames[0].GetProperty("anchor").EnumerateArray().Select(v => v.GetInt32()).SequenceEqual(new[] { 1, 5 })
+                        && poses.Select(p => p.Attribute("frame").Value).Distinct().Count() == 1,
+                        "pair-cache parity map disagrees with the effective pose anchor or duplicates its frame");
+                    int right = int.Parse(poses[0].Attribute("right").Value);
+                    JsonElement[] rightFrames = map.RootElement.GetProperty("frames").EnumerateArray()
+                        .Where(f => f.GetProperty("frame").GetInt32() == right).ToArray();
+                    Require(rightFrames.Length == 1 && poses.Select(p => p.Attribute("right").Value).Distinct().Count() == 1
+                        && rightFrames[0].GetProperty("anchor").EnumerateArray().Select(v => v.GetInt32()).SequenceEqual(new[] { 1, 5 }),
+                        "pair-cache right parity map disagrees with the effective pose anchor or duplicates its frame");
                 }
             }
         }
@@ -649,7 +662,137 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 Require(Bound(NamedNode(document, "Born").Element(Ns + "act"), "param", "BornMascot") == "B",
                     "foreign default member was lost");
                 XElement child = NamedNode(document, "Composite").Element(Ns + "act").Element(Ns + "children").Element(Ns + "child");
+                Require(child.Elements(Ns + "bind").Count(p => p.Attribute("name").Value == "BornMascot") == 1,
+                    "own-set binding reset to a foreign default was dropped");
                 Require(Bound(child, "bind", "BornMascot") == "A", "own-set binding reset to a foreign default was dropped");
+            }
+        }
+
+        private static void CompositeCycleRefusal()
+        {
+            using (var fixture = new Fixture())
+            {
+                XDocument source = BuildActions();
+                source.Descendants("Action").First().Add(S("ActionReference", A("Name", "Composite")));
+                fixture.Actions(source);
+                string error = Refusal(fixture, "TICK_COMPOSITE_CYCLE");
+                Require(error.Contains("actions.xml") && error.Contains("/Mascot[1]/ActionList[1]/Action["),
+                    "composite cycle refusal lost its source locator");
+                Require(!Directory.Exists(fixture.Output), "composite cycle refusal wrote output");
+            }
+        }
+
+        private static void ConfigureGraph(Fixture fixture, IEnumerable<XElement> actions, string entry)
+        {
+            fixture.Actions(new XDocument(S("Mascot", S("ActionList", actions))));
+            fixture.Behaviors(new XDocument(S("Mascot", S("BehaviorList",
+                S("Behavior", A("Name", "Main"), A("Action", entry), A("Frequency", 1))))));
+        }
+
+        private static IEnumerable<XElement> DepthGraph(int depth, bool leafFirst)
+        {
+            var actions = new List<XElement>();
+            for (int i = 0; i < depth - 1; i++)
+                actions.Add(S("Action", A("Name", "Depth" + i), A("Type", "Sequence"),
+                    S("ActionReference", A("Name", i == depth - 2 ? "Stand" : "Depth" + (i + 1)))));
+            actions.Add(S("Action", A("Name", "Stand"), A("Type", "Stay"), S("Animation", Pose("/p.png", 1))));
+            if (leafFirst) actions.Reverse();
+            return actions;
+        }
+
+        private static void CompositeDepthRefusal()
+        {
+            foreach (bool leafFirst in new[] { false, true })
+            {
+                using (var positive = new Fixture())
+                {
+                    ConfigureGraph(positive, DepthGraph(32, leafFirst), "Depth0");
+                    Require(positive.Convert().Root != null, "32-deep activation boundary was refused");
+                }
+                using (var invalid = new Fixture())
+                {
+                    ConfigureGraph(invalid, DepthGraph(33, leafFirst), "Depth0");
+                    string error = Refusal(invalid, "TICK_COMPOSITE_DEPTH");
+                    Require(error.Contains("actions.xml"), "composite depth refusal lost its source locator");
+                    Require(!Directory.Exists(invalid.Output), "composite depth refusal wrote output");
+                }
+            }
+        }
+
+        private static IEnumerable<XElement> SizeGraph(bool tooLarge)
+        {
+            XElement root = S("Action", A("Name", "Wide"), A("Type", "Sequence"),
+                S("ActionReference", A("Name", "Double10")), S("ActionReference", A("Name", "Double10")),
+                S("ActionReference", A("Name", "Stand")));
+            if (tooLarge) root.Add(S("ActionReference", A("Name", "Stand")));
+            var actions = new List<XElement> { root };
+            for (int i = 10; i >= 1; i--)
+            {
+                string child = i == 1 ? "Stand" : "Double" + (i - 1);
+                actions.Add(S("Action", A("Name", "Double" + i), A("Type", "Sequence"),
+                    S("ActionReference", A("Name", child)), S("ActionReference", A("Name", child))));
+            }
+            actions.Add(S("Action", A("Name", "Stand"), A("Type", "Stay"), S("Animation", Pose("/p.png", 1))));
+            return actions;
+        }
+
+        private static void CompositeSizeRefusal()
+        {
+            using (var positive = new Fixture())
+            {
+                ConfigureGraph(positive, SizeGraph(false), "Wide");
+                Require(positive.Convert().Root != null, "4096-action activation boundary was refused");
+            }
+            using (var invalid = new Fixture())
+            {
+                ConfigureGraph(invalid, SizeGraph(true), "Wide");
+                string error = Refusal(invalid, "TICK_COMPOSITE_SIZE");
+                Require(error.Contains("actions.xml"), "composite size refusal lost its source locator");
+                Require(!Directory.Exists(invalid.Output), "composite size refusal wrote output");
+            }
+        }
+
+        private static void HiddenPackMembers()
+        {
+            foreach (string name in new[] { ".Ball", "unused", "UNUSED", "UnusedSide", "Visible" })
+            {
+                using (var fixture = new Fixture())
+                {
+                    fixture.Member(name);
+                    fixture.Convert("A");
+                    XElement pack = XDocument.Load(Path.Combine(fixture.Output, name, "animations.xml")).Root
+                        .Element(Ns + "header").Element(Ns + "pack");
+                    bool hidden = name == ".Ball" || name == "unused" || name == "UNUSED";
+                    Require((string)pack.Attribute("hidden") == (hidden ? "true" : "false"),
+                        "source chooser visibility was lost for member " + name);
+                    Require((string)pack.Attribute("role") == (hidden ? "helper" : "form"),
+                        "source chooser helper/form role was lost for member " + name);
+                }
+            }
+        }
+
+        private static void ExplicitPackMetadata()
+        {
+            using (var fixture = new Fixture())
+            {
+                ConfigureGraph(fixture, new[] { S("Action", A("Name", "Stand"), A("Type", "Stay"), S("Animation", Pose("/p.png", 1))) }, "Stand");
+                XDocument document = fixture.Convert("A");
+                XElement header = document.Root.Element(Ns + "header"), pack = header.Element(Ns + "pack");
+                Require(pack != null && (string)pack.Attribute("member") == "A" && (string)pack.Attribute("role") == "main"
+                    && header.Element(Ns + "features").Value.Split(' ').Contains("packs"),
+                    "explicit main request lost its pack metadata");
+            }
+            using (var fixture = new Fixture())
+            {
+                fixture.Member(".Ball");
+                ConfigureGraph(fixture, new[] { S("Action", A("Name", "Stand"), A("Type", "Stay"), S("Animation", Pose("/p.png", 1))) }, "Stand");
+                Refusal(fixture, "TICK_PACK_MAIN_REQUIRED");
+                Require(!Directory.Exists(fixture.Output), "hidden member without a main wrote output");
+                fixture.Convert("A");
+                XElement helper = XDocument.Load(Path.Combine(fixture.Output, ".Ball", "animations.xml")).Root
+                    .Element(Ns + "header").Element(Ns + "pack");
+                Require(helper != null && (string)helper.Attribute("hidden") == "true" && (string)helper.Attribute("role") == "helper",
+                    "hidden member without cross references lost its chooser visibility metadata");
             }
         }
 
@@ -708,6 +851,28 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 Require(!NamedNode(first, "Born").Element(Ns + "act").Elements(Ns + "param").Any(p => p.Attribute("name").Value == "BornMascot")
                     && Bound(NamedNode(second, "Born").Element(Ns + "act"), "param", "BornMascot") == "A",
                     "own-set omission removed or changed a foreign member reference");
+            }
+        }
+
+        private static void PackSourceIdentity()
+        {
+            using (var fixture = new Fixture())
+            {
+                fixture.Member("B");
+                XDocument first = fixture.Convert("A");
+                XDocument second = fixture.ConvertSeparate("repeat", "A");
+                string originalId = (string)first.Root.Element(Ns + "header").Element(Ns + "pack").Attribute("id");
+                Require(originalId == (string)second.Root.Element(Ns + "header").Element(Ns + "pack").Attribute("id"),
+                    "pack identity depends on output directory");
+                XDocument source = BuildActions();
+                source.AddFirst(new XComment("source identity witness"));
+                fixture.Actions(source);
+                XDocument revised = fixture.ConvertSeparate("revised", "A");
+                Require(originalId != (string)revised.Root.Element(Ns + "header").Element(Ns + "pack").Attribute("id"),
+                    "pack identity came from emitted XML instead of source bytes");
+                first.Root.Element(Ns + "header").Element(Ns + "pack").Attribute("id").Remove();
+                revised.Root.Element(Ns + "header").Element(Ns + "pack").Attribute("id").Remove();
+                Require(XNode.DeepEquals(first, revised), "source-only comment unexpectedly changed emitted content");
             }
         }
 
@@ -844,6 +1009,32 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 IReadOnlyList<string> paths = mainMember == null ? TickPackEmitter.ConvertPack(Pack, Output) : TickPackEmitter.ConvertPack(Pack, Output, mainMember);
                 Require(paths.Count == _members.Count && paths.Contains(XmlPath) && File.Exists(MapPath), "actual emitter did not produce its member XML and parity map");
                 return XDocument.Load(XmlPath);
+            }
+
+            internal XDocument ConvertSeparate(string name, string mainMember)
+            {
+                string output = Path.Combine(Root, name);
+                Require(string.Equals(Path.GetDirectoryName(output), Root, StringComparison.OrdinalIgnoreCase),
+                    "separate conversion output escaped the fixture");
+                try
+                {
+                    TickPackEmitter.ConvertPack(Pack, output, mainMember);
+                    return XDocument.Load(Path.Combine(output, "A", "animations.xml"));
+                }
+                finally
+                {
+                    foreach (string member in _members)
+                    {
+                        string directory = Path.Combine(output, member);
+                        foreach (string file in new[] { "animations.xml", "parity-map.json" })
+                        {
+                            string path = Path.Combine(directory, file);
+                            if (File.Exists(path)) File.Delete(path);
+                        }
+                        if (Directory.Exists(directory)) Directory.Delete(directory, false);
+                    }
+                    if (Directory.Exists(output)) Directory.Delete(output, false);
+                }
             }
 
             public void Dispose()

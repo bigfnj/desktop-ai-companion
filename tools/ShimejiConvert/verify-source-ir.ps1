@@ -82,7 +82,8 @@ $tickCaseNames = @('graph-bindings-and-origins', 'sprite-pixels-and-identity', '
     'private-behavior-action-refusal', 'java-literal-refusal', 'sprite-dpi72', 'declaration-order', 'missing-add-false',
     'duplicate-root-last-definition', 'enclosing-conditions', 'prepare-all-members', 'cross-schema-refusal',
     'toggle-refusal', 'information-refusal', 'own-set-binding-reset', 'action-schema-refusal',
-    'ignored-reference-lists', 'cross-member-pack-metadata')
+    'ignored-reference-lists', 'cross-member-pack-metadata', 'composite-cycle-refusal', 'composite-depth-refusal',
+    'composite-size-refusal', 'hidden-pack-members', 'explicit-pack-metadata', 'pack-source-identity')
 
 function Quote-Argument([string]$Value) {
     $escaped = [regex]::Replace($Value, '(\\*)"', '$1$1\"')
@@ -508,6 +509,42 @@ $mutations = @(
     [pscustomobject]@{ Name = 'geometry-pair-cache-effective-anchor'; Path = $emitter; Witness = 'pair-anchor-cache'
         Old = 'PairAnchor effective = _pairAnchors[PairKey(image, right, child)];'
         New = 'PairAnchor effective = new PairAnchor { X = x, Y = y };' },
+    [pscustomobject]@{ Name = 'review-map-effective-anchor'; Path = $emitter; Witness = 'pair-anchor-cache'
+        Old = 'int frame = AddFrame(image, effective.X, effective.Y, child);'
+        New = 'int frame = AddFrame(image, x, y, child);' },
+    [pscustomobject]@{ Name = 'review-map-effective-right-anchor'; Path = $emitter; Witness = 'pair-anchor-cache'
+        Old = 'int rightFrame = AddFrame(right, effective.X, effective.Y, child);'
+        New = 'int rightFrame = AddFrame(right, x, y, child);' },
+    [pscustomobject]@{ Name = 'review-composite-cycle'; Path = $emitter; Witness = 'composite-cycle-refusal'
+        Old = 'if (active.Contains(name))'
+        New = 'if (active.Contains(name) && _member == "__never__")' },
+    [pscustomobject]@{ Name = 'review-composite-depth'; Path = $emitter; Witness = 'composite-depth-refusal'
+        Old = 'if (path.Count >= ActivationDepthLimit)'
+        New = 'if (path.Count >= ActivationDepthLimit && _member == "__never__")' },
+    [pscustomobject]@{ Name = 'review-composite-cached-depth'; Path = $emitter; Witness = 'composite-depth-refusal'
+        Old = 'if (path.Count + cached.Depth > ActivationDepthLimit)'
+        New = 'if (path.Count + cached.Depth > ActivationDepthLimit && _member == "__never__")' },
+    [pscustomobject]@{ Name = 'review-composite-size'; Path = $emitter; Witness = 'composite-size-refusal'
+        Old = 'if (count > ActivationSizeLimit)'
+        New = 'if (count > ActivationSizeLimit && _member == "__never__")' },
+    [pscustomobject]@{ Name = 'review-hidden-dot'; Path = $emitter; Witness = 'hidden-pack-members'
+        Old = 'return name.StartsWith(".", StringComparison.Ordinal)'
+        New = 'return name == "__never__"' },
+    [pscustomobject]@{ Name = 'review-hidden-unused-case'; Path = $emitter; Witness = 'hidden-pack-members'
+        Old = '|| string.Equals(name, "unused", StringComparison.OrdinalIgnoreCase);'
+        New = '|| string.Equals(name, "unused", StringComparison.Ordinal);' },
+    [pscustomobject]@{ Name = 'review-hidden-role'; Path = $emitter; Witness = 'hidden-pack-members'
+        Old = 'hidden ? "helper" : "form"'
+        New = 'hidden ? "form" : "form"' },
+    [pscustomobject]@{ Name = 'review-explicit-pack-metadata'; Path = $emitter; Witness = 'explicit-pack-metadata'
+        Old = 'if (prepared.Any(m => m.CrossMember) || mainMember != null || prepared.Any(m => HiddenInSourceChooser(m.Name)))'
+        New = 'if (prepared.Any(m => m.CrossMember))' },
+    [pscustomobject]@{ Name = 'review-hidden-pack-main-required'; Path = $emitter; Witness = 'explicit-pack-metadata'
+        Old = '|| prepared.Any(m => HiddenInSourceChooser(m.Name)))'
+        New = ')' },
+    [pscustomobject]@{ Name = 'review-source-pack-identity'; Path = $emitter; Witness = 'pack-source-identity'
+        Old = 'm.Name + "\n" + m.SourceIdentity'
+        New = 'm.Name + "\n" + m.Xml' },
     [pscustomobject]@{ Name = 'geometry-pair-preload-nested-first'; Path = $emitter; Witness = 'pair-anchor-preload-order'
         Old = 'foreach (ShimejiSourceElement animation in action.Children.Where(n => n.Kind == ShimejiSourceKind.Animation))'
         New = 'foreach (ShimejiSourceElement nestedEarly in action.Children.Where(n => n.Kind == ShimejiSourceKind.Action)) IndexPairAnchors(nestedEarly); foreach (ShimejiSourceElement animation in action.Children.Where(n => n.Kind == ShimejiSourceKind.Animation))' },
@@ -559,7 +596,8 @@ $mutations = @(
         Old = 'if (inherited == null || inherited.RawValue == _member) return null;'
         New = 'if (inherited != null || inherited == null) return null;' },
     [pscustomobject]@{ Name = 'review-tick-main-role'; Path = $emitter; Witness = 'cross-member-pack-metadata'
-        Old = 'member.Name == mainMember ? "main" : "form"'; New = 'member.Name == mainMember ? "form" : "form"' },
+        Old = 'member.Name == mainMember ? "main" : hidden ? "helper" : "form"'
+        New = 'member.Name == mainMember ? "form" : hidden ? "helper" : "form"' },
     [pscustomobject]@{ Name = 'review-tick-pack-id'; Path = $emitter; Witness = 'cross-member-pack-metadata'
         Old = 'new XAttribute("id", packId)'; New = 'new XAttribute("id", packId + member.Name)' },
     [pscustomobject]@{ Name = 'review-tick-action-schema'; Path = $emitter; Witness = 'action-schema-refusal'
