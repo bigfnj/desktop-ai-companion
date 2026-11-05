@@ -123,7 +123,9 @@ A pose's Sound becomes a named WAV clip, its id the Sound text and its bytes unc
 MP3 bytes, a WAVE the host's rule rejects, a Volume outside -80 to 6.02 dB and a clip or document over the host's
 audio limits are refused by name.
 It refuses unsupported attributes and
-classes, constants and next references without a root definition. An information document (info.xml) is
+classes, and constants. A next reference without a root definition is NOT lowered exactly: one whose condition,
+its own or an enclosing Condition's, is a script is refused (TICK_NEXT_MISSING_SCRIPTED), and any other is dropped
+with a warning, a POLICY DIVERGENCE recorded below (`policy:next-missing-dropped`). An information document (info.xml) is
 accepted when it holds only <Information> (chooser and credits metadata, which no mascot reads); a Constant, an
 ActionList or a BehaviourList in it is refused.
 Bindings across differing document schemas are refused until target-schema resolution is implemented.
@@ -132,7 +134,8 @@ Recorded divergences from the source (each a correction of a source defect, neve
 
 | policy | source | lowering |
 |---|---|---|
-| `policy:next-missing-dropped` (decision 55) | A next-list entry naming no root behaviour can be selected; when its behaviour ends, Configuration.java:210-211 dereferences the missing root builder and the NullPointerException ends the tick thread (Mascot.java:545-554, Manager.java:88-108), stopping every companion. | The entry is dropped, with a warning naming it and its behaviour (PreparedMember.Warnings). A list left empty runs as the source runs an empty list (Configuration.java:208-245): with Add false the companion drops in and falls, with Add true the root list stays. An entry whose condition is a script stays refused. |
+| `policy:next-missing-dropped` (decision 55) | A next-list entry naming no root behaviour is a behaviour of its own and can be selected: its Frequency is part of every draw over that list (Configuration.java:216-257), and its behaviour runs. A drag or a fall replaces it with no crash; only when it ENDS (UserBehavior.java:286) does Configuration.java:210-211 dereference the missing root builder, and the NullPointerException ends the tick thread (Mascot.java:545-554, Manager.java:88-108), stopping every companion. | The entry is dropped, with a warning naming it and its behaviour (PreparedMember.Warnings; the paritypack verb prints each as a WARNING line, and PackConversionResult.Warnings, which Pet Studio shows, does not carry them yet). It is never selected, its behaviour never runs and its weight leaves every draw over the list, so the lowering differs from the source from the first draw that could pick it, not only at the crash. A list left empty runs as the source runs an empty list (Configuration.java:208-245): with Add false the companion drops in and falls, with Add true the root list stays. An entry whose own or enclosing condition is a script stays refused. Not exact: a policy divergence. |
+
 Composite activation cycles, depth above 32 and expansion above 4096 actions are refused before output is written.
 
 Sheet cells use the maximum source image width and height, with each image copied at its cell's top-left.

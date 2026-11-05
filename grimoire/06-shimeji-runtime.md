@@ -312,8 +312,14 @@ layer selects what follows (4.3). An action node's `<sequence>` is empty, and th
   (`Configuration.java:208-212`).
 - **Names.** The route's behaviours (the root list) have unique names, and every name lookup (Fall, a born or
   transform target, a hotspot) finds one of them. A behaviour node off the route, a next-list entry, carries the name of
-  the root behaviour it stands for: the source finds what follows it by that name, and a name with no root behaviour
-  ends the companion there, so the validator refuses one.
+  the root behaviour it stands for: the source finds what follows it by that name. A name with no root behaviour is a
+  source defect, not a behaviour to reproduce: the entry can be selected and runs, and when it ends the source
+  dereferences the missing root builder (`Configuration.java:210-211`), and the exception ends the tick thread,
+  stopping every companion (`Mascot.java:545-554`, `Manager.java:88-108`). The format has no node for that, so the
+  validator refuses one. The converter's handling is a POLICY DIVERGENCE, never an exact lowering
+  (`policy:next-missing-dropped`, ShimejiConvert `ACTIONS.md`): it drops such an entry with a warning, which removes
+  its selection, its run and its weight from every draw over the list, and it refuses one whose own or enclosing
+  condition is a script.
 
 ### 4.3 Route node, `<route>`: the root behaviour list
 
