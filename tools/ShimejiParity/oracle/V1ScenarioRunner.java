@@ -109,6 +109,7 @@ public final class V1ScenarioRunner implements DraftParityHooks.Controller {
     private final IdentityHashMap<Mascot, Integer> attempts = new IdentityHashMap<Mascot, Integer>();
     private final Map<String, Point> lastAnchor = new LinkedHashMap<String, Point>();
     private final IdentityHashMap<Mascot, String> lastBehaviour = new IdentityHashMap<Mascot, String>();
+    private final IdentityHashMap<Mascot, Integer> behaviourEntryCount = new IdentityHashMap<Mascot, Integer>();
     private final IdentityHashMap<Mascot, Pose> appliedPose = new IdentityHashMap<Mascot, Pose>();
     private final IdentityHashMap<Mascot, Boolean> disposing = new IdentityHashMap<Mascot, Boolean>();
     private final IdentityHashMap<Mascot, String[]> pendingTransform = new IdentityHashMap<Mascot, String[]>();
@@ -629,6 +630,7 @@ public final class V1ScenarioRunner implements DraftParityHooks.Controller {
         record.put("cause", cause);
         emit(record);
         lastBehaviour.put(mascot, name);
+        behaviourEntryCount.put(mascot, behaviourEntries(mascot) + 1);
     }
 
     private void birthRequested(Mascot child, Mascot parent) {
@@ -712,7 +714,9 @@ public final class V1ScenarioRunner implements DraftParityHooks.Controller {
         int x = screen.x - component.getX(), y = screen.y - component.getY();
         int mark = pending.size();
         boolean wasDragging = mascot.isDragging(), wasHotspot = mascot.isHotspotClicked();
-        int behaviourEvents = countBehaviourEvents(mascot, mark);
+        // Read from a counter kept in both modes, never from the trace buffer, which is empty with tracing off
+        // (review F3; CONTRACT section 5: turning tracing off must not change what the run does or counts).
+        int behaviourEvents = behaviourEntries(mascot);
         namedBuild = null;
         Mascot saved = context;
         context = mascot;
@@ -733,7 +737,7 @@ public final class V1ScenarioRunner implements DraftParityHooks.Controller {
                 record.put("op", "press");
                 record.put("behavior", namedBuild);
                 inserted.add(record);
-            } else if (press && countBehaviourEvents(mascot, mark) > behaviourEvents) {
+            } else if (press && behaviourEntries(mascot) > behaviourEvents) {
                 Map<String, Object> record = event(sid(mascot), "drag");
                 record.put("op", "start");
                 inserted.add(record);
@@ -756,14 +760,9 @@ public final class V1ScenarioRunner implements DraftParityHooks.Controller {
         }
     }
 
-    private int countBehaviourEvents(Mascot mascot, int from) {
-        int count = 0;
-        String sid = sids.get(mascot);
-        for (int i = from; i < pending.size(); i++) {
-            Map<String, Object> record = pending.get(i);
-            if ("behavior".equals(record.get("kind")) && sid.equals(record.get("sid"))) count++;
-        }
-        return count;
+    private int behaviourEntries(Mascot mascot) {
+        Integer count = behaviourEntryCount.get(mascot);
+        return count == null ? 0 : count;
     }
 
     // ------------------------------------------------------------------ the scenario's desktop and native factory
