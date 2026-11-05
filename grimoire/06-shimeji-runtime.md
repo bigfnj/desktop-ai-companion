@@ -155,7 +155,10 @@ active child after it, so the leaf decides, and a leaf with no offer leaves the 
 companions, offered together.
 
 **`<variants>`.** The source's `<Animation>` blocks, in order. Each tick the FIRST variant whose `when` holds plays
-(`ActionBase.java:122-164`). `turn="true"` marks an IsTurn animation (`Move.java:107-139`). `<hotspots>` belong to a
+(`ActionBase.java:122-164`). A variant's `when`, like a guard attribute, is evaluated every time the variant is looked
+up, and the source looks it up several times a step (its duration, its pose, its hotspots). The source caches an
+Animation Condition by its `${}`/`#{}` kind instead (`Animation.java:39-47`), so the converter lowers a scripted
+condition to a parameter with that cache and names the parameter in `when`; a literal condition needs no parameter. `turn="true"` marks an IsTurn animation (`Move.java:107-139`). `<hotspots>` belong to a
 variant.
 
 **`<children>`.** Only for `Sequence` and `Select`.
@@ -304,7 +307,7 @@ may call it supported.
 | Fall | — | InitialVX 0, InitialVY 0, RegistanceX .05, RegistanceY .1, Gravity 2 | Per tick: vx *= 1-rx, vy = vy*(1-ry)+g, with fractional accumulation and incremental collision against the contextual floor or wall. It ends on attachment, faces by vx, and publishes VelocityX/Y. |
 | Jump | — | TargetX 0, TargetY 0, VelocityParam 20, Arc true | Re-aims every tick at the target, with an upward bias of abs(dx)/2 when Arc is set. It snaps once within speed, moves in integer steps, and publishes VelocityX/Y before applying the pose. |
 | Dragged | — | OffsetX 0, OffsetY 120, OffsetType ImageAnchor | Follows the cursor, facing left. The FootX/FootDX sway is damped. A horizontal move of 5 or more resets the action age. The regist timer is 250 plus a random extension. |
-| Regist | Animate | OffsetX 0, OffsetType ImageAnchor (OffsetY is NOT read) | Continues while the cursor's dx < 5. At the end it randomises facing and throws ground-lost. |
+| Regist | — (ActionBase, not Animate) | OffsetX 0, OffsetType ImageAnchor (OffsetY is NOT read) | Continues while abs(cursor.x - anchor.x + OffsetX) < 5, the cursor still on the companion (Regist.java:54). On its last tick it randomises facing and throws ground-lost. |
 | Look | instant | LookRight (default: the opposite of now) | Sets facing. |
 | Turn | — | LookRight (default: the opposite) | Plays the turn variant only when facing changes. |
 | Offset | instant | X 0, Y 0 | anchor += (X, Y) in screen pixels. |
@@ -395,7 +398,9 @@ selection evaluates every root condition once (4.3).
   - Bred companions are session-only and never enter the saved companion mix (`policy:session-only-births`).
   - `BornTransient` selects which user toggle governs the birth (Transients or Breeding) and nothing else.
 - **Transform.** In place, on the action clock. Children (graphical `<child>` sprites) close; independent offspring
-  never do. The module handle and the companion's id are kept, and no second CompanionSpawned is raised.
+  never do. The module handle and the companion's id are kept, and no second CompanionSpawned is raised. Until the new
+  type's first pose (the next step), the companion still shows the image the old type's last pose set, sized and
+  anchored as the old type's; the real runtime does the same (found by the vertical slice).
 - **SelfDestruct.** Disposes the live companion. The saved mix is untouched, so the companion returns at the next
   launch.
 
