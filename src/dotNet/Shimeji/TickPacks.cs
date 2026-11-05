@@ -66,8 +66,9 @@ namespace DesktopAICompanion.Shimeji
             }
         }
 
-        /// <summary>The key a type is found by: its scope (or none) and its reference key. Pack ids and member keys are
-        /// letters, digits, '.', '_', '-' and space (the validator's IsPackKey), so the separator cannot occur in one.</summary>
+        /// <summary>The key a type is found by: its scope (or none) and its reference key. A pack id is letters, digits,
+        /// '.', '_', '-' and space (the validator's IsPackKey) and a member key holds no control character (IsMemberKey),
+        /// so the line feed between them cannot occur in either.</summary>
         public static string IndexKey(string scope, string referenceKey)
         {
             return (scope == null ? "-" : "p:" + scope) + "\n" + (referenceKey ?? "");

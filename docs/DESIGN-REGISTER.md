@@ -7544,6 +7544,15 @@ does, after three warm-up steps, and wants elapsed / 40 within 8%: a 40 ms timer
 10 ms one 188. The warm-up matters: the first firing came about 450 ms after the timer started, and the source's rule
 drops slots that late, so counting from the start measured start-up, not the clock. In the real app, the pack smoke's
 75-tick hatch went from 3.58 s to 2.99 s.
+
+**A member key is the source's image-set name, exactly; a pack id stays compact.** One grammar (1 to 64 letters, digits,
+`.`, `_`, `-`, space) used to serve both, and Codex executed the counterexample against the real validator: members
+`Egg (2)` and `A+B`, both valid image-set names, were refused. Rewriting a name into a slug was not an option, because
+a scripted TransformMascot or BornMascot names the member and must find it unchanged. A member key (and the startup
+member) now takes what a Windows folder name may hold: 1 to 255 characters, not all blank, no control character, none of
+`\ / : * ? " < > |`. The control-character rule is what keeps the lookups unambiguous: the pack index and the engine's
+index both join pack id and member with a line feed, and the pack id, still compact, can hold none. The pack id keeps
+the compact grammar because a preview's scope relies on a `:` no pack id may hold.
 #### feature/shimeji-host-studio
 
 Companion Studio opens, analyses, previews and installs a tick-clock companion, one companion at a time. Importing a

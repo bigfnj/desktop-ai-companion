@@ -61,10 +61,13 @@ run.
   step more than two ticks late moves the slot to now instead of catching up in a burst. The app's timer only polls
   (every 10 ms, 15.6 ms on Windows' default timer); a WinForms timer set to 40 ms fires every 46.9 ms, which would run
   every companion at 85% speed.
-- **`<pack>`.** `id` is the pack, `member` this member's key (unique in the pack, case-sensitive). `role` is `main`,
-  `egg`, `form` or `helper`. `hidden="true"` keeps a member out of the user's Add-a-companion list; helper sets and
-  egg stages are hidden. Members are installed as separate companion types and resolved by (`id`, `member`)
-  (section 9).
+- **`<pack>`.** `id` is the pack: 1 to 64 letters, digits, `.`, `_`, `-` or spaces, with no space at either end.
+  `member` is this member's key (unique in the pack, case-sensitive): the source's image-set name, exactly, because a
+  scripted TransformMascot or BornMascot names it. It may hold anything a Windows folder name may (`Egg (2)`, `A+B`):
+  1 to 255 characters, not all blank, no control character and none of `\ / : * ? " < > |`. `<startup member>`
+  follows the same rule. `role` is `main`, `egg`, `form` or `helper`. `hidden="true"` keeps a member out of the
+  user's Add-a-companion list; helper sets and egg stages are hidden. Members are installed as separate companion
+  types and resolved by (`id`, `member`) (section 9).
 - **`<startup>`.** Only on a `main` member. It gives the source's initial image set (`member`) and entry `behaviour`,
   which a new companion of this type starts as. Arriving as an egg is a separate per-type user preference, offered
   only when `<startup member>` names a member whose `role` is `egg`.

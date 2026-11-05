@@ -181,6 +181,50 @@ namespace DesktopAICompanion
 
             CheckUsageAndShapeRules(classic, ref failures, output);
             CheckPoseGeometryRules(classic, ref failures, output);
+            CheckPackKeys(classic, ref failures, output);
+        }
+
+        /// <summary>
+        /// A pack id is compact; a member key is the source's image-set name, exactly. Codex executed the counterexample
+        /// against one grammar serving both: members "Egg (2)" and "A+B" were refused, and a key cannot be rewritten because
+        /// a scripted TransformMascot or BornMascot names it.
+        /// </summary>
+        private static void CheckPackKeys(XmlData.RootNode classic, ref int failures, TextWriter output)
+        {
+            var supported = new System.Collections.Generic.List<string>(AllExtensionFeatures) { CompanionFormatFeatures.Packs };
+            Func<string, string, string, string> refusal = (id, member, startupMember) =>
+            {
+                XmlData.RootNode r = TickFixture(classic);
+                r.Header.Features += " packs";
+                r.Header.Pack = new XmlData.PackNode { Id = id, Member = member, Role = "main" };
+                if (startupMember != null) r.Header.Startup = new XmlData.StartupNode { Member = startupMember, Behaviour = "Hatch" };
+                XmlData.RootNode parsed;
+                string error;
+                return CompanionXmlValidator.TryParseWithFeatures(Serialize(r), supported, out parsed, out error) ? null : (error ?? "refused");
+            };
+            string verdict = refusal("smoke-pack", "Egg (2)", null);
+            Check(verdict == null, "pack keys: a member named as the source names an image set (\"Egg (2)\") validates" + FormatError(verdict), ref failures, output);
+            verdict = refusal("smoke-pack", "A+B", "Egg (2)");
+            Check(verdict == null, "pack keys: member \"A+B\" with startup member \"Egg (2)\" validates" + FormatError(verdict), ref failures, output);
+            verdict = refusal("smoke-pack", new string('x', 255), null);
+            Check(verdict == null, "pack keys: a 255-character member validates" + FormatError(verdict), ref failures, output);
+            foreach (string bad in new[] { "a/b", "a:b", "x|y", "   ", new string('x', 256) })
+            {
+                verdict = refusal("smoke-pack", bad, null);
+                Check(verdict != null && Contains(verdict, "header/pack member"),
+                    "pack keys: member '" + (bad.Length > 20 ? bad.Length + " characters" : bad) + "' is refused (" + verdict + ")", ref failures, output);
+            }
+            verdict = refusal("smoke-pack", "Alpha", "x|y");
+            Check(verdict != null && Contains(verdict, "header/startup member"),
+                "pack keys: a startup member 'x|y' is refused (" + verdict + ")", ref failures, output);
+            verdict = refusal("A+B", "Alpha", null);
+            Check(verdict != null && Contains(verdict, "header/pack id"),
+                "pack keys: the pack id keeps the compact grammar ('A+B' is refused) (" + verdict + ")", ref failures, output);
+            // A control character never reaches a key (the index joins pack id and member with a line feed); checked on the
+            // rule itself, since an XML attribute may normalise a tab or line feed on the way in.
+            Check(!ShimejiFormatValidator.IsMemberKey("a\nb") && !ShimejiFormatValidator.IsMemberKey("a\tb")
+                  && !ShimejiFormatValidator.IsMemberKey("a\u0085b") && ShimejiFormatValidator.IsMemberKey("a b"),
+                "pack keys: a member key holds no control character", ref failures, output);
         }
 
         /// <summary>

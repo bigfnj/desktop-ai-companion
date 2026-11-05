@@ -468,9 +468,13 @@ namespace DesktopAICompanion
             }
             if (root.Header.Pack != null)
             {
-                if (!IsPackKey(root.Header.Pack.Id) || !IsPackKey(root.Header.Pack.Member))
-                    throw new InvalidDataException("header/pack id and member must be 1 to 64 characters of letters, digits, '.', '_', '-' or space.");
+                if (!IsPackKey(root.Header.Pack.Id))
+                    throw new InvalidDataException("header/pack id must be 1 to 64 characters of letters, digits, '.', '_', '-' or space.");
+                if (!IsMemberKey(root.Header.Pack.Member))
+                    throw new InvalidDataException("header/pack member " + MemberKeyRule);
             }
+            if (startup != null && !IsMemberKey(startup.Member))
+                throw new InvalidDataException("header/startup member " + MemberKeyRule);
         }
 
         /// <summary>How many actions one activation of <paramref name="name"/> builds (itself and every nested child), refusing
@@ -663,12 +667,32 @@ namespace DesktopAICompanion
                 && x >= -4096 && x <= 4096 && y >= -4096 && y <= 4096;
         }
 
+        /// <summary>A pack id: compact, because the host builds lookup keys and preview scopes around it (a preview's
+        /// scope holds a ':', which no pack id may, TickPackBinding.ScopeForPreview).</summary>
         private static bool IsPackKey(string value)
         {
             if (string.IsNullOrEmpty(value) || value.Length > 64) return false;
             foreach (char c in value)
                 if (!(char.IsLetterOrDigit(c) || c == '.' || c == '_' || c == '-' || c == ' ')) return false;
             return value.Trim().Length == value.Length;
+        }
+
+        private const string MemberKeyRule =
+            "must be 1 to 255 characters, not all blank, with no control character and none of \\ / : * ? \" < > |.";
+
+        /// <summary>
+        /// A member key is the source's image-set name, exactly: a TransformMascot or BornMascot names it, scripted or
+        /// literal, so it cannot be rewritten to a slug. Image-set names are folder names, so a key may hold what a Windows
+        /// folder name may ("Egg (2)", "A+B"), and nothing a lookup key, a log line or a path could be bent by: no control
+        /// character (the index separates pack id and member with a line feed) and none of the characters Windows refuses
+        /// in a name.
+        /// </summary>
+        internal static bool IsMemberKey(string value)
+        {
+            if (string.IsNullOrEmpty(value) || value.Length > 255 || value.Trim().Length == 0) return false;
+            foreach (char c in value)
+                if (char.IsControl(c) || "\\/:*?\"<>|".IndexOf(c) >= 0) return false;
+            return true;
         }
     }
 }
