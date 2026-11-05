@@ -59,7 +59,16 @@ namespace DesktopAICompanion.Shimeji
                     },
                     form => { closed.Add(form); form.Close(); },
                     message => log.AppendLine("LOG: " + message)) { RenderOpacity = 0.0 };
+                // The owner's open windows must not become floors here (a whitelisted Notepad is one): no window search.
+                host.Environment.SearchesWindows = false;
                 host.AddType(hostType);
+
+                // The app's settings for tick companions: the lifecycle switches on, window actions off until a type opts
+                // in, and any setting the list does not name OFF, so a new or misspelt switch never defaults a behaviour on.
+                var settings = new HostTickSettings(id => id);
+                check(settings.Get("Breeding", "Alpha") && settings.Get("Transients", "Alpha") && settings.Get("Transformation", "Alpha")
+                      && settings.Get("Throwing", "Alpha") && !settings.Get(TickWindowFamily.Setting, "Alpha") && !settings.Get("NoSuchSwitch", "Alpha"),
+                    "tick settings: lifecycle switches on, window actions off, an unknown setting off");
 
                 Rectangle work = System.Windows.Forms.Screen.PrimaryScreen.WorkingArea;
                 int x = work.Left + work.Width / 2, floor = work.Bottom;

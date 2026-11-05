@@ -323,23 +323,22 @@ namespace DesktopAICompanion
                     + (missing.Count == 0 ? "" : " (not: " + string.Join(", ", missing) + ")"), ref failures, output);
             }
 
-            string unbuilt = null;
-            foreach (string cls in ShimejiFormatValidator.EmbeddedClasses)
-                if (!CompanionFormatFeatures.RunsClass(cls)) { unbuilt = cls; break; }
-            if (unbuilt == null)
-            {
-                output.WriteLine("NOTE extension gate: every embedded class runs in this build; the unbuilt-class refusal is not exercised");
-                return;
-            }
+            // The refusal itself, with every feature supported: a build that does not construct a class (here, one that
+            // says ScanMove does not run) refuses a companion using it by name, rather than accepting it and ending it at
+            // its first step. The override stands in for a build whose family has not landed; every family has, now.
             XmlData.RootNode doc = TickFixture(classic);
             StandAct(doc).Type = "Embedded";
-            StandAct(doc).Class = unbuilt;
+            StandAct(doc).Class = "ScanMove";
             doc.Header.Features = string.Join(" ", CompanionFormatFeatures.All);
+            string text = Serialize(doc);
             XmlData.RootNode parsed;
             string error;
-            Check(!CompanionXmlValidator.TryParseWithFeatures(Serialize(doc), CompanionFormatFeatures.All, out parsed, out error)
-                  && Contains(error, "embedded class '" + unbuilt + "' does not run in this version"),
+            Check(!CompanionXmlValidator.TryParseWithFeatures(text, CompanionFormatFeatures.All, out parsed, out error, cls => cls != "ScanMove")
+                  && Contains(error, "embedded class 'ScanMove' does not run in this version"),
                 "extension gate: a class this build does not run is refused by name with every feature supported (" + error + ")",
+                ref failures, output);
+            Check(CompanionXmlValidator.TryParseWithFeatures(text, CompanionFormatFeatures.All, out parsed, out error),
+                "extension gate: WITNESS the same companion validates with this build's own answer (ScanMove runs)" + FormatError(error),
                 ref failures, output);
         }
 

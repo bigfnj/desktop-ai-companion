@@ -356,7 +356,7 @@ namespace DesktopAICompanion.Shimeji
             Vars.InitFrame();
             Mascot.Affordances.Clear();
             foreach (string offer in CurrentOffers())
-                if (offer.Trim().Length > 0) Mascot.Affordances.Add(offer);
+                if (!IsJavaBlank(offer)) Mascot.Affordances.Add(offer);
             RefreshHotspots();
             Tick();
         }
@@ -388,6 +388,14 @@ namespace DesktopAICompanion.Shimeji
         protected bool IsEffective() { return EvalBool("Condition", Def.GuardWhen, true); }
 
         protected int Duration() { return EvalInt("Duration", Def.GuardDuration, DefaultDuration); }
+
+        /// <summary>Java's <c>trim().length() == 0</c>: blank when every character is at or below U+0020. .NET's Trim also
+        /// strips Unicode spaces (a no-break space, an ideographic space), which Java keeps, so an offer of those is real.</summary>
+        internal static bool IsJavaBlank(string s)
+        {
+            foreach (char c in s) if (c > ' ') return false;
+            return true;
+        }
 
         private IEnumerable<string> CurrentOffers()
         {
@@ -1146,6 +1154,14 @@ namespace DesktopAICompanion.Shimeji
             catch (TickCantBeAliveException e)
             {
                 _world.ReportFault(this, e.Message);
+                Dispose("error");
+            }
+            catch (Exception e)
+            {
+                // Anything else is a fault the source would have died of too (a null Affordance at ActionBase.java:95,
+                // a cast): this companion ends, reported, and the step goes on for the rest. Escaping here would leave
+                // the step half done and, in the app, throw out of the tick timer.
+                _world.ReportFault(this, "internal fault: " + e.GetType().Name + ": " + e.Message);
                 Dispose("error");
             }
             Time++;

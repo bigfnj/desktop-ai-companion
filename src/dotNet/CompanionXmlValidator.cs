@@ -424,19 +424,22 @@ namespace DesktopAICompanion
         /// As the three-argument form, against an explicit set of supported Shimeji runtime features instead of this
         /// build's <see cref="CompanionFormatFeatures.Supported"/>. For self-tests and the converter's checks, which
         /// must validate an extension document before (or regardless of whether) the host runtime runs it. Nothing
-        /// that LOADS a companion calls this.
+        /// that LOADS a companion calls this. <paramref name="runsClass"/> likewise stands in for this build's answer to
+        /// which embedded classes run (null keeps <see cref="CompanionFormatFeatures.RunsClass"/>), so a self-test can
+        /// prove the per-class refusal after every family has landed.
         /// </summary>
         internal static bool TryParseWithFeatures(
             string xml,
             IReadOnlyCollection<string> supportedFeatures,
             out XmlData.RootNode root,
-            out string error)
+            out string error,
+            Func<string, bool> runsClass = null)
         {
             byte[] spriteBytes;
             byte[] iconBytes;
             byte[][] soundBytes;
             return TryParse(xml, out root, out spriteBytes, out iconBytes, out soundBytes, out error, CancellationToken.None,
-                supportedFeatures ?? CompanionFormatFeatures.Supported);
+                supportedFeatures ?? CompanionFormatFeatures.Supported, runsClass ?? CompanionFormatFeatures.RunsClass);
         }
 
         private static bool TryParse(
@@ -449,7 +452,7 @@ namespace DesktopAICompanion
             CancellationToken cancellationToken)
         {
             return TryParse(xml, out root, out spriteBytes, out iconBytes, out soundBytes, out error, cancellationToken,
-                CompanionFormatFeatures.Supported);
+                CompanionFormatFeatures.Supported, CompanionFormatFeatures.RunsClass);
         }
 
         // No public token-taking TryParse. Every caller in the tree (the loader, the catalog, the pane, the
@@ -465,7 +468,8 @@ namespace DesktopAICompanion
             out byte[][] soundBytes,
             out string error,
             CancellationToken cancellationToken,
-            IReadOnlyCollection<string> supportedFeatures)
+            IReadOnlyCollection<string> supportedFeatures,
+            Func<string, bool> runsClass)
         {
             root = null;
             spriteBytes = null;
@@ -510,7 +514,7 @@ namespace DesktopAICompanion
                 if (!string.IsNullOrEmpty(schemaError))
                     throw new InvalidDataException("XSD validation failed: " + schemaError);
 
-                Validate(root, cancellationToken, out spriteBytes, out iconBytes, out soundBytes, supportedFeatures);
+                Validate(root, cancellationToken, out spriteBytes, out iconBytes, out soundBytes, supportedFeatures, runsClass);
                 return true;
             }
             catch (OperationCanceledException)
@@ -557,7 +561,8 @@ namespace DesktopAICompanion
             out byte[] spriteBytesOut,
             out byte[] iconBytesOut,
             out byte[][] soundBytesOut,
-            IReadOnlyCollection<string> supportedFeatures)
+            IReadOnlyCollection<string> supportedFeatures,
+            Func<string, bool> runsClass)
         {
             spriteBytesOut = null;
             iconBytesOut = null;
@@ -694,7 +699,7 @@ namespace DesktopAICompanion
                         tick);
             }
             if (tick)
-                ShimejiFormatValidator.ValidateTickDocument(root, tileCount, declared);
+                ShimejiFormatValidator.ValidateTickDocument(root, tileCount, declared, runsClass);
 
             int spawnWeight = 0;
             var spawnIds = new HashSet<int>();

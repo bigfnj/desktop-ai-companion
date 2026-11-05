@@ -36,6 +36,10 @@ namespace DesktopAICompanion.Shimeji
         /// <summary>The interactive window: its title lists, and the session's record of windows moved.</summary>
         public Win32InteractiveWindow Interactive { get { return _interactive; } }
 
+        /// <summary>Whether the desktop's windows are searched for the interactive one. False only in the window self-test,
+        /// whose companions must not stand on whatever window the owner has open (a whitelisted Notepad is a floor).</summary>
+        public bool SearchesWindows { get; set; } = true;
+
         /// <summary>A window event, delivered at the next step's start (the forms and the tick timer share the UI
         /// thread, so nothing races).</summary>
         public void Queue(TickInput input) { _queued.Add(input); }
@@ -64,7 +68,7 @@ namespace DesktopAICompanion.Shimeji
             _work.Set(w.X, w.Y, w.Width, w.Height);
             // WindowsEnvironment.tick (:292-300): the interactive window found this step, else an empty, invisible area.
             TickRect found;
-            if (_interactive.Find(new TickRect(v.X, v.Y, v.Width, v.Height), out found))
+            if (SearchesWindows && _interactive.Find(new TickRect(v.X, v.Y, v.Width, v.Height), out found))
             {
                 _window.Set(found.X, found.Y, found.Width, found.Height);
                 _window.Visible = true;
@@ -115,8 +119,13 @@ namespace DesktopAICompanion.Shimeji
                 case "Sounds":
                     return data != null && data.GetPetSoundsEnabled() && (imageSet == null || data.IsPetSoundEnabled(_typeIdOf(imageSet)));
                 case "Throwing": return true;
+                case "Breeding":
+                case "Transients":
+                case "Transformation": return true;
                 case TickWindowFamily.Setting: return false;
-                default: return true;
+                // A setting this list does not name is OFF: a misspelt or new switch must not default a behaviour on
+                // (window actions would have, before WindowActions had its own case).
+                default: return false;
             }
         }
 

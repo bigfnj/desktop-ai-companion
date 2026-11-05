@@ -7430,7 +7430,16 @@ commit and a list cannot fall behind. The probe's definition is empty and a cons
 source's does (MoveWithTurn wants two animations), so an exception means a family CLAIMED the class; only a family
 returning nothing means it does not run. The security self-test asserts both directions: every class a supported token
 gates constructs here, and a class no family builds is refused by name with every feature supported. Social and windows
-join the set when their families merge; packs when installs resolve members.
+joined once their families merged; packs joins when installs resolve members. With every class built, the refusal is
+still exercised: the validator takes the class answer as a predicate, and the self-test supplies one that says a class
+does not run, beside a witness that the same companion validates on the build's own answer.
+
+**Windows run with the switch off.** 'windows' is supported, and every window class constructs, but the per-type
+window switch stays OFF until the Pets pane offers it, so a converted companion's window actions play their animation
+and move nothing (`policy:window-off-plays`). The app's tick settings name every switch the engine reads; any other
+setting answers OFF, because the earlier default of on would have turned window actions on had their switch not been
+listed. An engine fault that is not the source's CantBeAlive (a null where the source would have died too) ends that one
+companion with a report, and the step goes on; before, it escaped the step and, in the app, the tick timer.
 
 **Accepting tick companions made the validator's holes reachable, so they were closed first.** The converter lane's
 review executed eight counterexamples against the full validator. All are refused now, each with a self-test check and

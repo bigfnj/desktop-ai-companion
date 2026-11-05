@@ -313,7 +313,8 @@ namespace DesktopAICompanion
         }
 
         /// <summary>The tick-mode document rules: node kinds, poses, composites, names and expressions.</summary>
-        public static void ValidateTickDocument(XmlData.RootNode root, int tileCount, HashSet<string> declared)
+        public static void ValidateTickDocument(XmlData.RootNode root, int tileCount, HashSet<string> declared,
+            Func<string, bool> runsClass)
         {
             XmlData.AnimationNode[] animations = root.Animations.Animation;
             var actByName = new Dictionary<string, XmlData.AnimationNode>(StringComparer.Ordinal);
@@ -427,7 +428,7 @@ namespace DesktopAICompanion
             {
                 string where = "animation " + a.Id + " '" + a.Name + "'";
                 if (a.Act != null)
-                    ValidateAct(a, a.Act, where, tileCount, soundIds, actByName, behaviourByName, boundNames, declared);
+                    ValidateAct(a, a.Act, where, tileCount, soundIds, actByName, behaviourByName, boundNames, declared, runsClass);
                 else if (a.Behaviour != null)
                 {
                     if (string.IsNullOrWhiteSpace(a.Behaviour.Runs) || !actByName.ContainsKey(a.Behaviour.Runs))
@@ -510,7 +511,7 @@ namespace DesktopAICompanion
         private static void ValidateAct(XmlData.AnimationNode a, XmlData.ActNode act, string where, int tileCount,
             HashSet<string> soundIds, Dictionary<string, XmlData.AnimationNode> actByName,
             Dictionary<string, XmlData.AnimationNode> behaviourByName, Dictionary<string, HashSet<string>> boundNames,
-            HashSet<string> declared)
+            HashSet<string> declared, Func<string, bool> runsClass)
         {
             bool embedded = string.Equals(act.Type, "Embedded", StringComparison.Ordinal);
             string cls = act.Class ?? "";
@@ -518,7 +519,7 @@ namespace DesktopAICompanion
                 throw new InvalidDataException(where + ": a class is required for Embedded and allowed for nothing else.");
             if (embedded && Array.IndexOf(EmbeddedClasses, cls) < 0)
                 throw new InvalidDataException(where + ": embedded class '" + cls + "' is not one this host runs.");
-            if (embedded && !CompanionFormatFeatures.RunsClass(cls))
+            if (embedded && !runsClass(cls))
                 throw new InvalidDataException(where + ": embedded class '" + cls
                     + "' does not run in this version of Desktop AI Companion yet.");
             bool composite = act.Type == "Sequence" || act.Type == "Select";

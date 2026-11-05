@@ -354,6 +354,42 @@ namespace DesktopAICompanion
             AssertEqual("Stand", m.Behaviour.Name, "Move did not end on reaching its target.");
         }
 
+        private static void TestTickInternalFault()
+        {
+            // m1's Affordance is a script that yields null: reading its length is the NullReferenceException the source
+            // also dies of (ActionBase.java:95). m1 ends, reported; m2, after it in manager order, still steps.
+            TickType t = TickType.Compile("Alpha", TickDoc(
+                TRoute(TEdge(10, 1), TEdge(11, 0)),
+                TBeh(10, "Bad", "Bad", 1, null),
+                TBeh(11, "Good", "Good", 0, null),
+                TAct(30, "Bad", "Stay", null, new[] { TParam("Duration", "100"), TParam("Affordance", "null", "action") }, TPose(0, 1)),
+                TAct(31, "Good", "Stay", null, new[] { TParam("Duration", "100") }, TPose(0, 1))));
+            var log = new TickLog();
+            TickWorld w = TickWorldOf(log, null, t);
+            TickMascot bad = w.CreateAtStart("m1", t, new TickPoint(640, 680), false, "Bad");
+            TickMascot good = w.CreateAtStart("m2", t, new TickPoint(700, 680), false, "Good");
+            w.StepOnce();
+            AssertTrue(bad.Disposing && log.Faults.Count == 1 && log.Faults[0].StartsWith("m1: internal fault: NullReferenceException", StringComparison.Ordinal),
+                "A fault that is not CantBeAlive did not end its companion with a report: " + string.Join("; ", log.Faults));
+            AssertTrue(!good.Disposing && good.Time == 1, "The step did not go on for the companion after the faulty one.");
+        }
+
+        private static void TestTickOfferBlank()
+        {
+            // Java's trim keeps a no-break space (U+00A0 is above U+0020), so that offer is real; a tab-and-space one is
+            // blank and offered by no one.
+            string nbsp = ((char)0xA0).ToString();
+            XmlData.AnimationNode offering = TAct(30, "Offer", "Stay", null, new[] { TParam("Duration", "100") }, TPose(0, 1));
+            offering.Act.Offers = new XmlData.OffersNode
+                { Offer = new[] { new XmlData.OfferNode { Value = nbsp }, new XmlData.OfferNode { Value = "\t " } } };
+            TickType t = TickType.Compile("Alpha", TickDoc(TRoute(TEdge(10, 1)), TBeh(10, "Offer", "Offer", 1, null), offering));
+            TickWorld w = TickWorldOf(new TickLog(), null, t);
+            TickMascot m = w.CreateAtStart("m1", t, new TickPoint(640, 680), false, "Offer");
+            w.StepOnce();
+            AssertEqual(1, m.Affordances.Count, "Offers were not judged blank as Java's trim judges them.");
+            AssertEqual(nbsp, m.Affordances.Count == 1 ? m.Affordances[0] : null, "The no-break-space offer was not kept as written.");
+        }
+
         private static void TestTickLostGround()
         {
             TickType t = TickType.Compile("Alpha", TickDoc(
