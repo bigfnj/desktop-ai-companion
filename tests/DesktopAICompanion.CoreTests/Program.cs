@@ -158,6 +158,11 @@ namespace DesktopAICompanion
                 Run("Tick packs index: library first, then folder order; a duplicate is reported and never wins", TestTickPacksIndex);
                 Run("Tick packs validator: one main, unique keys, references, one transparency, an egg that hatches", TestTickPacksValidator);
                 Run("Tick packs settings: Arrive as an egg defaults on and a turned-off one survives saves", TestTickPacksEggPreference);
+                Run("Tick studio reachability: route, runs, composite and hotspot edges reach what the runtime runs", TestTickStudioStructuralEdges);
+                Run("Tick studio reachability: a zero-weight selection is listed and never followed", TestTickStudioZeroWeight);
+                Run("Tick studio reachability: a next-list entry continues with its root namesake's list", TestTickStudioNextContinuation);
+                Run("Tick studio reachability: Fall, Dragged, Thrown and this member's startup behaviour are roots", TestTickStudioEngineRoots);
+                Run("Tick studio reachability: a literal behaviour name an action or binding sets is an edge", TestTickStudioNamedBehaviours);
             }
             finally
             {

@@ -114,6 +114,10 @@ namespace DesktopAICompanion.Plugins
                     ok &= ModuleChecksPass(sb, studio.GetType().Assembly,
                         "DesktopAICompanion.PetStudioModule.AnimCapabilitySelfCheck",
                         "the map reports what each animation DOES, not just its name");
+                    ok &= ModuleChecksPass(sb, studio.GetType().Assembly,
+                        "DesktopAICompanion.PetStudioModule.TickStudioSelfCheck",
+                        "a tick-clock companion validates in Studio, walks with the tick edges, and the debugger refuses it by name");
+                    ok &= StudioRunsTheAppsFeatures(sb, studio.GetType().Assembly);
 
                     loader.ShutdownAll(s => sb.AppendLine("  " + s));
                 }
@@ -296,15 +300,28 @@ namespace DesktopAICompanion.Plugins
             if (!Check(sb, "PetAnalyzer exposes Analyze", analyze != null)) return false;
 
             string bundledPet = Properties.Resources.animations;
+            // A tick-clock companion on the bundled pet's image (the security self-test's fixture): Studio compiles the
+            // validator with its own feature hook (modules/PetStudio/StudioFeatures.cs), so the two verdicts agree only
+            // while Studio accepts what the app runs.
+            XmlData.RootNode classicRoot;
+            string classicError;
+            string tickCompanion = CompanionXmlValidator.TryParse(bundledPet, out classicRoot, out classicError)
+                ? SecuritySelfTest.Serialize(SecuritySelfTest.TickFixture(classicRoot))
+                : "";
+            XmlData.RootNode tickParsed;
+            string tickError;
+            bool hostAcceptsTick = CompanionXmlValidator.TryParse(tickCompanion, out tickParsed, out tickError);
+            bool ok = Check(sb, "WITNESS the host accepts the tick-clock companion, so agreeing on it is not two refusals"
+                                + (hostAcceptsTick ? "" : " (" + tickError + ")"), hostAcceptsTick);
             var cases = new List<KeyValuePair<string, string>>
             {
                 new KeyValuePair<string, string>("the bundled pet", bundledPet),
+                new KeyValuePair<string, string>("a tick-clock companion", tickCompanion),
                 new KeyValuePair<string, string>("a pet with a DTD", "<?xml version=\"1.0\"?><!DOCTYPE animations [<!ENTITY x SYSTEM \"file:///c:/windows/win.ini\">]><animations xmlns=\"https://esheep.petrucci.ch/\"><header><author>&x;</author></header></animations>"),
                 new KeyValuePair<string, string>("junk", "not xml at all"),
                 new KeyValuePair<string, string>("empty", ""),
             };
 
-            bool ok = true;
             foreach (KeyValuePair<string, string> testCase in cases)
             {
                 XmlData.RootNode parsed;
@@ -331,6 +348,30 @@ namespace DesktopAICompanion.Plugins
                 !string.IsNullOrWhiteSpace(described) && described.IndexOf("Valid companion", StringComparison.Ordinal) >= 0);
 
             ok &= AnalysisDataIsSound(sb, bundledReport, rt, unreachable);
+            return ok;
+        }
+
+        /// <summary>
+        /// Companion Studio fills its own copy of the validator's feature set (modules/PetStudio/StudioFeatures.cs), because
+        /// the app's hook (Shimeji/TickFeatures.cs) calls into a runtime Studio does not compile. Two lists of the same
+        /// tokens can drift, so they are compared here, in both directions: a token the app gains (packs) or Studio
+        /// gains alone fails this until the other side is decided, by name.
+        /// </summary>
+        private static bool StudioRunsTheAppsFeatures(StringBuilder sb, Assembly moduleAssembly)
+        {
+            Type features = moduleAssembly.GetType("DesktopAICompanion.CompanionFormatFeatures");
+            FieldInfo supported = features == null ? null
+                : features.GetField("Supported", BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
+            if (!Check(sb, "module compiles CompanionFormatFeatures.Supported", supported != null)) return false;
+            var studio = new List<string>();
+            foreach (object token in (System.Collections.IEnumerable)supported.GetValue(null)) studio.Add((string)token);
+            var app = new List<string>(CompanionFormatFeatures.Supported);
+            studio.Sort(StringComparer.Ordinal);
+            app.Sort(StringComparer.Ordinal);
+            string studioText = string.Join(" ", studio), appText = string.Join(" ", app);
+            bool ok = Check(sb, "WITNESS the app runs tick-clock companions in this build (" + appText + ")", app.Contains(CompanionFormatFeatures.Tick));
+            ok &= Check(sb, "Studio's supported feature set is the app's (app: " + appText + "; studio: " + studioText + ")",
+                studioText == appText);
             return ok;
         }
 

@@ -79,6 +79,7 @@
     <Compile Include="TickWindowTests.cs" />
     <Compile Include="TickSettingsTests.cs" />
     <Compile Include="TickPackTests.cs" />
+    <Compile Include="TickStudioTests.cs" />
     <Compile Include="..\..\src\Portable\AppPaths.cs">
       <Link>Production\AppPaths.cs</Link>
     </Compile>
@@ -109,6 +110,9 @@
     </Compile>
     <Compile Include="..\..\src\dotNet\SafeScript.cs">
       <Link>Production\SafeScript.cs</Link>
+    </Compile>
+    <Compile Include="..\..\src\dotNet\TickReachability.cs">
+      <Link>Production\TickReachability.cs</Link>
     </Compile>
     <Compile Include="..\..\src\dotNet\Shimeji\TickEnvironment.cs">
       <Link>Production\Shimeji\TickEnvironment.cs</Link>

@@ -7403,7 +7403,8 @@ that can fail, in the lane that first adds a token to `Supported` (Studio packs 
 the migrations). A guard added now would be a check no input can reach.
 
 *Superseded in part by feature/shimeji-host-runtime (below): the APP now runs the extensions; Studio and the converter
-still do not.*
+still do not. Studio's half by feature/shimeji-host-studio: the chain refuses a tick-clock document by name instead of
+carrying its fields, and Studio then filled its set.*
 
 **`NodeCopy.Deep` copies DTOs by reflection over public fields.** The DTOs are plain public fields for
 `XmlSerializer`, and every hand-written copy in this codebase has dropped a field the format later gained. A
@@ -7423,6 +7424,9 @@ deferral above honest instead of reaching it: Studio's `BehaviourChain` and the 
 documents through code that does not carry every field, and they cannot be handed a tick companion until their own
 lanes fix that. A compile symbol was the other way to split the set and was not used: this project once lost
 DefineConstants silently on a plain build, and a missing partial-method body cannot be lost that way.
+
+*Superseded for Studio by feature/shimeji-host-studio (below): Studio implements the token hook in a file of its own
+with the app's tokens. The converter's set stays empty.*
 
 **A token covers a family; the validator also asks per class.** `RunsClass` asks the runtime's real construction path
 (`TickWorld.RunsEmbeddedClass`), not a list kept beside it, so a family that lands a class is accepted in the same
@@ -7494,6 +7498,7 @@ beside the type, because the staged Xml's own base64 is blanked. A clip owner ca
 and cutting every module's sound (speech or notification sounds switched off) keeps the companions' clips, as it
 always kept the classic engine's. A parity run has no clip output, so no clip is loaded there and no `sound` event is
 written until the contract defines a clip clock both runtimes can share.
+
 **Packs (feature/shimeji-host-packs): a member is an ordinary type, found by key inside its pack.** Each member installs
 as its own companion type, so the validator, Studio's catalog and the Pets pane keep working on it; hidden members
 (egg stages, helpers) are left out of the tray's Add list and the Companions pane (`CompanionCatalog.EnumerateAddable`).
@@ -7525,6 +7530,44 @@ member's role is `egg`, "Arrive as an egg" decides (per main member's type id, d
 route's choice. A startup naming the main member itself gives only the entry behaviour. The startup behaviour is entered
 when the companion is created, and the source-style arrival then applies: created off screen, the first step drops it in
 and enters Fall, as `Main.createMascot` placement does for every new companion.
+#### feature/shimeji-host-studio
+
+Companion Studio opens, analyses, previews and installs a tick-clock companion, one companion at a time. Importing a
+multi-member pack waits for the converter's tick emitter and the host's packs lane.
+
+**Studio fills its own supported set, and the gate compares it with the app's.** `modules/PetStudio/StudioFeatures.cs`
+implements the token hook with the tokens the app's `Shimeji/TickFeatures.cs` lists. Linking the app's file was not
+possible: its class hook calls into the tick runtime, which Studio does not compile. Two lists of the same tokens can
+drift, so `--petstudio-selftest` compares the module's `Supported` with the app's, and a token either side gains alone
+fails the gate until the other side is decided (packs did, and Studio took it: a single member opens, previews and installs).  The class hook is left out on purpose. `RunsClass` keeps
+the format's answer in Studio, and the host re-validates with `TickWorld.RunsEmbeddedClass` when Studio previews
+(`ICompanionManager.SpawnPreview`) or installs (`InstallType`), so a class the app does not run is refused there, by
+name, before anything runs or is written. The converter compiles neither file and keeps its empty set.
+
+**Every Studio path that re-serialises a parsed document was checked before the set was filled.** Only the behaviour
+debugger does it: `BehaviourChain.BuildDebugXml` parses, clones the chain's nodes as classic ones (`CloneAnimation` has
+no `<act>`, `<behaviour>` or `<route>`, `CopyEdges` drops `when`) and serialises the result. It now refuses a tick-clock
+document by name before cloning: "The behaviour debugger works on classic companions; this one runs on the Shimeji
+runtime. Use "Preview on my desktop" to watch it run." Making it carry every field was declined, because it would
+still be wrong: a chain wired nose-to-tail cannot be said in a tick-clock document, whose behaviour layer chooses what
+follows. The other paths: Preview, Install and Save hand the editor's text over unchanged; the analyzer parses and
+never writes; an import builds a new document from a Shimeji conf with the classic emitter and round-trips only that;
+the converter's migration verbs run in its CLI, and nothing in Studio calls them.
+
+**Reachability learns the tick edges, in one walk shared by the host, Studio and the converter.**
+`src/dotNet/TickReachability.cs` (C# 7.3, compiled by the host, Studio, the converter's engine and CoreTests) roots the
+route, the behaviours the runtime enters by name (Fall, Dragged, Thrown) and this member's startup behaviour, and
+follows route and next-list selections, the action a behaviour runs, a composite's children, hotspots, and literal
+behaviour names that the classes reading them set (grimoire/06 section 10a). Next-list continuation follows
+`TickWorld.BuildNextBehaviour`, which looks the list up by the ending behaviour's NAME among the route's behaviours, so
+an off-route entry continues with its root namesake's list, not with edges of its own. `AnimationReachability` and
+`PetGraph` hand a document to it only when its clock is tick, and the classic code below that branch is untouched, so no
+classic result can change: no shipped companion declares a clock, `ShimejiConvert verify Companions` still passes, and
+the converter's self-test gains a tick case whose WITNESS shows the classic walk over the same nodes disagreeing. Studio's map draws the tick edges with
+their kinds, marks Fall, Dragged and Thrown as engine entries, and shows an action's frames from its first variant.
+"Preview highlighted action" is withheld for a tick-clock companion, with its reason as the tooltip: `IHost.TryPlayAnimation`
+looks in the classic animation set, which the host keeps empty for a tick window, so the request could only fail, and
+it used to fail with advice to re-preview.
 
 ## Known ABI gaps
 

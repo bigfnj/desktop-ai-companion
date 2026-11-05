@@ -168,11 +168,45 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     failures.Add("WITNESS: the spawn hub (id 1) is not a root, so the fixture's roots are not what this case assumes");
             }
 
+            // Tick: a tick-clock document (grimoire/06) is walked by the host's tick walk, not by the magic names. Its
+            //    route selects Stand (2, which runs A), Fall (3) is on the route at weight 0 and entered by the engine,
+            //    and Orphan (5) is an action nothing runs. Walked the classic way, 'beh:Fall' is rooted by the
+            //    contains-the-word fallback and A (4) by nothing, so the classic answer is [4,5], not [5].
+            {
+                var route = Anim(1, "route", 2, 3);
+                route.Route = new XmlData.RouteNode();
+                route.Sequence.Frame = null;
+                route.Sequence.Next[1].Probability = 0;
+                var stand = Anim(2, "beh:Stand");
+                stand.Behaviour = new XmlData.BehaviourNode { Name = "Stand", Runs = "A", Frequency = 1 };
+                var fall = Anim(3, "beh:Fall");
+                fall.Behaviour = new XmlData.BehaviourNode { Name = "Fall", Runs = "A", Frequency = 0 };
+                var act = Anim(4, "A");
+                act.Act = new XmlData.ActNode { Type = "Stay" };
+                var orphan = Anim(5, "Orphan");
+                orphan.Act = new XmlData.ActNode { Type = "Stay" };
+                XmlData.RootNode pet = new XmlData.RootNode
+                {
+                    Header = new XmlData.HeaderNode { Features = "tick actions behaviours", Clock = "tick" },
+                    Animations = new XmlData.AnimationsNode { Animation = new[] { route, stand, fall, act, orphan } },
+                };
+                GraphReport g = PetGraph.Analyze(pet);
+                if (g.Unreachable.Count != 1 || g.Unreachable[0] != 5)
+                    failures.Add("a tick-clock document was not walked by its route, runs and engine-entry edges: unreachable "
+                        + Join(g.Unreachable) + ", expected [5]");
+                if (!g.Roots.Contains(1) || !g.Roots.Contains(3))
+                    failures.Add("a tick-clock document's roots are not its route and its Fall: " + Join(g.Roots));
+                // WITNESS: the same graph without the tick clock is walked the classic way and reaches less.
+                pet.Header.Clock = null;
+                if (PetGraph.Analyze(pet).Unreachable.Count == g.Unreachable.Count)
+                    failures.Add("WITNESS: the classic walk over the same nodes agreed with the tick walk, so the tick case proves nothing");
+            }
+
             var sb = new StringBuilder();
             sb.AppendLine("pet-graph self-test: magic entry points are rooted the way the host binds them");
             if (failures.Count == 0)
             {
-                sb.Append("  exact names bind (last wins), 'Kill'/'Fall'/'Sync' variants and padded 'kill' are orphans, fall/drag fall back to a name containing the word, then the lowest id");
+                sb.Append("  exact names bind (last wins), 'Kill'/'Fall'/'Sync' variants and padded 'kill' are orphans, fall/drag fall back to a name containing the word, then the lowest id; a tick-clock document is walked by its route, runs and engine-entry edges");
                 detail = sb.ToString();
                 return true;
             }

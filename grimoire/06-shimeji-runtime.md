@@ -537,15 +537,39 @@ lane before freeze.
   - a tick-clock companion's sounds are named clips (section 3).
 - **Per build:** a feature joins the build's supported set only when its runtime runs every class and construct it
   gates, and every embedded class is also asked whether THIS build constructs it, so a class whose family has not
-  landed is refused by name even with every feature supported. Only the app fills the set: Studio and the converter
-  compile the validator without the runtime, keep it empty and refuse tick companions by feature name until their own
-  copies of a document carry every field.
+  landed is refused by name even with every feature supported. The app fills the set from its runtime
+  (`Shimeji/TickFeatures.cs`). Companion Studio fills its own with the same tokens (`modules/PetStudio/StudioFeatures.cs`,
+  compared with the app's by `--petstudio-selftest`) and leaves the per-class question to the format, because the
+  host re-validates with its real class gate when Studio previews or installs. The converter compiles the validator
+  without either file, keeps the set empty and refuses tick companions by feature name until its migrations carry
+  every field.
 - **Pack-level (`PackValidator`, over every member's parsed document; Studio and the host can both call it):**
   - every member is in the same pack, with one `main`, and member keys unique;
   - references resolve, or are reported as warnings (a scripted one is reported as known only at run time);
   - every member uses the same transparency mode;
   - the startup names a member and one of its behaviours;
   - a declared egg startup transforms back to its main member, directly or through other members.
+
+## 10a. Reachability in tick mode
+
+A classic walk follows sequence, border and gravity edges from the spawns and the four magic names, and a tick-clock
+document has none of those between its nodes, so it is walked by its own edges (`src/dotNet/TickReachability.cs`, used by
+the host's `AnimationReachability`, the converter's `PetGraph` and Studio's analyzer, for a tick-clock document only):
+
+- **Roots:** the route; the behaviours the runtime enters by name on its own events, Fall, Dragged and Thrown (4.3);
+  the startup behaviour when `<startup member>` is this member.
+- **Edges:** route to each root behaviour; a behaviour to each behaviour its ROOT namesake's list can select (the
+  runtime looks the next list up by name, so an off-route entry continues with the route behaviour's list); a behaviour
+  to the action it `runs`; a composite to each child; an action to the behaviour a hotspot of one of its variants
+  enters; an action to the behaviour a literal `Behavior` or `TargetBehavior` (the social classes), `BornBehavior` (the
+  Breed family, ComplexMove, ComplexJump) or `TransformBehavior` (Transform) names, and a binding of those names the
+  same way. `BornBehavior` and `TransformBehavior` add nothing when `BornMascot` or `TransformMascot` sends the companion
+  to another member, and a scripted name adds nothing because it cannot be read without running it.
+- A zero-weight route or next-list entry is listed and not followed, as a zero-probability classic edge is not. Edge
+  conditions and behaviour toggles are not evaluated: the walk answers "can it ever run".
+
+The behaviour debugger (Studio's timeline) builds classic nodes only, so it refuses a tick-clock companion by name;
+Preview runs one as it is.
 
 ## 11. Open points to settle before freeze
 

@@ -34,6 +34,9 @@ namespace DesktopAICompanion
         {
             var unreachable = new List<int>();
             if (root == null || root.Animations == null || root.Animations.Animation == null) return unreachable;
+            // A tick-clock companion joins its nodes by route, behaviour, action and hotspot rather than by these edges,
+            // and has no classic entry animation to stage, so it gets its own walk; a classic one never reaches it.
+            if (ShimejiFormatValidator.IsTickMode(root)) return TickReachability.FindUnreachable(root);
 
             var animationIds = new HashSet<int>();
             foreach (XmlData.AnimationNode animation in root.Animations.Animation)

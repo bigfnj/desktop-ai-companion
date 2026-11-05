@@ -95,6 +95,10 @@
     <Compile Include="..\..\src\dotNet\SafeExpression.cs">
       <Link>Shared\SafeExpression.cs</Link>
     </Compile>
+    <!-- PetGraph walks a tick-clock document with the same edges the host's AnimationReachability does. -->
+    <Compile Include="..\..\src\dotNet\TickReachability.cs">
+      <Link>Shared\TickReachability.cs</Link>
+    </Compile>
   </ItemGroup>
 
   <!-- CompanionXmlValidator reads the schema from Properties.Resources.animations1, a generated ResX accessor
