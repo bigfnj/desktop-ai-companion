@@ -51,6 +51,9 @@ namespace DesktopAICompanion.Shimeji
                 type.ApplyScale(1.0, sprites.spriteWidth, sprites.spriteHeight);
                 var hostType = new TickHostType("selftest", type, sprites);
 
+                // First, while no other host exists: pumping messages would step that host's timer too.
+                CheckWallClock(check, log);
+
                 host = new TickHost(t =>
                     {
                         var form = new FormCompanion(new Animations(t.Sprites), t.Sprites);
@@ -392,6 +395,83 @@ namespace DesktopAICompanion.Shimeji
         /// region once and disposes it with the frames; past its region budget it hands back the whole cell, which is
         /// drawn so the region still lands at the companion's bounds, and that is logged once.
         /// </summary>
+        private const uint QS_ALLINPUT = 0x04FF;
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern uint MsgWaitForMultipleObjects(uint count, IntPtr handles, bool waitAll, uint milliseconds, uint wakeMask);
+
+        /// <summary>Runs the thread's messages until <paramref name="done"/> or <paramref name="limit"/> ms, waiting as the
+        /// app's message loop does (GetMessage wakes when a timer is due) rather than sleeping between pumps, which drops
+        /// firings: a timer that expires twice between two pumps delivers one (a 10 ms timer fired every 22.7 ms under a
+        /// DoEvents-and-Sleep(1) loop, 15.8 ms under this one). Not Application.Run: its exit destroys the thread's windows.</summary>
+        private static void PumpUntil(Func<bool> done, long limit)
+        {
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            while (!done() && clock.ElapsedMilliseconds < limit)
+            {
+                MsgWaitForMultipleObjects(0, IntPtr.Zero, false, (uint)Math.Max(1, limit - clock.ElapsedMilliseconds), QS_ALLINPUT);
+                System.Windows.Forms.Application.DoEvents();
+            }
+        }
+
+        /// <summary>
+        /// The real timer on a real message loop: one companion over three seconds of wall time takes the source's 75 steps
+        /// (25 a second, TickPacer), within 8%. Stepping at every firing gave 64 with a 40 ms timer (it fires every 46.9 ms
+        /// here) and 192 with a 10 ms one (every 15.6 ms). The count starts after the first steps: the first firing came
+        /// about 450 ms after the timer started and the first step opens the companion's window, and the source's clock
+        /// drops slots that late rather than make them up, so counting from the start measured the warm-up (61 of 75).
+        /// </summary>
+        private static void CheckWallClock(Action<bool, string> check, StringBuilder log)
+        {
+            TickHost host = null;
+            Xml sprites = null;
+            try
+            {
+                sprites = new Xml(GeometryFrames(), 64, 64);
+                host = new TickHost(t =>
+                    {
+                        var form = new FormCompanion(new Animations(t.Sprites), t.Sprites);
+                        form.Show(t.Type.CellWidth, t.Type.CellHeight);
+                        return form;
+                    },
+                    form => form.Close(),
+                    message => log.AppendLine("LOG: " + message)) { RenderOpacity = 0.0 };
+                host.Environment.SearchesWindows = false;
+                TickType type = TickType.Compile("Clock", GeometryDocument());
+                type.ApplyScale(1.0, 64, 64);
+                host.AddType(new TickHostType("Clock", type, sprites));
+                Rectangle work = System.Windows.Forms.Screen.PrimaryScreen.WorkingArea;
+                host.Spawn("Clock", new TickPoint(work.Left + work.Width / 2, work.Bottom), false, "Small");
+                int started = host.World.Step;
+                PumpUntil(() => host.World.Step >= started + 3, 5000);
+                bool warmed = host.World.Step >= started + 3;
+                int first = host.World.Step, firstFiring = host.TimerFirings;
+                var clock = System.Diagnostics.Stopwatch.StartNew();
+                PumpUntil(() => false, 3000);
+                long elapsed = clock.ElapsedMilliseconds;
+                int steps = host.World.Step - first, firings = host.TimerFirings - firstFiring;
+                // What one step costs here, so a short count says whether the clock or the step is slow.
+                var cost = System.Diagnostics.Stopwatch.StartNew();
+                for (int i = 0; i < 20; i++) host.Step();
+                double perStep = cost.Elapsed.TotalMilliseconds / 20;
+                double expected = elapsed / (double)TickPacer.TickMilliseconds;
+                check(warmed && Math.Abs(steps - expected) <= expected * 0.08,
+                    "tick clock: the real timer steps 25 times a second, as the source's Manager (" + steps + " steps in "
+                    + elapsed + " ms, " + expected.ToString("0", System.Globalization.CultureInfo.InvariantCulture)
+                    + " expected" + (warmed ? "" : "; the first three steps never came") + "; the timer fired " + firings + " times; one step takes "
+                    + perStep.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " ms)");
+            }
+            catch (Exception e)
+            {
+                check(false, "tick clock: the wall-clock check ran without an exception: " + e);
+            }
+            finally
+            {
+                if (host != null) host.Dispose();
+                if (sprites != null) sprites.Dispose();
+            }
+        }
+
         private static void CheckPoseGeometry(Action<bool, string> check, StringBuilder log)
         {
             TickHost host = null;

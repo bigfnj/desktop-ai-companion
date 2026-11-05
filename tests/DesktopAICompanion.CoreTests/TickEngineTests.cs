@@ -431,6 +431,45 @@ namespace DesktopAICompanion
             AssertEqual(0, w.Mascots.Count, "A companion whose first behaviour could not be built became active.");
         }
 
+        /// <summary>The times a pacer allows a step when it is asked at each of the given whole-millisecond times (a
+        /// timer's firings).</summary>
+        private static List<long> PacedSteps(IEnumerable<long> firings)
+        {
+            var pacer = new TickPacer(0);
+            var steps = new List<long>();
+            foreach (long now in firings) if (pacer.Due(now)) steps.Add(now);
+            return steps;
+        }
+
+        private static IEnumerable<long> Firings(double period, long wallMs)
+        {
+            for (int i = 1; i * period <= wallMs; i++) yield return (long)Math.Floor(i * period);
+        }
+
+        private static void TestTickClockPacer()
+        {
+            // The host's timer polls every PollMilliseconds, and Windows fires a WinForms timer on the system timer's
+            // 15.625 ms tick (measured here: 10 ms fires every 15.7 ms, 40 ms every 46.9 ms). Over ten seconds the pacer
+            // must step 25 times a second, as the source's Manager does, not once per firing.
+            const double systemTick = 15.625;
+            double period = Math.Ceiling(TickPacer.PollMilliseconds / systemTick) * systemTick;
+            List<long> steps = PacedSteps(Firings(period, 10000));
+            AssertTrue(steps.Count >= 249 && steps.Count <= 250,
+                "On the system timer's tick the pacer stepped " + steps.Count + " times in 10 s, not the source's 250.");
+
+            // Polled every millisecond, as the source's thread sleeps, the steps fall on the 40 ms slots exactly.
+            var everyMs = new List<long>();
+            for (long t = 1; t <= 200; t++) everyMs.Add(t);
+            AssertEqual("40,80,120,160,200", string.Join(",", PacedSteps(everyMs)), "The steps left the source's 40 ms slots.");
+
+            // Up to two steps behind, the next step comes at the next slot (a short catch-up); further behind, the slot
+            // moves to now, so a stall is never made up in a burst.
+            AssertEqual("40,110,120,160", string.Join(",", PacedSteps(new long[] { 40, 110, 119, 120, 159, 160 })),
+                "A step less than two ticks late did not catch up at the next slot.");
+            AssertEqual("40,300,340", string.Join(",", PacedSteps(new long[] { 40, 300, 301, 320, 339, 340 })),
+                "A stall was made up in a burst, or the clock did not restart from the late step.");
+        }
+
         private static void TestTickOfferBlank()
         {
             // Java's trim keeps a no-break space (U+00A0 is above U+0020), so that offer is real; a tab-and-space one is

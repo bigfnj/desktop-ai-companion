@@ -173,11 +173,14 @@ namespace DesktopAICompanion.Shimeji
     /// </summary>
     internal sealed partial class TickHost : ITickObserver, IDisposable
     {
-        public const int TickMilliseconds = 40;
+        public const int TickMilliseconds = TickPacer.TickMilliseconds;
 
         private readonly TickWorld _world;
         private readonly Win32TickEnvironment _environment;
         private readonly Timer _timer;
+        // The timer polls; the pacer decides when 40 ms of wall time are due (the source's Manager clock).
+        private readonly System.Diagnostics.Stopwatch _clock = System.Diagnostics.Stopwatch.StartNew();
+        private readonly TickPacer _pacer = new TickPacer(0);
         private readonly Dictionary<string, TickHostType> _typesByName = new Dictionary<string, TickHostType>(StringComparer.Ordinal);
         private readonly Dictionary<TickMascot, FormCompanion> _forms = new Dictionary<TickMascot, FormCompanion>();
         private readonly Func<TickHostType, FormCompanion> _openForm;
@@ -199,11 +202,14 @@ namespace DesktopAICompanion.Shimeji
             _world.Clips = new HostTickClips(HostTypeOf, delegate { return Audio; });
             AttachPacks();
             _world.Start();
-            _timer = new Timer { Interval = TickMilliseconds };
-            _timer.Tick += delegate { Step(); };
+            _timer = new Timer { Interval = TickPacer.PollMilliseconds };
+            _timer.Tick += delegate { TimerFirings++; if (_pacer.Due(_clock.ElapsedMilliseconds)) Step(); };
         }
 
         public TickWorld World { get { return _world; } }
+
+        /// <summary>How many times the polling timer has fired (the window self-test's clock check reports it).</summary>
+        internal int TimerFirings { get; private set; }
         public Win32TickEnvironment Environment { get { return _environment; } }
         public int Count { get { return _forms.Count; } }
 
@@ -259,7 +265,11 @@ namespace DesktopAICompanion.Shimeji
                 _forms[m] = form;
             }
             Hold(m);
-            if (!_timer.Enabled) _timer.Start();
+            if (!_timer.Enabled)
+            {
+                _pacer.Restart(_clock.ElapsedMilliseconds);
+                _timer.Start();
+            }
             return m;
         }
 

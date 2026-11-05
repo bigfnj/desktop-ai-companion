@@ -384,4 +384,33 @@ namespace DesktopAICompanion.Shimeji
             return inner.Left >= outer.Left && inner.Top >= outer.Top && inner.Right <= outer.Right && inner.Bottom <= outer.Bottom;
         }
     }
+
+    /// <summary>
+    /// The source's wall clock (Manager.java's thread): it wakes about every millisecond and steps once when 40 ms are due
+    /// since the last step's slot, moving the slot on by 40 ms, or to now when it is more than two steps behind, so a stall
+    /// is never made up in a burst. The host's timer polls every <see cref="PollMilliseconds"/> and asks <see cref="Due"/>.
+    /// A WinForms timer fires on the system timer's tick (15.6 ms here unless something raised the resolution), so one set
+    /// to 40 ms fires every 46.9 ms (measured 2026-11-05: 64 firings in 3001 ms) and ran every companion at 85% speed.
+    /// </summary>
+    internal sealed class TickPacer
+    {
+        public const int TickMilliseconds = 40;
+        public const int PollMilliseconds = 10;
+
+        private long _slot;
+
+        public TickPacer(long now) { _slot = now; }
+
+        /// <summary>The clock starts again at <paramref name="now"/>: the first step is one tick later.</summary>
+        public void Restart(long now) { _slot = now; }
+
+        /// <summary>Whether a step is due at <paramref name="now"/> (milliseconds); when it is, the slot moves on.</summary>
+        public bool Due(long now)
+        {
+            if (now - _slot < TickMilliseconds) return false;
+            if (now > _slot + TickMilliseconds * 2) _slot = now;
+            else _slot += TickMilliseconds;
+            return true;
+        }
+    }
 }

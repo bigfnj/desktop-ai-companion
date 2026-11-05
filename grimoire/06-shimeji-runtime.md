@@ -56,7 +56,11 @@ run.
 ```
 
 - **`<clock>tick</clock>`.** The companion runs on 40 ms logical ticks, and pose durations count ticks. Without it the
-  classic interval timing applies.
+  classic interval timing applies. The app keeps the ticks on the wall clock as the source's Manager does
+  (`TickPacer`): a step is due once 40 ms have passed since the last step's slot, the slot moves on by 40 ms, and a
+  step more than two ticks late moves the slot to now instead of catching up in a burst. The app's timer only polls
+  (every 10 ms, 15.6 ms on Windows' default timer); a WinForms timer set to 40 ms fires every 46.9 ms, which would run
+  every companion at 85% speed.
 - **`<pack>`.** `id` is the pack, `member` this member's key (unique in the pack, case-sensitive). `role` is `main`,
   `egg`, `form` or `helper`. `hidden="true"` keeps a member out of the user's Add-a-companion list; helper sets and
   egg stages are hidden. Members are installed as separate companion types and resolved by (`id`, `member`)

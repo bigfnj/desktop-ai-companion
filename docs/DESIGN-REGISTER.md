@@ -7530,6 +7530,20 @@ member's role is `egg`, "Arrive as an egg" decides (per main member's type id, d
 route's choice. A startup naming the main member itself gives only the entry behaviour. The startup behaviour is entered
 when the companion is created, and the source-style arrival then applies: created off screen, the first step drops it in
 and enters Fall, as `Main.createMascot` placement does for every new companion.
+
+**The clock is the source's wall clock, not a 40 ms timer.** The real-app pack smoke timed an egg's 75-tick hatch at
+about 3.5 s, not 3.0 s. Measured on this box, a WinForms timer set to 40 ms fires every 46.9 ms (64 firings in 3001 ms):
+Windows fires it on the 15.6 ms system timer tick, so every tick companion ran at 85% of the source's speed. The host's
+timer now polls every 10 ms (15.7 ms measured) and `TickPacer` applies the rule from `Manager.java:90-103`: a step is due
+once 40 ms have passed since the last step's slot, the slot moves on by 40 ms, and a step more than two ticks late moves
+the slot to now. Raising the system timer resolution (timeBeginPeriod) would have given even 40 ms steps, at a
+machine-wide power cost the app has no right to impose; the polled pacer keeps the source's long-run rate with up to one
+system tick of jitter per step (steps 31 or 47 ms apart, 40.2 ms on average, measured). CoreTests models the poll on the
+system tick. The window self-test counts real steps over three seconds of a message pump that waits as the app's loop
+does, after three warm-up steps, and wants elapsed / 40 within 8%: a 40 ms timer gave 61 steps there and an unpaced
+10 ms one 188. The warm-up matters: the first firing came about 450 ms after the timer started, and the source's rule
+drops slots that late, so counting from the start measured start-up, not the clock. In the real app, the pack smoke's
+75-tick hatch went from 3.58 s to 2.99 s.
 #### feature/shimeji-host-studio
 
 Companion Studio opens, analyses, previews and installs a tick-clock companion, one companion at a time. Importing a
