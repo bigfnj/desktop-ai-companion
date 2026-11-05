@@ -23,6 +23,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         private static readonly XNamespace Ns = "https://esheep.petrucci.ch/";
         private static readonly CultureInfo Invariant = CultureInfo.InvariantCulture;
         private static readonly HashSet<string> Types = Set("Stay Move Animate Sequence Select Embedded");
+        // UserBehavior's BEHAVIOURNAME_FALL, _THROWN and _DRAGGED: the names BehaviorBuilder never lets be toggleable.
+        private static readonly HashSet<string> RequiredBehaviours = Set("Fall Thrown Dragged");
         // The closed class list of grimoire/06 section 5: every class the host's tick runtime constructs
         // (TickWorld.CreateEmbedded and its four family files), the deprecated Broadcast aliases included.
         private static readonly HashSet<string> Classes = Set("Fall Jump Dragged Regist Look Turn Offset Mute BringToFront SelfDestruct "
@@ -601,7 +603,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                         // source keys a disabled behaviour by NAME (DisabledBehaviours.<imageSet>, Main.java:1420), so
                         // the toggle id is the name, and each element that says Toggleable itself (a root Behavior or
                         // a BehaviorReference) names that toggle; one that does not stays ungated, as its builder does.
-                        if (Bool(source, "Toggleable"))
+                        // The builder overrides the flag for the three behaviours the engine needs: a behaviour named
+                        // exactly Fall, Thrown or Dragged is never toggleable, whatever it says (BehaviorBuilder.java:59-68,
+                        // the literal English names, not the schema's), so it gets no toggle and writes no header switch.
+                        if (Bool(source, "Toggleable") && !RequiredBehaviours.Contains(name))
                         {
                             if (name.Length > 64)
                                 Fail(source, "TICK_TOGGLE_ID_LIMIT: a Toggleable behaviour's name is its toggle id, at most 64 characters in this format");

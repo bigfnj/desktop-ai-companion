@@ -62,6 +62,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "prepare-all-members", Run = (Action)PrepareAllMembers },
                 new { Name = "cross-schema-refusal", Run = (Action)CrossSchemaRefusal },
                 new { Name = "toggle-lowering", Run = (Action)ToggleLowering },
+                new { Name = "toggle-required-names", Run = (Action)ToggleRequiredNames },
                 new { Name = "toggle-id-refusal", Run = (Action)ToggleIdRefusal },
                 new { Name = "information-refusal", Run = (Action)InformationRefusal },
                 new { Name = "own-set-binding-reset", Run = (Action)OwnSetBindingReset },
@@ -1122,6 +1123,39 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             using (var fixture = new Fixture())
                 Require(fixture.Convert().Root.Element(Ns + "header").Element(Ns + "toggles") == null,
                     "a member with no Toggleable behaviour wrote header toggles");
+        }
+
+        // The source never lets the three required behaviours be toggled (BehaviorBuilder overrides Toggleable for the
+        // exact names Fall, Thrown and Dragged), so neither a root Behavior nor a next BehaviorReference of those names
+        // gets a toggle or a header switch, while an ordinary Toggleable behaviour beside them still does.
+        private static void ToggleRequiredNames()
+        {
+            using (var fixture = new Fixture())
+            {
+                XDocument source = BuildBehaviors();
+                source.Descendants("Behavior").Single(b => (string)b.Attribute("Name") == "Idle").SetAttributeValue("Toggleable", "true");
+                foreach (string name in new[] { "Fall", "Thrown", "Dragged" })
+                    source.Root.Element("BehaviorList").Add(S("Behavior", A("Name", name), A("Action", "Stand"), A("Frequency", 0),
+                        A("Toggleable", "true")));
+                source.Descendants("NextBehaviorList").First().Add(S("BehaviorReference", A("Name", "Fall"), A("Action", "Stand"),
+                    A("Frequency", 1), A("Toggleable", "true")));
+                fixture.Behaviors(source);
+                XDocument document = fixture.Convert();
+                Validate(document, "required-name toggle member");
+                string[] toggles = document.Root.Element(Ns + "header").Elements(Ns + "toggles").Elements(Ns + "toggle")
+                    .Select(t => (string)t.Attribute("id")).ToArray();
+                Require(toggles.SequenceEqual(new[] { "Idle" }),
+                    "header toggles are not the one ordinary Idle switch: " + string.Join(", ", toggles));
+                foreach (string name in new[] { "Fall", "Thrown", "Dragged" })
+                    Require(RootBehavior(document, name).Element(Ns + "behaviour").Attribute("toggle") == null,
+                        "required behaviour " + name + " acquired a toggle");
+                XElement reference = RootBehavior(document, "Main").Element(Ns + "sequence").Elements(Ns + "next")
+                    .Select(e => Nodes(document).Single(n => n.Attribute("id").Value == e.Value).Element(Ns + "behaviour"))
+                    .Single(b => (string)b.Attribute("name") == "Fall");
+                Require(reference.Attribute("toggle") == null, "a next reference named Fall acquired a toggle");
+                Require((string)RootBehavior(document, "Idle").Element(Ns + "behaviour").Attribute("toggle") == "Idle",
+                    "WITNESS the ordinary Toggleable behaviour beside the required ones lost its toggle");
+            }
         }
 
         // A toggle id is at most 64 characters (the validator's rule), and the id is the behaviour's name.

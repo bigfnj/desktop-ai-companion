@@ -19337,6 +19337,17 @@ CASES = (
      b"                            if (name.Length > 65)\n",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
      SHIMEJI, None, "conversion accepted an input requiring refusal: TICK_TOGGLE_ID_LIMIT"),
+
+    # ---- lane feature/shimeji-convert-corpus ----
+    # Real packs through the tick emitter: the two review fixes of the widening lane (CW1, CW2), then the corpus
+    # refusals by how many packs each blocks. Same runner and artefact as the convert-widen block. Named
+    # "convert-corpus: ..." so one --only=convert-corpus run covers the lane.
+    ("convert-corpus: a required behaviour's authored Toggleable becomes a toggle again (CW1)",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
+     b"                        if (Bool(source, \"Toggleable\") && !RequiredBehaviours.Contains(name))\n",
+     b"                        if (Bool(source, \"Toggleable\"))\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "header toggles are not the one ordinary Idle switch"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
