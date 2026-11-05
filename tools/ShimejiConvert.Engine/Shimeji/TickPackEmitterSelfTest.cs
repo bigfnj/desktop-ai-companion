@@ -65,6 +65,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "toggle-lowering", Run = (Action)ToggleLowering },
                 new { Name = "toggle-required-names", Run = (Action)ToggleRequiredNames },
                 new { Name = "toggle-id-refusal", Run = (Action)ToggleIdRefusal },
+                new { Name = "root-attributes-ignored", Run = (Action)RootAttributesIgnored },
                 new { Name = "information-refusal", Run = (Action)InformationRefusal },
                 new { Name = "own-set-binding-reset", Run = (Action)OwnSetBindingReset },
                 new { Name = "japanese-schema-values", Run = (Action)JapaneseSchemaValues },
@@ -1206,6 +1207,35 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 fixture.Behaviors(source);
                 Refusal(fixture, "TICK_TOGGLE_ID_LIMIT");
                 Require(!Directory.Exists(fixture.Output), "toggle id refusal left output");
+            }
+        }
+
+        // The source reads no attribute of a configuration document's root (Configuration.load selects its children
+        // only), so a root carrying a namespace-qualified schema location, its namespace declaration and any other
+        // attribute converts to exactly the bytes the bare root does; the root's text is still refused.
+        private static void RootAttributesIgnored()
+        {
+            XNamespace xsi = "http://www.w3.org/2001/XMLSchema-instance";
+            string plain;
+            using (var fixture = new Fixture())
+                plain = fixture.Convert().ToString();
+            using (var fixture = new Fixture())
+            {
+                foreach (XDocument document in new[] { BuildActions(), BuildBehaviors() })
+                {
+                    document.Root.Add(new XAttribute(XNamespace.Xmlns + "xsi", xsi.NamespaceName),
+                        new XAttribute(xsi + "schemaLocation", "urn:example Mascot.xsd"), new XAttribute("version", "2"));
+                    if (document.Root.Element("ActionList") != null) fixture.Actions(document); else fixture.Behaviors(document);
+                }
+                string decorated = fixture.Convert().ToString();
+                Require(decorated == plain, "a root attribute the source never reads changed the emitted member");
+            }
+            using (var fixture = new Fixture())
+            {
+                XDocument actions = BuildActions();
+                actions.Root.AddFirst("stray text");
+                fixture.Actions(actions);
+                Refusal(fixture, "unexpected source text");
             }
         }
 

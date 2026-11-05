@@ -102,6 +102,7 @@ Japanese engine behaviours on a fall, a drag and a release, so those three take 
 and Thrown wherever a literal names them; an English Fall beside them, a scripted behaviour name in such a
 member, a TargetBehavior naming one, and a literal engine name in a pack that mixes the two vocabularies are
 refused.
+Attributes on a configuration document's root element are ignored, as the source never reads them.
 It refuses unsupported attributes and
 classes, sounds, constants, information metadata, anonymous
 nested actions and next references without a root definition.

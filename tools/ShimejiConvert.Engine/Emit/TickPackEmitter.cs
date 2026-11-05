@@ -272,8 +272,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 if (_source.Actions == null || _source.Behaviors == null) throw new InvalidDataException("Tick pack needs both action and behaviour documents.");
                 // A Japanese action document's enumerated VALUES are Japanese too: ActionType and BorderValue map them
                 // through the document's own schema, exactly as the source compares them (see SchemaValue).
-                Check(_source.Actions.Root);
-                Check(_source.Behaviors.Root);
+                CheckRoot(_source.Actions.Root);
+                CheckRoot(_source.Behaviors.Root);
                 foreach (ShimejiSourceElement list in _source.Actions.Root.Children)
                 {
                     if (list.Kind != ShimejiSourceKind.ActionList) Fail(list, "only ActionList is supported at the action document root");
@@ -1071,6 +1071,15 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 // literal text (Value).
                 yield return attribute;
             }
+        }
+        /// <summary>A configuration document's root element. The source reads none of its attributes: Configuration.load
+        /// only asks the root for its children (hasChild, selectChildren; Configuration.java:41-102), and Main hands it the
+        /// document element and nothing else (Main.java:371, 418, 437). So a root attribute, such as the schema-location
+        /// pair the stock configuration's root carries, is ignored here exactly as there, and writes nothing. Its direct
+        /// text is still refused, as everywhere.</summary>
+        private static void CheckRoot(ShimejiSourceElement root)
+        {
+            if (!string.IsNullOrWhiteSpace(root.Text)) Fail(root, "unexpected source text");
         }
         private static void Check(ShimejiSourceElement source, params string[] allowed)
         {

@@ -19393,6 +19393,19 @@ CASES = (
      b"                    Fail(owner, \"TICK_ENGINE_NAME_SCRIPTED \" + attribute.QualifiedName\n",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
      SHIMEJI, None, "conversion accepted an input requiring refusal: TICK_ENGINE_NAME_SCRIPTED"),
+    # Root attributes: the source reads none, so they are ignored; the root's text is still refused.
+    ("convert-corpus: the action document's root attributes are checked again",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
+     b"                CheckRoot(_source.Actions.Root);\n",
+     b"                Check(_source.Actions.Root);\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "unrecognised source attribute 'xsi:schemaLocation'"),
+    ("convert-corpus: a root's stray text is no longer refused",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
+     b"            if (!string.IsNullOrWhiteSpace(root.Text)) Fail(root, \"unexpected source text\");\n",
+     b"",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "conversion accepted an input requiring refusal: unexpected source text"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
