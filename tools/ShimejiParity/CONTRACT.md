@@ -139,7 +139,7 @@ active companions in manager order, then the pending births in add-queue order.
 | `refKey` | the declaration or reference that started the leaf action; equals the last `actionStack` entry | yes, when the stack is empty |
 | `actionAge` | the leaf action's time in ticks | yes, before evaluation |
 | `pose` | the image the companion shows, taken from the stored APPLIED pose, never from the current image set: `image` and `imageRight` are pack-relative paths with forward slashes (`img/Egg/shime3.png`), so they name the member the image belongs to, which after a Transform is the OLD member's until the new type's first pose is applied; `index` is the pose's position in its animation | yes, before any pose |
-| `poseAnchor` | the offset from `origin` to the rendered image's authored anchor, after facing and `dpiScale` | yes, with `pose` |
+| `poseAnchor` | the offset from `origin` to the anchor the image is drawn with, after facing and `dpiScale`: its EFFECTIVE anchor. An image pair the source has already loaded keeps the anchor of the pose that loaded it first (the pair is cached by its paths, `ImagePairLoader.java:30-38`), so a later pose's authored anchor is not it | yes, with `pose` |
 | `visible` | false while an image-less pose hides the companion, and once it is disposing | no |
 | `anchor` | the contact point in screen pixels | no |
 | `origin` | the rendered image's top-left in screen pixels | yes, with `pose` |
@@ -263,11 +263,13 @@ Then:
 - **Directed scenarios** (`rng.kind` is `none` or `tape`):
   - Event sequences match exactly on tick, sid, kind and every payload field, `rng-draw` site included.
   - Each tick lists the same companions in the same order (`entity-mismatch`).
-  - State lines match exactly on every field except `anchor`, `origin`, `poseAnchor` and `velocity`. Velocity is
-    checked against the anchor inside each trace, so comparing anchors compares it.
+  - State lines match exactly on every field except `anchor`, `origin` and `velocity`. Velocity is checked against
+    the anchor inside each trace, so comparing anchors compares it.
   - `anchor` matches exactly unless the scenario declares a named rounding boundary.
-  - `origin` is compared normalised, as `origin + poseAnchor`: the point where the image's authored anchor was drawn.
-    The two runtimes may pad their images differently; that point may not differ.
+  - `origin` and `poseAnchor` are each compared. Both runtimes draw the source's image unpadded from its top-left
+    (per-pose geometry), so the drawn image's top-left and its effective anchor both match exactly. A named `origin`
+    rounding boundary, when the scenario declares one, covers `origin` only. Their sum is not compared: it would
+    pass an image drawn somewhere else whose anchor offset moved the other way by the same amount.
 - **Free-running scenarios** (`splitmix64`) make a separate, weaker claim: behaviour time-share, with the tolerance
   and both draw counts printed beside the result. Their verdict is `time-share` pass or fail, never `exact`, whatever
   the state lines show.
@@ -301,7 +303,10 @@ The host runs a converted pet, so it names source things through a parity map th
 when asked to (a test artefact, never shipped and never read outside parity mode):
 
 - every frame index: the source image key it came from (`image`, and `imageRight` when it is a right-facing
-  alternate), with that image's authored anchor and size;
+  alternate), with the anchor and size the source draws that image with: the EFFECTIVE anchor of section 3's
+  `poseAnchor` (the first-loaded pose's, for a cached pair). A pose whose geometry disagrees with its frame's map
+  entry is refused before anything is traced. A pose's authored anchor, where it differs, stays in the converter's
+  source IR, not in the map;
 - every action node and every edge that carries parameter bindings: the refKey of the declaration or reference it
   was lowered from;
 - every script site: its `script:<refKey>#<attribute>#<k>` name.

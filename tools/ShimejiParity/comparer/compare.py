@@ -32,10 +32,12 @@ STATE_FIELDS = ("tick", "sid", "imageSet", "behavior", "action", "actionClass", 
 NON_NULL_STATE = {"tick": int, "sid": str, "imageSet": str, "actionStack": list, "visible": bool, "anchor": list,
                   "lookRight": bool, "velocity": list, "affordances": list, "dragging": bool, "pending": bool,
                   "disposing": bool, "vars": dict}
-# Compared exactly. anchor (named tolerance), origin (normalised with poseAnchor) and velocity (checked against the
-# anchor inside each trace, so comparing anchors compares it) are handled apart.
+# Compared exactly. anchor and origin (each with its own named tolerance) and velocity (checked against the anchor inside
+# each trace, so comparing anchors compares it) are handled apart. poseAnchor is exact: both runtimes draw the source's
+# image unpadded at its top-left (per-pose geometry), so the anchor offset is the source's effective anchor on both.
 EXACT_STATE_FIELDS = ("imageSet", "behavior", "action", "actionClass", "actionStack", "refKey", "actionAge", "pose",
-                      "visible", "lookRight", "affordances", "target", "dragging", "pending", "disposing", "vars")
+                      "poseAnchor", "visible", "lookRight", "affordances", "target", "dragging", "pending", "disposing",
+                      "vars")
 EVENT_PAYLOAD_KEYS = {
     "behavior": ("from", "to", "cause"),
     "transform": ("fromImageSet", "toImageSet", "behavior"),
@@ -299,13 +301,6 @@ def event_key(e):
     return (e["tick"], e["sid"], e["kind"]) + tuple(json.dumps(e.get(k), sort_keys=True) for k in EVENT_PAYLOAD_KEYS[e["kind"]])
 
 
-def _drawn_at(s):
-    """origin + poseAnchor: where the image's authored anchor was drawn (None when nothing is drawn)."""
-    if s["origin"] is None or s["poseAnchor"] is None:
-        return None if (s["origin"] is None and s["poseAnchor"] is None) else ("inconsistent", s["origin"], s["poseAnchor"])
-    return [s["origin"][0] + s["poseAnchor"][0], s["origin"][1] + s["poseAnchor"][1]]
-
-
 def compare(oracle, host, scenario=None, scenario_sha=None, pack_sha=None, artifacts=None, tolerances=None):
     """Returns a report dict: verdict, class, findings (each with tick/sid/field/oracle/host)."""
     tolerances = tolerances or {}
@@ -407,15 +402,15 @@ def compare(oracle, host, scenario=None, scenario_sha=None, pack_sha=None, artif
                             report["verdict"] = "within-tolerance:anchor"
                         else:
                             mismatch = (a["sid"], "anchor", a["anchor"], b["anchor"])
-                    if mismatch is None:
-                        da, db = _drawn_at(a), _drawn_at(b)
-                        if da != db:
-                            tol = tolerances.get("origin")
-                            if (tol is not None and isinstance(da, list) and isinstance(db, list)
-                                    and all(abs(x - y) <= tol for x, y in zip(da, db))):
-                                report["verdict"] = "within-tolerance:origin"
-                            else:
-                                mismatch = (a["sid"], "origin (origin + poseAnchor)", da, db)
+                    # The drawn image's top-left, on its own: a sum with poseAnchor would pass an image drawn somewhere
+                    # else whose anchor offset moved the other way by the same amount (a rendered shift).
+                    if mismatch is None and a["origin"] != b["origin"]:
+                        tol = tolerances.get("origin")
+                        if (tol is not None and isinstance(a["origin"], list) and isinstance(b["origin"], list)
+                                and all(abs(x - y) <= tol for x, y in zip(a["origin"], b["origin"]))):
+                            report["verdict"] = "within-tolerance:origin"
+                        else:
+                            mismatch = (a["sid"], "origin", a["origin"], b["origin"])
                     if mismatch:
                         break
                 if mismatch:
@@ -621,10 +616,14 @@ def _cases():
         ("startedUtc missing from the host header", "missing-field", host_only(lambda h: h[0].pop("startedUtc"))),
         ("a draw value of 1.25 in both traces", "rng-invalid",
          both(lambda t: t.insert(2, _ev(1, "m1", "rng-draw", site="builtin:behavior-select", occurrence=1, value=1.25, purpose="p")))),
-        # positive controls
-        ("WITNESS other padding, same drawn anchor", "exact",
+        # The same anchor point drawn from another top-left: origin and poseAnchor moved oppositely (Codex's executed
+        # counterexample to the old origin + poseAnchor comparison), and each field moved alone.
+        ("a rendered shift: origin -10,-6 with poseAnchor +10,+6", "state-mismatch",
          host_only(lambda h: [r.update(origin=[r["origin"][0] - 10, r["origin"][1] - 6], poseAnchor=[42, 134])
                               for r in h if r.get("type") == "state"])),
+        ("poseAnchor alone differs [33,128]", "state-mismatch",
+         host_only(lambda h: _where(h, 2, "m1")[0].update(poseAnchor=[33, 128])), ", poseAnchor: oracle"),
+        # positive controls
         ("WITNESS a refused birth with no child", "exact",
          both(lambda t: t.insert(-1, _ev(4, "m1", "birth-refused", child=None, attempt=2, reason="cap")))),
     ]
@@ -730,6 +729,19 @@ def self_test():
     good = rb["verdict"] == "fail" and rb["findings"][0]["field"] == "visible"
     ok &= good
     print(f"  {'the anchor tolerance does not cover visibility':52} {'FIRED' if good else 'SURVIVED'}  ({rb.get('class')})")
+    # The origin tolerance (a named rounding boundary, e.g. a DPI scale) covers origin only, never poseAnchor.
+    otol = copy.deepcopy(host)
+    _where(otol, 2, "m1")[0].update(origin=[_where(otol, 2, "m1")[0]["origin"][0] + 1, 552])
+    ro = compare(oracle, otol, tolerances={"origin": 1})
+    good = ro["verdict"] == "within-tolerance:origin"
+    ok &= good
+    print(f"  {'a declared origin tolerance is named':52} {'OK' if good else 'WRONG'}  ({ro['verdict']})")
+    pa = copy.deepcopy(host)
+    _where(pa, 2, "m1")[0].update(poseAnchor=[33, 128])
+    rp = compare(oracle, pa, tolerances={"origin": 1})
+    good = rp["verdict"] == "fail" and rp["findings"][0]["field"] == "poseAnchor"
+    ok &= good
+    print(f"  {'the origin tolerance does not cover poseAnchor':52} {'FIRED' if good else 'SURVIVED'}  ({rp.get('class')})")
 
     # The pack manifest is the documented text.
     import tempfile
