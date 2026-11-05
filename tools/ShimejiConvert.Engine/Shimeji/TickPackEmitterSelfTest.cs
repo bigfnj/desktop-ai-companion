@@ -68,6 +68,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "root-attributes-ignored", Run = (Action)RootAttributesIgnored },
                 new { Name = "instant-without-animation", Run = (Action)InstantWithoutAnimation },
                 new { Name = "anonymous-nested-actions", Run = (Action)AnonymousNestedActions },
+                new { Name = "custom-variables", Run = (Action)CustomVariables },
                 new { Name = "information-refusal", Run = (Action)InformationRefusal },
                 new { Name = "own-set-binding-reset", Run = (Action)OwnSetBindingReset },
                 new { Name = "japanese-schema-values", Run = (Action)JapaneseSchemaValues },
@@ -1314,6 +1315,53 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 fixture.Actions(actions);
                 Refusal(fixture, "a nested action needs a unique name for this first lowering: 'Chain/1'");
             }
+        }
+
+        // An attribute the schema does not name is a variable of the source's action map: on an action, a reference
+        // or a behaviour it is lowered under its own name, and a script in that map can read it (a reference's TargetX
+        // reading the Gap it binds beside it, an action's Duration reading its own Speed, an action's TargetX reading
+        // the Step its behaviour binds). A grammar word, a custom variable no script reads, or a name no binding
+        // declares, still refuses.
+        private static void CustomVariables()
+        {
+            using (var fixture = new Fixture())
+            {
+                XDocument actions = BuildActions();
+                XElement list = actions.Root.Element("ActionList");
+                list.Add(S("Action", A("Name", "Chase"), A("Type", "Sequence"),
+                        S("ActionReference", A("Name", "Walk"), A("TargetX", "#{mascot.environment.cursor.x+Gap}"), A("Gap", "${mascot.anchor.x < 0 ? 1 : 2}"))),
+                    S("Action", A("Name", "Pace"), A("Type", "Stay"), A("Speed", "3"), A("Duration", "${Speed*2}"), S("Animation", Pose("/p.png", 1))),
+                    S("Action", A("Name", "Stride"), A("Type", "Move"), A("TargetX", "${mascot.anchor.x+Step}"), S("Animation", Pose("/q.png", 1))));
+                fixture.Actions(actions);
+                XDocument behaviours = BuildBehaviors();
+                behaviours.Root.Element("BehaviorList").Add(S("Behavior", A("Name", "Striding"), A("Action", "Stride"), A("Frequency", 0), A("Step", "4")));
+                fixture.Behaviors(behaviours);
+                XDocument document = fixture.Convert();
+                Validate(document, "custom-variable member");
+                XElement child = NamedNode(document, "Chase").Element(Ns + "act").Element(Ns + "children").Element(Ns + "child");
+                Require(Scripted(child, "bind", "Gap", "action") == "mascot.anchor.x < 0 ? 1 : 2"
+                    && Scripted(child, "bind", "TargetX", "frame") == "mascot.environment.cursor.x+Gap",
+                    "a reference's custom Gap binding, or the TargetX that reads it, was not lowered");
+                XElement pace = NamedNode(document, "Pace").Element(Ns + "act");
+                Require(Bound(pace, "param", "Speed") == "3" && Scripted(pace, "param", "Duration", "action") == "Speed*2",
+                    "an action's own custom variable, or the script that reads it, was not lowered");
+                Require(Bound(RootBehavior(document, "Striding").Element(Ns + "behaviour"), "bind", "Step") == "4"
+                    && Scripted(NamedNode(document, "Stride").Element(Ns + "act"), "param", "TargetX", "action") == "mascot.anchor.x+Step",
+                    "a behaviour's custom binding, or the action script that reads it, was not lowered");
+            }
+            var refusals = new[] {
+                new { Attribute = A("mascot", "1"), Expected = "unrecognised source attribute 'mascot'" },
+                new { Attribute = A("Unread", "1"), Expected = "unrecognised source attribute 'Unread'" },
+                new { Attribute = A("TargetX", "${Nope}"), Expected = "TICK_EXPRESSION_UNSUPPORTED TargetX" },
+            };
+            foreach (var r in refusals)
+                using (var fixture = new Fixture())
+                {
+                    XDocument actions = BuildActions();
+                    actions.Root.Element("ActionList").Add(S("Action", A("Name", "Odd"), A("Type", "Move"), r.Attribute, S("Animation", Pose("/p.png", 1))));
+                    fixture.Actions(actions);
+                    Refusal(fixture, r.Expected);
+                }
         }
 
         private static void InformationRefusal()

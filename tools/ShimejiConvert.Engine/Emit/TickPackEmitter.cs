@@ -206,6 +206,20 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             private readonly Dictionary<string, ShimejiSourceElement> _actions = new Dictionary<string, ShimejiSourceElement>(StringComparer.Ordinal);
             // Each nested action element and its node name (its Name, or the name an anonymous one is given).
             private readonly Dictionary<ShimejiSourceElement, string> _nestedNames = new Dictionary<ShimejiSourceElement, string>();
+            // Global action name -> the custom variables references and behaviours bind to it (ScopeFor).
+            private readonly Dictionary<string, HashSet<string>> _boundCustom = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+            // The scope ScriptParameter parses in: the action whose variable map the attribute being lowered joins.
+            private Func<string, bool> _scope;
+            // Every identifier a script of this member's two documents mentions (Carried).
+            private readonly HashSet<string> _scriptNames = new HashSet<string>(StringComparer.Ordinal);
+
+            /// <summary>A custom variable is carried when some script of this member names it. One that nothing reads is
+            /// an inert variable in the source, which changes nothing; it stays refused as an attribute nothing reads, as
+            /// every unread name has been, so a misspelt attribute is still caught rather than carried.</summary>
+            private bool Carried(ShimejiSourceAttribute attribute)
+            {
+                return IsCustom(attribute) && _scriptNames.Contains(attribute.SourceName);
+            }
             private readonly HashSet<string> _globalActions = new HashSet<string>(StringComparer.Ordinal);
             private readonly List<ShimejiSourceElement> _actionOrder = new List<ShimejiSourceElement>();
             private readonly Dictionary<string, RootBehaviour> _roots = new Dictionary<string, RootBehaviour>(StringComparer.Ordinal);
@@ -304,6 +318,18 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 foreach (string key in EngineBehaviourKeys)
                     if (_engineNames.ContainsValue(key) && _roots.ContainsKey(key))
                         Fail(_roots[key].Source, "TICK_ENGINE_NAME_COLLISION: '" + key + "' is an ordinary behaviour under this member's Japanese schema, and the host enters a behaviour of that name on its own events");
+                // The names the member's scripts mention (Carried), then the custom variables each global action is
+                // bound (ScopeFor), from every reference and behaviour.
+                foreach (ShimejiSourceDocument scripted in new[] { _source.Actions, _source.Behaviors })
+                    foreach (ShimejiSourceElement element in scripted.Root.DescendantsAndSelf())
+                        foreach (ShimejiSourceAttribute attribute in element.Attributes)
+                            if (attribute.Cache != ShimejiSourceCache.Literal)
+                                foreach (Match token in ScriptToken.Matches(attribute.Expression)) _scriptNames.Add(token.Value);
+                foreach (ShimejiSourceElement element in _source.Actions.Root.DescendantsAndSelf())
+                    if (element.Kind == ShimejiSourceKind.ActionReference) NoteBoundCustom(LiteralRaw(element, "Name"), element);
+                foreach (ShimejiSourceElement element in _source.Behaviors.Root.DescendantsAndSelf())
+                    if (element.Kind == ShimejiSourceKind.Behavior || element.Kind == ShimejiSourceKind.BehaviorReference)
+                        NoteBoundCustom(LiteralRaw(element, "Action") ?? LiteralRaw(element, "Name"), element);
                 // Source image pairs are loaded eagerly, including from unused actions. Their cache
                 // excludes the authored anchor, so later poses with the same pair use the first one.
                 foreach (ShimejiSourceElement action in _actionOrder) IndexPairAnchors(action);
@@ -471,9 +497,16 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 }
                 else if (cls != null) Fail(source, "Class is supported only on Embedded");
                 XElement guard = null, offers = null;
-                foreach (ShimejiSourceAttribute attribute in Attributes(source))
+                Func<string, bool> scope = ScopeFor(source);
+                _scope = scope;
+                foreach (ShimejiSourceAttribute attribute in ParameterAttributes(source, Carried))
                 {
                     if (attribute.SchemaKey == "Name" || attribute.SchemaKey == "Type" || attribute.SchemaKey == "Class") continue;
+                    if (Carried(attribute))
+                    {
+                        act.Add(CustomParameter("param", attribute, source));
+                        continue;
+                    }
                     if (!Parameters.Contains(attribute.Name)) Fail(source, "unsupported action attribute '" + attribute.QualifiedName + "'");
                     act.Add(MemberParameter("param", attribute, null, source));
                     // grimoire/06 4.1: a literal Affordance is the action's offer, replacing the companion's offer list
@@ -517,6 +550,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     if (child.Kind == ShimejiSourceKind.Animation)
                     {
                         // Composite animations do not run, but the source still loads their images.
+                        _scope = scope;
                         XElement variant = EmitVariant(child, ++animationIndex, composite ? null : conditions);
                         if (!composite) variants.Add(variant);
                     }
@@ -533,12 +567,22 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                             Fail(child, "missing global action '" + target + "'");
                         var reference = E("child", new XAttribute("animation", target));
                         if (child.Kind == ShimejiSourceKind.ActionReference)
-                            foreach (ShimejiSourceAttribute attribute in Attributes(child))
+                        {
+                            // A reference's bindings are evaluated in the variable map of the action it builds
+                            // (ActionRef passes them in, ActionBuilder.createVariables), so their scope is the target's.
+                            _scope = ScopeFor(_actions[target]);
+                            foreach (ShimejiSourceAttribute attribute in ParameterAttributes(child, Carried))
                             {
                                 if (attribute.SchemaKey == "Name") continue;
+                                if (Carried(attribute))
+                                {
+                                    reference.Add(CustomParameter("bind", attribute, child));
+                                    continue;
+                                }
                                 if (!Parameters.Contains(attribute.Name)) Fail(child, "unsupported reference binding '" + attribute.QualifiedName + "'");
                                 reference.Add(MemberParameter("bind", attribute, _actions[target], child));
                             }
+                        }
                         children.Add(reference);
                         _childMap.Add(Key(id) + ":" + childIndex++, Ref(_source.Actions, child));
                     }
@@ -760,7 +804,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 var behaviour = E("behaviour", new XAttribute("name", BehaviourName(name)), new XAttribute("runs", runs),
                     new XAttribute("frequency", frequency), new XAttribute("hidden", Bool(source, "Hidden")));
                 if (rootDefinition) behaviour.Add(new XAttribute("add", add));
-                foreach (ShimejiSourceAttribute attribute in Attributes(source))
+                // A behaviour's bindings are passed to the action it runs (BehaviorBuilder.java:72-78), whose scope they take.
+                _scope = ScopeFor(_actions[runs]);
+                foreach (ShimejiSourceAttribute attribute in ParameterAttributes(source, Carried))
                 {
                     if (new[] { "Name", "Action", "Frequency", "Hidden", "Condition" }.Contains(attribute.SchemaKey)) continue;
                     if (attribute.SchemaKey == "Toggleable")
@@ -783,6 +829,11 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     }
                     if (_source.Actions.Schema != _source.Behaviors.Schema)
                         Fail(source, "cross-schema behaviour bindings need raw target-schema resolution before lowering");
+                    if (Carried(attribute))
+                    {
+                        behaviour.Add(CustomParameter("bind", attribute, source));
+                        continue;
+                    }
                     if (!Parameters.Contains(attribute.Name)) Fail(source, "unsupported behaviour binding '" + attribute.QualifiedName + "'");
                     behaviour.Add(MemberParameter("bind", attribute, _actions[runs], source));
                 }
@@ -938,11 +989,59 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 return E(tag, new XAttribute("name", attribute.Name), new XAttribute("value", attribute.RawValue), new XAttribute("cache", "none"));
             }
 
+            /// <summary>
+            /// The scope a script in an action's variable map sees: what ActionScope holds, plus the action's own custom
+            /// variables and every custom variable a reference or behaviour binds to it anywhere. That union is the
+            /// validator's ScopeFor (the act's own params and every name bound to it), so a body this accepts the host
+            /// accepts. An action with no custom variable keeps ActionScope itself.
+            /// </summary>
+            private Func<string, bool> ScopeFor(ShimejiSourceElement action)
+            {
+                var names = new HashSet<string>(StringComparer.Ordinal);
+                foreach (ShimejiSourceAttribute attribute in action.Attributes) if (Carried(attribute)) names.Add(attribute.SourceName);
+                HashSet<string> bound;
+                string own = _nestedNames.ContainsKey(action) ? null : LiteralRaw(action, "Name");
+                if (own != null && _boundCustom.TryGetValue(own, out bound)) names.UnionWith(bound);
+                if (names.Count == 0) return ActionScope;
+                return name => ActionScope(name) || names.Contains(name);
+            }
+
+            /// <summary>Records the custom variables an ActionReference, Behavior or BehaviorReference binds to the
+            /// action it names, for that action's ScopeFor.</summary>
+            private void NoteBoundCustom(string target, ShimejiSourceElement element)
+            {
+                if (target == null) return;
+                foreach (ShimejiSourceAttribute attribute in element.Attributes)
+                {
+                    if (!Carried(attribute)) continue;
+                    HashSet<string> names;
+                    if (!_boundCustom.TryGetValue(target, out names)) _boundCustom.Add(target, names = new HashSet<string>(StringComparer.Ordinal));
+                    names.Add(attribute.SourceName);
+                }
+            }
+
+            private static string LiteralRaw(ShimejiSourceElement element, string key)
+            {
+                ShimejiSourceAttribute attribute = element.Attribute(key);
+                return attribute != null && attribute.Cache == ShimejiSourceCache.Literal ? attribute.RawValue : null;
+            }
+
+            /// <summary>A custom variable as a parameter or binding, by its source name: a literal as written, a script as
+            /// its body and cache, parsed in the scope of the action whose map it joins.</summary>
+            private XElement CustomParameter(string tag, ShimejiSourceAttribute attribute, ShimejiSourceElement owner)
+            {
+                if (attribute.Cache != ShimejiSourceCache.Literal) return ScriptParameter(tag, attribute.SourceName, attribute, owner);
+                string literal = attribute.RawValue.Trim();
+                if (Regex.IsMatch(literal, @"^[+-]?0[xX](?:[0-9a-fA-F]+(?:\.[0-9a-fA-F]*)?|\.[0-9a-fA-F]+)[pP][+-]?[0-9]+[dDfF]?$"))
+                    throw new InvalidDataException("TICK_LITERAL_UNSUPPORTED " + attribute.SourceKey + ": Java floating literal needs faithful host parsing.");
+                return E(tag, new XAttribute("name", attribute.SourceName), new XAttribute("value", attribute.RawValue), new XAttribute("cache", "none"));
+            }
+
             /// <summary>A ${} or #{} source value as a parameter or binding: the BODY, without its wrapper, whose kind
             /// becomes the cache (grimoire/06 4.1: ${} is "action", #{} is "frame").</summary>
             private XElement ScriptParameter(string tag, string name, ShimejiSourceAttribute attribute, ShimejiSourceElement owner)
             {
-                string body = Script(attribute, owner, ActionScope);
+                string body = Script(attribute, owner, _scope ?? ActionScope);
                 return E(tag, new XAttribute("name", name), new XAttribute("value", body),
                     new XAttribute("cache", attribute.Cache == ShimejiSourceCache.Action ? "action" : "frame"));
             }
@@ -1116,6 +1215,46 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         {
             if (!string.IsNullOrWhiteSpace(root.Text)) Fail(root, "unexpected source text");
         }
+        // A name a script can read: an ASCII identifier, as the host's grammar reads one; and one inside a script.
+        private static readonly Regex ScriptToken = new Regex(@"[A-Za-z_$][A-Za-z0-9_$]*");
+        private static readonly Regex Identifier = new Regex(@"^[A-Za-z_$][A-Za-z0-9_$]*$");
+        // Names a custom variable may not take: the grammar's own words, and the prefix of the parameters this emitter
+        // generates for scripted Animation Conditions.
+        private static readonly HashSet<string> ReservedNames = Set("mascot Math true false null");
+
+        /// <summary>
+        /// An attribute the schema does not name, on an Action, ActionReference, Behavior or BehaviorReference, is a
+        /// variable of the source's action map all the same: ActionBuilder puts EVERY attribute of the action and every
+        /// incoming parameter into it (ActionBuilder.java:56, 171-179), ActionRef passes its own attributes in, and a
+        /// behaviour passes its extra attributes (BehaviorBuilder.java:72-78). The stock configuration binds one
+        /// (a "Gap" its sibling TargetX script reads). Such a custom variable is lowered under its source name when that
+        /// name is a plain identifier the format can carry: not namespace-qualified, not a parameter or local the host
+        /// reads (an English Duration in a Japanese document is an inert variable to the source but the duration to the
+        /// host, so it stays refused), and not a word of the grammar.
+        /// </summary>
+        private static bool IsCustom(ShimejiSourceAttribute attribute)
+        {
+            return attribute.SchemaKey == null && !attribute.IsNamespaceDeclaration && attribute.Prefix == ""
+                && string.IsNullOrEmpty(attribute.NamespaceName) && Identifier.IsMatch(attribute.SourceName)
+                && Array.IndexOf(ShimejiFormatValidator.KnownParameters, attribute.SourceName) < 0
+                && Array.IndexOf(ShimejiFormatValidator.Locals, attribute.SourceName) < 0
+                && !ReservedNames.Contains(attribute.SourceName)
+                && !attribute.SourceName.StartsWith("AnimationCondition", StringComparison.Ordinal);
+        }
+
+        /// <summary>The attributes of an element whose attributes are action variables: as <see cref="Attributes"/>, but a
+        /// carried custom variable passes; any other attribute the schema does not name still refuses.</summary>
+        private static IEnumerable<ShimejiSourceAttribute> ParameterAttributes(ShimejiSourceElement source,
+            Func<ShimejiSourceAttribute, bool> carried)
+        {
+            foreach (ShimejiSourceAttribute attribute in source.Attributes)
+            {
+                if (attribute.IsNamespaceDeclaration) continue;
+                if (attribute.SchemaKey == null && !carried(attribute)) Fail(source, "unrecognised source attribute '" + attribute.QualifiedName + "'");
+                yield return attribute;
+            }
+        }
+
         private static void Check(ShimejiSourceElement source, params string[] allowed)
         {
             foreach (ShimejiSourceAttribute attribute in Attributes(source))
