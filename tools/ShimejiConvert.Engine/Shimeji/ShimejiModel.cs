@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 
 namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
 {
@@ -138,6 +139,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
     /// counted here and never composited (F455).</summary>
     public sealed class ShimejiConfig
     {
+        /// <summary>Ordered source IR for the tick-runtime converter. The legacy frame projection below
+        /// remains available to existing callers. Bundle-only configurations have no XML source.</summary>
+        public ShimejiSourceConfig Source { get; internal set; }
         public readonly List<ShimejiAction> Actions = new List<ShimejiAction>();
         public readonly List<ShimejiBehaviorCondition> BehaviorConditions = new List<ShimejiBehaviorCondition>();
         public readonly List<ShimejiPose> Poses = new List<ShimejiPose>();
@@ -154,5 +158,169 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         /// stays at zero, and ConvertSkin says so in the residue instead of leaving a flat hub unexplained.
         /// In-memory parses (self-tests, the census, bundles) leave it null.</summary>
         public string BehaviorsFile;
+    }
+
+    /// <summary>The source Variable.parse envelope, without evaluating or rewriting its expression.</summary>
+    public enum ShimejiSourceCache { Literal, Action, Frame }
+
+    public sealed class ShimejiSourceAttribute
+    {
+        public string Name { get; private set; }
+        public string SourceName { get; private set; }
+        public string NamespaceName { get; private set; }
+        public string QualifiedName { get; private set; }
+        public string Prefix { get; private set; }
+        public bool IsNamespaceDeclaration { get; private set; }
+        /// <summary>The exact source ResourceBundle key, or null for an unrecognised qualified name.</summary>
+        public string SchemaKey { get; private set; }
+        public string RawValue { get; private set; }
+        public string Expression { get; private set; }
+        public ShimejiSourceCache Cache { get; private set; }
+        public string SourceKey { get; private set; }
+
+        internal ShimejiSourceAttribute(string name, string sourceName, string namespaceName,
+            string rawValue, string sourceKey, string schemaKey = null, string qualifiedName = null,
+            string prefix = "", bool isNamespaceDeclaration = false)
+        {
+            Name = name;
+            SourceName = sourceName;
+            NamespaceName = namespaceName;
+            SchemaKey = schemaKey;
+            QualifiedName = qualifiedName ?? sourceName;
+            Prefix = prefix;
+            IsNamespaceDeclaration = isNamespaceDeclaration;
+            RawValue = rawValue;
+            SourceKey = sourceKey;
+            // Match Java Variable.parse exactly. Embedded or padded markers are literal strings;
+            // attribute-specific lowering decides whether this value is a script-capable parameter.
+            bool envelope = rawValue.Length >= 3 && rawValue.EndsWith("}", System.StringComparison.Ordinal);
+            if (envelope && rawValue.StartsWith("${", System.StringComparison.Ordinal)) Cache = ShimejiSourceCache.Action;
+            else if (envelope && rawValue.StartsWith("#{", System.StringComparison.Ordinal)) Cache = ShimejiSourceCache.Frame;
+            else Cache = ShimejiSourceCache.Literal;
+            if (Cache != ShimejiSourceCache.Literal) Expression = rawValue.Substring(2, rawValue.Length - 3);
+        }
+    }
+
+    public enum ShimejiSourceKind
+    {
+        Unknown, Mascot, ActionList, Action, ActionReference, Animation, Pose, Hotspot,
+        Constant, Condition, BehaviorList, Behavior, BehaviorReference, NextBehaviorList, NextBehavior
+    }
+
+    /// <summary>A semantic XML node. Ordered children and all attributes survive, including extension
+    /// nodes, nested actions, reference overrides and condition wrappers. No numeric fallback is applied.</summary>
+    public sealed class ShimejiSourceElement
+    {
+        public ShimejiSourceKind Kind { get; private set; }
+        public string Name { get; private set; }
+        public string SourceName { get; private set; }
+        public string NamespaceName { get; private set; }
+        public string QualifiedName { get; private set; }
+        public string Prefix { get; private set; }
+        public string SchemaKey { get; private set; }
+        public string ElementPath { get; private set; }
+        /// <summary>Original XML local names and same-named sibling ordinals, for the parity refKey.
+        /// ElementPath and SourceKey retain their canonical-name identity for existing consumers.</summary>
+        public string SourceElementPath { get; private set; }
+        public string SourceKey { get; private set; }
+        public int Line { get; private set; }
+        public int Column { get; private set; }
+        /// <summary>Direct text and CDATA only; descendant text is not copied into each ancestor.</summary>
+        public string Text { get; private set; }
+        public ReadOnlyCollection<ShimejiSourceAttribute> Attributes { get; private set; }
+        public ReadOnlyCollection<ShimejiSourceElement> Children { get; private set; }
+
+        internal ShimejiSourceElement(string name, string sourceName, string namespaceName,
+            string path, string sourceKey, int line, int column, string text,
+            IList<ShimejiSourceAttribute> attributes, IList<ShimejiSourceElement> children,
+            string sourceElementPath = null, string schemaKey = null, string qualifiedName = null, string prefix = "")
+        {
+            ShimejiSourceKind kind;
+            string kindName = schemaKey;
+            if (schemaKey == "Behaviour") kindName = "Behavior";
+            else if (schemaKey == "BehaviourList") kindName = "BehaviorList";
+            else if (schemaKey == "BehaviourReference") kindName = "BehaviorReference";
+            else if (schemaKey == "NextBehaviourList") kindName = "NextBehaviorList";
+            Kind = kindName != null && System.Enum.TryParse(kindName, false, out kind) ? kind : ShimejiSourceKind.Unknown;
+            Name = name;
+            SourceName = sourceName;
+            NamespaceName = namespaceName;
+            SchemaKey = schemaKey;
+            QualifiedName = qualifiedName ?? sourceName;
+            Prefix = prefix;
+            ElementPath = path;
+            SourceElementPath = sourceElementPath ?? path;
+            SourceKey = sourceKey;
+            Line = line;
+            Column = column;
+            Text = text;
+            Attributes = new List<ShimejiSourceAttribute>(attributes).AsReadOnly();
+            Children = new List<ShimejiSourceElement>(children).AsReadOnly();
+        }
+
+        /// <summary>Resolves a source ResourceBundle key under this document's selected schema.
+        /// Ignored aliases remain in Attributes and can be inspected through RawAttribute.</summary>
+        public ShimejiSourceAttribute Attribute(string schemaKey)
+        {
+            foreach (ShimejiSourceAttribute attribute in Attributes)
+                if (attribute.SchemaKey != null && string.Equals(attribute.SchemaKey, schemaKey, System.StringComparison.Ordinal)) return attribute;
+            return null;
+        }
+
+        public ShimejiSourceAttribute RawAttribute(string qualifiedName)
+        {
+            foreach (ShimejiSourceAttribute attribute in Attributes)
+                if (string.Equals(attribute.QualifiedName, qualifiedName, System.StringComparison.Ordinal)) return attribute;
+            return null;
+        }
+
+        public IEnumerable<ShimejiSourceElement> DescendantsAndSelf()
+        {
+            var pending = new Stack<ShimejiSourceElement>();
+            pending.Push(this);
+            while (pending.Count != 0)
+            {
+                ShimejiSourceElement current = pending.Pop();
+                yield return current;
+                for (int index = current.Children.Count - 1; index >= 0; index--) pending.Push(current.Children[index]);
+            }
+        }
+    }
+
+    public enum ShimejiSourceSchema { Base, Japanese }
+
+    public sealed class ShimejiSourceDocument
+    {
+        /// <summary>Relative configuration leaf, never an absolute workstation path.</summary>
+        public string FileName { get; private set; }
+        public string PackRelativePath { get; private set; }
+        public string ImageSet { get; private set; }
+        public ShimejiSourceSchema Schema { get; private set; }
+        public ShimejiSourceElement Root { get; private set; }
+
+        internal ShimejiSourceDocument(string fileName, ShimejiSourceElement root,
+            ShimejiSourceSchema schema = ShimejiSourceSchema.Base, string imageSet = null, string packRelativePath = null)
+        {
+            FileName = fileName;
+            Root = root;
+            Schema = schema;
+            ImageSet = imageSet;
+            PackRelativePath = packRelativePath ?? fileName;
+        }
+    }
+
+    public sealed class ShimejiSourceConfig
+    {
+        public ShimejiSourceDocument Actions { get; private set; }
+        public ShimejiSourceDocument Behaviors { get; private set; }
+        public ShimejiSourceDocument Information { get; private set; }
+
+        internal ShimejiSourceConfig(ShimejiSourceDocument actions, ShimejiSourceDocument behaviors,
+            ShimejiSourceDocument information = null)
+        {
+            Actions = actions;
+            Behaviors = behaviors;
+            Information = information;
+        }
     }
 }

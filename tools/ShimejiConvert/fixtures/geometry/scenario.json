@@ -1,0 +1,25 @@
+{
+  "schema": "shimeji-parity-scenario/1",
+  "id": "S-converter-geometry-01",
+  "description": "Mixed image sizes, distinct right image and a repeated pair retaining its first anchor",
+  "pack": "pack",
+  "screens": [{ "x": 0, "y": 0, "w": 1280, "h": 720 }],
+  "workArea": { "x": 0, "y": 0, "w": 1280, "h": 680 },
+  "dpiScale": 1.0,
+  "ticks": 40,
+  "rng": { "kind": "none" },
+  "settings": {
+    "breeding": true,
+    "transients": true,
+    "transformation": true,
+    "throwing": false,
+    "sounds": false,
+    "multiscreen": false
+  },
+  "mascots": [
+    { "sid": "left", "imageSet": "G", "behavior": "Stand", "anchor": [320, 300], "lookRight": false },
+    { "sid": "right", "imageSet": "G", "behavior": "Stand", "anchor": [640, 300], "lookRight": true }
+  ],
+  "activeWindow": [{ "tick": 0, "visible": false }],
+  "input": [{ "tick": 0, "cursor": [100, 100] }]
+}

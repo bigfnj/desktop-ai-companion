@@ -1,0 +1,3 @@
+This original synthetic pack exercises converter geometry without redistributing a skin. Its sprites are deterministic pixel patterns: p.png is 4x6, q.png is 7x4 and r.png is 5x9. The later q.png pose requests a different anchor, while the source image-pair cache retains its first anchor (-2,9).
+
+Run the converter's test-only paritypack verb with the pack directory and a fresh output directory, then pass its G/animations.xml to ShimejiConvert.ValidationProbe/Run.ps1. The sibling parity-map.json is checked too. scenario.json runs both facings for 40 stepped ticks through the host's --shimeji-parity-run entry point.

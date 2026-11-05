@@ -37,6 +37,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "BundledConfSelfTest", Run = (SubTest)BundledConfSelfTest.Run },
                 new { Name = "BundleSelfTest", Run = (SubTest)BundleSelfTest.Run },
                 new { Name = "VocabSelfTest", Run = (SubTest)VocabSelfTest.Run },
+                new { Name = "SourceIrSelfTest", Run = (SubTest)SourceIrSelfTest.Run },
                 new { Name = "SoundResolveSelfTest", Run = (SubTest)SoundResolveSelfTest.Run },
                 new { Name = "PetGraphSelfTest", Run = (SubTest)PetGraphSelfTest.Run },
                 new { Name = "LayoutSelfTest", Run = (SubTest)LayoutSelfTest.Run },

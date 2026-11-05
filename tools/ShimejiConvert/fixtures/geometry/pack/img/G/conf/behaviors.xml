@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Mascot xmlns="http://www.group-finity.com/Mascot">
+  <BehaviorList>
+    <Behavior Name="Stand" Frequency="1"/>
+    <Behavior Name="Fall" Frequency="0" Hidden="true"/>
+    <Behavior Name="Dragged" Frequency="0" Hidden="true"/>
+  </BehaviorList>
+</Mascot>

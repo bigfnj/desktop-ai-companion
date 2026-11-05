@@ -19,6 +19,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
     {
         public static bool Run(out string detail)
         {
+            string tickDetail;
+            bool tickResult = TickPackEmitterSelfTest.Run(out tickDetail);
             var failures = new List<string>();
 
             var owned = new Dictionary<string, Bitmap>(StringComparer.Ordinal)
@@ -95,7 +97,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 string error;
                 if (!SpriteSheetBuilder.Build(Emit.PetEmitter.PosesToComposite(config), load, false, out sheet, out error))
                 {
-                    detail = "emitter self-test: compositing failed -- " + error;
+                    detail = tickDetail + Environment.NewLine + "emitter self-test: classic checks executed" + Environment.NewLine
+                        + "  FAIL compositing: " + error;
                     return false;
                 }
 
@@ -1960,9 +1963,18 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             }
 
             var sb = new StringBuilder();
+            sb.AppendLine(tickDetail);
+            sb.AppendLine("emitter self-test: classic checks executed");
             sb.AppendLine("emitter self-test: synthetic skin -> valid, reachable, round-tripping pet");
-            if (failures.Count == 0) { sb.Append("  accepted; magic names emitted; residue captured drop + degrade; direction suffixes stripped safely"); detail = sb.ToString(); return true; }
+            if (failures.Count == 0)
+            {
+                sb.AppendLine("  classic PASS: accepted; magic names emitted; residue captured drop + degrade; direction suffixes stripped safely");
+                sb.Append(tickResult ? "emitter suites PASS" : "emitter suites FAIL: tick suite failed; classic suite passed");
+                detail = sb.ToString();
+                return tickResult;
+            }
             foreach (string f in failures) sb.AppendLine("  FAIL " + f);
+            sb.Append(tickResult ? "emitter suites FAIL: classic suite failed; tick suite passed" : "emitter suites FAIL: tick and classic suites failed");
             detail = sb.ToString();
             return false;
         }
