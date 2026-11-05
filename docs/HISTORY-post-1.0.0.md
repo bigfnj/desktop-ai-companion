@@ -1960,6 +1960,46 @@ Each module's `Version` line carries its changelog for the campaign, in the file
 self-tests, invariants or projects is repeated here: the gate asserts those against the documents that
 state them.
 
+## 🚢 Released: v1.9.0 and Companion Studio 1.2.0 (2026-11-05)
+
+The first release of the Shimeji runtime campaign (plan of 2026-11-04: every Shimeji action converts and runs, proven
+against the real Shimeji-EE 1.0.23 runtime). Host 1.9.0 is a MINOR with no plugin-ABI change: it runs companions written
+for the Shimeji runtime, a tick-clock animations.xml on the source's 40 ms clock, with its actions, behaviours,
+expressions, lifecycle (Breed, Transform, SelfDestruct, eggs that hatch), social actions (scan, interact, two companions
+meeting), window actions (opt-in per companion and off by default; off, the animation plays and nothing moves), sounds,
+per-pose geometry, packs whose members name each other by the source's image-set names, and per-companion switches in
+the Pets pane. Classic companions are unchanged. Companion Studio 1.2.0 opens, checks, previews and installs such a
+companion one pack member at a time. The converter that writes these documents from a Shimeji skin is still a test path
+in this release, so nothing a user imports today becomes a tick-clock companion. Two agents built it: Codex led the
+oracle (the official source rebuilt on a pinned JDK 8 with a test seam) and the converter; Claude led format, host,
+comparer and coordination, and each reviewed the other's code before every merge. The parity contract (CONTRACT v1) was
+signed off by both.
+
+Verified before the tag: the full gate on the integration candidate (da054bd) passed apart from the expected publish
+line for petstudio; CoreTests 145 groups, the security self-test, the Shimeji window self-test (87 lines), the source
+invariants under powershell.exe, the Studio and converter builds and the converter's selftest; the three slices
+replayed against the real runtime's traces with no differing row (161, 81 and 204 rows). Real-app smokes on test copies
+(their own data root, no modules folder, no real input): one companion; two companions meeting; window carry, throw and
+minimise acting on a disposable window only, with 35 other windows unchanged; a two-member pack arriving as an egg and
+hatching in place, also with members named "A+B" and "Egg (2)". CI was green on the pushed master (a790368) and the
+release workflow published v1.9.0, unsigned. Light tier by the owner's decision: each new or changed check's mutation
+cases once, no whole harness, no soak; the full tier runs once before the campaign's final release.
+
+What the self-tests missed and a real run found: every tick companion ran at 85% speed in the real app, because a
+WinForms timer set to 40 ms fires every 46.9 ms on Windows' 15.6 ms system tick; only the egg's hatch taking 3.58 s
+instead of 3.0 s showed it. The host now polls every 10 ms and steps by the source's own clock rule, and the first
+version of the check that pins it measured the start-up rather than the clock (the timer's first firing came about
+450 ms late), so it now counts after three warm-up steps. Two source invariants failed, correctly, on the merged
+converter lane: a script writing through Out-File (a BOM under 5.1, none under pwsh) and the project count reaching 33.
+A note in the campaign's own memory said Release 1 (Companion Studio 1.1.20) never reached master; it had, on origin,
+and only the local master checkout was stale.
+
+Still open: installing the 1.9.0 MSI over the real 1.8.1 install on the development machine (the agent's permission
+classifier refused it as an irreversible local change, so it is the owner's to run; the downloaded MSI matched
+SHA256SUMS.txt); the manual SMOKETEST.md walk; listening to a companion's sounds, the Pets-pane switch rows and a Studio
+click-through in the installed app; Studio's multi-member pack import on the converter's production API (in review);
+the oracle's full v1 trace producer; the full tier.
+
 ## 🚢 Released: v1.7.0 and eight module publishes (2026-10-27)
 
 The 2026-10-26 campaign (the AgentBroker agent-to-agent bus plus a backlog burn-down in sixteen lanes) released as
