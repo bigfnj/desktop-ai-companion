@@ -135,12 +135,21 @@ namespace DesktopAICompanion
 
         // 12 MiB (raised from 4): a frame-heavy skin needs a bigger stored sheet to reach the full 256px
         // per-frame runtime size instead of being squeezed smaller by the old 4 MiB budget. The runtime still
-        // downsamples every frame to <=256px on load (ReadImages), so this raises stored file size, NOT per-pet
-        // render memory; the 4096px sheet + 16 Mi pixel + 256px frame caps (the memory guard) are unchanged.
+        // downsamples every classic frame to <=256px on load (ReadImages), so this raises stored file size, NOT
+        // per-pet render memory; the 4096px sheet + 16 Mi pixel caps (the memory guard) and the frame cap are
+        // unchanged. A tick-clock companion's frame cap is its own, 768px (MaximumFrameDimensionFor).
         public const int MaximumXmlBytes = 12 * 1024 * 1024;
         public const int MaximumImageBytes = 12 * 1024 * 1024;
         public const int MaximumIconBytes = 512 * 1024;
         public const int MaximumAudioBytesPerSound = 2 * 1024 * 1024;
+        /// <summary>The per-clip limit of a <c>&lt;sound&gt;</c> that declares a <c>format</c> (grimoire/06 section 3). WAV is
+        /// uncompressed, so a real skin's pose clip outgrows the MP3-sized 2 MiB (lane feature/shimeji-host-wav measured 27
+        /// members refused by it, 18 of which fit 4 MiB). Only a DECLARED clip gets it, because the attribute needs feature
+        /// 'wav' (<see cref="WavFormat.DeclaresFormat"/> is the one reading of "declares", for both): a host older than the
+        /// token refuses the companion by that name before any size check, never with a size error that reads as a broken
+        /// file. The document total (<see cref="MaximumAudioBytesTotal"/>) is unchanged, so a document's decoded audio is
+        /// bounded exactly as before; see <see cref="MaximumAudioBytesFor"/>.</summary>
+        public const int MaximumDeclaredAudioBytesPerSound = 4 * 1024 * 1024;
         public const int MaximumAudioBytesTotal = 8 * 1024 * 1024;
         public const int MaximumImageDimension = 4096;
         public const long MaximumImagePixels = 16L * 1024L * 1024L;
@@ -153,6 +162,29 @@ namespace DesktopAICompanion
         public const int MaximumSpawns = 256;
         public const int MaximumChildren = 256;
         public const int MaximumSounds = 256;
+
+        /// <summary>The largest frame side a companion's sheet may have: <see cref="ShimejiFormatValidator.TickMaximumFrameDimension"/>
+        /// for a tick-clock companion, <see cref="MaximumSpriteFrameDimension"/> for a classic one. The one reading, for the
+        /// validator and the loader's staging (Xml.ReadImages) alike, so a frame the validator admits is never one the
+        /// loader refuses. An older host has only the classic cap, so it refuses a tick companion with a larger frame here,
+        /// before anything is staged: "sprite image contains a frame larger than the runtime supports".</summary>
+        internal static int MaximumFrameDimensionFor(bool tick)
+        {
+            return tick ? ShimejiFormatValidator.TickMaximumFrameDimension : MaximumSpriteFrameDimension;
+        }
+
+        /// <summary>The decoded size one sound may have: <see cref="MaximumDeclaredAudioBytesPerSound"/> when it declares a
+        /// format (which needs feature 'wav', checked before any sound is decoded), else <see cref="MaximumAudioBytesPerSound"/>,
+        /// a classic sound's and an undeclared (MP3) named clip's alike. A clip declared format="mp3" counts as declared: the
+        /// attribute, whatever its value, is what needs the token. Decoded memory, at the mixer's 44.1 kHz stereo float
+        /// (AudioOutput, 352,800 bytes a second, decoded once per clip and held while its bytes are): a WAV clip costs at most
+        /// 44.1 times its bytes (8-bit mono at the 8 kHz floor), so a 4 MiB clip at most about 176 MiB; an MP3 at 8 kbps
+        /// costs about 353 times its bytes. A document's clips together stay within 8 MiB of audio, so its decoded worst
+        /// case is the one it had before the raise; the raise moves only what ONE clip may cost.</summary>
+        internal static int MaximumAudioBytesFor(XmlData.SoundNode sound)
+        {
+            return WavFormat.DeclaresFormat(sound) ? MaximumDeclaredAudioBytesPerSound : MaximumAudioBytesPerSound;
+        }
 
         /// <summary>A byte count as the "N MiB" a user reads, exact when it is a whole number of MiB (every cap
         /// here is) and to one decimal otherwise, so a raised cap never leaves a refusal naming the old figure
@@ -586,6 +618,7 @@ namespace DesktopAICompanion
             bool tick = ShimejiFormatValidator.IsTickMode(root);
             int maximumAnimations = tick ? ShimejiFormatValidator.TickMaximumAnimations : MaximumAnimations;
             int maximumTransitions = tick ? ShimejiFormatValidator.TickMaximumTransitions : MaximumTransitions;
+            int maximumFrameDimension = MaximumFrameDimensionFor(tick);
 
             if (root.Image.TilesX < 1 || root.Image.TilesX > 256 ||
                 root.Image.TilesY < 1 || root.Image.TilesY > 256)
@@ -612,13 +645,16 @@ namespace DesktopAICompanion
                 root.Image.TilesY,
                 "sprite image",
                 RequiredImageContainer.Png,
+                maximumFrameDimension,
                 cancellationToken);
+            // The icon keeps the classic cap whatever the clock: an ICO entry is at most 256 px anyway.
             ValidateImage(
                 iconBytes,
                 1,
                 1,
                 "pet icon",
                 RequiredImageContainer.Icon,
+                MaximumSpriteFrameDimension,
                 cancellationToken);
             // Proven, and handed to the caller so the loader need not decode them again (F318).
             spriteBytesOut = imageBytes;
@@ -783,9 +819,12 @@ namespace DesktopAICompanion
                             " exceed 100 percent.");
                     soundProbabilityByAnimation[sound.Id] = cumulativeProbability;
                 }
+                // The declared-format limit is safe to apply here because CheckDeclaredUsage (above, before any image or
+                // sound is decoded) already required feature 'wav' of every sound that declares a format, and the pre-check
+                // before the schema refused that feature by name on a host that does not run it.
                 byte[] audioBytes = DecodeBase64(
                     sound.Base64,
-                    MaximumAudioBytesPerSound,
+                    MaximumAudioBytesFor(sound),
                     "sound");
                 audioTotal = checked(audioTotal + audioBytes.Length);
                 if (audioTotal > MaximumAudioBytesTotal)
@@ -913,6 +952,7 @@ namespace DesktopAICompanion
             int tilesY,
             string location,
             RequiredImageContainer requiredContainer,
+            int maximumFrameDimension,
             CancellationToken cancellationToken)
         {
             try
@@ -942,7 +982,8 @@ namespace DesktopAICompanion
                     headerHeight,
                     tilesX,
                     tilesY,
-                    location);
+                    location,
+                    maximumFrameDimension);
 
                 using (var stream = new MemoryStream(bytes, false))
                 using (Image image = Image.FromStream(stream, true, true))
@@ -953,7 +994,8 @@ namespace DesktopAICompanion
                         image.Height,
                         tilesX,
                         tilesY,
-                        location);
+                        location,
+                        maximumFrameDimension);
                     if (png && (image.Width != headerWidth || image.Height != headerHeight))
                         throw new InvalidDataException(location + " dimensions do not match its header.");
                     if (iconDimensions != null &&
@@ -976,7 +1018,8 @@ namespace DesktopAICompanion
             int height,
             int tilesX,
             int tilesY,
-            string location)
+            string location,
+            int maximumFrameDimension)
         {
             if (width < 1 || height < 1 ||
                 width > MaximumImageDimension || height > MaximumImageDimension ||
@@ -984,10 +1027,12 @@ namespace DesktopAICompanion
                 width % tilesX != 0 || height % tilesY != 0)
                 throw new InvalidDataException(
                     location + " has invalid dimensions or tile geometry.");
-            if ((width / tilesX) > MaximumSpriteFrameDimension ||
-                (height / tilesY) > MaximumSpriteFrameDimension)
+            // The cap the caller read for this document's clock (MaximumFrameDimensionFor). An older host refuses a tick
+            // frame past its classic cap with this sentence, less the figure in brackets.
+            if ((width / tilesX) > maximumFrameDimension ||
+                (height / tilesY) > maximumFrameDimension)
                 throw new InvalidDataException(
-                    location + " contains a frame larger than the runtime supports.");
+                    location + " contains a frame larger than the runtime supports (" + maximumFrameDimension + " px a side).");
         }
 
         private static bool TryReadPngDimensions(
@@ -1120,7 +1165,8 @@ namespace DesktopAICompanion
                     embeddedHeight,
                     tilesX,
                     tilesY,
-                    location);
+                    location,
+                    MaximumSpriteFrameDimension);
                 aggregatePixels = checked(
                     aggregatePixels +
                     (long)embeddedWidth * embeddedHeight);
@@ -1316,6 +1362,15 @@ namespace DesktopAICompanion
         internal static bool IsDeclaredWav(XmlData.SoundNode sound)
         {
             return sound != null && string.Equals(sound.Format, "wav", StringComparison.Ordinal);
+        }
+
+        /// <summary>Whether a sound carries a <c>format</c> attribute at all, "mp3" included. The one reading of it: what needs
+        /// feature 'wav' (ShimejiFormatValidator.CheckDeclaredUsage) and what gets the declared clip's size limit
+        /// (CompanionXmlValidator.MaximumAudioBytesFor) ask here, so no clip can have the larger limit without the token
+        /// that makes an older host refuse it by name.</summary>
+        internal static bool DeclaresFormat(XmlData.SoundNode sound)
+        {
+            return sound != null && sound.Format != null;
         }
 
         /// <summary>Whether the bytes open as a RIFF/WAVE form. Used only to word a refusal: the declared format decides

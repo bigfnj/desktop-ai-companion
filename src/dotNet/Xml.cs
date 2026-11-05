@@ -579,15 +579,21 @@ namespace DesktopAICompanion
                 {
                     int sourceWidth = decoded.Width / root.Image.TilesX;
                     int sourceHeight = decoded.Height / root.Image.TilesY;
+                    // The validator's own cap for this document's clock (256 classic, 768 tick), never a copied number:
+                    // a tick frame the validator admitted must not be shrunk or refused here.
+                    bool tick = ShimejiFormatValidator.IsTickMode(root);
+                    int frameLimit = CompanionXmlValidator.MaximumFrameDimensionFor(tick);
                     stagedFactor = ScalePolicy.FitFactorForFrameD(
                         scaleFactorD,
                         sourceWidth,
                         sourceHeight,
-                        256);
+                        frameLimit);
+                    if (tick && stagedFactor > 1.0)
+                        stagedFactor = TickFactorWithinBudget(stagedFactor, root.Image.TilesX, root.Image.TilesY, sourceWidth, sourceHeight);
                     stagedWidth = Math.Max(1, (int)Math.Round(sourceWidth * stagedFactor));
                     stagedHeight = Math.Max(1, (int)Math.Round(sourceHeight * stagedFactor));
-                    if (stagedWidth > 256 || stagedHeight > 256)
-                        throw new InvalidDataException("A sprite frame exceeds the 256-pixel runtime limit.");
+                    if (stagedWidth > frameLimit || stagedHeight > frameLimit)
+                        throw new InvalidDataException("A sprite frame exceeds the " + frameLimit + "-pixel runtime limit.");
 
                     ValidateSpriteBudget(
                         root.Image.TilesX,
@@ -651,6 +657,22 @@ namespace DesktopAICompanion
                 case "window-bottom": return TNextAnimation.TOnly.WINDOW_BOTTOM;
                 default: return TNextAnimation.TOnly.NONE;
             }
+        }
+
+        /// <summary>
+        /// A tick companion's size above 1:1, lowered as far as the frames need to stay inside the generated-pixel budget
+        /// (<see cref="ValidateSpriteBudget"/>). Under the classic 256 px cap the frame cap itself held a tick companion's
+        /// growth; at 768 a sheet of many frames at a large size would pass the budget and refuse to load at a size it
+        /// loaded at before (100 frames of 128 px at 400% are 26 Mi pixels). So it grows as far as fits instead, never
+        /// below 1:1: at 1:1 the frames ARE the sheet, which the validator holds to the same 16 Mi pixels. One pixel of
+        /// rounding a side is allowed for (Math.Round below adds at most half a pixel, and the factor is above 1). A classic
+        /// companion is unchanged: its 256 px cap is what it has always had.
+        /// </summary>
+        private static double TickFactorWithinBudget(double factor, int tilesX, int tilesY, int sourceWidth, int sourceHeight)
+        {
+            double cells = (double)tilesX * tilesY * (sourceWidth + 1.0) * (sourceHeight + 1.0);
+            double fits = Math.Sqrt(MaximumGeneratedPixels / cells);
+            return factor <= fits ? factor : Math.Max(1.0, fits);
         }
 
         private static void ValidateSpriteBudget(

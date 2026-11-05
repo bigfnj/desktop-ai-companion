@@ -147,7 +147,9 @@ run.
   - The pose for a given action age is chosen by age modulo the summed durations (`Animation.java:54-78`).
 - **`<sound id="...">`.** A new optional attribute, so poses can name clips. `animationid` stays for classic use. In a
   tick-clock companion every sound is a named clip (an id of 1 to 64 characters, unique, no `animationid`), and its
-  audio passes the same size limits as a classic sound (2 MiB a clip, 8 MiB a document). A named clip carries no `<loop>` and no
+  audio passes the same size limits as a classic sound (2 MiB a clip, 8 MiB a document), except that a clip that
+  declares a `format` (below) may be 4 MiB: WAV is uncompressed, and the attribute needs feature `wav`, so a host
+  older than that refuses such a clip by the feature's name before any size is measured. A named clip carries no `<loop>` and no
   `<probability>` (both 0, the serializer's own values): a clip plays once per start, as the source's does, so either
   would be ignored, and the validator refuses one rather than accept a setting that does nothing.
 - **`<sound format="...">`.** A named clip's audio format, DECLARED, never sniffed: absent or `mp3` is MP3 (the
@@ -370,6 +372,12 @@ To be confirmed by the parity lane against `UserBehavior` before freeze.
 | variants per action | — | 32 | the corpus maximum is 15 |
 | children per composite | — | 64 | the corpus maximum is 20 |
 | expression length | 256 | 4096 characters | |
+| frame side | 256 px | 768 px | a classic pet's converter downsamples its frames; a tick member's geometry is the source's own pixels, and real images reach 650 x 320 |
+
+The sheet caps are the same in both modes (4096 px a side, 16 Mi pixels), and they bound the memory. A tick frame is
+staged at the user's size up to the frame side, and as far as the staged frames stay within those 16 Mi pixels (a large
+sheet at a large size is staged at the largest size that fits, never below 1:1). A host older than the tick frame side
+refuses such a companion at validation: "sprite image contains a frame larger than the runtime supports".
 
 ### 4.5 One step of one companion
 

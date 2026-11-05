@@ -53,6 +53,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "ignored-reference-lists", Run = (Action)IgnoredReferenceLists },
                 new { Name = "cross-member-pack-metadata", Run = (Action)CrossMemberPackMetadata },
                 new { Name = "pack-source-identity", Run = (Action)PackSourceIdentity },
+                new { Name = "tick-cell-cap", Run = (Action)TickCellCap },
             };
             if (onlyCase != null && !cases.Any(c => c.Name == onlyCase))
             {
@@ -749,6 +750,29 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 string error = Refusal(invalid, "TICK_COMPOSITE_SIZE");
                 Require(error.Contains("actions.xml"), "composite size refusal lost its source locator");
                 Require(!Directory.Exists(invalid.Output), "composite size refusal wrote output");
+            }
+        }
+
+        /// <summary>A tick member's cell is its largest image at the source's own size up to the host's TICK cap (768, past
+        /// the classic 256), graded by the host validator as a tick companion; one pixel past the cap is refused by name.</summary>
+        private static void TickCellCap()
+        {
+            using (var wide = new Fixture())
+            {
+                SavePng(Path.Combine(wide.Pack, "img", "A", "q.png"), true, 650, height: 320);
+                XDocument document = wide.Convert();
+                XElement image = document.Root.Element(Ns + "image");
+                int tilesX = int.Parse(image.Element(Ns + "tilesx").Value), tilesY = int.Parse(image.Element(Ns + "tilesy").Value);
+                using (var bytes = new MemoryStream(Convert.FromBase64String(image.Element(Ns + "png").Value)))
+                using (var sheet = new Bitmap(bytes))
+                    Require(sheet.Width / tilesX == 650 && sheet.Height / tilesY == 320,
+                        "tick cell cap: a 650 x 320 image was not kept at its own size (cell " + sheet.Width / tilesX + "x" + sheet.Height / tilesY + ")");
+            }
+            using (var over = new Fixture())
+            {
+                SavePng(Path.Combine(over.Pack, "img", "A", "q.png"), true, SpriteSheetBuilder.MaxTickCell + 1);
+                Refusal(over, "Tick sheet requires cells outside 1.." + SpriteSheetBuilder.MaxTickCell + ";");
+                Require(!Directory.Exists(over.Output), "tick cell cap: the refused member wrote output");
             }
         }
 

@@ -7759,6 +7759,28 @@ the cap is refused at decode, logged once and silent, and the companion runs on.
 (`MaximumModuleDecodedSamples`). The decode still runs on the UI thread under the audio lock: BACKLOG
 N-shimeji-host-limits-01, with its measured times.
 
+**A tick-clock companion's frame side is 768 px; a classic one's stays 256.** A classic pet's converter downsamples its
+frames to fit, but a tick member's poses, anchors, hotspots and moves are the source's own pixels and the converter
+never rescales them, so a real 650 x 320 image could not load at all. `CompanionXmlValidator.MaximumFrameDimensionFor`
+is the one reading, for the validator and the loader's staging (`Xml.ReadImages`); the converter's tick check binds
+`SpriteSheetBuilder.MaxTickCell` to the same constant. The sheet caps (4096 px a side, 16 Mi pixels) are unchanged and
+still bound the memory; the icon keeps 256 (an ICO entry is at most that). No feature token: an older host refuses such
+a companion at validation ("sprite image contains a frame larger than the runtime supports"), before anything is staged,
+which is a clean refusal though not by name; a token would have made the converter emit one more word for no gain in
+safety. Raising the cap alone would have let a tick companion's frames grow with the user's size past what the 256 cap
+used to stop, and a large sheet at a large size would then refuse to load where it loaded before (100 frames of 128 px
+at 400% are 26 Mi pixels), so on the tick path the size is lowered as far as the frames need to fit the generated-pixel
+budget, never below 1:1 (`TickFactorWithinBudget`).
+
+**A clip that declares a `format` may be 4 MiB; an undeclared one, classic or tick MP3, stays at 2 MiB.** The 8 MiB
+document total and the 12 MiB XML limit are unchanged. Only a declared clip, because the attribute needs feature `wav`
+(`WavFormat.DeclaresFormat` is the one reading of "declares", for the requirement and the limit), whose gate runs before
+any clip is measured, so an older host refuses it by the feature's name rather than with a size error that reads as a
+broken file. `format="mp3"` counts as declared, the attribute being what needs the token; the converter never writes
+it. Decoded worst case at the mixer format: a 4 MiB WAV at most about 176 MiB (8-bit mono at the 8 kHz floor, 44.1 times
+its bytes) before the decode cap, which stops every clip at 60 s (about 21 MB); a document's decoded total is bounded
+as it was, since its bytes are. The WAV lane's "size limits are unchanged" above is superseded by this.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

@@ -55,6 +55,7 @@ namespace DesktopAICompanion
 
             CheckClassGate(classic, ref failures, output);
             CheckWavClips(classic, ref failures, output);
+            CheckHostLimits(classic, ref failures, output);
 
             string unknown =Serialize(With(TickFixture(classic), r => r.Header.Features += " teleport"));
             Check(!CompanionXmlValidator.TryParseWithFeatures(unknown, AllExtensionFeatures, out parsed, out error)
