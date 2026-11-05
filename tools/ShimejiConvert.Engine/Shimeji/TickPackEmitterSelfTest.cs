@@ -1555,6 +1555,22 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     Refusal(fixture, "TICK_NAN_READER TargetX: a script of this member names 'TargetX'");
                     Require(!Directory.Exists(fixture.Output), "a NaN reader refusal left output: " + reader);
                 }
+            // Review D54-D: only a Move's and an embedded Jump's TargetX/TargetY reader is cited. The same script on a
+            // Stay, or on an embedded class that is not a Jump (a Breed), has no reader this pass can cite.
+            foreach (string holder in new[] { "Stand", "Born" })
+                using (var fixture = new Fixture())
+                {
+                    XDocument actions = BuildActions();
+                    actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == holder).SetAttributeValue("TargetX", "${Math.random*5}");
+                    fixture.Actions(actions);
+                    bool refused = false;
+                    try { TickPackEmitter.ConvertPack(fixture.Pack, fixture.Output); }
+                    catch (InvalidDataException error)
+                    {
+                        refused = error.Message.IndexOf("TICK_NAN_READER TargetX: Math.random without a call is NaN", StringComparison.Ordinal) >= 0;
+                    }
+                    Require(refused, "a NaN TargetX on " + holder + ", a class with no cited int reader, was not refused as TICK_NAN_READER");
+                }
         }
 
         // Decision 55: a next entry naming no root behaviour is dropped with a warning (the source would stop its tick
@@ -1592,6 +1608,19 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     A("Frequency", 4), A("Condition", "${Math.random() < 0.5}")));
                 fixture.Behaviors(behaviours);
                 Refusal(fixture, "TICK_NEXT_MISSING_SCRIPTED");
+            }
+            // Review D55-C: a dangling entry under an enclosing scripted Condition stays refused too; the source
+            // evaluates that wrapper at every selection as it would the entry's own.
+            using (var fixture = new Fixture())
+            {
+                XDocument behaviours = BuildBehaviors();
+                behaviours.Descendants("NextBehaviorList").First().Add(S("Condition", A("Condition", "${mascot.lookRight}"),
+                    S("BehaviorReference", A("Name", "Ghost"), A("Action", "Stand"), A("Frequency", 4))));
+                fixture.Behaviors(behaviours);
+                bool refused = false;
+                try { TickPackEmitter.ConvertPack(fixture.Pack, fixture.Output); }
+                catch (InvalidDataException error) { refused = error.Message.IndexOf("TICK_NEXT_MISSING_SCRIPTED", StringComparison.Ordinal) >= 0; }
+                Require(refused, "a dangling entry under a scripted enclosing Condition was dropped, not refused");
             }
         }
 
@@ -2045,6 +2074,19 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 fixture.Write("conf/B/actions.xml", english.ToString());
                 fixture.Write("conf/B/behaviors.xml", BuildBehaviors().ToString());
                 Refusal(fixture, "TICK_ENGINE_NAME_MIXED BornBehavior");
+            }
+            // Review Q7: TargetBehavior names a behaviour of the PARTNER, whose schema this member cannot know, so a
+            // renaming member's literal Japanese engine name refuses rather than be renamed for a partner that may not be.
+            using (var fixture = new Fixture())
+            {
+                XDocument actions = JapaneseEngineActions(A("生まれた時の行動", "Main"));
+                actions.Root.Element("動作リスト").Add(S("動作", A("名前", "Seek"), A("種類", "組み込み"),
+                    A("クラス", "com.group_finity.mascot.action.ScanMove"), A("Affordance", "Hug"), A("行動", "Main"),
+                    A("TargetBehavior", "落下する"), S("アニメーション", JaPose("/p.png", 2))));
+                fixture.Actions(actions);
+                fixture.Behaviors(JapaneseEngineBehaviours());
+                Refusal(fixture, "TICK_ENGINE_NAME_PARTNER TargetBehavior: '落下する'");
+                Require(!Directory.Exists(fixture.Output), "a partner engine-name refusal left output");
             }
         }
 
