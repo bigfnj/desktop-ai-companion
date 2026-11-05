@@ -282,7 +282,11 @@ namespace DesktopAICompanion.Shimeji
         public TickMascot SpawnLikeSource(string imageSet, string behaviour, FormCompanion form)
         {
             bool lookRight = _world.Draw(null, "builtin:create-facing", "facing") < 0.5;
-            return Spawn(imageSet, new TickPoint(-4000, -4000), lookRight, behaviour, form);
+            TickMascot m = Spawn(imageSet, new TickPoint(-4000, -4000), lookRight, behaviour, form);
+            // A pack's startup behaviour runs once the arrival has landed, not only at creation, which the drop-in's
+            // Fall replaces at the first step (TickMascot.ArrivalBehaviour).
+            if (m != null && !string.IsNullOrEmpty(behaviour)) m.ArrivalBehaviour = behaviour;
+            return m;
         }
 
         /// <summary>How many tick companions may exist at once, active and pending together, asked before every step:

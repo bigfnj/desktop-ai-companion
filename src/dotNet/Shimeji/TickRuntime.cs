@@ -982,6 +982,13 @@ namespace DesktopAICompanion.Shimeji
                             _mascot.SetBehaviour(_world.BuildBehaviourByName(Type, "Fall"), "forced");
                         }
                     }
+                    else if (_mascot.ArrivalBehaviour != null)
+                    {
+                        // The arrival has landed: the pack's startup behaviour now, once (ArrivalBehaviour).
+                        string arrival = _mascot.ArrivalBehaviour;
+                        _mascot.ArrivalBehaviour = null;
+                        _mascot.SetBehaviour(_world.BuildBehaviourByName(Type, arrival, _mascot), "forced");
+                    }
                     else
                     {
                         _mascot.SetBehaviour(_world.BuildNextBehaviour(Type, _mascot, Name), _world.LastSelectionCause);
@@ -1092,6 +1099,15 @@ namespace DesktopAICompanion.Shimeji
         /// state line's <c>target</c>. Cleared whenever an action initialises.</summary>
         public TickMascot Target;
         public bool Visible;
+
+        /// <summary>
+        /// A pack's startup behaviour still to come (grimoire/06 section 2, `policy:startup-after-arrival`): a companion
+        /// created the source's way arrives off screen and its first step drops it in through Fall, which replaces the
+        /// behaviour it was created in. The first behaviour that then ends of itself (the drop-in's Fall, or Thrown when it
+        /// was caught on the way down) hands over to this one instead of the route, once. Without it an egg whose hatch
+        /// behaviour has no frequency of its own (as a hatch should not) landed and never hatched.
+        /// </summary>
+        public string ArrivalBehaviour;
         private TickRect _lastWindowBounds;
 
         public TickMascot(TickWorld world, string sid, TickType type)

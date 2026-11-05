@@ -17215,6 +17215,20 @@ CASES = (
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      'parity settings: a toggle the scenario does not state reads its header default'),
+    # A pack's startup behaviour runs once the drop-in's Fall lands (policy:startup-after-arrival).
+    ('shimeji-host: a landed arrival ignores the startup behaviour',
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'                    else if (_mascot.ArrivalBehaviour != null)\n',
+     b'                    else if (_mascot.ArrivalBehaviour == "never-set")\n',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "Tick arrival: a pack's startup behaviour runs once the drop-in's Fall lands"),
+    ('shimeji-host: a spawn forgets its startup behaviour',
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickHost.cs"),
+     b'            if (m != null && !string.IsNullOrEmpty(behaviour)) m.ArrivalBehaviour = behaviour;\n',
+     b'            if (m != null && behaviour == "never-set") m.ArrivalBehaviour = behaviour;\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'arrival: a spawn with a startup behaviour keeps it for after the drop-in'),
     # ---- lane feature/shimeji-host-motion ----
     # The motion family of embedded classes (src/dotNet/Shimeji/TickMotionFamily.cs) and the engine hooks it added: each
     # case puts back one wrong reading of the official runtime and must fail the CoreTests group that pins it.

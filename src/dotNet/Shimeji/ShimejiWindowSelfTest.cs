@@ -174,6 +174,7 @@ namespace DesktopAICompanion.Shimeji
                 CheckParityGeometry(check);
                 CheckParityHiddenTrace(check, log);
                 CheckParitySettings(check);
+                CheckArrivalSpawn(check, log);
             }
             catch (Exception e)
             {
@@ -632,6 +633,43 @@ namespace DesktopAICompanion.Shimeji
             catch (Exception e)
             {
                 check(false, "parity trace: the hidden-pose trace check ran without an exception: " + e);
+            }
+            finally
+            {
+                if (host != null) host.Dispose();
+                if (sprites != null) sprites.Dispose();
+            }
+        }
+
+        /// <summary>A spawn the source's way with a pack's startup behaviour keeps that behaviour for after the drop-in
+        /// (TickMascot.ArrivalBehaviour, which CoreTests runs through the landing); a spawn without one keeps none.</summary>
+        private static void CheckArrivalSpawn(Action<bool, string> check, StringBuilder log)
+        {
+            TickHost host = null;
+            Xml sprites = null;
+            try
+            {
+                sprites = new Xml(GeometryFrames(), 64, 64);
+                host = new TickHost(t =>
+                    {
+                        var form = new FormCompanion(new Animations(t.Sprites), t.Sprites);
+                        form.Show(t.Type.CellWidth, t.Type.CellHeight);
+                        return form;
+                    },
+                    form => form.Close(),
+                    message => log.AppendLine("LOG: " + message)) { RenderOpacity = 0.0 };
+                host.Environment.SearchesWindows = false;
+                TickType type = TickType.Compile("Arrive", GeometryDocument());
+                type.ApplyScale(1.0, 64, 64);
+                host.AddType(new TickHostType("Arrive", type, sprites));
+                TickMascot withStartup = host.SpawnLikeSource("Arrive", "Pair", null);
+                TickMascot plain = host.SpawnLikeSource("Arrive", null, null);
+                check(withStartup != null && withStartup.ArrivalBehaviour == "Pair" && plain != null && plain.ArrivalBehaviour == null,
+                    "arrival: a spawn with a startup behaviour keeps it for after the drop-in; one without keeps none");
+            }
+            catch (Exception e)
+            {
+                check(false, "arrival: the spawn check ran without an exception: " + e);
             }
             finally
             {

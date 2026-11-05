@@ -173,6 +173,30 @@ namespace DesktopAICompanion
                     MVar(null, false, TPose(0, 1))));
         }
 
+        private static void TestTickArrivalBehaviour()
+        {
+            // A pack's startup behaviour with no frequency of its own (an egg's Hatch) runs once the arrival lands: created
+            // off screen the source's way, the first step drops the companion in through Fall, and when that Fall ends it
+            // enters Hatch rather than the route's choice (policy:startup-after-arrival).
+            TickType t = MotionType("Hatch", TAct(30, "Incubate", "Stay", null, new[] { TParam("Duration", "100") }, TPose(0, 1)));
+            var log = new TickLog();
+            TickWorld w = MotionWorld(null, log, null, null, t);
+            TickMascot m = w.CreateAtStart("m1", t, new TickPoint(-4000, -4000), false, "Hatch");
+            m.ArrivalBehaviour = "Hatch";
+            for (int i = 0; i < 300 && !log.Events.Contains("m1 behaviour Fall>Hatch forced"); i++) w.StepOnce();
+            AssertTrue(log.Events.Contains("m1 behaviour Hatch>Fall forced") && log.Events.Contains("m1 behaviour Fall>Hatch forced"),
+                "The arrival did not land into the startup behaviour: " + string.Join("; ", log.Events));
+            AssertTrue(m.ArrivalBehaviour == null, "The startup behaviour was kept after it had run.");
+
+            // WITNESS: without one, the landed companion takes the route's choice (Stand) and never Hatch.
+            var log2 = new TickLog();
+            TickWorld v = MotionWorld(null, log2, null, null, t);
+            v.CreateAtStart("m1", t, new TickPoint(-4000, -4000), false, "Hatch");
+            for (int i = 0; i < 300 && !log2.Events.Contains("m1 behaviour Fall>Stand duration"); i++) v.StepOnce();
+            AssertTrue(!log2.Events.Contains("m1 behaviour Fall>Hatch forced") && log2.Events.Exists(e => e.StartsWith("m1 behaviour Fall>Stand")),
+                "Without an arrival behaviour the landed companion did not take the route's choice: " + string.Join("; ", log2.Events));
+        }
+
         private static void TestTickBorderKeptOnBlankReinit()
         {
             // BorderedAction.init (BorderedAction.java:39-51) sets a border only when the type names one and never clears

@@ -7527,9 +7527,20 @@ pair and the host forgets the type, so a later reference stages it again rather 
 **Startup and "Arrive as an egg".** Spawning a main member starts it as `<startup member behaviour>`. When the startup
 member's role is `egg`, "Arrive as an egg" decides (per main member's type id, default on, stored in settings.json's
 `companionsNoEggArrival` list of exceptions, read by `LocalData.GetArriveAsEgg`); off starts the main member with the
-route's choice. A startup naming the main member itself gives only the entry behaviour. The startup behaviour is entered
-when the companion is created, and the source-style arrival then applies: created off screen, the first step drops it in
-and enters Fall, as `Main.createMascot` placement does for every new companion.
+route's choice. A startup naming the main member itself gives only the entry behaviour. The source-style arrival applies
+first: created off screen, the first step drops the companion in and enters Fall, as `Main.createMascot` placement does
+for every new companion.
+
+**The startup behaviour runs once the arrival lands** (`policy:startup-after-arrival`). Entering it only at creation,
+as the first version did, meant the drop-in's Fall replaced it at the first step, and the landed companion took the
+route's choice; an egg whose hatch behaviour had no route frequency (as a hatch should not) landed and never hatched. The
+real-app pack smoke passed anyway, because its egg's behaviour happened to have frequency 1; Studio's pack import (a hatch
+at frequency 0) is what showed it. The companion now remembers the startup behaviour (`TickMascot.ArrivalBehaviour`,
+set by `TickHost.SpawnLikeSource`), and the first behaviour to end of itself after creation (the drop-in's Fall, or
+Thrown if it was caught on the way down) hands over to it once instead of the route. Placing the companion straight on
+the floor in that behaviour was the other option and was not taken: it would drop the source's arrival for packs only.
+The source itself has no startup behaviour (its createMascot picks from the route), so this is the format extension's
+own rule; parity runs place start companions by scenario and never take this path.
 
 **The clock is the source's wall clock, not a 40 ms timer.** The real-app pack smoke timed an egg's 75-tick hatch at
 about 3.5 s, not 3.0 s. Measured on this box, a WinForms timer set to 40 ms fires every 46.9 ms (64 firings in 3001 ms):

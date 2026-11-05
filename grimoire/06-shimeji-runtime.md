@@ -70,7 +70,11 @@ run.
   types and resolved by (`id`, `member`) (section 9).
 - **`<startup>`.** Only on a `main` member. It gives the source's initial image set (`member`) and entry `behaviour`,
   which a new companion of this type starts as. Arriving as an egg is a separate per-type user preference, offered
-  only when `<startup member>` names a member whose `role` is `egg`.
+  only when `<startup member>` names a member whose `role` is `egg`. A new companion arrives the source's way (off
+  screen, dropped in through `Fall`), and the startup `behaviour` runs once that arrival lands: the first behaviour to
+  end of itself after creation (the drop-in's `Fall`, or `Thrown` if it was caught on the way down) hands over to it
+  instead of the route, once (`policy:startup-after-arrival`). So an egg's hatch behaviour needs no route frequency of
+  its own, and should have none.
 - **`<constants>`.** Named values bound into behaviour-selection conditions only (`Configuration.java:64-67, 184-188`).
 - **`<toggles>`.** One entry per `Toggleable` source behaviour. The user can turn each on or off per type, as the source
   does: it keys every per-mascot setting by the mascot's current image set (`Main.java:1382-1389`, and
