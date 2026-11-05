@@ -63,7 +63,9 @@ namespace DesktopAICompanion
                 if (imageSet != null && Off.TryGetValue(imageSet + ":" + setting, out v)) return v;
                 return setting == "Multiscreen" ? Multiscreen : true;
             }
-            public bool IsBehaviourEnabled(TickBehaviourDef behaviour, string imageSet) { return true; }
+            /// <summary>Behaviours the user turned off, by name; every other behaviour is on.</summary>
+            public readonly HashSet<string> BehavioursOff = new HashSet<string>(StringComparer.Ordinal);
+            public bool IsBehaviourEnabled(TickBehaviourDef behaviour, string imageSet) { return !BehavioursOff.Contains(behaviour.Name); }
         }
 
         private sealed class TickLog : ITickObserver
@@ -73,13 +75,15 @@ namespace DesktopAICompanion
             public readonly List<string> Faults = new List<string>();
             public void BehaviourEntered(TickMascot m, string from, string to, string cause) { Events.Add(m.Sid + " behaviour " + (from ?? "-") + ">" + to + " " + cause); }
             public void BirthRequested(TickMascot p, TickMascot c, int ordinal, int attempt) { Events.Add(p.Sid + " birth " + c.Sid + " #" + ordinal + " try" + attempt + " at " + c.Anchor); }
-            public void BirthRefused(TickMascot p, int attempt, string reason) { Events.Add(p.Sid + " refused try" + attempt + " " + reason); }
+            public void BirthRefused(TickMascot p, int attempt, string reason) { Events.Add(p.Sid + " refused try" + attempt + " " + reason); Order.Add("refused " + reason); }
             public void BirthActivated(TickMascot c) { Events.Add(c.Sid + " activated"); }
             public void Transformed(TickMascot m, string from, string to, string b) { Events.Add(m.Sid + " transform " + from + ">" + to + " " + b); }
             public void DisposeRequested(TickMascot m, string reason) { Events.Add(m.Sid + " dispose-request " + reason); }
             public void Disposed(TickMascot m) { Events.Add(m.Sid + " disposed"); }
             public void RandomDrawn(TickMascot m, string site, double value, string purpose) { Draws.Add(site); }
-            public void Fault(TickMascot m, string message) { Faults.Add(m.Sid + ": " + message); }
+            public void Fault(TickMascot m, string message) { Faults.Add(m.Sid + ": " + message); Order.Add("fault"); }
+            /// <summary>Faults and birth refusals in the order they were reported (the two go to separate lists above).</summary>
+            public readonly List<string> Order = new List<string>();
             public void Muted(TickMascot m, string clip) { Events.Add(m.Sid + " mute " + (clip ?? "-")); }
             public void Sound(TickMascot m, string clip, string op) { Events.Add(m.Sid + " sound " + clip + " " + op); }
             public void ScanTargeted(TickMascot m, string affordance, TickMascot target) { Events.Add(m.Sid + " scan-target " + affordance + " " + (target == null ? "-" : target.Sid)); }
@@ -358,6 +362,44 @@ namespace DesktopAICompanion
                 + (b.Disposing ? "disposing" : b.Type.Name + " / " + b.Behaviour.Name) + ").");
             AssertTrue(log2.Faults.Count == 1 && log2.Faults[0].Contains("Transform into Beta"),
                 "The failed Transform was not reported: " + string.Join("; ", log2.Faults));
+            // The kept behaviour is the old type's, and so are the poses it plays: the source draws a pose's own image
+            // (Pose.java:70-75), so the companion goes on showing the Egg's sheet while its type is Beta.
+            // The step after the failure ends Laid and enters it again (from the Egg's own graph), and the steps after play
+            // its poses while the companion is a Beta. PoseType is cleared before each step so that a value after it proves
+            // a pose was applied in that step (ApplyPose sets it; nothing else does); it must be the Egg's sheet.
+            int applied = 0;
+            for (int i = 0; i < 3; i++)
+            {
+                b.PoseType = null;
+                v.StepOnce();
+                if (b.PoseType == null) continue;
+                applied++;
+                AssertTrue(b.Type.Name == "Beta" && ReferenceEquals(b.PoseType, blankEgg),
+                    "After a failed Transform the kept behaviour's pose was drawn from the new type's sheet (" + b.PoseType.Name + ").");
+            }
+            AssertTrue(applied > 0, "No pose was applied in the three steps after the failed Transform, so the sheet check saw nothing: "
+                + string.Join("; ", log2.Events));
+        }
+
+        private static void TestTickBirthErrorOrder()
+        {
+            // A birth whose behaviour cannot be entered: the source shows the error and then disposes the child it made
+            // (Breed.java:104-105, :110-111), so the fault is reported before the refusal.
+            TickType alpha = TickType.Compile("Alpha", TickDoc(
+                TRoute(TEdge(10, 1), TEdge(11, 0)),
+                TBeh(10, "Throw", "Throw", 1, null),
+                TBeh(11, "Stand", "Stand", 0, null),
+                TAct(30, "Throw", "Embedded", "Breed",
+                    new[] { TParam("BornMascot", "Alpha"), TParam("BornBehavior", "NoSuchBehaviour") },
+                    TPose(0, 1), TPose(1, 1)),
+                TAct(31, "Stand", "Stay", null, new[] { TParam("Duration", "50") }, TPose(0, 1))));
+            var log = new TickLog();
+            TickWorld w = TickWorldOf(log, null, alpha);
+            w.CreateAtStart("m1", alpha, new TickPoint(640, 680), false, "Throw");
+            w.StepOnce();
+            w.StepOnce();   // age 1 = duration - 1: the birth is attempted and fails
+            AssertTrue(log.Order.Count >= 2 && log.Order[0] == "fault" && log.Order[1] == "refused error" && w.Pending.Count == 0,
+                "A failed birth was not reported as its fault and then its refusal: " + string.Join(", ", log.Order));
         }
 
         private static void TestTickMove()

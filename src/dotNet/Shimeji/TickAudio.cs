@@ -9,9 +9,10 @@ namespace DesktopAICompanion.Shimeji
     /// </summary>
     internal interface ITickAudio
     {
-        /// <summary>Play <paramref name="mp3"/> once under <paramref name="owner"/> at the pose's linear
-        /// <paramref name="gain"/>. False when nothing will be heard.</summary>
-        bool Play(string owner, byte[] mp3, double gain);
+        /// <summary>Play <paramref name="audio"/> once under <paramref name="owner"/> at the pose's linear
+        /// <paramref name="gain"/>: an MP3, or a WAV when <paramref name="wav"/> (the format the document declared).
+        /// False when nothing will be heard.</summary>
+        bool Play(string owner, byte[] audio, bool wav, double gain);
 
         bool IsPlaying(string owner);
 
@@ -52,9 +53,9 @@ namespace DesktopAICompanion.Shimeji
         {
             ITickAudio audio = _audio();
             TickHostType type = _typeOf(clip.ImageSet);
-            byte[] mp3;
-            if (audio == null || type == null || type.Clips == null || !type.Clips.TryGetValue(clip.Name, out mp3)) return;
-            audio.Play(OwnerOf(clip), mp3, TickSound.LinearGain(clip.Volume));
+            TickClipAudio staged;
+            if (audio == null || type == null || type.Clips == null || !type.Clips.TryGetValue(clip.Name, out staged)) return;
+            audio.Play(OwnerOf(clip), staged.Bytes, staged.Wav, TickSound.LinearGain(clip.Volume));
         }
 
         public void Stop(TickClip clip)
@@ -82,11 +83,11 @@ namespace DesktopAICompanion.Shimeji
             _held = held;
         }
 
-        public bool Play(string owner, byte[] mp3, double gain)
+        public bool Play(string owner, byte[] audio, bool wav, double gain)
         {
             AudioOutput output = _output();
             double volume = Volume(Program.MyData, _held(), gain);
-            return output != null && volume > 0.0 && output.PlayClip(owner, mp3, volume);
+            return output != null && volume > 0.0 && output.PlayClip(owner, audio, wav, volume);
         }
 
         public bool IsPlaying(string owner)

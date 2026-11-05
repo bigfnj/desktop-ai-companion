@@ -28,10 +28,14 @@ namespace DesktopAICompanion
         public const string Windows = "windows";
         public const string Hotspots = "hotspots";
         public const string Variables = "variables";
+        /// <summary>A named clip whose bytes are a RIFF/WAVE, <c>&lt;sound format="wav"&gt;</c> (grimoire/06 section 3). A
+        /// token of its own so a host that cannot decode one refuses the companion by this name before the schema, instead
+        /// of failing on an attribute its schema has never heard of.</summary>
+        public const string Wav = "wav";
 
         /// <summary>Every token the format defines. A token outside this list belongs to a newer format.</summary>
         public static readonly string[] All =
-            { Tick, Actions, Behaviours, Expressions, Packs, Social, Lifecycle, Windows, Hotspots, Variables };
+            { Tick, Actions, Behaviours, Expressions, Packs, Social, Lifecycle, Windows, Hotspots, Variables, Wav };
 
         /// <summary>What this build runs: the tokens its runtime registers, none where no runtime is compiled in. A
         /// companion that uses anything else is refused, by feature name.</summary>
@@ -254,7 +258,14 @@ namespace DesktopAICompanion
             }
             if (root.Sounds != null && root.Sounds.Sound != null)
                 foreach (XmlData.SoundNode s in root.Sounds.Sound)
+                {
                     Require(declared, CompanionFormatFeatures.Tick, s != null && s.SoundId != null, "sound id");
+                    // ANY format attribute, "mp3" included: a host older than the token has no such attribute in its
+                    // schema, so only the token gets it a refusal by name. Since every token needs 'tick', a classic
+                    // companion's sounds stay MP3 (grimoire/06 section 3).
+                    Require(declared, CompanionFormatFeatures.Wav, s != null && s.Format != null,
+                        "sound " + (s == null ? "" : s.SoundId != null ? "'" + s.SoundId + "'" : "for animation " + s.Id) + " format");
+                }
             if (declared.Count > 0 && !declared.Contains(CompanionFormatFeatures.Tick))
                 throw new InvalidDataException("Every Shimeji runtime extension runs on the tick clock: declare feature 'tick' and <clock>tick</clock>.");
             if (declared.Contains(CompanionFormatFeatures.Tick) && !IsTickMode(root))

@@ -35,6 +35,7 @@ schema validation.
 | `windows` | window actions (they also need the user's per-type opt-in) |
 | `hotspots` | `<hotspots>` |
 | `variables` | per-instance variables (`mascot.variables`) and `<constants>` |
+| `wav` | a named clip's `format` attribute, so its bytes may be a RIFF/WAVE (section 3) |
 
 A token becomes "known" only in the host build whose runtime implements it, so no build accepts a companion it cannot
 run.
@@ -73,8 +74,11 @@ run.
   only when `<startup member>` names a member whose `role` is `egg`. A new companion arrives the source's way (off
   screen, dropped in through `Fall`), and the startup `behaviour` runs once that arrival lands: the first behaviour to
   end of itself after creation (the drop-in's `Fall`, or `Thrown` if it was caught on the way down) hands over to it
-  instead of the route, once (`policy:startup-after-arrival`). So an egg's hatch behaviour needs no route frequency of
-  its own, and should have none.
+  instead of the route (`policy:startup-after-arrival`). It stays pending until it ends of itself: cut short (dragged
+  off, its floor gone), it is entered again when the companion next lands. So an egg's hatch behaviour needs no route
+  frequency of its own, and should have none. A startup behaviour the user has turned off is skipped and the route
+  chooses (it is not a reason to drop the landed companion in again), and a Transform cancels it: the startup behaviour
+  belongs to the type that arrived.
 - **`<constants>`.** Named values bound into behaviour-selection conditions only (`Configuration.java:64-67, 184-188`).
 - **`<toggles>`.** One entry per `Toggleable` source behaviour. The user can turn each on or off per type, as the source
   does: it keys every per-mascot setting by the mascot's current image set (`Main.java:1382-1389`, and
@@ -143,9 +147,26 @@ run.
   - The pose for a given action age is chosen by age modulo the summed durations (`Animation.java:54-78`).
 - **`<sound id="...">`.** A new optional attribute, so poses can name clips. `animationid` stays for classic use. In a
   tick-clock companion every sound is a named clip (an id of 1 to 64 characters, unique, no `animationid`), and its
-  audio passes the same size limits and MP3 check as a classic sound. A named clip carries no `<loop>` and no
+  audio passes the same size limits as a classic sound (2 MiB a clip, 8 MiB a document). A named clip carries no `<loop>` and no
   `<probability>` (both 0, the serializer's own values): a clip plays once per start, as the source's does, so either
   would be ignored, and the validator refuses one rather than accept a setting that does nothing.
+- **`<sound format="...">`.** A named clip's audio format, DECLARED, never sniffed: absent or `mp3` is MP3 (the
+  structural check every sound has had: an ID3 tag or an MPEG frame sync), `wav` a RIFF/WAVE. The attribute, whatever
+  its value, needs feature `wav`, so a host that predates it refuses the companion by that name before the schema;
+  since every feature needs `tick`, a classic `<sound animationid>` stays MP3 (the classic engine admits and decodes
+  MP3 only, `Animations.AddSound` and `AudioOutput.Decode`, and the converter's WAV clips are all pose clips). The
+  validator proves the bytes ARE the declared format and refuses, naming the clip, MP3 bytes declared
+  `wav` and WAV bytes declared MP3. A `wav` clip must be:
+  - a RIFF/WAVE whose RIFF size equals the clip's length (not truncated, nothing after the form), every chunk inside
+    it; an odd-sized chunk is followed by a pad byte, which the LAST chunk may omit; chunks after `data` are allowed;
+  - with a `fmt ` chunk of PCM (8, 16, 24 or 32 bits) or IEEE float (32 or 64 bits), plain or `WAVE_FORMAT_EXTENSIBLE`
+    with that standard subformat; ADPCM, mu-law, A-law and every other tag are refused, by tag;
+  - mono or stereo, 8000 to 192000 Hz, with a block align of channels x bits / 8;
+  - with a non-empty `data` chunk of whole frames.
+  The source loads clips through javax.sound (WAV, AU, AIFF; not MP3), and a clip it cannot open refuses the whole
+  image set at load (`SoundLoader.java:21-24`, `AnimationBuilder.java:161-165`, `Main.java:478-484`). A clip this
+  validator accepts that the host's decoder then cannot decode plays silently: the app logs it once and the
+  companion keeps running.
 - **Playing a clip** (`Mascot.java:612-625`, `Sounds.java`, `SoundLoader.java`):
   - A clip is one sound at one volume. Every companion whose applied pose names the same clip of a type at the same
     volume shares it: one clip, one playing state. The same sound at another volume is another clip.

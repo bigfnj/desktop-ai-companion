@@ -37,10 +37,16 @@ namespace DesktopAICompanion.PetStudioModule
                                  //        against the installed companions, main member last, and stops at the
                                  //        first failure naming what it already installed. A hidden main member and
                                  //        a converter that throws are refused before anything is installed.
-                                 //        "Preview pack" previews the main member alone: the host resolves a
-                                 //        preview's members only inside the preview's own namespace, and nothing
-                                 //        puts the other members there yet. MinHostVersion stays 1.0.0: no new ABI
-                                 //        member (InstallType, InstalledTypes and SpawnPreview are 1.0.0).
+                                 //        "Preview pack" previews the WHOLE pack through the host's pack preview
+                                 //        (ICompanionPackPreview.SpawnPackPreview, host 1.10.0): every prepared
+                                 //        member goes to the host as one preview namespace, so the main member
+                                 //        arrives as its startup egg and hatches, transforms and breeds into the
+                                 //        other members of the preview, never an installed copy. "Install pack"
+                                 //        reads each installed type's pack id (CompanionTypeInfo.PackId, 1.10.0):
+                                 //        when this pack is already installed it asks to REPLACE that install under
+                                 //        the same ids instead of adding "-2" copies the host's index would ignore,
+                                 //        and says which it did. MinHostVersion 1.0.0 -> 1.10.0 for those two
+                                 //        members.
                                  // 1.2.0: opens, checks, previews and installs a companion written for the Shimeji
                                  //        runtime (a tick-clock animations.xml: actions, behaviours, expressions,
                                  //        lifecycle, social, windows, sounds, per-pose geometry, one pack member at a
@@ -351,7 +357,10 @@ namespace DesktopAICompanion.PetStudioModule
             // app even when the user has PINNED light or dark rather than following the OS. (1.4.6 added
             // ICompanionManager.CompanionsDirectory, which the file dialog still uses.) Declaring it means an older host
             // refuses this module with a legible reason instead of loading it and failing at a missing member.
-            MinHostVersion = "1.0.0",
+            // 1.10.0 since Studio 1.3.0: "Preview pack" calls ICompanionPackPreview.SpawnPackPreview and "Install pack"
+            // reads CompanionTypeInfo.PackId and PackMember, all three added in host 1.10.0; an older Contracts.dll has
+            // neither, so the window's pack code would fail to load against it rather than fall back.
+            MinHostVersion = "1.10.0",
             // Speech added 2026-09-17, found by an ABI audit. Only the two error paths use it
             // (failing to open the window, failing to start an import), which is a smaller blast
             // radius than Remembrance's but the same defect: the companion speaks for a module whose

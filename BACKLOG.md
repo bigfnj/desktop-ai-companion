@@ -150,6 +150,11 @@ are in the reviews named in each entry.
 - 📌 **N-shimeji-host-03** [low/perf] Two costs to measure before calling them fine, cold and interleaved against a
   variant without them: Win32TickEnvironment's per-tick window walk (the source caches title verdicts per window), and the
   Pets pane compiling a tick companion's XML on the UI thread once per process (cached; a large pack is the case).
+- 📌 **N-shimeji-host-05** [low/visual] A tick companion's window is resized and moved in four steps (FormCompanion.cs
+  RenderTick: Width, Height, Left, Top), so between them it exists at a mixed size or at its old place: a 150 ms window
+  poll caught a 64x32 window during a 32 px egg's hatch into a 64 px form. One SetBounds call makes it one move. Seen in
+  the real-app pack preview check on 1.10.0; present since 1.9.0. A new companion's window is also shown at the form's
+  default place before its first render (no image yet), which the same poll counted as a visible 64x64 window.
 - 📌 **N-shimeji-host-04** [low/classic] Classic pets' frame intervals are rounded up to the 15.6 ms system timer tick by
   their WinForms timers (an interval of 40 plays at 46.9 ms, 100 at 109): measured while fixing the tick clock, which now
   keeps the source's 40 ms. Decide whether any classic animation depends on short intervals.
@@ -159,6 +164,8 @@ are in the reviews named in each entry.
 - 📌 **N-shimeji-tests-01** [low/tests] tests/mutate-diagnostics.py ignores unknown flags rather than refusing them.
 - 📌 **N-shimeji-tooling-01** [low/tooling] Recommend Temurin 8 (the oracle's pinned JDK) to the scripts-utilities tool
   catalog.
+- 📌 **N-host-pack-abi-01** [low/correctness] Removing a SINGLE preview's handle (`ICompanionManager.SpawnPreview`) removes only the window it was handed (`src/dotNet/Plugins/CompanionHost.cs`, `PreviewHandle.Remove`, `RemovePetInstance(pet)`). A tick-clock preview that breeds (a Breed naming no member, or a member a single preview cannot resolve, is born as the preview's own type) gives each born companion the preview's transient registry entry (`StartUp.OpenBornTickPet`), so those companions outlive Remove: not persisted, not in the tray, not reachable by RemoveOne, gone only when they end themselves or the app exits. Found by lane feature/host-pack-abi, whose whole-pack preview removes by namespace (`StartUp.RemovePackPreview`, `TickPreviewPacks.Owns`) and could serve the single preview the same way; not changed there, to keep that lane's behaviour change to the new member.
+- 📌 **N-shimeji-host-wav-01** [low/tests] Two cases of `tests/mutate-selftest-guards.py` match nothing in `src/dotNet/Shimeji/TickRuntime.cs` at f4b4616, so a whole run scores them NO-OP: "shimeji-host: the image keeps the first type it was set from" (old `PoseType = Type;`) and "shimeji-settings: Transform enters its behaviour under the old type's settings" (old the three-line Transform block). The code they mutate has moved since; each needs re-pointing to the same intent. Found by lane feature/shimeji-host-wav with a count of every case's old bytes in its target; not re-pointed there (TickRuntime.cs is outside that lane).
 
 ## Closed: 2026-09-29 full audit and its fix campaign (summary; the record is in docs/audits/)
 

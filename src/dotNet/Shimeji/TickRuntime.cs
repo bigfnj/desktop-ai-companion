@@ -340,6 +340,12 @@ namespace DesktopAICompanion.Shimeji
         public readonly TickActDef Def;
         public readonly TickVars Vars;
         public string RefKey;
+
+        /// <summary>The type whose definition this action was built from (set by TickWorld.BuildAction). A pose the action
+        /// plays is that type's image, as a source Pose holds the image its own image set loaded (Pose.java:70-75,
+        /// AnimationBuilder.java:99), whatever the companion's type is now: after a Transform that could not enter its
+        /// behaviour the companion is the new type in the OLD type's behaviour, and its poses are still the old type's.</summary>
+        public TickType OwnerType;
         protected TickMascot Mascot;
         protected TickScriptContext Context;
         private int _startTime;
@@ -448,7 +454,7 @@ namespace DesktopAICompanion.Shimeji
         {
             if (variant == null) throw new TickCantBeAliveException("action '" + Name + "' has no variant whose condition holds");
             TickPoseDef pose = variant.PoseAt(Time);
-            Mascot.ApplyPose(pose, variant);
+            Mascot.ApplyPose(pose, variant, OwnerType);
         }
 
         // ---- parameter reads: a guard attribute when the document gives one, else the parameter, else the default
@@ -889,8 +895,10 @@ namespace DesktopAICompanion.Shimeji
                 }
                 catch (TickCantBeAliveException e)
                 {
-                    _world.Observer.BirthRefused(parent, attempt, "error");
+                    // The source shows the error first and then disposes the child it made (Breed.java:104-105,
+                    // :110-111), so the fault is reported before the refusal, as the oracle's trace has them.
                     _world.ReportFault(parent, "a birth failed: " + e.Message);
+                    _world.Observer.BirthRefused(parent, attempt, "error");
                     continue;
                 }
                 parent.Births++;
@@ -992,15 +1000,23 @@ namespace DesktopAICompanion.Shimeji
                             _mascot.SetBehaviour(_world.BuildBehaviourByName(Type, "Fall"), "forced");
                         }
                     }
-                    else if (_mascot.ArrivalBehaviour != null)
+                    else if (_mascot.ArrivalBehaviour != null && Name != _mascot.ArrivalBehaviour
+                        && (!Type.RootByName.ContainsKey(_mascot.ArrivalBehaviour)
+                            || _world.IsBehaviourEnabledByName(Type, _mascot.ArrivalBehaviour, _mascot)))
                     {
-                        // The arrival has landed: the pack's startup behaviour now, once (ArrivalBehaviour).
-                        string arrival = _mascot.ArrivalBehaviour;
-                        _mascot.ArrivalBehaviour = null;
-                        _mascot.SetBehaviour(_world.BuildBehaviourByName(Type, arrival, _mascot), "forced");
+                        // The arrival has landed: the pack's startup behaviour now (ArrivalBehaviour). It stays pending until
+                        // it ends of itself, so one cut short (dragged off, or its floor gone) is entered again when the
+                        // companion next lands: an egg's hatch, which has no route frequency, would otherwise never come
+                        // and the egg would drop in again and again with nothing to choose. An unknown name cannot live.
+                        _mascot.SetBehaviour(_world.BuildBehaviourByName(Type, _mascot.ArrivalBehaviour), "forced");
                     }
                     else
                     {
+                        // The route chooses: there is no startup behaviour to come, or it has just ended of itself and is
+                        // done, or the user turned it off. A turned-off one is skipped rather than built with the enabled
+                        // check: the source's drop-in for a turned-off behaviour is for one it was asked to enter, and here
+                        // it would throw a companion that has just landed back above the screen.
+                        _mascot.ArrivalBehaviour = null;
                         _mascot.SetBehaviour(_world.BuildNextBehaviour(Type, _mascot, Name), _world.LastSelectionCause);
                     }
                 }
@@ -1124,7 +1140,8 @@ namespace DesktopAICompanion.Shimeji
         /// A pack's startup behaviour still to come (grimoire/06 section 2, `policy:startup-after-arrival`): a companion
         /// created the source's way arrives off screen and its first step drops it in through Fall, which replaces the
         /// behaviour it was created in. The first behaviour that then ends of itself (the drop-in's Fall, or Thrown when it
-        /// was caught on the way down) hands over to this one instead of the route, once. Without it an egg whose hatch
+        /// was caught on the way down) hands over to this one instead of the route, and again after any interruption, until
+        /// this one ends of itself; a Transform, or the user turning it off, cancels it. Without it an egg whose hatch
         /// behaviour has no frequency of its own (as a hatch should not) landed and never hatched.
         /// </summary>
         public string ArrivalBehaviour;
@@ -1163,15 +1180,16 @@ namespace DesktopAICompanion.Shimeji
             }
         }
 
-        /// <summary>Pose.next: move by the pose velocity (mirrored when facing right), then take its image.</summary>
-        public void ApplyPose(TickPoseDef pose, TickVariantDef variant)
+        /// <summary>Pose.next: move by the pose velocity (mirrored when facing right), then take its image, from the sheet
+        /// of the type whose action holds the pose (<paramref name="owner"/>; the companion's own type when not given).</summary>
+        public void ApplyPose(TickPoseDef pose, TickVariantDef variant, TickType owner = null)
         {
             if (pose == null) return;
             Anchor = new TickPoint(Anchor.X + (LookRight ? -pose.Dx : pose.Dx), Anchor.Y + pose.Dy);
             Pose = pose;
             PoseVariant = variant;
             PoseRight = LookRight;
-            PoseType = Type;
+            PoseType = owner ?? Type;
             Sound = pose.Sound;
         }
 
@@ -1555,6 +1573,9 @@ namespace DesktopAICompanion.Shimeji
             TickType target = ResolveReference(mascot.Type, targetName);
             string from = mascot.Type.Name;
             mascot.Type = target;
+            // A startup behaviour still to come belonged to the type that arrived; the Transform has chosen what this
+            // companion does now, and the old name looked up on the new type could end it (policy:startup-after-arrival).
+            mascot.ArrivalBehaviour = null;
             Observer.Transformed(mascot, from, target.Name, behaviour);
             // Transform.java:51-65 sets the image set first and catches a behaviour that cannot be built or entered (a
             // blank or unknown TransformBehavior): it reports the failure and the companion carries on, as the new type,
@@ -1616,6 +1637,13 @@ namespace DesktopAICompanion.Shimeji
         }
 
         private TickAction BuildAction(TickType type, TickActDef def, Dictionary<string, TickParamDef> incoming)
+        {
+            TickAction action = BuildActionOfKind(type, def, incoming);
+            action.OwnerType = type;
+            return action;
+        }
+
+        private TickAction BuildActionOfKind(TickType type, TickActDef def, Dictionary<string, TickParamDef> incoming)
         {
             switch (def.Type)
             {

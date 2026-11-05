@@ -180,6 +180,248 @@ namespace DesktopAICompanion.Shimeji
             CheckPackCatalog(check, scratch);
             CheckEggPreference(check, scratch);
             CheckPackStaging(check);
+            CheckPackPreview(check, log);
+            CheckPackPreviewRefusals(check);
+        }
+
+        /// <summary>
+        /// A whole-pack preview (ICompanionPackPreview, 1.10.0) through the real tick host, the real registry, the app's
+        /// binding and its preview namespaces, every member staged through the app's own staging path. An INSTALLED pack
+        /// with the same id and the same member keys is indexed beside it, each member a different colour, so a window shows
+        /// whose frames it draws: the preview must arrive as its own egg, hatch into its own main member and breed its own
+        /// helper, and the installed pack's stager must never be asked. Steps as StartUp.SpawnPackPreviewPet and
+        /// OpenBornTickPet do: the namespace opens before the spawn, and a closed one gives a pending birth no window.
+        /// </summary>
+        private static void CheckPackPreview(Action<bool, string> check, StringBuilder log)
+        {
+            var registry = new CompanionTypeRegistry();
+            var previews = new TickPreviewPacks();
+            var installedAsked = new List<string>();
+            var lines = new List<string>();
+            var installedDocs = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                { "sp-alpha", Serialize(AlphaDoc(), Color.Red, Color.DarkRed) },
+                { "sp-egg", Serialize(EggDoc(), Color.Yellow, Color.Gold) },
+                { "sp-ball", Serialize(BallDoc(), Color.Blue) },
+            };
+            Func<string, CompanionTypeRegistry.Entry> stageInstalled = id =>
+            {
+                installedAsked.Add(id);
+                CompanionTypeRegistry.Entry existing;
+                if (registry.TryGet(id, out existing)) return existing;
+                string text;
+                Xml x;
+                Animations a;
+                string e;
+                if (!installedDocs.TryGetValue(id, out text) || !StartUp.TryStageRuntime(text, 1.0, out x, out a, out e)) return null;
+                a.PetTypeId = id;
+                return registry.Add(id, x, a);
+            };
+            CompanionPackIndex index = CompanionPackIndex.Build(new[]
+            {
+                IndexEntry("sp-alpha", "Alpha", "main", false), IndexEntry("sp-egg", "Egg", "egg", true), IndexEntry("sp-ball", "Ball", "helper", true),
+            });
+            var members = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                { "Alpha", Serialize(AlphaDoc(), Color.Purple, Color.Indigo) },
+                { "Egg", Serialize(EggDoc(), Color.Orange, Color.Chocolate) },
+                { "Ball", Serialize(BallDoc(), Color.Cyan) },
+            };
+
+            TickHost host = null;
+            var forms = new List<FormCompanion>();
+            CompanionTypeRegistry.Entry mainEntry = null;
+            const string previewId = "preview:selftestpack";
+            try
+            {
+                string error;
+                TickPreviewPacks.Prepared pack = TickPreviewPacks.Prepare(members, "Alpha", out error);
+                check(pack != null && pack.PackId == PackId && pack.Keys.Count == 3,
+                    "pack preview: a whole pack validates as one set, by the host's parser and the pack rules" + (pack == null ? " (" + error + ")" : ""));
+                if (pack == null) return;
+
+                int windowsRefused = 0;
+                host = new TickHost(t =>
+                    {
+                        // As StartUp.OpenBornTickPet: a closed preview's birth gets no window.
+                        if (!previews.MayOpenWindow(t.Owner as CompanionTypeRegistry.Entry)) { windowsRefused++; return null; }
+                        var form = new FormCompanion(t.Animations, t.Sprites);
+                        form.Show(t.Type.CellWidth, t.Type.CellHeight);
+                        forms.Add(form);
+                        return form;
+                    },
+                    form => form.Close(),
+                    message => lines.Add(message)) { RenderOpacity = 0.0 };
+                host.Environment.SearchesWindows = false;
+                var binding = new TickPackBinding(host, registry, stageInstalled, TickStaging.Of, () => index, id => true, line => lines.Add(line));
+                binding.StagePreviewMember = (scope, key) => previews.Stage(registry, scope, key, 1.0, line => lines.Add(line));
+
+                // The main member, staged and scoped as SpawnPackPreviewPet and ScopeTickType do, its namespace open first.
+                Xml mainXml;
+                Animations mainAnimations;
+                bool staged = StartUp.TryStageRuntime(pack.MainXml, 1.0, out mainXml, out mainAnimations, out error);
+                check(staged, "pack preview: the main member stages through the app" + (staged ? "" : " (" + error + ")"));
+                if (!staged) return;
+                mainAnimations.PetTypeId = previewId;
+                mainEntry = registry.Add(previewId, mainXml, mainAnimations, true);
+                registry.Increment(mainEntry);
+                previews.Open(previewId, pack);
+                TickType main = TickStaging.Of(mainXml);
+                TickPackBinding.ScopeForPreview(main, previewId);
+                main.Name = previewId;
+                host.AddType(binding.Describe(mainEntry, main));
+
+                string behaviour;
+                string start = binding.PlanStart(main, previewId, out behaviour);
+                CompanionTypeRegistry.Entry eggEntry = null;
+                foreach (string id in new[] { previewId + "/0", previewId + "/1", previewId + "/2" })
+                {
+                    CompanionTypeRegistry.Entry e;
+                    if (registry.TryGet(id, out e) && e.Xml != null && TickStaging.Of(e.Xml) != null && TickStaging.Of(e.Xml).Member == "Egg") eggEntry = e;
+                }
+                check(eggEntry != null && eggEntry.IsTransient && start == eggEntry.Id && behaviour == "Laid" && installedAsked.Count == 0,
+                    "pack preview: the main member starts as the PREVIEW's egg, staged from its own namespace; the installed pack with the same id is never asked ("
+                    + start + ", asked " + string.Join("|", installedAsked) + ")");
+
+                Rectangle work = System.Windows.Forms.Screen.PrimaryScreen.WorkingArea;
+                var window = new FormCompanion(mainEntry.Animations, mainEntry.Xml);
+                window.Show(64, 64);
+                forms.Add(window);
+                TickMascot m = host.Spawn(start, new TickPoint(work.Left + work.Width / 2, work.Bottom), false, behaviour, window);
+                host.Step();
+                check(m != null && FrameColour(window) == Color.Orange.ToArgb(),
+                    "pack preview: the arriving companion draws the preview egg's frames, not the installed egg's");
+
+                host.Step();   // Laid's penultimate tick: Transform into Alpha, which is the preview's main type
+                host.Step();   // Alpha's first pose
+                check(m != null && ReferenceEquals(m.Type, main) && FrameColour(window) == Color.Purple.ToArgb() && installedAsked.Count == 0,
+                    "pack preview: the egg hatches into the preview's own main member (asked " + string.Join("|", installedAsked) + ")");
+
+                TickMascot child = null;
+                for (int i = 0; i < 6 && child == null; i++)
+                {
+                    foreach (TickMascot p in host.World.Pending) if (p != m) child = p;
+                    if (child == null) host.Step();
+                }
+                TickHostType childType = child == null ? null : host.HostTypeOf(child.Type);
+                CompanionTypeRegistry.Entry ballEntry = childType == null ? null : childType.Owner as CompanionTypeRegistry.Entry;
+                check(ballEntry != null && ballEntry.IsTransient && TickPreviewPacks.Owns(previewId, ballEntry.Id) && child.Type.Member == "Ball"
+                      && installedAsked.Count == 0,
+                    "pack preview: a Breed reaches the preview's own helper, staged into the preview namespace ("
+                    + (ballEntry == null ? "none" : ballEntry.Id) + ", asked " + string.Join("|", installedAsked) + ")");
+
+                // The handle is removed while that birth is still queued: the namespace closes, the birth gets no window and
+                // leaves, and every entry the preview made is one StartUp.RemovePackPreview finds by its id.
+                previews.Close(previewId);
+                int formsBefore = forms.Count;
+                host.Step();
+                check(child != null && windowsRefused == 1 && forms.Count == formsBefore && !child.InManager
+                      && !previews.MayOpenWindow(mainEntry) && !previews.MayOpenWindow(ballEntry),
+                    "pack preview: a birth still pending when the preview is removed gets no window and leaves (refused " + windowsRefused + ")");
+                check(TickPreviewPacks.Owns(previewId, mainEntry.Id) && TickPreviewPacks.Owns(previewId, eggEntry.Id)
+                      && !TickPreviewPacks.Owns(previewId, "preview:selftestpackx/0") && !TickPreviewPacks.Owns(previewId, "sp-egg"),
+                    "pack preview: removing the preview finds every companion it produced by its registry entry, and nothing else");
+                check(previews.MayOpenWindow(new CompanionTypeRegistry.Entry { Id = "preview:single", IsTransient = true })
+                      && previews.MayOpenWindow(new CompanionTypeRegistry.Entry { Id = "sp-egg" })
+                      && previews.Stage(registry, TickPreviewPacks.ScopeOf(previewId, PackId), "Ball", 1.0, null) == null,
+                    "pack preview: a closed preview stages nothing more, while a single preview and an installed type still open windows");
+            }
+            catch (Exception e)
+            {
+                check(false, "pack preview: the checks ran without an exception: " + e);
+            }
+            finally
+            {
+                if (host != null) host.Dispose();
+                foreach (FormCompanion f in forms) { try { if (!f.IsDisposed) f.Close(); } catch { } }
+                if (mainEntry != null) registry.Decrement(mainEntry);
+                registry.DisposeAll();
+                foreach (string l in lines) log.AppendLine("LOG: " + l);
+            }
+        }
+
+        /// <summary>What a whole-pack preview refuses before anything is staged: the member cap, a missing main member, a
+        /// document filed under a key its header does not name, a main member whose role is not main, a member of another
+        /// pack, a classic member. Each refusal is a reason, never an exception.</summary>
+        private static void CheckPackPreviewRefusals(Action<bool, string> check)
+        {
+            Func<Dictionary<string, string>> whole = () => new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                { "Alpha", Serialize(AlphaDoc(), Color.Purple, Color.Indigo) },
+                { "Egg", Serialize(EggDoc(), Color.Orange, Color.Chocolate) },
+                { "Ball", Serialize(BallDoc(), Color.Cyan) },
+            };
+            string error;
+            var tooMany = new Dictionary<string, string>(StringComparer.Ordinal);
+            for (int i = 0; i <= TickPreviewPacks.MaximumMembers; i++) tooMany.Add("M" + i, "<animations/>");
+            check(TickPreviewPacks.Prepare(tooMany, "M0", out error) == null && error != null && error.Contains("at most " + TickPreviewPacks.MaximumMembers),
+                "pack preview refuses more members than the cap: " + error);
+            check(TickPreviewPacks.Prepare(whole(), "Gamma", out error) == null && error != null && error.Contains("'Gamma'"),
+                "pack preview refuses a main member that is not in the set: " + error);
+            Dictionary<string, string> misfiled = whole();
+            misfiled["Ghost"] = misfiled["Ball"];
+            misfiled.Remove("Ball");
+            check(TickPreviewPacks.Prepare(misfiled, "Alpha", out error) == null && error != null && error.Contains("names member 'Ball'"),
+                "pack preview refuses a document filed under a key its header does not name: " + error);
+            check(TickPreviewPacks.Prepare(whole(), "Egg", out error) == null && error != null && error.Contains("role 'egg'"),
+                "pack preview refuses a main member whose role is not main: " + error);
+            Dictionary<string, string> foreign = whole();
+            XmlData.RootNode other = BallDoc();
+            other.Header.Pack.Id = "otherpack";
+            foreign["Ball"] = Serialize(other, Color.Cyan);
+            check(TickPreviewPacks.Prepare(foreign, "Alpha", out error) == null && error != null && error.Contains("otherpack"),
+                "pack preview refuses a member of another pack (the pack rules): " + error);
+            Dictionary<string, string> classic = whole();
+            classic["Ball"] = Properties.Resources.animations;
+            check(TickPreviewPacks.Prepare(classic, "Alpha", out error) == null && error != null && error.Contains("'Ball' is not a tick-clock"),
+                "pack preview refuses a member that is not a tick-clock pack member: " + error);
+            check(TickPreviewPacks.Prepare(whole(), "Alpha", out error) != null,
+                "WITNESS the same set with its own keys and main member is accepted" + (error == null ? "" : " (" + error + ")"));
+        }
+
+        private static XmlData.RootNode _classicDoc;
+
+        /// <summary>A member document with a REAL sheet (one 64x64 tile per colour), so the app's own staging accepts it and a
+        /// window shows which member's frames it draws.</summary>
+        private static string Serialize(XmlData.RootNode doc, params Color[] colours)
+        {
+            // What the schema requires and the members built in code leave out, from the bundled pet, as the gate's own
+            // TickFixture keeps it: the header's fixed elements, the spawns, the childs and the sounds.
+            if (_classicDoc == null)
+            {
+                XmlData.RootNode classic;
+                string error;
+                if (CompanionXmlValidator.TryParse(Properties.Resources.animations, out classic, out error)) _classicDoc = classic;
+            }
+            if (_classicDoc != null)
+            {
+                doc.Header.Author = _classicDoc.Header.Author;
+                doc.Header.Petname = doc.Header.Title;
+                doc.Header.Version = _classicDoc.Header.Version;
+                doc.Header.Info = _classicDoc.Header.Info;
+                doc.Header.Application = _classicDoc.Header.Application;
+                doc.Header.Icon = _classicDoc.Header.Icon;
+            }
+            // One spawn, into the route (animation 1), which is what every member here starts from.
+            if (doc.Spawns == null)
+                doc.Spawns = new XmlData.SpawnsNode
+                {
+                    Spawn = new[] { new XmlData.SpawnNode { Id = 1, Probability = 100, X = "0", Y = "0", Next = new XmlData.NextNode { Value = 1, Probability = 100 } } },
+                };
+            if (doc.Childs == null) doc.Childs = new XmlData.ChildsNode { Child = new XmlData.ChildNode[0] };
+            doc.Image.Transparency = "Alpha";
+            using (var sheet = new Bitmap(64 * colours.Length, 64, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
+            {
+                using (Graphics g = Graphics.FromImage(sheet))
+                    for (int i = 0; i < colours.Length; i++)
+                        using (var brush = new SolidBrush(colours[i])) g.FillRectangle(brush, 64 * i, 0, 64, 64);
+                using (var png = new MemoryStream())
+                {
+                    sheet.Save(png, System.Drawing.Imaging.ImageFormat.Png);
+                    doc.Image.Png = Convert.ToBase64String(png.ToArray());
+                }
+            }
+            return SecuritySelfTest.Serialize(doc);
         }
 
         /// <summary>The installed pack index over real folders: the library copy of an id shadows the bundled one, and a
@@ -211,6 +453,27 @@ namespace DesktopAICompanion.Shimeji
                 if (!info.IsBuiltIn) addable.Add(info.Id);
             check(addable.Count == 1 && addable[0] == "sp-alpha",
                 "packs: hidden members (the egg, the helper) stay out of the Add-a-companion list (" + string.Join(",", addable) + ")");
+
+            // ICompanionManager.InstalledTypes carries each type's own pack facts (1.10.0), read where staging reads its
+            // file, the hidden members included; a classic companion and the built-in default carry none.
+            Directory.CreateDirectory(Path.Combine(library, "sp-classic"));
+            File.WriteAllText(Path.Combine(library, "sp-classic", "animations.xml"),
+                "<?xml version=\"1.0\" encoding=\"utf-8\"?><animations><header><petname>c</petname></header><image/></animations>",
+                new UTF8Encoding(false));
+            var types = new Dictionary<string, DesktopAICompanion.Modules.CompanionTypeInfo>(StringComparer.OrdinalIgnoreCase);
+            foreach (DesktopAICompanion.Modules.CompanionTypeInfo t in DesktopAICompanion.Plugins.CompanionManagerBridge.InstalledTypesFrom(bundled, library)) types[t.TypeId] = t;
+            DesktopAICompanion.Modules.CompanionTypeInfo eggType, alphaType, classicType, builtIn;
+            types.TryGetValue("sp-egg", out eggType);
+            types.TryGetValue("sp-alpha", out alphaType);
+            types.TryGetValue("sp-classic", out classicType);
+            types.TryGetValue(CompanionCatalog.BuiltInPetId, out builtIn);
+            check(eggType != null && eggType.PackId == PackId && eggType.PackMember == "Egg" && eggType.PackRole == "egg" && eggType.PackHidden
+                  && alphaType != null && alphaType.PackId == PackId && alphaType.PackMember == "Alpha" && alphaType.PackRole == "main" && !alphaType.PackHidden,
+                "packs: InstalledTypes gives a pack member its own pack id, member key, role and hidden, read from the library copy ("
+                + (eggType == null ? "no sp-egg" : eggType.PackMember) + ")");
+            check(classicType != null && classicType.PackId == null && classicType.PackMember == null && classicType.PackRole == null && !classicType.PackHidden
+                  && builtIn != null && builtIn.PackId == null && !builtIn.PackHidden,
+                "packs: InstalledTypes gives a classic companion and the built-in default no pack facts");
         }
 
         /// <summary>A pack member stages through the app's real path (validator, feature gate, compile): 'packs' is a

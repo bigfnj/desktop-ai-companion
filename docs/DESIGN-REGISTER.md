@@ -7537,10 +7537,25 @@ route's choice; an egg whose hatch behaviour had no route frequency (as a hatch 
 real-app pack smoke passed anyway, because its egg's behaviour happened to have frequency 1; Studio's pack import (a hatch
 at frequency 0) is what showed it. The companion now remembers the startup behaviour (`TickMascot.ArrivalBehaviour`,
 set by `TickHost.SpawnLikeSource`), and the first behaviour to end of itself after creation (the drop-in's Fall, or
-Thrown if it was caught on the way down) hands over to it once instead of the route. Placing the companion straight on
+Thrown if it was caught on the way down) hands over to it instead of the route. Placing the companion straight on
 the floor in that behaviour was the other option and was not taken: it would drop the source's arrival for packs only.
 The source itself has no startup behaviour (its createMascot picks from the route), so this is the format extension's
-own rule; parity runs place start companions by scenario and never take this path.
+own rule; parity runs place start companions by scenario and never take this path. Two edges, found by an independent
+review: the hand-over first built the behaviour with the enabled check, so a startup behaviour the user had turned off
+dropped the just-landed companion in a second time (the source's drop-in is for a behaviour it was asked to enter, which
+this is not); it is now skipped and the route chooses. And a Transform before the hand-over left the old type's name
+pending, to be looked up on the new type, where a missing name ends the companion; a Transform now cancels it. And the
+hand-over was spent the moment the startup behaviour was entered, so an egg dragged off mid-hatch (or whose floor went)
+landed with a route that weighs nothing, as an egg's should, and dropped in from above again and again without hatching.
+The startup behaviour now stays pending until it ends of itself, and is entered again at each landing until then.
+
+**Repeated engine faults are throttled in the host's log, not in parity traces.** The same review noticed that a fault the
+engine repeats went to the diagnostic log every time: a behaviour condition that is not a boolean is reported at every
+selection and a Transform that cannot enter its behaviour at every attempt, so one broken pack could fill the rotating log
+(512 KB by default) within minutes and push out the launch's own record, which is the part a later fault report needs.
+`TickFaultThrottle` (Shimeji/TickEnvironment.cs) lets the host log a fault, keyed by type and message, three times and a
+fourth time saying it is suppressed, and past 256 distinct faults says so once and stops. Parity traces keep every fault:
+the trace writer is its own observer and a comparison needs them all.
 
 **The clock is the source's wall clock, not a 40 ms timer.** The real-app pack smoke timed an egg's 75-tick hatch at
 about 3.5 s, not 3.0 s. Measured on this box, a WinForms timer set to 40 ms fires every 46.9 ms (64 firings in 3001 ms):
@@ -7636,29 +7651,91 @@ Companion Studio 1.3.0 imports a Shimeji pack whole through `ShimejiEngine.Conve
 
 **The main member is installed LAST, and a partial install is not rolled back.** Install pack stops at the first member
 `InstallType` refuses and names, by key and id, every member already installed. Main-last means a failure part way leaves
-no main member behind, and only the main member appears in Add a companion (`CompanionCatalog.EnumerateAddable`), so a
-half-installed pack is never offered as if it were whole. Uninstalling what went in was declined: it deletes from the
-user's library on a path nobody asked for, and its own failure would leave less said than the report does.
+no main member behind, so the pack's own arrival is never offered half-installed. Add a companion drops only hidden
+members (`CompanionCatalog.EnumerateAddableFrom`), so a VISIBLE member installed before the failure is addable on its own,
+and the report names which ones are (corrected by feature/host-pack-abi: this paragraph and the report used to say only
+the main member appears there). Install pack again replaces what went in under the same ids (feature/host-pack-abi).
+Uninstalling what went in was declined: it deletes from the user's library on a path nobody asked for, and its own
+failure would leave less said than the report does.
 
 **While a pack member is open, "Install this companion…" is withheld.** The editor holds one member, read-only, and a
 member installed on its own has no pack to belong to: an egg alone is hidden from Add a companion, a main member alone
 has no members to transform into. The pack installs whole through Install pack, enabled only when `result.Accepted`.
 
-**Preview pack previews the main member alone.** A preview's pack scope is the preview id plus the pack id
-(`TickPackBinding.ScopeForPreview`), and `Stage` resolves members only from the installed pack index, which never holds
-a preview scope, so a preview's Transform, Breed or egg startup falls back to the main member itself
-(`ShimejiWindowSelfTest.Packs`). `ICompanionManager.SpawnPreview` takes one document, so Studio has nowhere to put the
-other members. Previewing a whole pack needs a host change: an ABI member that takes every member's document and
-stages them as transient registry entries in the preview's namespace, which `Stage` would consult for a preview scope.
+**Preview pack previewed the main member alone, until feature/host-pack-abi.** `ICompanionManager.SpawnPreview` takes one
+document and a preview's members resolve only in its own namespace, so Transform, Breed and the egg startup fell back to
+the main member. Host 1.10.0's `ICompanionPackPreview.SpawnPackPreview` takes every member; see below.
 
-**Installed ids are unique against the installed companions, so installing the same pack twice installs a second
-copy.** Both copies share a pack id, and `CompanionPackIndex` keeps one per pack id and member key and logs the rest, so
-the second main member's references resolve to the first copy's members. Offering "replace the installed pack" when its
-pack id is already installed was left for later: the ABI has no way to read an installed type's pack header short of
-`TryReadTypeXml` on every installed type.
+**Installing the same pack twice installed a second copy, until feature/host-pack-abi.** Both copies shared a pack id
+and `CompanionPackIndex` keeps one per pack id and member key, so the second copy's members never ran. Host 1.10.0's
+`CompanionTypeInfo.PackId` lets Install pack find the earlier install and replace it; see below.
 
 **Only a skin laid out as `<root>\img\<member>\` can be imported as a pack.** That is what `ConvertPack` reads. A skin
 whose sprites sit at the root or deeper converts on its own, and the picker's pack button says why in its tooltip.
+
+#### feature/host-pack-abi
+
+Host 1.10.0 gives Companion Studio a whole-pack preview and each installed type's pack facts; Studio 1.3.0 uses both and
+declares MinHostVersion 1.10.0.
+
+**The pack preview is a separate interface, `ICompanionPackPreview`, not a new `ICompanionManager` member.** The brief
+asked for a member on `ICompanionManager`. `ModuleKit.Testing.DenyingCompanionManager` implements that interface and ships
+in every module's zip, and AgentFlow, Reminder and Studio implement it in their self-test doubles, so a new member would
+have changed every module's payload and broken each double's build (and, against a copy already published, its type
+load): the reason `ICompanionStandDown` gives for keeping IHost frozen. The host's managers implement it, the refusing one
+included, so a module asks with `pets as ICompanionPackPreview` and a module without the permission reads a reason rather
+than a null cast that looks like an older host.
+
+**A pack preview always arrives as its startup member.** "Arrive as an egg" is a setting of an installed type; a draft
+has none, and the point of the preview is to see the egg hatch. `TickPackBinding.PlanStart` keeps reading no role for a
+preview scope, so `TickPack.StartPlan` never applies the preference to one.
+
+**A preview's members are staged on demand from the preview's own namespace (`TickPreviewPacks`), never from the
+installed index.** Same lifetime as an installed pack's members (held while a companion runs or draws as them), under
+registry ids of the preview's own (`<preview id>/<position>`: the registry ignores case and member keys do not). Removing
+the handle closes the namespace first, so a birth still queued gets no window, then removes every window whose entry the
+preview owns. A single `SpawnPreview` handle still removes only its own window; a classic or packless tick preview that
+breeds leaves its born copies (N-host-pack-abi-01).
+
+**Install pack over an earlier install replaces it or installs nothing; it never adds a copy.** A copy's members would
+never run (the index keeps the first per key), so the only choices offered are Replace and Cancel. Replace writes each
+member again under the id it has, with the roles and visibility chosen now; a member new to the pack gets a fresh id; a
+member the earlier install had and the pack no longer has is left installed and named, because removing it is the
+user's call. The same path makes a retry after a partial install, and a re-import that changed a role, replace rather
+than duplicate.
+
+#### feature/shimeji-host-wav
+
+A tick companion's named clip may be WAV: `<sound format="wav">`, feature `wav` (grimoire/06 section 3).
+
+**The format is declared, never sniffed, and checked against the bytes.** The validator runs the check the declaration
+names and refuses the other way round by name (MP3 bytes declared `wav`, WAV bytes declared MP3); the bytes are looked
+at again only to word that refusal. The staging carries the declaration with the bytes (`TickClipAudio`), and the
+decoder reads it, so the validator and the runtime ask one function (`WavFormat.IsDeclaredWav`) what the document said.
+
+**Any `format` attribute needs the token, `mp3` included.** An older host's schema has no such attribute, so only the
+token gets that host a refusal by name before the schema. Since every token needs `tick`, a classic `<sound
+animationid>` stays MP3: the classic engine admits and decodes MP3 only, and the converter's WAV clips are all pose clips.
+
+**Transcoding WAV to MP3 in the converter was refused** (lossy, and the Windows MP3 encoder is absent on N editions); the
+host decodes PCM and IEEE float through NAudio with no OS codec. ADPCM, mu-law and A-law would need ACM codecs and are
+refused by tag: none of the corpus's 1168 WAVE clips uses them (all 8- or 16-bit PCM). NAudio's sample converters do
+not take a `WAVE_FORMAT_EXTENSIBLE` header (measured: "Unsupported source encoding"), so `AudioOutput.DecodeClip` reads
+an extensible clip's samples under the plain header its subformat means.
+
+**The structure is no stricter than real clips.** Chunks after `data`, an 18-byte fmt chunk and an odd-sized last chunk
+with no pad byte pass (238, 25 and 10 corpus clips). A RIFF size that disagrees with the clip, a block align that
+contradicts the channels and bits, or a ragged data chunk are refused, though the source plays the one corpus clip of
+each of the first two kinds: the bytes are in doubt, and a converter can rewrite either header field without touching a
+sample.
+
+**The size limits are unchanged** (2 MiB a clip, 8 MiB a document, 12 MiB of XML). 466 of the 493 corpus members whose
+clips resolve fit them as WAV; raising the per-clip limit to 4 MiB would add 18. A decoded clip costs twice its bytes for
+16-bit stereo at 44.1 kHz and at most 44 times them (8-bit mono at 8 kHz, the lowest rate allowed), so a raise is a
+memory decision for the coordinator, not this lane.
+
+**A parity run writes no sound event for WAV either.** ParityRun has no clip output until CONTRACT defines a clip clock
+(ParityRun.cs, `Sound`), so a WAV clip's start is asserted in --shimeji-window-selftest through a recording sink.
 
 ## Known ABI gaps
 

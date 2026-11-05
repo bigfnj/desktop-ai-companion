@@ -32,6 +32,7 @@ namespace DesktopAICompanion
             {
                 ok &= DecodesRealAudio(sb);
                 ok &= DecodesAnMp3(sb);
+                ok &= DecodesWavClips(sb);
                 ok &= RejectsRubbish(sb);
                 ok &= FadeEndsTheInput(sb);
                 ok &= OutputFailureIsObserved(sb);
@@ -115,6 +116,122 @@ namespace DesktopAICompanion
                 allDecoded = AudioOutput.DecodeModuleAudio(mp3) != null;
             ok &= Check(sb, "twenty MP3 decodes in a row all succeed (a wedged or exhausted ACM fails part way; disposal itself is not observable here)", allDecoded);
             return ok;
+        }
+
+        /// <summary>
+        /// A tick companion's WAV clips (feature 'wav'): every encoding the validator's WavFormat accepts decodes through
+        /// AudioOutput.DecodeClip, the path PlayClip takes, to the mixer format at the length its frames say and with its
+        /// tone intact; an encoding it refuses (ADPCM) does not decode here either, which is why it is refused. A clip
+        /// that fails at runtime is reported ONCE and then stays silent. Every clip is generated here; nothing is played.
+        /// </summary>
+        private static bool DecodesWavClips(StringBuilder sb)
+        {
+            bool ok = true;
+            var encodings = new[]
+            {
+                new[] { 1, 8 }, new[] { 1, 16 }, new[] { 1, 24 }, new[] { 1, 32 }, new[] { 3, 32 }, new[] { 3, 64 },
+            };
+            foreach (bool extensible in new[] { false, true })
+                foreach (int[] e in encodings)
+                {
+                    string name = (e[0] == 1 ? "PCM " : "float ") + e[1] + "-bit" + (extensible ? " extensible" : "");
+                    byte[] wav = SyntheticWave(e[0], e[1], 1, 22050, 2205, extensible);
+                    string invalid;
+                    bool valid = WavFormat.IsDecodableWave(wav, out invalid);
+                    float[] decoded = null;
+                    string failure = "";
+                    try { decoded = AudioOutput.DecodeClip(wav, true); }
+                    catch (Exception ex) { failure = " " + ex.GetType().Name + ": " + ex.Message; }
+                    float peak = 0f;
+                    if (decoded != null) foreach (float s in decoded) peak = Math.Max(peak, Math.Abs(s));
+                    // 0.1 s of 22.05 kHz mono comes back as 4410 stereo frames at 44.1 kHz, the tone's 0.5 peak intact.
+                    ok &= Check(sb, "wav clip: " + name + " passes the validator and decodes to the mixer format ("
+                        + (decoded == null ? "no samples" + failure : decoded.Length / 2 + " frames, peak "
+                        + peak.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)) + (valid ? "" : ", " + invalid) + ")",
+                        valid && decoded != null && Math.Abs(decoded.Length / 2 - 4410) <= 64 && peak > 0.4f && peak < 0.6f);
+                }
+            float[] stereo = null;
+            try { stereo = AudioOutput.DecodeClip(SyntheticWave(1, 16, 2, 48000, 4800, false), true); }
+            catch (Exception) { }
+            ok &= Check(sb, "wav clip: 16-bit stereo at 48 kHz is resampled to 44.1 kHz (" + (stereo == null ? -1 : stereo.Length / 2) + " frames)",
+                stereo != null && Math.Abs(stereo.Length / 2 - 4410) <= 64);
+
+            byte[] adpcm = SyntheticWave(1, 16, 1, 22050, 2205, false);
+            adpcm[20] = 0x02;   // format tag 1 -> 2, MS ADPCM
+            string refused;
+            ok &= Check(sb, "wav clip: an ADPCM clip is refused by the validator", !WavFormat.IsDecodableWave(adpcm, out refused));
+            using (var output = new AudioOutput())
+            {
+                var lines = new System.Collections.Generic.List<string>();
+                output.ClipFailureSink = lines.Add;
+                string owner = AudioOutput.ClipOwnerPrefix + "type|bad|0";
+                float[] first = output.ClipSamplesForTest(owner, adpcm, true);
+                float[] second = output.ClipSamplesForTest(owner, adpcm, true);
+                ok &= Check(sb, "wav clip: one that will not decode at runtime is silent and reported once ("
+                    + lines.Count + " line(s)" + (lines.Count > 0 ? ": " + lines[0] : "") + ")",
+                    (first == null || first.Length == 0) && second != null && second.Length == 0 && lines.Count == 1
+                    && lines[0].IndexOf("type|bad|0 (WAV) would not decode", StringComparison.Ordinal) >= 0);
+                float[] good = output.ClipSamplesForTest(owner, SyntheticWave(1, 16, 1, 22050, 2205, false), true);
+                ok &= Check(sb, "wav clip: WITNESS a good clip through the same output decodes and reports nothing",
+                    good != null && good.Length > 0 && lines.Count == 1);
+            }
+            return ok;
+        }
+
+        /// <summary>
+        /// A RIFF/WAVE generated here (no file from any pack): a 440 Hz tone at half scale, <paramref name="frames"/> long,
+        /// as PCM (<paramref name="tag"/> 1, 8-bit unsigned, wider signed) or IEEE float (3), optionally as
+        /// WAVE_FORMAT_EXTENSIBLE with that subformat. Shared with the validator's and the tick runtime's WAV checks.
+        /// </summary>
+        internal static byte[] SyntheticWave(int tag, int bits, int channels, int rate, int frames, bool extensible)
+        {
+            int blockAlign = channels * bits / 8;
+            int dataBytes = frames * blockAlign;
+            int fmtSize = extensible ? 40 : 16;
+            using (var ms = new MemoryStream())
+            using (var w = new BinaryWriter(ms))
+            {
+                w.Write(new[] { 'R', 'I', 'F', 'F' });
+                w.Write(4 + 8 + fmtSize + 8 + dataBytes);
+                w.Write(new[] { 'W', 'A', 'V', 'E' });
+                w.Write(new[] { 'f', 'm', 't', ' ' });
+                w.Write(fmtSize);
+                w.Write((short)(extensible ? 0xFFFE : tag));
+                w.Write((short)channels);
+                w.Write(rate);
+                w.Write(rate * blockAlign);
+                w.Write((short)blockAlign);
+                w.Write((short)bits);
+                if (extensible)
+                {
+                    w.Write((short)22);                 // cbSize
+                    w.Write((short)bits);               // valid bits
+                    w.Write(channels == 1 ? 4 : 3);     // channel mask: centre, or left and right
+                    w.Write((short)tag);                // the subformat GUID: the tag, then the standard tail
+                    w.Write(new byte[] { 0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x80, 0x00, 0x00, 0xAA, 0x00, 0x38, 0x9B, 0x71 });
+                }
+                w.Write(new[] { 'd', 'a', 't', 'a' });
+                w.Write(dataBytes);
+                for (int f = 0; f < frames; f++)
+                {
+                    double s = Math.Sin(2.0 * Math.PI * 440.0 * f / rate) * 0.5;
+                    for (int c = 0; c < channels; c++)
+                    {
+                        if (tag == 3 && bits == 32) w.Write((float)s);
+                        else if (tag == 3) w.Write(s);
+                        else if (bits == 8) w.Write((byte)Math.Round(128 + s * 127));
+                        else if (bits == 16) w.Write((short)Math.Round(s * short.MaxValue));
+                        else if (bits == 24)
+                        {
+                            int v = (int)Math.Round(s * 8388607);
+                            w.Write((byte)v); w.Write((byte)(v >> 8)); w.Write((byte)(v >> 16));
+                        }
+                        else w.Write((int)Math.Round(s * int.MaxValue));
+                    }
+                }
+                w.Flush();
+                return ms.ToArray();
+            }
         }
 
         /// <summary>

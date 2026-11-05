@@ -1420,7 +1420,7 @@ namespace DesktopAICompanion.Plugins
     /// exposes the verbs, so the Pets capability can live in a module. Every call is best-effort and never
     /// throws into a module.
     /// </summary>
-    internal sealed class CompanionManagerBridge : ICompanionManager
+    internal sealed class CompanionManagerBridge : ICompanionManager, ICompanionPackPreview
     {
         private readonly StartUp _startUp;
         private readonly CompanionHost _host;
@@ -1436,16 +1436,34 @@ namespace DesktopAICompanion.Plugins
 
         public IReadOnlyList<CompanionTypeInfo> InstalledTypes()
         {
+            return InstalledTypesFrom(AppPaths.BundledPetsDirectory, AppPaths.LibraryPetsDirectory);
+        }
+
+        /// <summary>
+        /// <see cref="InstalledTypes"/> over two given roots (the window self-test's scratch corpus). Each type carries its
+        /// own pack facts (1.10.0), read where staging would read its file (CompanionCatalog.InstalledPackFacts: library
+        /// first), through the same cached header read the pack index uses, so the answer cannot drift from what the index
+        /// holds. The built-in default declares no pack.
+        /// </summary>
+        internal static IReadOnlyList<CompanionTypeInfo> InstalledTypesFrom(string bundledRoot, string libraryRoot)
+        {
             var list = new List<CompanionTypeInfo>();
             try
             {
-                foreach (CompanionCatalog.CompanionInfo p in CompanionCatalog.EnumerateLocal())
+                foreach (CompanionCatalog.CompanionInfo p in CompanionCatalog.EnumerateFrom(bundledRoot, libraryRoot, true))
+                {
+                    PackHeaderFacts facts = p.IsBuiltIn ? null : CompanionCatalog.InstalledPackFacts(p.Id, libraryRoot, bundledRoot);
                     list.Add(new CompanionTypeInfo
                     {
                         TypeId = p.IsBuiltIn ? CompanionCatalog.BuiltInPetId : (p.Id ?? ""),
                         DisplayName = p.DisplayName,
                         IsBuiltIn = p.IsBuiltIn,
+                        PackId = facts != null ? facts.PackId : null,
+                        PackMember = facts != null ? facts.Member : null,
+                        PackRole = facts != null ? facts.Role : null,
+                        PackHidden = facts != null && facts.Hidden,
                     });
+                }
             }
             catch { }
             return list;
@@ -1511,6 +1529,20 @@ namespace DesktopAICompanion.Plugins
             catch (Exception ex) { error = ex.Message; return null; }
         }
 
+        public ICompanionPreview SpawnPackPreview(IReadOnlyDictionary<string, string> memberXmlByKey, string mainKey, out string error)
+        {
+            error = null;
+            try
+            {
+                if (_startUp == null) { error = "No pet runtime."; return null; }
+                string previewId;
+                FormCompanion pet = _startUp.SpawnPackPreviewPet(memberXmlByKey, mainKey, out previewId, out error);
+                if (pet == null) return null;
+                return new PackPreviewHandle(_startUp, _host, pet, previewId);
+            }
+            catch (Exception ex) { error = ex.Message; return null; }
+        }
+
         public bool InstallType(string typeId, string animationsXml, out string error)
         {
             error = null;
@@ -1571,7 +1603,7 @@ namespace DesktopAICompanion.Plugins
     }
 
     /// <summary>What a module without ModulePermissions.Companions gets: every verb refuses, nothing throws.</summary>
-    internal sealed class DenyingCompanionManager : ICompanionManager
+    internal sealed class DenyingCompanionManager : ICompanionManager, ICompanionPackPreview
     {
         // "Companions", not "Pets": the flag was renamed by the 1.0.0 rebase and this string is the
         // `out string error` the ABI promises as the REASON, so an author who reads it greps the enum
@@ -1587,6 +1619,9 @@ namespace DesktopAICompanion.Plugins
         public bool RemoveOne(string typeId) { return false; }
         public bool ValidateXml(string animationsXml, out string error) { error = Denied; return false; }
         public ICompanionPreview SpawnPreview(string animationsXml, out string error) { error = Denied; return null; }
+        // Implemented here too, so a module without the permission is refused with the reason rather than reading a null
+        // cast as "this host is too old" (1.10.0).
+        public ICompanionPreview SpawnPackPreview(IReadOnlyDictionary<string, string> memberXmlByKey, string mainKey, out string error) { error = Denied; return null; }
         public bool InstallType(string typeId, string animationsXml, out string error) { error = Denied; return false; }
         public bool UninstallType(string typeId, out string error) { error = Denied; return false; }
     }
@@ -1630,6 +1665,60 @@ namespace DesktopAICompanion.Plugins
             _pet = null;
             if (pet == null) return;
             try { if (_startUp != null) _startUp.RemovePetInstance(pet); }
+            catch { }
+        }
+
+        public void Dispose() { Remove(); }
+    }
+
+    /// <summary>
+    /// A module's handle on a whole-pack preview (1.10.0). Pet is the companion that arrived (an egg, and what it becomes:
+    /// a Transform keeps the window); the preview may breed more, each in its own window. So the handle holds the preview's
+    /// id as well, and Remove removes by namespace (StartUp.RemovePackPreview): every window whose registry entry is the
+    /// preview's own or one of its members', a birth still queued included. Idempotent.
+    /// </summary>
+    internal sealed class PackPreviewHandle : ICompanionPreview
+    {
+        private readonly StartUp _startUp;
+        private readonly CompanionHost _host;
+        private FormCompanion _pet;
+        private string _previewId;
+
+        internal PackPreviewHandle(StartUp startUp, CompanionHost host, FormCompanion pet, string previewId)
+        {
+            _startUp = startUp;
+            _host = host;
+            _pet = pet;
+            _previewId = previewId;
+        }
+
+        public ICompanion Pet
+        {
+            get
+            {
+                FormCompanion pet = _pet;
+                if (pet == null || pet.IsDisposed) return null;
+                return _host != null ? _host.HandleFor(pet) : null;
+            }
+        }
+
+        public bool IsAlive
+        {
+            get
+            {
+                string id = _previewId;
+                try { return id != null && _startUp != null && _startUp.IsPackPreviewAlive(id); }
+                catch { return false; }
+            }
+        }
+
+        public void Remove()
+        {
+            string id = _previewId;
+            _previewId = null;
+            _pet = null;
+            if (id == null) return;
+            try { if (_startUp != null) _startUp.RemovePackPreview(id); }
             catch { }
         }
 

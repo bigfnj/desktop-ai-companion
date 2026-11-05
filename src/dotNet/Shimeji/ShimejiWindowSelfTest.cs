@@ -81,6 +81,17 @@ namespace DesktopAICompanion.Shimeji
                 TickMascot breeder = host.Spawn("Alpha", new TickPoint(x, floor), false, "Throw");
                 TickMascot popper = host.Spawn("Alpha", new TickPoint(x + 200, floor), false, "Pop");
 
+                // A fault the engine repeats (a condition that is not a boolean, at every selection) reaches the host's log
+                // three times and then once as suppressed (TickFaultThrottle), so one broken pack cannot fill the rotating
+                // diagnostic log and push out the launch's record.
+                const string repeated = "selftest: the same fault, reported ten times";
+                for (int i = 0; i < 10; i++) host.Fault(stander, repeated);
+                string logText = log.ToString();
+                int logged = 0;
+                for (int at = logText.IndexOf(repeated, StringComparison.Ordinal); at >= 0; at = logText.IndexOf(repeated, at + 1, StringComparison.Ordinal)) logged++;
+                check(logged == 4 && logText.Contains(repeated + " (repeated;"),
+                    "faults: a fault repeated ten times reaches the host log four times, the last saying it is suppressed (" + logged + ")");
+
                 // A companion whose first behaviour cannot be built is declined, not thrown into the app's spawn path.
                 int formsBefore = host.Count;
                 TickMascot unbuildable = null;

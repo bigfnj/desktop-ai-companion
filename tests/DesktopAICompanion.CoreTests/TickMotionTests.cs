@@ -186,7 +186,24 @@ namespace DesktopAICompanion
             for (int i = 0; i < 300 && !log.Events.Contains("m1 behaviour Fall>Hatch forced"); i++) w.StepOnce();
             AssertTrue(log.Events.Contains("m1 behaviour Hatch>Fall forced") && log.Events.Contains("m1 behaviour Fall>Hatch forced"),
                 "The arrival did not land into the startup behaviour: " + string.Join("; ", log.Events));
-            AssertTrue(m.ArrivalBehaviour == null, "The startup behaviour was kept after it had run.");
+            AssertTrue(m.ArrivalBehaviour == "Hatch", "The startup behaviour stopped pending before it had ended of itself.");
+            for (int i = 0; i < 300 && !log.Events.Exists(e => e.StartsWith("m1 behaviour Hatch>Stand")); i++) w.StepOnce();
+            AssertTrue(log.Events.Exists(e => e.StartsWith("m1 behaviour Hatch>Stand")) && m.ArrivalBehaviour == null,
+                "The startup behaviour, ended of itself, did not hand over to the route for good: " + string.Join("; ", log.Events));
+
+            // Cut short (its floor gone from under it, as a drag or a moved window does), the startup behaviour is entered
+            // again when the companion next lands. Without that, an egg whose hatch has no route frequency lands with
+            // nothing to choose and drops in from above, again and again, and never hatches.
+            var log5 = new TickLog();
+            TickWorld y = MotionWorld(null, log5, null, null, t);
+            TickMascot q = y.CreateAtStart("m1", t, new TickPoint(-4000, -4000), false, "Hatch");
+            q.ArrivalBehaviour = "Hatch";
+            for (int i = 0; i < 300 && !log5.Events.Contains("m1 behaviour Fall>Hatch forced"); i++) y.StepOnce();
+            q.Anchor = new TickPoint(q.Anchor.X, q.Anchor.Y - 100);
+            for (int i = 0; i < 300 && log5.Events.FindAll(e => e == "m1 behaviour Fall>Hatch forced").Count < 2; i++) y.StepOnce();
+            AssertTrue(log5.Events.Contains("m1 behaviour Hatch>Fall forced")
+                && log5.Events.FindAll(e => e == "m1 behaviour Fall>Hatch forced").Count == 2 && q.ArrivalBehaviour == "Hatch",
+                "A startup behaviour cut short was not entered again at the next landing: " + string.Join("; ", log5.Events));
 
             // WITNESS: without one, the landed companion takes the route's choice (Stand) and never Hatch.
             var log2 = new TickLog();
@@ -195,6 +212,62 @@ namespace DesktopAICompanion
             for (int i = 0; i < 300 && !log2.Events.Contains("m1 behaviour Fall>Stand duration"); i++) v.StepOnce();
             AssertTrue(!log2.Events.Contains("m1 behaviour Fall>Hatch forced") && log2.Events.Exists(e => e.StartsWith("m1 behaviour Fall>Stand")),
                 "Without an arrival behaviour the landed companion did not take the route's choice: " + string.Join("; ", log2.Events));
+
+            // A startup behaviour the user turned off is skipped once the companion lands: the route chooses, and the
+            // companion is not dropped in a second time. Created off screen, it loses the ground at once (Stand>Fall) and
+            // the out-of-bounds rule drops it in (one Fall>Fall); a second drop-in would be a draw at the
+            // disabled-behaviour site and another Fall>Fall straight after the landing.
+            var off = new TickSwitches();
+            off.BehavioursOff.Add("Hatch");
+            var log3 = new TickLog();
+            TickWorld u = MotionWorld(null, log3, null, off, t);
+            TickMascot n = u.CreateAtStart("m1", t, new TickPoint(-4000, -4000), false, "Stand");
+            n.ArrivalBehaviour = "Hatch";
+            for (int i = 0; i < 300 && !log3.Events.Exists(e => e.StartsWith("m1 behaviour Fall>Stand")); i++) u.StepOnce();
+            AssertTrue(log3.Events.Exists(e => e.StartsWith("m1 behaviour Fall>Stand"))
+                && log3.Events.FindAll(e => e == "m1 behaviour Fall>Fall forced").Count == 1
+                && !log3.Draws.Contains("builtin:disabled-behavior-drop-x") && n.ArrivalBehaviour == null,
+                "A turned-off startup behaviour was not skipped on landing: " + string.Join("; ", log3.Events) + " | draws: " + string.Join(", ", log3.Draws));
+
+            // A Transform during the arrival cancels the startup behaviour still to come: it belonged to the type that
+            // arrived, and the Transform chose what the companion does now. Here the Transform keeps the type (an empty
+            // target resolves to the current one) and enters Fall, so the landing then takes the route's choice.
+            var log4 = new TickLog();
+            TickWorld x = MotionWorld(null, log4, null, null, t);
+            TickMascot p = x.CreateAtStart("m1", t, new TickPoint(-4000, -4000), false, "Hatch");
+            p.ArrivalBehaviour = "Hatch";
+            x.StepOnce();
+            x.TransformInPlace(p, "", "Fall");
+            for (int i = 0; i < 300 && !log4.Events.Exists(e => e.StartsWith("m1 behaviour Fall>Stand") || e == "m1 behaviour Fall>Hatch forced"); i++) x.StepOnce();
+            AssertTrue(p.ArrivalBehaviour == null && !log4.Events.Contains("m1 behaviour Fall>Hatch forced")
+                && log4.Events.Exists(e => e.StartsWith("m1 behaviour Fall>Stand")),
+                "A Transform during the arrival left the startup behaviour pending: " + string.Join("; ", log4.Events));
+        }
+
+        private static void TestTickFaultThrottle()
+        {
+            // The same fault of the same type: three lines, a fourth that says it is suppressed, then nothing.
+            var throttle = new TickFaultThrottle();
+            var lines = new List<string>();
+            for (int i = 0; i < 10; i++) lines.Add(throttle.Next("Alpha", "the condition of 'Sit' is not a boolean (1)"));
+            AssertTrue(lines[0] == "the condition of 'Sit' is not a boolean (1)" && lines[2] == lines[0]
+                && lines[3] != null && lines[3].StartsWith(lines[0]) && lines[3].Contains("not logged again")
+                && lines.GetRange(4, 6).TrueForAll(l => l == null),
+                "A repeated fault was not logged three times and then once as suppressed: " + string.Join(" | ", lines));
+            // WITNESS: another message, or the same message of another type, is a fault of its own.
+            AssertTrue(throttle.Next("Alpha", "Transform into Beta: no behaviour named 'Ghost' in Beta") != null
+                && throttle.Next("Beta", "the condition of 'Sit' is not a boolean (1)") != null,
+                "A different fault, or the same fault of another type, was suppressed with the first.");
+
+            // Past the distinct limit one line says so and new faults go unlogged; one already counted still counts.
+            var many = new TickFaultThrottle();
+            for (int i = 0; i < TickFaultThrottle.DistinctLimit; i++)
+                AssertTrue(many.Next("Alpha", "fault " + i) != null, "Distinct fault " + i + " under the limit was not logged.");
+            string limit = many.Next("Alpha", "one more");
+            AssertTrue(limit != null && limit.Contains("not logged until the app restarts") && many.Next("Alpha", "and another") == null,
+                "Past the distinct limit the throttle did not say so once and then stop: " + (limit ?? "null"));
+            AssertTrue(many.Next("Alpha", "fault 0") == "fault 0",
+                "A fault counted before the distinct limit stopped counting after it.");
         }
 
         private static void TestTickBorderKeptOnBlankReinit()

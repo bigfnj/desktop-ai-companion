@@ -413,4 +413,35 @@ namespace DesktopAICompanion.Shimeji
             return true;
         }
     }
+
+    /// <summary>
+    /// Repeated identical engine faults for the host's log (TickHost.Fault), logged a few times and then once as
+    /// suppressed. A behaviour condition that is not a boolean is reported at every selection, and a Transform that cannot
+    /// enter its behaviour at every attempt; logged each time, either fills the rotating diagnostic log within minutes and
+    /// pushes out the launch's own record. A fault is the same when its type and message are; companions of one type
+    /// share the count. Parity traces are not throttled: they record every fault.
+    /// </summary>
+    internal sealed class TickFaultThrottle
+    {
+        public const int Repeats = 3, DistinctLimit = 256;
+        private readonly Dictionary<string, int> _counts = new Dictionary<string, int>(StringComparer.Ordinal);
+        private bool _distinctLimitReported;
+
+        /// <summary>The text to log for this fault, or null to log nothing.</summary>
+        public string Next(string typeName, string message)
+        {
+            string key = (typeName ?? "") + "\n" + (message ?? "");
+            int n;
+            if (!_counts.TryGetValue(key, out n) && _counts.Count >= DistinctLimit)
+            {
+                if (_distinctLimitReported) return null;
+                _distinctLimitReported = true;
+                return "more than " + DistinctLimit + " different faults; new ones are not logged until the app restarts";
+            }
+            _counts[key] = ++n;
+            if (n <= Repeats) return message;
+            if (n == Repeats + 1) return message + " (repeated; this fault of this type is not logged again)";
+            return null;
+        }
+    }
 }
