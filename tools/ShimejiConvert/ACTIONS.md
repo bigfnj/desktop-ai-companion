@@ -105,9 +105,10 @@ refused.
 Attributes on a configuration document's root element are ignored, as the source never reads them. An instant
 embedded action (Look, Offset, Mute, BringToFront) written with no Animation becomes an act with no variants, as
 the source builds those classes without animations; any other posed action without an Animation is refused.
+An anonymous nested action becomes a node named after its place, `<parent>/<position>`; a name that collides
+with another action's is refused.
 It refuses unsupported attributes and
-classes, sounds, constants, information metadata, anonymous
-nested actions and next references without a root definition.
+classes, sounds, constants, information metadata and next references without a root definition.
 Bindings across differing document schemas are refused until target-schema resolution is implemented.
 Composite activation cycles, depth above 32 and expansion above 4096 actions are refused before output is written.
 

@@ -67,6 +67,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "toggle-id-refusal", Run = (Action)ToggleIdRefusal },
                 new { Name = "root-attributes-ignored", Run = (Action)RootAttributesIgnored },
                 new { Name = "instant-without-animation", Run = (Action)InstantWithoutAnimation },
+                new { Name = "anonymous-nested-actions", Run = (Action)AnonymousNestedActions },
                 new { Name = "information-refusal", Run = (Action)InformationRefusal },
                 new { Name = "own-set-binding-reset", Run = (Action)OwnSetBindingReset },
                 new { Name = "japanese-schema-values", Run = (Action)JapaneseSchemaValues },
@@ -1276,6 +1277,43 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     fixture.Actions(actions);
                     Refusal(fixture, "posed action has no Animation");
                 }
+        }
+
+        // A nested Action is built where it stands and never looked up by name, so it may have none: an anonymous one
+        // (no Name, or an empty one) becomes an action node named after its place, <parent>/<position>, at any depth,
+        // referenced by its composite and host-validated; a global action that already has that name refuses.
+        private static void AnonymousNestedActions()
+        {
+            using (var fixture = new Fixture())
+            {
+                XDocument actions = BuildActions();
+                actions.Root.Element("ActionList").Add(S("Action", A("Name", "Chain"), A("Type", "Sequence"),
+                    S("Action", A("Type", "Stay"), A("Duration", 2), S("Animation", Pose("/p.png", 1))),
+                    S("ActionReference", A("Name", "Stand")),
+                    S("Action", A("Name", ""), A("Type", "Select"),
+                        S("Action", A("Type", "Embedded"), A("Class", "com.group_finity.mascot.action.Look"), A("LookRight", "true"))),
+                    S("Action", A("Name", "Named"), A("Type", "Stay"), S("Animation", Pose("/q.png", 1)))));
+                fixture.Actions(actions);
+                XDocument document = fixture.Convert();
+                Validate(document, "anonymous nested action member");
+                string[] children = NamedNode(document, "Chain").Element(Ns + "act").Element(Ns + "children").Elements(Ns + "child")
+                    .Select(c => (string)c.Attribute("animation")).ToArray();
+                Require(children.SequenceEqual(new[] { "Chain/1", "Stand", "Chain/3", "Named" }),
+                    "anonymous nested actions are not named after their place: " + string.Join(", ", children));
+                Require((string)NamedNode(document, "Chain/1").Element(Ns + "act").Attribute("type") == "Stay"
+                    && (string)NamedNode(document, "Chain/3").Element(Ns + "act").Element(Ns + "children").Element(Ns + "child").Attribute("animation") == "Chain/3/1"
+                    && (string)NamedNode(document, "Chain/3/1").Element(Ns + "act").Attribute("class") == "Look",
+                    "an anonymous nested action's node, or one nested inside it, is not the source's action");
+            }
+            using (var fixture = new Fixture())
+            {
+                XDocument actions = BuildActions();
+                actions.Root.Element("ActionList").Add(
+                    S("Action", A("Name", "Chain"), A("Type", "Sequence"), S("Action", A("Type", "Stay"), S("Animation", Pose("/p.png", 1)))),
+                    S("Action", A("Name", "Chain/1"), A("Type", "Stay"), S("Animation", Pose("/p.png", 1))));
+                fixture.Actions(actions);
+                Refusal(fixture, "a nested action needs a unique name for this first lowering: 'Chain/1'");
+            }
         }
 
         private static void InformationRefusal()

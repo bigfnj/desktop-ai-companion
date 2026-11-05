@@ -204,6 +204,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             private readonly ShimejiSourceConfig _source;
             private readonly List<XElement> _nodes = new List<XElement>();
             private readonly Dictionary<string, ShimejiSourceElement> _actions = new Dictionary<string, ShimejiSourceElement>(StringComparer.Ordinal);
+            // Each nested action element and its node name (its Name, or the name an anonymous one is given).
+            private readonly Dictionary<ShimejiSourceElement, string> _nestedNames = new Dictionary<ShimejiSourceElement, string>();
             private readonly HashSet<string> _globalActions = new HashSet<string>(StringComparer.Ordinal);
             private readonly List<ShimejiSourceElement> _actionOrder = new List<ShimejiSourceElement>();
             private readonly Dictionary<string, RootBehaviour> _roots = new Dictionary<string, RootBehaviour>(StringComparer.Ordinal);
@@ -425,14 +427,31 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 return border;
             }
 
-            private int EmitAction(ShimejiSourceElement source, bool nested)
+            /// <summary>The node name of an action element: its Name, or the name an anonymous nested action was given.</summary>
+            private string ActionName(ShimejiSourceElement source)
             {
-                string name = Required(source, "Name"), type = ActionType(source);
+                string name;
+                return _nestedNames.TryGetValue(source, out name) ? name : Required(source, "Name");
+            }
+
+            private int EmitAction(ShimejiSourceElement source, bool nested, string anonymousName = null)
+            {
+                string type = ActionType(source), name;
                 if (nested)
                 {
+                    // A nested Action is built from its own element where it stands (ActionBuilder.java:68-70); the
+                    // source never looks it up by name, so it may have none (the stock configuration's composites
+                    // inline anonymous ones). The format names every action node, so an anonymous one is named after its
+                    // place, "<parent>/<position among the parent's children>", which no reference can name; a
+                    // collision with any other action's name still refuses, as a duplicate nested name does.
+                    name = Value(source, "Name");
+                    if (string.IsNullOrEmpty(name)) name = anonymousName;
+                    if (name == null) Fail(source, "missing Name");
                     if (_actions.ContainsKey(name)) Fail(source, "a nested action needs a unique name for this first lowering: '" + name + "'");
                     _actions.Add(name, source);
+                    _nestedNames.Add(source, name);
                 }
+                else name = Required(source, "Name");
                 int id = _next++;
                 var act = E("act", new XAttribute("type", type));
                 string cls = Value(source, "Class");
@@ -491,9 +510,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 // Parameters a scripted Animation Condition is lowered to; they join the act's own parameters, ahead of
                 // the guard and the variants as the schema orders them.
                 var conditions = new List<XElement>();
-                int childIndex = 0, animationIndex = 0;
+                int childIndex = 0, animationIndex = 0, position = 0;
                 foreach (ShimejiSourceElement child in source.Children)
                 {
+                    position++;
                     if (child.Kind == ShimejiSourceKind.Animation)
                     {
                         // Composite animations do not run, but the source still loads their images.
@@ -502,8 +522,13 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     }
                     else if (composite && (child.Kind == ShimejiSourceKind.ActionReference || child.Kind == ShimejiSourceKind.Action))
                     {
-                        string target = Required(child, "Name");
-                        if (child.Kind == ShimejiSourceKind.Action) EmitAction(child, true);
+                        string target;
+                        if (child.Kind == ShimejiSourceKind.Action)
+                        {
+                            EmitAction(child, true, name + "/" + position.ToString(Invariant));
+                            target = ActionName(child);
+                        }
+                        else target = Required(child, "Name");
                         if (child.Kind == ShimejiSourceKind.ActionReference && !_globalActions.Contains(target))
                             Fail(child, "missing global action '" + target + "'");
                         var reference = E("child", new XAttribute("animation", target));
@@ -554,7 +579,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             private ActivationBounds InspectActivation(ShimejiSourceElement source,
                 Dictionary<string, ActivationBounds> known, HashSet<string> active, List<string> path)
             {
-                string name = Required(source, "Name");
+                string name = ActionName(source);
                 if (active.Contains(name))
                     Fail(source, "TICK_COMPOSITE_CYCLE: activation repeats '" + name + "' (" + string.Join(" -> ", path) + ").");
                 if (path.Count >= ActivationDepthLimit)
@@ -575,7 +600,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     foreach (ShimejiSourceElement child in source.Children)
                     {
                         if (child.Kind != ShimejiSourceKind.Action && child.Kind != ShimejiSourceKind.ActionReference) continue;
-                        ActivationBounds bounds = InspectActivation(_actions[Required(child, "Name")], known, active, path);
+                        ActivationBounds bounds = InspectActivation(
+                            _actions[child.Kind == ShimejiSourceKind.Action ? ActionName(child) : Required(child, "Name")], known, active, path);
                         count += bounds.Count;
                         if (count > ActivationSizeLimit)
                             Fail(source, "TICK_COMPOSITE_SIZE: activation builds more than " + ActivationSizeLimit + " actions.");

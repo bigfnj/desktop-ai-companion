@@ -19419,6 +19419,19 @@ CASES = (
      b"                else if (!variants.Elements().Any() && type == \"Embedded\")\n",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
      SHIMEJI, None, "conversion accepted an input requiring refusal: posed action has no Animation"),
+    # Anonymous nested actions: named after their place, and the name is the place, not a running count.
+    ("convert-corpus: an anonymous nested action is given no name",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
+     b"                    if (string.IsNullOrEmpty(name)) name = anonymousName;\n",
+     b"",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "missing Name"),
+    ("convert-corpus: an anonymous nested action is named by its reference count, not its place",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
+     b"                            EmitAction(child, true, name + \"/\" + position.ToString(Invariant));\n",
+     b"                            EmitAction(child, true, name + \"/\" + childIndex.ToString(Invariant));\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "anonymous nested actions are not named after their place"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
