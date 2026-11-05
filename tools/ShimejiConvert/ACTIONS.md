@@ -123,6 +123,12 @@ classes, sounds, constants and next references without a root definition. An inf
 accepted when it holds only <Information> (chooser and credits metadata, which no mascot reads); a Constant, an
 ActionList or a BehaviourList in it is refused.
 Bindings across differing document schemas are refused until target-schema resolution is implemented.
+
+Recorded divergences from the source (each a correction of a source defect, never a reproduction of it):
+
+| policy | source | lowering |
+|---|---|---|
+| `policy:next-missing-dropped` (decision 55) | A next-list entry naming no root behaviour can be selected; when its behaviour ends, Configuration.java:210-211 dereferences the missing root builder and the NullPointerException ends the tick thread (Mascot.java:545-554, Manager.java:88-108), stopping every companion. | The entry is dropped, with a warning naming it and its behaviour (PreparedMember.Warnings). A list left empty runs as the source runs an empty list (Configuration.java:208-245): with Add false the companion drops in and falls, with Add true the root list stays. An entry whose condition is a script stays refused. |
 Composite activation cycles, depth above 32 and expansion above 4096 actions are refused before output is written.
 
 Sheet cells use the maximum source image width and height, with each image copied at its cell's top-left.

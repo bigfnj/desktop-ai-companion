@@ -181,7 +181,14 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 || string.Equals(name, "unused", StringComparison.OrdinalIgnoreCase);
         }
 
-        internal sealed class PreparedMember { public string Name, Xml, Map, SourceIdentity, Error; public bool CrossMember; }
+        internal sealed class PreparedMember
+        {
+            public string Name, Xml, Map, SourceIdentity, Error;
+            public bool CrossMember;
+            /// <summary>What this lowering corrected on purpose and the caller should be told (a dropped next entry).
+            /// The pack API's warnings are PackConversion's to collect; this list is where they come from.</summary>
+            public List<string> Warnings = new List<string>();
+        }
         private sealed class RootBehaviour
         {
             public ShimejiSourceElement Source;
@@ -235,6 +242,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             private int _next = 2;
             // The feature tokens the validator demands for what this member USES (grimoire/06 sections 1 and 10).
             private bool _lifecycle, _social, _windows, _hotspots, _expressions, _variables;
+            // Corrections the caller is told about (PreparedMember.Warnings).
+            private readonly List<string> _warnings = new List<string>();
             // Header toggles, one per Toggleable behaviour name, in first-seen order.
             private readonly List<string> _toggles = new List<string>();
             // Source behaviour name -> the host's engine name, for a member whose RuntimeSchema is Japanese
@@ -390,7 +399,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 bool crossMember = _nodes.SelectMany(n => n.Descendants()).Any(n =>
                     (n.Name == Ns + "param" || n.Name == Ns + "bind") &&
                     IsMemberParameter((string)n.Attribute("name")));
-                return new PreparedMember { Name = _member, Xml = xml, Map = map + "\n", CrossMember = crossMember,
+                return new PreparedMember { Name = _member, Xml = xml, Map = map + "\n", CrossMember = crossMember, Warnings = _warnings,
                     SourceIdentity = SourceIdentity() };
             }
 
@@ -855,22 +864,46 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 // Continuations are subsequently looked up through the ROOT behaviour by name by the host.
                 if (rootDefinition)
                     foreach (ShimejiSourceElement list in source.Children)
-                        if (list.Kind == ShimejiSourceKind.NextBehaviorList) EmitNextEntries(list, null, node.Element(Ns + "sequence"));
+                        if (list.Kind == ShimejiSourceKind.NextBehaviorList) EmitNextEntries(list, null, node.Element(Ns + "sequence"), name, false);
             }
 
-            private void EmitNextEntries(ShimejiSourceElement parent, string condition, XElement sequence)
+            private void EmitNextEntries(ShimejiSourceElement parent, string condition, XElement sequence, string owner, bool scriptedCondition)
             {
                 foreach (ShimejiSourceElement entry in parent.Children)
                 {
                     if (entry.Kind == ShimejiSourceKind.Condition)
                     {
                         Check(entry, "Condition");
-                        EmitNextEntries(entry, CheckedCombine(condition, SelectionCondition(entry), entry), sequence);
+                        ShimejiSourceAttribute wrapper = entry.Attribute("Condition");
+                        EmitNextEntries(entry, CheckedCombine(condition, SelectionCondition(entry), entry), sequence, owner,
+                            scriptedCondition || (wrapper != null && wrapper.Cache != ShimejiSourceCache.Literal));
                     }
                     else if (entry.Kind == ShimejiSourceKind.BehaviorReference)
                     {
                         string name = Required(entry, "Name");
-                        if (!_roots.ContainsKey(name)) Fail(entry, "next reference needs a root behaviour named '" + name + "'");
+                        if (!_roots.ContainsKey(name))
+                        {
+                            // Decision 55, a recorded correction of a source defect. Such an entry is built from its own
+                            // element and can be selected and run; when its behaviour ends the source looks the ROOT
+                            // builder of that name up and dereferences it unchecked (Configuration.java:210-211), and the
+                            // NullPointerException ends the tick thread (Mascot.java:545-554 catches CantBeAliveException
+                            // only, Manager.java:88-108 InterruptedException only), stopping every companion. The entry
+                            // is dropped instead, and the caller is warned. A list left empty lowers as the source runs one:
+                            // with Add false the candidates are cleared and, weighing nothing, the companion drops in and
+                            // falls (Configuration.java:208-245); with Add true the root list stays. Its Frequency is still
+                            // read (the source parses it at load, BehaviorBuilder.java:53), and a literal Condition still
+                            // checked; a scripted condition, which the source evaluates at every selection and which may
+                            // draw, cannot be dropped without changing that, so it stays refused.
+                            ShimejiSourceAttribute own = entry.Attribute("Condition");
+                            if (scriptedCondition || (own != null && own.Cache != ShimejiSourceCache.Literal))
+                                Fail(entry, "next reference needs a root behaviour named '" + name
+                                    + "' (TICK_NEXT_MISSING_SCRIPTED: its condition is a script the source evaluates at every selection)");
+                            Int(entry, "Frequency", null);
+                            SelectionCondition(entry);
+                            _warnings.Add("Behaviour '" + owner + "': the next entry '" + name + "' names no root behaviour and was dropped;"
+                                + " the source stops its tick thread when that entry's behaviour ends.");
+                            continue;
+                        }
                         int id = _next++;
                         string when = CheckedCombine(condition, SelectionCondition(entry), entry);
                         EmitBehaviour(entry, when, id);

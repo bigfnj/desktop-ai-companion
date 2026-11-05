@@ -76,6 +76,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "bean-getter-scripts", Run = (Action)BeanGetterScripts },
                 new { Name = "nan-scripts", Run = (Action)NaNScripts },
                 new { Name = "nan-refusal", Run = (Action)NaNRefusal },
+                new { Name = "next-missing-dropped", Run = (Action)NextMissingDropped },
                 new { Name = "information-lowering", Run = (Action)InformationLowering },
                 new { Name = "own-set-binding-reset", Run = (Action)OwnSetBindingReset },
                 new { Name = "japanese-schema-values", Run = (Action)JapaneseSchemaValues },
@@ -1537,6 +1538,44 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     Refusal(fixture, c.Expected);
                     Require(!Directory.Exists(fixture.Output), "NaN refusal left output: " + c.Expected);
                 }
+        }
+
+        // Decision 55: a next entry naming no root behaviour is dropped with a warning (the source would stop its tick
+        // thread when its behaviour ends); a list it empties lowers as the source runs an empty list, its Add kept; one
+        // whose condition is a script, which the source evaluates at every selection, stays refused.
+        private static void NextMissingDropped()
+        {
+            using (var fixture = new Fixture())
+            {
+                XDocument behaviours = BuildBehaviors();
+                behaviours.Descendants("NextBehaviorList").First().Add(S("BehaviorReference", A("Name", "Ghost"), A("Action", "Stand"), A("Frequency", 4)));
+                behaviours.Root.Element("BehaviorList").Add(S("Behavior", A("Name", "Lone"), A("Action", "Stand"), A("Frequency", 0),
+                    S("NextBehaviorList", A("Add", "false"), S("BehaviorReference", A("Name", "Ghost"), A("Frequency", 1)))),
+                    S("Behavior", A("Name", "Keep"), A("Action", "Stand"), A("Frequency", 0),
+                        S("NextBehaviorList", A("Add", "true"), S("Condition", A("Condition", "true"), S("BehaviorReference", A("Name", "Ghost"), A("Frequency", 1))))));
+                fixture.Behaviors(behaviours);
+                XDocument document = fixture.Convert();
+                Validate(document, "dropped next entry member");
+                Require(RootBehavior(document, "Main").Element(Ns + "sequence").Elements(Ns + "next").Count() == 2,
+                    "the next entry naming no root behaviour was not dropped from Main's list");
+                XElement lone = RootBehavior(document, "Lone"), keep = RootBehavior(document, "Keep");
+                Require(!lone.Element(Ns + "sequence").Elements(Ns + "next").Any() && (string)lone.Element(Ns + "behaviour").Attribute("add") == "false"
+                    && !keep.Element(Ns + "sequence").Elements(Ns + "next").Any() && (string)keep.Element(Ns + "behaviour").Attribute("add") == "true",
+                    "an emptied next list lost its Add");
+                Require(!Nodes(document).Any(n => (string)n.Element(Ns + "behaviour")?.Attribute("name") == "Ghost"), "a dropped entry left a node");
+                string[] warnings = TickPackEmitter.PrepareMembers(fixture.Pack, true).Single().Warnings.ToArray();
+                Require(warnings.Length == 3 && warnings.All(w => w.IndexOf("the next entry 'Ghost' names no root behaviour and was dropped", StringComparison.Ordinal) >= 0)
+                    && warnings.Any(w => w.StartsWith("Behaviour 'Lone'", StringComparison.Ordinal)),
+                    "no warning names each dropped entry and its behaviour: " + string.Join(" | ", warnings));
+            }
+            using (var fixture = new Fixture())
+            {
+                XDocument behaviours = BuildBehaviors();
+                behaviours.Descendants("NextBehaviorList").First().Add(S("BehaviorReference", A("Name", "Ghost"), A("Action", "Stand"),
+                    A("Frequency", 4), A("Condition", "${Math.random() < 0.5}")));
+                fixture.Behaviors(behaviours);
+                Refusal(fixture, "TICK_NEXT_MISSING_SCRIPTED");
+            }
         }
 
         private static void InformationLowering()
