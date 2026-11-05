@@ -1507,10 +1507,19 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                         A("TargetX", "${mascot.lookRight ? mascot.environment.workArea.left+Math.random()*100 : mascot.environment.workArea.right-Math.random*100}"),
                         A("TargetY", "#{-(Math.random) * 3}"))),
                     S("Action", A("Name", "Leap"), A("Type", "Embedded"), A("Class", "com.group_finity.mascot.action.Jump"),
-                        A("TargetX", "${Math.max(Math.random * 2, 5)}"), S("Animation", Pose("/p.png", 1))));
+                        A("TargetX", "${Math.max(Math.random * 2, 5)}"), S("Animation", Pose("/p.png", 1))),
+                    // A getter call inside the NaN part reads as its property does (getters are rewritten first), and NaN
+                    // in max's later argument still reaches the result; the checked parts name only known members.
+                    S("Action", A("Name", "Hop"), A("Type", "Move"),
+                        A("TargetX", "${mascot.lookRight ? 5 : mascot.environment.getScreen().right - Math.random*10}"),
+                        A("TargetY", "${Math.max(5, Math.random)}"), S("Animation", Pose("/p.png", 1))));
                 fixture.Actions(actions);
                 XDocument document = fixture.Convert();
                 Validate(document, "NaN-lowered member");
+                XElement hop = NamedNode(document, "Hop").Element(Ns + "act");
+                Require(Scripted(hop, "param", "TargetX", "action") == "mascot.lookRight ? 5 : 0",
+                    "a getter call inside a NaN part did not lower as its property form does: " + Scripted(hop, "param", "TargetX", "action"));
+                Require(Scripted(hop, "param", "TargetY", "action") == "0", "NaN in Math.max's second argument did not reach the result");
                 XElement child = NamedNode(document, "Roam").Element(Ns + "act").Element(Ns + "children").Element(Ns + "child");
                 Require(Scripted(child, "bind", "TargetX", "action") == "mascot.lookRight ? mascot.environment.workArea.left+Math.random()*100 : 0",
                     "the stock ternary's NaN branch was not written as the int reader's 0: " + Scripted(child, "bind", "TargetX", "action"));
@@ -1531,6 +1540,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "TargetX", Value = "${1 + (mascot.lookRight ? 2 : Math.random)}", Expected = "TICK_NAN_PARTIAL TargetX" },
                 new { Name = "TargetX", Value = "${Math.pow(Math.random, 0)}", Expected = "TICK_NAN_FUNCTION TargetX" },
                 new { Name = "Duration", Value = "${Math.random*10}", Expected = "TICK_NAN_READER Duration" },
+                // Review D54-B: a name or member the source would fail on is not hidden inside the fixed value.
+                new { Name = "TargetX", Value = "${mascot.lookRight ? 10 : Bogus - Math.random*100}", Expected = "TICK_NAN_UNCHECKED TargetX" },
+                new { Name = "TargetX", Value = "${mascot.environment.bogus.x - Math.random}", Expected = "TICK_NAN_UNCHECKED TargetX" },
+                // Review D54-C: an argument past the function's arity is ignored by the source, so NaN there is not the result.
+                new { Name = "TargetX", Value = "${Math.abs(300, Math.random)}", Expected = "TICK_NAN_ARITY TargetX" },
+                new { Name = "TargetX", Value = "${Math.atan2(1, 2, Math.random)}", Expected = "TICK_NAN_ARITY TargetX" },
             };
             foreach (var c in cases)
                 using (var fixture = new Fixture())

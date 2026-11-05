@@ -1145,22 +1145,34 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             {
                 DesktopAICompanion.ScriptProgram program;
                 string error;
-                string text = attribute.Expression;
+                // Getter calls first, so a NaN part reads the same whether it calls getScreen() or names screen
+                // (review nit: the call form was refused as impure while the property form lowered).
+                string text = BeanProperties(attribute.Expression);
                 // Decision 54: Math.random named without a call is NaN in the source (NaNLowering); it lowers only
-                // where this attribute's reader makes NaN a fixed value, and refuses by name everywhere else.
+                // where this attribute's reader makes NaN a fixed value, and refuses by name everywhere else. Each part
+                // the pass replaces is first checked in this attribute's scope, with Math.random as a number (review
+                // D54-B): a name or member there that the source would fail on must not vanish into the fixed value.
                 if (NaNLowering.Mentions(text))
                 {
                     if (nanReading == null)
                         Fail(owner, "TICK_NAN_READER " + attribute.QualifiedName
                             + ": Math.random without a call is NaN, and no cited reader of this attribute makes NaN a fixed value");
-                    try { text = NaNLowering.Lower(text, nanReading); }
+                    try
+                    {
+                        text = NaNLowering.Lower(text, nanReading, part =>
+                        {
+                            DesktopAICompanion.ScriptProgram partProgram;
+                            string partError;
+                            return DesktopAICompanion.SafeScript.TryParse(part, scope, out partProgram, out partError) ? null : partError;
+                        });
+                    }
                     catch (NaNLowering.Refusal refusal)
                     {
                         int colon = refusal.Message.IndexOf(':');
                         Fail(owner, refusal.Message.Substring(0, colon) + " " + attribute.QualifiedName + refusal.Message.Substring(colon));
                     }
                 }
-                string body = BeanProperties(text);
+                string body = text;
                 bool parsed = DesktopAICompanion.SafeScript.TryParse(body, scope, out program, out error);
                 if (!parsed) Fail(owner, "TICK_EXPRESSION_UNSUPPORTED " + attribute.QualifiedName + ": " + error);
                 _expressions = true;
@@ -1623,7 +1635,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
     /// operator, a negation or a ternary's condition (their outcome is a control decision, not a value the reader fixes);
     /// a + whose other operand is not statically a number (it could concatenate a string); Math.pow (pow(NaN, 0) is 1); a
     /// NaN subtree holding a call that is not a pure Math function, or a Math.random() draw, which writing 0 would drop;
-    /// NaN anywhere but the result itself or a ternary branch that is the result; and a reader this pass cannot cite.
+    /// NaN anywhere but the result itself or a ternary branch that is the result; NaN passed only past the arguments a
+    /// Math function reads (TICK_NAN_ARITY); a replaced part whose other names and members do not check in the
+    /// attribute's scope (TICK_NAN_UNCHECKED); a reader this pass cannot cite, and a parameter some script of the member
+    /// reads by name (TICK_NAN_READER).
     /// </summary>
     internal static class NaNLowering
     {
@@ -1674,8 +1689,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             return false;
         }
 
-        /// <summary>The script with each NaN-valued result written as <paramref name="fixedValue"/>, or a Refusal.</summary>
-        internal static string Lower(string script, string fixedValue)
+        /// <summary>The script with each NaN-valued result written as <paramref name="fixedValue"/>, or a Refusal.
+        /// <paramref name="check"/>, when given, is asked about each part before it is replaced, with every uncalled
+        /// Math.random in it written as 0 (Probe), and returns null or the reason the part does not check.</summary>
+        internal static string Lower(string script, string fixedValue, Func<string, string> check = null)
         {
             List<Token> tokens = Tokenize(script);
             int position = 0;
@@ -1689,11 +1706,44 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             replacements.Sort((a, b) => a.Start.CompareTo(b.Start));
             foreach (Node node in replacements)
             {
+                // Review D54-B: the source still evaluates the replaced part's names and members, and an unknown one
+                // there is a ReferenceError or TypeError, not NaN; writing the fixed value would hide it.
+                string reason = check == null ? null : check(Probe(script.Substring(node.Start, node.End - node.Start)));
+                if (reason != null)
+                    throw new Refusal("TICK_NAN_UNCHECKED: the part written as " + fixedValue + " does not check in this attribute's scope ("
+                        + reason + "), so the source may fail there rather than read NaN");
                 result.Append(script, copied, node.Start - copied).Append(fixedValue);
                 copied = node.End;
             }
             result.Append(script, copied, script.Length - copied);
             return result.ToString();
+        }
+
+        /// <summary><paramref name="part"/> with each uncalled Math.random written as the number 0, so what else it
+        /// names can be checked by the tick grammar, which refuses Math.random as a value.</summary>
+        internal static string Probe(string part)
+        {
+            List<Token> t = Tokenize(part);
+            var result = new StringBuilder();
+            int copied = 0;
+            for (int i = 0; i + 2 < t.Count; i++)
+                if (t[i].Kind == Kind.Name && t[i].Text == "Math" && (i == 0 || !Is(t, i - 1, ".")) && Is(t, i + 1, ".")
+                    && t[i + 2].Kind == Kind.Name && t[i + 2].Text == "random" && !Is(t, i + 3, "("))
+                {
+                    result.Append(part, copied, t[i].Start - copied).Append('0');
+                    copied = t[i + 2].End;
+                }
+            result.Append(part, copied, part.Length - copied);
+            return result.ToString();
+        }
+
+        /// <summary>How many leading arguments a NaN-propagating Math function reads (ECMAScript 5.1 15.8.2): one,
+        /// two for atan2, and every one for max and min. An argument past those is evaluated and ignored.</summary>
+        private static int NaNArity(string function)
+        {
+            if (function == "atan2") return 2;
+            if (function == "max" || function == "min" || function == null || !NaNFunctions.Contains(function)) return int.MaxValue;
+            return 1;
         }
 
         /// <summary>The NaN results to replace: the root, or ternary branches that are themselves results. NaN found
@@ -1848,13 +1898,21 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     p++;
                     var call = new Node { Op = "call", Text = path, Start = node.Start };
                     call.Children.Add(node);
-                    bool anyNaN = false, allPure = node.Pure;
+                    string function = path != null && path.StartsWith("Math.", StringComparison.Ordinal) ? path.Substring(5) : null;
+                    // Review D54-C: NaN reaches the result only through an argument the function reads.
+                    bool anyNaN = false, ignoredNaN = false, allPure = node.Pure;
+                    int count = 0;
                     if (!Is(t, p, ")"))
                         while (true)
                         {
                             Node argument = Ternary(t, ref p);
                             call.Children.Add(argument);
-                            anyNaN |= argument.NaN;
+                            if (argument.NaN)
+                            {
+                                if (count < NaNArity(function)) anyNaN = true;
+                                else ignoredNaN = true;
+                            }
+                            count++;
                             allPure &= argument.Pure;
                             if (Is(t, p, ",")) { p++; continue; }
                             break;
@@ -1862,7 +1920,6 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     if (!Is(t, p, ")")) throw new Refusal("TICK_NAN_SHAPE: a call without its ')'");
                     call.End = t[p].End;
                     p++;
-                    string function = path != null && path.StartsWith("Math.", StringComparison.Ordinal) ? path.Substring(5) : null;
                     bool pureMath = function != null && (NaNFunctions.Contains(function) || function == "pow");
                     call.Pure = allPure && pureMath;
                     call.Numeric = function != null;
@@ -1872,6 +1929,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                             throw new Refusal("TICK_NAN_FUNCTION: NaN reaches '" + (path ?? "a call") + "', whose result for NaN this pass does not fix");
                         call.NaN = true;
                     }
+                    else if (ignoredNaN)
+                        throw new Refusal("TICK_NAN_ARITY: NaN is passed to '" + path + "' past the arguments it reads; the source ignores it, and this pass does not drop it");
                     path = null;
                     node = call;
                     continue;
