@@ -406,7 +406,11 @@ may call it supported.
 
 Stay loops its variant under its guard, and pose velocity still applies. Move faces TargetX, moves by pose velocities
 with a per-axis overshoot clamp, and ends when EITHER axis reaches its target (`Move.java:44-47`). Animate plays one
-pass.
+pass. An Animate-based action (Animate, SelfDestruct, Breed, Transform, ThrowIE, MinimizeIE and the rest) whose
+variants all have false conditions ends at once, as if out of time, and its end-of-animation effect does not fire
+(`policy:animate-no-variant`). The source dereferences the missing animation in `Animate.hasNext` and throws there, a
+defect; ending quietly keeps one bad condition from becoming a fault in the middle of a step, and an action with no
+playable variant has no duration whose last tick could fire anything.
 
 ---
 
