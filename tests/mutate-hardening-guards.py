@@ -1414,15 +1414,19 @@ CASES = (
         b"            return _timeline != null ? _timeline.Resync(true) : 0;",
         "a rejected re-parse does not resync the timeline",
     ),
+    # Re-pointed 2026-11-05 by lane feature/studio-packs: Studio 1.2.0 put `_tickClock = report.IsTickClock;` first in
+    # the valid branch, so the old bytes matched nothing and the case was a NO-OP. Same intent, current bytes.
     (
         "RenderMap clears the last accepted graph for a rejected report again",
         PETSTUDIO_WINDOW,
         b"            if (report.IsValid)\n"
         b"            {\n"
+        b"                _tickClock = report.IsTickClock;\n"
         b"                _nodesById.Clear();\n",
         b"            _nodesById.Clear();\n"
         b"            if (report.IsValid)\n"
-        b"            {\n",
+        b"            {\n"
+        b"                _tickClock = report.IsTickClock;\n",
         "a rejected re-parse does not resync the timeline",
     ),
     # RA-140: a close overtakes the analysis in flight and refuses what lands afterwards. One mutant drops the
