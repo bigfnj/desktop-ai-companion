@@ -617,6 +617,24 @@ def v1_self_test(args, labels):
         validate_v1_build(state, spec, helpers)
         labels.append("v1-build-witness-patch-artifact-spec-helper-refused")
 
+        # F2: an empty or partial helper inventory, a repeated row or a helper at another path is refused.
+        def with_inventory(rows):
+            write_json(root / "file-witnesses.json", rows)
+            return lambda: validate_v1_build(state, spec, helpers)
+        expect_refusal(with_inventory([]), "V1_HELPER_INVENTORY_REFUSAL missing", "V1_HELPER_MISSING_WITNESS")
+        for index in range(1, len(inventory)):
+            expect_refusal(with_inventory(inventory[:index] + inventory[index + 1:]), "V1_HELPER_INVENTORY_REFUSAL missing",
+                           "V1_HELPER_MISSING_WITNESS")
+        expect_refusal(with_inventory(inventory + [inventory[1]]), "V1_HELPER_INVENTORY_REFUSAL unexpected or repeated",
+                       "V1_HELPER_SHAPE_WITNESS")
+        moved = [dict(row, file=row["file"].replace("/parity/", "/elsewhere/")) if row is inventory[2] else row for row in inventory]
+        expect_refusal(with_inventory(moved), "V1_HELPER_INVENTORY_REFUSAL unexpected or repeated", "V1_HELPER_SHAPE_WITNESS")
+        extra = inventory + [{"file": V1_HELPER_PATH + "Unexpected.java", "beforeSha256": None, "expectedAfterSha256": "2" * 64}]
+        expect_refusal(with_inventory(extra), "V1_HELPER_INVENTORY_REFUSAL unexpected or repeated", "V1_HELPER_SHAPE_WITNESS")
+        write_json(root / "file-witnesses.json", inventory)
+        validate_v1_build(state, spec, helpers)
+        labels.append("v1-helper-inventory-empty-partial-repeated-moved-extra-refused")
+
         # Distinct statuses. The stub stands in for compare.load_trace, whose own classes compare.py --self-test proves.
         class Unjudgeable(Exception):
             pass
@@ -851,10 +869,12 @@ def mutate(args):
         ("v1-footer-status", [('footer.get("status") in ' + '("timeout", "aborted", "error"):', 'False:')], "V1_TIMEOUT_WITNESS"),
         ("v1-skipped", [('if missing:\n        raise Refusal("V1_SCENARIO_' + 'SKIPPED "', 'if False:\n        raise Refusal("V1_SCENARIO_SKIPPED "')], "V1_SKIPPED_WITNESS"),
         ("v1-observation", [('if not final_on or final_on ' + '!= final_off:', 'if False:')], "V1_OBSERVATION_WITNESS")])
-    # Review fix F1 (scenario id paths).
+    # Review fixes F1 (scenario id paths) and F2 (helper inventory).
     legs.extend([
         ("v1-scenario-id", [('if not isinstance(scenario_id, str) or not V1_SCENARIO_ID.fullmatch(scenario_id) ' + 'or scenario_id.endswith("."):', 'if False:')], "V1_SCENARIO_ID_WITNESS"),
-        ("v1-run-containment", [('if base != resolved and base ' + 'not in resolved.parents:', 'if False:')], "V1_CONTAINMENT_WITNESS")])
+        ("v1-run-containment", [('if base != resolved and base ' + 'not in resolved.parents:', 'if False:')], "V1_CONTAINMENT_WITNESS"),
+        ("v1-helper-missing", [('if missing:\n        raise Refusal("V1_HELPER_INVENTORY_' + 'REFUSAL missing "', 'if False:\n        raise Refusal("V1_HELPER_INVENTORY_REFUSAL missing "')], "V1_HELPER_MISSING_WITNESS"),
+        ("v1-helper-shape", [('if name not in V1_HELPERS or row["file"] != V1_HELPER_PATH + name ' + 'or name in helpers:', 'if False:')], "V1_HELPER_SHAPE_WITNESS")])
     results = []
     with tempfile.TemporaryDirectory(prefix="oracle-mutations-", dir=os.environ["TEMP"]) as folder:
         root = Path(folder)
@@ -1075,12 +1095,22 @@ def validate_v1_build(state, edit_spec_bytes, helper_root):
     if sha(edit_spec_bytes) != state["edit_spec_sha256"]:
         raise Refusal("V1_DRAFT_STALE edit-spec.json changed since the draft build")
     witnesses = json.loads(Path(state["file_witnesses"]).read_text(encoding="utf-8"))
+    # Every new file of the private patch is one of the helpers, at its own path, exactly once; an empty or partial
+    # inventory would otherwise exempt the helpers it leaves out (review F2).
+    helpers = {}
     for row in witnesses:
         name = PurePosixPath(row["file"]).name
-        if row["beforeSha256"] is None and name in V1_HELPERS:
-            current = (helper_root / name).read_bytes().decode("utf-8-sig").replace("\r\n", "\n").replace("\r", "\n")
-            if sha(current.encode("utf-8")) != row["expectedAfterSha256"]:
-                raise Refusal("V1_DRAFT_STALE helper " + name)
+        if row["beforeSha256"] is None:
+            if name not in V1_HELPERS or row["file"] != V1_HELPER_PATH + name or name in helpers:
+                raise Refusal("V1_HELPER_INVENTORY_REFUSAL unexpected or repeated " + row["file"])
+            helpers[name] = row
+    missing = [name for name in V1_HELPERS if name not in helpers]
+    if missing:
+        raise Refusal("V1_HELPER_INVENTORY_REFUSAL missing " + ",".join(missing))
+    for name, row in helpers.items():
+        current = (helper_root / name).read_bytes().decode("utf-8-sig").replace("\r\n", "\n").replace("\r", "\n")
+        if sha(current.encode("utf-8")) != row["expectedAfterSha256"]:
+            raise Refusal("V1_DRAFT_STALE helper " + name)
     return state
 
 
