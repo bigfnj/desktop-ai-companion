@@ -38,6 +38,15 @@
     },
     "src/com/group_finity/mascot/action/Regist.java": {
       "sha256": "e962e0be6fb8cbc62e77c5e2aad116eeb3212623310bcce46c21a3829c674424"
+    },
+    "src/com/group_finity/mascot/config/BehaviorBuilder.java": {
+      "sha256": "433821ab313872db702ee1a9757750240e1cda6d446a1020903754a52fb66452"
+    },
+    "src/com/group_finity/mascot/config/ActionBuilder.java": {
+      "sha256": "3ff74024415f213281424f2d00d85eccd195cd7a110b60846887d10cf2eb35ac"
+    },
+    "src/com/group_finity/mascot/config/ActionRef.java": {
+      "sha256": "e74e56d802321663232c26ab049128dc6485cff67ec065edaae3a398bacacfc6"
     }
   },
   "javaRandomCounts": {
@@ -122,7 +131,83 @@
       "lineSha256": "5f3e7f22711c126e093eaca391470f6154e636d32fa7f29397b2ce58d22dce40",
       "op": "insert-before",
       "code": [
-        "if (com.group_finity.mascot.parity.DraftParityHooks.enabled()) com.group_finity.mascot.parity.DraftParityHooks.fail(message);"
+        "if (com.group_finity.mascot.parity.DraftParityHooks.enabled()) { com.group_finity.mascot.parity.DraftParityHooks.fail(message); return; }"
+      ]
+    },
+    {
+      "file": "src/com/group_finity/mascot/config/BehaviorBuilder.java",
+      "line": 50,
+      "lineSha256": "444c19aca5d8843e134a437c5d7f8292fe11ded0ece090ced18937371dba13c7",
+      "op": "insert-after",
+      "code": [
+        "com.group_finity.mascot.parity.DraftParityHooks.observe(\"behavior-builder\", this, behaviorNode);"
+      ]
+    },
+    {
+      "file": "src/com/group_finity/mascot/config/BehaviorBuilder.java",
+      "line": 134,
+      "lineSha256": "203995ddcf2a7acf4fba3952364644dab8b8977f37dca4000fd67a00d4783004",
+      "op": "insert-before",
+      "code": [
+        "com.group_finity.mascot.parity.DraftParityHooks.observe(\"behavior-build\", this, null);"
+      ]
+    },
+    {
+      "file": "src/com/group_finity/mascot/config/ActionBuilder.java",
+      "line": 47,
+      "lineSha256": "1505312c04913427f2ee498ff0745c23a21d27fe4671b66cacd4b0928c3259d1",
+      "op": "insert-after",
+      "code": [
+        "com.group_finity.mascot.parity.DraftParityHooks.observe(\"action-builder\", this, actionNode);"
+      ]
+    },
+    {
+      "file": "src/com/group_finity/mascot/config/ActionBuilder.java",
+      "line": 93,
+      "lineSha256": "691699ad340d305c729e90ebdd7e7474b1e749072f935560d98e01d51f24a958",
+      "op": "insert-after",
+      "code": [
+        "com.group_finity.mascot.parity.DraftParityHooks.observe(\"action-variables\", this, variables);"
+      ]
+    },
+    {
+      "file": "src/com/group_finity/mascot/config/ActionRef.java",
+      "line": 29,
+      "lineSha256": "444c19aca5d8843e134a437c5d7f8292fe11ded0ece090ced18937371dba13c7",
+      "op": "insert-after",
+      "code": [
+        "com.group_finity.mascot.parity.DraftParityHooks.observe(\"action-ref\", this, refNode);"
+      ]
+    },
+    {
+      "file": "src/com/group_finity/mascot/config/ActionRef.java",
+      "line": 65,
+      "lineSha256": "43c43036e1fd747a2e8f6b20619c605433846d5006af7e844101810ffdb52b65",
+      "op": "wrap-line",
+      "before": [
+        "com.group_finity.mascot.parity.DraftParityHooks.observe(\"ref-enter\", this, null);",
+        "try {"
+      ],
+      "after": [
+        "} finally { com.group_finity.mascot.parity.DraftParityHooks.observe(\"ref-exit\", this, null); }"
+      ]
+    },
+    {
+      "file": "src/com/group_finity/mascot/behavior/UserBehavior.java",
+      "line": 55,
+      "lineSha256": "b7cf6d71d43b4a0f3798b93765563b7b2014783945ed527854f7e90fd9de912c",
+      "op": "insert-after",
+      "code": [
+        "com.group_finity.mascot.parity.DraftParityHooks.observe(\"user-behavior\", this, null);"
+      ]
+    },
+    {
+      "file": "src/com/group_finity/mascot/config/Configuration.java",
+      "line": 264,
+      "lineSha256": "bbb22bd48a4da4b98f7af074e4cde46d4039df74687b84cbd09dec5b03ff4229",
+      "op": "insert-before",
+      "code": [
+        "com.group_finity.mascot.parity.DraftParityHooks.observe(\"build-by-name\", name, mascot);"
       ]
     },
     {

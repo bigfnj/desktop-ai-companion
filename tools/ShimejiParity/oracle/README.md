@@ -105,6 +105,33 @@ The restore-then-move case also retains the source's cached area size, which is 
 The virtual model then treats the zero-sized result as absent. Native Win32 minimum tracking-size clamping for a
 captioned top-level window is not modelled or probed, so this case is a declared modelling assumption.
 
+## CONTRACT v1 producer
+
+```powershell
+.\Invoke-Oracle.ps1 @oracle -Action Draft
+.\Invoke-Oracle.ps1 @oracle -Action V1 -SharedRoot '<generated-scenarios-folder>' [-Only 'S-slice-,S-breed-']
+```
+
+`V1` runs every `S-*.json` under `SharedRoot` (or the ids matching `-Only`) on the private draft runtime and writes
+`shimeji-parity-trace/1` traces for `tools/ShimejiParity/comparer/compare.py`. It first re-hashes the draft build it
+binds: the record, the JAR, the private patch, `edit-spec.json` and the helpers in `draft/`; a missing record or field,
+a changed JAR, a tampered patch or a stale specification or helper is refused by name. The header's `build` carries
+the source archive hash, the patch hash, the JDK version, every library and the runner (`deps`) and the JAR hash.
+
+`V1ScenarioRunner.java` is original driver code compiled beside the draft JAR. It installs its controller before any
+environment class initialises, replaces the native factory before any companion exists (scenario-fed desktop,
+never-displayed panels for windows), creates the start companions as CONTRACT section 4 describes and steps the
+source's own `Manager.tick` once per tick through the `parityStep` seam; the real timer never starts. Every run ends by
+checking that no window became displayable. Names, refKeys and ages come from stored fields and from the seam
+callbacks the source makes while building and stepping; observation evaluates nothing. Input entries reach the
+source's own mouse listeners as synthetic events at the step's environment refresh.
+
+Each scenario gets one status: `complete`, or a distinct failure (`truncated`, `timeout`, `error`, or the comparer's
+trace-check class). A requested scenario without a result fails the action (`V1_SCENARIO_SKIPPED`). The first
+complete scenario is run again with observation off, and its final tick, draw and event totals must equal the traced
+run's (CONTRACT section 5). Draws from a script `Math.random` are refused (`V1_RNG_SCRIPT_SITE_UNATTRIBUTED`) until
+the contract's script site names are attributed. Traces and launch records stay in the private evidence folder.
+
 ## Failure witnesses
 
 ```powershell

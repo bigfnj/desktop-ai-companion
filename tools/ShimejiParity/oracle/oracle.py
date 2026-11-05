@@ -428,6 +428,9 @@ def expect_refusal(call, expected, witness):
     except Refusal as error:
         if not str(error).startswith(expected):
             raise AssertionError(witness + " wrong refusal: " + str(error))
+    except Exception as error:
+        # A disabled guard can let the input crash further on; the witness still names what failed.
+        raise AssertionError(witness + " crashed instead of refusing: " + type(error).__name__)
     else:
         raise AssertionError(witness + " missing refusal")
 
@@ -574,7 +577,71 @@ def self_test(args):
     labels.extend(["link-mode-refused", "expanded-size-refused", "distribution-pins-refused",
                    "class-comparison-refuses-difference-count-inventory", "inventory-only-refused", "extra-extracted-file-refused",
                    "isolation-values-and-paths-refused", "uncontrolled-shared-tape-refused"])
+    v1_self_test(args, labels)
     return {"status": "pass", "witnesses": labels, "network_requests": 0}
+
+
+def v1_self_test(args, labels):
+    """The v1 producer's own controls, on synthetic inputs: each refusal and each distinct run status fires."""
+    with tempfile.TemporaryDirectory(prefix="oracle-v1-witness-", dir=args.temp_root) as folder:
+        root = Path(folder)
+        (root / "draft.jar").write_bytes(b"synthetic draft runtime")
+        (root / "seams.patch").write_bytes(b"synthetic patch")
+        helpers = root / "helpers"
+        helpers.mkdir()
+        (helpers / "DraftParityHooks.java").write_bytes(b"synthetic helper\n")
+        write_json(root / "file-witnesses.json", [{"file": "src/com/group_finity/mascot/parity/DraftParityHooks.java",
+                                                    "beforeSha256": None, "expectedAfterSha256": sha(b"synthetic helper\n")}])
+        spec = b"synthetic edit specification"
+        state = {"artifact": str(root / "draft.jar"), "artifact_sha256": sha(b"synthetic draft runtime"),
+                 "patch": str(root / "seams.patch"), "patch_sha256": sha(b"synthetic patch"), "source": str(root),
+                 "edit_spec_sha256": sha(spec), "file_witnesses": str(root / "file-witnesses.json")}
+        validate_v1_build(state, spec, helpers)
+        incomplete = dict(state)
+        incomplete.pop("artifact_sha256")
+        expect_refusal(lambda: validate_v1_build(incomplete, spec, helpers), "V1_BUILD_WITNESS_MISSING", "V1_BUILD_WITNESS_WITNESS")
+        (root / "seams.patch").write_bytes(b"synthetic patch, tampered")
+        expect_refusal(lambda: validate_v1_build(state, spec, helpers), "V1_PATCH_TAMPERED", "V1_PATCH_WITNESS")
+        (root / "seams.patch").write_bytes(b"synthetic patch")
+        (root / "draft.jar").write_bytes(b"synthetic draft runtime, rebuilt")
+        expect_refusal(lambda: validate_v1_build(state, spec, helpers), "V1_ARTIFACT_CHANGED", "V1_ARTIFACT_WITNESS")
+        (root / "draft.jar").write_bytes(b"synthetic draft runtime")
+        expect_refusal(lambda: validate_v1_build(state, spec + b" edited", helpers), "V1_DRAFT_STALE edit-spec", "V1_SPEC_STALE_WITNESS")
+        (helpers / "DraftParityHooks.java").write_bytes(b"synthetic helper, edited\n")
+        expect_refusal(lambda: validate_v1_build(state, spec, helpers), "V1_DRAFT_STALE helper", "V1_HELPER_STALE_WITNESS")
+        labels.append("v1-build-witness-patch-artifact-spec-helper-refused")
+
+        # Distinct statuses. The stub stands in for compare.load_trace, whose own classes compare.py --self-test proves.
+        class Unjudgeable(Exception):
+            pass
+        stub = SimpleNamespace(Unjudgeable=Unjudgeable, load_trace=lambda path, runtime: None)
+        trace = root / "trace.jsonl"
+        header = json.dumps({"type": "header"})
+        footer = lambda status: json.dumps({"type": "footer", "status": status})
+        for lines, expected, witness in (
+                ([header, footer("complete")], "complete", "V1_COMPLETE_WITNESS"),
+                ([header, json.dumps({"type": "state"})], "truncated", "V1_TRUNCATED_WITNESS"),
+                ([header, footer("timeout")], "timeout", "V1_TIMEOUT_WITNESS"),
+                ([header, footer("error")], "error", "V1_ERROR_WITNESS")):
+            trace.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            status = v1_trace_status(stub, trace)[0]
+            if status != expected:
+                raise AssertionError(witness + " status " + status)
+        labels.append("v1-run-status-complete-truncated-timeout-error")
+        require_v1_results(["S-a", "S-b"], [{"scenario": "S-a"}, {"scenario": "S-b"}])
+        expect_refusal(lambda: require_v1_results(["S-a", "S-b"], [{"scenario": "S-a"}]), "V1_SCENARIO_SKIPPED S-b", "V1_SKIPPED_WITNESS")
+        labels.append("v1-skipped-scenario-refused")
+        state_line = {"type": "state", "tick": 2, "sid": "m1", "anchor": [1, 2], "velocity": [0, 0]}
+        on = [{"type": "header", "scenario": {"id": "S-a"}}, state_line, {"type": "footer", "ticks": 2, "draws": 1, "events": 3}]
+        off = [on[0], dict(state_line, velocity=[5, 5]), {"type": "footer", "ticks": 2, "unobservedDraws": 1, "unobservedEvents": 3}]
+        for name, rows in (("on.jsonl", on), ("off.jsonl", off)):
+            (root / name).write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+        v1_observation_proof(root / "on.jsonl", root / "off.jsonl")
+        off[1] = dict(state_line, anchor=[1, 3])
+        (root / "off.jsonl").write_text("\n".join(json.dumps(row) for row in off) + "\n", encoding="utf-8")
+        expect_refusal(lambda: v1_observation_proof(root / "on.jsonl", root / "off.jsonl"),
+                       "V1_OBSERVATION_CHANGED_BEHAVIOUR", "V1_OBSERVATION_WITNESS")
+        labels.append("v1-observation-proof-refuses-a-changed-final-tick")
 
 
 def png(red, green, blue):
@@ -751,6 +818,17 @@ def mutate(args):
         ("isolation-value", [('if ' + 'any(environment.get(key) != value for key, value in flags.items()):', 'if False:')], "ISOLATION_VALUE_WITNESS"),
         ("isolation-path", [('if ' + 'any(not environment.get(key) or Path(environment[key]).resolve() != Path(value).resolve() for key, value in paths.items()):', 'if False:')], "ISOLATION_PATH_WITNESS"),
         ("shared-rng", [('if ' + 'scenario.get("rng", {}).get("kind") != "none":', 'if False:')], "SHARED_RNG_WITNESS")])
+    # The v1 producer's controls (lane feature/shimeji-oracle-v1).
+    legs.extend([
+        ("v1-build-witness", [('if not ' + 'state.get(key):', 'if False:')], "V1_BUILD_WITNESS_WITNESS"),
+        ("v1-patch-tamper", [('if not patch.is_file() or sha(patch.read_bytes()) ' + '!= state["patch_sha256"]:', 'if False:')], "V1_PATCH_WITNESS"),
+        ("v1-artifact", [('if sha(artifact.read_bytes()) ' + '!= state["artifact_sha256"]:', 'if False:')], "V1_ARTIFACT_WITNESS"),
+        ("v1-spec-stale", [('if sha(edit_spec_bytes) ' + '!= state["edit_spec_sha256"]:', 'if False:')], "V1_SPEC_STALE_WITNESS"),
+        ("v1-helper-stale", [('if sha(current.encode("utf-8")) ' + '!= row["expectedAfterSha256"]:', 'if False:')], "V1_HELPER_STALE_WITNESS"),
+        ("v1-truncated", [('if footer.get("type") ' + '!= "footer":', 'if False:')], "V1_TRUNCATED_WITNESS"),
+        ("v1-footer-status", [('footer.get("status") in ' + '("timeout", "aborted", "error"):', 'False:')], "V1_TIMEOUT_WITNESS"),
+        ("v1-skipped", [('if missing:\n        raise Refusal("V1_SCENARIO_' + 'SKIPPED "', 'if False:\n        raise Refusal("V1_SCENARIO_SKIPPED "')], "V1_SKIPPED_WITNESS"),
+        ("v1-observation", [('if not final_on or final_on ' + '!= final_off:', 'if False:')], "V1_OBSERVATION_WITNESS")])
     results = []
     with tempfile.TemporaryDirectory(prefix="oracle-mutations-", dir=os.environ["TEMP"]) as folder:
         root = Path(folder)
@@ -938,9 +1016,200 @@ def shared(args):
     return result
 
 
+# ------------------------------------------------------------------ CONTRACT v1 producer
+
+V1_RUNNER = "V1ScenarioRunner.java"
+V1_TIMEOUT = 120
+V1_MAIN_CLASS = "com.group_finity.mascot.parity.V1ScenarioRunner"
+V1_HELPERS = ("DraftParityHooks.java", "DraftTraceWriter.java", "NativeFactoryImpl.java", "ScenarioEnvironment.java")
+
+
+def comparer():
+    """The repository's comparer: its trace checks classify an oracle trace, its pack manifest binds the header."""
+    spec = importlib.util.spec_from_file_location("parity_comparer", HERE.parent / "comparer" / "compare.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def validate_v1_build(state, edit_spec_bytes, helper_root):
+    """The draft build a v1 trace binds, re-hashed now: its record, JAR, private patch and the helpers it compiled."""
+    for key in ("artifact", "artifact_sha256", "patch", "patch_sha256", "source", "edit_spec_sha256", "file_witnesses"):
+        if not state.get(key):
+            raise Refusal("V1_BUILD_WITNESS_MISSING " + key)
+    artifact = Path(state["artifact"])
+    if not artifact.is_file():
+        raise Refusal("V1_BUILD_WITNESS_MISSING artifact file")
+    if sha(artifact.read_bytes()) != state["artifact_sha256"]:
+        raise Refusal("V1_ARTIFACT_CHANGED " + str(artifact))
+    patch = Path(state["patch"])
+    if not patch.is_file() or sha(patch.read_bytes()) != state["patch_sha256"]:
+        raise Refusal("V1_PATCH_TAMPERED " + str(patch))
+    if sha(edit_spec_bytes) != state["edit_spec_sha256"]:
+        raise Refusal("V1_DRAFT_STALE edit-spec.json changed since the draft build")
+    witnesses = json.loads(Path(state["file_witnesses"]).read_text(encoding="utf-8"))
+    for row in witnesses:
+        name = PurePosixPath(row["file"]).name
+        if row["beforeSha256"] is None and name in V1_HELPERS:
+            current = (helper_root / name).read_bytes().decode("utf-8-sig").replace("\r\n", "\n").replace("\r", "\n")
+            if sha(current.encode("utf-8")) != row["expectedAfterSha256"]:
+                raise Refusal("V1_DRAFT_STALE helper " + name)
+    return state
+
+
+def v1_trace_status(compare, trace):
+    """One distinct status per way a run can fail: the footer's own status, else the comparer's trace check."""
+    lines = [line for line in trace.read_text(encoding="utf-8").splitlines() if line.strip()] if trace.is_file() else []
+    if not lines:
+        return "truncated", "no trace lines"
+    try:
+        footer = json.loads(lines[-1])
+    except json.JSONDecodeError:
+        footer = {}
+    if footer.get("type") != "footer":
+        return "truncated", "the last line is not a footer"
+    if footer.get("type") == "footer" and footer.get("status") in ("timeout", "aborted", "error"):
+        return footer["status"], "footer status " + footer["status"]
+    try:
+        compare.load_trace(str(trace), "oracle")
+    except compare.Unjudgeable as failure:
+        return failure.cls, str(failure)
+    return "complete", ""
+
+
+def require_v1_results(requested, rows):
+    produced = {row["scenario"] for row in rows}
+    missing = [name for name in requested if name not in produced]
+    if missing:
+        raise Refusal("V1_SCENARIO_SKIPPED " + ",".join(missing))
+
+
+def v1_scenarios(args):
+    paths = sorted(args.shared_root.glob("S-*.json"))
+    if args.only:
+        paths = [path for path in paths if any(item in path.stem for item in args.only.split(","))]
+    if not paths:
+        raise Refusal("V1_NO_SCENARIOS " + str(args.shared_root))
+    return paths
+
+
+def v1_prepare(args, root):
+    state = validate_v1_build(json.loads((args.cache_root / "latest-draft.json").read_text(encoding="utf-8"))
+                              if (args.cache_root / "latest-draft.json").is_file() else {},
+                              (HERE / "edit-spec.json").read_bytes(), HERE / "draft")
+    source = Path(state["source"])
+    libraries = sorted((source / "lib").glob("*.jar"))
+    classpath = os.pathsep.join([state["artifact"]] + [str(path) for path in libraries] + [str(source / "conf")])
+    classes = root / "runner-classes"
+    classes.mkdir(parents=True)
+    compiler = command([args.jdk_root / "bin" / "javac.exe", "-encoding", "UTF-8", "-source", "1.8", "-target", "1.8",
+                        "-Xlint:-options", "-classpath", classpath, "-d", classes, HERE / V1_RUNNER], root)
+    write_json(root / "runner-compile.json", compiler)
+    require_command(compiler, "V1_RUNNER_COMPILE_FAILED " + str(root / "runner-compile.json"))
+    runner = root / "v1-runner.jar"
+    packed = command([args.jdk_root / "bin" / "jar.exe", "cf", runner, "-C", classes, "."], root)
+    require_command(packed, "V1_RUNNER_JAR_FAILED")
+    version = jdk(args)
+    found = re.search(r'version "([^"]+)"', version["stderr"])
+    deps = {path.name: sha(path.read_bytes()) for path in libraries}
+    deps["v1-runner.jar"] = sha(runner.read_bytes())
+    deps[V1_RUNNER] = sha((HERE / V1_RUNNER).read_bytes())
+    build = {"sourceZipSha256": SOURCE_SHA256, "patchSha256": state["patch_sha256"], "jdk": found.group(1),
+             "deps": deps, "artifactSha256": state["artifact_sha256"], "editSpecSha256": state["edit_spec_sha256"]}
+    return state, classpath, runner, build
+
+
+def v1_run(args, compare, scenario_path, root, classpath, runner, build, observe=True):
+    raw = scenario_path.read_bytes()
+    doc = json.loads(raw.decode("utf-8"))
+    compare.validate_scenario(doc)
+    pack = scenario_path.parent / doc["pack"]
+    files = compare.pack_preflight(str(pack))
+    run = root / (doc["id"] + ("" if observe else "-off"))
+    workdir = run / "pack"
+    for relative, full in files:
+        payload = Path(full).read_bytes()
+        target = workdir.joinpath(*PurePosixPath(relative).parts)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(payload)
+        verify(target.read_bytes(), sha(payload), "v1-pack-copy " + relative)
+    header = {"type": "header", "schema": "shimeji-parity-trace/1", "runtime": "oracle",
+              "scenario": {"id": doc["id"], "sha256": sha(raw), "packSha256": compare.pack_sha256(str(pack))},
+              "build": build, "rng": doc["rng"], "tickMs": 40, "dpiScale": doc["dpiScale"],
+              "runId": str(uuid.uuid4()), "startedUtc": datetime.datetime.now(datetime.timezone.utc).isoformat()}
+    (run / "header.json").write_text(json.dumps(header, separators=(",", ":")) + "\n", encoding="utf-8")
+    trace = run / "trace.jsonl"
+    argv = [args.jdk_root / "bin" / "java.exe", "-Dfile.encoding=UTF-8", "-Djava.io.tmpdir=" + os.environ["TEMP"],
+            "-Duser.home=" + str(run), "-Dshimeji.parity.enabled=true", "-Dshimeji.parity.continueAfterError=true",
+            "-cp", str(runner) + os.pathsep + classpath, V1_MAIN_CLASS, run / "header.json", scenario_path, trace]
+    if not observe:
+        argv.append("off")
+    record = command(argv, workdir, timeout=V1_TIMEOUT)
+    write_json(run / "launch.json", record)
+    if record["timed_out"]:
+        # The killed JVM wrote no footer. This one names the timeout, so it is not mistaken for a truncated run.
+        with trace.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps({"type": "footer", "ticks": doc["ticks"], "status": "timeout",
+                                     "draws": 0, "states": 0, "events": 0}) + "\n")
+    status, detail = v1_trace_status(compare, trace)
+    return {"scenario": doc["id"], "status": status, "detail": detail[:400], "trace": str(trace),
+            "trace_sha256": sha(trace.read_bytes()) if trace.is_file() else None, "exit_code": record["exit_code"],
+            "timed_out": record["timed_out"], "observe": observe}
+
+
+def v1_observation_proof(on_trace, off_trace):
+    """CONTRACT section 5: the trace-off run's final tick equals the trace-on run's, as do its draw and event totals."""
+    def load(path):
+        return [json.loads(line) for line in Path(path).read_text(encoding="utf-8").splitlines() if line.strip()]
+    on, off = load(on_trace), load(off_trace)
+    ticks = on[-1]["ticks"]
+    strip = lambda row: {k: v for k, v in row.items() if k != "velocity"}
+    final_on = [strip(row) for row in on if row.get("type") == "state" and row["tick"] == ticks]
+    final_off = [strip(row) for row in off if row.get("type") == "state" and row["tick"] == ticks]
+    if not final_on or final_on != final_off:
+        raise Refusal("V1_OBSERVATION_CHANGED_BEHAVIOUR final tick differs")
+    if (on[-1]["draws"], on[-1]["events"]) != (off[-1].get("unobservedDraws"), off[-1].get("unobservedEvents")):
+        raise Refusal("V1_OBSERVATION_CHANGED_BEHAVIOUR draw or event totals differ")
+    return {"scenario": on[0]["scenario"]["id"], "final_states": len(final_on), "draws": on[-1]["draws"]}
+
+
+def v1(args):
+    if args.shared_root is None:
+        raise Refusal("V1_NO_SCENARIOS pass --shared-root naming generated synthetic scenarios")
+    check_source(args)
+    compare = comparer()
+    root = args.output_root / ("v1-" + uuid.uuid4().hex[:8])
+    root.mkdir(parents=True)
+    state, classpath, runner, build = v1_prepare(args, root)
+    requested = [path.stem for path in v1_scenarios(args)]
+    rows = []
+    for path in v1_scenarios(args):
+        try:
+            rows.append(v1_run(args, compare, path, root, classpath, runner, build))
+        except compare.Unjudgeable as failure:
+            rows.append({"scenario": path.stem, "status": failure.cls, "detail": str(failure)[:400], "trace": None})
+    require_v1_results(requested, rows)
+    proof = None
+    directed = [row for row in rows if row["status"] == "complete"]
+    if directed:
+        first = next(path for path in v1_scenarios(args) if path.stem == directed[0]["scenario"])
+        off = v1_run(args, compare, first, root, classpath, runner, build, observe=False)
+        proof = v1_observation_proof(directed[0]["trace"], off["trace"])
+    validate_v1_build(state, (HERE / "edit-spec.json").read_bytes(), HERE / "draft")
+    result = {"status": "pass" if all(row["status"] == "complete" for row in rows) else "incomplete",
+              "schema": "shimeji-parity-trace/1", "build": build, "results": rows, "observation_proof": proof,
+              "counts": {status: sum(1 for row in rows if row["status"] == status) for status in sorted({row["status"] for row in rows})},
+              "tool_sha256": sha((HERE / "oracle.py").read_bytes()), "runner_sha256": sha((HERE / V1_RUNNER).read_bytes()),
+              "evidence": str(root)}
+    write_json(root / "results.json", result)
+    write_json(args.output_root / "v1-latest.json", result)
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=("preflight", "fetch", "build", "compare", "probe", "check", "draft", "bridge", "failures", "shared", "selftest", "mutate"))
+    parser.add_argument("action", choices=("preflight", "fetch", "build", "compare", "probe", "check", "draft", "bridge", "failures", "shared", "selftest", "mutate", "v1"))
+    parser.add_argument("--only")
     parser.add_argument("--cache-root", type=Path, required=True)
     parser.add_argument("--output-root", type=Path, required=True)
     parser.add_argument("--jdk-root", type=Path, required=True)
@@ -981,6 +1250,8 @@ def main():
         result = failures(args)
     elif args.action == "shared":
         result = shared(args)
+    elif args.action == "v1":
+        result = v1(args)
     else:
         result = probe(args)
     print(json.dumps(result, ensure_ascii=False, indent=2))
