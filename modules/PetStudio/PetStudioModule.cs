@@ -26,7 +26,15 @@ namespace DesktopAICompanion.PetStudioModule
         {
             Id = "petstudio",
             Name = "Companion Studio",
-            Version = "1.1.20",  // 1.1.20: "Import .zip" accepts a Dropbox folder download (its "/" root entry is
+            Version = "1.2.0",   // 1.2.0: opens, checks, previews and installs a companion written for the Shimeji
+                                 //        runtime (a tick-clock animations.xml: actions, behaviours, expressions,
+                                 //        lifecycle, social, windows, sounds, per-pose geometry, one pack member at a
+                                 //        time). The report validates it with this app's feature set and walks its
+                                 //        route, behaviours, actions and hotspots for reachability; "Preview
+                                 //        highlighted action" and the behaviour debugger say they work on classic
+                                 //        companions rather than build a broken preview. Previewing or installing one
+                                 //        needs host 1.9.0; an older host refuses it by name.
+                                 // 1.1.20: "Import .zip" accepts a Dropbox folder download (its "/" root entry is
                                  //        skipped, every other rule of ZipFile.ExtractToDirectory kept, and a refused
                                  //        archive writes nothing), and the skin picker offers only folders whose conf
                                  //        draws one of their images (no icon folder or transformation frames).
