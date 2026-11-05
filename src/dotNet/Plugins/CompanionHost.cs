@@ -516,7 +516,8 @@ namespace DesktopAICompanion.Plugins
 
         public bool StopSound(string moduleId)
         {
-            // Not permission-gated: going quiet is strictly weaker than the play that made the sound.
+            // Not permission-gated: going quiet is strictly weaker than the play that made the sound. Confined to the
+            // module's own owner: "" (the engine) and a companion clip's owner are refused below (StopModuleOwned).
             try { return _startUp != null && _startUp.StopModuleSound(moduleId ?? ""); }
             catch { return false; }
         }

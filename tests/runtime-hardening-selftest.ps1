@@ -5376,6 +5376,22 @@ Assert-True ($fu2SkipAt -ge 0 -and $fu2SheepRaiseAt -gt $fu2SkipAt -and
     $fu2Animation -cmatch 'hwndFullscreenWindow == IntPtr\.Zero &&[^{}]{0,200}\{\s*ApplyTopMost\(true\);') (
     "followups2: the per-animation raise and the tray click raise the pet through ApplyTopMost, each after its stand-down guard (found at $fu2SkipAt, $fu2SheepRaiseAt)")
 
+# ---- lane feature/shimeji-host-runtime ----
+# A MODULE'S STOP NEVER REACHES THE PET'S OWN SOUNDS. IHost.StopSound takes the module id as an argument, so "" names the
+# engine's owner and a "companion-clip|" string a companion's clip. AudioOutput.StopModuleOwned refuses both, and the
+# Shimeji sound self-test pins that against live inputs. What no self-test can run is StartUp.StopModuleSound, which needs a
+# live app, so here its body must call StopModuleOwned and never the unguarded StopOwned; the WITNESS shows the pattern
+# tells the two apart.
+$shrStartUp = Remove-LineComments $startUpSource
+$shrStops = @("`n        private ", "`n        internal ", "`n        public ", "`n        protected ")
+$shrStop = Get-MethodBody $shrStartUp 'internal bool StopModuleSound(string owner)' $shrStops
+Assert-True ($shrStop.Length -gt 0) 'shimeji-host-runtime: StopModuleSound was located'
+Assert-True ('a.StopModuleOwned(owner)' -cmatch '\.StopModuleOwned\(owner\)' -and 'a.StopOwned(owner)' -cnotmatch '\.StopModuleOwned\(owner\)' -and
+    'a.StopOwned(owner)' -cmatch '\.StopOwned\(') (
+    'shimeji-host-runtime: WITNESS the stop pattern tells StopModuleOwned from StopOwned')
+Assert-True ($shrStop -cmatch '\.StopModuleOwned\(owner\)' -and $shrStop -cnotmatch '\.StopOwned\(') (
+    "shimeji-host-runtime: a module's StopSound reaches the audio output only through StopModuleOwned")
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever

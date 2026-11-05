@@ -17179,6 +17179,14 @@ CASES = (
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      "parity trace: while hidden, poseAnchor is null and origin keeps the window's last bounds"),
+    # A module's stop (IHost.StopSound) never cuts the engine's own sound or a companion's clip.
+    ("shimeji-host: a module's stop cuts the engine's or a companion's sound",
+     os.path.join(REPO, "src", "dotNet", "AudioOutput.cs"),
+     b'            if (string.IsNullOrWhiteSpace(owner) || IsClipOwner(owner.Trim())) return false;\n',
+     b'            if (owner == null) return false;\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     "sound output: a module's stop never cuts the engine's own sound or a companion's clip"),
     # ---- lane feature/shimeji-host-motion ----
     # The motion family of embedded classes (src/dotNet/Shimeji/TickMotionFamily.cs) and the engine hooks it added: each
     # case puts back one wrong reading of the official runtime and must fail the CoreTests group that pins it.

@@ -183,6 +183,15 @@ namespace DesktopAICompanion.Shimeji
                 output.StopAllExcept(AudioOutput.EngineOwner);
                 check(!output.IsPlaying("some.module") && output.IsPlaying(clip) && output.IsPlaying(AudioOutput.EngineOwner),
                     "sound output: cutting every module's sound keeps the companions' clips and the engine's own");
+                // A module's stop (IHost.StopSound) names its own owner only: "" is the engine's, a clip owner a
+                // companion's, and neither may be cut that way; a module's own owner is (WITNESS).
+                output.RegisterLiveForTest("some.module");
+                bool engineRefused = !output.StopModuleOwned(AudioOutput.EngineOwner) && output.IsPlaying(AudioOutput.EngineOwner);
+                bool clipRefused = !output.StopModuleOwned(clip) && output.IsPlaying(clip);
+                check(engineRefused && clipRefused,
+                    "sound output: a module's stop never cuts the engine's own sound or a companion's clip");
+                check(output.StopModuleOwned("some.module") && !output.IsPlaying("some.module"),
+                    "sound output: WITNESS a module's stop cuts that module's own sound");
                 output.StopOwned(clip);
                 check(!output.IsPlaying(clip), "sound output: a clip's owner stops by itself");
             }

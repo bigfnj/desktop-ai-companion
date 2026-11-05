@@ -3824,6 +3824,16 @@ CASES = (
         b"\t\tpublic void PlayChild(int aniID, TChild childEntry)\n",
         "respawn: Play, PlayChild and PictureBox1_MouseDown were located",
     ),
+    # ---- lane feature/shimeji-host-runtime ----
+    # A module's StopSound reaches the audio output only through StopModuleOwned, which refuses the engine's owner and a
+    # companion clip's (the Shimeji sound self-test pins the guard itself; this pins the one caller no self-test runs).
+    (
+        "shimeji-host-runtime: host: a module's stop goes to the unguarded StopOwned again",
+        os.path.join(REPO, "src", "dotNet", "StartUp.cs"),
+        b"            return a != null && a.StopModuleOwned(owner);\n",
+        b"            return a != null && a.StopOwned(owner);\n",
+        "shimeji-host-runtime: a module's StopSound reaches",
+    ),
 )
 
 

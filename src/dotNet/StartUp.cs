@@ -2308,8 +2308,9 @@ namespace DesktopAICompanion
 
         internal bool StopModuleSound(string owner)
         {
+            // A module's stop: never the engine's own sounds or a companion's clips (AudioOutput.StopModuleOwned).
             AudioOutput a = audioOutput;
-            return a != null && a.StopOwned(owner);
+            return a != null && a.StopModuleOwned(owner);
         }
 
         /// <summary>Cut every module's audio (not the pet's own SFX). Called when the user switches speech

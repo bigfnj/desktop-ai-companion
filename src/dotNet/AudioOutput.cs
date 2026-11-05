@@ -283,6 +283,18 @@ namespace DesktopAICompanion
             return cut.Count > 0;
         }
 
+        /// <summary>
+        /// A MODULE's stop (IHost.StopSound): what <see cref="StopOwned"/> does, for a module's own owner only. The id is
+        /// the module's word (IHost takes it as an argument), so "" would name <see cref="EngineOwner"/> and a
+        /// "companion-clip|..." string a companion's clip; both are the pet engine's sounds, which the contract says a
+        /// module's StopSound never touches (PluginApi.cs, StopSound). Before this, StopSound("") cut the pet's own audio.
+        /// </summary>
+        public bool StopModuleOwned(string owner)
+        {
+            if (string.IsNullOrWhiteSpace(owner) || IsClipOwner(owner.Trim())) return false;
+            return StopOwned(owner);
+        }
+
         /// <summary>Cut every owner except the pet engine -- used when the user switches speech off, since a
         /// module has no way to notice a settings change on its own. A tick companion's clips are the pet
         /// engine's too (<see cref="ClipOwnerPrefix"/>), so they are kept as well.</summary>
