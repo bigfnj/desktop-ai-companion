@@ -1,7 +1,7 @@
 {
   "version": 1,
   "app": {
-    "version": "1.9.0",
+    "version": "1.10.0",
     "releases": "https://github.com/bigfnj/desktop-ai-companion/releases"
   },
   "packLicense": "NOASSERTION",
