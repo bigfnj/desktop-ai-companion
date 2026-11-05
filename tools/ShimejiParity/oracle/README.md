@@ -105,6 +105,66 @@ The restore-then-move case also retains the source's cached area size, which is 
 The virtual model then treats the zero-sized result as absent. Native Win32 minimum tracking-size clamping for a
 captioned top-level window is not modelled or probed, so this case is a declared modelling assumption.
 
+## CONTRACT v1 producer
+
+```powershell
+.\Invoke-Oracle.ps1 @oracle -Action Draft
+.\Invoke-Oracle.ps1 @oracle -Action V1 -SharedRoot '<generated-scenarios-folder>' [-Only 'S-slice-,S-breed-']
+```
+
+`V1` runs every `S-*.json` under `SharedRoot` (or the ids matching `-Only`) on the private draft runtime and writes
+`shimeji-parity-trace/1` traces for `tools/ShimejiParity/comparer/compare.py`. It first re-hashes the draft build it
+binds: the record, the JAR, the private patch, `edit-spec.json` and the helpers in `draft/`; a missing record or field,
+a changed JAR, a tampered patch or a stale specification or helper is refused by name. The header's `build` carries
+the source archive hash, the patch hash, the JDK version, every library and the runner (`deps`) and the JAR hash.
+
+`V1ScenarioRunner.java` is original driver code compiled beside the draft JAR. It installs its controller before any
+environment class initialises, replaces the native factory before any companion exists (scenario-fed desktop,
+never-displayed panels for windows), creates the start companions as CONTRACT section 4 describes and steps the
+source's own `Manager.tick` once per tick through the `parityStep` seam; the real timer never starts. Every run ends by
+checking that no window became displayable. Names, refKeys and ages come from stored fields and from the seam
+callbacks the source makes while building and stepping; observation evaluates nothing. Input entries reach the
+source's own mouse listeners as synthetic events at the step's environment refresh. A refKey's file is the one the
+source's own search chose, reported where `Main.loadConfiguration` parses it, spelled as the pack's directory lists
+each component (the source probes lower-case names, which Windows also matches to, say, `Actions.xml`); a document
+without that binding is refused (`V1_REFKEY_DOCUMENT_UNBOUND`), and so is one with a path component no pack entry
+spells, or two entries do, which covers a path leaving the pack (no entry spells `..`) and one Win32 opens under
+another name (`V1_REFKEY_DOCUMENT_SPELLING`). An exception of the directory listing is held the same way, so none
+reaches the source's own catch. Each `V1` run also checks the binding on private fixtures built from
+`S-slice-stand-walk-01`'s pack: the pack unmodified (the scenario's own run when `V1` ran it), equal-content copies at
+the lower-precedence `conf/<set>/` and `conf/` tiers, malformed XML the source never opens, the documents moved to
+`conf/<set>/` (an equal copy left at `conf/`), the documents moved to `conf/`, the documents spelled `Behaviors.xml`
+and `Actions.xml`, and a scenario naming the set in lower case with the set's `conf` folder spelled `Conf`. Every one
+of these must run complete, every refKey must name the exact file that case lays out (stack position 0 the behaviours
+file, every later position the actions file, each a pack manifest entry, for the key's own image set as the scenario
+spells it), and every other case's stacks must match the unmodified pack's apart from the file. Two more cases must
+end `aborted` with `V1_REFKEY_DOCUMENT_SPELLING` at the path the source opened: a set name that leads the source's
+probe out of the pack and back in (`../../pack/img/<set>`, which reads only the pack's own file), and one with a
+trailing dot, which Win32 drops. All cases run before one `V1_DOCUMENT_WITNESS` refusal names every failing case;
+their results are in the run's `document-witnesses.json`. The run's pack copy is checked file by file and again once
+complete, and `compare.py`'s preflight refuses entries that differ only in case, which a case-insensitive copy would
+merge.
+
+Each scenario gets one status: `complete`, or a distinct failure (`truncated`, `timeout`, `error`, or the comparer's
+trace-check class). A requested scenario without a result fails the action (`V1_SCENARIO_SKIPPED`). The named proof
+scenario `S-input-drag-01`, which must be directed (`none` or `tape`), is run again with observation off; both runs
+must complete and its final tick (an empty one included), draw and event totals must equal the traced run's (CONTRACT
+section 5). Without that scenario the proof is reported unavailable and the action is incomplete. Draws from a script `Math.random` are refused (`V1_RNG_SCRIPT_SITE_UNATTRIBUTED`) until
+the contract's script site names are attributed. Scan sites report their result through `DraftParityHooks.scanned`
+(the `wrap-assigned-value` spec operation, which refuses any call outside the hooks class) and Interact reports the
+start of its step. A runner refusal (Mute, or a sounding pose with sounds on, whose events have no seam yet) ends the
+run `aborted` and names itself; an exception from the source itself ends it `error`. Traces and launch records stay in
+the private evidence folder.
+
+`V1Failures` reuses the latest `V1` evidence on private copies, and first refuses it (`V1_EVIDENCE_STALE`) unless
+`oracle.py`, the runner, the draft JAR and patch and the base trace's bytes are still the ones that run recorded and
+the draft build still validates: a header without its build witness, a trace without
+its footer, a tampered copy of the private patch, a draft record missing a field and a run missing a scenario must
+each fail by name, and a real trace judged against itself relabelled as a host trace must be `exact` until it is
+changed, then fail as `entity-mismatch` (companions out of manager order), `state-mismatch` on `pose` (another image,
+same position) and on `actionAge`, `extra-event`, `missing-event`, `event-mismatch` (another draw site) and
+`rng-draw-count` (an extra draw).
+
 ## Failure witnesses
 
 ```powershell

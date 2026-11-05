@@ -97,6 +97,12 @@ public final class DraftParityHooks {
         return true;
     }
 
+    /** A scan's result, passed through unchanged: the controller sees which companion the source chose. */
+    public static <T> T scanned(Object action, T target) {
+        observe("scan-target", action, target);
+        return target;
+    }
+
     public static Snapshot snapshot() { return required().snapshot(); }
     public static Rectangle initialScreen() { return new Rectangle(snapshot().screen); }
 
@@ -107,8 +113,15 @@ public final class DraftParityHooks {
         environment.cursor.set(state.cursor);
     }
 
+    /**
+     * Main.showError's seam: the dialog never opens. By default the run fails fast, as the feasibility probes
+     * expect. The v1 runner sets shimeji.parity.continueAfterError: the source carries on once its error dialog is
+     * dismissed, so the error becomes a trace event and the caller returns before the dialog.
+     */
     public static void fail(String message) {
         observe("error", null, message);
-        throw new IllegalStateException("oracle-runtime-error " + message);
+        if (!Boolean.getBoolean("shimeji.parity.continueAfterError")) {
+            throw new IllegalStateException("oracle-runtime-error " + message);
+        }
     }
 }

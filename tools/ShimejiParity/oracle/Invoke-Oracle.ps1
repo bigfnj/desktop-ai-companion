@@ -2,8 +2,10 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('Preflight', 'Fetch', 'Build', 'Compare', 'Probe', 'Check', 'Draft', 'Bridge', 'Failures', 'Shared', 'SelfTest', 'Mutate')]
+    [ValidateSet('Preflight', 'Fetch', 'Build', 'Compare', 'Probe', 'Check', 'Draft', 'Bridge', 'Failures', 'Shared', 'SelfTest', 'Mutate', 'V1', 'V1Failures')]
     [string]$Action,
+    # V1 only: a comma-separated list of scenario id substrings to run; all S-*.json under SharedRoot otherwise.
+    [string]$Only,
     [string]$CacheRoot = $env:SHIMEJI_ORACLE_CACHE,
     [string]$OutputRoot,
     [string]$JdkRoot = $env:SHIMEJI_ORACLE_JDK8,
@@ -49,7 +51,7 @@ $DataRoot = Resolve-OraclePath $DataRoot
 $TempRoot = Resolve-OraclePath $TempRoot
 $JdkRoot = Resolve-OraclePath $JdkRoot
 if (-not [string]::IsNullOrWhiteSpace($SharedRoot)) { $SharedRoot = Resolve-OraclePath $SharedRoot }
-if ($Action -eq 'Shared' -and [string]::IsNullOrWhiteSpace($SharedRoot)) { throw 'Shared needs -SharedRoot naming generated synthetic scenarios.' }
+if (($Action -eq 'Shared' -or $Action -eq 'V1') -and [string]::IsNullOrWhiteSpace($SharedRoot)) { throw ($Action + ' needs -SharedRoot naming generated synthetic scenarios.') }
 if ([string]::IsNullOrWhiteSpace($PythonPath)) { $PythonPath = (Get-Command python.exe -ErrorAction Stop).Source }
 else {
     $candidate = Resolve-OraclePath $PythonPath
@@ -73,6 +75,7 @@ $oracleArguments = @('-I', '-B', '-X', 'utf8', (Join-Path $PSScriptRoot 'oracle.
     $Action.ToLowerInvariant(), '--cache-root', $CacheRoot, '--output-root', $OutputRoot,
     '--jdk-root', $JdkRoot, '--runtime', $Runtime, '--temp-root', $TempRoot, '--data-root', $DataRoot)
 if (-not [string]::IsNullOrWhiteSpace($SharedRoot)) { $oracleArguments += @('--shared-root', $SharedRoot) }
+if (-not [string]::IsNullOrWhiteSpace($Only)) { $oracleArguments += @('--only', $Only) }
 $oracleEnvironment = @{
     DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT = '1'
     DESKTOP_AI_COMPANION_DATA_ROOT = $DataRoot
