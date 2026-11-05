@@ -206,6 +206,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         public string SourceName { get; private set; }
         public string NamespaceName { get; private set; }
         public string ElementPath { get; private set; }
+        /// <summary>Original XML local names and same-named sibling ordinals, for the parity refKey.
+        /// ElementPath and SourceKey retain their canonical-name identity for existing consumers.</summary>
+        public string SourceElementPath { get; private set; }
         public string SourceKey { get; private set; }
         public int Line { get; private set; }
         public int Column { get; private set; }
@@ -215,7 +218,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
 
         internal ShimejiSourceElement(string name, string sourceName, string namespaceName,
             string path, string sourceKey, int line, int column, string text,
-            IList<ShimejiSourceAttribute> attributes, IList<ShimejiSourceElement> children)
+            IList<ShimejiSourceAttribute> attributes, IList<ShimejiSourceElement> children,
+            string sourceElementPath = null)
         {
             ShimejiSourceKind kind;
             Kind = System.Enum.TryParse(name, false, out kind) ? kind : ShimejiSourceKind.Unknown;
@@ -223,6 +227,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             SourceName = sourceName;
             NamespaceName = namespaceName;
             ElementPath = path;
+            SourceElementPath = sourceElementPath ?? path;
             SourceKey = sourceKey;
             Line = line;
             Column = column;

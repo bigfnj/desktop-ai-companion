@@ -19,6 +19,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "script-envelopes", Run = (Action)ScriptEnvelopes },
                 new { Name = "behavior-wrappers-and-add", Run = (Action)BehaviorWrappers },
                 new { Name = "aliases-and-collisions", Run = (Action)Aliases },
+                new { Name = "source-path-raw-ordinals", Run = (Action)RawSourcePaths },
                 new { Name = "immutable-snapshot", Run = (Action)ImmutableSnapshot },
                 new { Name = "entrypoints-and-locators", Run = (Action)EntryPoints },
             };
@@ -181,6 +182,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             ShimejiSourceElement action = source.Actions.Root.Children.Single().Children.Single();
             Require(action.Kind == ShimejiSourceKind.Action && action.Name == "Action" && action.SourceName == "動作",
                 "Japanese element source/canonical names lost");
+            Require(action.SourceElementPath == "/Mascot[1]/動作リスト[1]/動作[1]",
+                "raw source path rewrote an ancestor or element name");
             ShimejiSourceAttribute[] names = action.Attributes.Where(a => a.Name == "Name").ToArray();
             Require(names.Length == 2 && names[0].SourceName == "名前" && names[0].RawValue == "移動"
                 && names[1].SourceName == "Name" && names[1].RawValue == "collision"
@@ -193,6 +196,22 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 && british.Children.Single().Kind == ShimejiSourceKind.NextBehavior
                 && british.Children.Single().Children.Single().Kind == ShimejiSourceKind.BehaviorReference,
                 "British element aliases incomplete");
+        }
+
+        private static void RawSourcePaths()
+        {
+            const string xml = "<Mascot><ActionList><Action Name='One' Type='Stay'/>"
+                + "<動作 名前='Two' 種類='静止'/><Action Name='Three' Type='Stay'/></ActionList></Mascot>";
+            ShimejiSourceElement[] actions = ShimejiParser.ParseActionsXml(xml).Source.Actions.Root.Children.Single()
+                .Children.ToArray();
+            Require(actions.Select(e => e.SourceElementPath).SequenceEqual(new[] {
+                "/Mascot[1]/ActionList[1]/Action[1]", "/Mascot[1]/ActionList[1]/動作[1]",
+                "/Mascot[1]/ActionList[1]/Action[2]" }), "raw source sibling ordinals used canonical names");
+            Require(actions.Select(e => e.ElementPath).SequenceEqual(new[] {
+                "/Mascot[1]/ActionList[1]/Action[1]", "/Mascot[1]/ActionList[1]/Action[2]",
+                "/Mascot[1]/ActionList[1]/Action[3]" }), "canonical element path identity changed");
+            Require(actions.All(e => e.SourceKey == "actions.xml#" + e.ElementPath),
+                "canonical source key identity changed");
         }
 
         private static void ImmutableSnapshot()
@@ -212,6 +231,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             var children = new List<ShimejiSourceElement> { pose };
             var copy = new ShimejiSourceElement("Fixture", "Fixture", "", "/Fixture[1]", "manual#/Fixture[1]",
                 1, 1, "text", attributes, children);
+            Require(copy.SourceElementPath == copy.ElementPath, "manual source path default changed");
             attributes.Clear();
             children.Clear();
             Require(copy.Attributes.Count == 1 && copy.Children.Count == 1, "constructor kept mutable caller lists");

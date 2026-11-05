@@ -188,11 +188,16 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             var elements = document.Root.DescendantsAndSelf().ToList();
             var paths = new Dictionary<XElement, string>();
             var counts = new Dictionary<XElement, Dictionary<string, int>>();
+            var sourcePaths = new Dictionary<XElement, string>();
+            var sourceCounts = new Dictionary<XElement, Dictionary<string, int>>();
             foreach (XElement element in elements)
             {
                 string name = CanonLocal(element);
                 int ordinal = 1;
                 string parentPath = "";
+                string sourceName = element.Name.LocalName;
+                int sourceOrdinal = 1;
+                string sourceParentPath = "";
                 if (element.Parent != null)
                 {
                     Dictionary<string, int> siblings;
@@ -206,8 +211,21 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     ordinal = previous + 1;
                     siblings[name] = ordinal;
                     parentPath = paths[element.Parent];
+                    Dictionary<string, int> sourceSiblings;
+                    if (!sourceCounts.TryGetValue(element.Parent, out sourceSiblings))
+                    {
+                        sourceSiblings = new Dictionary<string, int>(StringComparer.Ordinal);
+                        sourceCounts.Add(element.Parent, sourceSiblings);
+                    }
+                    int sourcePrevious;
+                    sourceSiblings.TryGetValue(sourceName, out sourcePrevious);
+                    sourceOrdinal = sourcePrevious + 1;
+                    sourceSiblings[sourceName] = sourceOrdinal;
+                    sourceParentPath = sourcePaths[element.Parent];
                 }
                 paths[element] = parentPath + "/" + name + "[" + ordinal.ToString(System.Globalization.CultureInfo.InvariantCulture) + "]";
+                sourcePaths[element] = sourceParentPath + "/" + sourceName + "["
+                    + sourceOrdinal.ToString(System.Globalization.CultureInfo.InvariantCulture) + "]";
             }
             var nodes = new Dictionary<XElement, ShimejiSourceElement>();
             // Bottom-up construction avoids recursive parsing of deeply nested source composites.
@@ -231,7 +249,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 IXmlLineInfo line = element;
                 nodes[element] = new ShimejiSourceElement(CanonLocal(element), element.Name.LocalName,
                     element.Name.NamespaceName, paths[element], key, line.HasLineInfo() ? line.LineNumber : 0,
-                    line.HasLineInfo() ? line.LinePosition : 0, element.Value, attributes, children);
+                    line.HasLineInfo() ? line.LinePosition : 0, element.Value, attributes, children, sourcePaths[element]);
             }
             return new ShimejiSourceDocument(fileName, nodes[document.Root]);
         }

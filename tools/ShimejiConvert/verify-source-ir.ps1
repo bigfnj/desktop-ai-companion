@@ -1,6 +1,6 @@
 #requires -Version 5.1
 [CmdletBinding()]
-param([switch]$Mutate)
+param([switch]$Mutate, [string]$Only = '*')
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -25,7 +25,7 @@ $parser = Join-Path $repo 'tools\ShimejiConvert.Engine\Shimeji\ShimejiParser.cs'
 $model = Join-Path $repo 'tools\ShimejiConvert.Engine\Shimeji\ShimejiModel.cs'
 $marker = 'source-ir self-test: executing source preservation witnesses'
 $caseNames = @('ordered-reference-overrides', 'raw-parameters-and-images', 'script-envelopes',
-    'behavior-wrappers-and-add', 'aliases-and-collisions', 'immutable-snapshot', 'entrypoints-and-locators')
+    'behavior-wrappers-and-add', 'aliases-and-collisions', 'source-path-raw-ordinals', 'immutable-snapshot', 'entrypoints-and-locators')
 
 function Quote-Argument([string]$Value) {
     $escaped = [regex]::Replace($Value, '(\\*)"', '$1$1\"')
@@ -137,8 +137,13 @@ $mutations = @(
         New = 'Children = ((List<ShimejiSourceElement>)children).AsReadOnly();' },
     [pscustomobject]@{ Name = 'embedded-line-information'; Path = $parser; Witness = 'entrypoints-and-locators'
         Old = 'return XDocument.Load(s, LoadOptions.SetLineInfo | LoadOptions.PreserveWhitespace);'
-        New = 'return XDocument.Load(s, LoadOptions.PreserveWhitespace);' }
+        New = 'return XDocument.Load(s, LoadOptions.PreserveWhitespace);' },
+    [pscustomobject]@{ Name = 'raw-source-sibling-name'; Path = $parser; Witness = 'source-path-raw-ordinals'
+        Old = 'sourceSiblings.TryGetValue(sourceName, out sourcePrevious);'
+        New = 'sourceSiblings.TryGetValue(name, out sourcePrevious);' }
 )
+$selectedMutations = @($mutations | Where-Object { $_.Name -like $Only })
+if ($Mutate -and $selectedMutations.Count -eq 0) { throw "source-ir: filter '$Only' selected no mutations" }
 $originals = @{}
 $results = New-Object 'Collections.Generic.List[object]'
 $summary = [ordered]@{ Status = 'running'; Evidence = $evidence; Mutate = [bool]$Mutate; Results = $results }
@@ -149,7 +154,7 @@ try {
     $summary.BaselineExecution = Invoke-Positive 'baseline-selftest'
     if ($Mutate) {
         foreach ($path in @($parser, $model)) { $originals[$path] = [IO.File]::ReadAllBytes($path) }
-        foreach ($mutation in $mutations) {
+        foreach ($mutation in $selectedMutations) {
             $original = $originals[$mutation.Path]
             $source = $utf8.GetString($original)
             $matchCount = [regex]::Matches($source, [regex]::Escape($mutation.Old)).Count
