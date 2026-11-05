@@ -77,7 +77,8 @@ $caseNames = @('ordered-reference-overrides', 'raw-parameters-and-images', 'scri
     'behavior-wrappers-and-add', 'aliases-and-collisions', 'source-path-raw-ordinals', 'source-schema-resolution',
     'qualified-names-and-depth', 'source-materialization-budget', 'source-pack-context', 'immutable-snapshot', 'entrypoints-and-locators')
 $tickCaseNames = @('graph-bindings-and-origins', 'sprite-pixels-and-identity', 'lifecycle-parameters',
-    'expression-refusal', 'mixed-geometry-refusal', 'existing-output-refusal', 'private-action-reference-refusal',
+    'expression-refusal', 'mixed-pose-geometry', 'explicit-right-geometry', 'pair-anchor-cache', 'pair-anchor-preload-order', 'pair-anchor-identity',
+    'right-only-refusal', 'right-path-refusal', 'existing-output-refusal', 'private-action-reference-refusal',
     'private-behavior-action-refusal', 'java-literal-refusal', 'sprite-dpi72', 'declaration-order', 'missing-add-false',
     'duplicate-root-last-definition', 'enclosing-conditions', 'prepare-all-members', 'cross-schema-refusal',
     'toggle-refusal', 'information-refusal', 'own-set-binding-reset', 'action-schema-refusal',
@@ -470,17 +471,61 @@ $mutations = @(
         Old = 'Image = "img/" + _member + "/" + relative, Path = path'
         New = 'Image = relative, Path = path' },
     [pscustomobject]@{ Name = 'tick-below-anchor-pixels'; Path = $emitter; Witness = 'sprite-pixels-and-identity'
-        Old = 'height = checked(top + bottom);'
-        New = 'height = checked(top);' },
+        Old = 'height = _frames.Max(frame => frame.Height);'
+        New = 'height = _frames.Max(frame => frame.Height) + 1;' },
     [pscustomobject]@{ Name = 'tick-lifecycle-born-count'; Path = $emitter; Witness = 'lifecycle-parameters'
         Old = 'act.Add(MemberParameter("param", attribute, null));'
         New = 'if (attribute.Name != "BornCount") act.Add(MemberParameter("param", attribute, null));' },
     [pscustomobject]@{ Name = 'tick-expression-refusal'; Path = $emitter; Witness = 'expression-refusal'
         Old = 'if (attribute.Cache != ShimejiSourceCache.Literal) Fail(source, "expressions are not lowered yet: " + attribute.QualifiedName);'
         New = 'if (attribute.Cache != ShimejiSourceCache.Literal && attribute.Name == "__never__") Fail(source, "expressions are not lowered yet: " + attribute.QualifiedName);' },
-    [pscustomobject]@{ Name = 'tick-mixed-width-refusal'; Path = $emitter; Witness = 'mixed-geometry-refusal'
-        Old = 'frame.Width != first.Width || frame.Height != first.Height'
-        New = 'frame.Height != first.Height' },
+    [pscustomobject]@{ Name = 'tick-mixed-width-refusal'; Path = $emitter; Witness = 'mixed-pose-geometry'
+        Old = 'width = _frames.Max(frame => frame.Width)'
+        New = 'width = _frames.Max(frame => frame.Width) + 1' },
+    [pscustomobject]@{ Name = 'geometry-cell-height'; Path = $emitter; Witness = 'mixed-pose-geometry'
+        Old = 'height = _frames.Max(frame => frame.Height);'
+        New = 'height = _frames.Max(frame => frame.Height) + 1;' },
+    [pscustomobject]@{ Name = 'geometry-cell-top-left'; Path = $emitter; Witness = 'mixed-pose-geometry'
+        Old = 'CopyPixels(bitmap, destination, (i % tilesX) * width, (i / tilesX) * height);'
+        New = 'CopyPixels(bitmap, destination, (i % tilesX) * width + (frame.Width < width ? 1 : 0), (i / tilesX) * height);' },
+    [pscustomobject]@{ Name = 'geometry-pose-anchor-x'; Path = $emitter; Witness = 'mixed-pose-geometry'
+        Old = 'new XAttribute("ax", effective.X)'; New = 'new XAttribute("ax", 0)' },
+    [pscustomobject]@{ Name = 'geometry-pose-anchor-y'; Path = $emitter; Witness = 'mixed-pose-geometry'
+        Old = 'new XAttribute("ay", effective.Y)'; New = 'new XAttribute("ay", 0)' },
+    [pscustomobject]@{ Name = 'geometry-pose-width'; Path = $emitter; Witness = 'mixed-pose-geometry'
+        Old = 'new XAttribute("w", _frames[frame].Width)'; New = 'new XAttribute("w", 1)' },
+    [pscustomobject]@{ Name = 'geometry-pose-height'; Path = $emitter; Witness = 'mixed-pose-geometry'
+        Old = 'new XAttribute("h", _frames[frame].Height)'; New = 'new XAttribute("h", 1)' },
+    [pscustomobject]@{ Name = 'geometry-right-frame'; Path = $emitter; Witness = 'explicit-right-geometry'
+        Old = 'new XAttribute("right", rightFrame)'; New = 'new XAttribute("right", frame)' },
+    [pscustomobject]@{ Name = 'geometry-right-width'; Path = $emitter; Witness = 'explicit-right-geometry'
+        Old = 'new XAttribute("rw", _frames[rightFrame].Width)'; New = 'new XAttribute("rw", _frames[frame].Width)' },
+    [pscustomobject]@{ Name = 'geometry-right-height'; Path = $emitter; Witness = 'explicit-right-geometry'
+        Old = 'new XAttribute("rh", _frames[rightFrame].Height)'; New = 'new XAttribute("rh", _frames[frame].Height)' },
+    [pscustomobject]@{ Name = 'geometry-pair-cache-first'; Path = $emitter; Witness = 'pair-anchor-cache'
+        Old = 'if (!_pairAnchors.ContainsKey(key)) _pairAnchors.Add(key, new PairAnchor { X = x, Y = y });'
+        New = '_pairAnchors[key] = new PairAnchor { X = x, Y = y };' },
+    [pscustomobject]@{ Name = 'geometry-pair-cache-effective-anchor'; Path = $emitter; Witness = 'pair-anchor-cache'
+        Old = 'PairAnchor effective = _pairAnchors[PairKey(image, right, child)];'
+        New = 'PairAnchor effective = new PairAnchor { X = x, Y = y };' },
+    [pscustomobject]@{ Name = 'geometry-pair-preload-nested-first'; Path = $emitter; Witness = 'pair-anchor-preload-order'
+        Old = 'foreach (ShimejiSourceElement animation in action.Children.Where(n => n.Kind == ShimejiSourceKind.Animation))'
+        New = 'foreach (ShimejiSourceElement nestedEarly in action.Children.Where(n => n.Kind == ShimejiSourceKind.Action)) IndexPairAnchors(nestedEarly); foreach (ShimejiSourceElement animation in action.Children.Where(n => n.Kind == ShimejiSourceKind.Animation))' },
+    [pscustomobject]@{ Name = 'geometry-right-only-refusal'; Path = $emitter; Witness = 'right-only-refusal'
+        Old = 'else if (right != null) Fail(child, "TICK_RIGHT_ONLY_UNSUPPORTED:'
+        New = 'else if (right != null && _member == "__never__") Fail(child, "TICK_RIGHT_ONLY_UNSUPPORTED:' },
+    [pscustomobject]@{ Name = 'geometry-right-path-refusal'; Path = $emitter; Witness = 'right-path-refusal'
+        Old = 'if (right != null && (right.Length == 0 || (right[0] != ''/'' && right[0] != ''\\'')))'
+        New = 'if (right != null && _member == "__never__")' },
+    [pscustomobject]@{ Name = 'geometry-pair-identity-case'; Path = $emitter; Witness = 'pair-anchor-identity'
+        Old = 'private readonly Dictionary<string, PairAnchor> _pairAnchors = new Dictionary<string, PairAnchor>(StringComparer.Ordinal);'
+        New = 'private readonly Dictionary<string, PairAnchor> _pairAnchors = new Dictionary<string, PairAnchor>(StringComparer.OrdinalIgnoreCase);' },
+    [pscustomobject]@{ Name = 'geometry-pair-identity-explicit-right'; Path = $emitter; Witness = 'pair-anchor-identity'
+        Old = '+ (right == null ? "" : prefix + SpriteRelative(right, source).Replace(''/'', ''\\''));'
+        New = '+ "";' },
+    [pscustomobject]@{ Name = 'geometry-pair-identity-repeated-separators'; Path = $emitter; Witness = 'pair-anchor-identity'
+        Old = 'return string.Join("/", relative.Split(new[] { ''/'' }, StringSplitOptions.RemoveEmptyEntries));'
+        New = 'return relative;' },
     [pscustomobject]@{ Name = 'tick-existing-output-refusal'; Path = $emitter; Witness = 'existing-output-refusal'
         Old = 'if (Directory.Exists(outDir) || File.Exists(outDir))'
         New = 'if (File.Exists(outDir))' },
@@ -550,7 +595,7 @@ $pixelEndToken = 'finally { sheet.UnlockBits(destination); }'
 $pixelEnd = $emitterText.IndexOf($pixelEndToken, [StringComparison]::Ordinal)
 if ($pixelStart -lt 0 -or $pixelEnd -lt $pixelStart) { throw 'source-ir: compositor mutation anchors missing' }
 $pixelOld = $emitterText.Substring($pixelStart, $pixelEnd + $pixelEndToken.Length - $pixelStart)
-$pixelNew = 'using (Graphics graphics = Graphics.FromImage(sheet)) { graphics.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceCopy; graphics.Clear(Color.Transparent); for (int i = 0; i < _frames.Count; i++) { Frame frame = _frames[i]; using (var bitmap = new Bitmap(frame.Path)) graphics.DrawImageUnscaled(bitmap, (i % tilesX) * width + left - frame.X, (i / tilesX) * height + top - frame.Y); } }'
+$pixelNew = 'using (Graphics graphics = Graphics.FromImage(sheet)) { graphics.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceCopy; graphics.Clear(Color.Transparent); for (int i = 0; i < _frames.Count; i++) { Frame frame = _frames[i]; using (var bitmap = new Bitmap(frame.Path)) graphics.DrawImageUnscaled(bitmap, (i % tilesX) * width, (i / tilesX) * height); } }'
 $mutations += [pscustomobject]@{ Name='review-tick-sprite-dpi'; Path=$emitter; Witness='sprite-dpi72'; Old=$pixelOld; New=$pixelNew }
 $mutations += [pscustomobject]@{ Name='review-tick-sprite-alpha'; Path=$emitter; Witness='sprite-pixels-and-identity'; Old=$pixelOld; New=$pixelNew }
 $patterns = @($Only | ForEach-Object { $_.Split(',') } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })

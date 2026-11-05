@@ -24,7 +24,13 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "sprite-dpi72", Run = (Action)SpriteDpi72 },
                 new { Name = "lifecycle-parameters", Run = (Action)LifecycleParameters },
                 new { Name = "expression-refusal", Run = (Action)ExpressionRefusal },
-                new { Name = "mixed-geometry-refusal", Run = (Action)MixedGeometryRefusal },
+                new { Name = "mixed-pose-geometry", Run = (Action)MixedPoseGeometry },
+                new { Name = "explicit-right-geometry", Run = (Action)ExplicitRightGeometry },
+                new { Name = "pair-anchor-cache", Run = (Action)PairAnchorCache },
+                new { Name = "pair-anchor-preload-order", Run = (Action)PairAnchorPreloadOrder },
+                new { Name = "pair-anchor-identity", Run = (Action)PairAnchorIdentity },
+                new { Name = "right-only-refusal", Run = (Action)RightOnlyRefusal },
+                new { Name = "right-path-refusal", Run = (Action)RightPathRefusal },
                 new { Name = "existing-output-refusal", Run = (Action)ExistingOutputRefusal },
                 new { Name = "private-action-reference-refusal", Run = (Action)PrivateReferenceRefusal },
                 new { Name = "private-behavior-action-refusal", Run = (Action)PrivateBehaviorRefusal },
@@ -237,13 +243,214 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             }
         }
 
-        private static void MixedGeometryRefusal()
+        private static void MixedPoseGeometry()
         {
             using (var fixture = new Fixture())
             {
-                SavePng(Path.Combine(fixture.Pack, "img", "A", "q.png"), true, 5);
-                Refusal(fixture, "TICK_GEOMETRY_UNSUPPORTED");
-                Require(!Directory.Exists(fixture.Output), "refused geometry left a partial output");
+                SavePng(Path.Combine(fixture.Pack, "img", "A", "q.png"), true, 7, height: 4);
+                XDocument source = BuildActions();
+                foreach (XElement pose in source.Descendants("Pose").Where(p => (string)p.Attribute("Image") == "/q.png"))
+                    pose.SetAttributeValue("ImageAnchor", "-2,9");
+                fixture.Actions(source);
+                XDocument document = fixture.Convert();
+                XElement[] poses = NamedNode(document, "Stand").Element(Ns + "act").Element(Ns + "variants")
+                    .Element(Ns + "variant").Elements(Ns + "pose").ToArray();
+                Require(Geometry(poses[0], "ax", "ay", "w", "h").SequenceEqual(new[] { 2, 3, 4, 6 })
+                    && Geometry(poses[1], "ax", "ay", "w", "h").SequenceEqual(new[] { -2, 9, 7, 4 }),
+                    "mixed pose geometry lost each image's authored anchor or dimensions");
+                Require(poses[3].Attribute("frame").Value == "-1" && poses[3].Attribute("right") == null,
+                    "image-less pose acquired a visible frame");
+                using (JsonDocument map = JsonDocument.Parse(File.ReadAllText(fixture.MapPath)))
+                    foreach (JsonElement frame in map.RootElement.GetProperty("frames").EnumerateArray())
+                    {
+                        int[] anchor = frame.GetProperty("image").GetString() == "img/A/q.png" ? new[] { -2, 9 } : new[] { 2, 3 };
+                        Require(frame.GetProperty("anchor").EnumerateArray().Select(v => v.GetInt32()).SequenceEqual(anchor),
+                            "mixed frame map replaced authored anchors with a shared default");
+                    }
+                CheckGeometrySheet(fixture, document, 7, 6);
+            }
+        }
+
+        private static void ExplicitRightGeometry()
+        {
+            using (var fixture = new Fixture())
+            {
+                SavePng(Path.Combine(fixture.Pack, "img", "A", "q.png"), true, 7, height: 4);
+                XDocument source = BuildActions();
+                XElement pose = source.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Stand")
+                    .Element("Animation").Elements("Pose").First();
+                pose.SetAttributeValue("ImageAnchor", "1,5");
+                pose.SetAttributeValue("ImageRight", "/q.png");
+                fixture.Actions(source);
+                XDocument document = fixture.Convert();
+                XElement emitted = NamedNode(document, "Stand").Element(Ns + "act").Element(Ns + "variants")
+                    .Element(Ns + "variant").Elements(Ns + "pose").First();
+                Require(Geometry(emitted, "ax", "ay", "w", "h", "rw", "rh")
+                    .SequenceEqual(new[] { 1, 5, 4, 6, 7, 4 }),
+                    "explicit right image lost left anchor or independent right dimensions");
+                using (JsonDocument map = JsonDocument.Parse(File.ReadAllText(fixture.MapPath)))
+                {
+                    JsonElement[] frames = map.RootElement.GetProperty("frames").EnumerateArray().ToArray();
+                    int left = int.Parse(emitted.Attribute("frame").Value), right = int.Parse(emitted.Attribute("right").Value);
+                    Require(left != right && frames.Single(f => f.GetProperty("frame").GetInt32() == left).GetProperty("image").GetString() == "img/A/p.png"
+                        && frames.Single(f => f.GetProperty("frame").GetInt32() == right).GetProperty("image").GetString() == "img/A/q.png",
+                        "explicit right pose points at a left or mirrored source frame");
+                    Require(frames.Where(f => f.GetProperty("frame").GetInt32() == left || f.GetProperty("frame").GetInt32() == right)
+                        .All(f => f.GetProperty("anchor").EnumerateArray().Select(v => v.GetInt32()).SequenceEqual(new[] { 1, 5 })),
+                        "explicit pair frame map lost the authored left anchor");
+                }
+                CheckGeometrySheet(fixture, document, 7, 6);
+            }
+        }
+
+        private static void PairAnchorCache()
+        {
+            using (var fixture = new Fixture())
+            {
+                XDocument source = BuildActions();
+                XElement animation = source.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Stand").Element("Animation");
+                animation.RemoveNodes();
+                XElement first = Pose("/q.png", 2), second = Pose("/q.png", 3);
+                first.SetAttributeValue("ImageAnchor", "1,5"); second.SetAttributeValue("ImageAnchor", "-3,8");
+                animation.Add(first, second);
+                // Other actions must not preload this pair with the fixture's default anchor.
+                foreach (XElement other in source.Descendants("Action").Where(a => (string)a.Attribute("Name") != "Stand").Descendants("Pose"))
+                    if ((string)other.Attribute("Image") == "/q.png") other.SetAttributeValue("Image", "/p.png");
+                fixture.Actions(source);
+                XDocument document = fixture.Convert();
+                XElement[] poses = NamedNode(document, "Stand").Element(Ns + "act").Element(Ns + "variants")
+                    .Element(Ns + "variant").Elements(Ns + "pose").ToArray();
+                Require(poses.Length == 2 && poses.All(p => Geometry(p, "ax", "ay").SequenceEqual(new[] { 1, 5 })),
+                    "same image-pair identity did not retain its first loaded anchor");
+                using (JsonDocument map = JsonDocument.Parse(File.ReadAllText(fixture.MapPath)))
+                {
+                    JsonElement[] frames = map.RootElement.GetProperty("frames").EnumerateArray()
+                        .Where(f => f.GetProperty("image").GetString() == "img/A/q.png").ToArray();
+                    Require(frames.Length == 2 && frames.Select(f => string.Join(",", f.GetProperty("anchor").EnumerateArray().Select(v => v.GetInt32())))
+                        .SequenceEqual(new[] { "1,5", "-3,8" }),
+                        "pair-cache parity map lost the independently authored pose anchors");
+                }
+            }
+        }
+
+        private static IEnumerable<int> Geometry(XElement pose, params string[] names)
+        { return names.Select(name => int.Parse(pose.Attribute(name).Value)); }
+
+        private static void PairAnchorPreloadOrder()
+        {
+            using (var fixture = new Fixture())
+            {
+                XDocument source = BuildActions();
+                XElement direct = Pose("/q.png", 1), nested = Pose("/q.png", 1);
+                direct.SetAttributeValue("ImageAnchor", "8,-4"); nested.SetAttributeValue("ImageAnchor", "-3,9");
+                // It is unused and the nested child precedes the direct animation in XML.
+                // Source construction still loads the direct animation before the child's pair.
+                source.Root.Element("ActionList").AddFirst(S("Action", A("Name", "UnusedPreload"), A("Type", "Sequence"),
+                    S("Action", A("Name", "PreloadChild"), A("Type", "Stay"), S("Animation", nested)),
+                    S("Animation", direct)));
+                fixture.Actions(source);
+                XDocument document = fixture.Convert();
+                XElement stand = NamedNode(document, "Stand").Element(Ns + "act").Element(Ns + "variants").Element(Ns + "variant");
+                XElement q = stand.Elements(Ns + "pose").ElementAt(1);
+                Require(Geometry(q, "ax", "ay").SequenceEqual(new[] { 8, -4 }),
+                    "unused action or direct-before-nested pair preload order was ignored");
+                XElement child = NamedNode(document, "PreloadChild").Element(Ns + "act").Element(Ns + "variants").Element(Ns + "variant").Element(Ns + "pose");
+                Require(Geometry(child, "ax", "ay").SequenceEqual(new[] { 8, -4 }),
+                    "nested action replaced the pair anchor loaded by its parent's direct animation");
+            }
+        }
+
+        private static void RightOnlyRefusal()
+        {
+            using (var fixture = new Fixture())
+            {
+                XDocument source = BuildActions();
+                source.Descendants("Pose").Single(p => p.Attribute("Image") == null).SetAttributeValue("ImageRight", "/q.png");
+                fixture.Actions(source);
+                Refusal(fixture, "TICK_RIGHT_ONLY_UNSUPPORTED");
+                Require(!Directory.Exists(fixture.Output), "right-only refusal left a partial output");
+            }
+        }
+
+        private static void PairAnchorIdentity()
+        {
+            using (var fixture = new Fixture())
+            {
+                // Register this exact fixture path so cleanup includes its containing directory.
+                fixture.Write("img/A/sub/p.png", "");
+                SavePng(Path.Combine(fixture.Pack, "img", "A", "sub", "p.png"), false);
+                XElement plain = Pose("/p.png", 1), alias = Pose("p.png", 1), explicitSame = Pose("/p.png", 1),
+                    upperCase = Pose("/P.png", 1), repeated = Pose("/sub//p.png", 1), collapsed = Pose("/sub/p.png", 1),
+                    explicitAlias = Pose("/p.png", 1);
+                plain.SetAttributeValue("ImageAnchor", "1,5"); alias.SetAttributeValue("ImageAnchor", "-2,6");
+                explicitSame.SetAttributeValue("ImageAnchor", "2,4"); explicitSame.SetAttributeValue("ImageRight", "/p.png");
+                upperCase.SetAttributeValue("ImageAnchor", "3,3");
+                repeated.SetAttributeValue("ImageAnchor", "4,2"); collapsed.SetAttributeValue("ImageAnchor", "9,8");
+                explicitAlias.SetAttributeValue("ImageAnchor", "8,9"); explicitAlias.SetAttributeValue("ImageRight", "//p.png");
+                fixture.Actions(new XDocument(S("Mascot", S("ActionList", S("Action", A("Name", "Stand"), A("Type", "Stay"),
+                    S("Animation", plain, alias, explicitSame, upperCase, repeated, collapsed, explicitAlias))))));
+                fixture.Behaviors(new XDocument(S("Mascot", S("BehaviorList", S("Behavior", A("Name", "Main"),
+                    A("Action", "Stand"), A("Frequency", 1))))));
+                XDocument document = fixture.Convert();
+                XElement[] poses = NamedNode(document, "Stand").Element(Ns + "act").Element(Ns + "variants")
+                    .Element(Ns + "variant").Elements(Ns + "pose").ToArray();
+                Require(poses.Length == 7 && Geometry(poses[0], "ax", "ay").SequenceEqual(new[] { 1, 5 })
+                    && Geometry(poses[1], "ax", "ay").SequenceEqual(new[] { 1, 5 }),
+                    "image-pair left leading separator aliases acquired independent anchors");
+                Require(Geometry(poses[2], "ax", "ay").SequenceEqual(new[] { 2, 4 })
+                    && Geometry(poses[6], "ax", "ay").SequenceEqual(new[] { 2, 4 })
+                    && poses[2].Attribute("right") != null && poses[6].Attribute("right") != null,
+                    "image-pair absent right and explicit same right shared an anchor or lost explicit pixels");
+                Require(Geometry(poses[3], "ax", "ay").SequenceEqual(new[] { 3, 3 }),
+                    "image-pair cache key lost Java ordinal case sensitivity");
+                Require(Geometry(poses[4], "ax", "ay").SequenceEqual(new[] { 4, 2 })
+                    && Geometry(poses[5], "ax", "ay").SequenceEqual(new[] { 4, 2 }),
+                    "image-pair repeated internal separators acquired independent anchors");
+            }
+        }
+
+        private static void RightPathRefusal()
+        {
+            using (var fixture = new Fixture())
+            {
+                XDocument source = BuildActions();
+                source.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Stand")
+                    .Element("Animation").Elements("Pose").First().SetAttributeValue("ImageRight", "q.png");
+                fixture.Actions(source);
+                Refusal(fixture, "TICK_RIGHT_PATH_UNSUPPORTED");
+                Require(!Directory.Exists(fixture.Output), "member-relative right-path refusal left a partial output");
+            }
+        }
+
+        private static void CheckGeometrySheet(Fixture fixture, XDocument document, int width, int height)
+        {
+            XElement image = document.Root.Element(Ns + "image");
+            int tilesX = int.Parse(image.Element(Ns + "tilesx").Value), tilesY = int.Parse(image.Element(Ns + "tilesy").Value);
+            using (JsonDocument map = JsonDocument.Parse(File.ReadAllText(fixture.MapPath)))
+            using (var bytes = new MemoryStream(Convert.FromBase64String(image.Element(Ns + "png").Value)))
+            using (var sheet = new Bitmap(bytes))
+            {
+                Require(sheet.Width / tilesX == width && sheet.Height / tilesY == height,
+                    "mixed sheet cell is not the maximum source width and height");
+                foreach (JsonElement frame in map.RootElement.GetProperty("frames").EnumerateArray())
+                {
+                    int index = frame.GetProperty("frame").GetInt32();
+                    using (var original = new Bitmap(Path.Combine(fixture.Pack, frame.GetProperty("image").GetString().Replace('/', Path.DirectorySeparatorChar))))
+                    {
+                        Require(frame.GetProperty("size").EnumerateArray().Select(v => v.GetInt32()).SequenceEqual(new[] { original.Width, original.Height }),
+                            "mixed frame map replaced authored dimensions with cell dimensions");
+                        var cell = new Rectangle((index % tilesX) * width, (index / tilesX) * height, width, height);
+                        Require(PixelBytes(sheet, new Rectangle(cell.X, cell.Y, original.Width, original.Height))
+                            .SequenceEqual(PixelBytes(original, new Rectangle(0, 0, original.Width, original.Height))),
+                            "mixed sprite pixels are not copied at the cell top-left");
+                        if (original.Width < width)
+                            Require(PixelBytes(sheet, new Rectangle(cell.X + original.Width, cell.Y, width - original.Width, height)).All(b => b == 0),
+                                "mixed sprite right padding is not transparent");
+                        if (original.Height < height)
+                            Require(PixelBytes(sheet, new Rectangle(cell.X, cell.Y + original.Height, original.Width, height - original.Height)).All(b => b == 0),
+                                "mixed sprite bottom padding is not transparent");
+                    }
+                }
             }
         }
 
@@ -554,13 +761,13 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 S("Behavior", A("Name", "ChangeBehavior"), A("Action", "Change"), A("Frequency", 0)))));
         }
 
-        private static void SavePng(string path, bool alternate, int width = 4, float dpi = 96, bool alpha = true)
+        private static void SavePng(string path, bool alternate, int width = 4, float dpi = 96, bool alpha = true, int height = 6)
         {
-            using (var image = new Bitmap(width, 6, PixelFormat.Format32bppArgb))
+            using (var image = new Bitmap(width, height, PixelFormat.Format32bppArgb))
             {
                 image.SetResolution(dpi, dpi);
                 int seed = alternate ? 71 : 19;
-                for (int y = 0; y < 6; y++)
+                for (int y = 0; y < height; y++)
                     for (int x = 0; x < width; x++)
                         image.SetPixel(x, y, Color.FromArgb(255, (x * 43 + seed) % 256, (y * 37 + seed) % 256, (x * 17 + y * 13 + seed) % 256));
                 if (alpha)
@@ -570,7 +777,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     image.SetPixel(2, 0, Color.FromArgb(254, 255, 255, 255));
                     image.SetPixel(1, 1, Color.FromArgb(0, 0, 0, 0));
                 }
-                image.SetPixel(width - 1, 5, alternate ? Color.Cyan : Color.Magenta);
+                image.SetPixel(width - 1, height - 1, alternate ? Color.Cyan : Color.Magenta);
                 image.Save(path, ImageFormat.Png);
             }
         }

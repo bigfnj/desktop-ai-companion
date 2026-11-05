@@ -17,7 +17,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
 {
     /// <summary>A strict, deliberately limited first tick-format lowering. Unsupported source constructs fail
     /// with their source location. It does not change the classic converter or claim action-family support.
-    /// Until the host carries per-pose source bounds, each member must have one authored image geometry.</summary>
+    /// Each pose retains its source image bounds inside a top-left-aligned sheet cell.</summary>
     public static class TickPackEmitter
     {
         private static readonly XNamespace Ns = "https://esheep.petrucci.ch/";
@@ -104,6 +104,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             public string Image, Path;
             public int X, Y, Width, Height;
         }
+        private sealed class PairAnchor { public int X, Y; }
 
         private sealed class MemberBuilder
         {
@@ -112,10 +113,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             private readonly List<XElement> _nodes = new List<XElement>();
             private readonly Dictionary<string, ShimejiSourceElement> _actions = new Dictionary<string, ShimejiSourceElement>(StringComparer.Ordinal);
             private readonly HashSet<string> _globalActions = new HashSet<string>(StringComparer.Ordinal);
+            private readonly List<ShimejiSourceElement> _actionOrder = new List<ShimejiSourceElement>();
             private readonly Dictionary<string, RootBehaviour> _roots = new Dictionary<string, RootBehaviour>(StringComparer.Ordinal);
             private readonly List<string> _rootOrder = new List<string>();
             private readonly List<Frame> _frames = new List<Frame>();
             private readonly Dictionary<string, int> _frameIds = new Dictionary<string, int>(StringComparer.Ordinal);
+            private readonly Dictionary<string, PairAnchor> _pairAnchors = new Dictionary<string, PairAnchor>(StringComparer.Ordinal);
             private readonly Dictionary<string, string> _actionMap = new Dictionary<string, string>(StringComparer.Ordinal);
             private readonly Dictionary<string, string> _behaviourMap = new Dictionary<string, string>(StringComparer.Ordinal);
             private readonly Dictionary<string, string> _childMap = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -144,6 +147,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                         if (_actions.ContainsKey(name)) Fail(action, "duplicate action '" + name + "'");
                         _actions.Add(name, action);
                         _globalActions.Add(name);
+                        _actionOrder.Add(action);
                     }
                 }
                 foreach (ShimejiSourceElement list in _source.Behaviors.Root.Children)
@@ -153,7 +157,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     CollectRoots(list, null);
                 }
                 if (_roots.Count == 0 || _actions.Count == 0) throw new InvalidDataException("Tick member has no actions or root behaviours: " + _member);
-                foreach (ShimejiSourceElement action in _actions.Values.ToArray()) EmitAction(action, false);
+                // Source image pairs are loaded eagerly, including from unused actions. Their cache
+                // excludes the authored anchor, so later poses with the same pair use the first one.
+                foreach (ShimejiSourceElement action in _actionOrder) IndexPairAnchors(action);
+                foreach (ShimejiSourceElement action in _actionOrder) EmitAction(action, false);
                 foreach (string name in _rootOrder) _roots[name].Id = _next++;
                 foreach (string name in _rootOrder)
                 {
@@ -260,7 +267,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 int childIndex = 0;
                 foreach (ShimejiSourceElement child in source.Children)
                 {
-                    if (child.Kind == ShimejiSourceKind.Animation && !composite) variants.Add(EmitVariant(child));
+                    if (child.Kind == ShimejiSourceKind.Animation)
+                    {
+                        // Composite animations do not run, but the source still loads their images.
+                        XElement variant = EmitVariant(child);
+                        if (!composite) variants.Add(variant);
+                    }
                     else if (composite && (child.Kind == ShimejiSourceKind.ActionReference || child.Kind == ShimejiSourceKind.Action))
                     {
                         string target = Required(child, "Name");
@@ -303,23 +315,63 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 foreach (ShimejiSourceElement child in source.Children)
                 {
                     if (child.Kind != ShimejiSourceKind.Pose) Fail(child, "only Pose is supported in an Animation");
-                    Check(child, "Image", "ImageAnchor", "Velocity", "Duration");
+                    Check(child, "Image", "ImageRight", "ImageAnchor", "Velocity", "Duration");
                     int dx, dy;
                     Pair(Required(child, "Velocity"), child, out dx, out dy);
                     int ticks = Int(child, "Duration", null);
                     if (ticks < 1 || ticks > 100000) Fail(child, "pose duration must be 1 to 100000");
-                    int frame = -1;
                     string image = Value(child, "Image");
+                    string right = Value(child, "ImageRight");
+                    var pose = E("pose", new XAttribute("frame", -1), new XAttribute("ticks", ticks), new XAttribute("dx", dx), new XAttribute("dy", dy));
                     if (image != null)
                     {
                         int x, y;
                         Pair(Required(child, "ImageAnchor"), child, out x, out y);
-                        frame = AddFrame(image, x, y, child);
+                        int frame = AddFrame(image, x, y, child);
+                        PairAnchor effective = _pairAnchors[PairKey(image, right, child)];
+                        pose.SetAttributeValue("frame", frame);
+                        pose.Add(new XAttribute("ax", effective.X), new XAttribute("ay", effective.Y),
+                            new XAttribute("w", _frames[frame].Width), new XAttribute("h", _frames[frame].Height));
+                        if (right != null)
+                        {
+                            int rightFrame = AddFrame(right, x, y, child);
+                            pose.Add(new XAttribute("right", rightFrame),
+                                new XAttribute("rw", _frames[rightFrame].Width), new XAttribute("rh", _frames[rightFrame].Height));
+                        }
                     }
-                    variant.Add(E("pose", new XAttribute("frame", frame), new XAttribute("ticks", ticks), new XAttribute("dx", dx), new XAttribute("dy", dy)));
+                    else if (right != null) Fail(child, "TICK_RIGHT_ONLY_UNSUPPORTED: a right-only pose can depend on an earlier image-pair cache entry");
+                    variant.Add(pose);
                 }
                 if (!variant.Elements().Any()) Fail(source, "Animation has no poses");
                 return variant;
+            }
+
+            private void IndexPairAnchors(ShimejiSourceElement action)
+            {
+                // The builder loads direct animations before recursing into nested actions.
+                foreach (ShimejiSourceElement animation in action.Children.Where(n => n.Kind == ShimejiSourceKind.Animation))
+                    foreach (ShimejiSourceElement pose in animation.Children.Where(n => n.Kind == ShimejiSourceKind.Pose))
+                    {
+                        string image = Value(pose, "Image");
+                        if (image == null) continue;
+                        string key = PairKey(image, Value(pose, "ImageRight"), pose);
+                        int x, y;
+                        Pair(Required(pose, "ImageAnchor"), pose, out x, out y);
+                        if (!_pairAnchors.ContainsKey(key)) _pairAnchors.Add(key, new PairAnchor { X = x, Y = y });
+                    }
+                foreach (ShimejiSourceElement nested in action.Children.Where(n => n.Kind == ShimejiSourceKind.Action))
+                    IndexPairAnchors(nested);
+            }
+
+            private string PairKey(string left, string right, ShimejiSourceElement source)
+            {
+                // AnimationBuilder joins ImageRight to the member name as text, unlike Image.
+                // Only the leading-separator form stays in this lowering's member-local subset.
+                if (right != null && (right.Length == 0 || (right[0] != '/' && right[0] != '\\')))
+                    Fail(source, "TICK_RIGHT_PATH_UNSUPPORTED: ImageRight needs a leading separator for a member-local sprite");
+                string prefix = ".\\img\\" + _member + "\\";
+                return prefix + SpriteRelative(left, source).Replace('/', '\\')
+                    + (right == null ? "" : prefix + SpriteRelative(right, source).Replace('/', '\\'));
             }
 
             private void EmitBehaviour(ShimejiSourceElement source, string condition, int id)
@@ -385,8 +437,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             private int AddFrame(string image, int x, int y, ShimejiSourceElement source)
             {
                 if (x < -4096 || x > 4096 || y < -4096 || y > 4096) Fail(source, "authored anchor is outside this lowering's geometry limits");
-                string relative = image.TrimStart('/', '\\').Replace('\\', '/');
-                if (relative.Length == 0 || relative.Split('/').Any(p => p == ".." || p == "." || p.Contains(":"))) Fail(source, "unsafe sprite path '" + image + "'");
+                string relative = SpriteRelative(image, source);
                 if (!relative.EndsWith(".png", StringComparison.OrdinalIgnoreCase)) Fail(source, "only PNG sprites are supported");
                 string path = Path.GetFullPath(Path.Combine(_pack, "img", _member, relative.Replace('/', Path.DirectorySeparatorChar)));
                 if (!Inside(Path.Combine(_pack, "img", _member), path)) Fail(source, "sprite leaves its image set");
@@ -407,6 +458,13 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 return index;
             }
 
+            private static string SpriteRelative(string image, ShimejiSourceElement source)
+            {
+                string relative = image.TrimStart('/', '\\').Replace('\\', '/');
+                if (relative.Length == 0 || relative.Split('/').Any(p => p == ".." || p == "." || p.Contains(":"))) Fail(source, "unsafe sprite path '" + image + "'");
+                return string.Join("/", relative.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries));
+            }
+
             private XElement MemberParameter(string tag, ShimejiSourceAttribute attribute, ShimejiSourceElement target)
             {
                 if (IsMemberParameter(attribute.Name) && attribute.RawValue == _member)
@@ -421,21 +479,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             private byte[] Composite(out int anchorX, out int anchorY, out int tilesX, out int tilesY)
             {
                 if (_frames.Count == 0) throw new InvalidDataException("Tick member needs at least one visible pose: " + _member);
-                Frame first = _frames[0];
-                foreach (Frame frame in _frames)
-                    if (frame.Width != first.Width || frame.Height != first.Height || frame.X != first.X || frame.Y != first.Y
-                        || frame.X < 0 || frame.X > frame.Width || frame.Y < 0 || frame.Y > frame.Height)
-                        throw new InvalidDataException("TICK_GEOMETRY_UNSUPPORTED " + _member + ": mixed authored image bounds or anchors need per-pose host bounds (" + frame.Image + ").");
-                int left = 0, right = 0, top = 0, bottom = 0;
-                foreach (Frame frame in _frames)
-                {
-                    left = Math.Max(left, frame.X); right = Math.Max(right, frame.Width - frame.X);
-                    top = Math.Max(top, frame.Y); bottom = Math.Max(bottom, frame.Height - frame.Y);
-                }
-                int width = checked(left + right), height = checked(top + bottom);
+                int width = _frames.Max(frame => frame.Width), height = _frames.Max(frame => frame.Height);
                 if (width < 1 || height < 1 || width > SpriteSheetBuilder.MaxCell || height > SpriteSheetBuilder.MaxCell)
                     throw new InvalidDataException("Tick sheet requires cells outside 1.." + SpriteSheetBuilder.MaxCell + "; this lowering never rescales source geometry.");
-                anchorX = left; anchorY = top;
+                anchorX = _frames[0].X; anchorY = _frames[0].Y;
                 tilesX = (int)Math.Ceiling(Math.Sqrt(_frames.Count));
                 tilesY = (_frames.Count + tilesX - 1) / tilesX;
                 if (tilesX * width > SpriteSheetBuilder.MaxSheetDimension || tilesY * height > SpriteSheetBuilder.MaxSheetDimension)
@@ -453,7 +500,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                         {
                             Frame frame = _frames[i];
                             using (var bitmap = new Bitmap(frame.Path))
-                                CopyPixels(bitmap, destination, (i % tilesX) * width + left - frame.X, (i / tilesX) * height + top - frame.Y);
+                                CopyPixels(bitmap, destination, (i % tilesX) * width, (i / tilesX) * height);
                         }
                     }
                     finally { sheet.UnlockBits(destination); }

@@ -1,5 +1,7 @@
 This probe source-links the host's actual XML DTO, XSD, script parser, and validators from an explicit `HostSourceRoot`. It calls `CompanionXmlValidator.TryParseWithFeatures` with `CompanionFormatFeatures.All` for each emitted XML. It also requires rejection of copies with missing feature declarations and a route pointing to itself. Pack outputs get another control that removes only the `packs` token and requires a diagnostic naming `packs`.
 
+Inputs with per-pose geometry get separate rejection controls for zero or oversized dimensions, anchors outside the supported range, and explicit right-facing dimensions without a right-facing frame. Cell dimensions come from the input sheet and tile counts.
+
 Run `Run.ps1 -HostSourceRoot <host-tree> -XmlPath <member/animations.xml>[,<another/animations.xml>] -OutputRoot <fresh-evidence-folder>`. In PowerShell, pass multiple paths as an array. Optional `-ExpectedCommit <full-sha>` also requires the seven linked files to match that commit before and after execution. An immutable source snapshot can be supplied without `ExpectedCommit`; its exact source hashes are recorded.
 
 The runner uses child-only isolation settings, builds into the fresh evidence folder, records source and input hashes, and checks that the executed assembly matches the fresh build. It leaves the evidence folder for review.

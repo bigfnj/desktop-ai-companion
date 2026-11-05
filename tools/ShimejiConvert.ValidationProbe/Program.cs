@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Drawing;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
@@ -51,6 +53,52 @@ internal static class Program
         XElement first = route.Element(Ns + "sequence").Elements(Ns + "next").First();
         first.Value = route.Attribute("id").Value;
         results.Add(Check("control-route-to-route", path, badRoute.ToString(), false));
+
+        CheckGeometry(path, document, results);
+    }
+
+    private static void CheckGeometry(string path, XDocument document, List<object> results)
+    {
+        XElement source = document.Descendants(Ns + "pose").FirstOrDefault(p =>
+            p.Attribute("w") != null || p.Attribute("h") != null || p.Attribute("ax") != null);
+        if (source == null) return;
+
+        XElement image = document.Root.Element(Ns + "image");
+        int columns = int.Parse(image.Element(Ns + "tilesx").Value, CultureInfo.InvariantCulture);
+        int rows = int.Parse(image.Element(Ns + "tilesy").Value, CultureInfo.InvariantCulture);
+        int cellWidth, cellHeight;
+        using (var stream = new MemoryStream(Convert.FromBase64String(image.Element(Ns + "png").Value)))
+        using (var sheet = Image.FromStream(stream))
+        {
+            cellWidth = sheet.Width / columns;
+            cellHeight = sheet.Height / rows;
+        }
+        int poseIndex = document.Descendants(Ns + "pose").ToList().IndexOf(source);
+        Action<string, Action<XElement>> control = (name, mutate) =>
+        {
+            XDocument invalid = new XDocument(document);
+            XElement pose = invalid.Descendants(Ns + "pose").ElementAt(poseIndex);
+            mutate(pose);
+            results.Add(Check(name, path, invalid.ToString(), false));
+        };
+        control("control-pose-width-zero", p => p.SetAttributeValue("w", 0));
+        control("control-pose-height-zero", p => p.SetAttributeValue("h", 0));
+        control("control-pose-width-exceeds-cell", p => p.SetAttributeValue("w", checked(cellWidth + 1)));
+        control("control-pose-height-exceeds-cell", p => p.SetAttributeValue("h", checked(cellHeight + 1)));
+        control("control-pose-anchor-x-high", p => p.SetAttributeValue("ax", 4097));
+        control("control-pose-anchor-y-low", p => p.SetAttributeValue("ay", -4097));
+        control("control-pose-right-width-without-frame", p =>
+        {
+            p.Attribute("right")?.Remove();
+            p.Attribute("rh")?.Remove();
+            p.SetAttributeValue("rw", 1);
+        });
+        control("control-pose-right-height-without-frame", p =>
+        {
+            p.Attribute("right")?.Remove();
+            p.Attribute("rw")?.Remove();
+            p.SetAttributeValue("rh", 1);
+        });
     }
 
     public static int Main(string[] args)
