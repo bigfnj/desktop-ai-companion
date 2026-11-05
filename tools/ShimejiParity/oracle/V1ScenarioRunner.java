@@ -32,10 +32,12 @@ import java.awt.event.MouseMotionListener;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -124,6 +126,7 @@ public final class V1ScenarioRunner implements DraftParityHooks.Controller {
     private final IdentityHashMap<Object, Long> entered = new IdentityHashMap<Object, Long>();
     private final IdentityHashMap<Pose, Integer> poseIndex = new IdentityHashMap<Pose, Integer>();
     private final IdentityHashMap<Document, String> documents = new IdentityHashMap<Document, String>();
+    private final IdentityHashMap<Document, String> documentRefusals = new IdentityHashMap<Document, String>();
     private final List<Object[]> refStack = new ArrayList<Object[]>();
     private Object pendingBuilder;
     private String pendingCause;
@@ -409,9 +412,54 @@ public final class V1ScenarioRunner implements DraftParityHooks.Controller {
      * with equal content, or an unused malformed one). A document the seam never reported is refused by name.
      */
     private String documentPath(Document document) {
+        String refused = documentRefusals.get(document);
+        if (refused != null) throw new IllegalStateException(refused);
         String known = documents.get(document);
         if (known == null) throw new IllegalStateException("V1_REFKEY_DOCUMENT_UNBOUND " + document.getDocumentElement().getNodeName());
         return known;
+    }
+
+    /**
+     * Binds a parsed document to the pack's own entry for the path the source opened (review W3). The source probes
+     * fixed lower-case names, so on a case-insensitive file system it also finds a file the pack spells Actions.xml,
+     * and then opens it under its own spelling. CONTRACT section 3 names the configuration file relative to the pack,
+     * so the key carries each component as its directory lists it: the spelling of the pack manifest the header
+     * binds. Only directories are listed, the same in both modes, so nothing the source reads changes. A path outside
+     * the pack, or a component with no entry or with more than one case-insensitive match, is kept and refused by
+     * name when a key needs it, never inside the source's own catch. Rejected alternative: Path.toRealPath, whose
+     * case correction the Java documentation leaves optional.
+     */
+    private void bindDocument(Document document, Path opened) {
+        try {
+            documents.put(document, packEntry(opened));
+        } catch (IOException | IllegalStateException failure) {
+            documentRefusals.put(document, "V1_REFKEY_DOCUMENT_SPELLING " + packPath(opened) + ": " + failure.getMessage());
+        }
+    }
+
+    private static String packEntry(Path opened) throws IOException {
+        Path relative = opened.normalize();
+        if (relative.isAbsolute() || relative.toString().isEmpty() || relative.startsWith("..")) {
+            throw new IllegalStateException("not inside the pack");
+        }
+        Path directory = Paths.get(".");
+        StringBuilder entry = new StringBuilder();
+        for (Path component : relative) {
+            String wanted = component.toString();
+            String found = null;
+            int matches = 0;
+            try (DirectoryStream<Path> listing = Files.newDirectoryStream(directory)) {
+                for (Path child : listing) {
+                    String name = child.getFileName().toString();
+                    if (name.equals(wanted)) { found = name; matches = 1; break; }
+                    if (name.equalsIgnoreCase(wanted)) { found = name; matches++; }
+                }
+            }
+            if (matches != 1) throw new IllegalStateException(matches + " pack entries spell " + wanted);
+            directory = directory.resolve(found);
+            entry.append(entry.length() == 0 ? "" : "/").append(found);
+        }
+        return entry.toString();
     }
 
     private static String packPath(Path path) {
@@ -503,7 +551,7 @@ public final class V1ScenarioRunner implements DraftParityHooks.Controller {
 
     private void handle(String hook, Object subject, Object detail) throws Exception {
         if (hook.equals("document")) {
-            documents.put((Document)subject, packPath((Path)detail));
+            bindDocument((Document)subject, (Path)detail);
         } else if (hook.equals("behavior-builder") || hook.equals("action-builder") || hook.equals("action-ref")) {
             elements.put(subject, (Element)read(detail, "element"));
         } else if (hook.equals("behavior-build")) {

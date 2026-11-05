@@ -721,6 +721,40 @@ def v1_self_test(args, labels):
             raise AssertionError("V1_PROOF_KIND_WITNESS a free-running proof scenario was accepted")
         labels.append("v1-proof-case-named-and-directed")
 
+    # Reviews W1-W3: the document witness asserts the exact file per image set and stack position, spelled as the
+    # pack manifest lists it, and the unmodified pack's stacks. Two sets, one of them at a lower tier.
+    expected = {"Alpha": ("img/Alpha/conf/behaviors.xml", "img/Alpha/conf/actions.xml"),
+                "Beta": ("conf/Beta/behaviors.xml", "conf/Beta/actions.xml")}
+    manifest = {document for documents in expected.values() for document in documents}
+    steps = ("/Mascot[1]/BehaviorList[1]/Behavior[1]", "/Mascot[1]/ActionList[1]/Action[1]")
+
+    def stacked(sid, name, files, paths=steps):
+        stack = [name + "|" + files[0] + "|" + paths[0]] + [name + "|" + files[1] + "|" + step for step in paths[1:]]
+        return {"type": "state", "tick": 3, "sid": sid, "actionStack": stack, "refKey": stack[-1]}
+    good = [{"type": "header"}, stacked("m1", "Alpha", expected["Alpha"]), stacked("m2", "Beta", expected["Beta"])]
+
+    def document_refused(lines, prefix, witness, wanted=expected, baseline=None):
+        try:
+            problems = v1_document_check(lines, wanted, manifest, baseline)
+        except Exception as error:
+            raise AssertionError(witness + " crashed instead of refusing: " + type(error).__name__)
+        if not problems or not problems[0].startswith(prefix):
+            raise AssertionError(witness + " " + (problems[0] if problems else "accepted"))
+    if v1_document_check(good, expected, manifest, good):
+        raise AssertionError("V1_DOCUMENT_CHECK_WITNESS the exact documents were refused")
+    # Review W1's mutant D: every document bound to the behaviours file's name.
+    document_refused([good[0], stacked("m1", "Alpha", (expected["Alpha"][0],) * 2), stacked("m2", "Beta", (expected["Beta"][0],) * 2)],
+                     "V1_DOCUMENT_KEY_FILE", "V1_DOCUMENT_FILE_WITNESS")
+    document_refused([good[0], good[1], stacked("m2", "Beta", expected["Alpha"])], "V1_DOCUMENT_KEY_FILE", "V1_DOCUMENT_CROSS_SET_WITNESS")
+    document_refused([good[0], good[1], stacked("m2", "Gamma", expected["Beta"])], "V1_DOCUMENT_KEY_SET", "V1_DOCUMENT_SET_WITNESS")
+    document_refused([good[0], dict(good[1], actionStack=[], refKey=None)], "V1_DOCUMENT_KEY_NONE", "V1_DOCUMENT_NONE_WITNESS")
+    respelled = dict(expected, Alpha=("img/Alpha/conf/Behaviors.xml", expected["Alpha"][1]))
+    document_refused([good[0], stacked("m1", "Alpha", respelled["Alpha"]), good[2]], "V1_DOCUMENT_EXPECTATION_UNLISTED",
+                     "V1_DOCUMENT_UNLISTED_WITNESS", respelled)
+    document_refused([good[0], stacked("m1", "Alpha", expected["Alpha"], (steps[0], "/Mascot[1]/ActionList[1]/Action[2]")), good[2]],
+                     "V1_DOCUMENT_KEY_BASELINE", "V1_DOCUMENT_BASELINE_WITNESS", baseline=good)
+    labels.append("v1-document-check-exact-file-per-set-and-position-listed-and-as-the-baseline")
+
 
 def png(red, green, blue):
     def chunk(kind, payload):
@@ -923,6 +957,13 @@ def mutate(args):
         ("v1-run-containment", [('if base != resolved and base ' + 'not in resolved.parents:', 'if False:')], "V1_CONTAINMENT_WITNESS"),
         ("v1-helper-missing", [('if missing:\n        raise Refusal("V1_HELPER_INVENTORY_' + 'REFUSAL missing "', 'if False:\n        raise Refusal("V1_HELPER_INVENTORY_REFUSAL missing "')], "V1_HELPER_MISSING_WITNESS"),
         ("v1-helper-shape", [('if name not in V1_HELPERS or row["file"] != V1_HELPER_PATH + name ' + 'or name in helpers:', 'if False:')], "V1_HELPER_SHAPE_WITNESS")])
+    # Review W1-W3: the document witness's conditions.
+    legs.extend([
+        ("v1-document-file", [('elif parts[1] ' + '!= expected[parts[0]][0 if position == 0 else 1]:', 'elif False:')], "V1_DOCUMENT_FILE_WITNESS"),
+        ("v1-document-set", [('if len(parts) != 3 ' + 'or parts[0] not in expected:', 'if False:')], "V1_DOCUMENT_SET_WITNESS"),
+        ("v1-document-unlisted", [('if document ' + 'not in manifest:', 'if False:')], "V1_DOCUMENT_UNLISTED_WITNESS"),
+        ("v1-document-none", [('if not any(line["actionStack"] ' + 'for line in states):', 'if False:')], "V1_DOCUMENT_NONE_WITNESS"),
+        ("v1-document-baseline", [('if mine ' + '!= theirs:', 'if False:')], "V1_DOCUMENT_BASELINE_WITNESS")])
     results = []
     with tempfile.TemporaryDirectory(prefix="oracle-mutations-", dir=os.environ["TEMP"]) as folder:
         root = Path(folder)
@@ -1337,41 +1378,135 @@ def require_current_v1_evidence(latest, tool_sha, runner_sha, state, row):
         raise Refusal("V1_EVIDENCE_STALE trace bytes differ from the run's record " + str(row.get("scenario")))
 
 
-def v1_document_witnesses(args, compare, root, classpath, runner, build):
-    """Review F5: refKeys name the file the source's own search chose. Two private fixtures built from a real
-    scenario's pack must run complete with every key in img/<set>/conf: one adds equal-content copies at the lower
-    precedence tiers (conf/<set>/ and conf/), the other adds malformed XML the source never opens."""
+def v1_document_check(lines, expected, manifest, baseline=None):
+    """Review W1: a trace's refKeys name the EXACT documents the source must choose. `expected` maps each image set
+    of the pack to its (behaviours, actions) pack paths. Stack position 0 is the Behavior or BehaviorReference the
+    behaviour came from, so it names the behaviours file; every later position is an action declaration or
+    reference, so it names the actions file (CONTRACT section 3). A key of a set the pack lacks is refused, and a key
+    naming another set's file fails its own set's expectation (the old folder prefix let any set's folder satisfy any
+    key). Each expected file must be an entry of the pack's manifest, spelled as it lists it (review W3). Against the
+    unmodified pack's run (`baseline`) every state line carries the same stack and refKey apart from the file.
+    Returns the first problem of each kind, so one run shows every failing condition."""
+    problems = []
+    for name, documents in sorted(expected.items()):
+        for document in documents:
+            if document not in manifest:
+                problems.append("V1_DOCUMENT_EXPECTATION_UNLISTED " + name + " " + document)
+    states = [line for line in lines if line.get("type") == "state"]
+    if not any(line["actionStack"] for line in states):
+        problems.append("V1_DOCUMENT_KEY_NONE no actionStack entry")
+    for line in states:
+        for position, key in enumerate(line["actionStack"]):
+            parts = key.split("|")
+            if len(parts) != 3 or parts[0] not in expected:
+                problems.append("V1_DOCUMENT_KEY_SET tick " + str(line["tick"]) + " " + line["sid"] + " " + key)
+            elif parts[1] != expected[parts[0]][0 if position == 0 else 1]:
+                problems.append("V1_DOCUMENT_KEY_FILE tick " + str(line["tick"]) + " " + line["sid"] + " position "
+                                + str(position) + " names " + parts[1])
+    if baseline is not None:
+        def shape(rows):
+            strip = lambda key: None if key is None else "|".join(key.split("|")[0::2])
+            return [(row["tick"], row["sid"], [strip(key) for key in row["actionStack"]], strip(row["refKey"]))
+                    for row in rows if row.get("type") == "state"]
+        mine, theirs = shape(states), shape(baseline)
+        if mine != theirs:
+            at = next((i for i, (a, b) in enumerate(zip(mine, theirs)) if a != b), min(len(mine), len(theirs)))
+            problems.append("V1_DOCUMENT_KEY_BASELINE state line " + str(at) + " of " + str(len(mine)) + " differs from the "
+                            + "unmodified pack's (" + str(len(theirs)) + " lines)")
+    first = {}
+    for problem in problems:
+        first.setdefault(problem.split(" ")[0], problem)
+    return list(first.values())
+
+
+# The document witness's fixtures, each a private copy of V1_DOCUMENT_SCENARIO's pack. The source's search
+# (Main.loadConfiguration) takes conf/, then conf/<set>/, then img/<set>/conf/, a later tier's file replacing an
+# earlier one's (review W2).
+V1_DOCUMENT_CASES = ("baseline", "equal-content-override", "ignored-malformed-xml", "set-tier", "pack-tier", "mixed-case")
+
+
+def v1_document_fixture(case, pack, name):
+    """Lays out one case in a copy of the pack, whose one image set `name` keeps behaviors.xml and actions.xml in
+    img/<set>/conf/, and returns the (behaviours, actions) pack paths the source must choose."""
+    chosen = pack / "img" / name / "conf"
+    top = ("img/" + name + "/conf/behaviors.xml", "img/" + name + "/conf/actions.xml")
+    if case == "equal-content-override":
+        for tier in (pack / "conf" / name, pack / "conf"):
+            tier.mkdir(parents=True, exist_ok=True)
+            for document in ("behaviors.xml", "actions.xml"):
+                (tier / document).write_bytes((chosen / document).read_bytes())
+    elif case == "ignored-malformed-xml":
+        (chosen / "unused.xml").write_text("<Mascot><ActionList>", encoding="utf-8")
+        (pack / "notes.xml").write_text("not a document <", encoding="utf-8")
+    elif case == "mixed-case":
+        # The source probes lower-case names; Windows finds these files anyway, and the key must spell them as the
+        # pack does (review W3). The oracle runs on Windows only (java.exe), so the probe always finds them.
+        (chosen / "behaviors.xml").rename(chosen / "Behaviors.xml")
+        (chosen / "actions.xml").rename(chosen / "Actions.xml")
+        return "img/" + name + "/conf/Behaviors.xml", "img/" + name + "/conf/Actions.xml"
+    elif case in ("set-tier", "pack-tier"):
+        # The documents leave img/<set>/conf/. At conf/<set>/ an equal copy also sits at conf/, the tier below, so a
+        # seam that reported the lowest tier fails as well as one that reported the highest.
+        tier = pack / "conf" / name if case == "set-tier" else pack / "conf"
+        tier.mkdir(parents=True, exist_ok=True)
+        for document in ("behaviors.xml", "actions.xml"):
+            payload = (chosen / document).read_bytes()
+            (chosen / document).unlink()
+            (tier / document).write_bytes(payload)
+            if case == "set-tier":
+                (pack / "conf" / document).write_bytes(payload)
+        chosen.rmdir()
+        prefix = "conf/" + name + "/" if case == "set-tier" else "conf/"
+        return prefix + "behaviors.xml", prefix + "actions.xml"
+    return top
+
+
+def v1_document_witnesses(args, compare, root, classpath, runner, build, rows=()):
+    """Reviews F5 and W1-W3: refKeys name the file the source's own search chose, exactly. Private fixtures built
+    from a real scenario's pack (V1_DOCUMENT_CASES) must each run complete with every key naming the files that
+    case lays out (v1_document_check); the unmodified pack's run, the scenario's own row when V1 ran it, is the
+    baseline every other case must match apart from the file. Every case runs before any failure is raised, and
+    the cases' results are written first, so one run shows every failing case (review W4)."""
     path = args.shared_root / (V1_DOCUMENT_SCENARIO + ".json")
     if not path.is_file():
         return {"status": "unavailable", "reason": "no " + path.name}
     doc = json.loads(path.read_text(encoding="utf-8"))
-    results = []
-    for case in ("equal-content-override", "ignored-malformed-xml"):
+    source_pack = args.shared_root / doc["pack"]
+    sets = sorted(item.name for item in (source_pack / "img").iterdir() if (item / "conf").is_dir())
+    if len(sets) != 1 or sorted(item.name for item in (source_pack / "img" / sets[0] / "conf").iterdir()) != ["actions.xml", "behaviors.xml"]:
+        raise Refusal("V1_DOCUMENT_WITNESS " + V1_DOCUMENT_SCENARIO + "'s pack no longer keeps one image set's "
+                      "behaviors.xml and actions.xml in img/<set>/conf/")
+    name = sets[0]
+    results, failures, baseline = [], [], None
+    for case in V1_DOCUMENT_CASES:
         fixture = root / "document-fixtures" / case
         fixture.mkdir(parents=True)
         (fixture / path.name).write_bytes(path.read_bytes())
         pack = fixture / doc["pack"]
-        shutil.copytree(str(args.shared_root / doc["pack"]), str(pack))
-        sets = sorted(item.name for item in (pack / "img").iterdir() if (item / "conf").is_dir())
-        for name in sets:
-            chosen = pack / "img" / name / "conf"
-            for document in sorted(chosen.glob("*.xml")):
-                if case == "equal-content-override":
-                    for tier in (pack / "conf" / name, pack / "conf"):
-                        tier.mkdir(parents=True, exist_ok=True)
-                        (tier / document.name).write_bytes(document.read_bytes())
-            if case == "ignored-malformed-xml":
-                (chosen / "unused.xml").write_text("<Mascot><ActionList>", encoding="utf-8")
-                (pack / "notes.xml").write_text("not a document <", encoding="utf-8")
-        row = v1_run(args, compare, fixture / path.name, root / "document-runs" / case, classpath, runner, build)
-        lines = [json.loads(line) for line in Path(row["trace"]).read_text(encoding="utf-8").splitlines() if line.strip()]
-        keys = {key for line in lines if line.get("type") == "state" for key in line["actionStack"]}
-        wanted = tuple(name + "|img/" + name + "/conf/" for name in sets)
-        if row["status"] != "complete" or not keys or not all(key.startswith(wanted) for key in keys):
-            raise Refusal("V1_DOCUMENT_WITNESS " + case + ": " + row["status"] + " " + row["detail"][:200]
-                          + " keys " + ",".join(sorted(key.split("|")[1] for key in keys)))
-        results.append({"case": case, "status": "complete", "documents": sorted({key.split("|")[1] for key in keys})})
-    return {"status": "pass", "scenario": V1_DOCUMENT_SCENARIO, "cases": results}
+        shutil.copytree(str(source_pack), str(pack))
+        expected = {name: v1_document_fixture(case, pack, name)}
+        manifest = {relative for relative, _ in compare.pack_preflight(str(pack))}
+        row = next((item for item in rows if item["scenario"] == V1_DOCUMENT_SCENARIO), None) if case == "baseline" else None
+        origin = "scenario row" if row is not None else "own run"
+        if row is None:
+            row = v1_run(args, compare, fixture / path.name, root / "document-runs" / case, classpath, runner, build)
+        trace = Path(row["trace"]) if row.get("trace") else None
+        lines = ([json.loads(line) for line in trace.read_text(encoding="utf-8").splitlines() if line.strip()]
+                 if trace is not None and trace.is_file() else [])
+        problems = (["run " + row["status"] + " " + row.get("detail", "")[:160]] if row["status"] != "complete"
+                    else v1_document_check(lines, expected, manifest, None if case == "baseline" else baseline))
+        if case == "baseline" and row["status"] == "complete":
+            baseline = lines
+        documents = sorted({key.split("|")[1] for line in lines if line.get("type") == "state" for key in line["actionStack"]})
+        results.append({"case": case, "status": "failed" if problems else "complete", "expected": list(expected[name]),
+                        "documents": documents, "origin": origin, "problems": problems})
+        if problems:
+            failures.append(case + ": " + "; ".join(problems)[:320] + " | keys name " + ",".join(documents))
+    result = {"status": "fail" if failures else "pass", "scenario": V1_DOCUMENT_SCENARIO, "cases": results}
+    write_json(root / "document-witnesses.json", result)
+    if failures:
+        raise Refusal("V1_DOCUMENT_WITNESS " + " || ".join(failures))
+    return result
 
 
 def v1(args):
@@ -1401,7 +1536,7 @@ def v1(args):
         else:
             off = v1_run(args, compare, proof_path, root, classpath, runner, build, observe=False)
             proof = dict(v1_observation_proof(traced["trace"], off["trace"]), status="pass")
-    documents = v1_document_witnesses(args, compare, root, classpath, runner, build)
+    documents = v1_document_witnesses(args, compare, root, classpath, runner, build, rows)
     validate_v1_build(state, (HERE / "edit-spec.json").read_bytes(), HERE / "draft")
     passed = all(row["status"] == "complete" for row in rows) and documents["status"] == "pass" and proof["status"] == "pass"
     result = {"status": "pass" if passed else "incomplete",

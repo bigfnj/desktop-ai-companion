@@ -125,10 +125,18 @@ source's own `Manager.tick` once per tick through the `parityStep` seam; the rea
 checking that no window became displayable. Names, refKeys and ages come from stored fields and from the seam
 callbacks the source makes while building and stepping; observation evaluates nothing. Input entries reach the
 source's own mouse listeners as synthetic events at the step's environment refresh. A refKey's file is the one the
-source's own search chose, reported where `Main.loadConfiguration` parses it; a document without that binding is
-refused (`V1_REFKEY_DOCUMENT_UNBOUND`). Each `V1` run also builds two private fixtures from `S-slice-stand-walk-01`'s
-pack, one with equal-content copies at the lower-precedence `conf/<set>/` and `conf/` tiers and one with malformed XML
-the source never opens; both must run complete with every refKey in `img/<set>/conf/` (`V1_DOCUMENT_WITNESS`).
+source's own search chose, reported where `Main.loadConfiguration` parses it, spelled as the pack's directory lists
+each component (the source probes lower-case names, which Windows also matches to, say, `Actions.xml`); a document
+without that binding is refused (`V1_REFKEY_DOCUMENT_UNBOUND`), and one whose pack entry is missing or ambiguous
+(`V1_REFKEY_DOCUMENT_SPELLING`). Each `V1` run also checks the binding on private fixtures built from
+`S-slice-stand-walk-01`'s pack: the pack unmodified (the scenario's own run when `V1` ran it), equal-content copies at
+the lower-precedence `conf/<set>/` and `conf/` tiers, malformed XML the source never opens, the documents moved to
+`conf/<set>/` (an equal copy left at `conf/`), the documents moved to `conf/`, and the documents spelled
+`Behaviors.xml` and `Actions.xml`. Every case must run complete, every refKey must name the exact file that case lays
+out (stack position 0 the behaviours file, every later position the actions file, each a pack manifest entry, for the
+key's own image set), and every other case's stacks must match the unmodified pack's apart from the file. All cases
+run before one `V1_DOCUMENT_WITNESS` refusal names every failing case; their results are in the run's
+`document-witnesses.json`.
 
 Each scenario gets one status: `complete`, or a distinct failure (`truncated`, `timeout`, `error`, or the comparer's
 trace-check class). A requested scenario without a result fails the action (`V1_SCENARIO_SKIPPED`). The named proof
