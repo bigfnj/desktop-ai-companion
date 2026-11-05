@@ -70,7 +70,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "anonymous-nested-actions", Run = (Action)AnonymousNestedActions },
                 new { Name = "custom-variables", Run = (Action)CustomVariables },
                 new { Name = "ignored-behaviour-children", Run = (Action)IgnoredBehaviourChildren },
-                new { Name = "information-refusal", Run = (Action)InformationRefusal },
+                new { Name = "information-lowering", Run = (Action)InformationLowering },
                 new { Name = "own-set-binding-reset", Run = (Action)OwnSetBindingReset },
                 new { Name = "japanese-schema-values", Run = (Action)JapaneseSchemaValues },
                 new { Name = "japanese-schema-refusal", Run = (Action)JapaneseSchemaRefusal },
@@ -1386,14 +1386,30 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             }
         }
 
-        private static void InformationRefusal()
+        // Replaces information-refusal: an information document holding only <Information> (a name, a preview, credits)
+        // converts to exactly the bytes the member has without it, since no mascot reads that metadata; a Constant, an
+        // ActionList or a BehaviourList in it, which the source would load as configuration, refuses by name.
+        private static void InformationLowering()
         {
+            string plain;
+            using (var fixture = new Fixture())
+                plain = fixture.Convert().ToString();
             using (var fixture = new Fixture())
             {
-                fixture.Write("conf/info.xml", "<Mascot/>");
-                Refusal(fixture, "information metadata is not lowered yet");
-                Require(!Directory.Exists(fixture.Output), "information refusal left output");
+                fixture.Write("conf/info.xml", new XDocument(S("Mascot", A("version", "1"), S("Information", S("Name", "Synthetic"),
+                    S("PreviewImage", "p.png"), S("Artist", A("Name", "someone"), A("URL", "https://example.invalid/")),
+                    S("SplashImages", S("SplashImage", "q.png"))))).ToString());
+                XDocument document = fixture.Convert();
+                Validate(document, "member with an information document");
+                Require(document.ToString() == plain, "information metadata changed the emitted member");
             }
+            foreach (string list in new[] { "Constant", "ActionList", "BehaviorList" })
+                using (var fixture = new Fixture())
+                {
+                    fixture.Write("conf/info.xml", new XDocument(S("Mascot", S("Information", S("Name", "Synthetic")), S(list))).ToString());
+                    Refusal(fixture, "TICK_INFORMATION_CONFIGURATION");
+                    Require(!Directory.Exists(fixture.Output), "information configuration refusal left output: " + list);
+                }
         }
 
         private static void OwnSetBindingReset()

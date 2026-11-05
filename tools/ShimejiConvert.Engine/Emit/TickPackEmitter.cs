@@ -286,7 +286,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
 
             public PreparedMember Build()
             {
-                if (_source.Information != null) Fail(_source.Information.Root, "information metadata is not lowered yet");
+                if (_source.Information != null) CheckInformation(_source.Information);
                 if (_source.Actions == null || _source.Behaviors == null) throw new InvalidDataException("Tick pack needs both action and behaviour documents.");
                 // A Japanese action document's enumerated VALUES are Japanese too: ActionType and BorderValue map them
                 // through the document's own schema, exactly as the source compares them (see SchemaValue).
@@ -911,6 +911,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 var paths = new SortedSet<string>(StringComparer.Ordinal);
                 paths.Add(_source.Actions.PackRelativePath.Replace('\\', '/'));
                 paths.Add(_source.Behaviors.PackRelativePath.Replace('\\', '/'));
+                // The information document is a source input too: it decides the schema engine names are read in.
+                if (_source.Information != null) paths.Add(_source.Information.PackRelativePath.Replace('\\', '/'));
                 foreach (Frame frame in _frames) paths.Add(frame.Image);
                 var manifest = new StringBuilder();
                 foreach (string relative in paths)
@@ -1210,6 +1212,26 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 yield return attribute;
             }
         }
+        /// <summary>
+        /// An information document (info.xml). Main loads it as one more configuration document, after the action and
+        /// behaviour ones (Main.java:420-438), and Configuration.load takes four kinds of root child from it
+        /// (Configuration.java:64-99): Constant, ActionList and BehaviourList, which would join the member's
+        /// configuration and which this lowering does not merge, so each refuses by name; and Information, whose Name,
+        /// PreviewImage, SplashImage(s) and Artist/Scripter/Commissioner/Support credits (Configuration.java:133-172)
+        /// only the image-set chooser and the information window read (ImageSetChooser.java:189-195,
+        /// InformationWindow.java:73-192, Main.java:307 and 1556 deciding whether to show that window). No mascot reads
+        /// them, so they have no runtime effect and nothing is written for them. Any other root child is never read.
+        /// The one runtime effect of the document is its schema, which becomes the configuration's (RuntimeSchema).
+        /// </summary>
+        private static void CheckInformation(ShimejiSourceDocument information)
+        {
+            CheckRoot(information.Root);
+            foreach (ShimejiSourceElement child in information.Root.Children)
+                if (child.SchemaKey == "Constant" || child.SchemaKey == "ActionList" || child.SchemaKey == "BehaviourList")
+                    Fail(child, "TICK_INFORMATION_CONFIGURATION: the source loads this " + child.SchemaKey
+                        + " from the information document as configuration, which this lowering does not merge");
+        }
+
         /// <summary>A configuration document's root element. The source reads none of its attributes: Configuration.load
         /// only asks the root for its children (hasChild, selectChildren; Configuration.java:41-102), and Main hands it the
         /// document element and nothing else (Main.java:371, 418, 437). So a root attribute, such as the schema-location
