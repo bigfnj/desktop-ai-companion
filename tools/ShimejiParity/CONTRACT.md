@@ -71,7 +71,9 @@ Every consumer draws from the one stream: the oracle's Java `Math.random` call s
 - `occurrence`: the draw's 1-based ordinal over the whole run, all companions together.
 - `site`: what drew it, named the same way by both runtimes. A built-in site is one of the table below. A script
   site is `script:<refKey>#<attribute>#<k>`: the element's `refKey` (section 3), the attribute holding the
-  expression, and k, the 1-based position of the `Math.random` call in the expression text.
+  expression, and k, the 1-based ordinal of that `Math.random` call among the expression's direct calls, in source
+  order. It is an ordinal, not a character offset: a runtime that records offsets converts them.
+- `purpose` is informational (what the draw was for, in the runtime's own words). It is written but never compared.
 
 | site | what draws (source location, for the oracle) |
 |---|---|
@@ -81,7 +83,7 @@ Every consumer draws from the one stream: the oracle's Java `Math.random` call s
 | `builtin:no-candidate-drop-x` | no behaviour is eligible: the companion drops in at a random x (Configuration.java:237/242) |
 | `builtin:disabled-behavior-drop-x` | a behaviour entered by name is turned off: the companion it is built for drops in instead, which for a birth is the PARENT (Configuration.java:274/279; a name that does not exist throws instead) |
 | `builtin:out-of-bounds-drop-x` | the companion left the screen: same drop-in (UserBehavior.java:261/266) |
-| `builtin:dragged-regist` | Dragged's 90% chance of resisting at regist time (Dragged.java:104) |
+| `builtin:dragged-regist` | Dragged's draw at age `timeToRegist - 1`: a value of 0.1 or more adds one tick to `timeToRegist`, so the drag goes on a tick longer; below 0.1 the regist time arrives (Dragged.java:104) |
 | `builtin:regist-facing` | Regist's random facing (Regist.java:69) |
 
 The screen and work-area variants of a drop-in are one site; the Multiscreen setting picks the range, not the site.
@@ -104,10 +106,16 @@ One JSON object per line.
 - `runtime` is `oracle` or `host`.
 - `scenario.sha256` is the SHA-256 of the scenario file's bytes. `scenario.packSha256` binds the pack's content:
   list every file under the pack directory as `<sha256 of its bytes>  <relative path with forward slashes>`, one per
-  line ending in `\n`, sorted by path in ordinal order; `packSha256` is the SHA-256 of that text in UTF-8.
+  line ending in `\n`, sorted by the paths' UTF-8 BYTES, lexicographically (not by UTF-16 code units, which order
+  supplementary characters differently); `packSha256` is the SHA-256 of that text in UTF-8. Before reading any file,
+  the pack is preflighted: a link, junction or other reparse point anywhere in it, the pack directory included, is
+  refused (`pack-invalid`) and nothing behind it is opened. Only a link can lead a pack path outside the pack.
 - The oracle's `build` requires `sourceZipSha256`, `patchSha256`, `jdk`, `deps` and `artifactSha256`. The host's
-  requires `commit`, `exeSha256`, `engineSha256` and `converterSha256`. Every `...Sha256` value is 64 lowercase hex
-  characters. A missing or malformed witness is `build-witness-missing`.
+  requires `commit`, `exeSha256`, `engineSha256` and `converterSha256`. `converterSha256` binds the converter's
+  CODE: the SHA-256 of a manifest, in the pack-manifest form above, over its managed assemblies (or its script), never
+  an apphost, whose bytes do not change with the code. Every `...Sha256` value, `deps` values included, is 64
+  lowercase hex characters, and `startedUtc` and `runId` are required. A missing or malformed witness is
+  `build-witness-missing`.
 
 **State lines.** Tick 0 is the startup snapshot; then one snapshot after each step. Within a tick the lines list the
 active companions in manager order, then the pending births in add-queue order.
@@ -126,20 +134,20 @@ active companions in manager order, then the pending births in add-queue order.
 |---|---|---|
 | `behavior` | the current behaviour's name | yes, before one is chosen |
 | `action` | the leaf action's name | yes, before evaluation or for an unnamed action |
-| `actionClass` | `Sequence`, `Select`, `Stay`, `Move`, `Animate`, or the short class name of an `Embedded` action | yes, with `action` |
-| `actionStack` | the refKeys from the behaviour's root action to the leaf; `[]` when there is none | no |
+| `actionClass` | `Sequence`, `Select`, `Stay`, `Move`, `Animate`, or the short class name of an `Embedded` action; known for an unnamed action too | yes, before evaluation |
+| `actionStack` | refKeys, outermost first: the `Behavior` or `BehaviorReference` element the behaviour came from, then its root action's declaration, then at each depth the active child's `ActionReference` or nested `Action`. An `ActionReference` entry stands for that activation; its target declaration is not added after it. `[]` when there is no behaviour | no |
 | `refKey` | the declaration or reference that started the leaf action; equals the last `actionStack` entry | yes, when the stack is empty |
 | `actionAge` | the leaf action's time in ticks | yes, before evaluation |
-| `pose` | the image the companion shows: `image` and `imageRight` are pack-relative paths with forward slashes (`img/Egg/shime3.png`), so they name the image set the image belongs to, which after a Transform can be the OLD type's until the new type's first pose; `index` is the pose's position in its animation | yes, before any pose |
+| `pose` | the image the companion shows, taken from the stored APPLIED pose, never from the current image set: `image` and `imageRight` are pack-relative paths with forward slashes (`img/Egg/shime3.png`), so they name the member the image belongs to, which after a Transform is the OLD member's until the new type's first pose is applied; `index` is the pose's position in its animation | yes, before any pose |
 | `poseAnchor` | the offset from `origin` to the rendered image's authored anchor, after facing and `dpiScale` | yes, with `pose` |
 | `visible` | false while an image-less pose hides the companion, and once it is disposing | no |
 | `anchor` | the contact point in screen pixels | no |
 | `origin` | the rendered image's top-left in screen pixels | yes, with `pose` |
 | `velocity` | the committed anchor change over this step: this tick's `anchor` minus the previous tick's; `[0, 0]` on a companion's first line | no |
-| `affordances` | the offers made this tick, in the order they were made | no |
-| `target` | the chosen scan target's sid | yes |
+| `affordances` | the companion's STORED offer list after the step, in order. An action's step replaces the list when that step runs (`ActionBase.next`); initialisation does not, so a companion whose action did not step this tick (paused, or between behaviours) keeps the list it had | no |
+| `target` | the chosen scan target's sid, set where a scan runs and cleared when an action initialises | yes |
 | `pending` | a birth that was requested and not yet activated; a pending companion never steps | no |
-| `disposing` | disposal was requested this tick; the companion is removed at the next tick's step 3 | no |
+| `disposing` | disposal was requested: the companion is hidden at once (`visible` false), its offers are cleared, and it skips its own tick and apply from then on. It leaves at the next QUEUE DRAIN (section 4, step 3): a request made during step 4 is removed at step 3 of the next tick, one made before step 3 (by step-1 input) in the same tick. Its own `count` and `totalCount` read 0 at once; peers still count it until it leaves | no |
 | `vars` | stored scalar per-instance variables only | no |
 
 Every field is present on every state line, null or not. A pending companion's action and pose fields hold what
@@ -156,17 +164,16 @@ tick. `{ "type": "event", "tick": 12, "sid": "m1", "kind": "...", ... }` with th
 
 | kind | payload |
 |---|---|
-| `behavior` | `from`, `to`, `cause` (`select` / `next` / `forced` / `partner` / `fallback`) |
-| `action` | `from`, `to`, `cause` (`sequence` / `select` / `guard` / `duration` / `arrival` / `lost` / `instant`) |
+| `behavior` | `from`, `to`, `cause` (`select` / `next` / `forced` / `partner` / `fallback`, see below) |
 | `transform` | `fromImageSet`, `toImageSet`, `behavior` |
 | `birth-request` | `child` (sid), `imageSet`, `behavior`, `anchor`, `lookRight`, `ordinal`, `attempt` |
 | `birth-activate` | `child` |
 | `birth-refused` | `child` (sid or null), `attempt`, `reason` (`cap` / `toggle-off` / `missing-member` / `error`) |
 | `scan-target` | `affordance`, `target` (sid or null) |
-| `interact` | `with` (sid list sharing the anchor) |
+| `interact` | `with`: the OTHER active companions on this one's anchor, in manager order (once per Interact step, at the start of its tick) |
 | `dispose-request` | `reason` |
 | `dispose` | none |
-| `window-move` | `from` and `to` rect |
+| `window-move` | `from` and `to`, each `[left, top, right, bottom]` as the scenario writes a window |
 | `window-minimize` | none |
 | `sound` | `clip`, `op` (`start` / `stop`) |
 | `mute` | `clip` or null |
@@ -174,6 +181,14 @@ tick. `{ "type": "event", "tick": 12, "sid": "m1", "kind": "...", ... }` with th
 | `drag` | `op` (`start` / `end`) |
 | `hotspot` | `op` (`press` / `release`), `behavior` |
 | `error` | `message` |
+
+A behaviour's `cause` follows the entry that was CHOSEN: `select` when it came from the root list, `next` when it came
+from the ending behaviour's next list (even if a root behaviour shares its name); `forced` when it was entered by name
+(a scenario start, a birth, a Transform, a hotspot, lost ground, leaving the screen, a seeker's own transition);
+`partner` for a scan target moved by its seeker; `fallback` only for the zero-weight and disabled-by-name drop-ins.
+`scan-target` is written at every scan, with a null target when no one offers (ScanInteract searches every tick it
+has no target). Action changes have no event of their own in v1: they show in the state lines, and a transient
+instant action that left no observable effect is not counted as covered by them.
 
 Birth lineage: `attempt` counts a parent's birth attempts from 1, refused or not. `ordinal` counts only its
 successful births from 1, and a child's sid is `<parentSid>.b<ordinal>`, so a refused attempt never consumes a sid.
@@ -191,16 +206,20 @@ status is `complete`, `timeout`, `aborted` or `error`. A trace with no footer is
 Startup (tick 0):
 
 1. The environment applies the tick-0 timeline entries.
-2. Each `mascots` entry is created in order, its start state applied, then its behaviour initialised, and then it is
-   queued as the source's `Main.createMascot` queues it (`Manager.add`): it is listed `pending: true` at tick 0, and
-   becomes active at step 1's phase 2 with no birth event. Its counts during initialisation are 0.
-3. Tick-0 state lines are written.
+2. Each `mascots` entry is created in order, its start state applied, then its behaviour initialised. Every entry is
+   initialised before any is added, so counts during initialisation are 0.
+3. The start companions are then added to the manager in creation order WITHOUT a step: no environment, time, action
+   or render advances, and no birth event is written. This is the test driver's normalisation of the source's queued
+   `Main.createMascot` (which would leave them pending until the first manager tick); both runtimes apply it, so start
+   companions are listed active, `pending: false`, at tick 0.
+4. Tick-0 state lines are written.
 
 Each step t = 1 to N, in this order:
 
 1. The environment applies tick t's scenario entries (cursor, presses, active window).
-2. Births requested in the previous tick are activated.
-3. Disposals requested in the previous tick are removed.
+2. Births requested since the last drain are activated.
+3. Disposals requested since the last drain are removed (the queue drain): those requested during the previous tick's
+   step 4, and any requested by this tick's step-1 input.
 4. Every active companion steps, in stable manager order. Peers update sequentially, so a later companion sees an
    earlier one's new offer and anchor in the same tick. Inside a step the source's own check order and cache
    boundaries hold (grimoire/06): there is no added once-per-tick rule.
@@ -225,8 +244,14 @@ A trace is checked before anything is compared, and a trace that fails a check i
   match the lines; no state at tick 0; a companion whose lines have a gap, or that stops before tick N without a
   `dispose` event; a `velocity` that is not the anchor change; a `refKey` that is not the last `actionStack` entry;
   `rng-draw` occurrences out of sequence.
+- `rng-invalid`: a recorded draw value outside [0, 1), or, in a `tape` scenario, a recorded value that is not the
+  tape's value at that occurrence. A trace that did not take the scenario's numbers as declared cannot be compared, so
+  this is unjudgeable. (Drawing at all in a `none` scenario, or past the tape's end, is the runtime's BEHAVIOUR and is
+  judged as `rng-unexpected-draw` / `rng-tape-exhausted`, section 2.)
 - `runtime-mismatch`: the oracle trace is not labelled `oracle`, or the host trace `host`.
-- `scenario-invalid`: the scenario breaks section 1 (a tick-0 button edge, a missing field).
+- `scenario-invalid`: the scenario breaks section 1 (a tick-0 button edge, a missing field, a start companion without
+  a `behavior`: a directed start state names its behaviour, so no unplanned selection draw runs).
+- `pack-invalid`: the pack preflight refused a link or a path outside the pack (section 3).
 - `scenario-hash-mismatch` / `pack-hash-mismatch`: the traces disagree on the scenario or pack hash, or, when the
   comparer is given the scenario, either trace disagrees with the file or the pack on disk.
 - `artifact-hash-mismatch`: the comparer was given the oracle JAR or the host executable and its hash is not the
@@ -243,9 +268,10 @@ Then:
   - `anchor` matches exactly unless the scenario declares a named rounding boundary.
   - `origin` is compared normalised, as `origin + poseAnchor`: the point where the image's authored anchor was drawn.
     The two runtimes may pad their images differently; that point may not differ.
-- **Free-running scenarios** (`splitmix64`) make a separate claim: behaviour time-share, with the tolerance and both
-  draw counts printed beside the result.
-- **Verdicts:** `exact`, `within-tolerance:<name>`, `policy:<id>`, `approximate`, `unsupported`,
+- **Free-running scenarios** (`splitmix64`) make a separate, weaker claim: behaviour time-share, with the tolerance
+  and both draw counts printed beside the result. Their verdict is `time-share` pass or fail, never `exact`, whatever
+  the state lines show.
+- **Verdicts:** `exact`, `within-tolerance:<name>`, `time-share-pass` (free-running only), `policy:<id>`, `approximate`, `unsupported`,
   `not-exercised`, `pending` (the host primitive does not exist yet), `fail`, `unjudgeable`.
 - **Behaviour failures:** `missing-event`, `extra-event`, `event-mismatch`, `entity-mismatch`, `state-mismatch`,
   `rng-unexpected-draw`, `rng-tape-exhausted`, `rng-draw-count`, `time-share`. **Run failures:** `truncated`,

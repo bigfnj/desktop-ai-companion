@@ -19,6 +19,7 @@ import hashlib
 import json
 import os
 import re
+import stat
 import sys
 
 SCHEMA_TRACE = "shimeji-parity-trace/1"
@@ -37,7 +38,6 @@ EXACT_STATE_FIELDS = ("imageSet", "behavior", "action", "actionClass", "actionSt
                       "visible", "lookRight", "affordances", "target", "dragging", "pending", "disposing", "vars")
 EVENT_PAYLOAD_KEYS = {
     "behavior": ("from", "to", "cause"),
-    "action": ("from", "to", "cause"),
     "transform": ("fromImageSet", "toImageSet", "behavior"),
     "birth-request": ("child", "imageSet", "behavior", "anchor", "lookRight", "ordinal", "attempt"),
     "birth-activate": ("child",),
@@ -50,7 +50,8 @@ EVENT_PAYLOAD_KEYS = {
     "window-minimize": (),
     "sound": ("clip", "op"),
     "mute": ("clip",),
-    "rng-draw": ("site", "occurrence", "value", "purpose"),
+    # `purpose` is written but informational: each runtime words it its own way, so it is never compared.
+    "rng-draw": ("site", "occurrence", "value"),
     "drag": ("op",),
     "hotspot": ("op", "behavior"),
     "error": ("message",),
@@ -73,15 +74,42 @@ def sha256_bytes(data):
     return hashlib.sha256(data).hexdigest()
 
 
-def pack_manifest(pack_dir):
-    """CONTRACT section 3: '<sha256>  <relative path>\\n' per file, sorted by path in ordinal order."""
-    rows = []
-    for root, _dirs, files in os.walk(pack_dir):
-        for name in files:
+def _is_link(path):
+    """A symlink, junction or any other reparse point: something that can lead outside the pack."""
+    if os.path.islink(path):
+        return True
+    try:
+        attrs = getattr(os.lstat(path), "st_file_attributes", 0)
+    except OSError:
+        return True
+    return bool(attrs & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+
+
+def pack_preflight(pack_dir):
+    """CONTRACT section 3: before any file is opened, refuse a link anywhere in the pack, the directory itself included.
+    Only a link (a symlink, junction or mount point: all reparse points) can lead a path outside the pack, and a hard
+    link resolves inside it, so the link test is the whole rule. Returns the files to hash, as (relative path, full path)."""
+    if not os.path.isdir(pack_dir) or _is_link(pack_dir):
+        raise Unjudgeable("pack-invalid", f"the pack {pack_dir} is not a plain directory")
+    files = []
+    for root, dirs, names in os.walk(pack_dir, followlinks=False):
+        for name in dirs + names:
             full = os.path.join(root, name)
-            rel = os.path.relpath(full, pack_dir).replace(os.sep, "/")
-            with open(full, "rb") as f:
-                rows.append((rel, sha256_bytes(f.read())))
+            if _is_link(full):
+                raise Unjudgeable("pack-invalid", f"the pack holds a link: {os.path.relpath(full, pack_dir)}")
+        for name in names:
+            full = os.path.join(root, name)
+            files.append((os.path.relpath(full, pack_dir).replace(os.sep, "/"), full))
+    return files
+
+
+def pack_manifest(pack_dir):
+    """CONTRACT section 3: '<sha256>  <relative path>\\n' per file, sorted by the paths' UTF-8 bytes. Nothing is opened
+    until the whole pack has passed the preflight."""
+    rows = []
+    for rel, full in pack_preflight(pack_dir):
+        with open(full, "rb") as f:
+            rows.append((rel, sha256_bytes(f.read())))
     rows.sort(key=lambda r: r[0].encode("utf-8"))
     return "".join(f"{h}  {rel}\n" for rel, h in rows)
 
@@ -110,6 +138,9 @@ def validate_scenario(s):
     sids = [m.get("sid") for m in s["mascots"]]
     if not sids or len(set(sids)) != len(sids) or not all(isinstance(x, str) and x for x in sids):
         bad("mascots need one or more unique sids")
+    for m in s["mascots"]:
+        if not isinstance(m.get("behavior"), str) or not m.get("behavior"):
+            bad(f"start companion {m.get('sid')!r} names no behavior (a directed start runs no selection draw)")
     for timeline in ("input", "activeWindow"):
         last = -1
         for e in s.get(timeline, []):
@@ -155,10 +186,19 @@ def load_trace(source, expected_runtime=None):
             kind != "hex" and isinstance(v, kind) and bool(v))
         if not ok:
             raise Unjudgeable("build-witness-missing", f"{runtime} build witness field {k!r} is missing or malformed ({v!r})")
-    if not isinstance(header.get("rng"), dict) or header["rng"].get("kind") not in ("none", "tape", "splitmix64"):
+    if runtime == "oracle":
+        deps = build["deps"]
+        if not all(isinstance(n, str) and n and isinstance(h, str) and HEX64.match(h) for n, h in deps.items()):
+            raise Unjudgeable("build-witness-missing", f"oracle build deps must map names to 64-hex hashes ({deps!r})")
+    rng_spec = header.get("rng")
+    if not isinstance(rng_spec, dict) or rng_spec.get("kind") not in ("none", "tape", "splitmix64"):
         raise Unjudgeable("missing-field", f"{runtime} header rng.kind is missing")
-    if header.get("tickMs") != 40 or not isinstance(header.get("dpiScale"), (int, float)) or not header.get("runId"):
-        raise Unjudgeable("missing-field", f"{runtime} header needs tickMs 40, dpiScale and runId")
+    if rng_spec["kind"] == "tape" and not (isinstance(rng_spec.get("values"), list) and all(
+            isinstance(v, (int, float)) and not isinstance(v, bool) and 0 <= v < 1 for v in rng_spec["values"])):
+        raise Unjudgeable("missing-field", f"{runtime} header rng tape needs values, each in [0, 1)")
+    if header.get("tickMs") != 40 or not isinstance(header.get("dpiScale"), (int, float)) or not header.get("runId") \
+            or not isinstance(header.get("startedUtc"), str) or not header.get("startedUtc"):
+        raise Unjudgeable("missing-field", f"{runtime} header needs tickMs 40, dpiScale, runId and startedUtc")
 
     if not isinstance(records[-1], dict) or records[-1].get("type") != "footer" or len(records) < 2:
         raise Unjudgeable("truncated", f"{runtime} trace has no footer")
@@ -216,6 +256,16 @@ def load_trace(source, expected_runtime=None):
     for k, e in enumerate(draws, start=1):
         if e["occurrence"] != k:
             malformed(f"tick {e['tick']}: rng-draw occurrence {e['occurrence']!r} should be {k}")
+    # The numbers must be the scenario's: a value outside [0, 1), or a tape value the tape does not hold at that
+    # occurrence, means the run did not take its numbers as declared. Drawing past the tape is behaviour (compare()).
+    tape = rng_spec.get("values") if rng_spec["kind"] == "tape" else None
+    for e in draws:
+        v = e["value"]
+        if not isinstance(v, (int, float)) or isinstance(v, bool) or not 0 <= v < 1:
+            raise Unjudgeable("rng-invalid", f"{runtime}: tick {e['tick']}: rng-draw value {v!r} is outside [0, 1)")
+        k = e["occurrence"]
+        if tape is not None and k <= len(tape) and v != tape[k - 1]:
+            raise Unjudgeable("rng-invalid", f"{runtime}: tick {e['tick']}: draw {k} recorded {v!r}, the tape holds {tape[k - 1]!r}")
     seen = set()
     by_sid = {}
     for s in states:
@@ -297,10 +347,15 @@ def compare(oracle, host, scenario=None, scenario_sha=None, pack_sha=None, artif
     if rng in ("none", "tape"):
         odraws = [e for e in oevents if e["kind"] == "rng-draw"]
         hdraws = [e for e in hevents if e["kind"] == "rng-draw"]
+        tape_len = len(oh["rng"]["values"]) if rng == "tape" else None
         if rng == "none" and (odraws or hdraws):
             first = (odraws or hdraws)[0]
             fail("rng-unexpected-draw", first["tick"], first["sid"], "rng-draw", len(odraws), len(hdraws),
                  f"{sid}: a directed scenario drew a random number (oracle {len(odraws)}, host {len(hdraws)})")
+        elif rng == "tape" and max(len(odraws), len(hdraws)) > tape_len:
+            first = (odraws if len(odraws) > tape_len else hdraws)[tape_len]
+            fail("rng-tape-exhausted", first["tick"], first["sid"], "rng-draw", len(odraws), len(hdraws),
+                 f"{sid}: a run drew past the tape's {tape_len} value(s) (oracle {len(odraws)}, host {len(hdraws)})")
         elif len(odraws) != len(hdraws):
             fail("rng-draw-count", None, None, "rng-draw", len(odraws), len(hdraws))
         if not findings:
@@ -382,6 +437,8 @@ def compare(oracle, host, scenario=None, scenario_sha=None, pack_sha=None, artif
                      f"{sid}: behaviour {b} time-share oracle {so.get(b, 0):.3f} vs host {sh.get(b, 0):.3f} "
                      f"(tolerance {tol}; draws oracle {ofoot['draws']}, host {hfoot['draws']})")
         report["tolerance"] = {"timeShare": tol}
+        # A weaker claim than parity: never `exact`, whatever the state lines happen to show.
+        report["verdict"] = "time-share-pass"
 
     if findings:
         report["verdict"] = "fail"
@@ -557,6 +614,13 @@ def _cases():
         ("host ran fewer steps", "tick-count-mismatch", host_only(stop_early, resort=False)),
         ("aborted run", "aborted", host_only(lambda h: h[-1].update(status="aborted"), refoot=False)),
         ("timed-out run", "timeout", host_only(lambda h: h[-1].update(status="timeout"), refoot=False)),
+        ("an event kind v1 does not define (action)", "missing-field",
+         host_only(lambda h: h.insert(-1, _ev(2, "m1", "action", **{"from": "Walk", "to": "Stand", "cause": "duration"})))),
+        ("an oracle dependency hash that is not a sha", "build-witness-missing",
+         lambda o, h: o[0]["build"]["deps"].update({"jna.jar": "not-a-sha"})),
+        ("startedUtc missing from the host header", "missing-field", host_only(lambda h: h[0].pop("startedUtc"))),
+        ("a draw value of 1.25 in both traces", "rng-invalid",
+         both(lambda t: t.insert(2, _ev(1, "m1", "rng-draw", site="builtin:behavior-select", occurrence=1, value=1.25, purpose="p")))),
         # positive controls
         ("WITNESS other padding, same drawn anchor", "exact",
          host_only(lambda h: [r.update(origin=[r["origin"][0] - 10, r["origin"][1] - 6], poseAnchor=[42, 134])
@@ -573,12 +637,22 @@ def _tape_cases():
             _refoot(h)
         return run
     draw = lambda h: [r for r in h if r.get("kind") == "rng-draw"][0]
+
+    def past_tape(o, h):
+        # The tape holds two values; both runs draw a third.
+        for t in (o, h):
+            t.insert(3, _ev(1, "m1", "rng-draw", site="builtin:create-facing", occurrence=2, value=0.5, purpose="p"))
+            t.insert(4, _ev(1, "m1", "rng-draw", site="builtin:create-facing", occurrence=3, value=0.5, purpose="p"))
+            _refoot(t)
     return [
         ("tape: WITNESS one behaviour draw on both sides", "exact", mut(lambda h: None)),
         ("tape: the draw came from another site", "event-mismatch", mut(lambda h: draw(h).update(site="builtin:regist-facing"))),
         ("tape: an extra draw", "rng-draw-count",
          mut(lambda h: h.insert(3, _ev(1, "m1", "rng-draw", site="builtin:create-facing", occurrence=2, value=0.5, purpose="p")))),
         ("tape: draw occurrences out of sequence", "malformed", mut(lambda h: draw(h).update(occurrence=2)), 'occurrence 2 should be 1'),
+        ("tape: a recorded value the tape does not hold", "rng-invalid", mut(lambda h: draw(h).update(value=0.25))),
+        ("tape: both runs draw past the tape", "rng-tape-exhausted", past_tape),
+        ("tape: WITNESS the purpose words differ", "exact", mut(lambda h: draw(h).update(purpose="another wording"))),
     ]
 
 
@@ -610,7 +684,8 @@ def self_test():
         o, h = copy.deepcopy(oracle), copy.deepcopy(host)
         fn(o, h)
         judge(desc, expect, compare(o, h), *frag)
-    to, th = _reference({"kind": "tape", "values": [0.5]})
+    # Two values on the tape, one used by the reference: an extra draw is then a COUNT difference, not exhaustion.
+    to, th = _reference({"kind": "tape", "values": [0.5, 0.5]})
     for desc, expect, fn, *frag in _tape_cases():
         o, h = copy.deepcopy(to), copy.deepcopy(th)
         fn(o, h)
@@ -626,6 +701,20 @@ def self_test():
     judge("scenario: the pack on disk is not the traced one", "pack-hash-mismatch", compare(oracle, host, scenario=s, pack_sha=H("d")))
     judge("scenario: the host exe given is not the traced one", "artifact-hash-mismatch", compare(oracle, host, artifacts={"host": H("9")}))
     judge("scenario: the scenario asks for more steps than ran", "tick-count-mismatch", compare(oracle, host, scenario=dict(s, ticks=5)))
+    nobeh = copy.deepcopy(s)
+    nobeh["mascots"][0].pop("behavior")
+    judge("scenario: a start companion without a behavior", "scenario-invalid", compare(oracle, host, scenario=nobeh))
+
+    # An empty tape with one draw on both sides: drawing past the tape is the runtimes' behaviour, not a valid parity.
+    eo, eh = _reference({"kind": "tape", "values": []})
+    judge("tape: an empty tape, one draw on both sides", "rng-tape-exhausted", compare(eo, eh))
+
+    # Free-running is a weaker claim: identical traces pass the time-share check and are still never `exact`.
+    fo, fh = _reference({"kind": "splitmix64", "seed": "0x0123456789abcdef"})
+    rf = compare(fo, fh)
+    good = rf["verdict"] == "time-share-pass"
+    ok &= good
+    print(f"  {'free-running: identical traces are time-share, never exact':52} {'OK' if good else 'WRONG'}  ({rf['verdict']})")
 
     # A declared tolerance is named, and covers only its own field.
     tol = copy.deepcopy(host)
@@ -653,7 +742,38 @@ def self_test():
         want = f"{sha256_bytes(b'Z')}  Z.xml\n{sha256_bytes(b'B')}  img/Alpha/b.png\n"
         good = pack_manifest(d) == want and pack_sha256(d) == sha256_bytes(want.encode("utf-8"))
         ok &= good
-        print(f"  {'the pack manifest is sorted, ordinal, forward slashes':52} {'OK' if good else 'WRONG'}")
+        print(f"  {'the pack manifest is sorted by UTF-8 bytes, forward slashes':52} {'OK' if good else 'WRONG'}")
+
+        # The preflight refuses a link before reading anything: a junction inside the pack to a folder outside it.
+        outside = os.path.join(d, "..", os.path.basename(d) + "-outside")
+        os.makedirs(outside, exist_ok=True)
+        try:
+            made = False
+            try:
+                import _winapi
+                _winapi.CreateJunction(os.path.abspath(outside), os.path.join(d, "img", "link"))
+                made = True
+            except (ImportError, OSError, AttributeError):
+                try:
+                    os.symlink(os.path.abspath(outside), os.path.join(d, "img", "link"), target_is_directory=True)
+                    made = True
+                except (OSError, NotImplementedError):
+                    pass
+            if made:
+                try:
+                    pack_manifest(d)
+                    good = False
+                except Unjudgeable as u:
+                    good = u.cls == "pack-invalid" and "holds a link" in str(u)
+                ok &= good
+                print(f"  {'a link inside the pack is refused before reading':52} {'FIRED' if good else 'SURVIVED'}")
+            else:
+                print(f"  {'a link inside the pack is refused before reading':52} NOT RUN (no junction or symlink could be made here)")
+        finally:
+            link = os.path.join(d, "img", "link")
+            if os.path.lexists(link):
+                os.rmdir(link) if os.path.isdir(link) else os.remove(link)
+            os.rmdir(outside)
     print("SELF-TEST", "PASS" if ok else "FAIL")
     return 0 if ok else 1
 
@@ -679,7 +799,11 @@ def main(argv):
         if not os.path.isdir(pack_dir):
             print(f"{scenario.get('id', '?')}: unjudgeable (scenario-invalid)\n  the pack {pack_dir} does not exist")
             return 2
-        pack_sha = pack_sha256(pack_dir)
+        try:
+            pack_sha = pack_sha256(pack_dir)
+        except Unjudgeable as u:
+            print(f"{scenario.get('id', '?')}: unjudgeable ({u.cls})\n  {u}")
+            return 2
     artifacts = {}
     for runtime, flag in (("oracle", "--oracle-artifact"), ("host", "--host-exe")):
         p = _arg(argv, flag)
@@ -697,7 +821,8 @@ def main(argv):
         print("  " + fnd.get("message", str(fnd)))
     if "draws" in r:
         print(f"  draws: oracle {r['draws']['oracle']}, host {r['draws']['host']}")
-    return 0 if r["verdict"] == "exact" or r["verdict"].startswith("within-tolerance") else (2 if r["verdict"] == "unjudgeable" else 1)
+    passed = r["verdict"] in ("exact", "time-share-pass") or r["verdict"].startswith("within-tolerance")
+    return 0 if passed else (2 if r["verdict"] == "unjudgeable" else 1)
 
 
 if __name__ == "__main__":
