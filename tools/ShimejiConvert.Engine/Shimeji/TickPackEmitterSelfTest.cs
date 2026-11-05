@@ -1626,6 +1626,20 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 Require(warnings.Length == 3 && warnings.All(w => w.IndexOf("the next entry 'Ghost' names no root behaviour and was dropped", StringComparison.Ordinal) >= 0)
                     && warnings.Any(w => w.StartsWith("Behaviour 'Lone'", StringComparison.Ordinal)),
                     "no warning names each dropped entry and its behaviour: " + string.Join(" | ", warnings));
+                // Review D55-A: the pack API a caller writes with reports them too, each under its image set.
+                IReadOnlyList<string> reported;
+                string warned = Path.Combine(fixture.Root, "warned");
+                try { TickPackEmitter.ConvertPack(fixture.Pack, warned, null, out reported); }
+                finally
+                {
+                    foreach (string file in new[] { "animations.xml", "parity-map.json" })
+                        if (File.Exists(Path.Combine(warned, "A", file))) File.Delete(Path.Combine(warned, "A", file));
+                    if (Directory.Exists(Path.Combine(warned, "A"))) Directory.Delete(Path.Combine(warned, "A"), false);
+                    if (Directory.Exists(warned)) Directory.Delete(warned, false);
+                }
+                Require(reported.Count == 3 && reported.All(w => w.StartsWith("Image set 'A': Behaviour '", StringComparison.Ordinal)
+                    && w.IndexOf("the next entry 'Ghost' names no root behaviour and was dropped", StringComparison.Ordinal) >= 0),
+                    "the pack conversion reports no dropped entry: " + string.Join(" | ", reported));
             }
             using (var fixture = new Fixture())
             {

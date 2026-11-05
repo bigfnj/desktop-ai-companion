@@ -19630,6 +19630,13 @@ CASES = (
      b"                            _warnings.Remove(\"Behaviour '\" + owner + \"': the next entry '\" + name + \"' names no root behaviour and was dropped;\"\n",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
      SHIMEJI, None, "no warning names each dropped entry and its behaviour"),
+    # Review D55-A: the pack API a caller writes with reports each dropped entry under its image set.
+    ("convert-corpus: the pack conversion drops its members' warnings",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
+     b"            warnings = prepared.SelectMany(member => member.Warnings.Select(warning => \"Image set '\" + member.Name + \"': \" + warning))\n",
+     b"            warnings = prepared.Take(0).SelectMany(member => member.Warnings.Select(warning => \"Image set '\" + member.Name + \"': \" + warning))\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "the pack conversion reports no dropped entry"),
     ("convert-corpus: a scripted-condition next entry naming no root behaviour is dropped anyway",
      os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
      b"                            if (scriptedCondition || (own != null && own.Cache != ShimejiSourceCache.Literal))\n",

@@ -444,7 +444,11 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
         {
             try
             {
-                IReadOnlyList<string> outputs = TickPackEmitter.ConvertPack(packDirectory, outDirectory, mainMember);
+                IReadOnlyList<string> warnings;
+                IReadOnlyList<string> outputs = TickPackEmitter.ConvertPack(packDirectory, outDirectory, mainMember, out warnings);
+                // A correction the lowering made on purpose (a dropped next entry, decision 55) is reported, never
+                // silent: it is a policy divergence from the source (review D55-A).
+                foreach (string warning in warnings) Console.Error.WriteLine("WARNING " + warning);
                 foreach (string output in outputs) Console.WriteLine("EMITTED " + output);
                 return 0;
             }

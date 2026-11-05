@@ -50,6 +50,15 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         /// The output is separate from the source pack; every member also gets a parity-map.json.</summary>
         public static IReadOnlyList<string> ConvertPack(string packRoot, string outDir, string mainMember = null)
         {
+            IReadOnlyList<string> warnings;
+            return ConvertPack(packRoot, outDir, mainMember, out warnings);
+        }
+
+        /// <summary>As above; <paramref name="warnings"/> receives what the lowering corrected on purpose
+        /// (PreparedMember.Warnings, a dropped next entry among them), each prefixed with its image set, for the caller
+        /// to report (review D55-A: such a correction is a policy divergence, never silent).</summary>
+        public static IReadOnlyList<string> ConvertPack(string packRoot, string outDir, string mainMember, out IReadOnlyList<string> warnings)
+        {
             packRoot = Path.GetFullPath(packRoot ?? throw new ArgumentNullException("packRoot"));
             outDir = Path.GetFullPath(outDir ?? throw new ArgumentNullException("outDir"));
             SafeEntry(packRoot);
@@ -95,6 +104,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 File.WriteAllText(map, member.Map, new UTF8Encoding(false));
                 paths.Add(xml);
             }
+            warnings = prepared.SelectMany(member => member.Warnings.Select(warning => "Image set '" + member.Name + "': " + warning))
+                .ToList().AsReadOnly();
             return paths.AsReadOnly();
         }
 
