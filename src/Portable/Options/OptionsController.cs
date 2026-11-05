@@ -66,7 +66,7 @@ namespace DesktopAICompanion.Options
             // pet whose file was edited on disk since it was selected used to drop out of "active" in this
             // one pane while staying active everywhere else.
             string activeId = _runtime != null ? _runtime.ActivePetId : null;
-            foreach (CompanionCatalog.CompanionInfo p in CompanionCatalog.EnumerateLocal())
+            foreach (CompanionCatalog.CompanionInfo p in CompanionCatalog.EnumerateAddable())   // hidden pack members arrive through their pack
                 State.Installed.Add(new CompanionRow { Id = p.Id, DisplayName = p.DisplayName, IsBuiltIn = p.IsBuiltIn, IsActive = IsActive(p, activeId) });
         }
 

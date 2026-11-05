@@ -433,6 +433,36 @@ namespace DesktopAICompanion
                 });
         }
 
+        /// <summary>"Arrive as an egg" for a pack's main member (type id): on unless the user turned it off. Only
+        /// asked when the pack's startup member is an egg (grimoire/06 section 2).</summary>
+        public bool GetArriveAsEgg(string id)
+        {
+            lock (_sync) return !IsEggArrivalOffNoLock(id ?? "");
+        }
+
+        private bool IsEggArrivalOffNoLock(string key)
+        {
+            if (key.Length == 0 || _settings.EggArrivalOff == null) return false;
+            foreach (string m in _settings.EggArrivalOff)
+                if (string.Equals(m ?? "", key, StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
+        }
+
+        internal bool SetArriveAsEgg(string id, bool enabled)
+        {
+            string key = id ?? "";
+            if (key.Length == 0) return false;
+            return Update(
+                delegate { return IsEggArrivalOffNoLock(key) == enabled; },   // off==enabled means the state must flip
+                delegate
+                {
+                    var list = _settings.EggArrivalOff ?? new List<string>();
+                    list.RemoveAll(delegate (string m) { return string.Equals(m ?? "", key, StringComparison.OrdinalIgnoreCase); });
+                    if (!enabled) list.Add(key);
+                    _settings.EggArrivalOff = list;
+                });
+        }
+
         /// <summary>The real id of the active/default pet (so per-pet size/sound key by the actual pet, not
         /// the "" active-slot placeholder). Defaults to the built-in pet.</summary>
         public string GetActivePetId()

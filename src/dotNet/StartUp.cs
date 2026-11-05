@@ -13,7 +13,7 @@ namespace DesktopAICompanion
     /// <summary>
     /// StartUp class. This class will initialize the entire application and define some constants.
     /// </summary>
-    public sealed class StartUp : IDisposable, DesktopAICompanion.Options.ICompanionRuntime
+    public sealed partial class StartUp : IDisposable, DesktopAICompanion.Options.ICompanionRuntime
     {
         /// <summary>
         /// Maximal sheeps (too much sheeps will cover too much the screen and would not be nice to see).
@@ -714,6 +714,7 @@ namespace DesktopAICompanion
             // Pose sounds play through the app's output, under the fullscreen hold and the user's volume (the switches are
             // the engine's Sounds setting).
             tickHost.Audio = new Shimeji.AppTickAudio(() => audioOutput, SoundHeldForFullscreen);
+            AttachTickPacks(tickHost);
             return tickHost;
         }
 
@@ -744,18 +745,23 @@ namespace DesktopAICompanion
             CompanionTypeRegistry.Entry entry)
         {
             Shimeji.TickHost host = EnsureTickHost();
-            // The type's name is its pet id: what Breed's BornMascot and Transform's target are matched against.
+            // The type's name is its pet id, the host's unique key; a pack member is referred to by its member key
+            // inside its pack (StartUp.Packs.cs, Shimeji/TickPacks.cs).
             if (string.IsNullOrEmpty(type.Name))
                 type.Name = string.IsNullOrEmpty(petAnimations.PetTypeId) ? "default" : petAnimations.PetTypeId;
-            host.AddType(new Shimeji.TickHostType(petAnimations.PetTypeId ?? "", type, petXml, petAnimations));
+            ScopeTickType(type, entry);
+            host.AddType(new Shimeji.TickHostType(petAnimations.PetTypeId ?? "", type, petXml, petAnimations) { Owner = entry });
             tickEntries[type.Name] = entry;
+            // A pack's main member starts as its startup member (an egg, unless the user turned that off).
+            string startBehaviour;
+            string startType = PlanTickStart(type, petAnimations.PetTypeId, out startBehaviour);
             Shimeji.TickMascot spawned = null;
             FormCompanion form = CreateAndInitializeOwnedPet(
                 delegate { return new FormCompanion(petAnimations, petXml); },
                 delegate (FormCompanion pet)
                 {
                     pet.Show(petXml.spriteWidth, petXml.spriteHeight);
-                    spawned = host.SpawnLikeSource(type.Name, null, pet);
+                    spawned = host.SpawnLikeSource(startType, startBehaviour, pet);
                 });
             if (spawned != null) return form;
             // Its first behaviour could not be built (the tick host logged why), as the source's createMascot reports and

@@ -372,6 +372,9 @@ namespace DesktopAICompanion
             UpdateSpeechFollow();   // a bubble stays over the companion as it moves
         }
 
+        /// <summary>Self-test: the frame the window shows now (a colour-key window's picture, an alpha window's last push).</summary>
+        internal Image TickFrameForSelfTest { get { return pictureBox1.Image ?? lastLayeredFrame; } }
+
         /// <summary>The window self-test's stand-in for the fullscreen scan (which needs the running app). Null in production.</summary>
         internal Func<Rectangle, bool> TickBlockedForSelfTest;
 

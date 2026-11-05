@@ -13,7 +13,7 @@ namespace DesktopAICompanion.Shimeji
     /// a window, SelfDestruct closes one, and a press on the window enters Dragged. Everything is drawn at opacity 0, so
     /// nothing appears on the desktop; the synthetic type is built in code with plain coloured frames.
     /// </summary>
-    internal static class ShimejiWindowSelfTest
+    internal static partial class ShimejiWindowSelfTest
     {
         public const string Flag = "--shimeji-window-selftest";
         public const string MarkerName = "dp-shimeji-window-selftest.txt";
@@ -158,6 +158,7 @@ namespace DesktopAICompanion.Shimeji
                     "Kill() closes a tick window at once and its companion leaves the world at the next step");
 
                 CheckStaging(check);
+                CheckPacks(check, log, scratch);
                 CheckParityTooling(check, scratch, log);
                 ShimejiSoundSelfTest.Run(check, log);
             }
