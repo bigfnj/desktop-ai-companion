@@ -80,6 +80,7 @@
     <Compile Include="TickSettingsTests.cs" />
     <Compile Include="TickPackTests.cs" />
     <Compile Include="TickStudioTests.cs" />
+    <Compile Include="TickGeometryTests.cs" />
     <Compile Include="..\..\src\Portable\AppPaths.cs">
       <Link>Production\AppPaths.cs</Link>
     </Compile>

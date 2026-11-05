@@ -182,6 +182,7 @@
     <Compile Include="dotNet\Shimeji\TickHost.cs" />
     <Compile Include="dotNet\Shimeji\TickHost.Packs.cs" />
     <Compile Include="dotNet\Shimeji\TickPackBinding.cs" />
+    <Compile Include="dotNet\Shimeji\TickPoseImage.cs" />
     <Compile Include="dotNet\Shimeji\TickStaging.cs" />
     <Compile Include="dotNet\Shimeji\TickTypeSettings.cs" />
     <Compile Include="dotNet\Shimeji\TickSettingsHost.cs" />

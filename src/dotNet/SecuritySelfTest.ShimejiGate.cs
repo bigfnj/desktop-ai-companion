@@ -180,6 +180,79 @@ namespace DesktopAICompanion
                 "is an action with an edge", "an action node with an edge is refused", ref failures, output);
 
             CheckUsageAndShapeRules(classic, ref failures, output);
+            CheckPoseGeometryRules(classic, ref failures, output);
+        }
+
+        /// <summary>
+        /// Per-pose image geometry (grimoire/06 section 3): each image stays inside its cell (w, h, rw, rh from 1 to the
+        /// cell size), rw and rh come only with a right frame, the anchor stays within -4096..4096, and a document using
+        /// any of them declares 'tick'. Each bound is probed just past its edge, and a witness uses all six AT their edges.
+        /// </summary>
+        private static void CheckPoseGeometryRules(XmlData.RootNode classic, ref int failures, TextWriter output)
+        {
+            int sheetWidth, sheetHeight;
+            if (!Shimeji.TickType.TryReadPngSize(classic.Image.Png, out sheetWidth, out sheetHeight))
+            {
+                Check(false, "extension gate: the bundled pet's sheet size is readable for the pose geometry checks", ref failures, output);
+                return;
+            }
+            int cellWidth = sheetWidth / classic.Image.TilesX, cellHeight = sheetHeight / classic.Image.TilesY;
+            int limit = ShimejiFormatValidator.MaximumPoseAnchor;
+            Func<XmlData.RootNode, XmlData.PoseNode> pose = r => StandAct(r).Variants.Variant[0].Pose[0];
+
+            ExpectRefused(classic, r => { pose(r).Width = cellWidth + 1; pose(r).WidthSpecified = true; },
+                "image width w is not 1 to the cell width", "a pose image wider than its cell is refused", ref failures, output);
+            ExpectRefused(classic, r => { pose(r).Width = 0; pose(r).WidthSpecified = true; },
+                "image width w is not 1 to the cell width", "a pose image 0 wide is refused", ref failures, output);
+            ExpectRefused(classic, r => { pose(r).Height = cellHeight + 1; pose(r).HeightSpecified = true; },
+                "image height h is not 1 to the cell height", "a pose image taller than its cell is refused", ref failures, output);
+            ExpectRefused(classic, r => { pose(r).RightWidth = 10; pose(r).RightWidthSpecified = true; },
+                "giving rw or rh without a right frame", "a right image size without a right frame is refused", ref failures, output);
+            ExpectRefused(classic, r =>
+                {
+                    pose(r).Right = 1; pose(r).RightSpecified = true;
+                    pose(r).RightWidth = cellWidth + 1; pose(r).RightWidthSpecified = true;
+                }, "right image width rw is not 1 to the cell width", "a right image wider than its cell is refused", ref failures, output);
+            ExpectRefused(classic, r =>
+                {
+                    pose(r).Right = 1; pose(r).RightSpecified = true;
+                    pose(r).RightHeight = 0; pose(r).RightHeightSpecified = true;
+                }, "right image height rh is not 1 to the cell height", "a right image 0 high is refused", ref failures, output);
+            ExpectRefused(classic, r => { pose(r).AnchorX = limit + 1; pose(r).AnchorXSpecified = true; },
+                "anchor (ax, ay) is outside", "a pose anchor x past +" + limit + " is refused", ref failures, output);
+            ExpectRefused(classic, r => { pose(r).AnchorY = -limit - 1; pose(r).AnchorYSpecified = true; },
+                "anchor (ax, ay) is outside", "a pose anchor y past -" + limit + " is refused", ref failures, output);
+            ExpectRefused(classic, r =>
+                {
+                    r.Header.Clock = null;
+                    r.Header.Features = "actions behaviours expressions";
+                    pose(r).Width = 1; pose(r).WidthSpecified = true;
+                }, "pose geometry (ax, ay, w, h, rw, rh) needs feature 'tick'",
+                "pose geometry without 'tick' declared is refused AT the pose", ref failures, output);
+
+            // WITNESS: every attribute at its edge validates (the bounds are inclusive), so the refusals above are the
+            // bounds and not the attributes.
+            XmlData.RootNode edges = With(TickFixture(classic), r =>
+                {
+                    XmlData.PoseNode p = pose(r);
+                    p.Width = cellWidth; p.WidthSpecified = true;
+                    p.Height = 1; p.HeightSpecified = true;
+                    p.Right = 1; p.RightSpecified = true;
+                    p.RightWidth = 1; p.RightWidthSpecified = true;
+                    p.RightHeight = cellHeight; p.RightHeightSpecified = true;
+                    p.AnchorX = limit; p.AnchorXSpecified = true;
+                    p.AnchorY = -limit; p.AnchorYSpecified = true;
+                });
+            XmlData.RootNode parsed;
+            string error;
+            Check(CompanionXmlValidator.TryParseWithFeatures(Serialize(edges), AllExtensionFeatures, out parsed, out error),
+                "extension gate: WITNESS a pose using all six geometry attributes at their edges validates" + FormatError(error),
+                ref failures, output);
+            XmlData.PoseNode read = parsed == null ? null : parsed.Animations.Animation[2].Act.Variants.Variant[0].Pose[0];
+            Check(read != null && read.Width == cellWidth && read.Height == 1 && read.RightWidth == 1 && read.RightHeight == cellHeight
+                  && read.AnchorX == limit && read.AnchorY == -limit && read.RightWidthSpecified && !parsed.Animations.Animation[2].Act.Variants.Variant[0].Pose[1].WidthSpecified,
+                "extension gate: the pose geometry round-trips through the schema and the parser, and an absent attribute stays absent",
+                ref failures, output);
         }
 
         /// <summary>

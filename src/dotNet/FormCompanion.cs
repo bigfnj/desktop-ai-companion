@@ -372,9 +372,6 @@ namespace DesktopAICompanion
             UpdateSpeechFollow();   // a bubble stays over the companion as it moves
         }
 
-        /// <summary>Self-test: the frame the window shows now (a colour-key window's picture, an alpha window's last push).</summary>
-        internal Image TickFrameForSelfTest { get { return pictureBox1.Image ?? lastLayeredFrame; } }
-
         /// <summary>The window self-test's stand-in for the fullscreen scan (which needs the running app). Null in production.</summary>
         internal Func<Rectangle, bool> TickBlockedForSelfTest;
 
@@ -429,6 +426,13 @@ namespace DesktopAICompanion
             timer1.Enabled = true;
             Timer1_Tick(timer1, EventArgs.Empty);
             return timer1.Enabled || _tickFaults != faults || AnimationStep != step;
+        }
+
+        /// <summary>Self-test: the frame this window shows now, as its transparency mode drew it (the alpha path's last
+        /// per-pixel push, else the picture box's image).</summary>
+        internal Image TickFrameForSelfTest
+        {
+            get { return Xml != null && Xml.UsesAlpha ? lastLayeredFrame : pictureBox1.Image; }
         }
 
         /// <summary>Self-test: a left-button press through the real handler, as a click on the window delivers it.</summary>

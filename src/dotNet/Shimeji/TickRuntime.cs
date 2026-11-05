@@ -1103,25 +1103,26 @@ namespace DesktopAICompanion.Shimeji
 
         public bool HasImage { get { return Pose != null && (Pose.Frame >= 0 || (PoseRight && Pose.Right >= 0)); } }
 
-        /// <summary>The image's offset from the anchor: the cell anchor, mirrored when the image faces right.</summary>
+        /// <summary>The image's offset from the anchor (MascotImage.getCenter): the last pose's own anchor, for the facing
+        /// it was applied with. Before any pose the source has no image; the engine uses the type's anchor then.</summary>
         public TickPoint ImageCenter
         {
             get
             {
-                TickType t = PoseType ?? Type;
-                return new TickPoint(PoseRight ? t.CellWidth - t.AnchorX : t.AnchorX, t.AnchorY);
+                if (Pose == null) return new TickPoint(Type.AnchorX, Type.AnchorY);
+                return Pose.ImageCenter(PoseRight);
             }
         }
 
-        /// <summary>Mascot.getBounds: from the image, or the window's last bounds when there is no image.</summary>
+        /// <summary>Mascot.getBounds: from the image (the last pose's own size and anchor, Mascot.java:714-722), or the
+        /// window's last bounds when there is no image.</summary>
         public TickRect Bounds
         {
             get
             {
                 if (!HasImage) return _lastWindowBounds;
                 TickPoint c = ImageCenter;
-                TickType t = PoseType ?? Type;
-                return new TickRect(Anchor.X - c.X, Anchor.Y - c.Y, t.CellWidth, t.CellHeight);
+                return new TickRect(Anchor.X - c.X, Anchor.Y - c.Y, Pose.ImageWidth(PoseRight), Pose.ImageHeight(PoseRight));
             }
         }
 

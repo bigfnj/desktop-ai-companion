@@ -532,7 +532,8 @@ namespace XmlData
     }
 
     /// <summary>One pose (section 3): a sheet frame (or -1, which hides the companion), an optional right-facing
-    /// frame, a duration in ticks and a per-tick velocity.</summary>
+    /// frame, a duration in ticks and a per-tick velocity, and the pose image's own geometry: each frame sits at its
+    /// cell's top-left, and a pose says how much of the cell is the image and where its anchor is.</summary>
     public class PoseNode
     {
         [XmlAttribute("frame")] public int Frame;
@@ -544,6 +545,21 @@ namespace XmlData
         [XmlAttribute("sound")] public string Sound;
         [XmlAttribute("volume")] public double Volume;
         [XmlIgnore] public bool VolumeSpecified;
+        // The image's ImageAnchor in the LEFT image's pixels, before scaling (default: the type's anchor); the left
+        // image's size inside its cell (default: the cell); the explicit right image's size, only with right (default:
+        // the left image's size). Facing right the anchor's x is measured from the right image's right edge.
+        [XmlAttribute("ax")] public int AnchorX;
+        [XmlIgnore] public bool AnchorXSpecified;
+        [XmlAttribute("ay")] public int AnchorY;
+        [XmlIgnore] public bool AnchorYSpecified;
+        [XmlAttribute("w")] public int Width;
+        [XmlIgnore] public bool WidthSpecified;
+        [XmlAttribute("h")] public int Height;
+        [XmlIgnore] public bool HeightSpecified;
+        [XmlAttribute("rw")] public int RightWidth;
+        [XmlIgnore] public bool RightWidthSpecified;
+        [XmlAttribute("rh")] public int RightHeight;
+        [XmlIgnore] public bool RightHeightSpecified;
     }
 
     public class HotspotsNode

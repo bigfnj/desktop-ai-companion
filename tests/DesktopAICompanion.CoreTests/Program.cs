@@ -163,6 +163,12 @@ namespace DesktopAICompanion
                 Run("Tick studio reachability: a next-list entry continues with its root namesake's list", TestTickStudioNextContinuation);
                 Run("Tick studio reachability: Fall, Dragged, Thrown and this member's startup behaviour are roots", TestTickStudioEngineRoots);
                 Run("Tick studio reachability: a literal behaviour name an action or binding sets is an edge", TestTickStudioNamedBehaviours);
+                Run("Tick geometry: a pose's own anchor and size make the bounds, mirrored as the source mirrors an image", TestTickGeometryBounds);
+                Run("Tick geometry: a scale makes a pose's anchor and sizes round(v * s) with halves up, and a whole cell the sprite store's", TestTickGeometryScale);
+                Run("Tick geometry: the off-screen drop-in tests the pose image's edges, not the cell's", TestTickGeometryOffScreen);
+                Run("Tick geometry: a right-facing hotspot mirrors across the pose image's width, pressed and held", TestTickGeometryHotspot);
+                Run("Tick geometry: Dragged's Origin offset reads the image the last pose set, facing and all", TestTickGeometryDragged);
+                Run("Tick geometry: Regist's Origin offset reads the last pose's anchor", TestTickGeometryRegist);
             }
             finally
             {

@@ -34,7 +34,10 @@ namespace DesktopAICompanion.Shimeji
                 JsonElement e;
                 if (root.TryGetProperty("frames", out e))
                     foreach (JsonElement f in e.EnumerateArray())
+                    {
                         map.FrameImages[f.GetProperty("frame").GetInt32()] = Str(f, "image");
+                        map.ReadGeometry(f);
+                    }
                 if (root.TryGetProperty("actions", out e))
                     foreach (JsonProperty p in e.EnumerateObject()) map.Actions[int.Parse(p.Name, CultureInfo.InvariantCulture)] = p.Value.GetString();
                 if (root.TryGetProperty("children", out e))
@@ -64,6 +67,45 @@ namespace DesktopAICompanion.Shimeji
                     throw new InvalidDataException("parity map has no refKey for behaviour node " + b.NodeId + " '" + b.Name + "'");
                 b.RefKey = key;
             }
+            CheckGeometry(type);
+        }
+
+        /// <summary>Each frame's authored anchor and size, when the map gives them (CONTRACT section 9).</summary>
+        public readonly Dictionary<int, TickPoint> FrameAnchors = new Dictionary<int, TickPoint>();
+        public readonly Dictionary<int, TickPoint> FrameSizes = new Dictionary<int, TickPoint>();
+
+        private void ReadGeometry(JsonElement f)
+        {
+            int frame = f.GetProperty("frame").GetInt32();
+            JsonElement v;
+            if (f.TryGetProperty("anchor", out v)) FrameAnchors[frame] = new TickPoint(v[0].GetInt32(), v[1].GetInt32());
+            if (f.TryGetProperty("size", out v)) FrameSizes[frame] = new TickPoint(v[0].GetInt32(), v[1].GetInt32());
+        }
+
+        /// <summary>The converter writes an image's anchor and size twice, on each pose that shows it (grimoire/06 section
+        /// 3) and on its frame here; the trace's poseAnchor and origin come from the pose, so a pose that disagrees with
+        /// its frame is a converter fault, refused before anything is traced. Unscaled: parity runs at scale 1. A right
+        /// frame carries the pose's anchor too (the source anchors both images of a pair at one ImageAnchor).</summary>
+        private void CheckGeometry(TickType type)
+        {
+            foreach (TickActDef act in type.Actions.Values)
+                foreach (TickVariantDef v in act.Variants)
+                    foreach (TickPoseDef p in v.Poses)
+                    {
+                        CheckFrame(act, p.Frame, p.AnchorX, p.AnchorY, p.Width, p.Height);
+                        if (p.Right >= 0) CheckFrame(act, p.Right, p.AnchorX, p.AnchorY, p.RightWidth, p.RightHeight);
+                    }
+        }
+
+        private void CheckFrame(TickActDef act, int frame, int anchorX, int anchorY, int width, int height)
+        {
+            TickPoint a, s;
+            if (frame >= 0 && FrameAnchors.TryGetValue(frame, out a) && (a.X != anchorX || a.Y != anchorY))
+                throw new InvalidDataException("parity map frame " + frame + " is anchored at " + a + " but action node "
+                    + act.NodeId + " '" + act.Name + "' anchors it at (" + anchorX + ", " + anchorY + ")");
+            if (frame >= 0 && FrameSizes.TryGetValue(frame, out s) && (s.X != width || s.Y != height))
+                throw new InvalidDataException("parity map frame " + frame + " is " + s.X + "x" + s.Y + " but action node "
+                    + act.NodeId + " '" + act.Name + "' shows it at " + width + "x" + height);
         }
 
         public string ImageOf(int frame)

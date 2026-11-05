@@ -90,17 +90,35 @@ run.
   four. The sheet's cells are the size of the largest image, each frame drawn at its cell's TOP-LEFT; a pose says how
   much of its cell is the image and where the image's anchor is:
   `<pose frame="12" right="40" ticks="6" ax="61" ay="118" w="100" h="120" rw="104" rh="120"/>`
-  - `ax`, `ay`: this image's ImageAnchor, in the LEFT image's pixels, before scaling. Default: the type's anchor.
+  - `ax`, `ay`: this image's ImageAnchor, in the LEFT image's pixels, before scaling. Default: the type's anchor. The
+    source loads each image pair (an `Image` with its `ImageRight`) once per image set and keeps the anchor of the FIRST
+    pose that loaded it (`ImagePairLoader.java:30-31`, `ImagePairs.java:17`). Poses load in configuration order: actions
+    in document order, an action's own animations before its nested actions (`Configuration.java:70-85`,
+    `ActionBuilder.java:57-72`). So a later pose naming the same pair with another ImageAnchor shows the first one's, and
+    the converter writes that anchor on every pose of the pair.
   - `w`, `h`: the left image's size inside its cell (1 to the cell size). Default: the cell size.
   - `rw`, `rh`: the explicit right image's size, when `right` is given. Default: `w`, `h`.
   - Facing left, the image is (`w`, `h`) with its anchor at (`ax`, `ay`). Facing right it is the right image, or the left
     mirrored: (`rw`, `rh`) with its anchor at (`rw - ax`, `ay`), as the source computes it (`ImagePairLoader.java:38`).
-  - The companion's bounds, window, off-screen test, hotspot mirror and drag offsets use the CURRENT pose's image, as
-    the source does; until a companion's first pose they use the type's defaults.
+    The host draws the left image from its cell's top-left, a mirrored one from the flipped cell's top-right
+    (x = cell width - `w`) and an explicit right image from its own cell's top-left.
+  - The companion's bounds, window, off-screen test, hotspot mirror and drag offsets use the image the LAST APPLIED pose
+    set, for the facing it was applied with: a pose sets the image once (`Pose.java:70-74`), so a facing change shows at
+    the next pose. Dragged turns the companion left before it measures, and still measures the image the last pose set.
+  - With no image (before a first pose, or during an image-less pose) the bounds are the window's last bounds, as the
+    source's are (`Mascot.java:728-729`). Before a first pose the anchor point is the type's anchor: the source has no
+    image to read there, and a Dragged or Regist with `OffsetType` Origin would fail on it.
   - Scaling applies as the source's: the anchor is `round(a * s)` (Java rounding), the size is the sprite store's scaled
-    size of that region (`round(w * s)`).
-  - All six need feature `tick`; the validator keeps each inside its cell (`w`, `h`, `rw`, `rh` from 1 to the cell size)
-    and the anchor within -4096..4096.
+    size of that region (`round(w * s)`). Facing right the anchor x is the scaled right width less the scaled anchor,
+    `round(rw * s) - round(ax * s)`, not `round((rw - ax) * s)`. A whole cell is the store's own scaled frame (the host
+    rounds a cell its own way, and a pose must never be wider than the frame it is cut from), and a size never rounds
+    below one pixel (the source cannot make an image of none).
+  - The host cuts each pose's region once per (frame, facing, region) in the sprite store and disposes it with the
+    frames. Past the store's region budget (as many pixels as the frames themselves) a region is not cut: the whole
+    cell is drawn with the region still at the bounds, which looks the same, and the log says so once.
+  - All six need feature `tick`; the validator keeps each inside its cell (`w`, `h`, `rw`, `rh` from 1 to the cell size),
+    allows `rw` and `rh` only with `right`, and keeps the anchor within -4096..4096. The parity map's frames carry each
+    image's anchor and size too, and a parity run refuses a pose that disagrees with its frame.
 - **`<pose>`.** Replaces `<frame>` inside `<variant>`:
   `<pose frame="12" right="40" ticks="6" dx="-2" dy="0" sound="s3" volume="-6"/>` (plus the geometry above)
   - `frame` is a sheet index, or `-1` for an image-less pose. It HIDES the companion's window while the companion
