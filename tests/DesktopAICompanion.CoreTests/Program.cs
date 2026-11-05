@@ -77,6 +77,7 @@ namespace DesktopAICompanion
                 Run("SafeScript variables and names", TestSafeScriptVariablesAndNames);
                 Run("SafeScript random draws and Math", TestSafeScriptRandomAndMath);
                 Run("SafeScript refusals and faults", TestSafeScriptRefusalsAndFaults);
+                Run("SafeScript JS edge semantics", TestSafeScriptJsEdges);
             }
             finally
             {
