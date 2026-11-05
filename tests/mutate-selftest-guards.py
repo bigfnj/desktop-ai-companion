@@ -17142,6 +17142,28 @@ CASES = (
      b'            else { }\n',
      CORETESTS_CSPROJ, CORETESTS_DLL,
      CORETESTS, None, 'not at (0, 0, 0, 0) as the source'),
+    # Composite height kept with its memoised size (Codex: leaf-first declarations evaded the depth limit).
+    ('shimeji-host: a memoised composite skips the depth check',
+     os.path.join(REPO, "src", "dotNet", "ShimejiFormatValidator.cs"),
+     b'                if (path.Count + known[1] > MaximumCompositeDepth)\n',
+     b'                if (path.Count + known[1] > MaximumCompositeDepth * 1000)\n',
+     HOST_CSPROJ, EXE,
+     SECURITY, None,
+     'composites nested past the depth limit are refused when declared leaf first'),
+    ("shimeji-host: a composite's height is not carried up",
+     os.path.join(REPO, "src", "dotNet", "ShimejiFormatValidator.cs"),
+     b'                    if (memo.TryGetValue(c.Animation, out child)) height = Math.Max(height, 1 + child[1]);\n',
+     b'                    if (memo.TryGetValue(c.Animation, out child)) height = Math.Max(height, 1);\n',
+     HOST_CSPROJ, EXE,
+     SECURITY, None,
+     'composites nested past the depth limit are refused when declared leaf first'),
+    ('shimeji-host: a memoised composite at the limit is refused',
+     os.path.join(REPO, "src", "dotNet", "ShimejiFormatValidator.cs"),
+     b'                if (path.Count + known[1] > MaximumCompositeDepth)\n',
+     b'                if (path.Count + known[1] >= MaximumCompositeDepth)\n',
+     HOST_CSPROJ, EXE,
+     SECURITY, None,
+     'WITNESS a chain exactly at the depth limit, declared leaf first, validates'),
     # ---- lane feature/shimeji-host-motion ----
     # The motion family of embedded classes (src/dotNet/Shimeji/TickMotionFamily.cs) and the engine hooks it added: each
     # case puts back one wrong reading of the official runtime and must fail the CoreTests group that pins it.

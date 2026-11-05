@@ -364,6 +364,14 @@ namespace DesktopAICompanion
                 "a composite that contains itself is refused", ref failures, output);
             ExpectRefused(classic, r => AddComposites(r, ShimejiFormatValidator.MaximumCompositeDepth + 1, 1, false),
                 "deep", "composites nested past the depth limit are refused", ref failures, output);
+            // Declared leaf first, the same chain must still be measured from its top (Codex's review: a memoised size
+            // without its height let this order pass any depth), and the limit itself still fits.
+            ExpectRefused(classic, r => AddComposites(r, ShimejiFormatValidator.MaximumCompositeDepth + 1, 1, false, true),
+                "deep", "composites nested past the depth limit are refused when declared leaf first", ref failures, output);
+            XmlData.RootNode deepest = With(TickFixture(classic), r => AddComposites(r, ShimejiFormatValidator.MaximumCompositeDepth, 1, false, true));
+            Check(CompanionXmlValidator.TryParseWithFeatures(Serialize(deepest), AllExtensionFeatures, out parsed, out error),
+                "extension gate: WITNESS a chain exactly at the depth limit, declared leaf first, validates" + FormatError(error),
+                ref failures, output);
             ExpectRefused(classic, r => AddComposites(r, 13, 2, false), "nested actions each time it starts",
                 "a composite that builds more than the action limit per start is refused (2^13 by doubling)", ref failures, output);
             XmlData.RootNode shallow = With(TickFixture(classic), r => AddComposites(r, 4, 2, false));
@@ -390,10 +398,11 @@ namespace DesktopAICompanion
 
         /// <summary>Add composite actions C0..C(depth-1), each a Sequence of <paramref name="fanout"/> references to the
         /// next, the last a Stay; with <paramref name="selfLoop"/> C0 references itself instead.</summary>
-        private static void AddComposites(XmlData.RootNode r, int depth, int fanout, bool selfLoop)
+        private static void AddComposites(XmlData.RootNode r, int depth, int fanout, bool selfLoop, bool leafFirst = false)
         {
             XmlData.MovingNode still = new XmlData.MovingNode { X = "0", Y = "0", Interval = "40" };
             var nodes = new System.Collections.Generic.List<XmlData.AnimationNode>(r.Animations.Animation);
+            int firstAdded = nodes.Count;
             for (int i = 0; i < depth; i++)
             {
                 bool last = i == depth - 1 && !selfLoop;
@@ -417,6 +426,9 @@ namespace DesktopAICompanion
                 }
                 nodes.Add(node);
             }
+            // Leaf first: the chain's last action is declared first, so a measurement made in declaration order meets
+            // each action after everything it contains.
+            if (leafFirst) nodes.Reverse(firstAdded, nodes.Count - firstAdded);
             r.Animations.Animation = nodes.ToArray();
         }
 

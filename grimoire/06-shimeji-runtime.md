@@ -556,8 +556,9 @@ lane before freeze.
     `BornMascot` or `TransformMascot`, as a parameter or a binding, needs `packs`; ComplexMove and ComplexJump need
     `lifecycle` and `social` by their Characteristics, split on commas and compared exactly as the runtime does, and
     both when Characteristics is scripted;
-  - composites are finite: none contains itself, none nests more than 32 deep, and one activation builds at most 4096
-    actions (the runtime builds a fresh child per reference at every start);
+  - composites are finite: none contains itself, none nests more than 32 deep (measured from every action, whatever
+    order the actions are declared in), and one activation builds at most 4096 actions (the runtime builds a fresh
+    child per reference at every start);
   - header toggle ids are distinct, and a behaviour's `toggle` names one of them;
   - a tick-clock companion's sounds are named clips (section 3).
 - **Per build:** a feature joins the build's supported set only when its runtime runs every class and construct it

@@ -418,7 +418,7 @@ namespace DesktopAICompanion
 
             // Composite activation must be finite. The runtime builds a fresh child for each reference every time a
             // composite starts, so one that contains itself would recurse without end, and nested repetition multiplies.
-            var expanded = new Dictionary<string, int>(StringComparer.Ordinal);
+            var expanded = new Dictionary<string, int[]>(StringComparer.Ordinal);
             foreach (string name in actByName.Keys)
                 ExpandedSize(name, actByName, expanded, new List<string>());
 
@@ -479,12 +479,21 @@ namespace DesktopAICompanion
 
         /// <summary>How many actions one activation of <paramref name="name"/> builds (itself and every nested child), refusing
         /// a composite that contains itself, nesting deeper than <see cref="MaximumCompositeDepth"/> or building more than
-        /// <see cref="MaximumExpandedActions"/>. A reference to a missing action is skipped here; ValidateAct names it.</summary>
+        /// <see cref="MaximumExpandedActions"/>. A reference to a missing action is skipped here; ValidateAct names it.
+        /// <paramref name="memo"/> keeps each measured action's size AND height (the longest chain from it, itself
+        /// included): a subtree first measured from a shallow start must still fit below every later caller, or a
+        /// document that declares its leaves first would pass a chain of any depth (Codex's review of the format).</summary>
         private static int ExpandedSize(string name, Dictionary<string, XmlData.AnimationNode> acts,
-            Dictionary<string, int> memo, List<string> path)
+            Dictionary<string, int[]> memo, List<string> path)
         {
-            int size;
-            if (memo.TryGetValue(name, out size)) return size;
+            int[] known;
+            if (memo.TryGetValue(name, out known))
+            {
+                if (path.Count + known[1] > MaximumCompositeDepth)
+                    throw new InvalidDataException("Action '" + (path.Count > 0 ? path[0] : name) + "' nests its children more than "
+                        + MaximumCompositeDepth + " deep.");
+                return known[0];
+            }
             XmlData.AnimationNode node;
             if (!acts.TryGetValue(name, out node)) return 0;
             if (path.Contains(name))
@@ -493,18 +502,20 @@ namespace DesktopAICompanion
             if (path.Count >= MaximumCompositeDepth)
                 throw new InvalidDataException("Action '" + path[0] + "' nests its children more than " + MaximumCompositeDepth + " deep.");
             path.Add(name);
-            size = 1;
+            int size = 1, height = 1;
             if (node.Act.Children != null && node.Act.Children.Child != null)
                 foreach (XmlData.CompositeChildNode c in node.Act.Children.Child)
                 {
                     if (c == null || c.Animation == null) continue;
                     size += ExpandedSize(c.Animation, acts, memo, path);
+                    int[] child;
+                    if (memo.TryGetValue(c.Animation, out child)) height = Math.Max(height, 1 + child[1]);
                     if (size > MaximumExpandedActions)
                         throw new InvalidDataException("Action '" + name + "' builds more than " + MaximumExpandedActions
                             + " nested actions each time it starts.");
                 }
             path.RemoveAt(path.Count - 1);
-            memo[name] = size;
+            memo[name] = new[] { size, height };
             return size;
         }
 
