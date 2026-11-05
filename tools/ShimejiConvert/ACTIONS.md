@@ -56,7 +56,17 @@ into Studio, but the import UI and its installation transaction are separate wor
 | Embedded Breed | Literal lowering | pending | Host execution: S-slice-breed-01 |
 | Embedded Transform | Literal lowering | pending | Host execution: S-slice-transform-01 |
 | Embedded Fall, Dragged | Reserved definitions retained | pending | Present in slice packs; action semantics unexercised |
-| Other embedded classes | Refused by this initial lowering | pending | No tick conversion evidence |
+| Embedded Jump | lowered; host trace complete; oracle comparison pending | pending | S-jump-arc-01, S-jump-flat-01, S-jump-reaim-01 |
+| Embedded MoveWithTurn | lowered; host trace complete; oracle comparison pending | pending | S-move-withturn-01 |
+| Embedded Regist | lowered; host trace complete; oracle comparison pending | pending | S-input-regist-02 |
+| Embedded BreedMove, BreedJump, BreedFall | lowered; host trace complete; oracle comparison pending | pending | S-breedmove-interval-01, S-breedmove-interval-02, S-breedmove-turn-01, S-breedjump-interval-01, S-breedjump-interval-02, S-breedfall-interval-01, S-breedfall-interval-02 |
+| Embedded ScanMove | lowered; host trace complete; oracle comparison pending | pending | S-scan-first-01, S-scan-loss-01 |
+| Embedded ScanInteract | lowered; host trace complete; oracle comparison pending | pending | S-scan-reacquire-01 |
+| Embedded Interact | lowered; host traces complete but end both Huddle companions at tick 0 (a start companion has no manager); oracle comparison pending | pending | S-interact-arrive-01, S-interact-shared-01 |
+| Embedded WalkWithIE | lowered; host trace complete; oracle comparison pending | pending | S-window-carry-on-01, S-window-carry-off-01, S-window-throwing-off-01 |
+| Embedded ThrowIE | lowered; host trace complete; oracle comparison pending | pending | S-window-throw-on-01, S-window-throw-off-01 |
+| Embedded MinimizeIE | lowered; host trace complete; oracle comparison pending | pending | S-window-minimize-on-01, S-window-minimize-off-01 |
+| Embedded Look, Turn, Offset, Mute, BringToFront, SelfDestruct, ScanJump, ComplexMove, ComplexJump, FallWithIE, JumpWithIE, Broadcast, BroadcastStay, BroadcastMove, BroadcastJump | lowered; synthetic converter checks only | pending | No directed scenario yet |
 | `${}` / `#{}` parameters and bindings | lowered; host trace complete; oracle comparison pending | pending | S-vars-cache-01 |
 | Scripted action Condition (cached parameter, guard when) | lowered; host trace complete; oracle comparison pending | pending | S-vars-transform-01 |
 | Scripted Animation Condition (cached parameter, variant when) | lowered; synthetic converter checks only | pending | No directed scenario yet |
@@ -70,6 +80,9 @@ Condition (a cached `AnimationConditionN` parameter the variant's `when` names) 
 edge's `when`, uncached). Every body is parsed with the host's own tick grammar (`SafeScript`) in the scope
 the validator gives it, and one that does not parse is refused with the attribute and the parser's message; a
 scripted Affordance is refused, and so is a script-shaped value in any attribute the source reads literally.
+Every embedded class of the host's closed list is lowered, with its parameters by the names the host's family
+files read; the member declares `lifecycle`, `social` and `windows` for the classes the validator gates by
+them, and ComplexMove and ComplexJump declare theirs by their Characteristics, split on commas exactly.
 It refuses unsupported attributes and
 classes, sounds, hotspots, constants, toggles, information metadata, anonymous
 nested actions and next references without a root definition. This first emitter refuses non-base action schemas.

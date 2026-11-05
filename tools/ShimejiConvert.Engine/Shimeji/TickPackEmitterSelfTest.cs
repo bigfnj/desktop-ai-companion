@@ -28,6 +28,13 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "expression-grammar-refusal", Run = (Action)ExpressionGrammarRefusal },
                 new { Name = "affordance-script-refusal", Run = (Action)AffordanceScriptRefusal },
                 new { Name = "literal-only-refusal", Run = (Action)LiteralOnlyRefusal },
+                new { Name = "class-motion", Run = (Action)ClassMotion },
+                new { Name = "class-instant", Run = (Action)ClassInstant },
+                new { Name = "class-breeding", Run = (Action)ClassBreeding },
+                new { Name = "class-social", Run = (Action)ClassSocial },
+                new { Name = "class-broadcast", Run = (Action)ClassBroadcast },
+                new { Name = "class-complex", Run = (Action)ClassComplex },
+                new { Name = "class-windows", Run = (Action)ClassWindows },
                 new { Name = "mixed-pose-geometry", Run = (Action)MixedPoseGeometry },
                 new { Name = "explicit-right-geometry", Run = (Action)ExplicitRightGeometry },
                 new { Name = "pair-anchor-cache", Run = (Action)PairAnchorCache },
@@ -408,6 +415,179 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 fixture.Actions(actions);
                 Refusal(fixture, "TICK_LITERAL_ONLY Duration");
                 Require(!Directory.Exists(fixture.Output), "script-shaped pose duration left output");
+            }
+        }
+
+        // ---- every class of grimoire/06 section 5, one case per family. Each converts the base fixture with the
+        // family's actions added, passes the emitted member through the host validator FIRST (so an undeclared
+        // feature is named in the host's words), then checks each action's class and its parameters by the names
+        // the host's family files read.
+
+        private static XElement Embedded(string name, string cls, params object[] content)
+        {
+            return S("Action", A("Name", name), A("Type", "Embedded"), A("Class", "com.group_finity.mascot.action." + cls),
+                content, S("Animation", Pose("/p.png", 2)));
+        }
+
+        private static XDocument ConvertWith(Fixture fixture, string what, params XElement[] extra)
+        {
+            XDocument actions = BuildActions();
+            actions.Root.Element("ActionList").Add(extra);
+            fixture.Actions(actions);
+            XDocument document = fixture.Convert();
+            Validate(document, what);
+            return document;
+        }
+
+        /// <summary>The action's class and each name=value literal parameter, exactly.</summary>
+        private static void RequireAct(XDocument document, string action, string cls, params string[] parameters)
+        {
+            XElement act = NamedNode(document, action).Element(Ns + "act");
+            Require((string)act.Attribute("class") == cls, action + " lost its class " + cls);
+            foreach (string pair in parameters)
+            {
+                string[] parts = pair.Split(new[] { '=' }, 2);
+                Require(act.Elements(Ns + "param").Any(p => p.Attribute("name").Value == parts[0])
+                    && Bound(act, "param", parts[0]) == parts[1], action + " (" + cls + ") lost parameter " + parts[0]);
+            }
+        }
+
+        private static void ClassMotion()
+        {
+            using (var fixture = new Fixture())
+            {
+                XDocument document = ConvertWith(fixture, "motion classes",
+                    Embedded("Hop", "Jump", A("TargetX", 10), A("TargetY", 20), A("VelocityParam", 12), A("Arc", "false")),
+                    Embedded("Hold", "Regist", A("OffsetX", 3), A("OffsetType", "Origin")),
+                    Embedded("Spin", "Turn", A("LookRight", "true")),
+                    S("Action", A("Name", "Pivot"), A("Type", "Embedded"), A("Class", "com.group_finity.mascot.action.MoveWithTurn"),
+                        A("TargetX", 50), S("Animation", Pose("/p.png", 2)), S("Animation", Pose("/q.png", 3))));
+                RequireAct(document, "Hop", "Jump", "TargetX=10", "TargetY=20", "VelocityParam=12", "Arc=false");
+                RequireAct(document, "Hold", "Regist", "OffsetX=3", "OffsetType=Origin");
+                RequireAct(document, "Spin", "Turn", "LookRight=true");
+                RequireAct(document, "Pivot", "MoveWithTurn", "TargetX=50");
+                Require(NamedNode(document, "Pivot").Element(Ns + "act").Element(Ns + "variants").Elements(Ns + "variant").Count() == 2,
+                    "MoveWithTurn lost its turn animation");
+                // The negative control for the family tokens below: no social or window class, no such token.
+                Require(!Features(document).Contains("social") && !Features(document).Contains("windows"),
+                    "a member with no social or window class declared social or windows");
+            }
+        }
+
+        private static void ClassInstant()
+        {
+            using (var fixture = new Fixture())
+            {
+                XDocument document = ConvertWith(fixture, "instant classes",
+                    Embedded("Face", "Look", A("LookRight", "false")),
+                    Embedded("Nudge", "Offset", A("X", 2), A("Y", -3)),
+                    Embedded("Hush", "Mute", A("Sound", "chime")),
+                    Embedded("Raise", "BringToFront"),
+                    Embedded("Vanish", "SelfDestruct", A("Duration", 3)));
+                RequireAct(document, "Face", "Look", "LookRight=false");
+                RequireAct(document, "Nudge", "Offset", "X=2", "Y=-3");
+                RequireAct(document, "Hush", "Mute", "Sound=chime");
+                RequireAct(document, "Raise", "BringToFront");
+                RequireAct(document, "Vanish", "SelfDestruct", "Duration=3");
+            }
+        }
+
+        private static void ClassBreeding()
+        {
+            using (var fixture = new Fixture())
+            {
+                // A member whose only lifecycle classes are these three still declares 'lifecycle'.
+                ConfigureGraph(fixture, new[] {
+                    S("Action", A("Name", "Stand"), A("Type", "Stay"), S("Animation", Pose("/p.png", 1))),
+                    Embedded("Trail", "BreedMove", A("TargetX", 600), A("BornInterval", 4), A("BornBehavior", "Main")),
+                    Embedded("Hop", "BreedJump", A("TargetX", 700), A("TargetY", 680), A("VelocityParam", 10), A("BornInterval", 3)),
+                    Embedded("Drop", "BreedFall", A("BornInterval", 5), A("InitialVY", 2)) }, "Stand");
+                XDocument document = fixture.Convert();
+                Validate(document, "breeding classes");
+                RequireAct(document, "Trail", "BreedMove", "TargetX=600", "BornInterval=4", "BornBehavior=Main");
+                RequireAct(document, "Hop", "BreedJump", "TargetX=700", "TargetY=680", "VelocityParam=10", "BornInterval=3");
+                RequireAct(document, "Drop", "BreedFall", "BornInterval=5", "InitialVY=2");
+                Require(Features(document).Contains("lifecycle"), "BreedMove, BreedJump and BreedFall declared no lifecycle");
+            }
+        }
+
+        private static void ClassSocial()
+        {
+            using (var fixture = new Fixture())
+            {
+                XDocument document = ConvertWith(fixture, "social classes",
+                    Embedded("Seek", "ScanMove", A("Affordance", "Hug"), A("Behavior", "Idle"), A("TargetBehavior", "Idle"), A("TargetLook", "true")),
+                    Embedded("Leap", "ScanJump", A("Affordance", "Hug"), A("Behavior", "Idle"), A("VelocityParam", 9), A("Arc", "true")),
+                    Embedded("Watch", "ScanInteract", A("Affordance", "Wave"), A("Behavior", "Idle"), A("Look", "false"), A("Duration", 6)),
+                    Embedded("Huddle", "Interact", A("Behavior", "Idle"), A("Duration", 6)));
+                RequireAct(document, "Seek", "ScanMove", "Affordance=Hug", "Behavior=Idle", "TargetBehavior=Idle", "TargetLook=true");
+                RequireAct(document, "Leap", "ScanJump", "Affordance=Hug", "VelocityParam=9", "Arc=true");
+                RequireAct(document, "Watch", "ScanInteract", "Affordance=Wave", "Look=false");
+                RequireAct(document, "Huddle", "Interact", "Behavior=Idle");
+                Require(Features(document).Contains("social"), "social classes declared no social feature");
+            }
+        }
+
+        private static void ClassBroadcast()
+        {
+            using (var fixture = new Fixture())
+            {
+                XDocument document = ConvertWith(fixture, "deprecated Broadcast aliases",
+                    Embedded("Call", "Broadcast", A("Affordance", "Wave"), A("Duration", 4)),
+                    Embedded("CallStay", "BroadcastStay", A("Affordance", "Wave")),
+                    Embedded("CallMove", "BroadcastMove", A("Affordance", "Wave"), A("TargetX", 300)),
+                    Embedded("CallJump", "BroadcastJump", A("Affordance", "Wave"), A("TargetX", 300), A("TargetY", 600)));
+                RequireAct(document, "Call", "Broadcast", "Affordance=Wave");
+                RequireAct(document, "CallStay", "BroadcastStay", "Affordance=Wave");
+                RequireAct(document, "CallMove", "BroadcastMove", "Affordance=Wave", "TargetX=300");
+                RequireAct(document, "CallJump", "BroadcastJump", "Affordance=Wave", "TargetY=600");
+            }
+        }
+
+        private static void ClassComplex()
+        {
+            // Characteristics decides the feature tokens, split on commas and compared exactly; a scripted one
+            // needs both, and a binding is judged by the action it binds.
+            var cases = new[] {
+                new { Cls = "ComplexMove", Own = "Breed", Bind = (string)null, Lifecycle = true, Social = false },
+                new { Cls = "ComplexJump", Own = "Scan", Bind = (string)null, Lifecycle = false, Social = true },
+                new { Cls = "ComplexMove", Own = "Breed ,Scan", Bind = (string)null, Lifecycle = false, Social = true },
+                new { Cls = "ComplexJump", Own = "${'Breed'}", Bind = (string)null, Lifecycle = true, Social = true },
+                new { Cls = "ComplexMove", Own = (string)null, Bind = "Breed,Scan", Lifecycle = true, Social = true },
+            };
+            foreach (var c in cases)
+                using (var fixture = new Fixture())
+                {
+                    XElement complex = Embedded("Combo", c.Cls, A("TargetX", 400));
+                    if (c.Own != null) complex.SetAttributeValue("Characteristics", c.Own);
+                    XElement sequence = S("Action", A("Name", "Run"), A("Type", "Sequence"), S("ActionReference", A("Name", "Combo")));
+                    if (c.Bind != null) sequence.Element("ActionReference").SetAttributeValue("Characteristics", c.Bind);
+                    ConfigureGraph(fixture, new[] { complex, sequence }, "Run");
+                    XDocument document = fixture.Convert();
+                    string what = c.Cls + " Characteristics " + (c.Own ?? "bound " + c.Bind);
+                    Validate(document, what);
+                    Require((string)NamedNode(document, "Combo").Element(Ns + "act").Attribute("class") == c.Cls, what + " lost its class");
+                    Require(Features(document).Contains("lifecycle") == c.Lifecycle && Features(document).Contains("social") == c.Social,
+                        what + " declared lifecycle " + Features(document).Contains("lifecycle") + ", social " + Features(document).Contains("social"));
+                }
+        }
+
+        private static void ClassWindows()
+        {
+            using (var fixture = new Fixture())
+            {
+                XDocument document = ConvertWith(fixture, "window classes",
+                    Embedded("Carry", "WalkWithIE", A("TargetX", 500), A("IeOffsetX", 1), A("IeOffsetY", 2)),
+                    Embedded("Ride", "FallWithIE", A("IeOffsetX", 0), A("Gravity", 2)),
+                    Embedded("Vault", "JumpWithIE", A("TargetX", 500), A("TargetY", 600), A("IeOffsetY", 4)),
+                    Embedded("Toss", "ThrowIE", A("InitialVX", 32), A("InitialVY", -10), A("Gravity", "0.5")),
+                    Embedded("Shrink", "MinimizeIE", A("Duration", 6)));
+                RequireAct(document, "Carry", "WalkWithIE", "TargetX=500", "IeOffsetX=1", "IeOffsetY=2");
+                RequireAct(document, "Ride", "FallWithIE", "IeOffsetX=0", "Gravity=2");
+                RequireAct(document, "Vault", "JumpWithIE", "TargetY=600", "IeOffsetY=4");
+                RequireAct(document, "Toss", "ThrowIE", "InitialVX=32", "InitialVY=-10", "Gravity=0.5");
+                RequireAct(document, "Shrink", "MinimizeIE", "Duration=6");
+                Require(Features(document).Contains("windows"), "window classes declared no windows feature");
             }
         }
 

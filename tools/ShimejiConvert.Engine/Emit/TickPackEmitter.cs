@@ -23,9 +23,17 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         private static readonly XNamespace Ns = "https://esheep.petrucci.ch/";
         private static readonly CultureInfo Invariant = CultureInfo.InvariantCulture;
         private static readonly HashSet<string> Types = Set("Stay Move Animate Sequence Select Embedded");
-        // Fall and Dragged are needed by the shared packs' reserved, zero-frequency behaviours.
-        private static readonly HashSet<string> Classes = Set("Breed Transform Fall Dragged");
-        private static readonly HashSet<string> Parameters = Set("Duration Condition Draggable Affordance BorderType Loop TargetX TargetY InitialVX InitialVY RegistanceX RegistanceY Gravity OffsetX OffsetY OffsetType BornX BornY BornBehavior BornMascot BornCount BornTransient TransformMascot TransformBehavior");
+        // The closed class list of grimoire/06 section 5: every class the host's tick runtime constructs
+        // (TickWorld.CreateEmbedded and its four family files), the deprecated Broadcast aliases included.
+        private static readonly HashSet<string> Classes = Set("Fall Jump Dragged Regist Look Turn Offset Mute BringToFront SelfDestruct "
+            + "Breed BreedMove BreedJump BreedFall Transform ScanMove ScanJump ScanInteract Interact ComplexMove ComplexJump "
+            + "MoveWithTurn Broadcast BroadcastStay BroadcastMove BroadcastJump WalkWithIE FallWithIE JumpWithIE ThrowIE MinimizeIE");
+        // Every parameter some host class reads, by the exact name its family file reads (ActionBase's Duration,
+        // Condition, Draggable, Affordance, BorderType and Loop; then TickMotionFamily, TickInstantFamily,
+        // TickSocialFamily, TickWindowFamily, Breed and Transform), which is the source's English schema name. A name
+        // no class reads stays refused, so a misspelt attribute is not carried as a parameter nothing uses.
+        private static readonly HashSet<string> Parameters = Set("Duration Condition Draggable Affordance BorderType Loop TargetX TargetY InitialVX InitialVY RegistanceX RegistanceY Gravity OffsetX OffsetY OffsetType BornX BornY BornBehavior BornMascot BornCount BornTransient TransformMascot TransformBehavior "
+            + "LookRight X Y Sound VelocityParam Arc BornInterval Behavior TargetBehavior TargetLook Look Characteristics IeOffsetX IeOffsetY");
         // An action-context script sees the parameters any class reads and the locals the source publishes, as the
         // validator's scope does (ShimejiFormatValidator.ScopeFor, which also adds the action's own and bound names;
         // every name this emitter writes is already in KnownParameters, so the two scopes agree).
@@ -167,7 +175,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             private readonly Dictionary<string, string> _childMap = new Dictionary<string, string>(StringComparer.Ordinal);
             private int _next = 2;
             // The feature tokens the validator demands for what this member USES (grimoire/06 sections 1 and 10).
-            private bool _lifecycle, _expressions, _variables;
+            private bool _lifecycle, _social, _windows, _expressions, _variables;
 
             public MemberBuilder(string pack, string member, ShimejiSourceConfig source)
             { _pack = pack; _member = member; _source = source; }
@@ -222,7 +230,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 int anchorX, anchorY, tilesX, tilesY;
                 byte[] png = Composite(out anchorX, out anchorY, out tilesX, out tilesY);
                 // Token order is fixed so a member that uses none of the newer extensions keeps its exact earlier bytes.
-                string features = "tick actions behaviours" + (_lifecycle ? " lifecycle" : "");
+                string features = "tick actions behaviours" + (_lifecycle ? " lifecycle" : "") + (_social ? " social" : "")
+                    + (_windows ? " windows" : "");
                 if (_expressions || _nodes.SelectMany(n => n.Descendants()).Any(n => n.Attribute("when") != null)) features += " expressions";
                 if (_variables) features += " variables";
                 // Display names have a shorter host limit than exact pack member keys.
@@ -296,7 +305,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                         Fail(source, "unsupported embedded class '" + cls + "'");
                     cls = cls.Substring(prefix.Length);
                     act.Add(new XAttribute("class", cls));
-                    if (cls == "Breed" || cls == "Transform") _lifecycle = true;
+                    // The feature token each family needs, judged by the validator's own class lists (grimoire/06
+                    // section 10: what a document USES is declared). ComplexMove and ComplexJump add theirs by
+                    // their Characteristics (NoteCharacteristics).
+                    if (Array.IndexOf(ShimejiFormatValidator.LifecycleClasses, cls) >= 0) _lifecycle = true;
+                    if (Array.IndexOf(ShimejiFormatValidator.SocialClasses, cls) >= 0) _social = true;
+                    if (Array.IndexOf(ShimejiFormatValidator.WindowClasses, cls) >= 0) _windows = true;
                 }
                 else if (cls != null) Fail(source, "Class is supported only on Embedded");
                 XElement guard = null;
@@ -623,7 +637,21 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     // Dropping a binding must not expose a different member inherited from the action.
                     if (inherited == null || inherited.RawValue == _member) return null;
                 }
+                if (attribute.Name == "Characteristics") NoteCharacteristics(attribute, target ?? owner);
                 return Parameter(tag, attribute, owner);
+            }
+
+            /// <summary>ComplexMove and ComplexJump need 'lifecycle' and 'social' by their Characteristics, split on
+            /// commas and compared exactly as the runtime does (ComplexMove.java, ComplexJump.java), and both when it
+            /// is scripted (grimoire/06 section 10). A binding is judged by the action it binds.</summary>
+            private void NoteCharacteristics(ShimejiSourceAttribute attribute, ShimejiSourceElement action)
+            {
+                string cls = action == null ? null : Value(action, "Class");
+                if (cls != "com.group_finity.mascot.action.ComplexMove" && cls != "com.group_finity.mascot.action.ComplexJump") return;
+                bool scripted = attribute.Cache != ShimejiSourceCache.Literal;
+                string[] pieces = attribute.RawValue.Split(',');
+                if (scripted || pieces.Contains("Breed")) _lifecycle = true;
+                if (scripted || pieces.Contains("Scan")) _social = true;
             }
 
             private XElement Parameter(string tag, ShimejiSourceAttribute attribute, ShimejiSourceElement owner)
