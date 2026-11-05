@@ -19481,6 +19481,14 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--audio-selftest", "dp-audio-selftest.txt",
      "wav clip: one frame past the decode cap is refused at decode"),
+    # F2: Companion Studio runs 'wav'.
+    ("host-limits: F2 Studio does not run 'wav'",
+     os.path.join(REPO, "modules", "PetStudio", "StudioFeatures.cs"),
+     b'            supported.Add(Wav);\n',
+     b'            // wav not registered\n',
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "Studio accepts a tick-clock companion with a WAV clip"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
