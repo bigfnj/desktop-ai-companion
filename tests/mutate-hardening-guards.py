@@ -3828,6 +3828,32 @@ CASES = (
         b"\t\tpublic void PlayChild(int aniID, TChild childEntry)\n",
         "respawn: Play, PlayChild and PictureBox1_MouseDown were located",
     ),
+    # ---- lane feature/studio-packs ----
+    # Companion Studio 1.3.0's pack conversion comes back onto the UI thread: the same call, made inline, with an
+    # await kept so ImportPackAsync still compiles as async.
+    (
+        "studio-packs: the pack converts on the UI thread",
+        PETSTUDIO_WINDOW,
+        b"            PackConversionResult result = await Task.Run(delegate\n"
+        b"            {\n"
+        b"                string r;\n"
+        b"                PackConversionResult converted = PackImport.ConvertGuarded(packRoot, options, PackImport.ConvertWithEngine, out r);\n"
+        b"                refusal = r;\n"
+        b"                return converted;\n"
+        b"            });\n",
+        b"            string r;\n"
+        b"            PackConversionResult converted = PackImport.ConvertGuarded(packRoot, options, PackImport.ConvertWithEngine, out r);\n"
+        b"            refusal = r;\n"
+        b"            PackConversionResult result = await Task.FromResult(converted);\n",
+        "studio-packs: the pack is listed and converted on a pool thread",
+    ),
+    (
+        "studio-packs: the window calls ConvertPack directly, past the guard",
+        PETSTUDIO_WINDOW,
+        b"                PackConversionResult converted = PackImport.ConvertGuarded(packRoot, options, PackImport.ConvertWithEngine, out r);\n",
+        b"                PackConversionResult converted = ShimejiEngine.ConvertPack(packRoot, options, out r);\n",
+        "studio-packs: the pack is listed and converted on a pool thread",
+    ),
 )
 
 
