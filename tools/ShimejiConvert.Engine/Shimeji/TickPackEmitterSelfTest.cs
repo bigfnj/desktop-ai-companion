@@ -80,6 +80,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "sound-lowering", Run = (Action)SoundLowering },
                 new { Name = "sound-refusal", Run = (Action)SoundRefusal },
                 new { Name = "configuration-spelling", Run = (Action)ConfigurationSpelling },
+                new { Name = "sheet-layout", Run = (Action)SheetLayout },
                 new { Name = "information-lowering", Run = (Action)InformationLowering },
                 new { Name = "own-set-binding-reset", Run = (Action)OwnSetBindingReset },
                 new { Name = "japanese-schema-values", Run = (Action)JapaneseSchemaValues },
@@ -1662,6 +1663,40 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 catch (InvalidDataException error) { refused = error.Message.IndexOf("TICK_NEXT_MISSING_SCRIPTED", StringComparison.Ordinal) >= 0; }
                 Require(refused, "a dangling entry under a scripted enclosing Condition was dropped, not refused");
             }
+        }
+
+        // Round 4: the near-square sheet grid is this lowering's choice. A member it does not fit takes as many columns
+        // as fit and the rows that needs: 257 distinct 256x8 frames need 17 columns (4352 pixels) near-square and go
+        // 16 by 17; 290 distinct 8x256 frames need 17 rows (4352 pixels) and go 256 by 2, the validator's 256 columns
+        // at most. Every sprite is generated here.
+        private static void SheetLayout()
+        {
+            var cases = new[] {
+                new { Count = 257, Width = 256, Height = 8, TilesX = 16, TilesY = 17 },
+                new { Count = 290, Width = 8, Height = 256, TilesX = 256, TilesY = 2 },
+            };
+            foreach (var c in cases)
+                using (var fixture = new Fixture())
+                {
+                    var poses = new List<XElement>();
+                    for (int i = 0; i < c.Count; i++)
+                    {
+                        string name = "w" + i + ".png";
+                        fixture.Write("img/A/" + name, "");
+                        SavePng(Path.Combine(fixture.Pack, "img", "A", name), i % 2 == 1, c.Width, height: c.Height);
+                        poses.Add(Pose("/" + name, 1));
+                    }
+                    fixture.Actions(new XDocument(S("Mascot", S("ActionList", S("Action", A("Name", "Stand"), A("Type", "Stay"),
+                        S("Animation", poses))))));
+                    fixture.Behaviors(new XDocument(S("Mascot", S("BehaviorList", S("Behavior", A("Name", "Main"),
+                        A("Action", "Stand"), A("Frequency", 1))))));
+                    XDocument document = fixture.Convert();
+                    XElement image = document.Root.Element(Ns + "image");
+                    string grid = image.Element(Ns + "tilesx").Value + " by " + image.Element(Ns + "tilesy").Value;
+                    Require(grid == c.TilesX + " by " + c.TilesY, "a member the near-square grid does not fit was laid out " + grid
+                        + ", not " + c.TilesX + " by " + c.TilesY);
+                    Validate(document, "re-laid sheet member " + grid);
+                }
         }
 
         /// <summary>A synthetic 16-bit PCM mono RIFF/WAVE clip of <paramref name="samples"/> frames at 22.05 kHz.</summary>

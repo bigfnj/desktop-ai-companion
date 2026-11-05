@@ -182,6 +182,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         /// (TickRuntime's BuildBehaviourByName(type, "Fall"), TickReachability.EngineBehaviours).</summary>
         private static readonly string[] EngineBehaviourKeys = { "Fall", "Dragged", "Thrown" };
 
+        /// <summary>The validator's limit on the sheet's tile count along each axis ("Sprite tile counts must be between 1
+        /// and 256", CompanionXmlValidator), which it states inline rather than as a constant.</summary>
+        private const int MaxTilesPerAxis = 256;
+
         /// <summary>The behaviour-naming parameters the host classes read (Interact and the scan classes' Behavior and
         /// TargetBehavior, the Breed family's BornBehavior, Transform's TransformBehavior).</summary>
         private static readonly string[] BehaviourParameters = { "Behavior", "TargetBehavior", "BornBehavior", "TransformBehavior" };
@@ -1347,6 +1351,16 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 anchorX = _frames[0].X; anchorY = _frames[0].Y;
                 tilesX = (int)Math.Ceiling(Math.Sqrt(_frames.Count));
                 tilesY = (_frames.Count + tilesX - 1) / tilesX;
+                // The near-square grid is this lowering's choice, not the source's, which loads each image on its own.
+                // When it does not fit the host's sheet (303 cells 256 wide need 18 columns, 4608 pixels, where 16
+                // columns of 19 rows fit), the sheet takes as many columns as fit, within the validator's 256 per axis
+                // (CompanionXmlValidator's tile counts), and the rows that needs; only a member no grid fits refuses. A
+                // member the near-square grid fits keeps it, so its sheet is unchanged.
+                if (tilesX * width > SpriteSheetBuilder.MaxSheetDimension || tilesY * height > SpriteSheetBuilder.MaxSheetDimension)
+                {
+                    tilesX = Math.Max(1, Math.Min(Math.Min(_frames.Count, MaxTilesPerAxis), SpriteSheetBuilder.MaxSheetDimension / width));
+                    tilesY = (_frames.Count + tilesX - 1) / tilesX;
+                }
                 if (tilesX * width > SpriteSheetBuilder.MaxSheetDimension || tilesY * height > SpriteSheetBuilder.MaxSheetDimension)
                     throw new InvalidDataException("Tick sheet exceeds the sheet dimension limit.");
                 using (var sheet = new Bitmap(tilesX * width, tilesY * height, PixelFormat.Format32bppArgb))

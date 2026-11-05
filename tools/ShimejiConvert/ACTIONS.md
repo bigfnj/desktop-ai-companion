@@ -138,7 +138,9 @@ Recorded divergences from the source (each a correction of a source defect, neve
 
 Composite activation cycles, depth above 32 and expansion above 4096 actions are refused before output is written.
 
-Sheet cells use the maximum source image width and height, with each image copied at its cell's top-left.
+Sheet cells use the maximum source image width and height, with each image copied at its cell's top-left. The
+cells form a near-square grid; when that grid is wider or taller than the host's 4096-pixel sheet, the sheet takes as
+many columns as fit (at most the validator's 256) and the rows that needs, and only a member no grid fits is refused.
 Every visible pose carries its image size and effective anchor. Explicit right-facing images carry their own
 size and frame; their pixels are not mirrored. The image-pair cache retains the first loaded anchor for repeated
 left/right path pairs, including pairs in unused actions. The parity map records that effective anchor so it
