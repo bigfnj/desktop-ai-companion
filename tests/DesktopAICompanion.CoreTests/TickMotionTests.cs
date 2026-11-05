@@ -227,6 +227,32 @@ namespace DesktopAICompanion
                 "A Transform during the arrival left the startup behaviour pending: " + string.Join("; ", log4.Events));
         }
 
+        private static void TestTickFaultThrottle()
+        {
+            // The same fault of the same type: three lines, a fourth that says it is suppressed, then nothing.
+            var throttle = new TickFaultThrottle();
+            var lines = new List<string>();
+            for (int i = 0; i < 10; i++) lines.Add(throttle.Next("Alpha", "the condition of 'Sit' is not a boolean (1)"));
+            AssertTrue(lines[0] == "the condition of 'Sit' is not a boolean (1)" && lines[2] == lines[0]
+                && lines[3] != null && lines[3].StartsWith(lines[0]) && lines[3].Contains("not logged again")
+                && lines.GetRange(4, 6).TrueForAll(l => l == null),
+                "A repeated fault was not logged three times and then once as suppressed: " + string.Join(" | ", lines));
+            // WITNESS: another message, or the same message of another type, is a fault of its own.
+            AssertTrue(throttle.Next("Alpha", "Transform into Beta: no behaviour named 'Ghost' in Beta") != null
+                && throttle.Next("Beta", "the condition of 'Sit' is not a boolean (1)") != null,
+                "A different fault, or the same fault of another type, was suppressed with the first.");
+
+            // Past the distinct limit one line says so and new faults go unlogged; one already counted still counts.
+            var many = new TickFaultThrottle();
+            for (int i = 0; i < TickFaultThrottle.DistinctLimit; i++)
+                AssertTrue(many.Next("Alpha", "fault " + i) != null, "Distinct fault " + i + " under the limit was not logged.");
+            string limit = many.Next("Alpha", "one more");
+            AssertTrue(limit != null && limit.Contains("not logged until the app restarts") && many.Next("Alpha", "and another") == null,
+                "Past the distinct limit the throttle did not say so once and then stop: " + (limit ?? "null"));
+            AssertTrue(many.Next("Alpha", "fault 0") == "fault 0",
+                "A fault counted before the distinct limit stopped counting after it.");
+        }
+
         private static void TestTickBorderKeptOnBlankReinit()
         {
             // BorderedAction.init (BorderedAction.java:39-51) sets a border only when the type names one and never clears

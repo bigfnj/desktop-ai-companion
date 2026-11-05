@@ -7546,6 +7546,14 @@ dropped the just-landed companion in a second time (the source's drop-in is for 
 this is not); it is now skipped and the route chooses. And a Transform before the hand-over left the old type's name
 pending, to be looked up on the new type, where a missing name ends the companion; a Transform now cancels it.
 
+**Repeated engine faults are throttled in the host's log, not in parity traces.** The same review noticed that a fault the
+engine repeats went to the diagnostic log every time: a behaviour condition that is not a boolean is reported at every
+selection and a Transform that cannot enter its behaviour at every attempt, so one broken pack could fill the rotating log
+(512 KB by default) within minutes and push out the launch's own record, which is the part a later fault report needs.
+`TickFaultThrottle` (Shimeji/TickEnvironment.cs) lets the host log a fault, keyed by type and message, three times and a
+fourth time saying it is suppressed, and past 256 distinct faults says so once and stops. Parity traces keep every fault:
+the trace writer is its own observer and a comparison needs them all.
+
 **The clock is the source's wall clock, not a 40 ms timer.** The real-app pack smoke timed an egg's 75-tick hatch at
 about 3.5 s, not 3.0 s. Measured on this box, a WinForms timer set to 40 ms fires every 46.9 ms (64 firings in 3001 ms):
 Windows fires it on the 15.6 ms system timer tick, so every tick companion ran at 85% of the source's speed. The host's

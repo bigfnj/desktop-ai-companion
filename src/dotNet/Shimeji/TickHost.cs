@@ -411,8 +411,11 @@ namespace DesktopAICompanion.Shimeji
 
         public void Fault(TickMascot mascot, string message)
         {
-            _log("tick companion " + mascot.Sid + " (" + mascot.Type.Name + "): " + message);
+            string line = _faults.Next(mascot.Type.Name, message);
+            if (line != null) _log("tick companion " + mascot.Sid + " (" + mascot.Type.Name + "): " + line);
         }
+
+        private readonly TickFaultThrottle _faults = new TickFaultThrottle();
 
         public void Muted(TickMascot mascot, string clip) { }
         // The engine has already played or stopped the clip through the world's clips (HostTickClips).
