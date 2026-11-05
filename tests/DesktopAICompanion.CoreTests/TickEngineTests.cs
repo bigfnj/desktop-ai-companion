@@ -1,0 +1,344 @@
+using System;
+using System.Collections.Generic;
+using DesktopAICompanion.Shimeji;
+
+namespace DesktopAICompanion
+{
+    /// <summary>
+    /// The tick-clock engine (src/dotNet/Shimeji, grimoire/06 sections 4.3 and 4.5): each group pins one source rule the
+    /// parity comparison depends on, with companions built in code, a scripted desktop and a recording observer, so a
+    /// draw, an evaluation or an event that should not happen shows up, not only a wrong position.
+    /// </summary>
+    internal static partial class Program
+    {
+        // ---- fakes
+
+        private sealed class TickDesk : ITickEnvironment
+        {
+            private readonly TickArea _screen = new TickArea(), _work = new TickArea(), _window = new TickArea { Visible = false };
+            private readonly List<TickArea> _screens = new List<TickArea>();
+            public TickDesk() { _screens.Add(_screen); }
+            public void Tick(int tick)
+            {
+                _screen.Set(0, 0, 1280, 720);
+                _work.Set(0, 0, 1280, 680);
+            }
+            public TickArea Screen { get { return _screen; } }
+            public TickArea WorkArea { get { return _work; } }
+            public IReadOnlyList<TickArea> Screens { get { return _screens; } }
+            public TickArea ActiveWindow { get { return _window; } }
+            public TickPoint Cursor { get { return new TickPoint(100, 100); } }
+            public TickPoint CursorDelta { get { return new TickPoint(0, 0); } }
+        }
+
+        private sealed class TickTape : ITickRandom
+        {
+            public readonly Queue<double> Values = new Queue<double>();
+            public double Next() { return Values.Count > 0 ? Values.Dequeue() : 0.5; }
+        }
+
+        private sealed class TickSwitches : ITickSettings
+        {
+            public readonly Dictionary<string, bool> Off = new Dictionary<string, bool>(StringComparer.Ordinal);
+            public bool Get(string setting, string imageSet)
+            {
+                bool v;
+                if (imageSet != null && Off.TryGetValue(imageSet + ":" + setting, out v)) return v;
+                return setting != "Multiscreen";
+            }
+            public bool IsBehaviourEnabled(TickBehaviourDef behaviour, string imageSet) { return true; }
+        }
+
+        private sealed class TickLog : ITickObserver
+        {
+            public readonly List<string> Events = new List<string>();
+            public readonly List<string> Draws = new List<string>();
+            public readonly List<string> Faults = new List<string>();
+            public void BehaviourEntered(TickMascot m, string from, string to, string cause) { Events.Add(m.Sid + " behaviour " + (from ?? "-") + ">" + to + " " + cause); }
+            public void BirthRequested(TickMascot p, TickMascot c, int ordinal, int attempt) { Events.Add(p.Sid + " birth " + c.Sid + " #" + ordinal + " try" + attempt + " at " + c.Anchor); }
+            public void BirthRefused(TickMascot p, int attempt, string reason) { Events.Add(p.Sid + " refused try" + attempt + " " + reason); }
+            public void BirthActivated(TickMascot c) { Events.Add(c.Sid + " activated"); }
+            public void Transformed(TickMascot m, string from, string to, string b) { Events.Add(m.Sid + " transform " + from + ">" + to + " " + b); }
+            public void DisposeRequested(TickMascot m, string reason) { Events.Add(m.Sid + " dispose-request " + reason); }
+            public void Disposed(TickMascot m) { Events.Add(m.Sid + " disposed"); }
+            public void RandomDrawn(TickMascot m, string site, double value, string purpose) { Draws.Add(site); }
+            public void Fault(TickMascot m, string message) { Faults.Add(m.Sid + ": " + message); }
+        }
+
+        // ---- building companions in code (validated documents compile the same way)
+
+        private static string TickSheetPng()
+        {
+            // Only the PNG signature and IHDR size fields are read: a 256x64 sheet of four 64x64 cells.
+            byte[] head =
+            {
+                0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52,
+                0, 0, 1, 0, 0, 0, 0, 64, 8, 6, 0, 0, 0,
+            };
+            return Convert.ToBase64String(head);
+        }
+
+        private static XmlData.RootNode TickDoc(params XmlData.AnimationNode[] nodes)
+        {
+            return new XmlData.RootNode
+            {
+                Header = new XmlData.HeaderNode { Title = "t", Features = "tick actions behaviours expressions lifecycle", Clock = "tick" },
+                Image = new XmlData.ImageNode { TilesX = 4, TilesY = 1, Png = TickSheetPng(), AnchorX = 32, AnchorXSpecified = true, AnchorY = 64, AnchorYSpecified = true },
+                Animations = new XmlData.AnimationsNode { Animation = nodes },
+            };
+        }
+
+        private static XmlData.PoseNode TPose(int frame, int ticks, int dx = 0)
+        {
+            return new XmlData.PoseNode { Frame = frame, Ticks = ticks, DX = dx };
+        }
+
+        private static XmlData.AnimationNode TAct(int id, string name, string type, string cls, XmlData.ParamNode[] ps, params XmlData.PoseNode[] poses)
+        {
+            return new XmlData.AnimationNode
+            {
+                Id = id,
+                Name = name,
+                Sequence = new XmlData.SequenceNode { RepeatCount = "0", Next = new XmlData.NextNode[0] },
+                Act = new XmlData.ActNode
+                {
+                    Type = type,
+                    Class = cls,
+                    Border = "Floor",
+                    Params = ps ?? new XmlData.ParamNode[0],
+                    Variants = new XmlData.VariantsNode { Variant = new[] { new XmlData.VariantNode { Pose = poses } } },
+                },
+            };
+        }
+
+        private static XmlData.ParamNode TParam(string name, string value, string cache = "none")
+        {
+            return new XmlData.ParamNode { Name = name, Value = value, Cache = cache };
+        }
+
+        private static XmlData.AnimationNode TBeh(int id, string name, string runs, int frequency, bool? add, params XmlData.NextNode[] next)
+        {
+            var b = new XmlData.BehaviourNode { Name = name, Runs = runs, Frequency = frequency };
+            if (add.HasValue) { b.Add = add.Value; b.AddSpecified = true; }
+            return new XmlData.AnimationNode
+            {
+                Id = id, Name = "beh:" + name, Behaviour = b,
+                Sequence = new XmlData.SequenceNode { RepeatCount = "0", Next = next },
+            };
+        }
+
+        private static XmlData.NextNode TEdge(int to, int weight, string when = null)
+        {
+            return new XmlData.NextNode { Value = to, Probability = weight, When = when };
+        }
+
+        private static XmlData.AnimationNode TRoute(params XmlData.NextNode[] edges)
+        {
+            return new XmlData.AnimationNode
+            {
+                Id = 1, Name = "route", Route = new XmlData.RouteNode(),
+                Sequence = new XmlData.SequenceNode { RepeatCount = "0", Next = edges },
+            };
+        }
+
+        private static TickWorld TickWorldOf(TickLog log, TickTape tape, params TickType[] types)
+        {
+            var world = new TickWorld(new TickDesk(), tape ?? new TickTape(), new TickSwitches(), log);
+            foreach (TickType t in types) world.AddType(t);
+            world.Start();
+            return world;
+        }
+
+        // ---- groups
+
+        private static void TestTickSelection()
+        {
+            // Route: A (weight 1) and B (weight 0, transition-only), each with a condition that draws. C replaces the
+            // root list (add=false) with D. Z is a zero-weight replacing list, so it drops the companion in.
+            TickType t = TickType.Compile("Alpha", TickDoc(
+                TRoute(TEdge(10, 1, "Math.random() < 2"), TEdge(11, 0, "Math.random() < 2"), TEdge(12, 0), TEdge(13, 0), TEdge(14, 0), TEdge(15, 0)),
+                TBeh(10, "A", "Stand", 1, null),
+                TBeh(11, "B", "Stand", 0, null),
+                TBeh(12, "C", "Short", 0, false, TEdge(16, 1)),
+                TBeh(13, "Z", "Short", 0, false, TEdge(16, 0)),
+                TBeh(14, "Fall", "Stand", 0, null),
+                TBeh(15, "D", "Stand", 0, null),
+                TBeh(16, "D", "Stand", 1, null),
+                TAct(30, "Stand", "Stay", null, new[] { TParam("Duration", "100") }, TPose(0, 1)),
+                TAct(31, "Short", "Stay", null, new[] { TParam("Duration", "1") }, TPose(0, 1))));
+
+            var log = new TickLog();
+            TickWorld w = TickWorldOf(log, null, t);
+            w.CreateAtStart("m1", t, new TickPoint(640, 680), false, "C");
+            w.StepOnce();   // Short plays its one tick
+            w.StepOnce();   // its second check fails: C ends and the next behaviour is chosen
+            AssertEqual("script:Alpha#when:A#1|script:Alpha#when:B#1|builtin:behavior-select", string.Join("|", log.Draws),
+                "Selection did not evaluate every root condition (even ones a replacing list discards) and then draw ONCE.");
+            AssertTrue(log.Events.Contains("m1 behaviour C>D next"), "The replacing list's entry was not entered as a 'next' choice: " + string.Join("; ", log.Events));
+
+            var log2 = new TickLog();
+            TickWorld w2 = TickWorldOf(log2, null, t);
+            TickMascot z = w2.CreateAtStart("m1", t, new TickPoint(640, 680), false, "Z");
+            w2.StepOnce();
+            w2.StepOnce();
+            AssertTrue(log2.Draws.Contains("builtin:no-candidate-drop-x") && !log2.Draws.Contains("builtin:behavior-select"),
+                "A list that weighs 0 did not drop the companion in without a selection draw: " + string.Join("|", log2.Draws));
+            AssertTrue(log2.Events.Contains("m1 behaviour Z>Fall fallback"), "A list that weighs 0 did not enter Fall as a fallback.");
+            AssertEqual(-256, z.Anchor.Y, "The drop-in did not start 256 px above the work area's top.");
+        }
+
+        private static void TestTickCaches()
+        {
+            // P1 is cached for the activation (${}), P2 per step (#{}); the guard reads both. P3 is always null, so it
+            // is never kept and draws at every read.
+            TickType t = TickType.Compile("Alpha", TickDoc(
+                TRoute(TEdge(10, 1)),
+                TBeh(10, "Watch", "Watch", 1, null),
+                new XmlData.AnimationNode
+                {
+                    Id = 30, Name = "Watch",
+                    Sequence = new XmlData.SequenceNode { RepeatCount = "0", Next = new XmlData.NextNode[0] },
+                    Act = new XmlData.ActNode
+                    {
+                        Type = "Stay", Border = "Floor",
+                        Params = new[] { TParam("P1", "Math.random()", "action"), TParam("P2", "Math.random()", "frame"),
+                                         TParam("P3", "Math.random() < 0 ? 1 : null", "action") },
+                        Guard = new XmlData.GuardNode { When = "P1 < 2 && P2 < 2 && P3 == null" },
+                        Variants = new XmlData.VariantsNode { Variant = new[] { new XmlData.VariantNode { Pose = new[] { TPose(0, 1) } } } },
+                    },
+                }));
+            var log = new TickLog();
+            TickWorld w = TickWorldOf(log, null, t);
+            w.CreateAtStart("m1", t, new TickPoint(640, 680), false, "Watch");
+            // Init checks the action once (UserBehavior.init): P1, P2 and P3 each draw once.
+            AssertEqual(3, log.Draws.Count, "Initialising the action did not evaluate each lazy parameter exactly once.");
+            int before = log.Draws.Count;
+            w.StepOnce();
+            // First check: P1 and P2 kept (P2 from init), P3 again = 1. The step clears P2. Second check: P2 and P3 = 2.
+            AssertEqual(3, log.Draws.Count - before, "A step did not keep ${} for the activation, clear #{} at the step, and re-read a null every time.");
+            before = log.Draws.Count;
+            w.StepOnce();
+            // Next step's first check sees the frame cache the previous second check left: only P3 draws, then 2 again.
+            AssertEqual(3, log.Draws.Count - before, "The first check of a step did not reuse the #{} value the previous step's second check cached.");
+        }
+
+        private static void TestTickActionClock()
+        {
+            // Two behaviours of one tick each, with two-pose animations: the start behaviour plays pose 0 at age 0; a
+            // behaviour chosen at the end of a step first plays at age 1, so pose 1.
+            TickType t = TickType.Compile("Alpha", TickDoc(
+                TRoute(TEdge(10, 0), TEdge(11, 1)),
+                TBeh(10, "X", "X", 0, false, TEdge(11, 1)),
+                TBeh(11, "Y", "Y", 1, null),
+                TAct(30, "X", "Stay", null, new[] { TParam("Duration", "1") }, TPose(0, 1), TPose(1, 1)),
+                TAct(31, "Y", "Stay", null, new[] { TParam("Duration", "5") }, TPose(2, 1), TPose(3, 1))));
+            TickWorld w = TickWorldOf(new TickLog(), null, t);
+            TickMascot m = w.CreateAtStart("m1", t, new TickPoint(640, 680), false, "X");
+            w.StepOnce();
+            AssertTrue(m.Pose != null, "The start behaviour played no pose in its first step (its age was not 0).");
+            AssertEqual(0, m.Pose.Frame, "The start behaviour did not play its first pose at age 0.");
+            w.StepOnce();
+            AssertEqual("Y", m.Behaviour.Name, "X did not end after its one tick.");
+            w.StepOnce();
+            AssertEqual(3, m.Pose.Frame, "A behaviour chosen at the end of a step did not first play at age 1 (its second pose).");
+        }
+
+        private static void TestTickBreed()
+        {
+            TickType alpha = TickType.Compile("Alpha", TickDoc(
+                TRoute(TEdge(10, 1), TEdge(11, 0)),
+                TBeh(10, "Throw", "Throw", 1, null),
+                TBeh(11, "Stand", "Stand", 0, null),
+                TAct(30, "Throw", "Embedded", "Breed",
+                    new[] { TParam("BornX", "40"), TParam("BornY", "0"), TParam("BornMascot", "Alpha"), TParam("BornBehavior", "Stand"), TParam("BornCount", "2") },
+                    TPose(0, 1), TPose(1, 1)),
+                TAct(31, "Stand", "Stay", null, new[] { TParam("Duration", "50") }, TPose(0, 1))));
+            var log = new TickLog();
+            TickWorld w = TickWorldOf(log, null, alpha);
+            w.CreateAtStart("m1", alpha, new TickPoint(640, 680), false, "Throw");
+            w.StepOnce();   // age 0
+            AssertEqual(0, w.Pending.Count, "Breed fired before its penultimate tick.");
+            w.StepOnce();   // age 1 = duration - 1: two births
+            AssertEqual(2, w.Pending.Count, "Breed did not queue BornCount children on its penultimate tick.");
+            AssertTrue(log.Events.Contains("m1 birth m1.b1 #1 try1 at (680, 680)") && log.Events.Contains("m1 birth m1.b2 #2 try2 at (680, 680)"),
+                "Births are not named by the parent's lineage or not placed BornX in front of a left-facing parent: " + string.Join("; ", log.Events));
+            AssertEqual(1, w.Mascots.Count, "A pending birth was active in the step that requested it.");
+            w.StepOnce();
+            AssertEqual(3, w.Mascots.Count, "The births did not activate at the next step.");
+            AssertEqual("m1.b1", w.Mascots[1].Sid, "Activated births are not in add-queue order.");
+
+            var capped = new TickLog();
+            TickWorld c = TickWorldOf(capped, null, alpha);
+            c.MaximumCompanions = 2;
+            c.CreateAtStart("m1", alpha, new TickPoint(640, 680), false, "Throw");
+            c.StepOnce();
+            c.StepOnce();
+            AssertTrue(capped.Events.Contains("m1 refused try2 cap") && c.Pending.Count == 1,
+                "At the cap the second birth was not refused (policy:birth-cap): " + string.Join("; ", capped.Events));
+        }
+
+        private static void TestTickTransform()
+        {
+            TickType beta = TickType.Compile("Beta", TickDoc(
+                TRoute(TEdge(10, 1)),
+                TBeh(10, "Stand", "Stand", 1, null),
+                TAct(30, "Stand", "Stay", null, new[] { TParam("Duration", "50") }, TPose(2, 1))));
+            TickType egg = TickType.Compile("Egg", TickDoc(
+                TRoute(TEdge(10, 1)),
+                TBeh(10, "Laid", "Laid", 1, null),
+                TAct(30, "Laid", "Embedded", "Transform", new[] { TParam("TransformMascot", "Beta"), TParam("TransformBehavior", "Stand") },
+                    TPose(0, 1), TPose(1, 1))));
+            var log = new TickLog();
+            TickWorld w = TickWorldOf(log, null, egg, beta);
+            TickMascot m = w.CreateAtStart("m1", egg, new TickPoint(640, 680), false, "Laid");
+            m.Variables["mood"] = ScriptValue.FromNumber(3);
+            w.StepOnce();
+            AssertEqual("Egg", m.Type.Name, "Transform fired before its penultimate tick.");
+            w.StepOnce();
+            AssertEqual("Beta", m.Type.Name, "Transform did not change the type on its penultimate tick.");
+            AssertEqual("Stand", m.Behaviour.Name, "Transform did not enter the target's behaviour.");
+            AssertTrue(ReferenceEquals(m, w.Mascots[0]) && m.Sid == "m1" && m.Variables["mood"].Number == 3,
+                "Transform did not keep the companion, its sid and its variables.");
+            AssertTrue(log.Events.Contains("m1 transform Egg>Beta Stand"), "No transform event.");
+        }
+
+        private static void TestTickMove()
+        {
+            TickType t = TickType.Compile("Alpha", TickDoc(
+                TRoute(TEdge(10, 1), TEdge(11, 0)),
+                TBeh(10, "Walk", "Walk", 1, false, TEdge(11, 1)),
+                TBeh(11, "Stand", "Stand", 0, null),
+                TAct(30, "Walk", "Move", null, new[] { TParam("TargetX", "600") }, TPose(0, 1, -3)),
+                TAct(31, "Stand", "Stay", null, new[] { TParam("Duration", "50") }, TPose(0, 1))));
+            TickWorld w = TickWorldOf(new TickLog(), null, t);
+            TickMascot m = w.CreateAtStart("m1", t, new TickPoint(640, 680), false, "Walk");
+            var xs = new List<int>();
+            for (int i = 0; i < 16; i++) { w.StepOnce(); xs.Add(m.Anchor.X); }
+            AssertEqual(637, xs[0], "A Move pose's velocity was not applied (dx -3 facing left).");
+            AssertTrue(xs.Contains(600) && !xs.Exists(x => x < 600), "Move overshot its target instead of clamping to it: " + string.Join(",", xs));
+            AssertEqual("Stand", m.Behaviour.Name, "Move did not end on reaching its target.");
+        }
+
+        private static void TestTickLostGround()
+        {
+            TickType t = TickType.Compile("Alpha", TickDoc(
+                TRoute(TEdge(10, 1), TEdge(11, 0)),
+                TBeh(10, "Stand", "Stand", 1, null),
+                TBeh(11, "Fall", "Hang", 0, null),
+                TAct(30, "Stand", "Stay", null, new[] { TParam("Duration", "50") }, TPose(0, 1)),
+                new XmlData.AnimationNode
+                {
+                    Id = 31, Name = "Hang",
+                    Sequence = new XmlData.SequenceNode { RepeatCount = "0", Next = new XmlData.NextNode[0] },
+                    Act = new XmlData.ActNode { Type = "Stay", Border = "", Params = new[] { TParam("Duration", "50") },
+                        Variants = new XmlData.VariantsNode { Variant = new[] { new XmlData.VariantNode { Pose = new[] { TPose(1, 1) } } } } },
+                }));
+            var log = new TickLog();
+            TickWorld w = TickWorldOf(log, null, t);
+            TickMascot m = w.CreateAtStart("m1", t, new TickPoint(640, 600), false, "Stand");
+            w.StepOnce();
+            AssertTrue(log.Events.Contains("m1 behaviour Stand>Fall forced"), "A floor action started off the floor did not lose the ground and enter Fall: " + string.Join("; ", log.Events));
+            AssertEqual(640, m.Anchor.X, "Losing the ground moved the companion.");
+        }
+    }
+}

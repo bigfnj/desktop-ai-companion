@@ -77,6 +77,13 @@ namespace DesktopAICompanion
                 Run("SafeScript variables and names", TestSafeScriptVariablesAndNames);
                 Run("SafeScript random draws and Math", TestSafeScriptRandomAndMath);
                 Run("SafeScript refusals and faults", TestSafeScriptRefusalsAndFaults);
+                Run("Tick engine selection draws once over every root condition", TestTickSelection);
+                Run("Tick engine caches are lazy and kept by kind", TestTickCaches);
+                Run("Tick engine action clock", TestTickActionClock);
+                Run("Tick engine Breed queues and names lineage", TestTickBreed);
+                Run("Tick engine Transform in place", TestTickTransform);
+                Run("Tick engine Move ends and clamps at its target", TestTickMove);
+                Run("Tick engine lost ground enters Fall", TestTickLostGround);
             }
             finally
             {

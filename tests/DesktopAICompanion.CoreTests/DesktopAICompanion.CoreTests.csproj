@@ -71,6 +71,7 @@
     <Compile Include="Program.cs" />
     <Compile Include="ModuleKitTests.cs" />
     <Compile Include="SafeScriptTests.cs" />
+    <Compile Include="TickEngineTests.cs" />
     <Compile Include="..\..\src\Portable\AppPaths.cs">
       <Link>Production\AppPaths.cs</Link>
     </Compile>
@@ -101,6 +102,15 @@
     </Compile>
     <Compile Include="..\..\src\dotNet\SafeScript.cs">
       <Link>Production\SafeScript.cs</Link>
+    </Compile>
+    <Compile Include="..\..\src\dotNet\Shimeji\TickEnvironment.cs">
+      <Link>Production\Shimeji\TickEnvironment.cs</Link>
+    </Compile>
+    <Compile Include="..\..\src\dotNet\Shimeji\TickModel.cs">
+      <Link>Production\Shimeji\TickModel.cs</Link>
+    </Compile>
+    <Compile Include="..\..\src\dotNet\Shimeji\TickRuntime.cs">
+      <Link>Production\Shimeji\TickRuntime.cs</Link>
     </Compile>
   </ItemGroup>
 
