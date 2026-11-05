@@ -210,6 +210,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             private readonly Dictionary<string, HashSet<string>> _boundCustom = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
             // The scope ScriptParameter parses in: the action whose variable map the attribute being lowered joins.
             private Func<string, bool> _scope;
+            // The action whose map the parameter being lowered joins, for the NaN pass's reader (NaNReading).
+            private ShimejiSourceElement _readerAction;
             // Every identifier a script of this member's two documents mentions (Carried).
             private readonly HashSet<string> _scriptNames = new HashSet<string>(StringComparer.Ordinal);
 
@@ -502,6 +504,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 XElement guard = null, offers = null;
                 Func<string, bool> scope = ScopeFor(source);
                 _scope = scope;
+                _readerAction = source;
                 foreach (ShimejiSourceAttribute attribute in ParameterAttributes(source, Carried))
                 {
                     if (attribute.SchemaKey == "Name" || attribute.SchemaKey == "Type" || attribute.SchemaKey == "Class") continue;
@@ -554,6 +557,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     {
                         // Composite animations do not run, but the source still loads their images.
                         _scope = scope;
+                        _readerAction = source;
                         XElement variant = EmitVariant(child, ++animationIndex, composite ? null : conditions);
                         if (!composite) variants.Add(variant);
                     }
@@ -574,6 +578,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                             // A reference's bindings are evaluated in the variable map of the action it builds
                             // (ActionRef passes them in, ActionBuilder.createVariables), so their scope is the target's.
                             _scope = ScopeFor(_actions[target]);
+                            _readerAction = _actions[target];
                             foreach (ShimejiSourceAttribute attribute in ParameterAttributes(child, Carried))
                             {
                                 if (attribute.SchemaKey == "Name") continue;
@@ -812,6 +817,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 if (rootDefinition) behaviour.Add(new XAttribute("add", add));
                 // A behaviour's bindings are passed to the action it runs (BehaviorBuilder.java:72-78), whose scope they take.
                 _scope = ScopeFor(_actions[runs]);
+                _readerAction = _actions[runs];
                 foreach (ShimejiSourceAttribute attribute in ParameterAttributes(source, Carried))
                 {
                     if (new[] { "Name", "Action", "Frequency", "Hidden", "Condition" }.Contains(attribute.SchemaKey)) continue;
@@ -1051,7 +1057,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             /// becomes the cache (grimoire/06 4.1: ${} is "action", #{} is "frame").</summary>
             private XElement ScriptParameter(string tag, string name, ShimejiSourceAttribute attribute, ShimejiSourceElement owner)
             {
-                string body = Script(attribute, owner, _scope ?? ActionScope);
+                string body = Script(attribute, owner, _scope ?? ActionScope, NaNReading(name, _readerAction));
                 return E(tag, new XAttribute("name", name), new XAttribute("value", body),
                     new XAttribute("cache", attribute.Cache == ShimejiSourceCache.Action ? "action" : "frame"));
             }
@@ -1063,17 +1069,50 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             /// attribute's qualified name and the parser's message, never approximated: Java and JavaScript forms
             /// outside the subset (a hexadecimal floating literal, BACKLOG N-shimeji-host-01, among them) stop here.
             /// </summary>
-            private string Script(ShimejiSourceAttribute attribute, ShimejiSourceElement owner, Func<string, bool> scope)
+            private string Script(ShimejiSourceAttribute attribute, ShimejiSourceElement owner, Func<string, bool> scope,
+                string nanReading = null)
             {
                 DesktopAICompanion.ScriptProgram program;
                 string error;
-                string body = BeanProperties(attribute.Expression);
+                string text = attribute.Expression;
+                // Decision 54: Math.random named without a call is NaN in the source (NaNLowering); it lowers only
+                // where this attribute's reader makes NaN a fixed value, and refuses by name everywhere else.
+                if (NaNLowering.Mentions(text))
+                {
+                    if (nanReading == null)
+                        Fail(owner, "TICK_NAN_READER " + attribute.QualifiedName
+                            + ": Math.random without a call is NaN, and no cited reader of this attribute makes NaN a fixed value");
+                    try { text = NaNLowering.Lower(text, nanReading); }
+                    catch (NaNLowering.Refusal refusal)
+                    {
+                        int colon = refusal.Message.IndexOf(':');
+                        Fail(owner, refusal.Message.Substring(0, colon) + " " + attribute.QualifiedName + refusal.Message.Substring(colon));
+                    }
+                }
+                string body = BeanProperties(text);
                 bool parsed = DesktopAICompanion.SafeScript.TryParse(body, scope, out program, out error);
                 if (!parsed) Fail(owner, "TICK_EXPRESSION_UNSUPPORTED " + attribute.QualifiedName + ": " + error);
                 _expressions = true;
                 // The validator demands 'variables' of an expression its parser finds reading or writing them.
                 if (program != null && program.UsesVariables) _variables = true;
                 return body;
+            }
+
+            /// <summary>
+            /// The value the source's reader makes of NaN for <paramref name="parameter"/> of <paramref name="action"/>, or
+            /// null when no reader this pass can cite fixes it. TargetX and TargetY of a Move are read as
+            /// <c>eval(..., Number.class, ...).intValue()</c> (Move.java:147-154) and of an embedded Jump the same way
+            /// (Jump.java:103-110): ActionBase.eval casts the script's Double (ActionBase.java:218-230), and Java narrows NaN
+            /// to the int 0 (JLS 5.1.3), so the companion targets 0. Every other reader (a double, a boolean, a string, or a
+            /// subclass this pass has not read) is not claimed.
+            /// </summary>
+            private string NaNReading(string parameter, ShimejiSourceElement action)
+            {
+                if (action == null || (parameter != "TargetX" && parameter != "TargetY")) return null;
+                string type = ActionType(action);
+                if (type == "Move") return "0";
+                if (type == "Embedded" && Value(action, "Class") == "com.group_finity.mascot.action.Jump") return "0";
+                return null;
             }
 
             /// <summary>A Behavior, BehaviorReference, Condition or Animation selection condition: a literal boolean as
@@ -1398,5 +1437,312 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     throw new InvalidDataException("Reparse path refused: " + current);
             }
         }
+    }
+
+    /// <summary>
+    /// Decision 54: a script naming <c>Math.random</c> without calling it, as the stock configuration does once in a
+    /// TargetX (<c>... : edge - Math.random*100</c>), is reproduced as the source evaluates it. Nashorn coerces the function
+    /// object to a number, NaN, and draws nothing; NaN then flows through arithmetic and the Math functions as
+    /// ECMAScript defines, and the attribute's reader turns it into a value. Where that reader is an int reader
+    /// (<c>eval(..., Number.class, ...).intValue()</c>, Java's narrowing of NaN being 0, JLS 5.1.3), the NaN-valued part is
+    /// written as the literal 0 the source ends up with. This pass works on the source text: it parses the script into
+    /// spans, decides which subtrees are statically NaN, and replaces each NaN-valued result branch.
+    ///
+    /// It lowers only what it can prove. Refused, each by name (TICK_NAN_*): NaN reaching a comparison, a logical
+    /// operator, a negation or a ternary's condition (their outcome is a control decision, not a value the reader fixes);
+    /// a + whose other operand is not statically a number (it could concatenate a string); Math.pow (pow(NaN, 0) is 1); a
+    /// NaN subtree holding a call that is not a pure Math function, or a Math.random() draw, which writing 0 would drop;
+    /// NaN anywhere but the result itself or a ternary branch that is the result; and a reader this pass cannot cite.
+    /// </summary>
+    internal static class NaNLowering
+    {
+        internal sealed class Refusal : Exception
+        {
+            public Refusal(string message) : base(message) { }
+        }
+
+        private enum Kind { Number, Text, Name, Op, End }
+
+        private struct Token
+        {
+            public Kind Kind;
+            public string Text;
+            public int Start, End;
+        }
+
+        private sealed class Node
+        {
+            public string Op;                 // "num", "str", "name", "member", "call", "index", "unary", "binary", "ternary", "paren"
+            public string Text;               // operator, name or member
+            public int Start, End;
+            public List<Node> Children = new List<Node>();
+            public bool NaN, Numeric, Pure = true;
+        }
+
+        // ECMAScript Math functions whose result is NaN when an argument is NaN (15.8.2: abs, ceil, cos, floor, max, min,
+        // round, sin, sqrt, atan2). pow is NOT here: pow(NaN, 0) is 1.
+        private static readonly HashSet<string> NaNFunctions = new HashSet<string>(StringComparer.Ordinal)
+        { "abs", "ceil", "cos", "floor", "max", "min", "round", "sin", "sqrt", "atan2" };
+
+        // Object-model properties that are numbers (grimoire/06 section 6: anchor x and y, the Area fields, the cursor,
+        // the counts).
+        private static readonly HashSet<string> NumericMembers = new HashSet<string>(StringComparer.Ordinal)
+        { "x", "y", "dx", "dy", "left", "top", "right", "bottom", "width", "height", "dleft", "dtop", "dright", "dbottom", "count", "totalCount", "PI" };
+
+        /// <summary>True when the script names Math.random without a call (a cheap check before parsing).</summary>
+        internal static bool Mentions(string script)
+        {
+            int at = 0;
+            while ((at = script.IndexOf("Math.random", at, StringComparison.Ordinal)) >= 0)
+            {
+                int next = at + "Math.random".Length;
+                while (next < script.Length && char.IsWhiteSpace(script[next])) next++;
+                if (next >= script.Length || script[next] != '(') return true;
+                at = next;
+            }
+            return false;
+        }
+
+        /// <summary>The script with each NaN-valued result written as <paramref name="fixedValue"/>, or a Refusal.</summary>
+        internal static string Lower(string script, string fixedValue)
+        {
+            List<Token> tokens = Tokenize(script);
+            int position = 0;
+            Node root = Ternary(tokens, ref position);
+            if (tokens[position].Kind != Kind.End) throw new Refusal("TICK_NAN_SHAPE: the script is not one expression this pass reads");
+            var replacements = new List<Node>();
+            Collect(root, true, replacements);
+            if (replacements.Count == 0) throw new Refusal("TICK_NAN_PARTIAL: NaN is not the value of the script or of one of its result branches");
+            var result = new StringBuilder();
+            int copied = 0;
+            replacements.Sort((a, b) => a.Start.CompareTo(b.Start));
+            foreach (Node node in replacements)
+            {
+                result.Append(script, copied, node.Start - copied).Append(fixedValue);
+                copied = node.End;
+            }
+            result.Append(script, copied, script.Length - copied);
+            return result.ToString();
+        }
+
+        /// <summary>The NaN results to replace: the root, or ternary branches that are themselves results. NaN found
+        /// anywhere else refuses.</summary>
+        private static void Collect(Node node, bool isResult, List<Node> replacements)
+        {
+            if (node.Op == "paren") { Collect(node.Children[0], isResult, replacements); return; }
+            if (node.NaN)
+            {
+                if (!isResult) throw new Refusal("TICK_NAN_PARTIAL: NaN flows into an expression whose value is not the script's");
+                if (!node.Pure) throw new Refusal("TICK_NAN_IMPURE: the NaN subexpression holds a call or a draw that writing its fixed value would drop");
+                replacements.Add(node);
+                return;
+            }
+            if (node.Op == "ternary")
+            {
+                Collect(node.Children[1], isResult, replacements);
+                Collect(node.Children[2], isResult, replacements);
+            }
+        }
+
+        private static List<Token> Tokenize(string s)
+        {
+            var tokens = new List<Token>();
+            int i = 0;
+            while (i < s.Length)
+            {
+                char c = s[i];
+                if (char.IsWhiteSpace(c)) { i++; continue; }
+                int start = i;
+                if (char.IsDigit(c) || (c == '.' && i + 1 < s.Length && char.IsDigit(s[i + 1])))
+                {
+                    while (i < s.Length && (char.IsLetterOrDigit(s[i]) || s[i] == '.')) i++;
+                    tokens.Add(new Token { Kind = Kind.Number, Text = s.Substring(start, i - start), Start = start, End = i });
+                    continue;
+                }
+                if (char.IsLetter(c) || c == '_' || c == '$')
+                {
+                    while (i < s.Length && (char.IsLetterOrDigit(s[i]) || s[i] == '_' || s[i] == '$')) i++;
+                    tokens.Add(new Token { Kind = Kind.Name, Text = s.Substring(start, i - start), Start = start, End = i });
+                    continue;
+                }
+                if (c == '\'' || c == '"')
+                {
+                    i++;
+                    while (i < s.Length && s[i] != c) i += s[i] == '\\' ? 2 : 1;
+                    if (i >= s.Length) throw new Refusal("TICK_NAN_SHAPE: an unterminated string");
+                    i++;
+                    tokens.Add(new Token { Kind = Kind.Text, Text = s.Substring(start, i - start), Start = start, End = i });
+                    continue;
+                }
+                string op = null;
+                foreach (string candidate in new[] { "===", "!==", "==", "!=", "<=", ">=", "&&", "||", "<", ">", "+", "-", "*", "/", "%", "!", "?", ":", "(", ")", ",", ".", "[", "]" })
+                    if (string.CompareOrdinal(s, i, candidate, 0, candidate.Length) == 0) { op = candidate; break; }
+                if (op == null) throw new Refusal("TICK_NAN_SHAPE: a character this pass does not read");
+                i += op.Length;
+                tokens.Add(new Token { Kind = Kind.Op, Text = op, Start = start, End = i });
+            }
+            tokens.Add(new Token { Kind = Kind.End, Text = "", Start = s.Length, End = s.Length });
+            return tokens;
+        }
+
+        private static bool Is(List<Token> t, int p, string op) { return t[p].Kind == Kind.Op && t[p].Text == op; }
+
+        private static Node Ternary(List<Token> t, ref int p)
+        {
+            Node condition = Binary(t, ref p, 0);
+            if (!Is(t, p, "?")) return condition;
+            p++;
+            Node yes = Ternary(t, ref p);
+            if (!Is(t, p, ":")) throw new Refusal("TICK_NAN_SHAPE: a ternary without its ':'");
+            p++;
+            Node no = Ternary(t, ref p);
+            if (condition.NaN) throw new Refusal("TICK_NAN_CONDITION: NaN is a ternary's condition");
+            var node = new Node { Op = "ternary", Start = condition.Start, End = no.End };
+            node.Children.Add(condition); node.Children.Add(yes); node.Children.Add(no);
+            node.Pure = condition.Pure && yes.Pure && no.Pure;
+            node.Numeric = yes.Numeric && no.Numeric;
+            return node;
+        }
+
+        private static readonly string[][] Levels = {
+            new[] { "||" }, new[] { "&&" }, new[] { "==", "!=", "===", "!==" }, new[] { "<", "<=", ">", ">=" },
+            new[] { "+", "-" }, new[] { "*", "/", "%" } };
+
+        private static Node Binary(List<Token> t, ref int p, int level)
+        {
+            if (level == Levels.Length) return Unary(t, ref p);
+            Node left = Binary(t, ref p, level + 1);
+            while (t[p].Kind == Kind.Op && Array.IndexOf(Levels[level], t[p].Text) >= 0)
+            {
+                string op = t[p].Text;
+                p++;
+                Node right = Binary(t, ref p, level + 1);
+                var node = new Node { Op = "binary", Text = op, Start = left.Start, End = right.End };
+                node.Children.Add(left); node.Children.Add(right);
+                node.Pure = left.Pure && right.Pure;
+                if (left.NaN || right.NaN)
+                {
+                    if (level < 4) throw new Refusal("TICK_NAN_COMPARED: NaN reaches '" + op + "', a comparison or logical operator");
+                    // + is numeric addition only when the other operand is a number; else it would concatenate text.
+                    if (op == "+" && !((left.NaN || left.Numeric) && (right.NaN || right.Numeric)))
+                        throw new Refusal("TICK_NAN_PLUS_UNTYPED: NaN meets '+' with an operand that may be text");
+                    node.NaN = true;
+                }
+                node.Numeric = level >= 4 && (op != "+" || (left.Numeric || left.NaN) && (right.Numeric || right.NaN));
+                left = node;
+            }
+            return left;
+        }
+
+        private static Node Unary(List<Token> t, ref int p)
+        {
+            if (t[p].Kind == Kind.Op && (t[p].Text == "-" || t[p].Text == "+" || t[p].Text == "!"))
+            {
+                Token op = t[p];
+                p++;
+                Node operand = Unary(t, ref p);
+                if (operand.NaN && op.Text == "!") throw new Refusal("TICK_NAN_COMPARED: NaN reaches '!'");
+                var node = new Node { Op = "unary", Text = op.Text, Start = op.Start, End = operand.End, Pure = operand.Pure };
+                node.Children.Add(operand);
+                node.NaN = operand.NaN;
+                node.Numeric = op.Text != "!";
+                return node;
+            }
+            return Postfix(t, ref p);
+        }
+
+        private static Node Postfix(List<Token> t, ref int p)
+        {
+            Node node = Primary(t, ref p);
+            string path = node.Op == "name" ? node.Text : null;
+            while (true)
+            {
+                if (Is(t, p, "."))
+                {
+                    p++;
+                    if (t[p].Kind != Kind.Name) throw new Refusal("TICK_NAN_SHAPE: a member without a name");
+                    if (node.NaN) throw new Refusal("TICK_NAN_PARTIAL: a member of NaN");
+                    var member = new Node { Op = "member", Text = t[p].Text, Start = node.Start, End = t[p].End, Pure = node.Pure };
+                    member.Children.Add(node);
+                    path = path == null ? null : path + "." + t[p].Text;
+                    member.Numeric = NumericMembers.Contains(t[p].Text);
+                    p++;
+                    node = member;
+                    // Math.random named and not called: NaN, and no draw.
+                    if (path == "Math.random" && !Is(t, p, "(")) { node.NaN = true; node.Numeric = true; }
+                    continue;
+                }
+                if (Is(t, p, "("))
+                {
+                    p++;
+                    var call = new Node { Op = "call", Text = path, Start = node.Start };
+                    call.Children.Add(node);
+                    bool anyNaN = false, allPure = node.Pure;
+                    if (!Is(t, p, ")"))
+                        while (true)
+                        {
+                            Node argument = Ternary(t, ref p);
+                            call.Children.Add(argument);
+                            anyNaN |= argument.NaN;
+                            allPure &= argument.Pure;
+                            if (Is(t, p, ",")) { p++; continue; }
+                            break;
+                        }
+                    if (!Is(t, p, ")")) throw new Refusal("TICK_NAN_SHAPE: a call without its ')'");
+                    call.End = t[p].End;
+                    p++;
+                    string function = path != null && path.StartsWith("Math.", StringComparison.Ordinal) ? path.Substring(5) : null;
+                    bool pureMath = function != null && (NaNFunctions.Contains(function) || function == "pow");
+                    call.Pure = allPure && pureMath;
+                    call.Numeric = function != null;
+                    if (anyNaN)
+                    {
+                        if (function == null || !NaNFunctions.Contains(function))
+                            throw new Refusal("TICK_NAN_FUNCTION: NaN reaches '" + (path ?? "a call") + "', whose result for NaN this pass does not fix");
+                        call.NaN = true;
+                    }
+                    path = null;
+                    node = call;
+                    continue;
+                }
+                if (Is(t, p, "["))
+                {
+                    p++;
+                    Node index = Ternary(t, ref p);
+                    if (!Is(t, p, "]")) throw new Refusal("TICK_NAN_SHAPE: an index without its ']'");
+                    if (node.NaN || index.NaN) throw new Refusal("TICK_NAN_PARTIAL: NaN used as or in an index");
+                    var indexed = new Node { Op = "index", Start = node.Start, End = t[p].End, Pure = node.Pure && index.Pure };
+                    p++;
+                    path = null;
+                    node = indexed;
+                    continue;
+                }
+                return node;
+            }
+        }
+
+        private static Node Primary(List<Token> t, ref int p)
+        {
+            Token token = t[p];
+            if (token.Kind == Kind.Number)
+            {
+                p++;
+                return new Node { Op = "num", Text = token.Text, Start = token.Start, End = token.End, Numeric = true };
+            }
+            if (token.Kind == Kind.Text) { p++; return new Node { Op = "str", Start = token.Start, End = token.End }; }
+            if (token.Kind == Kind.Name) { p++; return new Node { Op = "name", Text = token.Text, Start = token.Start, End = token.End }; }
+            if (Is(t, p, "("))
+            {
+                p++;
+                Node inner = Ternary(t, ref p);
+                if (!Is(t, p, ")")) throw new Refusal("TICK_NAN_SHAPE: a '(' without its ')'");
+                var paren = new Node { Op = "paren", Start = token.Start, End = t[p].End, NaN = inner.NaN, Numeric = inner.Numeric, Pure = inner.Pure };
+                paren.Children.Add(inner);
+                p++;
+                return paren;
+            }
+            throw new Refusal("TICK_NAN_SHAPE: an unexpected token");
+        }
+
     }
 }

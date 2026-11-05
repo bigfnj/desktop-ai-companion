@@ -74,6 +74,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "ignored-list-entries", Run = (Action)IgnoredListEntries },
                 new { Name = "class-on-plain-action", Run = (Action)ClassOnPlainAction },
                 new { Name = "bean-getter-scripts", Run = (Action)BeanGetterScripts },
+                new { Name = "nan-scripts", Run = (Action)NaNScripts },
+                new { Name = "nan-refusal", Run = (Action)NaNRefusal },
                 new { Name = "information-lowering", Run = (Action)InformationLowering },
                 new { Name = "own-set-binding-reset", Run = (Action)OwnSetBindingReset },
                 new { Name = "japanese-schema-values", Run = (Action)JapaneseSchemaValues },
@@ -1485,6 +1487,56 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 fixture.Actions(actions);
                 Refusal(fixture, "TICK_EXPRESSION_UNSUPPORTED TargetX");
             }
+        }
+
+        // Decision 54: Math.random named without a call is NaN in Nashorn, with no draw, and a Move's or a Jump's int
+        // TargetX/TargetY reader makes NaN 0 (Move.java:147-154, Jump.java:103-110). So the stock ternary's NaN branch,
+        // a whole-NaN Move TargetY and a whole-NaN Jump TargetX lower to 0, and the other branch, with its real draw,
+        // stays as written.
+        private static void NaNScripts()
+        {
+            using (var fixture = new Fixture())
+            {
+                XDocument actions = BuildActions();
+                XElement list = actions.Root.Element("ActionList");
+                list.Add(S("Action", A("Name", "Roam"), A("Type", "Sequence"), S("ActionReference", A("Name", "Walk"),
+                        A("TargetX", "${mascot.lookRight ? mascot.environment.workArea.left+Math.random()*100 : mascot.environment.workArea.right-Math.random*100}"),
+                        A("TargetY", "#{-(Math.random) * 3}"))),
+                    S("Action", A("Name", "Leap"), A("Type", "Embedded"), A("Class", "com.group_finity.mascot.action.Jump"),
+                        A("TargetX", "${Math.max(Math.random * 2, 5)}"), S("Animation", Pose("/p.png", 1))));
+                fixture.Actions(actions);
+                XDocument document = fixture.Convert();
+                Validate(document, "NaN-lowered member");
+                XElement child = NamedNode(document, "Roam").Element(Ns + "act").Element(Ns + "children").Element(Ns + "child");
+                Require(Scripted(child, "bind", "TargetX", "action") == "mascot.lookRight ? mascot.environment.workArea.left+Math.random()*100 : 0",
+                    "the stock ternary's NaN branch was not written as the int reader's 0: " + Scripted(child, "bind", "TargetX", "action"));
+                Require(Scripted(child, "bind", "TargetY", "frame") == "0", "a whole-NaN Move TargetY was not written as 0");
+                Require(Scripted(NamedNode(document, "Leap").Element(Ns + "act"), "param", "TargetX", "action") == "0",
+                    "a whole-NaN Jump TargetX was not written as 0");
+            }
+        }
+
+        // Every shape the NaN pass cannot prove refuses by name: NaN reaching a comparison, a + with text, a NaN part
+        // holding a draw, NaN inside a value that is not the result, Math.pow, and a reader no source line fixes.
+        private static void NaNRefusal()
+        {
+            var cases = new[] {
+                new { Name = "TargetX", Value = "${mascot.anchor.x < Math.random*100 ? 1 : 2}", Expected = "TICK_NAN_COMPARED TargetX" },
+                new { Name = "TargetX", Value = "${'a' + Math.random}", Expected = "TICK_NAN_PLUS_UNTYPED TargetX" },
+                new { Name = "TargetX", Value = "${Math.random()*2 - Math.random*3}", Expected = "TICK_NAN_IMPURE TargetX" },
+                new { Name = "TargetX", Value = "${1 + (mascot.lookRight ? 2 : Math.random)}", Expected = "TICK_NAN_PARTIAL TargetX" },
+                new { Name = "TargetX", Value = "${Math.pow(Math.random, 0)}", Expected = "TICK_NAN_FUNCTION TargetX" },
+                new { Name = "Duration", Value = "${Math.random*10}", Expected = "TICK_NAN_READER Duration" },
+            };
+            foreach (var c in cases)
+                using (var fixture = new Fixture())
+                {
+                    XDocument actions = BuildActions();
+                    actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Walk").SetAttributeValue(c.Name, c.Value);
+                    fixture.Actions(actions);
+                    Refusal(fixture, c.Expected);
+                    Require(!Directory.Exists(fixture.Output), "NaN refusal left output: " + c.Expected);
+                }
         }
 
         private static void InformationLowering()

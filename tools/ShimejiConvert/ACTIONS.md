@@ -111,7 +111,11 @@ with another action's is refused. An attribute the schema does not name on an ac
 behaviour is a variable of the source's action map: it is carried under its own name when it is a plain
 identifier the host does not read as a parameter of its own and some script of the member names it, and the
 scripts of that map see it; one nothing reads is refused, as before. A script's zero-argument JavaBean getter call
-(`getScreen()`, `isLookRight()`) is written as the property it reads, which Nashorn evaluates with the same call. A Behavior's children other than its
+(`getScreen()`, `isLookRight()`) is written as the property it reads, which Nashorn evaluates with the same call.
+`Math.random` named without a call is NaN in the source, with no draw; where it is the value of a Move's or a Jump's
+TargetX or TargetY, or of a ternary branch that is that value, it is written as 0, the int those readers make of
+NaN. NaN anywhere else (a comparison, a condition, text, a call other than a NaN-propagating Math function, a part
+holding a draw, any other reader) is refused by name. A Behavior's children other than its
 NextBehaviorList elements (a NextBehavior among them) are ignored, as 1.0.23 never reads them, and so is any child
 of a behaviour list other than a Condition and a Behavior (root list) or BehaviorReference (next list).
 It refuses unsupported attributes and
