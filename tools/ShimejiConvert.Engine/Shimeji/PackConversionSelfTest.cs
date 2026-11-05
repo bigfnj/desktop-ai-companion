@@ -221,7 +221,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             {
                 XDocument invalid = Actions();
                 invalid.Root.Element("ActionList").Elements("Action").Single(a => (string)a.Attribute("Name") == "Stand")
-                    .SetAttributeValue("Duration", "${1 + 2}");
+                    .SetAttributeValue("Unknown", "1");   // an attribute the source schema does not name: always refused
                 fixture.Member("Bad", invalid, Behaviours());
                 PackConversionResult result = Refused(fixture, Options(true), "Bad");
                 Require(result.PackId == null, "partial source pack advertised an installable subset identity");

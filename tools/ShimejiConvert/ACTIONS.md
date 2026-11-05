@@ -57,9 +57,20 @@ into Studio, but the import UI and its installation transaction are separate wor
 | Embedded Transform | Literal lowering | pending | Host execution: S-slice-transform-01 |
 | Embedded Fall, Dragged | Reserved definitions retained | pending | Present in slice packs; action semantics unexercised |
 | Other embedded classes | Refused by this initial lowering | pending | No tick conversion evidence |
+| `${}` / `#{}` parameters and bindings | lowered; host trace complete; oracle comparison pending | pending | S-vars-cache-01 |
+| Scripted action Condition (cached parameter, guard when) | lowered; host trace complete; oracle comparison pending | pending | S-vars-transform-01 |
+| Scripted Animation Condition (cached parameter, variant when) | lowered; synthetic converter checks only | pending | No directed scenario yet |
+| Scripted Behavior and `<Condition>` selection conditions | lowered; synthetic converter checks only | pending | No directed scenario yet |
 
 The command targets the headless parity runner. It does not infer egg roles or startup metadata and does not
-replace the classic conversion commands or Studio import. It refuses expressions, unsupported attributes and
+replace the classic conversion commands or Studio import. A `${...}` or `#{...}` value lowers to its body with
+cache `action` or `frame` where the source reads it as a script: an action parameter, a reference or behaviour
+binding, a scripted action Condition (a cached parameter the guard's `when` names), a scripted Animation
+Condition (a cached `AnimationConditionN` parameter the variant's `when` names) and a selection condition (the
+edge's `when`, uncached). Every body is parsed with the host's own tick grammar (`SafeScript`) in the scope
+the validator gives it, and one that does not parse is refused with the attribute and the parser's message; a
+scripted Affordance is refused, and so is a script-shaped value in any attribute the source reads literally.
+It refuses unsupported attributes and
 classes, sounds, hotspots, constants, toggles, information metadata, anonymous
 nested actions and next references without a root definition. This first emitter refuses non-base action schemas.
 Bindings across differing document schemas are refused until target-schema resolution is implemented.

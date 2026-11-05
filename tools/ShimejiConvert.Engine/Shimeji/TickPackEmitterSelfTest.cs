@@ -23,7 +23,11 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "sprite-pixels-and-identity", Run = (Action)SpritePixels },
                 new { Name = "sprite-dpi72", Run = (Action)SpriteDpi72 },
                 new { Name = "lifecycle-parameters", Run = (Action)LifecycleParameters },
-                new { Name = "expression-refusal", Run = (Action)ExpressionRefusal },
+                new { Name = "expression-placements", Run = (Action)ExpressionPlacements },
+                new { Name = "expression-variables", Run = (Action)ExpressionVariables },
+                new { Name = "expression-grammar-refusal", Run = (Action)ExpressionGrammarRefusal },
+                new { Name = "affordance-script-refusal", Run = (Action)AffordanceScriptRefusal },
+                new { Name = "literal-only-refusal", Run = (Action)LiteralOnlyRefusal },
                 new { Name = "mixed-pose-geometry", Run = (Action)MixedPoseGeometry },
                 new { Name = "explicit-right-geometry", Run = (Action)ExplicitRightGeometry },
                 new { Name = "pair-anchor-cache", Run = (Action)PairAnchorCache },
@@ -104,6 +108,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             using (var fixture = new Fixture())
             {
                 XDocument document = fixture.Convert();
+                Validate(document, "base fixture");
                 XElement route = Nodes(document).Single(n => n.Element(Ns + "route") != null);
                 XElement idle = RootBehavior(document, "Idle");
                 XElement idleEdge = route.Element(Ns + "sequence").Elements(Ns + "next")
@@ -234,18 +239,175 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             throw new InvalidOperationException("conversion accepted an input requiring refusal: " + expected);
         }
 
-        private static void ExpressionRefusal()
+        /// <summary>The emitted member passes the host's own document validator with every format feature enabled,
+        /// the check PackConversion applies; the paritypack verb writes without it, so this suite runs it.</summary>
+        private static void Validate(XDocument document, string what)
+        {
+            XmlData.RootNode root;
+            string error;
+            Require(DesktopAICompanion.CompanionXmlValidator.TryParseWithFeatures(document.ToString(),
+                DesktopAICompanion.CompanionFormatFeatures.All, out root, out error),
+                "host validator refused the emitted " + what + ": " + error);
+        }
+
+        private static string[] Features(XDocument document)
+        { return document.Root.Element(Ns + "header").Element(Ns + "features").Value.Split(' '); }
+
+        /// <summary>A scripted parameter or binding: its body and cache, asserting the element exists once.</summary>
+        private static string Scripted(XElement owner, string tag, string name, string cache)
+        {
+            XElement[] found = owner.Elements(Ns + tag).Where(p => p.Attribute("name").Value == name).ToArray();
+            Require(found.Length == 1, "scripted " + tag + " " + name + " is missing or repeated");
+            Require((string)found[0].Attribute("cache") == cache,
+                "scripted " + tag + " " + name + " lost its " + cache + " cache (found '" + (string)found[0].Attribute("cache") + "')");
+            return found[0].Attribute("value").Value;
+        }
+
+        private static XElement RouteEdge(XDocument document, string behaviour)
+        {
+            XElement route = Nodes(document).Single(n => n.Element(Ns + "route") != null);
+            string id = RootBehavior(document, behaviour).Attribute("id").Value;
+            return route.Element(Ns + "sequence").Elements(Ns + "next").Single(e => e.Value == id);
+        }
+
+        // Each expression placement of grimoire/06 4.1 and 4.3: an action parameter (${} action, #{} frame), a
+        // scripted action Condition (a cached parameter the guard's when names), a scripted Animation Condition
+        // (a cached parameter the variant's when names), a reference and a behaviour binding, and the behaviour and
+        // <Condition> selection conditions (the edge's when, no cache). It replaces the first lowering's
+        // expression-refusal case, whose ${1 + 2} binding now converts; its successor is expression-grammar-refusal.
+        private static void ExpressionPlacements()
         {
             using (var fixture = new Fixture())
             {
                 XDocument actions = BuildActions();
+                XElement walk = actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Walk");
+                walk.SetAttributeValue("TargetX", "${mascot.environment.cursor.x}");
+                walk.SetAttributeValue("TargetY", "#{mascot.environment.cursor.y + 1}");
+                XElement stand = actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Stand");
+                stand.SetAttributeValue("Condition", "#{mascot.anchor.x > 0}");
+                stand.Element("Animation").SetAttributeValue("Condition", "${mascot.lookRight}");
+                stand.Add(S("Animation", A("Condition", "#{!mascot.lookRight}"), Pose("/p.png", 2)));
                 actions.Descendants("ActionReference").First().SetAttributeValue("TargetX", "${1 + 2}");
                 fixture.Actions(actions);
-                string message = Refusal(fixture, "expressions are not lowered yet");
-                Require(message.IndexOf("actions.xml#", StringComparison.Ordinal) >= 0
-                    && message.IndexOf("ActionReference[1]", StringComparison.Ordinal) >= 0,
-                    "expression refusal lost its source locator");
-                Require(!Directory.Exists(fixture.Output), "refused expression left a partial output");
+                XDocument behaviors = BuildBehaviors();
+                XElement main = behaviors.Descendants("Behavior").First();
+                main.SetAttributeValue("Condition", "${mascot.totalCount < 5}");
+                XElement reference = main.Descendants("BehaviorReference").First();
+                reference.SetAttributeValue("TargetX", "#{mascot.anchor.x}");
+                reference.SetAttributeValue("Condition", "#{mascot.count > 0}");
+                XElement idle = behaviors.Descendants("Behavior").Single(b => (string)b.Attribute("Name") == "Idle");
+                idle.ReplaceWith(S("Condition", A("Condition", "${mascot.dragging == false}"), new XElement(idle)));
+                fixture.Behaviors(behaviors);
+                XDocument document = fixture.Convert();
+
+                XElement walkAct = NamedNode(document, "Walk").Element(Ns + "act");
+                Require(Scripted(walkAct, "param", "TargetX", "action") == "mascot.environment.cursor.x"
+                    && Scripted(walkAct, "param", "TargetY", "frame") == "mascot.environment.cursor.y + 1",
+                    "action parameter body lost or its wrapper kept");
+                Require(walkAct.Element(Ns + "guard") == null, "a scripted parameter other than Condition acquired a guard");
+                XElement standAct = NamedNode(document, "Stand").Element(Ns + "act");
+                Require(Scripted(standAct, "param", "Condition", "frame") == "mascot.anchor.x > 0",
+                    "scripted action Condition lost its cached parameter");
+                XElement guard = standAct.Element(Ns + "guard");
+                Require(guard != null && (string)guard.Attribute("when") == "Condition",
+                    "scripted action Condition: the guard's when does not name its cached parameter");
+                XElement[] variants = standAct.Element(Ns + "variants").Elements(Ns + "variant").ToArray();
+                Require(variants.Length == 2 && (string)variants[0].Attribute("when") == "AnimationCondition1"
+                    && (string)variants[1].Attribute("when") == "AnimationCondition2",
+                    "scripted Animation Condition: the variant's when does not name its parameter");
+                Require(Scripted(standAct, "param", "AnimationCondition1", "action") == "mascot.lookRight"
+                    && Scripted(standAct, "param", "AnimationCondition2", "frame") == "!mascot.lookRight",
+                    "scripted Animation Condition lost its cached parameter");
+                string[] order = standAct.Elements().Select(e => e.Name.LocalName).ToArray();
+                Require(order.Length >= 3 && order[order.Length - 1] == "variants" && order[order.Length - 2] == "guard"
+                    && order.Take(order.Length - 2).All(n => n == "param"),
+                    "act children leave the schema's param, guard, variants order");
+                XElement child = NamedNode(document, "Composite").Element(Ns + "act").Element(Ns + "children").Elements(Ns + "child").First();
+                Require(Scripted(child, "bind", "TargetX", "action") == "1 + 2", "reference binding body lost");
+
+                XElement mainEdge = RouteEdge(document, "Main");
+                Require((string)mainEdge.Attribute("when") == "mascot.totalCount < 5" && mainEdge.Attribute("cache") == null,
+                    "behaviour selection condition is not the route edge's uncached when");
+                Require((string)RouteEdge(document, "Idle").Attribute("when") == "mascot.dragging == false",
+                    "enclosing <Condition> script is not the route edge's when");
+                XElement nextEdge = RootBehavior(document, "Main").Element(Ns + "sequence").Elements(Ns + "next").First();
+                Require((string)nextEdge.Attribute("when") == "mascot.count > 0", "next-reference selection condition lost");
+                XElement nextNode = Nodes(document).Single(n => n.Attribute("id").Value == nextEdge.Value);
+                Require(Scripted(nextNode.Element(Ns + "behaviour"), "bind", "TargetX", "frame") == "mascot.anchor.x",
+                    "behaviour binding body lost");
+                Require(Features(document).Contains("expressions") && !Features(document).Contains("variables"),
+                    "scripted member declared the wrong expression features");
+                Validate(document, "expression placements");
+            }
+        }
+
+        // An expression the parser finds reading or writing mascot.variables needs feature 'variables'.
+        private static void ExpressionVariables()
+        {
+            using (var fixture = new Fixture())
+            {
+                XDocument actions = BuildActions();
+                actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Change")
+                    .SetAttributeValue("Condition", "${mascot.variables.put('kept', 7) == null}");
+                fixture.Actions(actions);
+                XDocument document = fixture.Convert();
+                // The validator first, so an undeclared token is reported in the host's own words.
+                Validate(document, "variables member");
+                Require(Features(document).Contains("variables") && Features(document).Contains("expressions"),
+                    "expression reading mascot.variables did not declare variables");
+            }
+        }
+
+        // The successor of expression-refusal: a body outside the host's tick grammar refuses, naming the
+        // attribute and the parser's message, with no partial output. Unknown names, a hexadecimal floating
+        // literal (N-shimeji-host-01) and an action-only name in a selection condition refuse the same way.
+        private static void ExpressionGrammarRefusal()
+        {
+            foreach (string body in new[] { "${1 +}", "${Nope + 1}", "${0x1p4}" })
+                using (var fixture = new Fixture())
+                {
+                    XDocument actions = BuildActions();
+                    actions.Descendants("ActionReference").First().SetAttributeValue("TargetX", body);
+                    fixture.Actions(actions);
+                    string message = Refusal(fixture, "TICK_EXPRESSION_UNSUPPORTED TargetX: ");
+                    Require(message.IndexOf("actions.xml#", StringComparison.Ordinal) >= 0
+                        && message.IndexOf("ActionReference[1]", StringComparison.Ordinal) >= 0,
+                        "expression refusal lost its source locator");
+                    Require(!Directory.Exists(fixture.Output), "refused expression left a partial output");
+                }
+            using (var fixture = new Fixture())
+            {
+                XDocument behaviors = BuildBehaviors();
+                behaviors.Descendants("Behavior").First().SetAttributeValue("Condition", "${TargetX > 0}");
+                fixture.Behaviors(behaviors);
+                Refusal(fixture, "TICK_EXPRESSION_UNSUPPORTED Condition: ");
+                Require(!Directory.Exists(fixture.Output), "selection condition naming an action parameter left output");
+            }
+        }
+
+        // grimoire/06 4.1: a source Affordance written as an expression has no representation.
+        private static void AffordanceScriptRefusal()
+        {
+            using (var fixture = new Fixture())
+            {
+                XDocument actions = BuildActions();
+                actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Stand").SetAttributeValue("Affordance", "${'Hug'}");
+                fixture.Actions(actions);
+                Refusal(fixture, "TICK_AFFORDANCE_SCRIPTED Affordance");
+                Require(!Directory.Exists(fixture.Output), "scripted Affordance left output");
+            }
+        }
+
+        // An attribute the source reads as literal text keeps refusing a script-shaped value.
+        private static void LiteralOnlyRefusal()
+        {
+            using (var fixture = new Fixture())
+            {
+                XDocument actions = BuildActions();
+                actions.Descendants("Pose").First().SetAttributeValue("Duration", "${2}");
+                fixture.Actions(actions);
+                Refusal(fixture, "TICK_LITERAL_ONLY Duration");
+                Require(!Directory.Exists(fixture.Output), "script-shaped pose duration left output");
             }
         }
 
@@ -606,10 +768,11 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             {
                 fixture.Member("B");
                 XDocument actions = BuildActions();
-                actions.Descendants("Action").First().SetAttributeValue("Duration", "${2}");
+                // A body outside the grammar, now that a well-formed one converts.
+                actions.Descendants("Action").First().SetAttributeValue("Duration", "${2 +}");
                 fixture.Write("img/B/conf/actions.xml", actions.ToString());
                 fixture.Write("img/B/conf/behaviors.xml", BuildBehaviors().ToString());
-                Refusal(fixture, "expressions are not lowered yet");
+                Refusal(fixture, "TICK_EXPRESSION_UNSUPPORTED Duration");
                 Require(!Directory.Exists(fixture.Output), "member A was written before invalid member B was prepared");
             }
         }

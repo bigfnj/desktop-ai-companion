@@ -15,9 +15,9 @@ using DesktopAICompanion.Tools.ShimejiConvert.Shimeji;
 
 namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
 {
-    /// <summary>A strict, deliberately limited first tick-format lowering. Unsupported source constructs fail
-    /// with their source location. It does not change the classic converter or claim action-family support.
-    /// Each pose retains its source image bounds inside a top-left-aligned sheet cell.</summary>
+    /// <summary>A strict tick-format lowering. Unsupported source constructs fail with their source location;
+    /// it refuses rather than approximates. It does not change the classic converter or claim action-family
+    /// support. Each pose retains its source image bounds inside a top-left-aligned sheet cell.</summary>
     public static class TickPackEmitter
     {
         private static readonly XNamespace Ns = "https://esheep.petrucci.ch/";
@@ -26,6 +26,13 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         // Fall and Dragged are needed by the shared packs' reserved, zero-frequency behaviours.
         private static readonly HashSet<string> Classes = Set("Breed Transform Fall Dragged");
         private static readonly HashSet<string> Parameters = Set("Duration Condition Draggable Affordance BorderType Loop TargetX TargetY InitialVX InitialVY RegistanceX RegistanceY Gravity OffsetX OffsetY OffsetType BornX BornY BornBehavior BornMascot BornCount BornTransient TransformMascot TransformBehavior");
+        // An action-context script sees the parameters any class reads and the locals the source publishes, as the
+        // validator's scope does (ShimejiFormatValidator.ScopeFor, which also adds the action's own and bound names;
+        // every name this emitter writes is already in KnownParameters, so the two scopes agree).
+        private static readonly Func<string, bool> ActionScope = name =>
+            Array.IndexOf(ShimejiFormatValidator.KnownParameters, name) >= 0 || Array.IndexOf(ShimejiFormatValidator.Locals, name) >= 0;
+        // A behaviour-selection condition sees the header constants only, and this emitter writes none.
+        private static readonly Func<string, bool> SelectionScope = name => false;
 
         /// <summary>Convert every immediate img/member directory. Returns the emitted animations.xml paths.
         /// The output is separate from the source pack; every member also gets a parity-map.json.</summary>
@@ -159,7 +166,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             private readonly Dictionary<string, string> _behaviourMap = new Dictionary<string, string>(StringComparer.Ordinal);
             private readonly Dictionary<string, string> _childMap = new Dictionary<string, string>(StringComparer.Ordinal);
             private int _next = 2;
-            private bool _lifecycle;
+            // The feature tokens the validator demands for what this member USES (grimoire/06 sections 1 and 10).
+            private bool _lifecycle, _expressions, _variables;
 
             public MemberBuilder(string pack, string member, ShimejiSourceConfig source)
             { _pack = pack; _member = member; _source = source; }
@@ -213,8 +221,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 _nodes.Insert(0, route);
                 int anchorX, anchorY, tilesX, tilesY;
                 byte[] png = Composite(out anchorX, out anchorY, out tilesX, out tilesY);
+                // Token order is fixed so a member that uses none of the newer extensions keeps its exact earlier bytes.
                 string features = "tick actions behaviours" + (_lifecycle ? " lifecycle" : "");
-                if (_nodes.SelectMany(n => n.Descendants()).Any(n => n.Attribute("when") != null)) features += " expressions";
+                if (_expressions || _nodes.SelectMany(n => n.Descendants()).Any(n => n.Attribute("when") != null)) features += " expressions";
+                if (_variables) features += " variables";
                 // Display names have a shorter host limit than exact pack member keys.
                 int displayLength = Math.Min(_member.Length, 128);
                 if (displayLength < _member.Length && char.IsHighSurrogate(_member[displayLength - 1])) displayLength--;
@@ -255,13 +265,13 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     if (node.Kind == ShimejiSourceKind.Condition)
                     {
                         Check(node, "Condition");
-                        CollectRoots(node, Combine(condition, SelectionCondition(node)));
+                        CollectRoots(node, CheckedCombine(condition, SelectionCondition(node), node));
                     }
                     else if (node.Kind == ShimejiSourceKind.Behavior)
                     {
                         string name = Required(node, "Name");
                         if (!_roots.ContainsKey(name)) _rootOrder.Add(name);
-                        _roots[name] = new RootBehaviour { Source = node, Condition = Combine(condition, SelectionCondition(node)) };
+                        _roots[name] = new RootBehaviour { Source = node, Condition = CheckedCombine(condition, SelectionCondition(node), node) };
                     }
                     else Fail(node, "unsupported root behaviour entry");
                 }
@@ -289,12 +299,21 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     if (cls == "Breed" || cls == "Transform") _lifecycle = true;
                 }
                 else if (cls != null) Fail(source, "Class is supported only on Embedded");
+                XElement guard = null;
                 foreach (ShimejiSourceAttribute attribute in Attributes(source))
                 {
                     if (attribute.SchemaKey == "Name" || attribute.SchemaKey == "Type" || attribute.SchemaKey == "Class") continue;
                     if (!Parameters.Contains(attribute.Name)) Fail(source, "unsupported action attribute '" + attribute.QualifiedName + "'");
-                    act.Add(MemberParameter("param", attribute, null));
-                    if (attribute.Name == "BorderType")
+                    act.Add(MemberParameter("param", attribute, null, source));
+                    // grimoire/06 4.1: a source Condition written with a cache wrapper is a cached parameter that the
+                    // guard's when NAMES, so a ${} Condition holds its first value across both checks of a step. The
+                    // runtime's guard read evaluates that name through the parameter, so its cache and its draw site
+                    // (param:Condition) are the parameter's own. A literal Condition stays a plain parameter, as before.
+                    if (attribute.Name == "Condition" && attribute.Cache != ShimejiSourceCache.Literal)
+                        guard = E("guard", new XAttribute("when", "Condition"));
+                    // A scripted BorderType is read through its parameter at init (BorderedAction.java:39-51, and
+                    // TickBorderedAction.Init reads the parameter first); the act's border attribute is the literal form.
+                    if (attribute.Name == "BorderType" && attribute.Cache == ShimejiSourceCache.Literal)
                     {
                         if (attribute.RawValue != "Floor" && attribute.RawValue != "Wall" && attribute.RawValue != "Ceiling" && attribute.RawValue != "")
                             Fail(source, "unsupported border '" + attribute.RawValue + "'");
@@ -306,13 +325,16 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 _actionMap.Add(Key(id), Ref(_source.Actions, source));
                 bool composite = type == "Sequence" || type == "Select";
                 XElement variants = E("variants"), children = E("children", new XAttribute("mode", type == "Select" ? "select" : "sequence"));
-                int childIndex = 0;
+                // Parameters a scripted Animation Condition is lowered to; they join the act's own parameters, ahead of
+                // the guard and the variants as the schema orders them.
+                var conditions = new List<XElement>();
+                int childIndex = 0, animationIndex = 0;
                 foreach (ShimejiSourceElement child in source.Children)
                 {
                     if (child.Kind == ShimejiSourceKind.Animation)
                     {
                         // Composite animations do not run, but the source still loads their images.
-                        XElement variant = EmitVariant(child);
+                        XElement variant = EmitVariant(child, ++animationIndex, composite ? null : conditions);
                         if (!composite) variants.Add(variant);
                     }
                     else if (composite && (child.Kind == ShimejiSourceKind.ActionReference || child.Kind == ShimejiSourceKind.Action))
@@ -327,13 +349,15 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                             {
                                 if (attribute.SchemaKey == "Name") continue;
                                 if (!Parameters.Contains(attribute.Name)) Fail(child, "unsupported reference binding '" + attribute.QualifiedName + "'");
-                                reference.Add(MemberParameter("bind", attribute, _actions[target]));
+                                reference.Add(MemberParameter("bind", attribute, _actions[target], child));
                             }
                         children.Add(reference);
                         _childMap.Add(Key(id) + ":" + childIndex++, Ref(_source.Actions, child));
                     }
                     else Fail(child, "unsupported child of action '" + name + "'");
                 }
+                act.Add(conditions);
+                if (guard != null) act.Add(guard);
                 if (composite)
                 {
                     if (!children.Elements().Any()) Fail(source, "empty composite");
@@ -393,12 +417,28 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 return result;
             }
 
-            private XElement EmitVariant(ShimejiSourceElement source)
+            private XElement EmitVariant(ShimejiSourceElement source, int index, List<XElement> conditions)
             {
                 Check(source, "Condition", "IsTurn");
                 var variant = E("variant");
-                string condition = SelectionCondition(source);
-                if (condition != null) variant.Add(new XAttribute("when", condition));
+                ShimejiSourceAttribute scripted = source.Attribute("Condition");
+                if (scripted != null && scripted.Cache != ShimejiSourceCache.Literal)
+                {
+                    // grimoire/06 4.1: the source caches an Animation Condition by its own ${}/#{} kind
+                    // (Animation.java:39-47) while the format evaluates a variant's when at every lookup, so the body
+                    // becomes a parameter with that cache and the when names it. The name is not a source parameter
+                    // name (those are all in Parameters), so no source attribute or binding can collide with it. A
+                    // composite's animations never play: their body is still checked, and nothing is written.
+                    string parameter = "AnimationCondition" + index.ToString(Invariant);
+                    XElement lowered = ScriptParameter("param", parameter, scripted, source);
+                    if (conditions != null) conditions.Add(lowered);
+                    variant.Add(new XAttribute("when", parameter));
+                }
+                else
+                {
+                    string condition = SelectionCondition(source);
+                    if (condition != null) variant.Add(new XAttribute("when", condition));
+                }
                 if (source.Attribute("IsTurn") != null) variant.Add(new XAttribute("turn", Bool(source, "IsTurn")));
                 foreach (ShimejiSourceElement child in source.Children)
                 {
@@ -490,7 +530,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     if (_source.Actions.Schema != _source.Behaviors.Schema)
                         Fail(source, "cross-schema behaviour bindings need raw target-schema resolution before lowering");
                     if (!Parameters.Contains(attribute.Name)) Fail(source, "unsupported behaviour binding '" + attribute.QualifiedName + "'");
-                    behaviour.Add(MemberParameter("bind", attribute, _actions[runs]));
+                    behaviour.Add(MemberParameter("bind", attribute, _actions[runs], source));
                 }
                 XElement node = Node(id, "beh:" + name, behaviour);
                 _nodes.Add(node);
@@ -507,14 +547,14 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     if (entry.Kind == ShimejiSourceKind.Condition)
                     {
                         Check(entry, "Condition");
-                        EmitNextEntries(entry, Combine(condition, SelectionCondition(entry)), sequence);
+                        EmitNextEntries(entry, CheckedCombine(condition, SelectionCondition(entry), entry), sequence);
                     }
                     else if (entry.Kind == ShimejiSourceKind.BehaviorReference)
                     {
                         string name = Required(entry, "Name");
                         if (!_roots.ContainsKey(name)) Fail(entry, "next reference needs a root behaviour named '" + name + "'");
                         int id = _next++;
-                        string when = Combine(condition, SelectionCondition(entry));
+                        string when = CheckedCombine(condition, SelectionCondition(entry), entry);
                         EmitBehaviour(entry, when, id);
                         sequence.Add(Edge(id, Int(entry, "Frequency", null), when));
                     }
@@ -574,7 +614,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 return Hash(Encoding.UTF8.GetBytes(manifest.ToString()));
             }
 
-            private XElement MemberParameter(string tag, ShimejiSourceAttribute attribute, ShimejiSourceElement target)
+            private XElement MemberParameter(string tag, ShimejiSourceAttribute attribute, ShimejiSourceElement target,
+                ShimejiSourceElement owner)
             {
                 if (IsMemberParameter(attribute.Name) && attribute.RawValue == _member)
                 {
@@ -582,7 +623,77 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     // Dropping a binding must not expose a different member inherited from the action.
                     if (inherited == null || inherited.RawValue == _member) return null;
                 }
-                return Parameter(tag, attribute);
+                return Parameter(tag, attribute, owner);
+            }
+
+            private XElement Parameter(string tag, ShimejiSourceAttribute attribute, ShimejiSourceElement owner)
+            {
+                if (attribute.Cache != ShimejiSourceCache.Literal)
+                {
+                    // grimoire/06 4.1 gives an offer no expression form: Affordance is a literal string there.
+                    if (attribute.Name == "Affordance")
+                        Fail(owner, "TICK_AFFORDANCE_SCRIPTED " + attribute.QualifiedName + ": an offer has no expression form in this format");
+                    return ScriptParameter(tag, attribute.Name, attribute, owner);
+                }
+                // Java accepts hexadecimal floating literals here. The host's current literal reader
+                // retains those as strings, so this lowering must refuse them.
+                string literal = attribute.RawValue.Trim();
+                bool javaOnlyNumber = Regex.IsMatch(literal, @"^[+-]?0[xX](?:[0-9a-fA-F]+(?:\.[0-9a-fA-F]*)?|\.[0-9a-fA-F]+)[pP][+-]?[0-9]+[dDfF]?$");
+                if (javaOnlyNumber) throw new InvalidDataException("TICK_LITERAL_UNSUPPORTED " + attribute.SourceKey + ": Java floating literal needs faithful host parsing.");
+                return E(tag, new XAttribute("name", attribute.Name), new XAttribute("value", attribute.RawValue), new XAttribute("cache", "none"));
+            }
+
+            /// <summary>A ${} or #{} source value as a parameter or binding: the BODY, without its wrapper, whose kind
+            /// becomes the cache (grimoire/06 4.1: ${} is "action", #{} is "frame").</summary>
+            private XElement ScriptParameter(string tag, string name, ShimejiSourceAttribute attribute, ShimejiSourceElement owner)
+            {
+                string body = Script(attribute, owner, ActionScope);
+                return E(tag, new XAttribute("name", name), new XAttribute("value", body),
+                    new XAttribute("cache", attribute.Cache == ShimejiSourceCache.Action ? "action" : "frame"));
+            }
+
+            /// <summary>
+            /// A source script body, checked with the host's own tick grammar: SafeScript.TryParse, the parser the
+            /// validator runs on every tick when and parameter value (ShimejiFormatValidator.ParseExpression), in the
+            /// scope the validator gives that attribute. A body the grammar does not take is REFUSED with the
+            /// attribute's qualified name and the parser's message, never approximated: Java and JavaScript forms
+            /// outside the subset (a hexadecimal floating literal, BACKLOG N-shimeji-host-01, among them) stop here.
+            /// </summary>
+            private string Script(ShimejiSourceAttribute attribute, ShimejiSourceElement owner, Func<string, bool> scope)
+            {
+                DesktopAICompanion.ScriptProgram program;
+                string error;
+                bool parsed = DesktopAICompanion.SafeScript.TryParse(attribute.Expression, scope, out program, out error);
+                if (!parsed) Fail(owner, "TICK_EXPRESSION_UNSUPPORTED " + attribute.QualifiedName + ": " + error);
+                _expressions = true;
+                // The validator demands 'variables' of an expression its parser finds reading or writing them.
+                if (program != null && program.UsesVariables) _variables = true;
+                return attribute.Expression;
+            }
+
+            /// <summary>A Behavior, BehaviorReference, Condition or Animation selection condition: a literal boolean as
+            /// before, or a script body written as the when with no cache (grimoire/06 4.3: parsed afresh per check).</summary>
+            private string SelectionCondition(ShimejiSourceElement source)
+            {
+                ShimejiSourceAttribute attribute = source.Attribute("Condition");
+                if (attribute == null) return null;
+                if (attribute.Cache != ShimejiSourceCache.Literal) return Script(attribute, source, SelectionScope);
+                string value = attribute.RawValue;
+                if (value != "true" && value != "false") Fail(source, "only literal boolean selection conditions are lowered yet");
+                return value;
+            }
+
+            /// <summary>The conjunction an edge carries must itself fit the grammar's limits (length, tokens, depth),
+            /// which its separately checked parts can each meet while the whole does not.</summary>
+            private string CheckedCombine(string first, string second, ShimejiSourceElement source)
+            {
+                string combined = Combine(first, second);
+                if (combined == null || (first == null) || (second == null)) return combined;
+                DesktopAICompanion.ScriptProgram program;
+                string error;
+                if (!DesktopAICompanion.SafeScript.TryParse(combined, SelectionScope, out program, out error))
+                    Fail(source, "TICK_EXPRESSION_UNSUPPORTED combined Condition: " + error);
+                return combined;
             }
 
             private byte[] Composite(out int anchorX, out int anchorY, out int tilesX, out int tilesY)
@@ -656,15 +767,6 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             if (condition != null) edge.Add(new XAttribute("when", condition));
             return edge;
         }
-        private static XElement Parameter(string tag, ShimejiSourceAttribute attribute)
-        {
-            // Java accepts hexadecimal floating literals here. The host's current literal reader
-            // retains those as strings, so this initial lowering must refuse them.
-            string literal = attribute.RawValue.Trim();
-            bool javaOnlyNumber = Regex.IsMatch(literal, @"^[+-]?0[xX](?:[0-9a-fA-F]+(?:\.[0-9a-fA-F]*)?|\.[0-9a-fA-F]+)[pP][+-]?[0-9]+[dDfF]?$");
-            if (javaOnlyNumber) throw new InvalidDataException("TICK_LITERAL_UNSUPPORTED " + attribute.SourceKey + ": Java floating literal needs faithful host parsing.");
-            return E(tag, new XAttribute("name", attribute.Name), new XAttribute("value", attribute.RawValue), new XAttribute("cache", "none"));
-        }
         private static bool IsMemberParameter(string name)
         { return name == "BornMascot" || name == "TransformMascot"; }
         private static string Hash(byte[] bytes)
@@ -678,7 +780,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             {
                 if (attribute.IsNamespaceDeclaration) continue;
                 if (attribute.SchemaKey == null) Fail(source, "unrecognised source attribute '" + attribute.QualifiedName + "'");
-                if (attribute.Cache != ShimejiSourceCache.Literal) Fail(source, "expressions are not lowered yet: " + attribute.QualifiedName);
+                // A ${} or #{} value is judged where it is used: a parameter or binding lowers it (Parameter), a
+                // selection or Animation condition writes it as a when, and every other attribute reads it as
+                // literal text (Value).
                 yield return attribute;
             }
         }
@@ -692,7 +796,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         {
             ShimejiSourceAttribute attribute = source.Attribute(key);
             if (attribute == null) return null;
-            if (attribute.Cache != ShimejiSourceCache.Literal) Fail(source, "expressions are not lowered yet: " + key);
+            // Names, types, classes, pose and hotspot geometry, frequencies and flags are not script parameters.
+            if (attribute.Cache != ShimejiSourceCache.Literal)
+                Fail(source, "TICK_LITERAL_ONLY " + key + ": this attribute is not a script parameter, and a ${} or #{} value here is not lowered");
             return attribute.RawValue;
         }
         private static string Required(ShimejiSourceElement source, string key)
@@ -720,13 +826,6 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             if (parts.Length != 2 || !int.TryParse(parts[0], NumberStyles.AllowLeadingSign, Invariant, out x)
                 || !int.TryParse(parts[1], NumberStyles.AllowLeadingSign, Invariant, out y))
                 throw new InvalidDataException(source.SourceKey + ": expected a literal integer pair");
-        }
-        private static string SelectionCondition(ShimejiSourceElement source)
-        {
-            string value = Value(source, "Condition");
-            if (value == null) return null;
-            if (value != "true" && value != "false") Fail(source, "only literal boolean selection conditions are lowered yet");
-            return value;
         }
         private static string Combine(string first, string second)
         { return first == null ? second : second == null ? first : "(" + first + ") && (" + second + ")"; }
