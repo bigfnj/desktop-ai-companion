@@ -10,6 +10,7 @@ import com.group_finity.mascot.config.Configuration;
 import com.group_finity.mascot.config.Entry;
 import com.group_finity.mascot.environment.Environment;
 import com.group_finity.mascot.image.ImagePairs;
+import com.group_finity.mascot.parity.DraftPoseGeometry;
 import com.joconner.i18n.Utf8ResourceBundleControl;
 import java.awt.Point;
 import java.awt.Window;
@@ -100,10 +101,13 @@ public final class FeasibilityProbe {
     }
 
     private static String state(Mascot mascot, boolean member) {
+        // These controlled fixtures first apply a pose on their first manager tick.
+        Map<String, Object> geometry = DraftPoseGeometry.observe(mascot, mascot.getTime() > 0);
         return "{\"entity\":" + quote(id(mascot)) + ",\"member\":" + member
             + ",\"type\":" + quote(mascot.getImageSet()) + ",\"age\":" + mascot.getTime()
             + ",\"x\":" + mascot.getAnchor().x + ",\"y\":" + mascot.getAnchor().y
             + ",\"right\":" + mascot.isLookRight() + ",\"image\":" + quote(imageKey(mascot))
+            + ",\"origin\":" + geometry.get("origin") + ",\"poseAnchor\":" + geometry.get("poseAnchor")
             + ",\"behavior\":" + quote(mascot.getBehavior().toString()) + "}";
     }
 
@@ -234,7 +238,7 @@ public final class FeasibilityProbe {
             File runtime = new File(Mascot.class.getProtectionDomain().getCodeSource().getLocation().toURI());
             require(fingerprint(runtime).equals(args[1]), "expected-runtime-artifact");
             output.println("{\"record\":\"header\",\"schema\":\"oracle-feasibility/0\",\"runtimeSha256\":"
-                + quote(args[1]) + ",\"driver\":\"separate-unmodified-runtime-probe\"}");
+                + quote(args[1]) + ",\"geometrySchema\":\"oracle-pose-geometry/1\",\"driver\":\"separate-unmodified-runtime-probe\"}");
             configure();
             run(args[2], args.length > 3 ? Integer.parseInt(args[3]) : 3);
             cleanup();

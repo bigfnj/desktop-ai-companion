@@ -60,6 +60,12 @@ parity. No capture is performed by these commands. The scenario adapter is a sep
 Feasibility JSONL uses `oracle-feasibility/0`; it is not the shared parity trace protocol. `Check` requires
 current tool, driver and runtime fingerprints, verifies trace bytes and recomputes directed state signatures.
 It refuses stale evidence instead of accepting an earlier successful pair.
+The fixed `Probe` fixtures additionally declare `geometrySchema: oracle-pose-geometry/1`. Their state records
+include `origin` from `Mascot.getBounds()` and `poseAnchor` from the actual image's effective center, or null
+without an image. Before the first applied pose both are null. Only in these fixed fixtures, time greater than
+zero identifies that first pose; a shared-protocol writer must track applied-pose presence explicitly instead.
+An image-less pose retains the last window bounds while its anchor moves. This addition does not supply the
+shared protocol's pose index, source image identities, reference keys or semantic events.
 
 `Shared -SharedRoot '<generated-scenarios-folder>'` accepts only scenarios declaring no controlled RNG. It
 refuses tape RNG because its unchanged-runtime driver cannot intercept draws. Accepted runs record private
@@ -126,6 +132,7 @@ Two additional focused checks use an explicitly supplied Python interpreter:
 ```powershell
 & '<python-executable>' -I -B .\verify_windows.py --cache-root $oracle.CacheRoot --output-root $oracle.OutputRoot --jdk-root $oracle.JdkRoot --mutate
 & '<python-executable>' -I -B .\verify_vocabulary.py --cache-root $oracle.CacheRoot --converter-parser '<converter-parser-file>'
+& '<python-executable>' -I -B .\verify_pose_geometry.py --cache-root $oracle.CacheRoot --output-root $oracle.OutputRoot --jdk-root $oracle.JdkRoot --mutate
 ```
 
 `verify_windows.py` builds only the original helper/probe sources over the private draft runtime, then runs headless
@@ -134,6 +141,14 @@ named execution failure. It creates no display or native window and sends no inp
 `verify_vocabulary.py` compares sorted vocabulary facts with the verified private schema files. The repository holds
 the canonicalization code and hashes, never properties-file contents. Its difference guard is mutation-tested in
 memory. Canonical bytes are ordinal key, NUL, XML read name and LF, encoded as UTF-8 without a BOM.
+
+`verify_pose_geometry.py` executes unchanged `Mascot` getters and `apply()` from the verified rebuilt JAR.
+Its private test substitutes only the sound-setting dependency of `Main`, allocates a mascot without its native
+constructor and attaches an in-memory JPanel window. No display windows or native input are created. It checks
+startup nulls, a visible pose, two image-less anchor moves with frozen bounds, reappearance, and the actual
+feasibility state formatter. Fresh-build mutants recompute the hidden origin, invent a hidden anchor, and
+disconnect either of the writer's geometry fields; each must fail its named witness. This is a focused geometry proof,
+not an execution of the manager, scenario environment or complete shared-protocol writer.
 
 `Failures` requires current successful runtime probes first. It launches isolated negative probes with an
 incorrect expected offset and an incorrect runtime fingerprint, requiring named failures and exited child

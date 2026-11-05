@@ -480,6 +480,12 @@ def distribution_cache_witness(args):
 
 def self_test(args):
     labels = []
+    current = {"probe_source_sha256": "probe", "tool_sha256": "tool", "pose_geometry_source_sha256": "geometry"}
+    validate_probe_tooling(current, "probe", "tool", "geometry")
+    stale_geometry = dict(current, pose_geometry_source_sha256="old-geometry")
+    expect_refusal(lambda: validate_probe_tooling(stale_geometry, "probe", "tool", "geometry"),
+                   "PROBE_VERSION_MISMATCH", "POSE_GEOMETRY_VERSION_WITNESS")
+    labels.append("pose-geometry-tooling-version")
     repository = repository_root()
     forbidden = SimpleNamespace(cache_root=repository / "unwritten-cache", output_root=args.output_root)
     expect_refusal(lambda: validate_storage_roots(forbidden), "REPOSITORY_STORAGE_REFUSAL cache-root", "REPOSITORY_CACHE_WITNESS")
@@ -642,7 +648,8 @@ def probe(args):
     helper = root / "probe-classes"
     helper.mkdir()
     compiler = command([args.jdk_root / "bin" / "javac.exe", "-encoding", "UTF-8", "-source", "1.8", "-target", "1.8",
-                        "-classpath", classpath, "-d", helper, HERE / "FeasibilityProbe.java"], root)
+                        "-classpath", classpath, "-d", helper, HERE / "FeasibilityProbe.java",
+                        HERE / "draft" / "DraftPoseGeometry.java"], root)
     write_json(root / "probe-compile.json", compiler)
     require_command(compiler, "PROBE_COMPILE_FAILED " + str(root / "probe-compile.json"))
     results = []
@@ -665,6 +672,7 @@ def probe(args):
     check_source(args)
     result = {"status": "pass", "runtime": args.runtime, "artifact_sha256": state["artifact_sha256"],
               "results": results, "probe_source_sha256": sha((HERE / "FeasibilityProbe.java").read_bytes()),
+              "pose_geometry_source_sha256": sha((HERE / "draft" / "DraftPoseGeometry.java").read_bytes()),
               "tool_sha256": sha((HERE / "oracle.py").read_bytes()),
               "runtime_inputs": resources,
               "visual_capture": "not_performed", "source_unchanged": True}
@@ -673,17 +681,23 @@ def probe(args):
     return result
 
 
+def validate_probe_tooling(pair, current_probe, current_tool, current_geometry):
+    if (pair.get("probe_source_sha256") != current_probe or pair.get("tool_sha256") != current_tool
+            or pair.get("pose_geometry_source_sha256") != current_geometry):
+        raise Refusal("PROBE_VERSION_MISMATCH current tooling differs")
+
+
 def check(args):
     comparison = require_passing_comparison(args)
     pairs = [json.loads((args.output_root / (label + "-latest-probe.json")).read_text(encoding="utf-8"))
              for label in ("rebuilt", "official")]
     current_probe = sha((HERE / "FeasibilityProbe.java").read_bytes())
     current_tool = sha((HERE / "oracle.py").read_bytes())
+    current_geometry = sha((HERE / "draft" / "DraftPoseGeometry.java").read_bytes())
     states = [json.loads((args.cache_root / name).read_text(encoding="utf-8"))
               for name in ("latest-build.json", "distribution.json")]
     for pair, state in zip(pairs, states):
-        if pair.get("probe_source_sha256") != current_probe or pair.get("tool_sha256") != current_tool:
-            raise Refusal("PROBE_VERSION_MISMATCH current tooling differs")
+        validate_probe_tooling(pair, current_probe, current_tool, current_geometry)
         actual_runtime = sha(Path(state["artifact"]).read_bytes())
         if pair["artifact_sha256"] != actual_runtime or state["artifact_sha256"] != actual_runtime:
             raise Refusal("PROBE_RUNTIME_VERSION_MISMATCH")
@@ -728,6 +742,7 @@ def mutate(args):
         ("class-inventory", [('if ' + 'result.get("only_rebuilt") != [] or result.get("only_official") != []:', 'if False:')], "CLASS_INVENTORY_WITNESS"),
         ("class-bytecode", [('if ' + 'result.get("instruction_or_signature_differences") != {}:', 'if False:')], "CLASS_BYTECODE_WITNESS")]
     legs.extend([
+        ("pose-geometry-version", [('or pair.get("pose_geometry_source_sha256") ' + '!= current_geometry', 'or False')], "POSE_GEOMETRY_VERSION_WITNESS"),
         ("repository-storage", [('if target == repository ' + 'or repository in target.parents:', 'if False:')], "REPOSITORY_CACHE_WITNESS"),
         ("repository-data-storage", [('("data-root", ' + '"data_root"),', '("data-root", "ignored_data_root"),')], "REPOSITORY_DATA_WITNESS"),
         ("repository-temp-storage", [('("temp-root", ' + '"temp_root"),', '("temp-root", "ignored_temp_root"),')], "REPOSITORY_TEMP_WITNESS"),
@@ -800,7 +815,7 @@ def failures(args):
     helper.mkdir()
     classpath = state["artifact"] + os.pathsep + str(source / "lib" / "*") + os.pathsep + str(source / "conf")
     compiler = command([args.jdk_root / "bin" / "javac.exe", "-encoding", "UTF-8", "-classpath", classpath,
-                        "-d", helper, HERE / "FeasibilityProbe.java"], root)
+                        "-d", helper, HERE / "FeasibilityProbe.java", HERE / "draft" / "DraftPoseGeometry.java"], root)
     write_json(root / "compile.json", compiler)
     require_command(compiler, "FAILURE_WITNESS_COMPILE_FAILED " + str(root / "compile.json"))
     results = []
