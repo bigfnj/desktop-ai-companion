@@ -9,8 +9,8 @@ namespace DesktopAICompanion
     /// </summary>
     internal static partial class CompanionFormatFeatures
     {
-        /// <summary>A token is listed once every class and construct it gates runs here. 'packs' joins when installs
-        /// resolve members. 'windows' runs its classes with the per-type window switch OFF until the Pets pane offers it:
+        /// <summary>A token is listed once every class and construct it gates runs here. 'packs' runs: members resolve
+        /// each other inside their pack and are staged on demand (TickPacks.cs, TickPackBinding.cs). 'windows' runs its classes with the per-type window switch OFF until the Pets pane offers it:
         /// the animation plays and no window moves (policy:window-off-plays).</summary>
         static partial void AddRuntimeFeatures(List<string> supported)
         {
@@ -23,6 +23,7 @@ namespace DesktopAICompanion
             supported.Add(Windows);
             supported.Add(Hotspots);
             supported.Add(Variables);
+            supported.Add(Packs);
         }
 
         static partial void CheckRuntimeClass(string embeddedClass, ref bool runs)

@@ -139,6 +139,13 @@ namespace DesktopAICompanion
                 Run("Tick windows walk: the first eligible window in z-order; a maximised one ends the walk", TestTickWindowsWalkOrder);
                 Run("Tick windows safety: each refused kind of window is refused", TestTickWindowsSafety);
                 Run("Tick windows safety clamp: a moved or thrown window stays inside its work area", TestTickWindowsClamp);
+                Run("Tick packs resolution: a member key resolves inside its own pack, never another pack's", TestTickPacksResolveInScope);
+                Run("Tick packs fallback: a missing member keeps the current type, one diagnostic per (type, reference)", TestTickPacksFallback);
+                Run("Tick packs resolver: the host stages an unknown member once, from the asker's pack only", TestTickPacksResolver);
+                Run("Tick packs startup: the startup member and behaviour, and the egg preference only for an egg", TestTickPacksStartPlan);
+                Run("Tick packs index: library first, then folder order; a duplicate is reported and never wins", TestTickPacksIndex);
+                Run("Tick packs validator: one main, unique keys, references, one transparency, an egg that hatches", TestTickPacksValidator);
+                Run("Tick packs settings: Arrive as an egg defaults on and a turned-off one survives saves", TestTickPacksEggPreference);
             }
             finally
             {

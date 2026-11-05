@@ -451,7 +451,7 @@ namespace DesktopAICompanion
         {
             ClearAndDispose(addPetMenuItem.DropDownItems);
             bool full = Program.Mainthread != null && Program.Mainthread.IsAtMaxPets;
-            foreach (CompanionCatalog.CompanionInfo info in CompanionCatalog.EnumerateLocal())
+            foreach (CompanionCatalog.CompanionInfo info in CompanionCatalog.EnumerateAddable())   // hidden pack members arrive through their pack
             {
                 // Add the specific pet the entry names — the built-in adds the default eSheep, not the
                 // active pet (id "" means "active", which would add the wrong pet after "Use this companion").

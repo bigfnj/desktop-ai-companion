@@ -7417,7 +7417,7 @@ staged, validated and run on the source's 40 ms logical tick, next to classic pe
 
 **Only the app's supported set is filled.** `CompanionFormatFeatures` is partial, and the app alone compiles
 `Shimeji/TickFeatures.cs`, which implements its two hooks: the tokens this runtime runs (tick, actions, behaviours,
-expressions, lifecycle, hotspots, variables) and a per-class question. Studio and the converter compile the validator
+expressions, lifecycle, social, windows, hotspots, variables, packs) and a per-class question. Studio and the converter compile the validator
 without that file, so their set stays empty and they still refuse a tick companion by feature name. That keeps the
 deferral above honest instead of reaching it: Studio's `BehaviourChain` and the converter's migrations still copy
 documents through code that does not carry every field, and they cannot be handed a tick companion until their own
@@ -7430,7 +7430,9 @@ commit and a list cannot fall behind. The probe's definition is empty and a cons
 source's does (MoveWithTurn wants two animations), so an exception means a family CLAIMED the class; only a family
 returning nothing means it does not run. The security self-test asserts both directions: every class a supported token
 gates constructs here, and a class no family builds is refused by name with every feature supported. Social and windows
-joined once their families merged; packs joins when installs resolve members. With every class built, the refusal is
+joined once their families merged; packs joined once members resolve each other at run time (feature/shimeji-host-packs,
+below). With every feature supported, the self-test's production-set refusal says NOTE (not exercised) on every run; the
+refusal by feature name stays exercised through the supplied-set checks. With every class built, the refusal is
 still exercised: the validator takes the class answer as a predicate, and the self-test supplies one that says a class
 does not run, beside a witness that the same companion validates on the build's own answer.
 
@@ -7465,6 +7467,38 @@ monitor hides it while it keeps running; it does not move to a free monitor, bec
 in the saved mix and is not announced to modules as an arrival, so a clutch of eggs does not fire a welcome per
 hatchling and is not back at the next launch. A companion that destroys itself leaves the saved mix as it was, so it
 returns at the next launch: the user's choice of companions is not something a skin changes.
+
+**Packs (feature/shimeji-host-packs): a member is an ordinary type, found by key inside its pack.** Each member installs
+as its own companion type, so the validator, Studio's catalog and the Pets pane keep working on it; hidden members
+(egg stages, helpers) are left out of the tray's Add list and the Companions pane (`CompanionCatalog.EnumerateAddable`).
+A type's `Name` stays the host's unique key (its installed id), and Transform's TransformMascot and Breed's BornMascot
+are matched against the member key inside the referring type's pack scope (`TickType.PackScope`, `ReferenceKey`). Making
+the member key the name was the other option and was not taken: two packs that both have an "Egg" would then collide
+in every per-type lookup the host makes by name (settings, the window maps), while a scope keeps them apart with no
+change to those. Resolution is: an empty name is the current type; a type already in the world with that (scope, key);
+a reference already known to be missing; the host, which stages the member on demand from the pack index (library
+first, then bundled; folder order; a duplicate is logged and never wins) through the same validated staging as any
+added type; otherwise the current type, as `Transform.java:50` and `Breed.java:76` do, with one diagnostic per (type,
+reference). The diagnostic is a callback, not an observer event, so a parity trace gains nothing the source never
+emits. A preview's scope is its own id plus the pack id, so it never resolves an installed member. A staged member
+whose header disagrees with the index, or whose transparency differs from the referring type's (a window keeps the
+mode it was made with), is refused and the reference falls back. The source loads every literally named member when it
+loads a set (`Main.java:443-470`); staging on demand gives the same answers and stages nothing a companion never names,
+at the cost of one staging on the UI thread the first time a member is named.
+
+**A type stays loaded while a companion runs or draws as it.** The tick host holds a registry reference for each
+companion's current type and for the type of the image it shows, which differ for one step after a Transform (the old
+type's last image stays until the new type's first pose); pending births hold theirs from the step that queued them. A
+form keeps its own reference on the type it was made for, which is also what the saved mix and removal read, so a
+hatched egg is still saved as the main member the user added. When the last holder lets go, the registry disposes the
+pair and the host forgets the type, so a later reference stages it again rather than drawing from a disposed sheet.
+
+**Startup and "Arrive as an egg".** Spawning a main member starts it as `<startup member behaviour>`. When the startup
+member's role is `egg`, "Arrive as an egg" decides (per main member's type id, default on, stored in settings.json's
+`companionsNoEggArrival` list of exceptions, read by `LocalData.GetArriveAsEgg`); off starts the main member with the
+route's choice. A startup naming the main member itself gives only the entry behaviour. The startup behaviour is entered
+when the companion is created, and the source-style arrival then applies: created off screen, the first step drops it in
+and enters Fall, as `Main.createMascot` placement does for every new companion.
 
 ## Known ABI gaps
 

@@ -848,7 +848,7 @@ namespace DesktopAICompanion.Shimeji
             // The source scales by its one global Scaling; the host keeps a size per type, so the parent type is used.
             double scaling = parent.Type.Scale;
             string bornMascot = _action.EvalString("BornMascot", null, "");
-            TickType childType = _world.FindType(bornMascot) ?? parent.Type;
+            TickType childType = _world.ResolveReference(parent.Type, bornMascot);
             // The loop bound is evaluated every pass, as the source's `index < getBornCount()`.
             for (int index = 0; index < _action.EvalInt("BornCount", 1); index++)
             {
@@ -1203,7 +1203,7 @@ namespace DesktopAICompanion.Shimeji
     /// The manager (Manager.java) and the configuration's selection (Configuration.java): stable manager order, the add
     /// and remove queues, and the step order of CONTRACT section 4.
     /// </summary>
-    internal sealed class TickWorld
+    internal sealed partial class TickWorld
     {
         private readonly List<TickMascot> _mascots = new List<TickMascot>();
         private readonly List<TickMascot> _added = new List<TickMascot>();
@@ -1232,7 +1232,11 @@ namespace DesktopAICompanion.Shimeji
         public IReadOnlyList<TickMascot> Pending { get { return _added; } }
         public int ActiveCount { get { return _mascots.Count; } }
 
-        public void AddType(TickType type) { _types[type.Name] = type; }
+        public void AddType(TickType type)
+        {
+            _types[type.Name] = type;
+            IndexReference(type);
+        }
 
         public TickType FindType(string name)
         {
@@ -1486,7 +1490,7 @@ namespace DesktopAICompanion.Shimeji
         /// behaviour is entered by name. A missing target keeps the current type, as the source does.</summary>
         public void TransformInPlace(TickMascot mascot, string targetName, string behaviour)
         {
-            TickType target = FindType(targetName) ?? mascot.Type;
+            TickType target = ResolveReference(mascot.Type, targetName);
             string from = mascot.Type.Name;
             mascot.Type = target;
             Observer.Transformed(mascot, from, target.Name, behaviour);

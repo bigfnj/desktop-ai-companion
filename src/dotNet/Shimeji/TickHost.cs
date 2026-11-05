@@ -143,6 +143,10 @@ namespace DesktopAICompanion.Shimeji
         /// type's id. Null in a self-test that builds its windows itself.</summary>
         public readonly Animations Animations;
 
+        /// <summary>What owns <see cref="Sprites"/> (the app's registry entry; null for a pinned type): the host holds it
+        /// while a companion runs or draws as this type (TickHost.RetainType / ReleaseType).</summary>
+        public object Owner;
+
         public TickHostType(string id, TickType type, Xml sprites, Animations animations = null)
         {
             Id = id;
@@ -157,7 +161,7 @@ namespace DesktopAICompanion.Shimeji
     /// and position. Births open windows, removals close them. The forms keep their own timers off (FormCompanion tick
     /// mode); their left-button events come back here as tick input.
     /// </summary>
-    internal sealed class TickHost : ITickObserver, IDisposable
+    internal sealed partial class TickHost : ITickObserver, IDisposable
     {
         public const int TickMilliseconds = 40;
 
@@ -181,6 +185,7 @@ namespace DesktopAICompanion.Shimeji
             _log = log ?? delegate { };
             _environment = new Win32TickEnvironment();
             _world = new TickWorld(_environment, new HostTickRandom(), new HostTickSettings(TypeIdOf), this);
+            AttachPacks();
             _world.Start();
             _timer = new Timer { Interval = TickMilliseconds };
             _timer.Tick += delegate { Step(); };
@@ -204,6 +209,7 @@ namespace DesktopAICompanion.Shimeji
         public void AddType(TickHostType type)
         {
             _typesByName[type.Type.Name] = type;
+            _byType[type.Type] = type;
             _world.AddType(type.Type);
         }
 
@@ -227,6 +233,7 @@ namespace DesktopAICompanion.Shimeji
                 form.AttachTick(this, m);
                 _forms[m] = form;
             }
+            Hold(m);
             if (!_timer.Enabled) _timer.Start();
             return m;
         }
@@ -284,6 +291,7 @@ namespace DesktopAICompanion.Shimeji
                 }
                 Render(m, form);
             }
+            UpdateHolds();
         }
 
         private void Render(TickMascot m, FormCompanion form)

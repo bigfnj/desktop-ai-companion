@@ -135,7 +135,7 @@ namespace DesktopAICompanion.Shimeji
     /// The compiled definition of one tick-clock companion type: immutable after <see cref="Compile"/>, shared by every
     /// live companion of the type. Built only from a document the validator accepted.
     /// </summary>
-    internal sealed class TickType
+    internal sealed partial class TickType
     {
         public string Name;
         public int CellWidth, CellHeight, AnchorX, AnchorY;
@@ -210,6 +210,7 @@ namespace DesktopAICompanion.Shimeji
         public static TickType Compile(string name, XmlData.RootNode root)
         {
             var type = new TickType { Name = name };
+            TickPack.Read(type, root.Header);
             XmlData.ImageNode image = root.Image;
             int sheetWidth, sheetHeight;
             if (image.TilesX <= 0 || image.TilesY <= 0 || !TryReadPngSize(image.Png, out sheetWidth, out sheetHeight))

@@ -12,7 +12,7 @@ namespace DesktopAICompanion
     /// (AppPaths.BundledPetsDirectory beside the exe, then AppPaths.LibraryPetsDirectory for downloads),
     /// each folder holding an animations.xml. The built-in default (eSheep) has a null id.
     /// </summary>
-    internal static class CompanionCatalog
+    internal static partial class CompanionCatalog
     {
         internal sealed class CompanionInfo
         {
@@ -231,27 +231,34 @@ namespace DesktopAICompanion
             try
             {
                 HeaderFileReads++;
-                // Read in 32K blocks until </header> has arrived or the bound is reached. The close tag is
-                // looked for only in the newest block plus a tag's width before it, so a tag split across
-                // two blocks is still seen and the search stays linear.
-                const string headerClose = "</header>";
-                var head = new StringBuilder();
-                var buf = new char[32 * 1024];
-                using (var reader = new StreamReader(xmlPath, Encoding.UTF8, true))
-                {
-                    while (head.Length < HeaderReadBoundChars)
-                    {
-                        int read = reader.ReadBlock(buf, 0, buf.Length);
-                        if (read <= 0) break;
-                        int searchFrom = Math.Max(0, head.Length - headerClose.Length);
-                        head.Append(buf, 0, read);
-                        if (head.ToString(searchFrom, head.Length - searchFrom).IndexOf(headerClose, StringComparison.Ordinal) >= 0)
-                            break;
-                    }
-                }
-                return HeaderNameFromText(head.ToString());
+                return HeaderNameFromText(ReadHeaderText(xmlPath));
             }
             catch { return null; }
+        }
+
+        /// <summary>The start of an animations.xml up to its &lt;/header&gt; (or the bound): what the header name and the
+        /// pack facts (CompanionCatalog.Packs.cs) are read from. Throws on an I/O failure.</summary>
+        private static string ReadHeaderText(string xmlPath)
+        {
+            // Read in 32K blocks until </header> has arrived or the bound is reached. The close tag is
+            // looked for only in the newest block plus a tag's width before it, so a tag split across
+            // two blocks is still seen and the search stays linear.
+            const string headerClose = "</header>";
+            var head = new StringBuilder();
+            var buf = new char[32 * 1024];
+            using (var reader = new StreamReader(xmlPath, Encoding.UTF8, true))
+            {
+                while (head.Length < HeaderReadBoundChars)
+                {
+                    int read = reader.ReadBlock(buf, 0, buf.Length);
+                    if (read <= 0) break;
+                    int searchFrom = Math.Max(0, head.Length - headerClose.Length);
+                    head.Append(buf, 0, read);
+                    if (head.ToString(searchFrom, head.Length - searchFrom).IndexOf(headerClose, StringComparison.Ordinal) >= 0)
+                        break;
+                }
+            }
+            return head.ToString();
         }
 
         /// <summary>

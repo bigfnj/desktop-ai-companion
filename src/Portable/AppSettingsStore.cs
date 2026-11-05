@@ -115,6 +115,12 @@ namespace DesktopAICompanion
         [JsonPropertyName("mutedCompanions"), JsonPropertyOrder(17)]
         public List<string> MutedPets;
 
+        // Pack main members (type ids) whose companions do NOT arrive as an egg (grimoire/06 section 2): the
+        // "Arrive as an egg" preference, offered only when the pack's startup member is an egg. Absent from this
+        // list = on (the default), the way mutedCompanions records only the exceptions. Optional (older docs: on).
+        [JsonPropertyName("companionsNoEggArrival"), JsonPropertyOrder(60)]
+        public List<string> EggArrivalOff;
+
         // The real id of the active/default pet, so per-pet settings (size/sound) key by the actual pet
         // rather than the "" active-slot placeholder. Default = the built-in eSheep. Set when the user picks
         // a pet ("Use"/restore). Optional (older docs default to the built-in).
@@ -304,6 +310,7 @@ namespace DesktopAICompanion
                 ThemeMode = "system",
                 AudioDeviceId = "",
                 MutedPets = new List<string>(),
+                EggArrivalOff = new List<string>(),
                 ActivePetId = DefaultActivePetId,
                 SuppressRepeats = true,
                 RandomDropEnabled = false,
@@ -397,6 +404,7 @@ namespace DesktopAICompanion
             string sound = NormalizeNotificationSoundPath(NotificationSoundPath);
             if (!string.Equals(sound, NotificationSoundPath, StringComparison.Ordinal)) { NotificationSoundPath = sound; changed = true; }
             changed |= NormalizeMutedPets();
+            changed |= NormalizeEggArrivalOff();
             string active = NormalizeActivePetId(ActivePetId);
             if (!string.Equals(active, ActivePetId, StringComparison.Ordinal)) { ActivePetId = active; changed = true; }
             changed |= NormalizeRandomDrop();
@@ -450,6 +458,29 @@ namespace DesktopAICompanion
                     result.Add(id);
                 }
             MutedPets = result;
+            if (original == null) return true;
+            if (original.Count != result.Count) return true;
+            for (int i = 0; i < result.Count; i++)
+                if (!string.Equals(original[i] ?? "", result[i], StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
+        }
+
+        // The egg-arrival exceptions: the muted list's rule (safe ids, case-insensitive dedupe, capped), with "" (the
+        // active slot) refused, since a pack member is always named by its own type id.
+        private bool NormalizeEggArrivalOff()
+        {
+            List<string> original = EggArrivalOff;
+            var result = new List<string>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (EggArrivalOff != null)
+                foreach (string raw in EggArrivalOff)
+                {
+                    string id = raw ?? "";
+                    if (id.Length == 0 || !IsAcceptablePetId(id) || !seen.Add(id)) continue;
+                    if (result.Count >= MaximumPetSizeEntries) break;
+                    result.Add(id);
+                }
+            EggArrivalOff = result;
             if (original == null) return true;
             if (original.Count != result.Count) return true;
             for (int i = 0; i < result.Count; i++)
@@ -1202,6 +1233,8 @@ namespace DesktopAICompanion
                 target.AudioDeviceId = current.AudioDeviceId;
             if (all || !StringListEquals(current.MutedPets, baseline.MutedPets))
                 target.MutedPets = current.MutedPets == null ? null : new List<string>(current.MutedPets);
+            if (all || !StringListEquals(current.EggArrivalOff, baseline.EggArrivalOff))
+                target.EggArrivalOff = current.EggArrivalOff == null ? null : new List<string>(current.EggArrivalOff);
             if (all || !string.Equals(current.ActivePetId, baseline.ActivePetId, StringComparison.Ordinal))
                 target.ActivePetId = current.ActivePetId;
             if (all || current.SuppressRepeats != baseline.SuppressRepeats)
@@ -1297,6 +1330,7 @@ namespace DesktopAICompanion
                 ThemeMode = source.ThemeMode,
                 AudioDeviceId = source.AudioDeviceId,
                 MutedPets = source.MutedPets == null ? null : new List<string>(source.MutedPets),
+                EggArrivalOff = source.EggArrivalOff == null ? null : new List<string>(source.EggArrivalOff),
                 ActivePetId = source.ActivePetId,
                 SuppressRepeats = source.SuppressRepeats,
                 RandomDropEnabled = source.RandomDropEnabled,

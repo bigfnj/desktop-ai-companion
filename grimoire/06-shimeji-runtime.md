@@ -419,12 +419,30 @@ lane before freeze.
 
 ## 9. Packs: install and resolution
 
-- **Installing.** A pack installs as one unit: one companion type per member, each with its `<pack>` header.
-- **Resolution.** The host's pack index maps (pack id, member key) to an installed type, library first, then bundled.
-  - Duplicates resolve deterministically and are logged.
-  - Previews resolve only inside their own preview namespace.
+- **Installing.** A pack installs as one unit: one companion type per member, each with its `<pack>` header. Hidden
+  members (egg stages, helpers) stay out of the user's Add-a-companion list; they arrive through their pack.
+- **Names.** A TransformMascot or BornMascot names a member KEY, matched exactly inside the referring type's pack. A
+  member's key is the source's image-set name, so the converter writes the key the source's references use. Two packs
+  with the same key never meet. A type outside any pack resolves only other types outside a pack, by name.
+- **Resolution.** In this order: an empty name is the current type (the source's default); a member already loaded;
+  a reference already known to be missing (no second lookup); the host's pack index, which maps (pack id, member key)
+  to an installed type, library first, then bundled, and stages it the way any added companion is staged.
+  - Within a root, folders are taken in ordinal case-insensitive order; a duplicate is logged and never wins.
+  - Each id is read where staging reads it: a library copy shadows the bundled copy of the same id.
+  - Previews resolve only inside their own preview namespace (the preview's id plus the pack id).
+  - A staged member whose header is not the member asked for, or whose transparency differs from the referring
+    type's, is refused.
+  - The source loads every literally named member when it loads a set (`Main.java:443-470`); the host stages a member
+    the first time it is named, which gives the same answers.
 - **A member missing at runtime** falls back the way the source does. A Transform or Breed whose target is missing
-  uses the current type (`Transform.java`, `Breed.java:73-113`), with one diagnostic per (type, reference).
+  uses the current type (`Transform.java:50`, `Breed.java:76`), with one diagnostic per (type, reference). The
+  diagnostic is the host's log, not a trace event: the source says nothing.
+- **Lifetime.** A member's sprites stay loaded while any companion runs as it or shows an image from it. After a
+  Transform the companion shows the old type's last image until the new type's first pose, so the old type is let go
+  one step later. A pending birth holds its type from the step that queued it.
+- **Startup.** Spawning a main member starts it as `<startup member behaviour>`. "Arrive as an egg" (per main
+  member, default on) is offered only when the startup member's role is `egg`; off starts the main member with the
+  route's choice. A new companion is then placed as the source places one (off screen, dropped in by its first step).
 - **Studio** warns at import about every unresolved reference, and refuses only what cannot load.
 - **Settings.** Each member keeps its OWN per-type settings (size, sound, monitor pin, toggles), as the source keys
   every setting by the current image set (section 2, `<toggles>`): a transformed companion takes the target type's
@@ -463,11 +481,12 @@ lane before freeze.
   landed is refused by name even with every feature supported. Only the app fills the set: Studio and the converter
   compile the validator without the runtime, keep it empty and refuse tick companions by feature name until their own
   copies of a document carry every field.
-- **Pack-level (`PackValidator`):**
-  - one `main`, and member keys unique;
-  - references resolve, or are reported;
+- **Pack-level (`PackValidator`, over every member's parsed document; Studio and the host can both call it):**
+  - every member is in the same pack, with one `main`, and member keys unique;
+  - references resolve, or are reported as warnings (a scripted one is reported as known only at run time);
   - every member uses the same transparency mode;
-  - a declared egg startup transforms back to its main member.
+  - the startup names a member and one of its behaviours;
+  - a declared egg startup transforms back to its main member, directly or through other members.
 
 ## 11. Open points to settle before freeze
 
