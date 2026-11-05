@@ -150,6 +150,11 @@ are in the reviews named in each entry.
 - 📌 **N-shimeji-host-03** [low/perf] Two costs to measure before calling them fine, cold and interleaved against a
   variant without them: Win32TickEnvironment's per-tick window walk (the source caches title verdicts per window), and the
   Pets pane compiling a tick companion's XML on the UI thread once per process (cached; a large pack is the case).
+- 📌 **N-shimeji-host-05** [low/visual] A tick companion's window is resized and moved in four steps (FormCompanion.cs
+  RenderTick: Width, Height, Left, Top), so between them it exists at a mixed size or at its old place: a 150 ms window
+  poll caught a 64x32 window during a 32 px egg's hatch into a 64 px form. One SetBounds call makes it one move. Seen in
+  the real-app pack preview check on 1.10.0; present since 1.9.0. A new companion's window is also shown at the form's
+  default place before its first render (no image yet), which the same poll counted as a visible 64x64 window.
 - 📌 **N-shimeji-host-04** [low/classic] Classic pets' frame intervals are rounded up to the 15.6 ms system timer tick by
   their WinForms timers (an interval of 40 plays at 46.9 ms, 100 at 109): measured while fixing the tick clock, which now
   keeps the source's 40 ms. Decide whether any classic animation depends on short intervals.
