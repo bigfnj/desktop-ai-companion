@@ -44,7 +44,11 @@ touches. Field names are exact and case-sensitive.
   entry.
   - Window fields: `visible`, `rect` `[left, top, right, bottom]`, `title`.
   - Input fields: `cursor` `[x, y]`, `press` and `release` (`"left"` or `"right"`), `click` (shorthand for press
-    and release in the same tick).
+    and release in the same tick). A button entry names the companion whose window receives it, `"sid": "m1"`, as a
+    window system would after its hit test (which window is under the pointer is the window system's business, not
+    the runtime's); the point it carries is the cursor, made window-local against where that window was last drawn.
+    While a press is held, every cursor change also reaches the holding companion as a move, before the tick's own
+    edges. Only the left button reaches the runtime; the right one opens the menu.
   - A tick-0 entry sets state only (cursor position, window). A `press`, `release` or `click` at tick 0 is a
     scenario error: button edges start at tick 1, when the companions exist.
 - Neither runtime ever reads the real mouse, the real windows or the real displays during a scenario.
