@@ -76,6 +76,30 @@ namespace DesktopAICompanion.PetStudioModule
         private UIElement _importLossSection;
         internal const string LastSkinDirKey = "lastSkinDir";
         private string _extractedTemp;   // a .zip skin extracted here for the session; deleted on close
+
+        // The pack report (1.3.0), shown only while a whole-pack import's result is loaded. _pack is the converter's
+        // whole result, _packOptions the explicit options it was given (the report's role column reads them), and
+        // _packTitle the name the installed ids start with. While _pack is set the editor holds ONE member, read-only,
+        // and the single "Install this companion…" is withheld: a member installed on its own has no pack to belong
+        // to, so the pack installs whole through "Install pack" or not at all. UI thread only, like every field here.
+        private PackConversionResult _pack;
+        private PackConversionOptions _packOptions;
+        private string _packTitle;
+        private UIElement _packSection;
+        private readonly TextBlock _packSummary = new TextBlock { TextWrapping = TextWrapping.Wrap };
+        private readonly ListBox _packMembers = new ListBox { MaxHeight = 150, Margin = new Thickness(0, 4, 0, 0) };
+        private readonly Button _installPackButton = new Button { Content = "Install pack", Padding = new Thickness(10, 3, 10, 3), IsEnabled = false };
+        private readonly Button _previewPackButton = new Button { Content = "Preview pack", Padding = new Thickness(10, 3, 10, 3), IsEnabled = false, Margin = new Thickness(6, 0, 0, 0) };
+        private const string PreviewPackTip =
+            "Previews the main member on its own. The host looks for a preview's other members only inside the preview, " +
+            "and nothing puts them there yet, so an egg does not hatch and a transform stays as the main member.";
+        // Set by PickSkin when the author pressed "Import all as a pack"; read and cleared by the import core around
+        // SelectSkin, whose rule (one skin converts unasked) stays the one the self-test pins. UI thread only.
+        private bool _pickedAsPack;
+        // The name the author chose for this import: the folder's, or the zip's without ".zip". The pack title when
+        // the pack is the import root itself, which on the zip path is this module's extraction tree. Cleared when the
+        // import ends, so a later hand-off never inherits it.
+        private string _importTitle;
         private readonly WrapPanel _map = new WrapPanel { Orientation = Orientation.Horizontal };
         private readonly TextBlock _detailTitle = new TextBlock { FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap };
         private readonly TextBlock _detailStatus = new TextBlock { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0) };
@@ -339,6 +363,7 @@ namespace DesktopAICompanion.PetStudioModule
         {
             var grid = new Grid();
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });                     // report
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });                     // pack (pack import only)
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });                     // import loss (import only)
             grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // map
 
@@ -347,10 +372,31 @@ namespace DesktopAICompanion.PetStudioModule
             Grid.SetRow(report, 0);
             grid.Children.Add(report);
 
+            // The pack report: the verdict, one row per member (clicking one opens it in the editor, read-only), and the
+            // two pack actions. Collapsed until a pack import lands (LoadPackReport) and again when anything else loads.
+            var packActions = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
+            _installPackButton.Click += delegate { InstallPackClicked(); };
+            _previewPackButton.Click += delegate { PreviewPack(); };
+            _previewPackButton.ToolTip = PreviewPackTip;
+            ToolTipService.SetShowOnDisabled(_previewPackButton, true);
+            _installPackButton.ToolTip = "Installs every member of the pack. Offered only when the converter accepted the whole pack.";
+            ToolTipService.SetShowOnDisabled(_installPackButton, true);
+            packActions.Children.Add(_installPackButton);
+            packActions.Children.Add(_previewPackButton);
+            _packMembers.SelectionChanged += delegate { OnPackMemberPicked(); };
+            var packPanel = new StackPanel();
+            packPanel.Children.Add(_packSummary);
+            packPanel.Children.Add(_packMembers);
+            packPanel.Children.Add(packActions);
+            _packSection = Section("Pack", packPanel);
+            _packSection.Visibility = Visibility.Collapsed;
+            Grid.SetRow(_packSection, 1);
+            grid.Children.Add(_packSection);
+
             var importLossScroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, MaxHeight = 200, Content = _importLossText };
             _importLossSection = Section("Import loss (what didn't convert)", importLossScroll);
             _importLossSection.Visibility = Visibility.Collapsed;
-            Grid.SetRow(_importLossSection, 1);
+            Grid.SetRow(_importLossSection, 2);
             grid.Children.Add(_importLossSection);
 
             var mapArea = new DockPanel { LastChildFill = true };
@@ -360,7 +406,7 @@ namespace DesktopAICompanion.PetStudioModule
             var mapScroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = _map };
             mapArea.Children.Add(mapScroll);
             var mapSection = Section("Reachability map", mapArea);
-            Grid.SetRow(mapSection, 2);
+            Grid.SetRow(mapSection, 3);
             grid.Children.Add(mapSection);
 
             return grid;
@@ -563,6 +609,7 @@ namespace DesktopAICompanion.PetStudioModule
                 // had saved. The catch below only writes a status line, which is what made it survivable
                 // enough to ship.
                 string text = File.ReadAllText(path);
+                ClosePackReport();              // an opened file is not a pack member: editable, and installable alone
                 _openedPath = path;
                 _path.Text = path;
                 _installId.Text = SuggestId(path);
@@ -641,6 +688,7 @@ namespace DesktopAICompanion.PetStudioModule
                 return;
             }
             HideImportLoss();               // an installed pet carries no import-loss report
+            ClosePackReport();
             // The editor no longer holds the file that was open, so neither may Save. Without this the path
             // survived the swap and Save wrote the INSTALLED pet's XML over the author's own file, atomically,
             // reporting the victim's path back as a success -- with no partial file left to recover from.
@@ -776,6 +824,9 @@ namespace DesktopAICompanion.PetStudioModule
                 if (dlg.ShowDialog() != System.Windows.Forms.DialogResult.OK) return;
                 root = dlg.SelectedPath;
             }
+            // The pack title, when this folder is itself a pack (1.3.0). Not while another import holds the window: the
+            // dialog pumps messages, a zip import may have started under it, and that import's title is its own.
+            if (!_importing) _importTitle = Path.GetFileName(root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
             // The folder the AUTHOR chose, remembered here where it is known (F162); the core it is handed
             // to remembers nothing, because the root it sees may be a temp tree.
             RememberSkinDir(root);
@@ -813,6 +864,7 @@ namespace DesktopAICompanion.PetStudioModule
                 BeginOrphanSweep();
                 string previous = _extractedTemp;   // captured BEFORE the field moves on, so the pool thread deletes the right tree
                 string zipPath = dlg.FileName;
+                _importTitle = Path.GetFileNameWithoutExtension(zipPath);   // a pack at the archive's top takes the zip's name
                 string destination = Path.Combine(Path.GetTempPath(), "petstudio-shimeji-" + Guid.NewGuid().ToString("N"));
                 _extractedTemp = destination;
                 // OFF THE UI THREAD, all of it: the previous skin's recursive delete (hundreds of PNGs; it
@@ -837,6 +889,7 @@ namespace DesktopAICompanion.PetStudioModule
             finally
             {
                 _importing = false;
+                _importTitle = null;
             }
         }
 
@@ -1053,6 +1106,7 @@ namespace DesktopAICompanion.PetStudioModule
                 // In a finally, so a conversion that throws does not leave the window refusing every
                 // later import with "Still converting the last skin".
                 _importing = false;
+                _importTitle = null;
             }
         }
 
@@ -1120,11 +1174,20 @@ namespace DesktopAICompanion.PetStudioModule
                 // dialog (N-burn-tools-01). The rule (one skin converts unasked, several are put to the picker,
                 // a cancel converts nothing) is SelectSkin's so the self-test can pin it; the picker itself is
                 // the modal list in PickSkin, on the dispatcher, where this continuation already is.
+                _pickedAsPack = false;
                 DetectedSkin skin = SelectSkin(skins, _skinPicker);
+                bool asPack = _pickedAsPack;
+                _pickedAsPack = false;
                 if (skin == null)
                 {
                     HideImportLoss();
                     SetStatus("Import cancelled: " + skins.Count + " skins were found and none was chosen.");
+                    return;
+                }
+                if (asPack)
+                {
+                    // 1.3.0: every image set of the highlighted skin's pack, for the Shimeji runtime.
+                    await ImportPackAsync(root, skin);
                     return;
                 }
                 string extra = skins.Count > 1 ? " (chosen from " + skins.Count + " skins)" : "";
@@ -1210,22 +1273,352 @@ namespace DesktopAICompanion.PetStudioModule
             };
             var convert = new Button { Content = "Convert", Padding = new Thickness(10, 3, 10, 3), MinWidth = 80, IsDefault = true };
             var cancel = new Button { Content = "Cancel", Padding = new Thickness(10, 3, 10, 3), MinWidth = 80, IsCancel = true, Margin = new Thickness(6, 0, 0, 0) };
+            // 1.3.0: the whole pack, with the highlighted skin as its main member. Offered only for a skin laid out as
+            // root\img\<member>, which is what the converter's pack API reads; the tooltip says why when it is not.
+            var asPack = new Button { Content = "Import all as a pack (Shimeji runtime)", Padding = new Thickness(10, 3, 10, 3), Margin = new Thickness(6, 0, 0, 0) };
+            ToolTipService.SetShowOnDisabled(asPack, true);
+            Action refreshPack = delegate
+            {
+                var item = list.SelectedItem as ListBoxItem;
+                bool packable = PackImport.PackRootOf(item != null ? item.Tag as DetectedSkin : null) != null;
+                asPack.IsEnabled = packable;
+                asPack.ToolTip = packable
+                    ? "Convert every image set in this pack for the Shimeji runtime, with the highlighted skin as the main member. You choose each member's role next."
+                    : PackImport.NotAPackLayout;
+            };
+            list.SelectionChanged += delegate { refreshPack(); };
+            refreshPack();
             convert.Click += delegate { accept(); };
+            asPack.Click += delegate { _pickedAsPack = true; accept(); };
             list.MouseDoubleClick += delegate { accept(); };
             var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
             buttons.Children.Add(convert);
+            buttons.Children.Add(asPack);
             buttons.Children.Add(cancel);
             var panel = new StackPanel { Margin = new Thickness(12) };
             panel.Children.Add(new TextBlock
             {
-                Text = "This archive holds " + skins.Count + " skins. Choose the one to convert:",
+                Text = "This archive holds " + skins.Count + " skins. Convert the highlighted one on its own, or import every image set as one pack with it as the main member:",
                 TextWrapping = TextWrapping.Wrap,
+                MaxWidth = 520,
             });
             panel.Children.Add(list);
             panel.Children.Add(buttons);
             dialog.Content = panel;
             _theme.Apply(dialog);
             return dialog.ShowDialog() == true ? chosen : null;
+        }
+
+        // ---- import a whole pack (1.3.0) ----
+
+        /// <summary>
+        /// The pack branch of the import core, which holds <c>_importing</c> for it: list the pack's members, put the
+        /// roles to the author, convert the whole pack with ShimejiEngine.ConvertPack, and show the pack report. The
+        /// member listing and the conversion (every member's sprites decoded and composited, seconds of work) run on a
+        /// pool thread; the dialog and the report on this one. A refusal at any step converts or installs nothing and
+        /// says why in the status bar.
+        /// </summary>
+        private async Task ImportPackAsync(string root, DetectedSkin main)
+        {
+            string packRoot = PackImport.PackRootOf(main);
+            string mainKey = PackImport.MemberKeyOf(main);
+            if (packRoot == null || string.IsNullOrEmpty(mainKey))
+            {
+                HideImportLoss();
+                SetStatus(PackImport.NotAPackLayout);
+                return;
+            }
+            List<string> keys = await Task.Run(delegate { return PackImport.ListMemberKeys(packRoot); });
+            if (_closed) return;
+            if (!keys.Contains(mainKey))
+            {
+                HideImportLoss();
+                SetStatus("Couldn't list this pack's image sets, so nothing was converted.");
+                return;
+            }
+            PackConversionOptions options = PickPackOptions(keys, mainKey);
+            if (options == null)
+            {
+                SetStatus("Pack import cancelled: nothing was converted.");
+                return;
+            }
+
+            SetStatus("Converting the pack (" + keys.Count + " image sets)…");
+            string refusal = null;
+            PackConversionResult result = await Task.Run(delegate
+            {
+                string r;
+                PackConversionResult converted = PackImport.ConvertGuarded(packRoot, options, PackImport.ConvertWithEngine, out r);
+                refusal = r;
+                return converted;
+            });
+            if (_closed) return;
+            if (result == null)
+            {
+                HideImportLoss();
+                SetStatus("The pack was not converted: " + refusal);
+                return;
+            }
+            LoadPackReport(result, options, PackImport.PackTitle(packRoot, root, _importTitle));
+        }
+
+        /// <summary>
+        /// The pack dialog: one row per member with its role and whether it is hidden, then the optional starting member
+        /// and behaviour. Starts from <see cref="PackImport.DefaultChoices"/>; changing a role resets that row's Hidden to
+        /// the converter's default for it. Convert pack builds the options through
+        /// <see cref="PackImport.SelectPackOptions"/>, and a refusal is shown here, with the author's choices intact,
+        /// rather than closing the dialog. Null on Cancel.
+        /// </summary>
+        private PackConversionOptions PickPackOptions(IReadOnlyList<string> keys, string mainKey)
+        {
+            List<PackMemberChoice> rows = PackImport.DefaultChoices(keys, mainKey);
+            var grid = new Grid { Margin = new Thickness(0, 6, 0, 6) };
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            Action<UIElement, int, int> place = delegate (UIElement e, int row, int column)
+            {
+                Grid.SetRow(e, row);
+                Grid.SetColumn(e, column);
+                grid.Children.Add(e);
+            };
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            place(new TextBlock { Text = "Image set", FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 16, 4) }, 0, 0);
+            place(new TextBlock { Text = "Role", FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 16, 4) }, 0, 1);
+            place(new TextBlock { Text = "Hidden", FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 4) }, 0, 2);
+            for (int i = 0; i < rows.Count; i++)
+            {
+                PackMemberChoice row = rows[i];
+                bool isMain = row.Role == PackImport.RoleMain;
+                int r = i + 1;
+                grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                place(new TextBlock
+                {
+                    Text = row.Key + (isMain ? "   (the skin you highlighted)" : ""),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(0, 2, 16, 2),
+                    MaxWidth = 360,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    ToolTip = row.Key,
+                }, r, 0);
+                var hidden = new CheckBox { IsChecked = row.Hidden, IsEnabled = !isMain, VerticalAlignment = VerticalAlignment.Center };
+                if (isMain)
+                {
+                    place(new TextBlock { Text = PackImport.RoleMain, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 2, 16, 2) }, r, 1);
+                    hidden.ToolTip = "The main member is always visible: it is the one you add from Add a companion.";
+                    ToolTipService.SetShowOnDisabled(hidden, true);
+                }
+                else
+                {
+                    var role = new ComboBox { MinWidth = 90, Margin = new Thickness(0, 2, 16, 2) };
+                    foreach (string option in PackImport.OtherRoles) role.Items.Add(option);
+                    role.SelectedItem = row.Role;
+                    role.SelectionChanged += delegate
+                    {
+                        row.Role = role.SelectedItem as string;
+                        hidden.IsChecked = PackImport.DefaultHidden(row.Key, row.Role);
+                    };
+                    place(role, r, 1);
+                }
+                hidden.Checked += delegate { row.Hidden = true; };
+                hidden.Unchecked += delegate { row.Hidden = false; };
+                place(hidden, r, 2);
+            }
+
+            const string NoStart = "(no starting member)";
+            var startMember = new ComboBox { MinWidth = 160, Margin = new Thickness(6, 0, 0, 0) };
+            startMember.Items.Add(NoStart);
+            foreach (PackMemberChoice row in rows) startMember.Items.Add(row.Key);
+            startMember.SelectedIndex = 0;
+            var startBehaviour = new TextBox { Width = 160, Margin = new Thickness(6, 0, 0, 0), IsEnabled = false, VerticalContentAlignment = VerticalAlignment.Center };
+            startMember.SelectionChanged += delegate { startBehaviour.IsEnabled = startMember.SelectedIndex > 0; };
+            var startRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
+            startRow.Children.Add(new TextBlock { Text = "Starts as", VerticalAlignment = VerticalAlignment.Center });
+            startRow.Children.Add(startMember);
+            startRow.Children.Add(new TextBlock { Text = "with behaviour", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0) });
+            startRow.Children.Add(startBehaviour);
+
+            var refusalText = new TextBlock { TextWrapping = TextWrapping.Wrap, MaxWidth = 560, Margin = new Thickness(0, 6, 0, 0), Visibility = Visibility.Collapsed };
+            PackConversionOptions chosen = null;
+            var dialog = new Window
+            {
+                Title = "Import a pack",
+                Owner = this,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                SizeToContent = SizeToContent.WidthAndHeight,
+                ResizeMode = ResizeMode.NoResize,
+                ShowInTaskbar = false,
+            };
+            var convert = new Button { Content = "Convert pack", Padding = new Thickness(10, 3, 10, 3), MinWidth = 80, IsDefault = true };
+            var cancel = new Button { Content = "Cancel", Padding = new Thickness(10, 3, 10, 3), MinWidth = 80, IsCancel = true, Margin = new Thickness(6, 0, 0, 0) };
+            convert.Click += delegate
+            {
+                string member = startMember.SelectedIndex > 0 ? startMember.SelectedItem as string : null;
+                string refusal;
+                PackConversionOptions options = PackImport.SelectPackOptions(rows, mainKey, member, startBehaviour.Text, out refusal);
+                if (options == null)
+                {
+                    refusalText.Text = "✗ " + refusal;
+                    refusalText.Visibility = Visibility.Visible;
+                    return;
+                }
+                chosen = options;
+                dialog.DialogResult = true;
+            };
+            var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 10, 0, 0) };
+            buttons.Children.Add(convert);
+            buttons.Children.Add(cancel);
+
+            var panel = new StackPanel { Margin = new Thickness(12) };
+            panel.Children.Add(new TextBlock
+            {
+                Text = "Each image set in this pack becomes one member. '" + mainKey + "' is the main member, the one you add from " +
+                       "Add a companion. A hidden member never appears there: it arrives through the pack, as an egg that hatches " +
+                       "or a helper that is born.",
+                TextWrapping = TextWrapping.Wrap,
+                MaxWidth = 560,
+            });
+            panel.Children.Add(new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, MaxHeight = 340, Content = grid });
+            panel.Children.Add(startRow);
+            panel.Children.Add(new TextBlock
+            {
+                Text = "Optional. A starting member other than the main one is what the companion arrives as; choosing an egg " +
+                       "member is what offers “Arrive as an egg” for it. Name the behaviour as the skin's behaviors file does.",
+                TextWrapping = TextWrapping.Wrap,
+                MaxWidth = 560,
+                Foreground = _theme.Muted,
+                Margin = new Thickness(0, 4, 0, 0),
+            });
+            panel.Children.Add(refusalText);
+            panel.Children.Add(buttons);
+            dialog.Content = panel;
+            _theme.Apply(dialog);
+            return dialog.ShowDialog() == true ? chosen : null;
+        }
+
+        /// <summary>Show a converted pack: the summary, one row per member, and the two pack actions, which are enabled
+        /// only when the converter accepted the whole pack. Selects the main member, which opens it read-only.</summary>
+        private void LoadPackReport(PackConversionResult result, PackConversionOptions options, string title)
+        {
+            if (_closed) return;
+            _pack = null;                               // so the row clear below opens nothing
+            _packMembers.Items.Clear();
+            _pack = result;
+            _packOptions = options;
+            _packTitle = title;
+            _openedPath = null;                         // Save prompts for a path, as after a single import
+            _path.Text = "Imported pack: " + title;
+            _packSummary.Text = PackImport.Summary(result, title);
+            int select = -1;
+            foreach (PackMemberConversionResult member in result.Members)
+            {
+                if (select < 0 && string.Equals(member.SourceKey, result.MainMember, StringComparison.Ordinal)) select = _packMembers.Items.Count;
+                _packMembers.Items.Add(new ListBoxItem { Content = PackImport.MemberRow(member, options), Tag = member });
+            }
+            bool offered = PackImport.CanInstall(result, _pets != null);
+            _installPackButton.IsEnabled = offered;
+            _previewPackButton.IsEnabled = offered;
+            _installButton.IsEnabled = false;
+            _installButton.ToolTip = "This is one member of a pack: use Install pack, which installs every member together.";
+            _packSection.Visibility = Visibility.Visible;
+            if (_packMembers.Items.Count == 0)
+            {
+                HideImportLoss();
+                SetStatus(PackStatusPrefix() + (result.Error ?? ""));
+                return;
+            }
+            _packMembers.SelectedIndex = select >= 0 ? select : 0;
+        }
+
+        /// <summary>"Pack 'X' accepted. " or "Pack 'X' not accepted: first error. ", ahead of whatever a member pick says.</summary>
+        private string PackStatusPrefix()
+        {
+            if (_pack == null) return "";
+            return _pack.Accepted
+                ? "Pack '" + _packTitle + "' accepted. "
+                : "Pack '" + _packTitle + "' not accepted" + (string.IsNullOrWhiteSpace(_pack.Error) ? "" : ": " + _pack.Error.Trim().TrimEnd('.')) + ". ";
+        }
+
+        /// <summary>A member row was clicked: a prepared member opens in the editor, read-only, and is analyzed as any
+        /// companion is; a refused one has no document, so its notes go to the import-loss panel and its error to the
+        /// status bar.</summary>
+        private void OnPackMemberPicked()
+        {
+            if (_pack == null || _closed) return;
+            var item = _packMembers.SelectedItem as ListBoxItem;
+            var member = item != null ? item.Tag as PackMemberConversionResult : null;
+            if (member == null) return;
+            ShowImportLoss(member.Residue, member.SourceKey);
+            if (member.Disposition != PackMemberDisposition.Prepared || string.IsNullOrEmpty(member.EmittedXml))
+            {
+                SetStatus(PackStatusPrefix() + "'" + member.SourceKey + "' was refused (" +
+                    (member.Error ?? "no document was prepared").Trim().TrimEnd('.') +
+                    "). It has no document to open; its notes are under Import loss.");
+                return;
+            }
+            _editor.IsReadOnly = true;
+            _saveButton.IsEnabled = true;
+            SetEditorText(member.EmittedXml);
+            BeginAnalyze(PackStatusPrefix() + "Showing '" + member.SourceKey + "' read-only. ");
+        }
+
+        /// <summary>Leave pack mode: called by every other load path before it fills the editor.</summary>
+        private void ClosePackReport()
+        {
+            _pack = null;                               // first, so the row clear opens nothing
+            _packOptions = null;
+            _packTitle = null;
+            _packMembers.Items.Clear();
+            _packSummary.Text = "";
+            if (_packSection != null) _packSection.Visibility = Visibility.Collapsed;
+            _installPackButton.IsEnabled = false;
+            _previewPackButton.IsEnabled = false;
+            _installButton.ToolTip = null;
+            _editor.IsReadOnly = false;
+        }
+
+        /// <summary>Install pack: every member, main last, through the one rule in <see cref="PackImport.InstallPack"/>.
+        /// Withdrawn after a complete install, so a second click cannot install a second copy of the same pack.</summary>
+        private void InstallPackClicked()
+        {
+            if (!PackImport.CanInstall(_pack, _pets != null))
+            {
+                SetStatus("Nothing was installed: the converter did not accept the whole pack.");
+                return;
+            }
+            PackInstallOutcome outcome = PackImport.InstallPack(_pack, _packTitle, _pets);
+            SetStatus(outcome.Message);
+            if (outcome.Complete) _installPackButton.IsEnabled = false;
+        }
+
+        /// <summary>
+        /// Preview pack: the MAIN member alone, through the ordinary preview. The host scopes a preview's pack references
+        /// to the preview's own namespace (TickPackBinding.ScopeForPreview) and resolves members only from the installed
+        /// pack index, which never holds a preview scope, so a preview's Transform, Breed or egg startup falls back to the
+        /// main member itself (ShimejiWindowSelfTest.Packs: "a preview member does not resolve an installed pack's
+        /// member"). Previewing the whole pack needs a host change; the lane report names it. The status and the tooltip
+        /// say what the author is and is not seeing.
+        /// </summary>
+        private void PreviewPack()
+        {
+            if (_pack == null || _pets == null || !_pack.Accepted) return;
+            PackMemberConversionResult main = null;
+            foreach (PackMemberConversionResult member in _pack.Members)
+                if (string.Equals(member.SourceKey, _pack.MainMember, StringComparison.Ordinal)) main = member;
+            if (main == null || string.IsNullOrEmpty(main.EmittedXml)) return;
+            RemovePreview();
+            string error;
+            _preview = _pets.SpawnPreview(main.EmittedXml, out error);
+            if (_preview == null)
+            {
+                SetStatus("Preview refused: " + error);
+                return;
+            }
+            _removeButton.IsEnabled = true;
+            RefreshPlayOnPreview();
+            SetStatus("Previewing the main member '" + main.SourceKey + "' on your desktop, on its own. A preview cannot reach " +
+                "the pack's other members yet, so a hatch or a transform stays as '" + main.SourceKey + "'. Install the pack " +
+                "to see them together.");
         }
 
         /// <summary>Put a freshly converted skin (desktop or Android bundle) into the editor, analysis, and
@@ -1236,6 +1629,7 @@ namespace DesktopAICompanion.PetStudioModule
             // the tree it read is left to the sweep and _importing to the caller's finally (RA-140).
             if (_closed) return;
             _openedPath = null;                     // imported, not opened from a file: Save will prompt for a path
+            ClosePackReport();                      // one skin, converted on its own: no pack report, an editable editor
             _path.Text = "Imported: " + name;
             _installId.Text = SafeId(name);
             _saveButton.IsEnabled = true;
@@ -1354,6 +1748,14 @@ namespace DesktopAICompanion.PetStudioModule
             if (_importLossSection != null) _importLossSection.Visibility = Visibility.Visible;
         }
 
+        /// <summary>One pack member's residue (a refused member's carries its refusal), in the same panel.</summary>
+        private void ShowImportLoss(ResidueReport residue, string memberKey)
+        {
+            if (residue == null) { HideImportLoss(); return; }
+            _importLossText.Text = residue.ToText(memberKey);
+            if (_importLossSection != null) _importLossSection.Visibility = Visibility.Visible;
+        }
+
         private void HideImportLoss()
         {
             _importLossText.Text = "";
@@ -1374,16 +1776,11 @@ namespace DesktopAICompanion.PetStudioModule
             catch { }
         }
 
+        /// <summary>The suggested install id for one companion; the rule lives in PackImport, which applies it to every
+        /// member of a pack too (1.3.0), so the two paths cannot drift apart.</summary>
         private static string SafeId(string name)
         {
-            var sb = new System.Text.StringBuilder();
-            foreach (char c in (name ?? "").ToLowerInvariant())
-            {
-                if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) sb.Append(c);
-                else if (c == ' ' || c == '-' || c == '_') sb.Append('-');
-            }
-            string id = sb.ToString().Trim('-');
-            return string.IsNullOrEmpty(id) ? "shimeji-pet" : id;
+            return PackImport.SafeId(name);
         }
 
         // ---- analysis + rendering ----
@@ -1470,7 +1867,8 @@ namespace DesktopAICompanion.PetStudioModule
             // Preview and install are gated on the host ACCEPTING the pet, not on it being warning-free: an
             // unreachable animation is worth telling the author about, but it does not stop the pet running.
             _previewButton.IsEnabled = report.IsValid && _pets != null;
-            _installButton.IsEnabled = report.IsValid && _pets != null;
+            // A pack member alone is not installable here: the pack installs whole, through Install pack (1.3.0).
+            _installButton.IsEnabled = report.IsValid && _pets != null && _pack == null;
 
             SetStatus(statusPrefix + AnalysisStatus(report.IsValid, report.UnreachableAnimations.Count, droppedSteps));
         }

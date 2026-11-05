@@ -647,6 +647,8 @@ namespace DesktopAICompanion.PetStudioModule
 
                 SelfCheckExtractionDeletes(probe);
                 SelfCheckSkinZip(probe);
+                // 1.3.0: the whole-pack import's rules, and the real converter on a synthetic pack (PackImportSelfCheck.cs).
+                PackImportSelfCheck.SelfCheckPackImport(probe);
 
                 string fixture = EmbeddedResources.LoadText(typeof(PetStudioModule).Assembly, "selftest-companion.xml");
                 if (!probe.Check("the self-test companion is embedded (" + fixture.Length + " chars)", fixture.Length > 1000))

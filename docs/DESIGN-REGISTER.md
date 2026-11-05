@@ -7615,6 +7615,38 @@ hands back the whole cell, drawn so the region still lands at the bounds, and sa
 growing. A pose that fills its cell takes the store's own scaled frame, because the store rounds a 32.5-pixel cell to
 32 where Java's rounding gives 33, and a region one pixel wider than its frame cannot be cut.
 
+#### feature/studio-packs
+
+Companion Studio 1.3.0 imports a Shimeji pack whole through `ShimejiEngine.ConvertPack`. The rules live in
+`modules/PetStudio/PackImport.cs`, and the module self-test (`PackImportSelfCheck.cs`) drives them with a recording
+`ICompanionManager` and a synthetic pack generated in code.
+
+**The main member is installed LAST, and a partial install is not rolled back.** Install pack stops at the first member
+`InstallType` refuses and names, by key and id, every member already installed. Main-last means a failure part way leaves
+no main member behind, and only the main member appears in Add a companion (`CompanionCatalog.EnumerateAddable`), so a
+half-installed pack is never offered as if it were whole. Uninstalling what went in was declined: it deletes from the
+user's library on a path nobody asked for, and its own failure would leave less said than the report does.
+
+**While a pack member is open, "Install this companion…" is withheld.** The editor holds one member, read-only, and a
+member installed on its own has no pack to belong to: an egg alone is hidden from Add a companion, a main member alone
+has no members to transform into. The pack installs whole through Install pack, enabled only when `result.Accepted`.
+
+**Preview pack previews the main member alone.** A preview's pack scope is the preview id plus the pack id
+(`TickPackBinding.ScopeForPreview`), and `Stage` resolves members only from the installed pack index, which never holds
+a preview scope, so a preview's Transform, Breed or egg startup falls back to the main member itself
+(`ShimejiWindowSelfTest.Packs`). `ICompanionManager.SpawnPreview` takes one document, so Studio has nowhere to put the
+other members. Previewing a whole pack needs a host change: an ABI member that takes every member's document and
+stages them as transient registry entries in the preview's namespace, which `Stage` would consult for a preview scope.
+
+**Installed ids are unique against the installed companions, so installing the same pack twice installs a second
+copy.** Both copies share a pack id, and `CompanionPackIndex` keeps one per pack id and member key and logs the rest, so
+the second main member's references resolve to the first copy's members. Offering "replace the installed pack" when its
+pack id is already installed was left for later: the ABI has no way to read an installed type's pack header short of
+`TryReadTypeXml` on every installed type.
+
+**Only a skin laid out as `<root>\img\<member>\` can be imported as a pack.** That is what `ConvertPack` reads. A skin
+whose sprites sit at the root or deeper converts on its own, and the picker's pack button says why in its tooltip.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of
