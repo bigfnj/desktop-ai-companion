@@ -7505,6 +7505,9 @@ an off-route entry continues with its root namesake's list, not with edges of it
 classic result can change: no shipped companion declares a clock, `ShimejiConvert verify Companions` still passes, and
 the converter's self-test gains a tick case whose WITNESS shows the classic walk over the same nodes disagreeing. Studio's map draws the tick edges with
 their kinds, marks Fall, Dragged and Thrown as engine entries, and shows an action's frames from its first variant.
+"Preview highlighted action" is withheld for a tick-clock companion, with its reason as the tooltip: `IHost.TryPlayAnimation`
+looks in the classic animation set, which the host keeps empty for a tick window, so the request could only fail, and
+it used to fail with advice to re-preview.
 
 ## Known ABI gaps
 

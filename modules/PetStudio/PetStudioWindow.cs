@@ -135,8 +135,11 @@ namespace DesktopAICompanion.PetStudioModule
         private string _openedPath;
         private PetSprite _sprite;
         private string _spriteKey;
-        // Whether the graph on the map (the last accepted one) is a tick-clock companion's, for the detail pane's words.
+        // Whether the graph on the map (the last accepted one) is a tick-clock companion's, for the detail pane's words
+        // and the "Preview highlighted action" button.
         private bool _tickClock;
+        private const string TickClockPlayRefusal =
+            "A companion on the Shimeji runtime picks its own behaviours, so the preview cannot be asked to play one by name.";
         private ICompanionPreview _preview;
         // The map node the author last clicked, kept so "Preview highlighted action" knows WHAT to play.
         // The detail pane already renders this node, but it rendered it straight into TextBlocks and kept
@@ -1857,8 +1860,11 @@ namespace DesktopAICompanion.PetStudioModule
         {
             bool live = _preview != null && _preview.IsAlive && _preview.Pet != null;
             bool named = _selectedNode != null && !string.IsNullOrWhiteSpace(_selectedNode.Name);
-            _playOnPreviewButton.IsEnabled = CanPlayOnPreview(_host != null, live, named ? _selectedNode.Name : null);
+            // A tick-clock companion has no classic animation for IHost.TryPlayAnimation to find: its behaviour layer
+            // chooses what runs (the host keeps its classic set empty), so the button is withheld with that reason.
+            _playOnPreviewButton.IsEnabled = !_tickClock && CanPlayOnPreview(_host != null, live, named ? _selectedNode.Name : null);
             _playOnPreviewButton.ToolTip =
+                _tickClock ? TickClockPlayRefusal :
                 _host == null ? "No host service available." :
                 !live ? "Put a preview on your desktop first." :
                 _selectedNode == null ? "Click an animation in the map to choose one." :
@@ -1888,6 +1894,7 @@ namespace DesktopAICompanion.PetStudioModule
             }
             string name = (_selectedNode.Name ?? "").Trim();
             if (name.Length == 0) { SetStatus("That animation has no name, so it cannot be requested by name."); return; }
+            if (_tickClock) { SetStatus(TickClockPlayRefusal); return; }
 
             bool played;
             try { played = _host.TryPlayAnimation(_preview.Pet, name); }
