@@ -7704,6 +7704,39 @@ member the earlier install had and the pack no longer has is left installed and 
 user's call. The same path makes a retry after a partial install, and a re-import that changed a role, replace rather
 than duplicate.
 
+#### feature/shimeji-host-wav
+
+A tick companion's named clip may be WAV: `<sound format="wav">`, feature `wav` (grimoire/06 section 3).
+
+**The format is declared, never sniffed, and checked against the bytes.** The validator runs the check the declaration
+names and refuses the other way round by name (MP3 bytes declared `wav`, WAV bytes declared MP3); the bytes are looked
+at again only to word that refusal. The staging carries the declaration with the bytes (`TickClipAudio`), and the
+decoder reads it, so the validator and the runtime ask one function (`WavFormat.IsDeclaredWav`) what the document said.
+
+**Any `format` attribute needs the token, `mp3` included.** An older host's schema has no such attribute, so only the
+token gets that host a refusal by name before the schema. Since every token needs `tick`, a classic `<sound
+animationid>` stays MP3: the classic engine admits and decodes MP3 only, and the converter's WAV clips are all pose clips.
+
+**Transcoding WAV to MP3 in the converter was refused** (lossy, and the Windows MP3 encoder is absent on N editions); the
+host decodes PCM and IEEE float through NAudio with no OS codec. ADPCM, mu-law and A-law would need ACM codecs and are
+refused by tag: none of the corpus's 1168 WAVE clips uses them (all 8- or 16-bit PCM). NAudio's sample converters do
+not take a `WAVE_FORMAT_EXTENSIBLE` header (measured: "Unsupported source encoding"), so `AudioOutput.DecodeClip` reads
+an extensible clip's samples under the plain header its subformat means.
+
+**The structure is no stricter than real clips.** Chunks after `data`, an 18-byte fmt chunk and an odd-sized last chunk
+with no pad byte pass (238, 25 and 10 corpus clips). A RIFF size that disagrees with the clip, a block align that
+contradicts the channels and bits, or a ragged data chunk are refused, though the source plays the one corpus clip of
+each of the first two kinds: the bytes are in doubt, and a converter can rewrite either header field without touching a
+sample.
+
+**The size limits are unchanged** (2 MiB a clip, 8 MiB a document, 12 MiB of XML). 466 of the 493 corpus members whose
+clips resolve fit them as WAV; raising the per-clip limit to 4 MiB would add 18. A decoded clip costs twice its bytes for
+16-bit stereo at 44.1 kHz and at most 44 times them (8-bit mono at 8 kHz, the lowest rate allowed), so a raise is a
+memory decision for the coordinator, not this lane.
+
+**A parity run writes no sound event for WAV either.** ParityRun has no clip output until CONTRACT defines a clip clock
+(ParityRun.cs, `Sound`), so a WAV clip's start is asserted in --shimeji-window-selftest through a recording sink.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of
