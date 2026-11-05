@@ -139,8 +139,9 @@ run.
   - The pose for a given action age is chosen by age modulo the summed durations (`Animation.java:54-78`).
 - **`<sound id="...">`.** A new optional attribute, so poses can name clips. `animationid` stays for classic use. In a
   tick-clock companion every sound is a named clip (an id of 1 to 64 characters, unique, no `animationid`), and its
-  audio passes the same size limits and MP3 check as a classic sound. A named clip's `<loop>` and `<probability>` are
-  not read: a clip plays once per start, as the source's does.
+  audio passes the same size limits and MP3 check as a classic sound. A named clip carries no `<loop>` and no
+  `<probability>` (both 0, the serializer's own values): a clip plays once per start, as the source's does, so either
+  would be ignored, and the validator refuses one rather than accept a setting that does nothing.
 - **Playing a clip** (`Mascot.java:612-625`, `Sounds.java`, `SoundLoader.java`):
   - A clip is one sound at one volume. Every companion whose applied pose names the same clip of a type at the same
     volume shares it: one clip, one playing state. The same sound at another volume is another clip.

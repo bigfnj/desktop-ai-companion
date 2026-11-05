@@ -17187,6 +17187,19 @@ CASES = (
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      "sound output: a module's stop never cuts the engine's own sound or a companion's clip"),
+    # A named tick clip carries no probability or loop (tick mode would ignore them).
+    ('shimeji-host: a named clip\'s probability is accepted',
+     os.path.join(REPO, "src", "dotNet", "CompanionXmlValidator.cs"),
+     b'                if (named && (sound.Probability != 0 || sound.Loop != 0))\n',
+     b'                if (named && (sound.Loop != 0))\n',
+     HOST_CSPROJ, EXE,
+     SECURITY, None, 'a named clip with a probability is refused'),
+    ('shimeji-host: a named clip\'s loop is accepted',
+     os.path.join(REPO, "src", "dotNet", "CompanionXmlValidator.cs"),
+     b'                if (named && (sound.Probability != 0 || sound.Loop != 0))\n',
+     b'                if (named && (sound.Probability != 0))\n',
+     HOST_CSPROJ, EXE,
+     SECURITY, None, 'a named clip with a loop is refused'),
     # ---- lane feature/shimeji-host-motion ----
     # The motion family of embedded classes (src/dotNet/Shimeji/TickMotionFamily.cs) and the engine hooks it added: each
     # case puts back one wrong reading of the official runtime and must fail the CoreTests group that pins it.

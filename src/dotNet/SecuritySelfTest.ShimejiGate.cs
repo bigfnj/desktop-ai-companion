@@ -394,6 +394,13 @@ namespace DesktopAICompanion
             ExpectRefused(classic, r => r.Sounds = new XmlData.SoundsNode
                     { Sound = new[] { new XmlData.SoundNode { SoundId = "clip", Base64 = Convert.ToBase64String(new byte[64]) } } },
                 "not a usable MP3", "a named clip that is not MP3 audio is refused by the audio sniff", ref failures, output);
+            // A named clip plays when a pose names it; a probability or a loop on it would be silently ignored.
+            ExpectRefused(classic, r => r.Sounds = new XmlData.SoundsNode
+                    { Sound = new[] { new XmlData.SoundNode { SoundId = "clip", Probability = 50, Base64 = audio } } },
+                "belong to classic sounds", "a named clip with a probability is refused", ref failures, output);
+            ExpectRefused(classic, r => r.Sounds = new XmlData.SoundsNode
+                    { Sound = new[] { new XmlData.SoundNode { SoundId = "clip", Loop = 2, Base64 = audio } } },
+                "belong to classic sounds", "a named clip with a loop is refused", ref failures, output);
         }
 
         /// <summary>Add composite actions C0..C(depth-1), each a Sequence of <paramref name="fanout"/> references to the
