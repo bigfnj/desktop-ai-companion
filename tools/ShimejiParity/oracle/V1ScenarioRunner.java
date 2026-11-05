@@ -78,10 +78,11 @@ import org.w3c.dom.Node;
  */
 public final class V1ScenarioRunner implements DraftParityHooks.Controller {
     private static final String SCHEMA = "shimeji-parity-scenario/1";
-    /** Embedded classes whose CONTRACT section 3 events (scan-target, interact, sound, mute) are not observed yet. */
-    private static final Set<String> UNOBSERVED = new LinkedHashSet<String>(java.util.Arrays.asList(
-        "ScanMove", "ScanInteract", "ScanJump", "Interact", "Mute", "Broadcast", "BroadcastMove", "BroadcastJump",
-        "BroadcastStay", "ComplexMove", "ComplexJump"));
+    /** Embedded classes whose CONTRACT section 3 events (sound, mute) are not observed yet. */
+    private static final Set<String> UNOBSERVED = new LinkedHashSet<String>(java.util.Arrays.asList("Mute"));
+    /** The classes that keep a scan target, the source's own WeakReference field named target. */
+    private static final Set<String> SCANNERS = new LinkedHashSet<String>(java.util.Arrays.asList(
+        "ScanMove", "ScanInteract", "ScanJump", "ComplexMove", "ComplexJump"));
 
     private final Map<String, Object> scenario;
     private final boolean observing;
@@ -128,6 +129,7 @@ public final class V1ScenarioRunner implements DraftParityHooks.Controller {
     private String pendingCause;
     private boolean fallbackPending;
     private String namedBuild;
+    private String scanAffordance;
     private long enterSequence;
 
     // Scenario desktop.
@@ -322,7 +324,7 @@ public final class V1ScenarioRunner implements DraftParityHooks.Controller {
         record.put("velocity", previous == null ? pair(0, 0) : pair(anchor.x - previous.x, anchor.y - previous.y));
         lastAnchor.put(sid, new Point(anchor));
         record.put("affordances", new ArrayList<String>(mascot.getAffordances()));
-        record.put("target", null);
+        record.put("target", leaf != null && SCANNERS.contains(leaf.getClass().getSimpleName()) ? targetSid(read(leaf, "target")) : null);
         record.put("dragging", mascot.isDragging());
         record.put("pending", isPending);
         record.put("disposing", isDisposing);
@@ -345,6 +347,12 @@ public final class V1ScenarioRunner implements DraftParityHooks.Controller {
             if (value instanceof Number || value instanceof Boolean || value instanceof String) result.put(name, value);
         }
         return result;
+    }
+
+    /** The sid behind a scan's stored WeakReference, or null when the scan found no one (or the referent is gone). */
+    private String targetSid(Object reference) {
+        Object target = reference == null ? null : ((java.lang.ref.WeakReference<?>)reference).get();
+        return target == null ? null : sid((Mascot)target);
     }
 
     private boolean enteredAfter(Object child, Object parent) {
@@ -573,6 +581,23 @@ public final class V1ScenarioRunner implements DraftParityHooks.Controller {
             emit(event(sid((Mascot)subject), "dispose"));
         } else if (hook.equals("dispose-request")) {
             disposeRequested((Mascot)subject);
+        } else if (hook.equals("scan-affordance")) {
+            scanAffordance = (String)subject;
+        } else if (hook.equals("scan-target")) {
+            // Written at every scan, with a null target when no one offers (CONTRACT section 3).
+            Map<String, Object> record = event(sid((Mascot)read(subject, "mascot")), "scan-target");
+            record.put("affordance", scanAffordance);
+            record.put("target", targetSid(detail));
+            scanAffordance = null;
+            emit(record);
+        } else if (hook.equals("interact")) {
+            // The OTHER companions on this one's anchor, in manager order, at the start of its Interact step.
+            Mascot self = (Mascot)read(subject, "mascot");
+            List<String> with = new ArrayList<String>();
+            for (Mascot other : active()) if (other != self && other.getAnchor().equals(self.getAnchor())) with.add(sid(other));
+            Map<String, Object> record = event(sid(self), "interact");
+            record.put("with", with);
+            emit(record);
         } else if (hook.equals("error")) {
             Map<String, Object> record = event(contextSid(), "error");
             record.put("message", detail == null ? null : detail.toString());

@@ -97,6 +97,12 @@ public final class DraftParityHooks {
         return true;
     }
 
+    /** A scan's result, passed through unchanged: the controller sees which companion the source chose. */
+    public static <T> T scanned(Object action, T target) {
+        observe("scan-target", action, target);
+        return target;
+    }
+
     public static Snapshot snapshot() { return required().snapshot(); }
     public static Rectangle initialScreen() { return new Rectangle(snapshot().screen); }
 

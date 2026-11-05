@@ -47,6 +47,24 @@
     },
     "src/com/group_finity/mascot/config/ActionRef.java": {
       "sha256": "e74e56d802321663232c26ab049128dc6485cff67ec065edaae3a398bacacfc6"
+    },
+    "src/com/group_finity/mascot/action/ScanMove.java": {
+      "sha256": "4752451e36e88a35eab725c84f7eac94a451b75a48212ae1daf8ff25a71f20af"
+    },
+    "src/com/group_finity/mascot/action/ScanInteract.java": {
+      "sha256": "8d19fa2336253a848b4def28e54877d74a3c7b766500c214685b51798951aed7"
+    },
+    "src/com/group_finity/mascot/action/ScanJump.java": {
+      "sha256": "27f6725194f36e0205cf7f8ad8e895d6e860296aa9724f23fb8e52624d2da2a8"
+    },
+    "src/com/group_finity/mascot/action/ComplexMove.java": {
+      "sha256": "d9e4fd31dbe28ca2520b2602d158b0d8f0477367bb32db275a2b3b0fac65f5b5"
+    },
+    "src/com/group_finity/mascot/action/ComplexJump.java": {
+      "sha256": "b8405be0b928e355f1e9b07449f119accf538a64aebcd403baeeeb8c8d25da49"
+    },
+    "src/com/group_finity/mascot/action/Interact.java": {
+      "sha256": "79ebb3813fccf832e97f905b0318942a3159dda032d5fd857306df0523e3a8d7"
     }
   },
   "javaRandomCounts": {
@@ -199,6 +217,64 @@
       "op": "insert-after",
       "code": [
         "com.group_finity.mascot.parity.DraftParityHooks.observe(\"user-behavior\", this, null);"
+      ]
+    },
+    {
+      "file": "src/com/group_finity/mascot/Manager.java",
+      "line": 358,
+      "lineSha256": "042a5667c14b05c154ac0bb5d2a6aa2be2f1c2a14a3fb79ff043b662651f7294",
+      "op": "insert-before",
+      "code": [
+        "com.group_finity.mascot.parity.DraftParityHooks.observe(\"scan-affordance\", affordance, null);"
+      ]
+    },
+    {
+      "file": "src/com/group_finity/mascot/action/ScanMove.java",
+      "line": 58,
+      "lineSha256": "789980e99e91fb455a7a88cde835354980c19a351c5a492be38ab17ba96c0afd",
+      "op": "wrap-assigned-value",
+      "call": "com.group_finity.mascot.parity.DraftParityHooks.scanned",
+      "arguments": ["this"]
+    },
+    {
+      "file": "src/com/group_finity/mascot/action/ScanInteract.java",
+      "line": 88,
+      "lineSha256": "789980e99e91fb455a7a88cde835354980c19a351c5a492be38ab17ba96c0afd",
+      "op": "wrap-assigned-value",
+      "call": "com.group_finity.mascot.parity.DraftParityHooks.scanned",
+      "arguments": ["this"]
+    },
+    {
+      "file": "src/com/group_finity/mascot/action/ScanJump.java",
+      "line": 67,
+      "lineSha256": "789980e99e91fb455a7a88cde835354980c19a351c5a492be38ab17ba96c0afd",
+      "op": "wrap-assigned-value",
+      "call": "com.group_finity.mascot.parity.DraftParityHooks.scanned",
+      "arguments": ["this"]
+    },
+    {
+      "file": "src/com/group_finity/mascot/action/ComplexMove.java",
+      "line": 90,
+      "lineSha256": "84ce8e0f7d82c494bed094ae39558bc9ab644f99911543d8a3d84f2feb826d8e",
+      "op": "wrap-assigned-value",
+      "call": "com.group_finity.mascot.parity.DraftParityHooks.scanned",
+      "arguments": ["this"]
+    },
+    {
+      "file": "src/com/group_finity/mascot/action/ComplexJump.java",
+      "line": 99,
+      "lineSha256": "84ce8e0f7d82c494bed094ae39558bc9ab644f99911543d8a3d84f2feb826d8e",
+      "op": "wrap-assigned-value",
+      "call": "com.group_finity.mascot.parity.DraftParityHooks.scanned",
+      "arguments": ["this"]
+    },
+    {
+      "file": "src/com/group_finity/mascot/action/Interact.java",
+      "line": 42,
+      "lineSha256": "a91100b1dad37be42ac7dc58fef94efb34a03ddf5adc0a06333d505e99257f1b",
+      "op": "insert-before",
+      "code": [
+        "com.group_finity.mascot.parity.DraftParityHooks.observe(\"interact\", this, null);"
       ]
     },
     {
