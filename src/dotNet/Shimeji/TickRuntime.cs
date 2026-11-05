@@ -515,7 +515,8 @@ namespace DesktopAICompanion.Shimeji
         {
             base.Init(mascot);
             string type = Vars.Has("BorderType") ? EvalString("BorderType", null, null) : (Def.Border.Length > 0 ? Def.Border : null);
-            Border = null;
+            // Set only when the type names a border, never cleared (BorderedAction.java:39-51): a re-initialised action
+            // whose scripted type turns blank keeps the border it had.
             if (type == "Ceiling") Border = Mascot.Environment.GetCeiling();
             else if (type == "Wall") Border = Mascot.Environment.GetWall();
             else if (type == "Floor") Border = Mascot.Environment.GetFloor();

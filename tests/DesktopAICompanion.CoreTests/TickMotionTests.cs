@@ -37,6 +37,9 @@ namespace DesktopAICompanion
 
             public TickPoint CursorAt = new TickPoint(100, 100);
 
+            /// <summary>The work area's rectangle (x, y, width, height), read at every tick, so a test can move it.</summary>
+            public int[] WorkRectForTest { get { return _workRect; } }
+
             // The motion tests drive the cursor, not window events.
             private static readonly List<TickInput> NoInputs = new List<TickInput>();
             public IReadOnlyList<TickInput> Inputs { get { return NoInputs; } }
@@ -157,6 +160,53 @@ namespace DesktopAICompanion
         }
 
         private static ScriptValue Local(TickMascot m, string name) { return m.Behaviour.Action.Leaf.Vars.Get(name, null); }
+
+        // ---- Bordered actions
+
+        /// <summary>A Sequence looping a two-tick Stay whose BorderType is scripted from the cursor: Floor while the cursor
+        /// is at x 300 or less, blank past it. Each loop re-initialises the Stay.</summary>
+        private static TickType BorderLoopType()
+        {
+            return MotionType("Keep", MSeq(30, "Loop", true, "Hold"),
+                MAct(34, "Hold", "Stay", null, "",
+                    new[] { TParam("Duration", "2"), TParam("BorderType", "mascot.environment.cursor.x > 300 ? '' : 'Floor'", "action") },
+                    MVar(null, false, TPose(0, 1))));
+        }
+
+        private static void TestTickBorderKeptOnBlankReinit()
+        {
+            // BorderedAction.init (BorderedAction.java:39-51) sets a border only when the type names one and never clears
+            // it, so a re-initialised Stay whose scripted type turns blank keeps the floor it had: raise the floor under the
+            // companion and it loses the ground.
+            TickType t = BorderLoopType();
+            var desk = new MotionDesk { CursorAt = new TickPoint(100, 100) };
+            var log = new TickLog();
+            TickWorld w = MotionWorld(desk, log, null, null, t);
+            w.CreateAtStart("m1", t, new TickPoint(640, 680), false, "Keep");
+            for (int i = 0; i < 3; i++) w.StepOnce();          // Floor at its inits
+            desk.CursorAt = new TickPoint(500, 100);
+            for (int i = 0; i < 5; i++) w.StepOnce();          // re-initialised at least twice with a blank type
+            AssertFalse(log.Events.Contains("m1 behaviour Keep>Fall forced"), "The Stay lost the ground before its floor moved.");
+            int[] workRect = desk.WorkRectForTest;
+            // The floor rises 180 px: past the 80 px a floor carries a companion standing on it (TickFloorCeiling.Move,
+            // FloorCeiling.java), so a companion that kept its floor loses it rather than riding up.
+            workRect[3] = 500;
+            for (int i = 0; i < 3; i++) w.StepOnce();
+            AssertTrue(log.Events.Contains("m1 behaviour Keep>Fall forced"),
+                "A Stay re-initialised with a blank BorderType dropped the floor it had, so a moved floor went unnoticed: "
+                + string.Join("; ", log.Events));
+
+            // WITNESS: blank from its first init, the Stay never had a border, so the same rise goes unnoticed.
+            var fresh = new MotionDesk { CursorAt = new TickPoint(500, 100) };
+            var log2 = new TickLog();
+            TickWorld v = MotionWorld(fresh, log2, null, null, t);
+            v.CreateAtStart("m1", t, new TickPoint(640, 680), false, "Keep");
+            for (int i = 0; i < 3; i++) v.StepOnce();
+            fresh.WorkRectForTest[3] = 500;
+            for (int i = 0; i < 3; i++) v.StepOnce();
+            AssertFalse(log2.Events.Contains("m1 behaviour Keep>Fall forced"),
+                "A Stay that never had a border lost the ground: " + string.Join("; ", log2.Events));
+        }
 
         private static int Count(List<string> list, string item) { return list.FindAll(s => s == item).Count; }
 

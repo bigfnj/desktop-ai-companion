@@ -17200,6 +17200,13 @@ CASES = (
      b'                if (named && (sound.Probability != 0))\n',
      HOST_CSPROJ, EXE,
      SECURITY, None, 'a named clip with a loop is refused'),
+    # BorderedAction.init sets a border only when the type names one and never clears it.
+    ('shimeji-host: a blank BorderType on re-init clears the border',
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'            if (type == "Ceiling") Border = Mascot.Environment.GetCeiling();\n',
+     b'            Border = null; if (type == "Ceiling") Border = Mascot.Environment.GetCeiling();\n',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, 'Tick bordered action: a re-init whose scripted BorderType turns blank keeps the border it had'),
     # ---- lane feature/shimeji-host-motion ----
     # The motion family of embedded classes (src/dotNet/Shimeji/TickMotionFamily.cs) and the engine hooks it added: each
     # case puts back one wrong reading of the official runtime and must fail the CoreTests group that pins it.

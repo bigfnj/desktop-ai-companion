@@ -108,6 +108,7 @@ namespace DesktopAICompanion
                 Run("Tick motion Dragged: OffsetType Origin measures from the image centre", TestTickMotionDraggedOrigin);
                 Run("Tick motion Dragged: the work area follows the dragged companion", TestTickMotionDraggedWorkArea);
                 Run("Tick motion Regist: plays to its last tick, draws a facing, loses the ground; 5 px off ends it", TestTickMotionRegist);
+                Run("Tick bordered action: a re-init whose scripted BorderType turns blank keeps the border it had", TestTickBorderKeptOnBlankReinit);
                 Run("Tick motion Turn: faces LookRight and plays only on a change", TestTickMotionTurn);
                 Run("Tick motion Turn: without LookRight it flips every tick", TestTickMotionTurnFlips);
                 Run("Tick motion Turn: an instance that has turned plays again when re-initialised", TestTickMotionTurnReinit);
