@@ -122,6 +122,27 @@ namespace DesktopAICompanion
             Check(CompanionXmlValidator.TryParseWithFeatures(Serialize(wide), AllExtensionFeatures, out parsed, out error),
                 "extension gate: a 300-edge root behaviour list validates (tick-mode limit 1024, classic 256)" + FormatError(error),
                 ref failures, output);
+
+            // A behaviour whose NextBehaviorList replaces the root list (add="false") with transition-only entries
+            // weighs 0 in total. The source then drops the companion in and enters Fall, so in tick mode that is legal.
+            XmlData.RootNode zero = TickFixture(classic);
+            XmlData.AnimationNode replacing = zero.Animations.Animation[1];
+            replacing.Behaviour.Add = false;
+            replacing.Behaviour.AddSpecified = true;
+            replacing.Sequence.Next = new[] { new XmlData.NextNode { Value = 2, Probability = 0 } };
+            Check(CompanionXmlValidator.TryParseWithFeatures(Serialize(zero), AllExtensionFeatures, out parsed, out error),
+                "extension gate: a replacing behaviour list (add=false) that weighs 0 validates in tick mode" + FormatError(error),
+                ref failures, output);
+            // WITNESS: a classic pet has no such fallback, and a list of its that weighs 0 is still refused.
+            XmlData.RootNode classicZero = Clone(classic);
+            XmlData.AnimationNode withEdges = Array.Find(classicZero.Animations.Animation,
+                a => a != null && a.Sequence != null && a.Sequence.Next != null && a.Sequence.Next.Length > 0);
+            if (withEdges != null)
+                foreach (XmlData.NextNode n in withEdges.Sequence.Next) n.Probability = 0;
+            Check(withEdges != null
+                  && !CompanionXmlValidator.TryParseWithFeatures(Serialize(classicZero), new string[0], out parsed, out error)
+                  && Contains(error, "has no positive-probability transition"),
+                "extension gate: WITNESS a classic pet whose list weighs 0 is still refused (" + error + ")", ref failures, output);
         }
 
         private static void ExpectRefused(XmlData.RootNode classic, Action<XmlData.RootNode> breakIt, string expected,
@@ -161,9 +182,11 @@ namespace DesktopAICompanion
                 },
                 new XmlData.AnimationNode
                 {
+                    // No edges: when it ends, the next behaviour is selected from the route's list (grimoire/06 4.3),
+                    // synchronously; there is no edge back to the route.
                     Id = 2, Name = "beh:Stand", Start = still, End = still,
                     Behaviour = new XmlData.BehaviourNode { Name = "Stand", Runs = "Stand", Frequency = 1 },
-                    Sequence = new XmlData.SequenceNode { RepeatCount = "0", Next = new[] { new XmlData.NextNode { Value = 1, Probability = 1 } } },
+                    Sequence = new XmlData.SequenceNode { RepeatCount = "0", Next = new XmlData.NextNode[0] },
                 },
                 new XmlData.AnimationNode
                 {

@@ -129,10 +129,11 @@ still an `<animation id name>` with a `<sequence>`. In tick mode a sequence carr
 
 **Parameters.**
 - `<param name value cache>` declares a parameter's default. `value` is a literal or an expression (section 6).
-  `cache` is `action` (source `${}`: evaluated once per action activation), `frame` (source `#{}`: once per tick) or
-  `none` (a literal).
+  `cache` is `action` (source `${}`), `frame` (source `#{}`) or `none` (a literal). Both caches are lazy: the value is
+  computed at its first use and kept until the cache is cleared (section 6, Caching).
 - The `<guard>` attributes name parameters or hold expressions:
-  - `when` is the source Condition. False ends the action, as `ActionBase.hasNext` does.
+  - `when` is the source Condition. False ends the action, as `ActionBase.hasNext` does. It is checked exactly where
+    the source checks it (4.5), which is more than once per step.
   - `duration` is in ticks. The action ends when its age reaches it.
   - `draggable` is queried only when the user presses on the companion. False refuses the drag; it never ends the
     action. A composite's draggability is its active child's.
@@ -140,8 +141,11 @@ still an `<animation id name>` with a `<sequence>`. In tick mode a sequence carr
   immutable and shared. Locals the source publishes (`TargetX`, `TargetY`, `VelocityX`, `VelocityY`, `FootX`,
   `FootDX`) live in that frame.
 
-**`<offers>`.** Up to 8 affordance values (literal or expression) broadcast while this action runs. The list is rebuilt
-every tick (`ActionBase.java:88-101`).
+**`<offers>`.** Affordance values (literal or expression) broadcast while this action runs. Each step of an action
+REPLACES the companion's offer list with its own offers (`ActionBase.java:88-101`): a composite steps first and its
+active child after it, so the leaf decides, and a leaf with no offer leaves the list empty. The source declares one
+`Affordance` per action, so a converted action has at most one offer; the format allows up to 8 for hand-written
+companions, offered together.
 
 **`<variants>`.** The source's `<Animation>` blocks, in order. Each tick the FIRST variant whose `when` holds plays
 (`ActionBase.java:122-164`). `turn="true"` marks an IsTurn animation (`Move.java:107-139`). `<hotspots>` belong to a
@@ -165,7 +169,7 @@ without the behaviour layer redirecting it. Normally the behaviour layer (4.2) d
 <animation id="200">
   <name>beh:SitDown</name>
   <start>...</start><end>...</end>
-  <behaviour name="SitDown" runs="SitDown" frequency="200" hidden="false" toggle="">
+  <behaviour name="SitDown" runs="SitDown" frequency="200" hidden="false" toggle="" add="false">
     <bind name="Duration" value="100"/>
   </behaviour>
   <sequence repeat="0" repeatfrom="0">
@@ -180,9 +184,19 @@ without the behaviour layer redirecting it. Normally the behaviour layer (4.2) d
   (`BehaviorBuilder.java:72-78`).
 - `frequency` 0 means transition-only. `hidden` is menu visibility only: a hidden behaviour with a positive frequency
   is still selected automatically (`BehaviorBuilder.java:144-174`). `toggle` names a header toggle id.
-- The `<sequence>` edges are this behaviour's `NextBehaviorList`, each with its `frequency` as the probability and its
-  condition as `when`. `Add="true"` is written as one more edge, to the route node. `Add="false"` means no such edge,
-  so the list replaces the root set.
+- The `<sequence>` edges are this behaviour's `NextBehaviorList` entries, in order, each with its `Frequency` as the
+  probability and the conjunction of its enclosing `<Condition>`s and its own as `when`. They point at behaviour nodes
+  and never at the route node: selection (4.3) reads the route's list itself.
+- `add` says whether, when this behaviour ends, the root candidates stay in the list ahead of its own edges. Absent
+  means `true`, which is the source's reading of a behaviour with no `NextBehaviorList`. A `NextBehaviorList` whose
+  `Add` is false OR MISSING is `add="false"`: the source parses a missing attribute as false
+  (`BehaviorBuilder.java:80-91`). With several `NextBehaviorList` elements, their entries append in order and the
+  last one's `Add` decides.
+- A next-list entry is a behaviour of its own. The source builds it from the `BehaviorReference` element (its Name,
+  Action, Frequency, Condition and extra attributes), not from the root definition of that name
+  (`BehaviorBuilder.java:102-120`), so the converter lowers each entry to its own behaviour node unless it is identical
+  to the root one. When it ends, the next selection uses the ROOT definition's list, found by name
+  (`Configuration.java:208-212`).
 
 ### 4.3 Route node, `<route>`: the root behaviour list
 
@@ -195,10 +209,25 @@ without the behaviour layer redirecting it. Normally the behaviour layer (4.2) d
 </animation>
 ```
 
-One per companion. Its edges are the root `BehaviorList`: each behaviour with a positive frequency, its condition
-being the conjunction of every enclosing `<Condition>` with its own (conditions are parsed afresh per check,
-`BehaviorBuilder.java:144-156`). Selection weighs only the edges whose `when` holds, evaluated once per selection;
-each condition is evaluated exactly once, and the result is reused for the weighting.
+One per companion, and never entered as an animation. Its edges are the root `BehaviorList` in declaration order:
+EVERY behaviour, a frequency-0 (transition-only) one included at probability 0, each `when` the conjunction of every
+enclosing `<Condition>` with its own (conditions are parsed afresh per check, `BehaviorBuilder.java:144-156`).
+
+**Selecting a behaviour** is synchronous and costs no tick (`Configuration.buildNextBehavior`,
+`Configuration.java:184-258`). When a behaviour ends (4.5), in this order:
+
+1. Every route edge's `when` is evaluated, in order, then its toggle; those that hold are candidates. This happens even
+   when the ending behaviour's `add` is false and they are about to be discarded, because evaluating a condition can
+   draw a random number.
+2. If the ending behaviour's `add` is false, the candidates are cleared.
+3. The ending behaviour's own edges are evaluated the same way and appended, in order.
+4. If the candidates weigh 0 in total, the companion drops in from above at a random x (`builtin:no-candidate-drop-x`)
+   and enters `Fall`. The validator allows a tick-mode list that weighs 0 for this reason.
+5. Otherwise there is ONE draw (`builtin:behavior-select`), even for a single candidate: r = draw times the total
+   weight, and the first candidate in list order that takes r below 0 when its weight is subtracted wins.
+
+A companion's first behaviour, when no start behaviour is given, is selected from the route edges alone. The selected
+behaviour is initialised in the same step (4.5).
 
 **Special behaviours.** The host enters the behaviours the source binds by name on its lifecycle events:
 
@@ -221,6 +250,28 @@ To be confirmed by the parity lane against `UserBehavior` before freeze.
 | variants per action | — | 32 | the corpus maximum is 15 |
 | children per composite | — | 64 | the corpus maximum is 20 |
 | expression length | 256 | 4096 characters | |
+
+### 4.5 One step of one companion
+
+Each logical tick, every active companion steps in manager order (`Mascot.tick`, `UserBehavior.next`,
+`UserBehavior.java:203-308`). A step does exactly this, and the host reproduces the order, the repeated checks and the
+cache boundaries rather than a tidier equivalent:
+
+1. **Check, then act.** The action is checked (`hasNext`: its guard `when` holds and its age is below its duration;
+   for a composite, its active child is checked too, and checking a Sequence can move it on to its next eligible child
+   and initialise that child). If the check holds, the action steps (`next`): its frame caches are cleared, the offer
+   list is replaced by its offers, hotspots are taken from its current variant, and its effects run. A composite's
+   effects are its active child's step.
+2. **Hotspots.** If the user is holding the button over a hotspot, a hotspot with a behaviour enters it now; one
+   without holds (a head-pat).
+3. **Check again.** Unless a hotspot entered a behaviour, the action is checked a second time, with the caches step 1
+   left. If it still holds and the companion is wholly off the screen, it drops in at a random x
+   (`builtin:out-of-bounds-drop-x`) and enters `Fall`. If it no longer holds, the next behaviour is selected (4.3) and
+   initialised now: instant actions at its start apply at once, and its first pose waits for the next step.
+4. The companion's time advances by one tick.
+
+Losing the ground anywhere in step 1 ends the behaviour and enters `Fall`. A guard is therefore evaluated twice in an
+ordinary step, and the first evaluation of a step sees the frame cache the previous step's second check left.
 
 ---
 
@@ -293,20 +344,25 @@ pass.
 | `Math.random()` | one draw at that site, each evaluation |
 | `Math.abs/min/max/floor/ceil/round/sqrt/pow/sin/cos/atan2/PI` | the usual |
 
-**Caching.** `cache="action"` (`${}`) is evaluated at activation and kept for the activation. A null result is evaluated
-again the next time (`Script.java:46-70`). `cache="frame"` (`#{}`) is evaluated once per tick.
+**Caching.** Both kinds are lazy: an expression is evaluated the first time its value is used, and the result is kept
+(`Script.java:46-70`). `cache="action"` (`${}`) is cleared when the action is initialised, so it holds for the
+activation. `cache="frame"` (`#{}`) is also cleared at the start of each of the action's steps (`ActionBase.next`,
+`initFrame`, 4.5 step 1). A null result is never kept: it is evaluated again at its next use. Behaviour-selection
+conditions are parsed and evaluated afresh at every selection.
 
 **Beyond the subset.** The converter translates a source script into this subset. If it cannot, it keeps the attribute's
 literal fallback, records the attribute as `approximate` with the reason, and never promotes the action to supported.
 
-**Cost.** Conditions are evaluated only where the source evaluates them. Each guard runs once per tick per active action,
-and selection conditions run once per selection.
+**Cost.** Expressions are evaluated where, and as often as, the source evaluates them, and never more to observe them.
+There is no once-per-tick rule: a guard runs each time a step checks it (4.5), subject to its own cache, and each
+selection evaluates every root condition once (4.3).
 
 ---
 
 ## 7. Social and lifecycle (runtime)
 
-- **Offers.** Each companion's offer list is rebuilt from its active action's `<offers>` every tick.
+- **Offers.** Each action step replaces the companion's offer list with that action's `<offers>` (4.1, 4.5), so a
+  later companion in manager order sees an earlier one's new offer in the same tick.
 - **Scanning.** A scan takes the FIRST companion, in stable manager order, whose current offers include the affordance
   exactly:
   - spawned companions are included;
@@ -369,6 +425,7 @@ lane before freeze.
   - pose and variant limits (4.4);
   - expressions parse;
   - `cache` values are legal;
+  - a tick-mode list may weigh 0 in total (the source's drop-in, 4.3); a classic list may not;
   - `<startup>` only on a `main` member;
   - an action with Breed or Transform keeps a fallback edge, so a missing member does not respawn the companion.
 - **Pack-level (`PackValidator`):**
@@ -383,4 +440,7 @@ lane before freeze.
 2. The active-window rule used for `activeIE` and window actions (section 8), from the Windows environment.
 3. Hotspot input semantics: when a press triggers its behaviour, held versus released state, and a hotspot with no
    behaviour (a held click or head-pat).
-4. Whether a routing tick costs a logical tick (route node evaluation timing), measured against the oracle.
+
+Settled: selection costs no tick and draws once (4.3); the step order, the repeated check and the lazy cache
+boundaries are the source's (4.5, section 6). Both came from the parity lane's review of the source, before any
+oracle trace contradicted the draft.

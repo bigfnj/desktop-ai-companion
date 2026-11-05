@@ -674,21 +674,24 @@ namespace DesktopAICompanion
                     ids,
                     "animation " + animation.Id + " sequence",
                     cancellationToken,
-                    maximumTransitions);
+                    maximumTransitions,
+                    tick);
                 if (animation.Border != null)
                     ValidateNextSet(
                         animation.Border.Next,
                         ids,
                         "animation " + animation.Id + " border",
                         cancellationToken,
-                        maximumTransitions);
+                        maximumTransitions,
+                        tick);
                 if (animation.Gravity != null)
                     ValidateNextSet(
                         animation.Gravity.Next,
                         ids,
                         "animation " + animation.Id + " gravity",
                         cancellationToken,
-                        maximumTransitions);
+                        maximumTransitions,
+                        tick);
             }
             if (tick)
                 ShimejiFormatValidator.ValidateTickDocument(root, tileCount, declared);
@@ -787,7 +790,8 @@ namespace DesktopAICompanion
             HashSet<int> ids,
             string location,
             CancellationToken cancellationToken,
-            int maximumTransitions)
+            int maximumTransitions,
+            bool tickMode)
         {
             if (nextNodes == null || nextNodes.Length == 0) return;
             if (nextNodes.Length > maximumTransitions)
@@ -803,7 +807,10 @@ namespace DesktopAICompanion
                     throw new InvalidDataException(location + " contains an unsupported transition condition.");
                 total = checked(total + next.Probability);
             }
-            if (total <= 0)
+            // A tick-clock list may weigh 0 in total: the source then drops the companion in at a random x and enters
+            // Fall (Configuration.buildNextBehavior), so a pack whose replacing NextBehaviorList holds only
+            // transition-only entries is legal there. A classic pet has no such fallback.
+            if (total <= 0 && !tickMode)
                 throw new InvalidDataException(location + " has no positive-probability transition.");
         }
 

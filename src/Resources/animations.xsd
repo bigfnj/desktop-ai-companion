@@ -464,6 +464,7 @@
     <xsd:attribute name="frequency" type="xsd:int" use="required" />
     <xsd:attribute name="hidden" type="xsd:boolean" />
     <xsd:attribute name="toggle" type="xsd:string" />
+    <xsd:attribute name="add" type="xsd:boolean" />
   </xsd:complexType>
 
   <xsd:complexType name="routeType" />

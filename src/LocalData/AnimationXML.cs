@@ -595,6 +595,11 @@ namespace XmlData
         [XmlAttribute("hidden")] public bool Hidden;
         [XmlIgnore] public bool HiddenSpecified;
         [XmlAttribute("toggle")] public string Toggle;
+        /// <summary>When this behaviour ends, whether the root candidates stay ahead of its own edges (the source's
+        /// NextBehaviorList Add). Absent means true, the source's reading of a behaviour with no NextBehaviorList;
+        /// the converter writes false for a NextBehaviorList whose Add is false or missing.</summary>
+        [XmlAttribute("add")] public bool Add;
+        [XmlIgnore] public bool AddSpecified;
         [XmlElement("bind")] public BindNode[] Bind;
     }
 
