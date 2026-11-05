@@ -16696,10 +16696,12 @@ CASES = (
      b'            _mascots.Add(m); m.InManager = true;\n            return m;',
      CORETESTS_CSPROJ, CORETESTS_DLL,
      CORETESTS, None, 'Tick engine Breed queues and names lineage'),
+    # Re-pointed by feature/shimeji-host-limits (BACKLOG N-shimeji-host-wav-01): ApplyPose takes the type that owns the
+    # pose since ace78fc (PoseType = owner ?? Type), so keeping the first type is that statement never replacing it.
     ('shimeji-host: the image keeps the first type it was set from',
      os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
-     b'            PoseType = Type;\n',
-     b'            PoseType = PoseType ?? Type;\n',
+     b'            PoseType = owner ?? Type;\n',
+     b'            PoseType = PoseType ?? owner ?? Type;\n',
      CORETESTS_CSPROJ, CORETESTS_DLL,
      CORETESTS, None, 'Tick engine Transform in place'),
     # The instant family (Look, Offset, Mute, BringToFront) and SelfDestruct.
@@ -18301,10 +18303,38 @@ CASES = (
      b'return behaviour.ToggleDefault || store == null;',
      CORETESTS_CSPROJ, CORETESTS_DLL,
      CORETESTS, None, 'Tick settings toggles: a turned-off toggle keeps its behaviour from being chosen or entered'),
+    # Re-pointed by feature/shimeji-host-limits (BACKLOG N-shimeji-host-wav-01): since the arrival and the caught Transform
+    # failure (3cfcafb, 08e5736) the type switch and the behaviour's entry are apart, a try between them. The property is
+    # their ORDER, so the mutant moves the switch past the entry: the behaviour is built and entered under the old type.
     ("shimeji-settings: Transform enters its behaviour under the old type's settings",
      os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
-     b'            mascot.Type = target;\n            Observer.Transformed(mascot, from, target.Name, behaviour);\n            mascot.SetBehaviour(BuildBehaviourByName(target, behaviour, mascot), "forced");\n',
-     b'            TickBehaviour entered = BuildBehaviourByName(target, behaviour, mascot);\n            mascot.Type = target;\n            Observer.Transformed(mascot, from, target.Name, behaviour);\n            mascot.SetBehaviour(entered, "forced");\n',
+     b'            mascot.Type = target;\n'
+     b'            // A startup behaviour still to come belonged to the type that arrived; the Transform has chosen what this\n'
+     b'            // companion does now, and the old name looked up on the new type could end it (policy:startup-after-arrival).\n'
+     b'            mascot.ArrivalBehaviour = null;\n'
+     b'            Observer.Transformed(mascot, from, target.Name, behaviour);\n'
+     b'            // Transform.java:51-65 sets the image set first and catches a behaviour that cannot be built or entered (a\n'
+     b'            // blank or unknown TransformBehavior): it reports the failure and the companion carries on, as the new type,\n'
+     b"            // in the behaviour it was in. Letting it escape ended the companion at the step's catch-all instead.\n"
+     b'            try\n'
+     b'            {\n'
+     b'                mascot.SetBehaviour(BuildBehaviourByName(target, behaviour, mascot), "forced");\n'
+     b'            }\n'
+     b'            catch (TickCantBeAliveException e)\n'
+     b'            {\n'
+     b'                ReportFault(mascot, "Transform into " + target.Name + ": " + e.Message);\n'
+     b'            }\n',
+     b'            mascot.ArrivalBehaviour = null;\n'
+     b'            Observer.Transformed(mascot, from, target.Name, behaviour);\n'
+     b'            try\n'
+     b'            {\n'
+     b'                mascot.SetBehaviour(BuildBehaviourByName(target, behaviour, mascot), "forced");\n'
+     b'            }\n'
+     b'            catch (TickCantBeAliveException e)\n'
+     b'            {\n'
+     b'                ReportFault(mascot, "Transform into " + target.Name + ": " + e.Message);\n'
+     b'            }\n'
+     b'            mascot.Type = target;\n',
      CORETESTS_CSPROJ, CORETESTS_DLL,
      CORETESTS, None, "Tick settings transform: a transformed companion reads its new type's switches"),
     ('shimeji-settings: the rows offer no window switch for a window class',
