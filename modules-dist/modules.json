@@ -20,9 +20,9 @@
             "id": "petstudio",
             "name": "Companion Studio",
             "desc": "Check a companion's animations.xml before you use it: what the host would reject, which animations can never play, and how it actually looks running on your desktop. Edit the XML in place, watch any animation's real sprite frames, preview the companion temporarily on your desktop, then install it.",
-            "version": "1.2.0",
+            "version": "1.3.0",
             "permissions": "Speech, Animation, Companions, Storage, LaunchProcess",
-            "minHostVersion": "1.0.0"
+            "minHostVersion": "1.10.0"
         },
         {
             "id": "reminder",
