@@ -79,6 +79,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "next-missing-dropped", Run = (Action)NextMissingDropped },
                 new { Name = "sound-lowering", Run = (Action)SoundLowering },
                 new { Name = "sound-refusal", Run = (Action)SoundRefusal },
+                new { Name = "configuration-spelling", Run = (Action)ConfigurationSpelling },
                 new { Name = "information-lowering", Run = (Action)InformationLowering },
                 new { Name = "own-set-binding-reset", Run = (Action)OwnSetBindingReset },
                 new { Name = "japanese-schema-values", Run = (Action)JapaneseSchemaValues },
@@ -1690,6 +1691,31 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     Refusal(fixture, c.Expected);
                     Require(!Directory.Exists(fixture.Output), "sound refusal left output: " + c.Expected);
                 }
+        }
+
+        // H3: a configuration file spelt otherwise on disk ("Actions.xml", "CONF") is named as the pack spells it in the
+        // parity map's references, which are the source's refKeys; two entries that differ only in case refuse by name.
+        private static void ConfigurationSpelling()
+        {
+            using (var fixture = new Fixture())
+            {
+                string conf = Path.Combine(fixture.Pack, "conf");
+                File.Move(Path.Combine(conf, "actions.xml"), Path.Combine(conf, "Actions.xml"));
+                fixture.Convert();
+                using (JsonDocument map = JsonDocument.Parse(File.ReadAllText(fixture.MapPath)))
+                {
+                    string[] actionRefs = map.RootElement.GetProperty("actions").EnumerateObject().Select(p => p.Value.GetString()).ToArray();
+                    Require(actionRefs.Length > 0 && actionRefs.All(r => r.StartsWith("A|conf/Actions.xml|", StringComparison.Ordinal)),
+                        "a configuration file is named by the probe's spelling, not the pack's: " + actionRefs.FirstOrDefault());
+                }
+                File.Move(Path.Combine(conf, "Actions.xml"), Path.Combine(conf, "actions.xml"));
+            }
+            Require(ShimejiParser.SpelledEntry(new[] { "Img", "Conf" }, "conf") == "Conf"
+                && ShimejiParser.SpelledEntry(new[] { "img" }, "conf") == "conf", "an entry is not matched ignoring case, or a missing one not left as given");
+            bool refused = false;
+            try { ShimejiParser.SpelledEntry(new[] { "actions.xml", "Actions.xml" }, "actions.xml"); }
+            catch (InvalidDataException error) { refused = error.Message.StartsWith("SOURCE_PATH_AMBIGUOUS: 'actions.xml'", StringComparison.Ordinal); }
+            Require(refused, "two entries differing only in case were not refused by name");
         }
 
         private static void InformationLowering()

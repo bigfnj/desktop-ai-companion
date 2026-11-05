@@ -201,8 +201,43 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
 
         private static ShimejiSourceDocument ReadSourceFile(string packRoot, string path, string imageSet)
         {
+            // The probe names above are the source's spellings, and a case-insensitive file system answers them for a
+            // file spelt otherwise ("Actions.xml"); the document is named as the pack spells it, which is what the
+            // source's refKey is relative to (CONTRACT section 3: the configuration file, relative to the pack).
+            path = AsSpelled(packRoot, path);
             string relativePath = PackPath(packRoot, path);
             return ReadSource(LoadXmlFile(path), Path.GetFileName(path), imageSet, relativePath);
+        }
+
+        /// <summary>
+        /// <paramref name="path"/>, under <paramref name="packRoot"/>, with every component below the root spelt as its
+        /// directory entry is (H3). A component no entry matches is left as given, so a missing file is still refused
+        /// where it is read. Two entries that differ only in case (a case-sensitive directory) make the name ambiguous,
+        /// which refuses by name rather than guess which one the source would open.
+        /// </summary>
+        internal static string AsSpelled(string packRoot, string path)
+        {
+            string root = Path.GetFullPath(packRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            string full = Path.GetFullPath(path);
+            if (!full.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) return path;
+            string current = root;
+            foreach (string part in full.Substring(root.Length + 1).Split(Path.DirectorySeparatorChar))
+            {
+                string[] entries = Directory.Exists(current) ? Directory.GetFileSystemEntries(current).Select(Path.GetFileName).ToArray() : new string[0];
+                current = Path.Combine(current, SpelledEntry(entries, part));
+            }
+            return current;
+        }
+
+        /// <summary>The directory entry <paramref name="probe"/> names, ignoring case: the one entry that matches, the
+        /// probe itself when none does, and a refusal when several do.</summary>
+        internal static string SpelledEntry(IEnumerable<string> entries, string probe)
+        {
+            List<string> matches = entries.Where(e => string.Equals(e, probe, StringComparison.OrdinalIgnoreCase)).ToList();
+            if (matches.Count > 1)
+                throw new InvalidDataException("SOURCE_PATH_AMBIGUOUS: '" + probe + "' matches " + matches.Count
+                    + " directory entries that differ only in case");
+            return matches.Count == 1 ? matches[0] : probe;
         }
 
         private static string SourceConfigFile(string packRoot, string imageSet, bool behaviors)
