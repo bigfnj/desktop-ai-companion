@@ -19,7 +19,22 @@ namespace DesktopAICompanion
             private readonly List<TickArea> _screens = new List<TickArea>();
             private readonly int[] _screenRect, _workRect;
             private readonly int[][] _screenRects;
+
+            /// <summary>The window a test shows (x, y, width, height), or null for none. Assigning a new array shows it
+            /// at the next tick, replacing whatever the engine did to the last one (a scenario's next timeline entry).</summary>
             public int[] Window;
+            private int[] _shownWindow;
+
+            /// <summary>The desktop's window, moved and minimised by the engine as the parity environment's is.</summary>
+            public readonly TickDesktopWindow Desktop = new TickDesktopWindow();
+
+            /// <summary>Every window call the engine made, in order: "move (x, y)" or "minimize", with " (none)" when no
+            /// window was found to act on.</summary>
+            public readonly List<string> WindowCalls = new List<string>();
+
+            /// <summary>When set, a move is clamped into this work area as the real desktop clamps it.</summary>
+            public TickRect? ClampTo;
+
             public TickPoint CursorAt = new TickPoint(100, 100);
 
             // The motion tests drive the cursor, not window events.
@@ -41,11 +56,28 @@ namespace DesktopAICompanion
                 _screen.Set(_screenRect[0], _screenRect[1], _screenRect[2], _screenRect[3]);
                 for (int i = 0; i < _screens.Count; i++) _screens[i].Set(_screenRects[i][0], _screenRects[i][1], _screenRects[i][2], _screenRects[i][3]);
                 _work.Set(_workRect[0], _workRect[1], _workRect[2], _workRect[3]);
-                if (Window != null)
+                if (!ReferenceEquals(Window, _shownWindow))
                 {
-                    _window.Visible = true;
-                    _window.Set(Window[0], Window[1], Window[2], Window[3]);
+                    _shownWindow = Window;
+                    if (Window == null) Desktop.Hide();
+                    else Desktop.Show(new TickRect(Window[0], Window[1], Window[2], Window[3]));
                 }
+                Desktop.ApplyTo(_window, _screen);
+            }
+
+            public bool MoveActiveWindow(TickPoint topLeft, out TickRect from, out TickRect to)
+            {
+                TickPoint at = ClampTo.HasValue ? TickWindowRules.ClampInto(topLeft, _window.Width, _window.Height, ClampTo.Value) : topLeft;
+                bool moved = Desktop.Move(at, _window.Width, _window.Height, _screen, out from, out to);
+                WindowCalls.Add("move " + at + (moved ? "" : " (none)"));
+                return moved;
+            }
+
+            public bool MinimizeActiveWindow()
+            {
+                bool done = Desktop.Minimize(_screen);
+                WindowCalls.Add("minimize" + (done ? "" : " (none)"));
+                return done;
             }
 
             public TickArea Screen { get { return _screen; } }

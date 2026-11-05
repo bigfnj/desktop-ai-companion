@@ -46,6 +46,12 @@ namespace DesktopAICompanion.Shimeji
 
         /// <summary>Mute ran: a named clip to stop, or null for every clip (CONTRACT event `mute`).</summary>
         void Muted(TickMascot mascot, string clip);
+
+        /// <summary>A window action moved the interactive window (CONTRACT event `window-move`).</summary>
+        void WindowMoved(TickMascot mascot, TickRect from, TickRect to);
+
+        /// <summary>A window action minimised the interactive window (CONTRACT event `window-minimize`).</summary>
+        void WindowMinimized(TickMascot mascot);
     }
 
     // ------------------------------------------------------------------ parameters and scripts
@@ -1512,6 +1518,8 @@ namespace DesktopAICompanion.Shimeji
             public void RandomDrawn(TickMascot mascot, string site, double value, string purpose) { }
             public void Fault(TickMascot mascot, string message) { }
             public void Muted(TickMascot mascot, string clip) { }
+            public void WindowMoved(TickMascot mascot, TickRect from, TickRect to) { }
+            public void WindowMinimized(TickMascot mascot) { }
         }
     }
 }
