@@ -1960,6 +1960,50 @@ Each module's `Version` line carries its changelog for the campaign, in the file
 self-tests, invariants or projects is repeated here: the gate asserts those against the documents that
 state them.
 
+## 🚢 Released: v1.10.0 and Companion Studio 1.3.0 (2026-11-05)
+
+The second release of the Shimeji runtime campaign. Host 1.10.0 is a MINOR with two additive ABI members:
+`ICompanionPackPreview.SpawnPackPreview` previews every member of a pack in one preview namespace (an egg arrives and
+hatches, Transforms and Breeds reach the other members, an installed pack with the same id is never touched), and
+`CompanionTypeInfo` carries each installed type's `PackId`, `PackMember`, `PackRole` and `PackHidden`. The preview is a
+separate interface rather than a new `ICompanionManager` member, because ModuleKit's denying manager ships in every
+module's zip and modules implement the manager in their own self-test doubles. Companion Studio 1.3.0 (MinHostVersion
+1.10.0) imports a Shimeji skin with several image sets as one pack through the converter's production API, previews the
+whole pack and installs it, and on a second install replaces the earlier one under the same ids instead of adding
+copies that would never run. It was published after the release workflow finished, so a 1.9.0 host was never offered
+a Studio it could not load.
+
+Host fixes since 1.9.0: a module's StopSound never cuts the engine's own sounds or a companion's clips; a named tick clip
+with a probability or a loop is refused; a re-initialised bordered action keeps its border; a pack's startup behaviour
+runs once the drop-in lands, stays pending until it ends of itself (an egg dragged off mid-hatch hatches at its next
+landing), is skipped when the user turned it off and is cancelled by a Transform; a Transform that cannot enter its
+behaviour keeps the companion; a pose is drawn from the sheet of the type whose action holds it, so after such a
+Transform the companion keeps showing the old type's image as the source does; a failed birth reports its fault before
+its refusal; repeated engine faults are logged three times and then once as suppressed; the drag and hotspot trace
+events are written.
+
+Verified before the tag: the full gate on the candidate (ace78fc) passed apart from the expected publish line for
+petstudio; the lane regression (CoreTests 149 groups, security, the Shimeji window self-test, source invariants under
+powershell.exe, Studio and converter builds and selftest, the three slices replayed against the real runtime's traces
+with no differing row); Companion Studio's module self-test and the module-host self-test on a 1.10.0 build. Real-app
+checks on test copies (host and Studio only, their own data root, no real input): a two-member pack previewed whole
+(the 32 px egg arrived and hatched into the 64 px main member, Remove preview took it away, nothing was installed or
+saved), installed, imported again with a changed role, Cancel changed nothing, and Replace kept both ids. The release
+workflow published v1.10.0, unsigned. Light tier by the owner's decision.
+
+What an independent review and the real runtime found that the self-tests had not: the startup behaviour's hand-over
+dropped a just-landed companion in again when the user had turned that behaviour off, a Transform left the old type's
+startup name pending, and an egg dragged off mid-hatch could drop in from the sky forever; the real Shimeji-EE runtime,
+now writing the same trace contract as the host (28 of 31 directed scenarios exact), showed the host drawing the new
+type's sheet at the old type's frame index after a failed Transform. Five Studio items from the same review (a member
+switch keeping the opened path, retries adding copies, partial-install text, a stale editor, a tooltip on a disabled
+button) were fixed before the merge.
+
+Still open: the owner's install of 1.10.0 on the development machine; the manual SMOKETEST.md walk; sounds by ear, the
+Pets-pane rows and a Studio click-through in the installed app; the converter that turns a real Shimeji skin into a
+tick-clock companion still refuses every pack in the private corpus (the first blocker is a root schema attribute the
+source never reads), which is the campaign's next lane; the oracle's review fixes; the full tier.
+
 ## 🚢 Released: v1.9.0 and Companion Studio 1.2.0 (2026-11-05)
 
 The first release of the Shimeji runtime campaign (plan of 2026-11-04: every Shimeji action converts and runs, proven
