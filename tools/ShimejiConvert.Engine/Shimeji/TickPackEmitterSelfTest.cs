@@ -69,6 +69,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "instant-without-animation", Run = (Action)InstantWithoutAnimation },
                 new { Name = "anonymous-nested-actions", Run = (Action)AnonymousNestedActions },
                 new { Name = "custom-variables", Run = (Action)CustomVariables },
+                new { Name = "ignored-behaviour-children", Run = (Action)IgnoredBehaviourChildren },
                 new { Name = "information-refusal", Run = (Action)InformationRefusal },
                 new { Name = "own-set-binding-reset", Run = (Action)OwnSetBindingReset },
                 new { Name = "japanese-schema-values", Run = (Action)JapaneseSchemaValues },
@@ -1362,6 +1363,27 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     fixture.Actions(actions);
                     Refusal(fixture, r.Expected);
                 }
+        }
+
+        // 1.0.23 reads only a Behavior's NextBehaviorList children: a <NextBehavior> (the official default
+        // configuration's element) or any other child is never read, so the behaviour converts as if it were absent:
+        // the same bytes, its add left at the root reading, and none of the ignored element's references as edges.
+        private static void IgnoredBehaviourChildren()
+        {
+            string plain;
+            using (var fixture = new Fixture())
+                plain = fixture.Convert().ToString();
+            using (var fixture = new Fixture())
+            {
+                XDocument behaviours = BuildBehaviors();
+                XElement idle = behaviours.Descendants("Behavior").Single(b => (string)b.Attribute("Name") == "Idle");
+                idle.Add(S("NextBehavior", A("Add", "false"), S("BehaviorReference", A("Name", "Main"), A("Frequency", 5))),
+                    S("Note", A("Text", "x")));
+                fixture.Behaviors(behaviours);
+                XDocument document = fixture.Convert();
+                Validate(document, "ignored behaviour children member");
+                Require(document.ToString() == plain, "a behaviour child the source never reads changed the emitted member");
+            }
         }
 
         private static void InformationRefusal()

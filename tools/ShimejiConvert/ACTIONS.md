@@ -109,7 +109,8 @@ An anonymous nested action becomes a node named after its place, `<parent>/<posi
 with another action's is refused. An attribute the schema does not name on an action, a reference or a
 behaviour is a variable of the source's action map: it is carried under its own name when it is a plain
 identifier the host does not read as a parameter of its own and some script of the member names it, and the
-scripts of that map see it; one nothing reads is refused, as before.
+scripts of that map see it; one nothing reads is refused, as before. A Behavior's children other than its
+NextBehaviorList elements (a NextBehavior among them) are ignored, as 1.0.23 never reads them.
 It refuses unsupported attributes and
 classes, sounds, constants, information metadata and next references without a root definition.
 Bindings across differing document schemas are refused until target-schema resolution is implemented.

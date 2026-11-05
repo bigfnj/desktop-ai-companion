@@ -797,7 +797,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 bool rootDefinition = source.Kind == ShimejiSourceKind.Behavior;
                 foreach (ShimejiSourceElement list in rootDefinition ? source.Children : Enumerable.Empty<ShimejiSourceElement>())
                 {
-                    if (list.Kind != ShimejiSourceKind.NextBehaviorList) Fail(list, "unsupported behaviour child");
+                    // BehaviorBuilder reads only its NextBehaviourList children (BehaviorBuilder.java:82, selectChildren);
+                    // any other child, the official default configuration's <NextBehavior> among them, is never read,
+                    // so the behaviour keeps the root list and gains no edge from it (grimoire/06 4.2). Ignored here too.
+                    if (list.Kind != ShimejiSourceKind.NextBehaviorList) continue;
                     Check(list, "Add");
                     add = Bool(list, "Add");
                 }
@@ -842,7 +845,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 _behaviourMap.Add(Key(id), Ref(_source.Behaviors, source));
                 // Continuations are subsequently looked up through the ROOT behaviour by name by the host.
                 if (rootDefinition)
-                    foreach (ShimejiSourceElement list in source.Children) EmitNextEntries(list, null, node.Element(Ns + "sequence"));
+                    foreach (ShimejiSourceElement list in source.Children)
+                        if (list.Kind == ShimejiSourceKind.NextBehaviorList) EmitNextEntries(list, null, node.Element(Ns + "sequence"));
             }
 
             private void EmitNextEntries(ShimejiSourceElement parent, string condition, XElement sequence)
