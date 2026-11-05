@@ -101,13 +101,16 @@ namespace DesktopAICompanion.Shimeji
             return output != null && output.StopOwned(owner);
         }
 
-        /// <summary>The level a clip plays at: the user's volume times the pose's gain, capped at full scale (so a pose
-        /// above 0 dB plays louder than the user's level, as the source's gain is relative to its output, but never
-        /// past full scale); 0, so not played, with no settings or while sounds are held for a fullscreen window.</summary>
+        /// <summary>The level a clip plays at: the user's volume times the pose's gain, never above the user's volume. A
+        /// pose below 0 dB plays quieter, as in the source; one above 0 dB plays AT the user's level rather than past it,
+        /// because the slider is the user's ceiling for everything the app plays (a recorded divergence: the source's
+        /// gain is relative to its output and can boost up to +6 dB). 0, so not played, with no settings or while sounds
+        /// are held for a fullscreen window.</summary>
         internal static double Volume(LocalData data, bool held, double gain)
         {
             if (data == null || held) return 0.0;
-            return Math.Min(1.0, data.GetVolume() * gain);
+            double level = data.GetVolume();
+            return Math.Min(level, level * gain);
         }
     }
 }

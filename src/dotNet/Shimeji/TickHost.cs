@@ -51,9 +51,6 @@ namespace DesktopAICompanion.Shimeji
 
         public bool MinimizeActiveWindow() { return _interactive.Minimize(); }
 
-        /// <summary>"Put windows back": every window a companion moved or minimised this session returns to where it
-        /// was. Returns how many were sent back.</summary>
-        public int PutWindowsBack() { return _interactive.PutWindowsBack(); }
 
         public void Tick(int tick)
         {

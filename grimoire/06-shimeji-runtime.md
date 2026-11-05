@@ -127,8 +127,9 @@ run.
     Transform the clip of the pose still shown (the old type's) plays.
   - The host's rules then apply as they do to a classic companion's sound: the global companion-sound switch and the
     type's own mute are the source's Sounds setting; while sounds are held for a fullscreen window a clip does not
-    start (it is asked again at the next apply); the level is the user's volume times the pose's gain, capped at full
-    scale.
+    start (it is asked again at the next apply); the level is the user's volume times the pose's gain, never above the
+    user's volume (a pose above 0 dB plays at the user's level; the source can boost it, a recorded divergence:
+    the volume slider is the user's ceiling for everything the app plays).
   - Divergences, recorded: a Volume outside the gain control's range (-80 to +6.02 dB) makes the source refuse to load
     the whole image set (the control throws); the host clamps it to the range. A clip in the source's shared `sound/`
     folder is ONE clip across image sets; here each type carries its own copy, so it plays and stops per type. A Mute

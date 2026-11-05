@@ -148,8 +148,8 @@ namespace DesktopAICompanion.Shimeji
             }
         }
 
-        /// <summary>The app's rules a clip plays under (AppTickAudio): the user's volume times the pose's gain, capped at
-        /// full scale; nothing while sounds are held for a fullscreen window, or with no settings.</summary>
+        /// <summary>The app's rules a clip plays under (AppTickAudio): the user's volume times the pose's gain, never above
+        /// the user's volume; nothing while sounds are held for a fullscreen window, or with no settings.</summary>
         private static void CheckRoute(Action<bool, string> check)
         {
             LocalData data = Program.MyData;
@@ -160,8 +160,8 @@ namespace DesktopAICompanion.Shimeji
                 check(Math.Abs(AppTickAudio.Volume(data, false, 0.5) - 0.25) < 1e-6, "sound route: a clip plays at the user's volume times the pose's gain");
                 check(AppTickAudio.Volume(data, true, 1.0) == 0.0, "sound route: nothing plays while sounds are held for a fullscreen window");
                 check(AppTickAudio.Volume(null, false, 1.0) == 0.0, "sound route: nothing plays without settings");
-                data.SetVolume(1.0);
-                check(AppTickAudio.Volume(data, false, 2.0) == 1.0, "sound route: a gain above 1 is capped at full scale");
+                check(Math.Abs(AppTickAudio.Volume(data, false, 2.0) - 0.5) < 1e-6,
+                    "sound route: a gain above 1 plays at the user's volume, never past it");
             }
             finally
             {
