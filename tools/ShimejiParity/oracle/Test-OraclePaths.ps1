@@ -19,13 +19,14 @@ $oraclePathFiles = New-Object 'Collections.Generic.List[string]'
 $oracleCaller = Join-Path $oraclePathRoot 'caller.ps1'
 $oraclePathResults = New-Object 'Collections.Generic.List[object]'
 $oracleCallerBody = @'
-param([string]$Wrapper, [string]$Python, [string]$PSLocation, [string]$Cache, [string]$Output)
+param([string]$Wrapper, [string]$Python, [string]$PSLocation, [string]$Cache, [string]$Output,
+    [string]$Data = 'data', [string]$Temp = 'temp', [string]$Shared = 'shared')
 $ErrorActionPreference = 'Stop'
 Set-Location -LiteralPath $PSLocation
 $parameters = @{
     Action = 'Preflight'; PythonPath = $Python
     CacheRoot = $Cache; OutputRoot = $Output; JdkRoot = 'jdk'
-    SharedRoot = 'shared'; DataRoot = 'data'; TempRoot = 'temp'
+    SharedRoot = $Shared; DataRoot = $Data; TempRoot = $Temp
 }
 & $Wrapper @parameters
 exit $LASTEXITCODE
@@ -39,11 +40,13 @@ function Quote-OraclePathArgument([string]$Value) {
     return '"' + $escaped + '"'
 }
 
-function Invoke-OraclePathCase([string]$Wrapper, [string]$Cache, [string]$Output) {
+function Invoke-OraclePathCase([string]$Wrapper, [string]$Cache, [string]$Output,
+        [string]$Data = 'data', [string]$Temp = 'temp', [string]$Shared = 'shared') {
     $start = New-Object Diagnostics.ProcessStartInfo
     $start.FileName = Join-Path $PSHOME 'powershell.exe'
     $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $oracleCaller,
-        '-Wrapper', $Wrapper, '-Python', $PythonPath, '-PSLocation', $oraclePathLocation, '-Cache', $Cache, '-Output', $Output)
+        '-Wrapper', $Wrapper, '-Python', $PythonPath, '-PSLocation', $oraclePathLocation, '-Cache', $Cache, '-Output', $Output,
+        '-Data', $Data, '-Temp', $Temp, '-Shared', $Shared)
     $start.Arguments = (($arguments | ForEach-Object { Quote-OraclePathArgument $_ }) -join ' ')
     $start.WorkingDirectory = $oracleNativeLocation
     $start.UseShellExecute = $false
@@ -80,6 +83,13 @@ function Assert-OraclePathResult($Result) {
     }
 }
 
+function Assert-OracleRepositoryRefusal($Result, [string]$Case, [string]$Forbidden) {
+    $expected = 'ORACLE_REPOSITORY_STORAGE_REFUSAL ' + $Case
+    if ($Result.ExitCode -eq 0 -or -not $Result.Error.Contains($expected)) { throw ('ORACLE_PATHS_REPOSITORY_WITNESS ' + $Case) }
+    if ([IO.Directory]::Exists($Forbidden) -or [IO.File]::Exists($Forbidden)) { throw 'ORACLE_PATHS_REPOSITORY_WROTE' }
+    return $expected
+}
+
 function Assert-OraclePathCleanup([string]$Value) {
     $path = [IO.Path]::GetFullPath($Value)
     if ($path -cne $oraclePathRoot -and -not $path.StartsWith($oraclePathRoot + [IO.Path]::DirectorySeparatorChar,
@@ -99,12 +109,12 @@ try {
             [IO.Directory]::Exists((Join-Path $repository.FullName '.git')))) { $repository = $repository.Parent }
     if ($null -eq $repository) { throw 'ORACLE_PATHS_REPOSITORY_MARKER_MISSING' }
     $forbidden = Join-Path $repository.FullName ('oracle-storage-must-not-exist-' + [Guid]::NewGuid().ToString('N'))
-    foreach ($case in @('cache-root', 'output-root')) {
-        if ($case -eq 'cache-root') { $result = Invoke-OraclePathCase $oraclePathWrapper $forbidden 'output' }
-        else { $result = Invoke-OraclePathCase $oraclePathWrapper 'cache' $forbidden }
-        $expected = 'ORACLE_REPOSITORY_STORAGE_REFUSAL ' + $case
-        if ($result.ExitCode -eq 0 -or -not $result.Error.Contains($expected)) { throw ('ORACLE_PATHS_REPOSITORY_WITNESS ' + $case) }
-        if ([IO.Directory]::Exists($forbidden) -or [IO.File]::Exists($forbidden)) { throw 'ORACLE_PATHS_REPOSITORY_WROTE' }
+    $caseParameters = @{ 'cache-root' = 'Cache'; 'output-root' = 'Output'; 'data-root' = 'Data'; 'temp-root' = 'Temp'; 'shared-root' = 'Shared' }
+    foreach ($case in @('cache-root', 'output-root', 'data-root', 'temp-root', 'shared-root')) {
+        $values = @{ Wrapper = $oraclePathWrapper; Cache = 'cache'; Output = 'output'; Data = 'data'; Temp = 'temp'; Shared = 'shared' }
+        $values[$caseParameters[$case]] = $forbidden
+        $result = Invoke-OraclePathCase @values
+        $expected = Assert-OracleRepositoryRefusal $result $case $forbidden
         $oraclePathResults.Add([pscustomobject]@{ Case = $case; Status = 'REFUSED'; Witness = $expected })
     }
     if ($Mutate) {
@@ -125,6 +135,29 @@ try {
         catch { $witness = $_.Exception.Message }
         if ($witness -cne 'ORACLE_PATHS_PWD_WITNESS cache_root') { throw ('ORACLE_PATHS_MUTATION_DID_NOT_FIRE ' + $witness) }
         $oraclePathResults.Add([pscustomobject]@{ Case = 'relative-native-cwd-regression'; Status = 'FIRED'; Witness = $witness })
+        # A local marker makes both copied layers treat this scratch directory as their repository.
+        $privateMarker = Join-Path $oraclePrivateCode '.git'
+        [IO.File]::WriteAllText($privateMarker, 'synthetic repository marker', $oraclePathUtf8)
+        $oraclePathFiles.Add($privateMarker)
+        $privateForbidden = Join-Path $oraclePrivateCode 'storage-must-not-exist'
+        foreach ($case in @('data-root', 'temp-root', 'shared-root')) {
+            $guard = switch ($case) {
+                'data-root' { "Assert-OracleExternalStorage " + '$DataRoot' + " 'data-root'" }
+                'temp-root' { "Assert-OracleExternalStorage " + '$TempRoot' + " 'temp-root'" }
+                'shared-root' { "Assert-OracleExternalStorage " + '$SharedRoot' + " 'shared-root'" }
+            }
+            if ([regex]::Matches($source, [regex]::Escape($guard)).Count -ne 1) { throw ('ORACLE_PATHS_MUTATION_ANCHOR_WITNESS ' + $case) }
+            [IO.File]::WriteAllBytes($privateWrapper, $oraclePathUtf8.GetBytes($source.Replace($guard, '$null = $null')))
+            $values = @{ Wrapper = $privateWrapper; Cache = 'cache'; Output = 'output'; Data = 'data'; Temp = 'temp'; Shared = 'shared' }
+            $values[$caseParameters[$case]] = $privateForbidden
+            $mutant = Invoke-OraclePathCase @values
+            $witness = $null
+            try { [void](Assert-OracleRepositoryRefusal $mutant $case $privateForbidden) }
+            catch { $witness = $_.Exception.Message }
+            $expected = 'ORACLE_PATHS_REPOSITORY_WITNESS ' + $case
+            if ($witness -cne $expected) { throw ('ORACLE_PATHS_MUTATION_DID_NOT_FIRE ' + $case + ': ' + $witness) }
+            $oraclePathResults.Add([pscustomobject]@{ Case = ('missing-' + $case + '-wrapper-guard'); Status = 'FIRED'; Witness = $witness })
+        }
     }
 }
 finally {

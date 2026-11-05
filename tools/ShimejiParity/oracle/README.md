@@ -30,7 +30,8 @@ checkout. `CacheRoot` and `JdkRoot` are required, or can be supplied through `SH
 `SHIMEJI_ORACLE_JDK8`. `OutputRoot` defaults to the cache's evidence directory. The wrapper supplies isolation
 variables through the child process environment and preserves the calling shell's environment.
 Every supplied path is resolved against the current PowerShell location, including JDK, shared-input and Python
-paths. Cache and output roots inside this tool's repository are refused before directories are created. The Python
+paths. Cache, output, data, temporary and shared-input roots inside this tool's repository are refused before
+directories are created. The Python
 preflight also checks resolved physical paths. `Preflight` prints resolved paths and creates no directories.
 
 `Fetch` checks the source archive against its pinned SHA-256 before extraction. Archive paths, symbolic links,
@@ -94,6 +95,9 @@ become visible in the cached area at the next tick; each tick resets area deltas
 so a missing, minimized or offscreen window cannot be moved again. Restoration relocates a shown offscreen window
 without undoing minimization or inventing a restore event. The absent-window zero rectangle follows the source's
 freshly allocated RECTs after failed native calls. This assumption has not been checked with native Win32 probing.
+The restore-then-move case also retains the source's cached area size, which is 0x0 after an absent-window refresh.
+The virtual model then treats the zero-sized result as absent. Native Win32 minimum tracking-size clamping for a
+captioned top-level window is not modelled or probed, so this case is a declared modelling assumption.
 
 ## Failure witnesses
 

@@ -59,6 +59,9 @@ else {
 $PythonPath = Resolve-OraclePath $PythonPath
 Assert-OracleExternalStorage $CacheRoot 'cache-root'
 Assert-OracleExternalStorage $OutputRoot 'output-root'
+Assert-OracleExternalStorage $DataRoot 'data-root'
+Assert-OracleExternalStorage $TempRoot 'temp-root'
+if (-not [string]::IsNullOrWhiteSpace($SharedRoot)) { Assert-OracleExternalStorage $SharedRoot 'shared-root' }
 
 function Quote-OracleArgument([string]$Value) {
     $escaped = [regex]::Replace($Value, '(\\*)"', '$1$1\"')

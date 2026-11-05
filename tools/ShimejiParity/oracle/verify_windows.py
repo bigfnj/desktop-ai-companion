@@ -127,7 +127,7 @@ def main():
     report = {"status": "pass", "nativeOperations": 0, "evidence": str(root), "results": results,
               "baseArtifactSha256": draft["artifact_sha256"], "sourceZipSha256": oracle.SOURCE_SHA256,
               "adapterSha256": oracle.sha(sources["ScenarioEnvironment.java"]), "trackedSourceUnchanged": True,
-              "assumption": "Failed native lookup leaves freshly allocated RECTs zeroed; native probing was not run."}
+              "assumption": result["assumption"]}
     oracle.write_json(root / "results.json", report)
     oracle.write_json(args.output_root / "window-adapter-latest.json", report)
     print(json.dumps(report, indent=2))

@@ -45,7 +45,14 @@ def repository_root(here=HERE):
 
 def validate_storage_roots(args, repository=None):
     repository = repository_root() if repository is None else Path(repository).resolve()
-    for label, supplied in (("cache-root", args.cache_root), ("output-root", args.output_root)):
+    for label, attribute in (
+            ("cache-root", "cache_root"), ("output-root", "output_root"),
+            ("data-root", "data_root"),
+            ("temp-root", "temp_root"),
+            ("shared-root", "shared_root")):
+        supplied = getattr(args, attribute, None)
+        if supplied is None:
+            continue
         # Check both spellings: an in-checkout junction must not disguise a private destination.
         for target in (Path(os.path.abspath(supplied)), Path(supplied).resolve()):
             if target == repository or repository in target.parents:
@@ -478,8 +485,16 @@ def self_test(args):
     expect_refusal(lambda: validate_storage_roots(forbidden), "REPOSITORY_STORAGE_REFUSAL cache-root", "REPOSITORY_CACHE_WITNESS")
     forbidden = SimpleNamespace(cache_root=args.cache_root, output_root=repository / "unwritten-evidence")
     expect_refusal(lambda: validate_storage_roots(forbidden), "REPOSITORY_STORAGE_REFUSAL output-root", "REPOSITORY_OUTPUT_WITNESS")
+    for attribute, label, witness in (
+            ("data_root", "data-root", "REPOSITORY_DATA_WITNESS"),
+            ("temp_root", "temp-root", "REPOSITORY_TEMP_WITNESS"),
+            ("shared_root", "shared-root", "REPOSITORY_SHARED_WITNESS")):
+        forbidden = SimpleNamespace(cache_root=args.cache_root, output_root=args.output_root)
+        setattr(forbidden, attribute, repository / ("unwritten-" + label))
+        expect_refusal(lambda: validate_storage_roots(forbidden), "REPOSITORY_STORAGE_REFUSAL " + label, witness)
     sibling = repository.parent / (repository.name + "-separate")
-    validate_storage_roots(SimpleNamespace(cache_root=sibling / "cache", output_root=sibling / "evidence"))
+    validate_storage_roots(SimpleNamespace(cache_root=sibling / "cache", output_root=sibling / "evidence",
+                                         data_root=sibling / "data", temp_root=sibling / "temp", shared_root=sibling / "shared"))
     labels.append("repository-storage-and-prefix-boundary")
     distribution_cache_witness(args)
     labels.append("distribution-cache-writeback")
@@ -714,6 +729,9 @@ def mutate(args):
         ("class-bytecode", [('if ' + 'result.get("instruction_or_signature_differences") != {}:', 'if False:')], "CLASS_BYTECODE_WITNESS")]
     legs.extend([
         ("repository-storage", [('if target == repository ' + 'or repository in target.parents:', 'if False:')], "REPOSITORY_CACHE_WITNESS"),
+        ("repository-data-storage", [('("data-root", ' + '"data_root"),', '("data-root", "ignored_data_root"),')], "REPOSITORY_DATA_WITNESS"),
+        ("repository-temp-storage", [('("temp-root", ' + '"temp_root"),', '("temp-root", "ignored_temp_root"),')], "REPOSITORY_TEMP_WITNESS"),
+        ("repository-shared-storage", [('("shared-root", ' + '"shared_root")):', '("shared-root", "ignored_shared_root")):')], "REPOSITORY_SHARED_WITNESS"),
         ("distribution-cache-writeback", [('if not ' + 'path.exists():', 'if not path.exists() and not (args.cache_root / "distribution.json").exists():')], "DISTRIBUTION_CACHE_WITNESS"),
         ("isolation-value", [('if ' + 'any(environment.get(key) != value for key, value in flags.items()):', 'if False:')], "ISOLATION_VALUE_WITNESS"),
         ("isolation-path", [('if ' + 'any(not environment.get(key) or Path(environment[key]).resolve() != Path(value).resolve() for key, value in paths.items()):', 'if False:')], "ISOLATION_PATH_WITNESS"),

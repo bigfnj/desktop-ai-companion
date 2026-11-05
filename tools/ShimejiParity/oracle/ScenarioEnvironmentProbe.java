@@ -128,6 +128,6 @@ public final class ScenarioEnvironmentProbe {
         require(!area.isVisible() && bounds(area, 0, 0, 0, 0), "restore-then-move-zero-region-not-found");
         environment.dispose();
         System.out.println("{\"status\":\"pass\",\"nativeOperations\":0,\"events\":" + controller.events.size()
-            + ",\"assumption\":\"failed-native-lookup-leaves-zeroed-RECTs\"}");
+            + ",\"assumption\":\"failed-native-lookup-leaves-zeroed-RECTs;restore-then-move-keeps-cached-zero-size-without-unprobed-native-minimum-tracking-clamp\"}");
     }
 }
