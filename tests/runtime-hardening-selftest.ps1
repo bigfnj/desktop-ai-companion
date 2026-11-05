@@ -5412,6 +5412,53 @@ Assert-True (
     ($spPackBody -cmatch 'await Task\.Run\(delegate \{ return PackImport\.ListMemberKeys\(packRoot\); \}\)')
 ) 'studio-packs: the pack is listed and converted on a pool thread: ConvertGuarded is called once in the window, inside the awaited Task.Run, and the window never calls ConvertPack itself'
 
+# ---- lane feature/host-pack-abi ----
+# A WHOLE-PACK PREVIEW (ICompanionPackPreview, host 1.10.0). Its namespace, its staging and its "a closed preview's birth
+# gets no window" rule run in --shimeji-window-selftest over a real tick host and registry; what no headless self-test can
+# reach is StartUp's wiring, which needs a live app. So its ORDER is pinned here on comment-stripped source: the shared caps
+# before anything is validated or staged, the namespace opened before the spawn (which resolves the startup member at once)
+# and closed on the throw path, removal closing the namespace before it removes windows by namespace, a born window refused
+# for a closed preview, and the handle removing by namespace rather than the one window it was given.
+$hpaStartUp = Remove-LineComments $startUpSource
+$hpaPacks = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\StartUp.Packs.cs') -Raw)
+$hpaHost = Remove-LineComments $petHostSource
+$hpaStops = @("`n        private ", "`n        internal ", "`n        public ", "`n        protected ")
+$hpaSpawn = Get-MethodBody $hpaPacks 'internal FormCompanion SpawnPackPreviewPet(' $hpaStops
+$hpaRemove = Get-MethodBody $hpaPacks 'internal int RemovePackPreview(string previewId)' $hpaStops
+$hpaBorn = Get-MethodBody $hpaStartUp 'private FormCompanion OpenBornTickPet(Shimeji.TickHostType type)' $hpaStops
+$hpaSingle = Get-MethodBody $hpaStartUp 'internal FormCompanion SpawnPreviewPet(string animationsXml, out string error)' $hpaStops
+$hpaAt = $hpaHost.IndexOf('internal sealed class PackPreviewHandle')
+$hpaHandle = if ($hpaAt -ge 0) { $hpaHost.Substring($hpaAt) } else { '' }
+$hpaHandleRemove = Get-MethodBody $hpaHandle 'public void Remove()' $hpaStops
+$hpaBridge = Get-MethodBody $hpaHost 'public ICompanionPreview SpawnPackPreview(IReadOnlyDictionary<string, string> memberXmlByKey, string mainKey, out string error)' $hpaStops
+Assert-True ($hpaSpawn.Length -gt 0 -and $hpaRemove.Length -gt 0 -and $hpaBorn.Length -gt 0 -and $hpaSingle.Length -gt 0 -and
+    $hpaHandleRemove.Length -gt 0 -and $hpaBridge.Length -gt 0) 'host-pack-abi: the pack preview spawn, removal, born window, single preview, handle and bridge could be sliced out'
+$hpaCap = $hpaSpawn.IndexOf('error = PreviewCapRefusal();')
+$hpaPrepare = $hpaSpawn.IndexOf('Shimeji.TickPreviewPacks.Prepare(memberXmlByKey, mainKey, out error)')
+$hpaStage = $hpaSpawn.IndexOf('TryStageRuntime(pack.MainXml,')
+$hpaOpen = $hpaSpawn.IndexOf('previewPacks.Open(id, pack);')
+$hpaAdd = $hpaSpawn.IndexOf('AddSheepCore(entry.Xml, entry.Animations, entry)')
+Assert-True ($hpaCap -ge 0 -and $hpaPrepare -gt $hpaCap -and $hpaStage -gt $hpaPrepare -and $hpaOpen -gt $hpaStage -and $hpaAdd -gt $hpaOpen -and
+    $hpaSpawn -cmatch 'catch \{ previewPacks\.Close\(id\); registry\.DropIfUnused\(entry\); throw; \}') (
+    'host-pack-abi: a pack preview checks the caps before it validates or stages, opens its namespace before the spawn, and closes it on the throw path')
+Assert-True ($hpaSingle -cmatch 'error = PreviewCapRefusal\(\);' -and
+    [regex]::Matches($hpaStartUp, 'previews >= MAX_PREVIEW_PETS').Count -eq 1 -and [regex]::Matches($hpaStartUp, 'iSheeps >= MAX_SHEEPS\) return "').Count -eq 1) (
+    'host-pack-abi: a single preview and a pack preview share one statement of the pet and preview caps')
+$hpaClose = $hpaRemove.IndexOf('previewPacks.Close(previewId);')
+$hpaLoop = $hpaRemove.IndexOf('if (BelongsToPreview(sheeps[i], previewId)) mine.Add(sheeps[i]);')
+Assert-True ($hpaClose -ge 0 -and $hpaLoop -gt $hpaClose -and $hpaRemove -cmatch 'if \(RemovePetInstance\(pet\)\) removed\+\+;') (
+    'host-pack-abi: removing a pack preview closes its namespace first, then removes every window that belongs to it')
+Assert-True ($hpaBorn -cmatch 'if \(!previewPacks\.MayOpenWindow\(entry\)\) return null;' -and
+    $hpaBorn.IndexOf('previewPacks.MayOpenWindow(entry)') -lt $hpaBorn.IndexOf('CreateAndInitializeOwnedPet(')) (
+    "host-pack-abi: a closed pack preview's pending birth gets no window")
+Assert-True ($hpaHandleRemove -cmatch '_startUp\.RemovePackPreview\(id\)' -and $hpaHandleRemove -cnotmatch 'RemovePetInstance' -and
+    (Get-MethodBody $hpaHost 'public void Remove()' $hpaStops) -cmatch 'RemovePetInstance' -and
+    $hpaBridge -cmatch 'new PackPreviewHandle\(_startUp, _host, pet, previewId\)' -and $hpaBridge -cnotmatch 'new PreviewHandle\(') (
+    "host-pack-abi: a pack preview's handle removes by namespace, never the one window it was handed (WITNESS: the single preview's Remove does)")
+Assert-True ($hpaPacks -cmatch 'tickPacks\.StagePreviewMember = \(scope, key\) => previewPacks\.Stage\(registry, scope, key, PreviewScaleFactor\(\),' -and
+    'catch { registry.DropIfUnused(entry); throw; }' -cnotmatch 'catch \{ previewPacks\.Close\(id\); registry\.DropIfUnused\(entry\); throw; \}') (
+    "host-pack-abi: the app's binding stages a preview's members from the preview namespaces (WITNESS: the single preview's catch does not satisfy the pack's)")
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever

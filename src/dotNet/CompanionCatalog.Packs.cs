@@ -77,16 +77,24 @@ namespace DesktopAICompanion
         /// <summary>Whether an installed id is a hidden pack member (read where TryReadPetXml reads it).</summary>
         internal static bool IsHiddenPackMember(string id, string libraryRoot, string bundledRoot)
         {
-            if (string.IsNullOrEmpty(id) || !SecureDownload.IsSafeId(id)) return false;
+            PackHeaderFacts facts = InstalledPackFacts(id, libraryRoot, bundledRoot);
+            return facts != null && facts.Hidden;
+        }
+
+        /// <summary>An installed id's own pack facts, read where TryReadPetXml reads its file (the library copy before a
+        /// bundled one), or null when it declares no pack. What ICompanionManager.InstalledTypes reports per type (1.10.0)
+        /// and what keeps a hidden member out of the Add list: one reader, so the two cannot disagree about a type.</summary>
+        internal static PackHeaderFacts InstalledPackFacts(string id, string libraryRoot, string bundledRoot)
+        {
+            if (string.IsNullOrEmpty(id) || !SecureDownload.IsSafeId(id)) return null;
             foreach (string root in new[] { libraryRoot, bundledRoot })
             {
                 if (string.IsNullOrEmpty(root)) continue;
                 string path = Path.Combine(root, id, "animations.xml");
                 if (!File.Exists(path)) continue;
-                PackHeaderFacts facts = ReadPackFacts(path);
-                return facts != null && facts.Hidden;
+                return ReadPackFacts(path);
             }
-            return false;
+            return null;
         }
 
         /// <summary>The companions a user may add or use: <see cref="EnumerateLocal"/> without hidden pack members, which

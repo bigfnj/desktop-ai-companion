@@ -3864,6 +3864,62 @@ CASES = (
         b"                PackConversionResult converted = ShimejiEngine.ConvertPack(packRoot, options, out r);\n",
         "studio-packs: the pack is listed and converted on a pool thread",
     ),
+    # ---- lane feature/host-pack-abi ----
+    # The whole-pack preview's wiring in StartUp and CompanionHost (host 1.10.0), and Companion Studio's pack report
+    # window (the review's items 1, 4 and 5): each case undoes one guard and expects its own invariant to abort the run.
+    (
+        "host-pack-abi: a pack preview leaves its namespace open when the spawn throws",
+        os.path.join(REPO, "src", "dotNet", "StartUp.Packs.cs"),
+        b"            catch { previewPacks.Close(id); registry.DropIfUnused(entry); throw; }\n",
+        b"            catch { registry.DropIfUnused(entry); throw; }\n",
+        "host-pack-abi: a pack preview checks the caps before it validates or stages",
+    ),
+    (
+        "host-pack-abi: a pack preview validates and stages before it checks the caps",
+        os.path.join(REPO, "src", "dotNet", "StartUp.Packs.cs"),
+        b"            error = PreviewCapRefusal();\n            if (error != null) return null;\n"
+        b"            Shimeji.TickPreviewPacks.Prepared pack = Shimeji.TickPreviewPacks.Prepare(memberXmlByKey, mainKey, out error);\n"
+        b"            if (pack == null) return null;\n",
+        b"            Shimeji.TickPreviewPacks.Prepared pack = Shimeji.TickPreviewPacks.Prepare(memberXmlByKey, mainKey, out error);\n"
+        b"            if (pack == null) return null;\n"
+        b"            error = PreviewCapRefusal();\n            if (error != null) return null;\n",
+        "host-pack-abi: a pack preview checks the caps before it validates or stages",
+    ),
+    (
+        "host-pack-abi: the single preview keeps its own copy of the caps",
+        os.path.join(REPO, "src", "dotNet", "StartUp.cs"),
+        b"            error = PreviewCapRefusal();\n            if (error != null) return null;\n",
+        b"            if (iSheeps >= MAX_SHEEPS) { error = \"The maximum number of pets is already on screen.\"; return null; }\n",
+        "host-pack-abi: a single preview and a pack preview share one statement of the pet and preview caps",
+    ),
+    (
+        "host-pack-abi: removing a pack preview leaves its namespace open",
+        os.path.join(REPO, "src", "dotNet", "StartUp.Packs.cs"),
+        b"            previewPacks.Close(previewId);\n            var mine",
+        b"            var mine",
+        "host-pack-abi: removing a pack preview closes its namespace first",
+    ),
+    (
+        "host-pack-abi: a closed pack preview's birth opens a window",
+        os.path.join(REPO, "src", "dotNet", "StartUp.cs"),
+        b"            if (!previewPacks.MayOpenWindow(entry)) return null;\n",
+        b"",
+        "host-pack-abi: a closed pack preview's pending birth gets no window",
+    ),
+    (
+        "host-pack-abi: a pack preview's handle removes only its own window",
+        os.path.join(REPO, "src", "dotNet", "Plugins", "CompanionHost.cs"),
+        b"            try { if (_startUp != null) _startUp.RemovePackPreview(id); }\n",
+        b"            try { if (_startUp != null && pet != null) _startUp.RemovePetInstance(pet); }\n",
+        "host-pack-abi: a pack preview's handle removes by namespace",
+    ),
+    (
+        "host-pack-abi: the app's binding stages nothing for a preview",
+        os.path.join(REPO, "src", "dotNet", "StartUp.Packs.cs"),
+        b"            tickPacks.StagePreviewMember = (scope, key) => previewPacks.Stage(registry, scope, key, PreviewScaleFactor(),\n",
+        b"            Func<string, string, CompanionTypeRegistry.Entry> unused = (scope, key) => previewPacks.Stage(registry, scope, key, PreviewScaleFactor(),\n",
+        "host-pack-abi: the app's binding stages a preview's members from the preview namespaces",
+    ),
 )
 
 

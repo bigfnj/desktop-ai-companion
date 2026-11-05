@@ -1374,6 +1374,18 @@ namespace DesktopAICompanion.Plugins
                 !denied.ValidateXml("<xml/>", out error) && !string.IsNullOrEmpty(error));
             ok &= Check(sb, "pets: refuses to preview, with a reason",
                 denied.SpawnPreview("<xml/>", out error) == null && !string.IsNullOrEmpty(error));
+            // The whole-pack preview (1.10.0) is a separate interface the refusing manager implements too, so a module
+            // without the permission reads the reason rather than a null cast that looks like an older host.
+            ICompanionPackPreview deniedPacks = denied as ICompanionPackPreview;
+            ok &= Check(sb, "pets: refuses a whole-pack preview, with a reason (1.10.0 interface)",
+                deniedPacks != null
+                && deniedPacks.SpawnPackPreview(new Dictionary<string, string> { { "Alpha", "<xml/>" } }, "Alpha", out error) == null
+                && !string.IsNullOrEmpty(error) && error.Contains("Companions permission"));
+            ICompanionPackPreview noRuntime = new CompanionManagerBridge(null, host);
+            string noRuntimeError;
+            ok &= Check(sb, "WITNESS a granted manager with no pet runtime behind it answers a pack preview with a reason, not a throw",
+                noRuntime.SpawnPackPreview(new Dictionary<string, string> { { "Alpha", "<xml/>" } }, "Alpha", out noRuntimeError) == null
+                && noRuntimeError == "No pet runtime.");
             ok &= Check(sb, "pets: refuses to install and to uninstall",
                 !denied.InstallType("x", "<xml/>", out error) && !denied.UninstallType("x", out error));
             ok &= Check(sb, "pets: refuses to spawn or remove", !denied.SpawnOne("eSheep") && !denied.RemoveOne("eSheep"));

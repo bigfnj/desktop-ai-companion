@@ -620,6 +620,20 @@ namespace DesktopAICompanion.Modules
         public string TypeId { get; set; }       // folder/catalog id; "eSheep" for the built-in default
         public string DisplayName { get; set; }  // character/display name ("Pearl")
         public bool IsBuiltIn { get; set; }
+        // The type's place in a pack, read from its own header (<pack id member role hidden/>) the way the host's pack
+        // index reads it (CompanionPackIndex.cs, PackHeaderFacts), from the file the host would stage for this id (the
+        // library copy before a bundled one). It lets a module tell which installed types belong to one pack without
+        // reading every type's XML: Companion Studio asks it before installing a pack again. PackId and PackMember match
+        // exactly (case-sensitive), as the host matches them; PackRole is main, egg, form or helper as the header writes
+        // it. A hidden member IS listed by InstalledTypes although Add a companion leaves it out. Null, and PackHidden
+        // false, for a type that declares no pack: every classic companion and the built-in default. These describe one
+        // type each; two installed types claiming the same pack and member both say so here, and the host's index uses
+        // only one of them. Added in 1.10.0; a module that reads them must declare MinHostVersion 1.10.0 (an older
+        // Contracts.dll has no such properties, so code that reads one fails against it).
+        public string PackId { get; set; }
+        public string PackMember { get; set; }
+        public string PackRole { get; set; }
+        public bool PackHidden { get; set; }
     }
 
     /// <summary>A count of on-screen pets of one type.</summary>
@@ -718,6 +732,44 @@ namespace DesktopAICompanion.Modules
         // they were; they run on the definition already staged until removed. (F336.)
         bool InstallType(string typeId, string animationsXml, out string error);
         bool UninstallType(string typeId, out string error);
+    }
+
+    // ---- a whole-pack preview (host 1.10.0+) ----
+    // SpawnPreview takes ONE document, and a preview's pack references resolve only inside the preview's own namespace
+    // (its id plus the pack id), never in the installed pack index. So a previewed main member could not reach its other
+    // members: its egg startup, a Transform and a Breed all fell back to the main member itself, and an egg could not be
+    // previewed hatching. This hands the host EVERY member at once, staged into one preview namespace and resolved from
+    // there alone, so an installed pack with the same id is never reached and nothing installed is touched.
+    //
+    // A separate interface rather than a member of ICompanionManager, for the reason ICompanionStandDown gives about
+    // IHost: ModuleKit.Testing.DenyingCompanionManager implements ICompanionManager and ships inside every module's zip,
+    // and modules implement it in their own self-test doubles, so a new member there would change every module's payload
+    // and break each double's build (and, against a copy already published, its type load). The host's ICompanionManager
+    // implements this too, the refusing one included, so a module asks with `pets as ICompanionPackPreview` and declares
+    // MinHostVersion 1.10.0, after which the cast cannot come back null except on a test double. ModuleKit carries none.
+    public interface ICompanionPackPreview
+    {
+        // Spawn a transient preview of a whole pack. memberXmlByKey holds every member's animations.xml by its EXACT member
+        // key (the header's <pack member>, case-sensitive); mainKey names the main member. Every member is validated by the
+        // same parser and limits as SpawnPreview, then the set by the host's pack-level rules (one pack id, unique keys,
+        // exactly one main member, one transparency mode, a startup that names a member and one of its behaviours, an egg
+        // startup that transforms back into the main member); a reference to a member the set lacks is not refused, it keeps
+        // the current type at run time as it does in an installed pack. Each document's header must name the key it is given
+        // under, every member must be a tick-clock companion, and mainKey's role must be main. At most 32 members.
+        //
+        // The main member is spawned and starts as its header's startup says, always (the user's "Arrive as an egg" belongs
+        // to an installed type, not to a draft): with an egg startup it arrives as that egg, which then hatches into the main
+        // member, and its Transforms and Breeds reach the other members of THIS preview. Members are staged when first
+        // named, as an installed pack's are. Pet is the companion that arrived (the egg, and what it becomes).
+        //
+        // Returns null with a reason when a member or the set is rejected, the pet cap is reached, too many previews are
+        // already up, or the Companions permission is missing (the same caps as SpawnPreview; the main member counts as one
+        // preview, and a companion the preview breeds is a preview pet too, under the pet cap like any birth). The caller
+        // OWNS the returned handle and must remove it; removing it removes every companion the preview produced (the one
+        // that arrived, whatever it became, and every companion it bred, a birth still pending included) and closes the
+        // namespace. IsAlive is true while any of them is on screen. Like every preview, none of them is persisted, listed
+        // in the tray or announced to modules. Added in 1.10.0; a module that calls it must declare MinHostVersion 1.10.0.
+        ICompanionPreview SpawnPackPreview(IReadOnlyDictionary<string, string> memberXmlByKey, string mainKey, out string error);
     }
 
     /// <summary>A module's settings pane. Declarative schema (host-rendered) is the default; secrets are

@@ -779,6 +779,9 @@ namespace DesktopAICompanion
             CompanionTypeRegistry.Entry entry;
             tickEntries.TryGetValue(type.Type.Name, out entry);
             if (entry != null && entry.Animations == null) return null;
+            // A birth of a whole-pack preview whose handle was removed while the birth was queued: no window, so the host
+            // removes it, and removing the handle really does remove every companion the preview produced.
+            if (!previewPacks.MayOpenWindow(entry)) return null;
             if (type.Animations == null || type.Sprites == null) return null;
             FormCompanion pet = CreateAndInitializeOwnedPet(
                 delegate { return new FormCompanion(type.Animations, type.Sprites); },
@@ -825,6 +828,26 @@ namespace DesktopAICompanion
         /// remove them cannot starve the 16 real slots.</summary>
         private const int MAX_PREVIEW_PETS = 4;
 
+        /// <summary>Why no preview may spawn now (the pet cap, or the preview cap), or null. The ONE statement of both caps,
+        /// shared by a single preview and a whole-pack preview (1.10.0), so the two cannot drift apart.</summary>
+        private string PreviewCapRefusal()
+        {
+            if (iSheeps >= MAX_SHEEPS) return "The maximum number of pets is already on screen.";
+            int previews = 0;
+            for (int i = 0; i < iSheeps; i++)
+                if (IsTransientPet(sheeps[i])) previews++;
+            if (previews >= MAX_PREVIEW_PETS)
+                return "Too many preview pets are already on screen (" + MAX_PREVIEW_PETS + ").";
+            return null;
+        }
+
+        /// <summary>The scale of the active pet, so a preview looks the way the pet would once installed. Every member of a
+        /// whole-pack preview is staged at it too.</summary>
+        private static double PreviewScaleFactor()
+        {
+            return Program.MyData != null ? Program.MyData.GetEffectivePetScaleFactorD("") : 1.0;
+        }
+
         /// <summary>
         /// Spawn a TRANSIENT preview pet from an arbitrary animations.xml string, for an authoring module
         /// that wants to show the user their pet running on the real desktop before installing it. Returns
@@ -845,21 +868,12 @@ namespace DesktopAICompanion
             error = null;
             if (disposed) { error = "The pet runtime is shutting down."; return null; }
             if (string.IsNullOrWhiteSpace(animationsXml)) { error = "No pet XML was supplied."; return null; }
-            if (iSheeps >= MAX_SHEEPS) { error = "The maximum number of pets is already on screen."; return null; }
-
-            int previews = 0;
-            for (int i = 0; i < iSheeps; i++)
-                if (IsTransientPet(sheeps[i])) previews++;
-            if (previews >= MAX_PREVIEW_PETS)
-            {
-                error = "Too many preview pets are already on screen (" + MAX_PREVIEW_PETS + ").";
-                return null;
-            }
+            error = PreviewCapRefusal();
+            if (error != null) return null;
 
             Xml stagedXml;
             Animations stagedAnimations;
-            // The scale of the active pet, so a preview looks the way the pet would once installed.
-            double factor = Program.MyData != null ? Program.MyData.GetEffectivePetScaleFactorD("") : 1.0;
+            double factor = PreviewScaleFactor();
             if (!TryStageRuntime(animationsXml, factor, out stagedXml, out stagedAnimations, out error))
                 return null;
 

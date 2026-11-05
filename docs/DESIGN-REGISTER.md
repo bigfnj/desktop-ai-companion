@@ -7660,6 +7660,30 @@ pack id is already installed was left for later: the ABI has no way to read an i
 **Only a skin laid out as `<root>\img\<member>\` can be imported as a pack.** That is what `ConvertPack` reads. A skin
 whose sprites sit at the root or deeper converts on its own, and the picker's pack button says why in its tooltip.
 
+#### feature/host-pack-abi
+
+Host 1.10.0 gives Companion Studio a whole-pack preview and each installed type's pack facts; Studio 1.3.0 uses both and
+declares MinHostVersion 1.10.0.
+
+**The pack preview is a separate interface, `ICompanionPackPreview`, not a new `ICompanionManager` member.** The brief
+asked for a member on `ICompanionManager`. `ModuleKit.Testing.DenyingCompanionManager` implements that interface and ships
+in every module's zip, and AgentFlow, Reminder and Studio implement it in their self-test doubles, so a new member would
+have changed every module's payload and broken each double's build (and, against a copy already published, its type
+load): the reason `ICompanionStandDown` gives for keeping IHost frozen. The host's managers implement it, the refusing one
+included, so a module asks with `pets as ICompanionPackPreview` and a module without the permission reads a reason rather
+than a null cast that looks like an older host.
+
+**A pack preview always arrives as its startup member.** "Arrive as an egg" is a setting of an installed type; a draft
+has none, and the point of the preview is to see the egg hatch. `TickPackBinding.PlanStart` keeps reading no role for a
+preview scope, so `TickPack.StartPlan` never applies the preference to one.
+
+**A preview's members are staged on demand from the preview's own namespace (`TickPreviewPacks`), never from the
+installed index.** Same lifetime as an installed pack's members (held while a companion runs or draws as them), under
+registry ids of the preview's own (`<preview id>/<position>`: the registry ignores case and member keys do not). Removing
+the handle closes the namespace first, so a birth still queued gets no window, then removes every window whose entry the
+preview owns. A single `SpawnPreview` handle still removes only its own window; a classic or packless tick preview that
+breeds leaves its born copies (N-host-pack-abi-01).
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of
