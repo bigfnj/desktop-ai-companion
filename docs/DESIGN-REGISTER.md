@@ -7553,6 +7553,18 @@ member) now takes what a Windows folder name may hold: 1 to 255 characters, not 
 `\ / : * ? " < > |`. The control-character rule is what keeps the lookups unambiguous: the pack index and the engine's
 index both join pack id and member with a line feed, and the pack id, still compact, can hold none. The pack id keeps
 the compact grammar because a preview's scope relies on a `:` no pack id may hold.
+
+**No window found leaves the active-window area empty at (0, 0), and single-screen ThrowIE goes on throwing at it.**
+The source's environment refresh sets the area from `getIERect(findActiveIE())`, and with no window found both native
+calls fail and leave the rectangle at (0, 0, 0, 0) (`WindowsEnvironment.java:193-206, 297-299`). The app's Win32
+environment already did this; the scripted desktop the parity runs and CoreTests use kept the last rectangle found
+instead, which Codex's oracle review caught. Keeping it changed two observable things. A window that reappears gets
+border deltas measured from (0, 0), and the move after a restore in the same tick uses the cached 0x0 size. The second
+is the one that looks like a bug. With Multiscreen off, a window area that does not touch the companion's work area,
+the empty one included, is handed over as a fresh `Area`, which is VISIBLE (`MascotEnvironment.java:82-83`). ThrowIE
+reads only visibility, so it keeps going after its window leaves the screen, and each throw after that finds no
+window to move. The old refresh hid this only because the stale rectangle still touched the work area. CoreTests now
+pins both modes: Multiscreen on stops after two throws, Multiscreen off throws a third time at the empty area.
 #### feature/shimeji-host-studio
 
 Companion Studio opens, analyses, previews and installs a tick-clock companion, one companion at a time. Importing a

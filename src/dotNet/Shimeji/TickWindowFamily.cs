@@ -311,13 +311,16 @@ namespace DesktopAICompanion.Shimeji
             return Shown && !Minimised && TickWindowRules.Intersects(Rect, new TickRect(screen.Left, screen.Top, screen.Width, screen.Height));
         }
 
-        /// <summary>Environment.tick's refresh of the active-window area: visible and Set while the window is found;
-        /// otherwise invisible, with the rectangle left as it was.</summary>
+        /// <summary>Environment.tick's refresh of the active-window area (WindowsEnvironment.tick:297-299): visible and
+        /// Set while the window is found; otherwise invisible at (0, 0, 0, 0), which is what getIERect(null) returns once
+        /// its native calls fail, and what the app's own Win32 environment sets. Leaving the old rectangle in place gave
+        /// the next window to appear different border deltas from the source's (Codex's oracle review).</summary>
         public void ApplyTo(TickArea area, TickArea screen)
         {
             bool found = IsFound(screen);
             area.Visible = found;
             if (found) area.Set(Rect.X, Rect.Y, Rect.Width, Rect.Height);
+            else area.Set(0, 0, 0, 0);
         }
 
         /// <summary>moveIE(findActiveIE(), ...): no window found, no move.</summary>

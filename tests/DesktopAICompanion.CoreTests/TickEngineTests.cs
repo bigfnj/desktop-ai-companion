@@ -55,11 +55,13 @@ namespace DesktopAICompanion
         private sealed class TickSwitches : ITickSettings
         {
             public readonly Dictionary<string, bool> Off = new Dictionary<string, bool>(StringComparer.Ordinal);
+            /// <summary>The source's Multiscreen setting, read with no image set; off unless a test turns it on.</summary>
+            public bool Multiscreen;
             public bool Get(string setting, string imageSet)
             {
                 bool v;
                 if (imageSet != null && Off.TryGetValue(imageSet + ":" + setting, out v)) return v;
-                return setting != "Multiscreen";
+                return setting == "Multiscreen" ? Multiscreen : true;
             }
             public bool IsBehaviourEnabled(TickBehaviourDef behaviour, string imageSet) { return true; }
         }

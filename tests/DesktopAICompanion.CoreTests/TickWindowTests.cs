@@ -80,9 +80,8 @@ namespace DesktopAICompanion
                 AssertEqual(new TickPoint(640, 680), m.Anchor, "Losing the grip moved the companion.");
             }
 
-            // The window goes away (closed, hidden) after the first step: the second step sees no visible window and
-            // loses the ground (WalkWithIE.java:49-53). The walk's pose has no velocity, so the window was put back where
-            // it was and the area's last rectangle still matches the grip: only the visibility test can lose it.
+            // The window goes away (closed, hidden) after the first step: the second step sees no visible window, its
+            // area empty at (0, 0) as the source's refresh leaves it, and loses the ground (WalkWithIE.java:49-53).
             TickType still = MotionType("Carry", MAct(30, "Carry", "Embedded", "WalkWithIE", "Floor",
                 new[] { TParam("TargetX", "600"), TParam("IeOffsetX", "10"), TParam("IeOffsetY", "-64") },
                 MVar(null, false, TPose(0, 1, 0))));
@@ -96,6 +95,21 @@ namespace DesktopAICompanion
             v.StepOnce();
             AssertTrue(log2.Events.Contains("m1 behaviour Carry>Fall forced"), "Losing the window did not lose the ground: " + string.Join("; ", log2.Events));
             AssertEqual(1, gone.WindowCalls.Count, "A window that had gone was moved.");
+
+            // Only the visibility test can lose this one: no window at all, so the area is invisible at (0, 0, 0, 0), and
+            // the offsets put the grip exactly on that empty area's corner (facing left: 640 - 640 = its right, 680 - 680
+            // = its bottom). Multiscreen on, so the companion sees the area as it is rather than the visible empty Area
+            // single-screen mode hands over (MascotEnvironment.java:82-83).
+            TickType corner = MotionType("Carry", MAct(30, "Carry", "Embedded", "WalkWithIE", "Floor",
+                new[] { TParam("TargetX", "600"), TParam("IeOffsetX", "-640"), TParam("IeOffsetY", "-680") },
+                MVar(null, false, TPose(0, 1, 0))));
+            var none = new MotionDesk();
+            var log3 = new TickLog();
+            TickWorld u = MotionWorld(none, log3, null, new TickSwitches { Multiscreen = true }, corner);
+            u.CreateAtStart("m1", corner, new TickPoint(640, 680), false, "Carry");
+            u.StepOnce();
+            AssertTrue(log3.Events.Contains("m1 behaviour Carry>Fall forced"),
+                "An invisible area whose empty rectangle matched the grip did not lose the ground: " + string.Join("; ", log3.Events));
         }
 
         // ---- the switch
@@ -263,7 +277,8 @@ namespace DesktopAICompanion
         private static void TestTickWindowsDesktopModel()
         {
             // WindowsEnvironment.java: the walk finds a window only while it is shown, not minimised and on the screen;
-            // a move changes the desktop at once and the area at the next tick.
+            // a move changes the desktop at once and the area at the next tick; a window not found leaves the area empty
+            // at (0, 0).
             var screen = new TickArea();
             screen.Set(0, 0, 1280, 720);
             var area = new TickArea();
@@ -279,6 +294,9 @@ namespace DesktopAICompanion
             AssertTrue(d.Minimize(screen), "A found window was not minimised.");
             d.ApplyTo(area, screen);
             AssertFalse(area.Visible, "A minimised window was still found.");
+            AssertTrue(area.Left == 0 && area.Top == 0 && area.Width == 0 && area.Height == 0,
+                "A window not found left the area at (" + area.Left + ", " + area.Top + ", " + area.Width + ", " + area.Height
+                + "), not at (0, 0, 0, 0) as the source's getIERect(null) leaves it.");
             AssertFalse(d.Move(new TickPoint(0, 0), 300, 200, screen, out from, out to), "A minimised window was moved.");
             d.Show(new TickRect(100, 100, 300, 200));
             d.ApplyTo(area, screen);
@@ -288,14 +306,26 @@ namespace DesktopAICompanion
             AssertFalse(area.Visible, "A window wholly off the screen was found.");
 
             // Through ThrowIE: from x 1240 the window is thrown to 1272 (still touching the screen), then to 1304, off
-            // it; at the next step it is not found, so ThrowIE ends after two moves.
+            // it; at the next step it is not found, so the area is invisible and empty at (0, 0).
             TickType t = MotionType("Toss", MAct(30, "Toss", "Embedded", "ThrowIE", "Floor", null, MVar(null, false, TPose(2, 10))));
+            // Multiscreen on: the companion sees that area, so ThrowIE ends after two moves.
             var desk = new MotionDesk { Window = new[] { 1240, 300, 300, 200 } };
-            TickWorld w = MotionWorld(desk, null, null, null, t);
+            TickWorld w = MotionWorld(desk, null, null, new TickSwitches { Multiscreen = true }, t);
             TickMascot m = w.CreateAtStart("m1", t, new TickPoint(640, 680), true, "Toss");
             for (int i = 0; i < 3; i++) w.StepOnce();
-            AssertEqual("move (1272, 290)|move (1304, 280)", string.Join("|", desk.WindowCalls), "ThrowIE did not throw the window off the screen.");
-            AssertEqual("Stand", m.Behaviour.Name, "ThrowIE went on with its window off the screen.");
+            AssertEqual("move (1272, 290)|move (1304, 280)", string.Join("|", desk.WindowCalls), "With Multiscreen on, ThrowIE did not throw the window off the screen and stop.");
+            AssertEqual("Stand", m.Behaviour.Name, "With Multiscreen on, ThrowIE went on with its window off the screen.");
+            // Multiscreen off: a window area that does not touch the companion's work area, the empty one included, is
+            // handed over as the source's new Area(), which is VISIBLE at (0, 0) (MascotEnvironment.java:82-83). So the
+            // source's ThrowIE goes on, and its next throw finds no window (moveActiveIE with findActiveIE() null). The
+            // old stale-rectangle refresh hid this: the area still held the last window found, which touched the work area.
+            var single = new MotionDesk { Window = new[] { 1240, 300, 300, 200 } };
+            TickWorld ws = MotionWorld(single, null, null, null, t);
+            TickMascot ms = ws.CreateAtStart("m1", t, new TickPoint(640, 680), true, "Toss");
+            for (int i = 0; i < 3; i++) ws.StepOnce();
+            AssertEqual("move (1272, 290)|move (1304, 280)|move (32, -9) (none)", string.Join("|", single.WindowCalls),
+                "Single-screen, ThrowIE did not go on throwing at the empty area as the source does.");
+            AssertEqual("Toss", ms.Behaviour.Name, "Single-screen, ThrowIE stopped once its window left the screen.");
         }
 
         // ---- the real desktop's rules, pure

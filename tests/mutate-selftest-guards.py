@@ -17134,6 +17134,14 @@ CASES = (
      HOST_CSPROJ, EXE,
      SECURITY, None,
      'pack keys: a member key holds no control character'),
+    # The scripted desktop's refresh when no window is found: the source's getIERect(null) leaves (0, 0, 0, 0), and the
+    # app's Win32 environment does the same (Codex's oracle review).
+    ('shimeji-host: a window not found leaves the active-window area where it was',
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickWindowFamily.cs"),
+     b'            else area.Set(0, 0, 0, 0);\n',
+     b'            else { }\n',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, 'not at (0, 0, 0, 0) as the source'),
     # ---- lane feature/shimeji-host-motion ----
     # The motion family of embedded classes (src/dotNet/Shimeji/TickMotionFamily.cs) and the engine hooks it added: each
     # case puts back one wrong reading of the official runtime and must fail the CoreTests group that pins it.
