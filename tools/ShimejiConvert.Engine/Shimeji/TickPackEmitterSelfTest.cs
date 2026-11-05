@@ -61,7 +61,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "enclosing-conditions", Run = (Action)EnclosingConditions },
                 new { Name = "prepare-all-members", Run = (Action)PrepareAllMembers },
                 new { Name = "cross-schema-refusal", Run = (Action)CrossSchemaRefusal },
-                new { Name = "toggle-refusal", Run = (Action)ToggleRefusal },
+                new { Name = "toggle-lowering", Run = (Action)ToggleLowering },
+                new { Name = "toggle-id-refusal", Run = (Action)ToggleIdRefusal },
                 new { Name = "information-refusal", Run = (Action)InformationRefusal },
                 new { Name = "own-set-binding-reset", Run = (Action)OwnSetBindingReset },
                 new { Name = "action-schema-refusal", Run = (Action)ActionSchemaRefusal },
@@ -1091,15 +1092,49 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             }
         }
 
-        private static void ToggleRefusal()
+        // Replaces toggle-refusal ("toggleable behaviours are not lowered yet"): grimoire/06 section 2 defines header
+        // toggles, so a Toggleable behaviour converts. Its successor refusal is toggle-id-refusal.
+        private static void ToggleLowering()
         {
             using (var fixture = new Fixture())
             {
                 XDocument source = BuildBehaviors();
-                source.Descendants("Behavior").First().SetAttributeValue("Toggleable", "true");
+                XElement idle = source.Descendants("Behavior").Single(b => (string)b.Attribute("Name") == "Idle");
+                idle.SetAttributeValue("Toggleable", "true");
+                // The first next reference (named Idle) says Toggleable itself; the second does not.
+                source.Descendants("BehaviorReference").First().SetAttributeValue("Toggleable", "TRUE");
+                source.Descendants("Behavior").Single(b => (string)b.Attribute("Name") == "BornBehavior").SetAttributeValue("Toggleable", "false");
                 fixture.Behaviors(source);
-                Refusal(fixture, "toggleable behaviours are not lowered yet");
-                Require(!Directory.Exists(fixture.Output), "toggle refusal left output");
+                XDocument document = fixture.Convert();
+                Validate(document, "toggle member");
+                XElement[] toggles = document.Root.Element(Ns + "header").Elements(Ns + "toggles").Elements(Ns + "toggle").ToArray();
+                Require(toggles.Length == 1 && (string)toggles[0].Attribute("id") == "Idle" && (string)toggles[0].Attribute("label") == "Idle"
+                    && toggles[0].Attribute("default") == null, "header toggles are not one Idle switch with no default");
+                Require((string)RootBehavior(document, "Idle").Element(Ns + "behaviour").Attribute("toggle") == "Idle",
+                    "Toggleable behaviour lost its toggle");
+                XElement[] next = RootBehavior(document, "Main").Element(Ns + "sequence").Elements(Ns + "next")
+                    .Select(e => Nodes(document).Single(n => n.Attribute("id").Value == e.Value).Element(Ns + "behaviour")).ToArray();
+                Require((string)next[0].Attribute("toggle") == "Idle" && next[1].Attribute("toggle") == null,
+                    "a next reference's own Toggleable was not what decides its toggle");
+                Require(RootBehavior(document, "BornBehavior").Element(Ns + "behaviour").Attribute("toggle") == null,
+                    "Toggleable false acquired a toggle");
+            }
+            using (var fixture = new Fixture())
+                Require(fixture.Convert().Root.Element(Ns + "header").Element(Ns + "toggles") == null,
+                    "a member with no Toggleable behaviour wrote header toggles");
+        }
+
+        // A toggle id is at most 64 characters (the validator's rule), and the id is the behaviour's name.
+        private static void ToggleIdRefusal()
+        {
+            using (var fixture = new Fixture())
+            {
+                XDocument source = BuildBehaviors();
+                source.Root.Element("BehaviorList").Add(S("Behavior", A("Name", new string('T', 65)), A("Action", "Stand"),
+                    A("Frequency", 0), A("Toggleable", "true")));
+                fixture.Behaviors(source);
+                Refusal(fixture, "TICK_TOGGLE_ID_LIMIT");
+                Require(!Directory.Exists(fixture.Output), "toggle id refusal left output");
             }
         }
 

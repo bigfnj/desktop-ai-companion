@@ -4,7 +4,7 @@ No action family has a supported parity verdict yet. Support requires controlled
 under the frozen parity contract maintained by the parity lane (tools/ShimejiParity/CONTRACT.md after integration).
 A completed host run alone does not establish it.
 
-The test-only command emits the initial literal subset from the ordered source IR:
+The test-only command emits the tick subset described below from the ordered source IR:
 
 ```text
 ShimejiConvert.exe paritypack <source-pack> <new-output-directory> [main-image-set]
@@ -20,7 +20,7 @@ Other members are forms, except the source chooser's hidden members (a leading d
 which are hidden helpers. It omits own-set member defaults and keeps a binding when dropping it would expose a
 different inherited member. This prototype is for parity testing; it is not the Studio installation API.
 
-Studio can prepare the same literal subset through the production, in-memory engine API:
+Studio can prepare the same subset through the production, in-memory engine API:
 
 ```csharp
 string error;
@@ -68,6 +68,7 @@ into Studio, but the import UI and its installation transaction are separate wor
 | Embedded MinimizeIE | lowered; host trace complete; oracle comparison pending | pending | S-window-minimize-on-01, S-window-minimize-off-01 |
 | Animation Hotspot (shape, origin, size, behaviour) | lowered; host trace complete; oracle comparison pending | pending | S-input-hotspot-01 |
 | Literal Affordance (`<offers>`) | lowered; host trace complete; oracle comparison pending | pending | S-scan-first-01, S-scan-loss-01, S-scan-reacquire-01 |
+| Toggleable behaviours (header `<toggles>`, behaviour `toggle`) | lowered; synthetic converter checks only | pending | No directed scenario yet |
 | Embedded Look, Turn, Offset, Mute, BringToFront, SelfDestruct, ScanJump, ComplexMove, ComplexJump, FallWithIE, JumpWithIE, Broadcast, BroadcastStay, BroadcastMove, BroadcastJump | lowered; synthetic converter checks only | pending | No directed scenario yet |
 | `${}` / `#{}` parameters and bindings | lowered; host trace complete; oracle comparison pending | pending | S-vars-cache-01 |
 | Scripted action Condition (cached parameter, guard when) | lowered; host trace complete; oracle comparison pending | pending | S-vars-transform-01 |
@@ -88,9 +89,11 @@ them, and ComplexMove and ComplexJump declare theirs by their Characteristics, s
 A Hotspot becomes a `<hotspot>` of its variant (Rectangle as `rect`, Ellipse as `ellipse`, any other shape
 refused; a behaviour must be a root behaviour). A literal Affordance becomes the action's `<offers>` and stays
 a parameter, which the scan classes read; an Affordance binding onto an action that offers its own literal is
-refused, since the binding could not change the offer.
+refused, since the binding could not change the offer. A Toggleable behaviour becomes a header toggle whose
+id and label are its name (the source keys a disabled behaviour by name), and each Behavior or
+BehaviorReference that says Toggleable itself names it; a name over 64 characters is refused.
 It refuses unsupported attributes and
-classes, sounds, constants, toggles, information metadata, anonymous
+classes, sounds, constants, information metadata, anonymous
 nested actions and next references without a root definition. This first emitter refuses non-base action schemas.
 Bindings across differing document schemas are refused until target-schema resolution is implemented.
 Composite activation cycles, depth above 32 and expansion above 4096 actions are refused before output is written.

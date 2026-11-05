@@ -176,6 +176,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             private int _next = 2;
             // The feature tokens the validator demands for what this member USES (grimoire/06 sections 1 and 10).
             private bool _lifecycle, _social, _windows, _hotspots, _expressions, _variables;
+            // Header toggles, one per Toggleable behaviour name, in first-seen order.
+            private readonly List<string> _toggles = new List<string>();
 
             public MemberBuilder(string pack, string member, ShimejiSourceConfig source)
             { _pack = pack; _member = member; _source = source; }
@@ -241,6 +243,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 var header = E("header", E("author", "ShimejiConvert"), E("title", _member), E("petname", displayName),
                     E("version", "1"), E("info", "Tick conversion; unsupported constructs are refused."), E("application", 1),
                     E("icon", Convert.ToBase64String(IconBuilder.BuildIco(null))), E("features", features), E("clock", "tick"));
+                // grimoire/06 section 2: one switch per Toggleable name, labelled with it. No default is written:
+                // every Toggleable behaviour starts enabled in the source, which is the format's absent default.
+                if (_toggles.Count > 0)
+                    header.Add(E("toggles", _toggles.Select(t => E("toggle", new XAttribute("id", t), new XAttribute("label", t)))));
                 var document = new XDocument(new XDeclaration("1.0", "utf-8", null), E("animations", header,
                     E("image", E("tilesx", tilesX), E("tilesy", tilesY), E("png", Convert.ToBase64String(png)),
                         E("transparency", "Alpha"), E("anchorx", anchorX), E("anchory", anchorY)),
@@ -591,7 +597,17 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     if (new[] { "Name", "Action", "Frequency", "Hidden", "Condition" }.Contains(attribute.SchemaKey)) continue;
                     if (attribute.SchemaKey == "Toggleable")
                     {
-                        if (Bool(source, "Toggleable")) Fail(source, "toggleable behaviours are not lowered yet");
+                        // grimoire/06 section 2: a Toggleable behaviour is a header toggle the user can turn off. The
+                        // source keys a disabled behaviour by NAME (DisabledBehaviours.<imageSet>, Main.java:1420), so
+                        // the toggle id is the name, and each element that says Toggleable itself (a root Behavior or
+                        // a BehaviorReference) names that toggle; one that does not stays ungated, as its builder does.
+                        if (Bool(source, "Toggleable"))
+                        {
+                            if (name.Length > 64)
+                                Fail(source, "TICK_TOGGLE_ID_LIMIT: a Toggleable behaviour's name is its toggle id, at most 64 characters in this format");
+                            behaviour.Add(new XAttribute("toggle", name));
+                            if (!_toggles.Contains(name)) _toggles.Add(name);
+                        }
                         continue;
                     }
                     if (_source.Actions.Schema != _source.Behaviors.Schema)
