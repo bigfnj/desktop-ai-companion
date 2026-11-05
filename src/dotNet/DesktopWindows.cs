@@ -239,8 +239,9 @@ namespace DesktopAICompanion
 
         /// <summary>Visual bounds, preferring DWM's extended frame over <c>GetWindowRect</c>. The
         /// difference is the invisible resize border, and it is the difference between a window capture
-        /// that is just the window and one framed by a strip of the wallpaper behind it.</summary>
-        private static Rectangle VisualBounds(IntPtr hWnd)
+        /// that is just the window and one framed by a strip of the wallpaper behind it. Internal for the tick
+        /// companions' interactive window (Shimeji/TickHost.cs), which stands companions on the visible frame.</summary>
+        internal static Rectangle VisualBounds(IntPtr hWnd)
         {
             try
             {

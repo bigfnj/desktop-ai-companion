@@ -179,6 +179,17 @@ namespace DesktopAICompanion.Shimeji
         /// receives it, in order. A parity run takes them from the scenario; the real desktop delivers window events
         /// through the window layer instead, and reports none here.</summary>
         IReadOnlyList<TickInput> Inputs { get; }
+
+        /// <summary>Environment.moveActiveIE (WindowsEnvironment.java:307-311): the interactive window as the desktop
+        /// has it NOW is moved so its top-left is <paramref name="topLeft"/>, keeping the width and height
+        /// <see cref="ActiveWindow"/> reports. The area itself changes only at the next <see cref="Tick"/>, as the
+        /// source's does. False when there is no window to move, or the real desktop's safety rules refused it;
+        /// <paramref name="from"/> and <paramref name="to"/> are the window before and after.</summary>
+        bool MoveActiveWindow(TickPoint topLeft, out TickRect from, out TickRect to);
+
+        /// <summary>Environment.minimizeActiveIE (WindowsEnvironment.java:313-317): the interactive window found now
+        /// is minimised. False when there is none, or the real desktop's safety rules refused it.</summary>
+        bool MinimizeActiveWindow();
     }
 
     internal enum TickInputKind { Press, Release, Move }

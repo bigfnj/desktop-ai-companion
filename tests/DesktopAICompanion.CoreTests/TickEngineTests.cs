@@ -36,6 +36,14 @@ namespace DesktopAICompanion
             public TickArea ActiveWindow { get { return _window; } }
             public TickPoint Cursor { get { return new TickPoint(100, 100); } }
             public TickPoint CursorDelta { get { return new TickPoint(0, 0); } }
+
+            // This desk has no window, so nothing is ever moved or minimised.
+            public bool MoveActiveWindow(TickPoint topLeft, out TickRect from, out TickRect to)
+            {
+                from = to = default(TickRect);
+                return false;
+            }
+            public bool MinimizeActiveWindow() { return false; }
         }
 
         private sealed class TickTape : ITickRandom
@@ -78,6 +86,11 @@ namespace DesktopAICompanion
                 foreach (TickMascot o in with) sids.Add(o.Sid);
                 Events.Add(m.Sid + " interact " + string.Join(",", sids));
             }
+            public void WindowMoved(TickMascot m, TickRect from, TickRect to) { Events.Add(m.Sid + " window-move " + Ltrb(from) + ">" + Ltrb(to)); }
+            public void WindowMinimized(TickMascot m) { Events.Add(m.Sid + " window-minimize"); }
+
+            /// <summary>A rectangle as the contract writes one: [left,top,right,bottom].</summary>
+            public static string Ltrb(TickRect r) { return "[" + r.X + "," + r.Y + "," + (r.X + r.Width) + "," + (r.Y + r.Height) + "]"; }
         }
 
         // ---- building companions in code (validated documents compile the same way)

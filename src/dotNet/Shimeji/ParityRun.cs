@@ -93,6 +93,11 @@ namespace DesktopAICompanion.Shimeji
         private readonly TickArea _workAreaArea = new TickArea();
         private readonly List<TickArea> _screenAreas = new List<TickArea>();
         private readonly TickArea _activeWindow = new TickArea { Visible = false };
+
+        // The scenario's window as the desktop has it: set by a timeline entry at its tick, then moved or minimised by
+        // the engine until the next entry replaces it (TickDesktopWindow models the source's WindowsEnvironment).
+        private readonly TickDesktopWindow _desktopWindow = new TickDesktopWindow();
+        private int _windowEntry = -1;
         private int _cursorX, _cursorY, _cursorDx, _cursorDy;
         private TickPoint _target;
         private readonly List<TickInput> _inputs = new List<TickInput>();
@@ -164,20 +169,37 @@ namespace DesktopAICompanion.Shimeji
                 if (release) { _inputs.Add(new TickInput(TickInputKind.Release, sid, at)); _held = null; }
             }
             _workAreaArea.Set(_workArea[0], _workArea[1], _workArea[2], _workArea[3]);
-            JsonElement window = default(JsonElement);
-            bool any = false;
-            foreach (KeyValuePair<int, JsonElement> entry in _window)
-                if (entry.Key <= tick) { window = entry.Value; any = true; }
-            JsonElement visible, rect;
-            bool shown = any && window.TryGetProperty("visible", out visible) && visible.ValueKind == JsonValueKind.True
-                && window.TryGetProperty("rect", out rect);
-            _activeWindow.Visible = shown;
-            if (shown)
+            // The entry in force is the last one at or before this tick. Only a NEW entry resets the desktop's window, so
+            // a move or minimise the engine made holds until the next entry.
+            int latest = -1;
+            for (int i = 0; i < _window.Count; i++)
+                if (_window[i].Key <= tick) latest = i;
+            if (latest != _windowEntry)
             {
-                rect = window.GetProperty("rect");
-                int left = rect[0].GetInt32(), top = rect[1].GetInt32();
-                _activeWindow.Set(left, top, rect[2].GetInt32() - left, rect[3].GetInt32() - top);
+                _windowEntry = latest;
+                JsonElement window = _window[latest].Value;
+                JsonElement visible, rect;
+                bool shown = window.TryGetProperty("visible", out visible) && visible.ValueKind == JsonValueKind.True
+                    && window.TryGetProperty("rect", out rect);
+                if (shown)
+                {
+                    rect = window.GetProperty("rect");
+                    int left = rect[0].GetInt32(), top = rect[1].GetInt32();
+                    _desktopWindow.Show(new TickRect(left, top, rect[2].GetInt32() - left, rect[3].GetInt32() - top));
+                }
+                else _desktopWindow.Hide();
             }
+            _desktopWindow.ApplyTo(_activeWindow, _screenArea);
+        }
+
+        public bool MoveActiveWindow(TickPoint topLeft, out TickRect from, out TickRect to)
+        {
+            return _desktopWindow.Move(topLeft, _activeWindow.Width, _activeWindow.Height, _screenArea, out from, out to);
+        }
+
+        public bool MinimizeActiveWindow()
+        {
+            return _desktopWindow.Minimize(_screenArea);
         }
 
         private static int[] Rect(JsonElement e)
@@ -451,6 +473,22 @@ namespace DesktopAICompanion.Shimeji
             var sids = new List<string>();
             foreach (TickMascot m in with) sids.Add(m.Sid);
             _out.WriteLine(Event(mascot, "interact").StrList("with", sids).End());
+        }
+
+        public void WindowMoved(TickMascot mascot, TickRect from, TickRect to)
+        {
+            _out.WriteLine(Event(mascot, "window-move").Raw("from", Ltrb(from)).Raw("to", Ltrb(to)).End());
+        }
+
+        public void WindowMinimized(TickMascot mascot)
+        {
+            _out.WriteLine(Event(mascot, "window-minimize").End());
+        }
+
+        /// <summary>A rectangle as the scenario writes a window's: [left, top, right, bottom].</summary>
+        private static string Ltrb(TickRect r)
+        {
+            return "[" + r.X + "," + r.Y + "," + (r.X + r.Width) + "," + (r.Y + r.Height) + "]";
         }
 
         public void Footer(int ticks, string status)

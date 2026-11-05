@@ -1,15 +1,17 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Runtime.InteropServices;
+using System.Text;
 using System.Windows.Forms;
 
 namespace DesktopAICompanion.Shimeji
 {
     /// <summary>
     /// The real desktop as the tick world sees it (the source's WindowsEnvironment): the virtual screen, each monitor,
-    /// the primary work area (SPI_GETWORKAREA), the cursor with Location's smoothing, and the window events the
-    /// companions' forms queued since the last step. No interactive window yet: the source's default title lists admit
-    /// none, and window interaction arrives with the window family and its opt-in.
+    /// the primary work area (SPI_GETWORKAREA), the cursor with Location's smoothing, the window events the companions'
+    /// forms queued since the last step, and the interactive window (<see cref="Win32InteractiveWindow"/>), which a
+    /// companion type that opted in to window actions may move or minimise.
     /// </summary>
     internal sealed class Win32TickEnvironment : ITickEnvironment
     {
@@ -17,6 +19,7 @@ namespace DesktopAICompanion.Shimeji
         private readonly TickArea _work = new TickArea();
         private readonly List<TickArea> _screens = new List<TickArea>();
         private readonly TickArea _window = new TickArea { Visible = false };
+        private readonly Win32InteractiveWindow _interactive = new Win32InteractiveWindow();
         private readonly List<TickInput> _queued = new List<TickInput>();
         private List<TickInput> _now = new List<TickInput>();
         private int _x, _y, _dx, _dy;
@@ -30,9 +33,23 @@ namespace DesktopAICompanion.Shimeji
         public TickPoint CursorDelta { get { return new TickPoint(_dx, _dy); } }
         public IReadOnlyList<TickInput> Inputs { get { return _now; } }
 
+        /// <summary>The interactive window: its title lists, and the session's record of windows moved.</summary>
+        public Win32InteractiveWindow Interactive { get { return _interactive; } }
+
         /// <summary>A window event, delivered at the next step's start (the forms and the tick timer share the UI
         /// thread, so nothing races).</summary>
         public void Queue(TickInput input) { _queued.Add(input); }
+
+        public bool MoveActiveWindow(TickPoint topLeft, out TickRect from, out TickRect to)
+        {
+            return _interactive.Move(topLeft, out from, out to);
+        }
+
+        public bool MinimizeActiveWindow() { return _interactive.Minimize(); }
+
+        /// <summary>"Put windows back": every window a companion moved or minimised this session returns to where it
+        /// was. Returns how many were sent back.</summary>
+        public int PutWindowsBack() { return _interactive.PutWindowsBack(); }
 
         public void Tick(int tick)
         {
@@ -45,6 +62,18 @@ namespace DesktopAICompanion.Shimeji
                 _screens[i].Set(all[i].Bounds.X, all[i].Bounds.Y, all[i].Bounds.Width, all[i].Bounds.Height);
             Rectangle w = System.Windows.Forms.Screen.PrimaryScreen.WorkingArea;
             _work.Set(w.X, w.Y, w.Width, w.Height);
+            // WindowsEnvironment.tick (:292-300): the interactive window found this step, else an empty, invisible area.
+            TickRect found;
+            if (_interactive.Find(new TickRect(v.X, v.Y, v.Width, v.Height), out found))
+            {
+                _window.Set(found.X, found.Y, found.Width, found.Height);
+                _window.Visible = true;
+            }
+            else
+            {
+                _window.Set(0, 0, 0, 0);
+                _window.Visible = false;
+            }
             Point c = System.Windows.Forms.Cursor.Position;
             if (_first) { _x = c.X; _y = c.Y; _first = false; }
             // Location.set: integer division truncating toward zero, as Java's.
@@ -66,8 +95,10 @@ namespace DesktopAICompanion.Shimeji
 
     /// <summary>
     /// The host's per-type settings for tick companions. Sounds and Multiscreen are the app's existing settings; the
-    /// lifecycle switches default on and window throwing off (the owner's decision: window actions are opt-in) until
-    /// the Pets pane offers them per type.
+    /// lifecycle switches default on. Window actions are opt-in per type and off (the owner's decision) until the Pets
+    /// pane offers them: WindowActions is that opt-in, and Throwing, the source's own switch, keeps the source's default
+    /// of on (Main.java:662), so with WindowActions off a window action plays its animation and moves nothing
+    /// (policy:window-off-plays) instead of ending at once.
     /// </summary>
     internal sealed class HostTickSettings : ITickSettings
     {
@@ -83,7 +114,8 @@ namespace DesktopAICompanion.Shimeji
                 case "Multiscreen": return data != null && data.GetMultiscreen();
                 case "Sounds":
                     return data != null && data.GetPetSoundsEnabled() && (imageSet == null || data.IsPetSoundEnabled(_typeIdOf(imageSet)));
-                case "Throwing": return false;
+                case "Throwing": return true;
+                case TickWindowFamily.Setting: return false;
                 default: return true;
             }
         }
@@ -320,6 +352,18 @@ namespace DesktopAICompanion.Shimeji
         public void ScanTargeted(TickMascot mascot, string affordance, TickMascot target) { }
         public void Interacted(TickMascot mascot, IReadOnlyList<TickMascot> with) { }
 
+        // The environment records every window it moved (Win32InteractiveWindow); a move is not logged, as it comes
+        // every step while a window is carried. A minimise is rare and visible, so it is.
+        public void WindowMoved(TickMascot mascot, TickRect from, TickRect to) { }
+
+        public void WindowMinimized(TickMascot mascot)
+        {
+            _log("tick companion " + mascot.Sid + " (" + mascot.Type.Name + ") minimised the interactive window");
+        }
+
+        /// <summary>"Put windows back" (the tray item's action): see <see cref="Win32TickEnvironment.PutWindowsBack"/>.</summary>
+        public int PutWindowsBack() { return _environment.PutWindowsBack(); }
+
         public void Dispose()
         {
             _timer.Stop();
@@ -327,5 +371,383 @@ namespace DesktopAICompanion.Shimeji
             foreach (FormCompanion form in new List<FormCompanion>(_forms.Values)) _closeForm(form);
             _forms.Clear();
         }
+    }
+
+    /// <summary>
+    /// The real desktop's interactive window. It is found as the source finds it (WindowsEnvironment.findActiveIE, the
+    /// rules in <see cref="TickWindowRules"/>), and moved or minimised only when <see cref="TickWindowRules.Refusal"/>
+    /// names nothing against it, kept inside the work area of the monitor it is on, and always asynchronously
+    /// (SetWindowPos with SWP_ASYNCWINDOWPOS, ShowWindowAsync), so a hung application cannot stall the clock. Every
+    /// window acted on is recorded the first time, with where it was, and <see cref="PutWindowsBack"/> restores it.
+    /// Divergences from the source, each recorded: the area is the visible frame (DWM extended frame bounds), not
+    /// GetWindowRect with its invisible resize borders; a move or minimise acts on the window found at the start of the
+    /// step, checked again, rather than walking the windows a second time; this app's own windows are passed over.
+    /// </summary>
+    internal sealed class Win32InteractiveWindow
+    {
+        private const uint SWP_NOSIZE = 0x0001, SWP_NOZORDER = 0x0004, SWP_NOACTIVATE = 0x0010, SWP_ASYNCWINDOWPOS = 0x4000;
+        private const uint MoveFlags = SWP_ASYNCWINDOWPOS | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE;
+        private const int SW_SHOWNOACTIVATE = 4, SW_SHOWMINNOACTIVE = 7;
+        private const int WS_EX_TOOLWINDOW = 0x00000080;
+        private const int GUI_INMOVESIZE = 0x00000002;
+        private const int VK_LBUTTON = 0x01, VK_RBUTTON = 0x02;
+        private const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000, TOKEN_QUERY = 0x0008;
+        private const int TokenIntegrityLevel = 25;
+        private const int TitleCapacity = 1024;   // WindowsEnvironment.isIE reads at most 1024 characters
+
+        private readonly int _ownProcess = System.Environment.ProcessId;
+        private readonly Dictionary<IntPtr, Saved> _record = new Dictionary<IntPtr, Saved>();
+        private int _ownIntegrity = int.MinValue;   // read on first use; -1 when it cannot be read
+        private IntPtr _active;
+
+        private struct Saved
+        {
+            public int X, Y;
+            public bool Minimised;
+        }
+
+        /// <summary>The InteractiveWindows list, '/'-separated as the source's setting; the source's shipped default.</summary>
+        public string[] Whitelist = TickWindowRules.ParseList(TickWindowRules.DefaultWhitelist);
+
+        /// <summary>The InteractiveWindowsBlacklist list; the source ships none.</summary>
+        public string[] Blacklist = TickWindowRules.ParseList(TickWindowRules.DefaultBlacklist);
+
+        /// <summary>Why the last move or minimise did not happen, for diagnostics; null after one that did.</summary>
+        public string LastRefusal { get; private set; }
+
+        /// <summary>How many windows this session has moved or minimised and not yet put back.</summary>
+        public int RecordedCount { get { return _record.Count; } }
+
+        /// <summary>findActiveIE: the first interactive window in z-order, unless a maximised one comes first.</summary>
+        public bool Find(TickRect screen, out TickRect bounds)
+        {
+            IntPtr found = IntPtr.Zero;
+            TickRect foundBounds = default(TickRect);
+            try
+            {
+                DesktopWindows.EnumWindows(delegate (IntPtr hWnd, IntPtr lParam)
+                {
+                    TickWindowFacts facts = WalkFacts(hWnd);
+                    switch (TickWindowRules.Classify(facts, screen, Whitelist, Blacklist))
+                    {
+                        case TickWindowVerdict.Interactive:
+                            found = hWnd;
+                            foundBounds = facts.Bounds;
+                            return false;
+                        case TickWindowVerdict.StopWalk:
+                            return false;
+                        default:
+                            return true;
+                    }
+                }, IntPtr.Zero);
+            }
+            catch
+            {
+                // A hostile or racing handle never stops the clock: no interactive window this step.
+                found = IntPtr.Zero;
+            }
+            _active = found;
+            bounds = foundBounds;
+            return found != IntPtr.Zero;
+        }
+
+        /// <summary>moveActiveIE, under the safety rules: the window found this step, its visible frame's top-left
+        /// put at <paramref name="topLeft"/> clamped inside its monitor's work area.</summary>
+        public bool Move(TickPoint topLeft, out TickRect from, out TickRect to)
+        {
+            from = to = default(TickRect);
+            try
+            {
+                Rectangle visual, frame;
+                System.Windows.Forms.Screen[] screens;
+                int monitor;
+                if (!Actionable(out visual, out frame, out screens, out monitor)) return false;
+                Rectangle wa = screens[monitor].WorkingArea;
+                TickPoint at = TickWindowRules.ClampInto(topLeft, visual.Width, visual.Height, new TickRect(wa.X, wa.Y, wa.Width, wa.Height));
+                from = new TickRect(visual.X, visual.Y, visual.Width, visual.Height);
+                to = new TickRect(at.X, at.Y, visual.Width, visual.Height);
+                Remember(_active, frame, false);
+                if (at.X != visual.X || at.Y != visual.Y)
+                    SetWindowPos(_active, IntPtr.Zero, at.X - (visual.X - frame.X), at.Y - (visual.Y - frame.Y), 0, 0, MoveFlags);
+                return true;
+            }
+            catch (Exception e)
+            {
+                LastRefusal = "failed: " + e.Message;
+                return false;
+            }
+        }
+
+        /// <summary>minimizeActiveIE, under the safety rules, without activating anything.</summary>
+        public bool Minimize()
+        {
+            try
+            {
+                Rectangle visual, frame;
+                System.Windows.Forms.Screen[] screens;
+                int monitor;
+                if (!Actionable(out visual, out frame, out screens, out monitor)) return false;
+                Remember(_active, frame, true);
+                ShowWindowAsync(_active, SW_SHOWMINNOACTIVE);
+                return true;
+            }
+            catch (Exception e)
+            {
+                LastRefusal = "failed: " + e.Message;
+                return false;
+            }
+        }
+
+        /// <summary>"Put windows back": each recorded window that still exists returns to where it was before the
+        /// session first moved it, restored if a companion minimised it, unless it is now maximised, not responding,
+        /// higher in integrity, or being moved or resized. The record is emptied.</summary>
+        public int PutWindowsBack()
+        {
+            int restored = 0;
+            foreach (KeyValuePair<IntPtr, Saved> p in _record)
+            {
+                IntPtr h = p.Key;
+                try
+                {
+                    if (!IsWindow(h)) continue;
+                    int pid;
+                    uint thread = GetWindowThreadProcessId(h, out pid);
+                    if (IsZoomed(h) || IsHungAppWindow(h) || IsElevated(pid) || IsMovingOrSizing(h, thread)) continue;
+                    if (p.Value.Minimised && DesktopWindows.IsIconic(h)) ShowWindowAsync(h, SW_SHOWNOACTIVATE);
+                    SetWindowPos(h, IntPtr.Zero, p.Value.X, p.Value.Y, 0, 0, MoveFlags);
+                    restored++;
+                }
+                catch
+                {
+                    // One window that cannot be put back does not stop the others.
+                }
+            }
+            _record.Clear();
+            return restored;
+        }
+
+        // ---- the walk
+
+        /// <summary>The facts the source's walk reads, in its order, stopping where its rules are already decided.</summary>
+        private TickWindowFacts WalkFacts(IntPtr h)
+        {
+            var f = new TickWindowFacts();
+            int pid;
+            GetWindowThreadProcessId(h, out pid);
+            f.OwnProcess = pid == _ownProcess;
+            if (f.OwnProcess) return f;
+            f.Visible = DesktopWindows.IsWindowVisible(h);
+            if (!f.Visible) return f;
+            f.Cloaked = DesktopWindows.IsCloaked(h);
+            if (f.Cloaked) return f;
+            f.Maximised = IsZoomed(h);
+            if (f.Maximised) return f;
+            f.Title = TitleOf(h);
+            if (!TickWindowRules.IsTitleInteractive(f.Title, Whitelist, Blacklist)) return f;
+            f.Minimised = DesktopWindows.IsIconic(h);
+            if (f.Minimised) return f;
+            Rectangle b = DesktopWindows.VisualBounds(h);
+            f.Bounds = new TickRect(b.X, b.Y, b.Width, b.Height);
+            return f;
+        }
+
+        private static string TitleOf(IntPtr h)
+        {
+            var text = new StringBuilder(TitleCapacity);
+            int length = GetWindowTextW(h, text, TitleCapacity);
+            return length > 0 ? text.ToString(0, Math.Min(length, text.Length)) : "";
+        }
+
+        // ---- acting
+
+        /// <summary>The window found this step, still there and on a monitor, with nothing in the safety rules against
+        /// it; <see cref="LastRefusal"/> says why not otherwise.</summary>
+        private bool Actionable(out Rectangle visual, out Rectangle frame, out System.Windows.Forms.Screen[] screens, out int monitor)
+        {
+            visual = frame = Rectangle.Empty;
+            screens = null;
+            monitor = -1;
+            IntPtr h = _active;
+            if (h == IntPtr.Zero || !IsWindow(h))
+            {
+                LastRefusal = "no interactive window";
+                return false;
+            }
+            DesktopWindows.RECT r;
+            visual = DesktopWindows.VisualBounds(h);
+            if (visual.Width <= 0 || visual.Height <= 0 || !DesktopWindows.GetWindowRect(h, out r))
+            {
+                LastRefusal = "no bounds";
+                return false;
+            }
+            frame = Rectangle.FromLTRB(r.Left, r.Top, r.Right, r.Bottom);
+            screens = System.Windows.Forms.Screen.AllScreens;
+            var monitors = new Rectangle[screens.Length];
+            for (int i = 0; i < screens.Length; i++) monitors[i] = screens[i].Bounds;
+            monitor = DesktopWindows.MonitorIndexFor(visual, monitors);
+            if (monitor < 0)
+            {
+                LastRefusal = "on no monitor";
+                return false;
+            }
+
+            int pid;
+            uint thread = GetWindowThreadProcessId(h, out pid);
+            var f = new TickWindowFacts
+            {
+                OwnProcess = pid == _ownProcess,
+                Shell = DesktopWindows.IsShell(h),
+                Visible = DesktopWindows.IsWindowVisible(h),
+                Cloaked = DesktopWindows.IsCloaked(h),
+                Minimised = DesktopWindows.IsIconic(h),
+                Maximised = IsZoomed(h),
+                Fullscreen = DesktopGeometry.IsFullscreenOnMonitor(frame, monitors[monitor]),
+                ToolWindow = (DesktopWindows.ExtendedStyle(h) & WS_EX_TOOLWINDOW) != 0,
+                Hung = IsHungAppWindow(h),
+                MovingOrSizing = IsMovingOrSizing(h, thread),
+                Elevated = IsElevated(pid),
+            };
+            // The fullscreen scan walks every window, so it runs only for a window nothing else has refused.
+            if (TickWindowRules.Refusal(f) == null)
+            {
+                bool[] blocked = FullscreenScan.BlockedMonitors(OwnWindows());
+                f.MonitorBlocked = monitor < blocked.Length && blocked[monitor];
+            }
+            LastRefusal = TickWindowRules.Refusal(f);
+            return LastRefusal == null;
+        }
+
+        private void Remember(IntPtr h, Rectangle frame, bool minimised)
+        {
+            Saved saved;
+            if (_record.TryGetValue(h, out saved))
+            {
+                // Where it was before the FIRST action is kept; a later minimise is added to it.
+                if (minimised && !saved.Minimised)
+                {
+                    saved.Minimised = true;
+                    _record[h] = saved;
+                }
+                return;
+            }
+            _record[h] = new Saved { X = frame.X, Y = frame.Y, Minimised = minimised };
+        }
+
+        /// <summary>This process's top-level windows, which never decide a monitor in the fullscreen scan.</summary>
+        private HashSet<IntPtr> OwnWindows()
+        {
+            var own = new HashSet<IntPtr>();
+            DesktopWindows.EnumWindows(delegate (IntPtr hWnd, IntPtr lParam)
+            {
+                int pid;
+                GetWindowThreadProcessId(hWnd, out pid);
+                if (pid == _ownProcess) own.Add(hWnd);
+                return true;
+            }, IntPtr.Zero);
+            return own;
+        }
+
+        /// <summary>The user is moving or resizing it: its thread is in the modal move-size loop, or a mouse button is
+        /// held on it as the foreground window (an application that drags itself). Unknown counts as moving.</summary>
+        private static bool IsMovingOrSizing(IntPtr h, uint thread)
+        {
+            var info = new GUITHREADINFO { cbSize = Marshal.SizeOf(typeof(GUITHREADINFO)) };
+            if (!GetGUIThreadInfo(thread, ref info)) return true;
+            if ((info.flags & GUI_INMOVESIZE) != 0) return true;
+            bool held = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0 || (GetAsyncKeyState(VK_RBUTTON) & 0x8000) != 0;
+            return held && GetForegroundWindow() == h;
+        }
+
+        /// <summary>The window's process runs at a higher integrity level than this one. Unknown counts as higher.</summary>
+        private bool IsElevated(int pid)
+        {
+            if (_ownIntegrity == int.MinValue) _ownIntegrity = IntegrityOf(GetCurrentProcess());
+            if (_ownIntegrity < 0) return true;
+            IntPtr process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
+            if (process == IntPtr.Zero) return true;
+            try
+            {
+                int level = IntegrityOf(process);
+                return level < 0 || level > _ownIntegrity;
+            }
+            finally
+            {
+                CloseHandle(process);
+            }
+        }
+
+        /// <summary>The mandatory integrity RID of a process's token, or -1.</summary>
+        private static int IntegrityOf(IntPtr process)
+        {
+            IntPtr token;
+            if (!OpenProcessToken(process, TOKEN_QUERY, out token)) return -1;
+            try
+            {
+                int length;
+                GetTokenInformation(token, TokenIntegrityLevel, IntPtr.Zero, 0, out length);
+                if (length <= 0) return -1;
+                IntPtr buffer = Marshal.AllocHGlobal(length);
+                try
+                {
+                    if (!GetTokenInformation(token, TokenIntegrityLevel, buffer, length, out length)) return -1;
+                    IntPtr sid = Marshal.ReadIntPtr(buffer);   // TOKEN_MANDATORY_LABEL.Label.Sid
+                    int count = Marshal.ReadByte(GetSidSubAuthorityCount(sid));
+                    if (count < 1) return -1;
+                    return Marshal.ReadInt32(GetSidSubAuthority(sid, (uint)(count - 1)));
+                }
+                finally
+                {
+                    Marshal.FreeHGlobal(buffer);
+                }
+            }
+            finally
+            {
+                CloseHandle(token);
+            }
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct GUITHREADINFO
+        {
+            public int cbSize;
+            public int flags;
+            public IntPtr hwndActive, hwndFocus, hwndCapture, hwndMenuOwner, hwndMoveSize, hwndCaret;
+            public DesktopWindows.RECT rcCaret;
+        }
+
+        [DllImport("user32.dll")]
+        private static extern bool IsZoomed(IntPtr hWnd);
+        [DllImport("user32.dll")]
+        private static extern bool IsWindow(IntPtr hWnd);
+        [DllImport("user32.dll")]
+        private static extern bool IsHungAppWindow(IntPtr hWnd);
+        [DllImport("user32.dll")]
+        private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out int processId);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern int GetWindowTextW(IntPtr hWnd, StringBuilder text, int maxCount);
+        [DllImport("user32.dll")]
+        private static extern bool GetGUIThreadInfo(uint threadId, ref GUITHREADINFO info);
+        [DllImport("user32.dll")]
+        private static extern short GetAsyncKeyState(int key);
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetForegroundWindow();
+        [DllImport("user32.dll")]
+        private static extern bool SetWindowPos(IntPtr hWnd, IntPtr insertAfter, int x, int y, int cx, int cy, uint flags);
+        [DllImport("user32.dll")]
+        private static extern bool ShowWindowAsync(IntPtr hWnd, int command);
+        [DllImport("kernel32.dll")]
+        private static extern IntPtr OpenProcess(uint access, bool inherit, int processId);
+        [DllImport("kernel32.dll")]
+        private static extern IntPtr GetCurrentProcess();
+        [DllImport("kernel32.dll")]
+        private static extern bool CloseHandle(IntPtr handle);
+        [DllImport("advapi32.dll")]
+        private static extern bool OpenProcessToken(IntPtr process, uint access, out IntPtr token);
+        [DllImport("advapi32.dll")]
+        private static extern bool GetTokenInformation(IntPtr token, int infoClass, IntPtr info, int length, out int returned);
+        [DllImport("advapi32.dll")]
+        private static extern IntPtr GetSidSubAuthorityCount(IntPtr sid);
+        [DllImport("advapi32.dll")]
+        private static extern IntPtr GetSidSubAuthority(IntPtr sid, uint index);
     }
 }

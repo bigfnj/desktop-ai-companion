@@ -54,6 +54,11 @@ namespace DesktopAICompanion.Shimeji
         /// <summary>An Interact step plays: the other active companions sharing this one's anchor, in manager order
         /// (CONTRACT event `interact`).</summary>
         void Interacted(TickMascot mascot, IReadOnlyList<TickMascot> with);
+        /// <summary>A window action moved the interactive window (CONTRACT event `window-move`).</summary>
+        void WindowMoved(TickMascot mascot, TickRect from, TickRect to);
+
+        /// <summary>A window action minimised the interactive window (CONTRACT event `window-minimize`).</summary>
+        void WindowMinimized(TickMascot mascot);
     }
 
     // ------------------------------------------------------------------ parameters and scripts
@@ -1557,6 +1562,8 @@ namespace DesktopAICompanion.Shimeji
             public void Muted(TickMascot mascot, string clip) { }
             public void ScanTargeted(TickMascot mascot, string affordance, TickMascot target) { }
             public void Interacted(TickMascot mascot, IReadOnlyList<TickMascot> with) { }
+            public void WindowMoved(TickMascot mascot, TickRect from, TickRect to) { }
+            public void WindowMinimized(TickMascot mascot) { }
         }
     }
 }

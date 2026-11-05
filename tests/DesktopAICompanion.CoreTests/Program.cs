@@ -124,6 +124,18 @@ namespace DesktopAICompanion
                 Run("Tick social ComplexMove: Characteristics split exactly; it breeds (not while turning) and scans as named", TestTickSocialComplexMove);
                 Run("Tick social ComplexMove: arrival is guarded when scanning is off (policy:complexmove-guarded)", TestTickSocialComplexMovePolicy);
                 Run("Tick social ComplexJump: scanning it lands on its target; plain, it jumps and breeds", TestTickSocialComplexJump);
+                Run("Tick windows WalkWithIE: carries the window by the exact grip at its lower corner, both facings", TestTickWindowsWalkCarries);
+                Run("Tick windows WalkWithIE: a grip 1 px off, or the window gone, loses the ground", TestTickWindowsWalkLosesGround);
+                Run("Tick windows switch: off, the animation plays and no window moves; Throwing off ends the action", TestTickWindowsSwitchOff);
+                Run("Tick windows FallWithIE: the window falls with the companion", TestTickWindowsFallCarries);
+                Run("Tick windows JumpWithIE: the window jumps with the companion", TestTickWindowsJumpCarries);
+                Run("Tick windows ThrowIE: moves the window by facing-signed InitialVX and InitialVY + int(age * Gravity)", TestTickWindowsThrow);
+                Run("Tick windows MinimizeIE: minimises at the end of its animation, standing anywhere", TestTickWindowsMinimize);
+                Run("Tick windows desktop: found only shown, not minimised and on the screen; a move shows at the next step", TestTickWindowsDesktopModel);
+                Run("Tick windows title rules: blacklist wins, whitelist admits, blacklist-only admits the rest, neither admits none", TestTickWindowsTitleRules);
+                Run("Tick windows walk: the first eligible window in z-order; a maximised one ends the walk", TestTickWindowsWalkOrder);
+                Run("Tick windows safety: each refused kind of window is refused", TestTickWindowsSafety);
+                Run("Tick windows safety clamp: a moved or thrown window stays inside its work area", TestTickWindowsClamp);
             }
             finally
             {
