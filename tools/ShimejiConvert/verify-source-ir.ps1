@@ -287,7 +287,7 @@ function Invoke-Positive([string]$Label) {
         }
     }
     if (@($lines | Where-Object { $_ -match '^FAIL(?:\s|:)' }).Count -ne 0 -or $lines -notcontains 'SELFTEST PASS' -or
-        $lines -notcontains 'SELFTEST-COUNT: 11' -or $lines -notcontains 'emitter self-test: classic checks executed') {
+        $lines -notcontains 'SELFTEST-COUNT: 12' -or $lines -notcontains 'emitter self-test: classic checks executed') {
         throw "source-ir: contradictory positive result for $Label"
     }
     return $result.Record
@@ -336,7 +336,7 @@ function Invoke-ClassicContinuation {
             if ($run.Record.ExitCode -ne 1 -or $run.Record.TimedOut -or $fails.Count -ne 1 -or
                 $fails[0] -notmatch '^FAIL TickPackEmitterSelfTest/graph-bindings-and-origins:' -or
                 $lines -notcontains $tickMarker -or $lines -notcontains 'SELFTEST FAIL' -or
-                $lines -notcontains 'SELFTEST-COUNT: 11') {
+                $lines -notcontains 'SELFTEST-COUNT: 12') {
                 throw ('CLASSIC_CONTINUATION_WITNESS: full-suite tick fault did not execute as expected: ' + $run.Record.Stdout)
             }
             $fired = $false
@@ -624,8 +624,8 @@ $mutations = @(
     [pscustomobject]@{ Name = 'review-tick-information'; Path = $emitter; Witness = 'information-refusal'
         Old = '_source.Information != null'; New = '_source.Information != null && _member == "__never__"' },
     [pscustomobject]@{ Name = 'review-tick-prepare-all-members'; Path = $emitter; Witness = 'prepare-all-members'
-        Old = 'prepared.Add(new MemberBuilder(packRoot, member, source).Build());'
-        New = 'prepared.Add(new MemberBuilder(packRoot, member, source).Build()); if (prepared.Count == 1) { string partial = Path.Combine(outDir, member); Directory.CreateDirectory(partial); File.WriteAllText(Path.Combine(partial, "animations.xml"), prepared[0].Xml); }' }
+        Old = 'List<PreparedMember> prepared = PrepareMembers(packRoot, false);'
+        New = 'Directory.CreateDirectory(outDir); List<PreparedMember> prepared = PrepareMembers(packRoot, false);' }
 )
 $emitterText = $utf8.GetString([IO.File]::ReadAllBytes($emitter))
 $pixelStart = $emitterText.IndexOf('BitmapData destination = sheet.LockBits(', [StringComparison]::Ordinal)
