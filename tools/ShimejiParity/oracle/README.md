@@ -124,7 +124,11 @@ never-displayed panels for windows), creates the start companions as CONTRACT se
 source's own `Manager.tick` once per tick through the `parityStep` seam; the real timer never starts. Every run ends by
 checking that no window became displayable. Names, refKeys and ages come from stored fields and from the seam
 callbacks the source makes while building and stepping; observation evaluates nothing. Input entries reach the
-source's own mouse listeners as synthetic events at the step's environment refresh.
+source's own mouse listeners as synthetic events at the step's environment refresh. A refKey's file is the one the
+source's own search chose, reported where `Main.loadConfiguration` parses it; a document without that binding is
+refused (`V1_REFKEY_DOCUMENT_UNBOUND`). Each `V1` run also builds two private fixtures from `S-slice-stand-walk-01`'s
+pack, one with equal-content copies at the lower-precedence `conf/<set>/` and `conf/` tiers and one with malformed XML
+the source never opens; both must run complete with every refKey in `img/<set>/conf/` (`V1_DOCUMENT_WITNESS`).
 
 Each scenario gets one status: `complete`, or a distinct failure (`truncated`, `timeout`, `error`, or the comparer's
 trace-check class). A requested scenario without a result fails the action (`V1_SCENARIO_SKIPPED`). The first

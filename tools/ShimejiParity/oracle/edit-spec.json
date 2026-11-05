@@ -220,6 +220,33 @@
       ]
     },
     {
+      "file": "src/com/group_finity/mascot/Main.java",
+      "line": 367,
+      "lineSha256": "5b82a4f223fa6374f52ba7330f695f92ee72c895fbd382620eaec112fecd415f",
+      "op": "insert-after",
+      "code": [
+        "com.group_finity.mascot.parity.DraftParityHooks.observe(\"document\", actions, actionsPath);"
+      ]
+    },
+    {
+      "file": "src/com/group_finity/mascot/Main.java",
+      "line": 416,
+      "lineSha256": "bbaa9f0a54f1c059a80458083a7824019a2a719ec4ce15ff0e95630ba4ada0e5",
+      "op": "insert-after",
+      "code": [
+        "com.group_finity.mascot.parity.DraftParityHooks.observe(\"document\", behaviors, behaviorsPath);"
+      ]
+    },
+    {
+      "file": "src/com/group_finity/mascot/Main.java",
+      "line": 435,
+      "lineSha256": "2685e68c53eefa332c3b8ad04de1a14cd4c9c51ca067086625cd0094a99030f7",
+      "op": "insert-after",
+      "code": [
+        "com.group_finity.mascot.parity.DraftParityHooks.observe(\"document\", information, infoPath);"
+      ]
+    },
+    {
       "file": "src/com/group_finity/mascot/Manager.java",
       "line": 358,
       "lineSha256": "042a5667c14b05c154ac0bb5d2a6aa2be2f1c2a14a3fb79ff043b662651f7294",

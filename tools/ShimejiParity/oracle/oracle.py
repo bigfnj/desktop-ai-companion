@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import re
+import shutil
 from types import FunctionType, SimpleNamespace
 import subprocess
 import sys
@@ -1276,6 +1277,46 @@ def v1_observation_proof(on_trace, off_trace):
     return {"scenario": on[0]["scenario"]["id"], "final_states": len(final_on), "draws": on[-1]["draws"]}
 
 
+V1_DOCUMENT_SCENARIO = "S-slice-stand-walk-01"
+
+
+def v1_document_witnesses(args, compare, root, classpath, runner, build):
+    """Review F5: refKeys name the file the source's own search chose. Two private fixtures built from a real
+    scenario's pack must run complete with every key in img/<set>/conf: one adds equal-content copies at the lower
+    precedence tiers (conf/<set>/ and conf/), the other adds malformed XML the source never opens."""
+    path = args.shared_root / (V1_DOCUMENT_SCENARIO + ".json")
+    if not path.is_file():
+        return {"status": "unavailable", "reason": "no " + path.name}
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    results = []
+    for case in ("equal-content-override", "ignored-malformed-xml"):
+        fixture = root / "document-fixtures" / case
+        fixture.mkdir(parents=True)
+        (fixture / path.name).write_bytes(path.read_bytes())
+        pack = fixture / doc["pack"]
+        shutil.copytree(str(args.shared_root / doc["pack"]), str(pack))
+        sets = sorted(item.name for item in (pack / "img").iterdir() if (item / "conf").is_dir())
+        for name in sets:
+            chosen = pack / "img" / name / "conf"
+            for document in sorted(chosen.glob("*.xml")):
+                if case == "equal-content-override":
+                    for tier in (pack / "conf" / name, pack / "conf"):
+                        tier.mkdir(parents=True, exist_ok=True)
+                        (tier / document.name).write_bytes(document.read_bytes())
+            if case == "ignored-malformed-xml":
+                (chosen / "unused.xml").write_text("<Mascot><ActionList>", encoding="utf-8")
+                (pack / "notes.xml").write_text("not a document <", encoding="utf-8")
+        row = v1_run(args, compare, fixture / path.name, root / "document-runs" / case, classpath, runner, build)
+        lines = [json.loads(line) for line in Path(row["trace"]).read_text(encoding="utf-8").splitlines() if line.strip()]
+        keys = {key for line in lines if line.get("type") == "state" for key in line["actionStack"]}
+        wanted = tuple(name + "|img/" + name + "/conf/" for name in sets)
+        if row["status"] != "complete" or not keys or not all(key.startswith(wanted) for key in keys):
+            raise Refusal("V1_DOCUMENT_WITNESS " + case + ": " + row["status"] + " " + row["detail"][:200]
+                          + " keys " + ",".join(sorted(key.split("|")[1] for key in keys)))
+        results.append({"case": case, "status": "complete", "documents": sorted({key.split("|")[1] for key in keys})})
+    return {"status": "pass", "scenario": V1_DOCUMENT_SCENARIO, "cases": results}
+
+
 def v1(args):
     if args.shared_root is None:
         raise Refusal("V1_NO_SCENARIOS pass --shared-root naming generated synthetic scenarios")
@@ -1298,9 +1339,12 @@ def v1(args):
         first = next(path for path in v1_scenarios(args) if path.stem == directed[0]["scenario"])
         off = v1_run(args, compare, first, root, classpath, runner, build, observe=False)
         proof = v1_observation_proof(directed[0]["trace"], off["trace"])
+    documents = v1_document_witnesses(args, compare, root, classpath, runner, build)
     validate_v1_build(state, (HERE / "edit-spec.json").read_bytes(), HERE / "draft")
-    result = {"status": "pass" if all(row["status"] == "complete" for row in rows) else "incomplete",
+    passed = all(row["status"] == "complete" for row in rows) and documents["status"] == "pass"
+    result = {"status": "pass" if passed else "incomplete",
               "schema": "shimeji-parity-trace/1", "build": build, "results": rows, "observation_proof": proof,
+              "document_witnesses": documents,
               "counts": {status: sum(1 for row in rows if row["status"] == status) for status in sorted({row["status"] for row in rows})},
               "tool_sha256": sha((HERE / "oracle.py").read_bytes()), "runner_sha256": sha((HERE / V1_RUNNER).read_bytes()),
               "evidence": str(root)}

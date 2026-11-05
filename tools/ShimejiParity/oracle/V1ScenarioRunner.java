@@ -52,7 +52,6 @@ import java.util.Set;
 import javax.script.ScriptEngine;
 import javax.script.ScriptEngineManager;
 import javax.swing.JPanel;
-import javax.xml.parsers.DocumentBuilderFactory;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
@@ -404,31 +403,15 @@ public final class V1ScenarioRunner implements DraftParityHooks.Controller {
     }
 
     /**
-     * The pack-relative path of a document the source parsed. The source parses from a stream, so the DOM keeps no
-     * location; the file is found by parsing every XML file in the pack with the source's own default parser and
-     * requiring exactly one equal tree. Two equal files are refused rather than guessed between.
+     * The pack-relative path of a document the source parsed: the path its own file search chose, reported at the
+     * parse seam in Main.loadConfiguration (CONTRACT section 3 names the actual configuration file). Rejected
+     * alternative (review F5): finding the file by an equal DOM tree, which refuses packs the source loads (two files
+     * with equal content, or an unused malformed one). A document the seam never reported is refused by name.
      */
     private String documentPath(Document document) {
         String known = documents.get(document);
-        if (known != null) return known;
-        List<String> matches = new ArrayList<String>();
-        try {
-            final List<Path> files = new ArrayList<Path>();
-            Files.walk(Paths.get(".")).forEach(new java.util.function.Consumer<Path>() {
-                public void accept(Path item) {
-                    if (Files.isRegularFile(item) && item.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".xml")) files.add(item);
-                }
-            });
-            for (Path file : files) {
-                Document candidate = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(file.toFile());
-                if (candidate.getDocumentElement().isEqualNode(document.getDocumentElement())) matches.add(packPath(file));
-            }
-        } catch (Exception failure) {
-            throw new IllegalStateException("V1_REFKEY_DOCUMENT " + failure, failure);
-        }
-        if (matches.size() != 1) throw new IllegalStateException("V1_REFKEY_DOCUMENT_AMBIGUOUS " + matches);
-        documents.put(document, matches.get(0));
-        return matches.get(0);
+        if (known == null) throw new IllegalStateException("V1_REFKEY_DOCUMENT_UNBOUND " + document.getDocumentElement().getNodeName());
+        return known;
     }
 
     private static String packPath(Path path) {
@@ -519,7 +502,9 @@ public final class V1ScenarioRunner implements DraftParityHooks.Controller {
     }
 
     private void handle(String hook, Object subject, Object detail) throws Exception {
-        if (hook.equals("behavior-builder") || hook.equals("action-builder") || hook.equals("action-ref")) {
+        if (hook.equals("document")) {
+            documents.put((Document)subject, packPath((Path)detail));
+        } else if (hook.equals("behavior-builder") || hook.equals("action-builder") || hook.equals("action-ref")) {
             elements.put(subject, (Element)read(detail, "element"));
         } else if (hook.equals("behavior-build")) {
             pendingBuilder = subject;
