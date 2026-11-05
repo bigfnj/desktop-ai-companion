@@ -52,7 +52,8 @@ namespace DesktopAICompanion.Shimeji
     /// <summary>
     /// Mute (Mute.java): a named Sound stops the matching clips, which may be other companions' (the source's clip
     /// cache is shared); with no Sound, and this companion's sounds on, every cached clip stops. The engine reports
-    /// it and the host's sound layer acts on it; a headless run only traces it.
+    /// it, then stops the clips through the world's clip output (<see cref="TickSound"/>); a world with none (a parity
+    /// run) only traces it.
     /// </summary>
     internal sealed class TickMute : TickInstantAction
     {
@@ -61,8 +62,16 @@ namespace DesktopAICompanion.Shimeji
         protected override void Apply()
         {
             string sound = EvalString("Sound", null, null);
-            if (sound != null) World.Observer.Muted(Mascot, sound);
-            else if (World.Settings.Get("Sounds", Mascot.Type.Name)) World.Observer.Muted(Mascot, null);
+            if (sound != null)
+            {
+                World.Observer.Muted(Mascot, sound);
+                TickSound.MuteNamed(World, Mascot, sound);
+            }
+            else if (World.Settings.Get("Sounds", Mascot.Type.Name))
+            {
+                World.Observer.Muted(Mascot, null);
+                TickSound.MuteAll(World, Mascot);
+            }
         }
     }
 

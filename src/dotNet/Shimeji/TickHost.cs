@@ -149,7 +149,11 @@ namespace DesktopAICompanion.Shimeji
             Type = type;
             Sprites = sprites;
             Animations = animations;
+            Clips = TickStaging.ClipsOf(sprites);
         }
+
+        /// <summary>The type's named clips' bytes by name (<see cref="TickStaging.ClipsOf"/>); a self-test sets its own.</summary>
+        public System.Collections.Generic.IReadOnlyDictionary<string, byte[]> Clips { get; set; }
     }
 
     /// <summary>
@@ -181,6 +185,7 @@ namespace DesktopAICompanion.Shimeji
             _log = log ?? delegate { };
             _environment = new Win32TickEnvironment();
             _world = new TickWorld(_environment, new HostTickRandom(), new HostTickSettings(TypeIdOf), this);
+            _world.Clips = new HostTickClips(HostTypeOf, delegate { return Audio; });
             _world.Start();
             _timer = new Timer { Interval = TickMilliseconds };
             _timer.Tick += delegate { Step(); };
@@ -211,6 +216,15 @@ namespace DesktopAICompanion.Shimeji
         {
             TickHostType t;
             return _typesByName.TryGetValue(imageSet, out t) ? t.Id : imageSet;
+        }
+
+        /// <summary>Where the companions' clips play (StartUp gives the app's audio output); null plays none.</summary>
+        public ITickAudio Audio { get; set; }
+
+        private TickHostType HostTypeOf(string imageSet)
+        {
+            TickHostType t;
+            return _typesByName.TryGetValue(imageSet, out t) ? t : null;
         }
 
         /// <summary>A new companion of a type, placed at <paramref name="anchor"/> facing as given, entering
@@ -358,6 +372,8 @@ namespace DesktopAICompanion.Shimeji
         }
 
         public void Muted(TickMascot mascot, string clip) { }
+        // The engine has already played or stopped the clip through the world's clips (HostTickClips).
+        public void Sound(TickMascot mascot, string clip, string op) { }
         public void ScanTargeted(TickMascot mascot, string affordance, TickMascot target) { }
         public void Interacted(TickMascot mascot, IReadOnlyList<TickMascot> with) { }
 

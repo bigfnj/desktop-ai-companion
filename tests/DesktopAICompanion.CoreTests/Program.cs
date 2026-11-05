@@ -139,6 +139,12 @@ namespace DesktopAICompanion
                 Run("Tick windows walk: the first eligible window in z-order; a maximised one ends the walk", TestTickWindowsWalkOrder);
                 Run("Tick windows safety: each refused kind of window is refused", TestTickWindowsSafety);
                 Run("Tick windows safety clamp: a moved or thrown window stays inside its work area", TestTickWindowsClamp);
+                Run("Tick sound apply: a pose's clip starts when not running, and again once finished while the pose names it", TestTickSoundApply);
+                Run("Tick sound apply: one clip is shared by every companion naming it; another volume is another clip", TestTickSoundShared);
+                Run("Tick sound apply: the current type's Sounds setting gates it; a transformed companion plays its applied pose's clip", TestTickSoundSettingAndTransform);
+                Run("Tick sound Mute: a named Sound stops the initiator's running clips by prefix, at any volume, wherever they play", TestTickSoundMuteNamed);
+                Run("Tick sound Mute: no Sound stops every clip of every type, only while the initiator's sounds are on", TestTickSoundMuteAll);
+                Run("Tick sound volume: decibels of gain, read from the pose, clamped to the control's range", TestTickSoundVolume);
             }
             finally
             {

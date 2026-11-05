@@ -706,6 +706,9 @@ namespace DesktopAICompanion
             // One cap for both engines (policy:birth-cap): tick companions, active and pending, get what the classic
             // pets leave of MAX_SHEEPS.
             tickHost.CompanionBudget = () => MAX_SHEEPS - ClassicPetCount();
+            // Pose sounds play through the app's output, under the fullscreen hold and the user's volume (the switches are
+            // the engine's Sounds setting).
+            tickHost.Audio = new Shimeji.AppTickAudio(() => audioOutput, SoundHeldForFullscreen);
             return tickHost;
         }
 

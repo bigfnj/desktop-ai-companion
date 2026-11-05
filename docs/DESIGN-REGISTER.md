@@ -7466,6 +7466,19 @@ in the saved mix and is not announced to modules as an arrival, so a clutch of e
 hatchling and is not back at the next launch. A companion that destroys itself leaves the saved mix as it was, so it
 returns at the next launch: the user's choice of companions is not something a skin changes.
 
+**Pose sounds decide in the engine and play through the app's output.** The source's rule (a shared clip per sound and
+volume, restarted at each apply unless still running; Mute stopping by prefix) lives in the engine (`TickSound`), so it
+is tested without a device and the parity trace's `sound` event comes from the decision itself. The engine asks a clip
+seam (`ITickClips`) whether a clip is running and starts or stops it; the tick host implements it with one AudioOutput
+owner per clip (type, name, volume), so "is it still playing" and "stop it wherever it plays" are both questions the
+output can answer. The app hands the host its output through a callback object (`AppTickAudio`), which applies the
+fullscreen hold and the user's volume; the global switch and the per-type mute are the engine's Sounds setting, read
+for the companion's current type as the source reads it. Staging keeps the validator's decoded bytes by clip name
+beside the type, because the staged Xml's own base64 is blanked. A clip owner carries a prefix no module id can take,
+and cutting every module's sound (speech or notification sounds switched off) keeps the companions' clips, as it
+always kept the classic engine's. A parity run has no clip output, so no clip is loaded there and no `sound` event is
+written until the contract defines a clip clock both runtimes can share.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

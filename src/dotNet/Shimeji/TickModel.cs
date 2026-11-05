@@ -34,6 +34,9 @@ namespace DesktopAICompanion.Shimeji
         public int Dx;
         public int Dy;
         public string Sound;
+        /// <summary>The pose's Volume: the clip's gain in decibels, 0 when absent (AnimationBuilder.java:105), read as
+        /// the source reads it, a float (:158). See <see cref="TickSound.LinearGain"/>.</summary>
+        public float Volume;
     }
 
     /// <summary>
@@ -356,6 +359,7 @@ namespace DesktopAICompanion.Shimeji
                             Dx = p.DX,
                             Dy = p.DY,
                             Sound = p.Sound,
+                            Volume = (float)p.Volume,
                         });
                         def.Duration += p.Ticks;
                     }

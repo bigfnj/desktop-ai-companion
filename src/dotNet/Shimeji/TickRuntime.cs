@@ -47,6 +47,10 @@ namespace DesktopAICompanion.Shimeji
         /// <summary>Mute ran: a named clip to stop, or null for every clip (CONTRACT event `mute`).</summary>
         void Muted(TickMascot mascot, string clip);
 
+        /// <summary>A clip started (op "start", at the companion's apply) or a running one was stopped (op "stop", by
+        /// this companion's Mute) (CONTRACT event `sound`; <see cref="TickSound"/>).</summary>
+        void Sound(TickMascot mascot, string clip, string op);
+
         /// <summary>A scan ran (Manager.getMascotWithAffordance): the affordance sought and the companion found, or
         /// null (CONTRACT event `scan-target`).</summary>
         void ScanTargeted(TickMascot mascot, string affordance, TickMascot target);
@@ -1184,6 +1188,7 @@ namespace DesktopAICompanion.Shimeji
                 Visible = true;
             }
             else Visible = false;
+            TickSound.Apply(_world, this);
         }
 
         /// <summary>Mascot.dispose: stops at once, hidden, offers cleared, removed at the next manager step.</summary>
@@ -1230,6 +1235,12 @@ namespace DesktopAICompanion.Shimeji
 
         public IReadOnlyList<TickMascot> Mascots { get { return _mascots; } }
         public IReadOnlyList<TickMascot> Pending { get { return _added; } }
+
+        /// <summary>Every type added to the world (the configurations the source has loaded).</summary>
+        public IEnumerable<TickType> Types { get { return _types.Values; } }
+
+        /// <summary>Where clips play (<see cref="TickSound"/>); null plays nothing.</summary>
+        public ITickClips Clips { get; set; }
         public int ActiveCount { get { return _mascots.Count; } }
 
         public void AddType(TickType type) { _types[type.Name] = type; }
@@ -1585,6 +1596,7 @@ namespace DesktopAICompanion.Shimeji
             public void RandomDrawn(TickMascot mascot, string site, double value, string purpose) { }
             public void Fault(TickMascot mascot, string message) { }
             public void Muted(TickMascot mascot, string clip) { }
+            public void Sound(TickMascot mascot, string clip, string op) { }
             public void ScanTargeted(TickMascot mascot, string affordance, TickMascot target) { }
             public void Interacted(TickMascot mascot, IReadOnlyList<TickMascot> with) { }
             public void WindowMoved(TickMascot mascot, TickRect from, TickRect to) { }

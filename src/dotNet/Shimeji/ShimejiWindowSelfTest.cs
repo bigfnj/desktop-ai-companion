@@ -148,6 +148,7 @@ namespace DesktopAICompanion.Shimeji
 
                 CheckStaging(check);
                 CheckParityTooling(check, scratch, log);
+                ShimejiSoundSelfTest.Run(check, log);
             }
             catch (Exception e)
             {
@@ -266,10 +267,12 @@ namespace DesktopAICompanion.Shimeji
                     CreateNoWindow = true,
                     UseShellExecute = false,
                     RedirectStandardOutput = true,
+                    StandardOutputEncoding = Encoding.UTF8,
                 };
                 using (System.Diagnostics.Process p = System.Diagnostics.Process.Start(psi))
                 {
-                    p.StandardOutput.ReadToEnd();
+                    // Drained asynchronously, so the timeout below stays reachable (the hardening invariants' rule).
+                    _ = p.StandardOutput.ReadToEndAsync();
                     p.WaitForExit(5000);
                 }
                 return Directory.Exists(link) && (File.GetAttributes(link) & FileAttributes.ReparsePoint) != 0;

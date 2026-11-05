@@ -82,11 +82,34 @@ run.
   - `right` is the right-facing frame (`ImageRight`). Omitted, the left frame is mirrored, as today.
   - `ticks` is the pose duration (1 to 100000). `dx`/`dy` is the pose's per-tick velocity; it is mirrored when
     facing right (`Pose.java:70-85`, right-facing subtracts).
-  - `sound` names a `<sound id>`; `volume` is the pose's Volume.
+  - `sound` names a `<sound id>`; `volume` is the pose's Volume, the source's unit: the clip's gain in DECIBELS
+    (`AnimationBuilder.java:105`, default `0`; `SoundLoader.java:24` sets it as the clip's MASTER_GAIN). The host
+    plays the clip at a linear factor of 10^(dB/20), so 0 plays it as recorded, -6 at about half and +6.02 at twice.
   - The pose for a given action age is chosen by age modulo the summed durations (`Animation.java:54-78`).
 - **`<sound id="...">`.** A new optional attribute, so poses can name clips. `animationid` stays for classic use. In a
   tick-clock companion every sound is a named clip (an id of 1 to 64 characters, unique, no `animationid`), and its
-  audio passes the same size limits and MP3 check as a classic sound.
+  audio passes the same size limits and MP3 check as a classic sound. A named clip's `<loop>` and `<probability>` are
+  not read: a clip plays once per start, as the source's does.
+- **Playing a clip** (`Mascot.java:612-625`, `Sounds.java`, `SoundLoader.java`):
+  - A clip is one sound at one volume. Every companion whose applied pose names the same clip of a type at the same
+    volume shares it: one clip, one playing state. The same sound at another volume is another clip.
+  - At every apply (the render, after the step), when the companion's Sounds setting is on (read for its CURRENT type)
+    and its applied pose names a clip, the clip starts from its beginning unless it is still playing. So a clip that
+    finishes while its pose still names it plays again at the next tick, and a second companion naming a clip that is
+    playing does not restart it.
+  - Changing pose never stops a clip, and neither does a companion's disposal: a clip plays out. Right after a
+    Transform the clip of the pose still shown (the old type's) plays.
+  - The host's rules then apply as they do to a classic companion's sound: the global companion-sound switch and the
+    type's own mute are the source's Sounds setting; while sounds are held for a fullscreen window a clip does not
+    start (it is asked again at the next apply); the level is the user's volume times the pose's gain, capped at full
+    scale.
+  - Divergences, recorded: a Volume outside the gain control's range (-80 to +6.02 dB) makes the source refuse to load
+    the whole image set (the control throws); the host clamps it to the range. A clip in the source's shared `sound/`
+    folder is ONE clip across image sets; here each type carries its own copy, so it plays and stops per type. A Mute
+    name that runs on into the source's volume suffix (its cache key is path plus volume) is not matched. Two clips
+    whose names differ only in case share one playing state (the app's audio owners compare that way; a converted pack
+    comes from a case-insensitive file system and cannot hold two such files). Turning companion sounds off lets a clip
+    in flight finish, as a classic sound does; the source's global menu stops every clip at once.
 
 ---
 
@@ -308,7 +331,7 @@ may call it supported.
 | Look | instant | LookRight (default: the opposite of now) | Sets facing. |
 | Turn | — | LookRight (default: the opposite) | Plays the turn variant only when facing changes. |
 | Offset | instant | X 0, Y 0 | anchor += (X, Y) in screen pixels. |
-| Mute | instant | Sound (null) | A named Sound stops the matching shared or per-type clips, which may belong to other companions. With no Sound, and the initiator's sound enabled, every cached clip stops. |
+| Mute | instant | Sound (null) | A named Sound stops every PLAYING clip of the initiator's current type whose name starts with it (the source matches by prefix), at any volume, wherever it plays: other companions share the clip. With no Sound, and the initiator's sound enabled, every clip of every type stops. Each stop of a playing clip is a `sound` event with op `stop`. |
 | BringToFront | instant | — | Raises THIS companion's window. |
 | SelfDestruct | Animate | — | Disposes the live companion on the final tick. |
 | Breed | Animate | BornX 0, BornY 0, BornBehavior "", BornMascot "", BornCount 1, BornTransient false | At age duration-1: BornCount companions of BornMascot (else self), at parent anchor + (facing right ? -BornX : +BornX, BornY), scaled. Each copies facing and enters BornBehavior, initialised before any other behaviour runs. Activation comes at the next manager step. |

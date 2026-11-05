@@ -79,6 +79,7 @@ namespace DesktopAICompanion
             public void RandomDrawn(TickMascot m, string site, double value, string purpose) { Draws.Add(site); }
             public void Fault(TickMascot m, string message) { Faults.Add(m.Sid + ": " + message); }
             public void Muted(TickMascot m, string clip) { Events.Add(m.Sid + " mute " + (clip ?? "-")); }
+            public void Sound(TickMascot m, string clip, string op) { Events.Add(m.Sid + " sound " + clip + " " + op); }
             public void ScanTargeted(TickMascot m, string affordance, TickMascot target) { Events.Add(m.Sid + " scan-target " + affordance + " " + (target == null ? "-" : target.Sid)); }
             public void Interacted(TickMascot m, IReadOnlyList<TickMascot> with)
             {
