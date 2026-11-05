@@ -992,21 +992,23 @@ namespace DesktopAICompanion.Shimeji
                             _mascot.SetBehaviour(_world.BuildBehaviourByName(Type, "Fall"), "forced");
                         }
                     }
-                    else if (_mascot.ArrivalBehaviour != null)
+                    else if (_mascot.ArrivalBehaviour != null && Name != _mascot.ArrivalBehaviour
+                        && (!Type.RootByName.ContainsKey(_mascot.ArrivalBehaviour)
+                            || _world.IsBehaviourEnabledByName(Type, _mascot.ArrivalBehaviour, _mascot)))
                     {
-                        // The arrival has landed: the pack's startup behaviour now, once (ArrivalBehaviour). One the user
-                        // turned off is skipped and the route chooses, as with no startup behaviour: the source's drop-in for
-                        // a turned-off behaviour (BuildBehaviourByName) is for one it was asked to enter, and here it would
-                        // throw a companion that has just landed back above the screen. An unknown name still cannot live.
-                        string arrival = _mascot.ArrivalBehaviour;
-                        _mascot.ArrivalBehaviour = null;
-                        if (!Type.RootByName.ContainsKey(arrival) || _world.IsBehaviourEnabledByName(Type, arrival, _mascot))
-                            _mascot.SetBehaviour(_world.BuildBehaviourByName(Type, arrival), "forced");
-                        else
-                            _mascot.SetBehaviour(_world.BuildNextBehaviour(Type, _mascot, Name), _world.LastSelectionCause);
+                        // The arrival has landed: the pack's startup behaviour now (ArrivalBehaviour). It stays pending until
+                        // it ends of itself, so one cut short (dragged off, or its floor gone) is entered again when the
+                        // companion next lands: an egg's hatch, which has no route frequency, would otherwise never come
+                        // and the egg would drop in again and again with nothing to choose. An unknown name cannot live.
+                        _mascot.SetBehaviour(_world.BuildBehaviourByName(Type, _mascot.ArrivalBehaviour), "forced");
                     }
                     else
                     {
+                        // The route chooses: there is no startup behaviour to come, or it has just ended of itself and is
+                        // done, or the user turned it off. A turned-off one is skipped rather than built with the enabled
+                        // check: the source's drop-in for a turned-off behaviour is for one it was asked to enter, and here
+                        // it would throw a companion that has just landed back above the screen.
+                        _mascot.ArrivalBehaviour = null;
                         _mascot.SetBehaviour(_world.BuildNextBehaviour(Type, _mascot, Name), _world.LastSelectionCause);
                     }
                 }
@@ -1130,7 +1132,8 @@ namespace DesktopAICompanion.Shimeji
         /// A pack's startup behaviour still to come (grimoire/06 section 2, `policy:startup-after-arrival`): a companion
         /// created the source's way arrives off screen and its first step drops it in through Fall, which replaces the
         /// behaviour it was created in. The first behaviour that then ends of itself (the drop-in's Fall, or Thrown when it
-        /// was caught on the way down) hands over to this one instead of the route, once. Without it an egg whose hatch
+        /// was caught on the way down) hands over to this one instead of the route, and again after any interruption, until
+        /// this one ends of itself; a Transform, or the user turning it off, cancels it. Without it an egg whose hatch
         /// behaviour has no frequency of its own (as a hatch should not) landed and never hatched.
         /// </summary>
         public string ArrivalBehaviour;

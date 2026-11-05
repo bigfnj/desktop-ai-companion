@@ -7537,14 +7537,17 @@ route's choice; an egg whose hatch behaviour had no route frequency (as a hatch 
 real-app pack smoke passed anyway, because its egg's behaviour happened to have frequency 1; Studio's pack import (a hatch
 at frequency 0) is what showed it. The companion now remembers the startup behaviour (`TickMascot.ArrivalBehaviour`,
 set by `TickHost.SpawnLikeSource`), and the first behaviour to end of itself after creation (the drop-in's Fall, or
-Thrown if it was caught on the way down) hands over to it once instead of the route. Placing the companion straight on
+Thrown if it was caught on the way down) hands over to it instead of the route. Placing the companion straight on
 the floor in that behaviour was the other option and was not taken: it would drop the source's arrival for packs only.
 The source itself has no startup behaviour (its createMascot picks from the route), so this is the format extension's
 own rule; parity runs place start companions by scenario and never take this path. Two edges, found by an independent
 review: the hand-over first built the behaviour with the enabled check, so a startup behaviour the user had turned off
 dropped the just-landed companion in a second time (the source's drop-in is for a behaviour it was asked to enter, which
 this is not); it is now skipped and the route chooses. And a Transform before the hand-over left the old type's name
-pending, to be looked up on the new type, where a missing name ends the companion; a Transform now cancels it.
+pending, to be looked up on the new type, where a missing name ends the companion; a Transform now cancels it. And the
+hand-over was spent the moment the startup behaviour was entered, so an egg dragged off mid-hatch (or whose floor went)
+landed with a route that weighs nothing, as an egg's should, and dropped in from above again and again without hatching.
+The startup behaviour now stays pending until it ends of itself, and is entered again at each landing until then.
 
 **Repeated engine faults are throttled in the host's log, not in parity traces.** The same review noticed that a fault the
 engine repeats went to the diagnostic log every time: a behaviour condition that is not a boolean is reported at every

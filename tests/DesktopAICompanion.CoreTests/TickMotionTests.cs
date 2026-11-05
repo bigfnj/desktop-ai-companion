@@ -186,7 +186,24 @@ namespace DesktopAICompanion
             for (int i = 0; i < 300 && !log.Events.Contains("m1 behaviour Fall>Hatch forced"); i++) w.StepOnce();
             AssertTrue(log.Events.Contains("m1 behaviour Hatch>Fall forced") && log.Events.Contains("m1 behaviour Fall>Hatch forced"),
                 "The arrival did not land into the startup behaviour: " + string.Join("; ", log.Events));
-            AssertTrue(m.ArrivalBehaviour == null, "The startup behaviour was kept after it had run.");
+            AssertTrue(m.ArrivalBehaviour == "Hatch", "The startup behaviour stopped pending before it had ended of itself.");
+            for (int i = 0; i < 300 && !log.Events.Exists(e => e.StartsWith("m1 behaviour Hatch>Stand")); i++) w.StepOnce();
+            AssertTrue(log.Events.Exists(e => e.StartsWith("m1 behaviour Hatch>Stand")) && m.ArrivalBehaviour == null,
+                "The startup behaviour, ended of itself, did not hand over to the route for good: " + string.Join("; ", log.Events));
+
+            // Cut short (its floor gone from under it, as a drag or a moved window does), the startup behaviour is entered
+            // again when the companion next lands. Without that, an egg whose hatch has no route frequency lands with
+            // nothing to choose and drops in from above, again and again, and never hatches.
+            var log5 = new TickLog();
+            TickWorld y = MotionWorld(null, log5, null, null, t);
+            TickMascot q = y.CreateAtStart("m1", t, new TickPoint(-4000, -4000), false, "Hatch");
+            q.ArrivalBehaviour = "Hatch";
+            for (int i = 0; i < 300 && !log5.Events.Contains("m1 behaviour Fall>Hatch forced"); i++) y.StepOnce();
+            q.Anchor = new TickPoint(q.Anchor.X, q.Anchor.Y - 100);
+            for (int i = 0; i < 300 && log5.Events.FindAll(e => e == "m1 behaviour Fall>Hatch forced").Count < 2; i++) y.StepOnce();
+            AssertTrue(log5.Events.Contains("m1 behaviour Hatch>Fall forced")
+                && log5.Events.FindAll(e => e == "m1 behaviour Fall>Hatch forced").Count == 2 && q.ArrivalBehaviour == "Hatch",
+                "A startup behaviour cut short was not entered again at the next landing: " + string.Join("; ", log5.Events));
 
             // WITNESS: without one, the landed companion takes the route's choice (Stand) and never Hatch.
             var log2 = new TickLog();

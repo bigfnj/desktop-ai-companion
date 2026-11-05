@@ -73,10 +73,11 @@ run.
   only when `<startup member>` names a member whose `role` is `egg`. A new companion arrives the source's way (off
   screen, dropped in through `Fall`), and the startup `behaviour` runs once that arrival lands: the first behaviour to
   end of itself after creation (the drop-in's `Fall`, or `Thrown` if it was caught on the way down) hands over to it
-  instead of the route, once (`policy:startup-after-arrival`). So an egg's hatch behaviour needs no route frequency of
-  its own, and should have none. A startup behaviour the user has turned off is skipped there and the route chooses (it
-  is not a reason to drop the landed companion in again), and a Transform before the hand-over cancels it: the startup
-  behaviour belongs to the type that arrived.
+  instead of the route (`policy:startup-after-arrival`). It stays pending until it ends of itself: cut short (dragged
+  off, its floor gone), it is entered again when the companion next lands. So an egg's hatch behaviour needs no route
+  frequency of its own, and should have none. A startup behaviour the user has turned off is skipped and the route
+  chooses (it is not a reason to drop the landed companion in again), and a Transform cancels it: the startup behaviour
+  belongs to the type that arrived.
 - **`<constants>`.** Named values bound into behaviour-selection conditions only (`Configuration.java:64-67, 184-188`).
 - **`<toggles>`.** One entry per `Toggleable` source behaviour. The user can turn each on or off per type, as the source
   does: it keys every per-mascot setting by the mascot's current image set (`Main.java:1382-1389`, and
