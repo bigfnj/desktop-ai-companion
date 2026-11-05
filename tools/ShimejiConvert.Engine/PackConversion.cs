@@ -21,7 +21,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
     {
         /// <summary>main, egg, form or helper. A main role must agree with MainMember.</summary>
         public string Role { get; set; }
-        /// <summary>When absent, preserve the source chooser's visibility rule.</summary>
+        /// <summary>When absent, the selected main is visible; other members preserve the source chooser's visibility rule.</summary>
         public bool? Hidden { get; set; }
     }
 
@@ -155,9 +155,17 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                             report = Prepare(member, previewIdentity, snapshot, copy, serialize);
                         members.Add(report);
                         if (report.Error != null) errors.Add("Image set '" + member.Name + "': " + report.Error);
-                        else if (report.Graph.Unreachable.Count > 0)
-                            warnings.Add("Image set '" + member.Name + "' retains " + report.Graph.Unreachable.Count
-                                + " source action or behaviour nodes that the reachability graph cannot enter.");
+                        else
+                        {
+                            if (report.Graph.Unreachable.Count > 0)
+                                warnings.Add("Image set '" + member.Name + "' retains " + report.Graph.Unreachable.Count
+                                    + " source action or behaviour nodes that the reachability graph cannot enter.");
+                            foreach (string warning in RuntimeEntryWarnings(report))
+                            {
+                                warnings.Add(warning);
+                                report.Residue.Notes.Add(warning);
+                            }
+                        }
                     }
 
                     var packMembers = new List<PackValidator.Member>();
@@ -222,6 +230,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                     if (pair.Key == snapshot.MainMember && member.Role != null && member.Role != "main"
                         || pair.Key != snapshot.MainMember && member.Role == "main")
                         errors.Add("TICK_PACK_ROLE_CONFLICT: the main role must agree with MainMember for image set '" + pair.Key + "'.");
+                    if (pair.Key == snapshot.MainMember && member.Hidden == true)
+                        errors.Add("TICK_PACK_MAIN_HIDDEN: the main image set '" + pair.Key + "' must be visible.");
                     snapshot.Members.Add(pair.Key, member);
                 }
 
@@ -252,7 +262,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                 string role = member.Name == options.MainMember ? "main" : sourceHidden ? "helper" : "form";
                 if (metadata != null && metadata.Role != null) role = metadata.Role;
                 bool hidden = metadata != null && metadata.Hidden.HasValue ? metadata.Hidden.Value
-                    : sourceHidden || role == "egg" || role == "helper";
+                    : role != "main" && (sourceHidden || role == "egg" || role == "helper");
 
                 XDocument document = XDocument.Parse(member.Xml);
                 XElement header = document.Root.Element(Ns + "header");
@@ -290,7 +300,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                 GraphReport graph = ShimejiEngine.Analyze(reparsed);
                 if (sourceHidden)
                     residue.Notes.Add(hidden ? "The source chooser hides this image set; it remains hidden in the converted pack."
-                        : "The caller explicitly made this source-hidden image set visible in the converted pack.");
+                        : "The caller selected this source-hidden image set as visible in the converted pack.");
                 if (graph.Unreachable.Count > 0)
                     residue.Notes.Add(graph.Unreachable.Count + " source action or behaviour nodes have no reachable graph entry; they remain in the document.");
                 if (options.IncludeParityMaps && string.IsNullOrEmpty(member.Map))
@@ -318,9 +328,26 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             return "offset " + offset + " (length " + expected.Length + " became " + actual.Length + ")";
         }
 
+        private static IEnumerable<string> RuntimeEntryWarnings(PackMemberConversionResult member)
+        {
+            XmlData.AnimationNode[] nodes = member.Root.Animations.Animation;
+            // Only the route's behaviours can be entered by name. A next-list-only namesake does not supply one.
+            var rootIds = new HashSet<int>(nodes.Where(node => node.Route != null)
+                .SelectMany(node => node.Sequence.Next ?? new XmlData.NextNode[0]).Select(next => next.Value));
+            var names = new HashSet<string>(nodes.Where(node => rootIds.Contains(node.Id) && node.Behaviour != null)
+                .Select(node => node.Behaviour.Name), StringComparer.Ordinal);
+            string prefix = "Image set '" + member.SourceKey + "' has no ";
+            if (!names.Contains("Fall"))
+                yield return prefix + "Fall behaviour; arrival or a fall cannot enter it, so the companion is disposed.";
+            if (!names.Contains("Dragged"))
+                yield return prefix + "Dragged behaviour; a press that starts dragging disposes the companion.";
+            if (!names.Contains("Thrown"))
+                yield return prefix + "Thrown behaviour; releasing a dragged companion disposes it.";
+        }
+
         private static bool IsRefusal(Exception exception)
         {
-            return exception is IOException || exception is UnauthorizedAccessException || exception is ArgumentException
+            return exception is InvalidDataException || exception is IOException || exception is UnauthorizedAccessException || exception is ArgumentException
                 || exception is InvalidOperationException || exception is NotSupportedException || exception is OverflowException
                 || exception is XmlException || exception is System.Security.SecurityException
                 || exception is System.Runtime.InteropServices.ExternalException;

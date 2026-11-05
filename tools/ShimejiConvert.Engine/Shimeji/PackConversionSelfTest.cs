@@ -35,6 +35,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "unused-action-diagnostic", Run = (Action)UnusedAction },
                 new { Name = "optional-parity-map", Run = (Action)OptionalParityMap },
                 new { Name = "long-member-key", Run = (Action)LongMemberKey },
+                new { Name = "missing-img-refusal", Run = (Action)MissingImages },
+                new { Name = "empty-img-refusal", Run = (Action)EmptyImages },
+                new { Name = "invalid-data-member-refusal", Run = (Action)InvalidDataMember },
+                new { Name = "hidden-main-refusal", Run = (Action)HiddenMain },
+                new { Name = "source-hidden-main-visible", Run = (Action)SourceHiddenMain },
+                new { Name = "runtime-entry-warnings", Run = (Action)RuntimeEntryWarnings },
             };
             if (onlyCase != null && !cases.Any(c => c.Name == onlyCase))
             { detail = "pack-conversion unknown case: " + onlyCase; return false; }
@@ -364,6 +370,95 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             }
         }
 
+        private static void MissingImages()
+        {
+            using (var fixture = new Fixture()) Refused(fixture, Options(), "TICK_PACK_REFUSED: Tick pack needs an img directory");
+        }
+
+        private static void EmptyImages()
+        {
+            using (var fixture = new Fixture())
+            {
+                fixture.EmptyImages();
+                Refused(fixture, Options(), "TICK_PACK_REFUSED: Tick pack has no image-set members");
+            }
+        }
+
+        private static void InvalidDataMember()
+        {
+            using (var fixture = Single())
+            {
+                string before = fixture.Inventory(), error;
+                PackConversionResult result = PackConverter.Convert(fixture.PackRoot, Options(), XmlData.NodeCopy.Deep,
+                    root => { throw new InvalidDataException("synthetic invalid member data"); }, out error);
+                Require(result != null && !result.Accepted && error != null && error.Contains("synthetic invalid member data")
+                    && result.Members.Count == 1 && result.Members[0].Disposition == PackMemberDisposition.Refused
+                    && result.Members[0].Root == null, "InvalidDataException escaped the per-member refusal boundary");
+                Require(before == fixture.Inventory(), "invalid-data refusal changed source files");
+            }
+        }
+
+        private static void HiddenMain()
+        {
+            foreach (string key in new[] { "Alpha", ".Alpha", "unused" })
+                using (var fixture = new Fixture())
+                {
+                    fixture.Member(key, Actions(), Behaviours());
+                    fixture.Member(".Helper", Actions(), Behaviours());
+                    var options = new PackConversionOptions { MainMember = key, Members = new Dictionary<string, PackMemberOptions> {
+                        { key, new PackMemberOptions { Role = "main", Hidden = true } },
+                        { ".Helper", new PackMemberOptions { Role = "helper", Hidden = true } }
+                    } };
+                    Refused(fixture, options, "TICK_PACK_MAIN_HIDDEN");
+                }
+        }
+
+        private static void SourceHiddenMain()
+        {
+            foreach (string key in new[] { ".Alpha", "unused", "UNUSED" })
+                using (var fixture = new Fixture())
+                {
+                    fixture.Member(key, Actions(), Behaviours());
+                    fixture.Member(".Helper", Actions(), Behaviours());
+                    var options = new PackConversionOptions { MainMember = key };
+                    PackConversionResult result = Accepted(fixture, options);
+                    Require(!Member(result, key).Root.Header.Pack.Hidden && Member(result, key).Root.Header.Pack.Role == "main"
+                        && Member(result, ".Helper").Root.Header.Pack.Hidden,
+                        "source-hidden selected main stayed hidden or made another helper visible");
+                    options.Members = new Dictionary<string, PackMemberOptions> { { key, new PackMemberOptions { Hidden = false } } };
+                    Require(!Member(Accepted(fixture, options), key).Root.Header.Pack.Hidden,
+                        "an explicit visible main was refused or hidden");
+                }
+        }
+
+        private static void RuntimeEntryWarnings()
+        {
+            foreach (string missing in new[] { "Fall", "Dragged", "Thrown", "all", "none" })
+                using (var fixture = new Fixture())
+                {
+                    XDocument behaviours = Behaviours();
+                    foreach (string name in new[] { "Fall", "Dragged", "Thrown" })
+                        if (missing != "all" && missing != name)
+                            behaviours.Root.Element("BehaviorList").Add(E("Behavior", A("Name", name), A("Action", "Stand"), A("Frequency", 0)));
+                    fixture.Member("Alpha", Actions(), behaviours);
+                    fixture.Member("Beta", Actions(), Behaviours());
+                    PackConversionResult result = Accepted(fixture, Options());
+                    foreach (string name in new[] { "Fall", "Dragged", "Thrown" })
+                    {
+                        string diagnostic = "Image set 'Alpha' has no " + name + " behaviour;";
+                        bool expected = missing == "all" || missing == name;
+                        Require(result.Warnings.Any(w => w.StartsWith(diagnostic, StringComparison.Ordinal)) == expected,
+                            "runtime entry warning did not distinguish absent " + name + " from a present zero-frequency root");
+                        Require(Member(result, "Alpha").Residue.Notes.Any(w => w.StartsWith(diagnostic, StringComparison.Ordinal)) == expected,
+                            "member residue lost runtime entry warning for " + name);
+                        Require(result.Warnings.Any(w => w.StartsWith("Image set 'Beta' has no " + name + " behaviour;", StringComparison.Ordinal)),
+                            "a sibling's missing runtime entry warning was lost for " + name);
+                    }
+                    Require(result.Warnings.Where(w => w.Contains("has no ") && w.Contains(" behaviour;"))
+                        .All(w => w.Contains("dispos")), "runtime entry warning did not state the companion is disposed");
+                }
+        }
+
         private static XElement E(string name, params object[] content) { return new XElement(name, content); }
         private static XAttribute A(string name, object value) { return new XAttribute(name, value); }
         private static XElement Pose(string image, string anchor, int ticks, string right = null)
@@ -444,6 +539,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 if (path != _root && !Directory.Exists(parent)) MakeDirectory(parent);
                 Directory.CreateDirectory(path); _directories.Add(path);
             }
+            internal void EmptyImages() { MakeDirectory(Path.Combine(PackRoot, "img")); }
             internal void Member(string key, XDocument actions, XDocument behaviours)
             {
                 string member = Path.Combine(PackRoot, "img", key), conf = Path.Combine(member, "conf");
