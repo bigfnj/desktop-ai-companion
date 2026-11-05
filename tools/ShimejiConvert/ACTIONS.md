@@ -66,6 +66,8 @@ into Studio, but the import UI and its installation transaction are separate wor
 | Embedded WalkWithIE | lowered; host trace complete; oracle comparison pending | pending | S-window-carry-on-01, S-window-carry-off-01, S-window-throwing-off-01 |
 | Embedded ThrowIE | lowered; host trace complete; oracle comparison pending | pending | S-window-throw-on-01, S-window-throw-off-01 |
 | Embedded MinimizeIE | lowered; host trace complete; oracle comparison pending | pending | S-window-minimize-on-01, S-window-minimize-off-01 |
+| Animation Hotspot (shape, origin, size, behaviour) | lowered; host trace complete; oracle comparison pending | pending | S-input-hotspot-01 |
+| Literal Affordance (`<offers>`) | lowered; host trace complete; oracle comparison pending | pending | S-scan-first-01, S-scan-loss-01, S-scan-reacquire-01 |
 | Embedded Look, Turn, Offset, Mute, BringToFront, SelfDestruct, ScanJump, ComplexMove, ComplexJump, FallWithIE, JumpWithIE, Broadcast, BroadcastStay, BroadcastMove, BroadcastJump | lowered; synthetic converter checks only | pending | No directed scenario yet |
 | `${}` / `#{}` parameters and bindings | lowered; host trace complete; oracle comparison pending | pending | S-vars-cache-01 |
 | Scripted action Condition (cached parameter, guard when) | lowered; host trace complete; oracle comparison pending | pending | S-vars-transform-01 |
@@ -83,8 +85,12 @@ scripted Affordance is refused, and so is a script-shaped value in any attribute
 Every embedded class of the host's closed list is lowered, with its parameters by the names the host's family
 files read; the member declares `lifecycle`, `social` and `windows` for the classes the validator gates by
 them, and ComplexMove and ComplexJump declare theirs by their Characteristics, split on commas exactly.
+A Hotspot becomes a `<hotspot>` of its variant (Rectangle as `rect`, Ellipse as `ellipse`, any other shape
+refused; a behaviour must be a root behaviour). A literal Affordance becomes the action's `<offers>` and stays
+a parameter, which the scan classes read; an Affordance binding onto an action that offers its own literal is
+refused, since the binding could not change the offer.
 It refuses unsupported attributes and
-classes, sounds, hotspots, constants, toggles, information metadata, anonymous
+classes, sounds, constants, toggles, information metadata, anonymous
 nested actions and next references without a root definition. This first emitter refuses non-base action schemas.
 Bindings across differing document schemas are refused until target-schema resolution is implemented.
 Composite activation cycles, depth above 32 and expansion above 4096 actions are refused before output is written.

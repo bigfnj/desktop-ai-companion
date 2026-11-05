@@ -35,6 +35,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "class-broadcast", Run = (Action)ClassBroadcast },
                 new { Name = "class-complex", Run = (Action)ClassComplex },
                 new { Name = "class-windows", Run = (Action)ClassWindows },
+                new { Name = "hotspot-lowering", Run = (Action)HotspotLowering },
+                new { Name = "hotspot-refusal", Run = (Action)HotspotRefusal },
+                new { Name = "offer-lowering", Run = (Action)OfferLowering },
+                new { Name = "offer-binding-refusal", Run = (Action)OfferBindingRefusal },
                 new { Name = "mixed-pose-geometry", Run = (Action)MixedPoseGeometry },
                 new { Name = "explicit-right-geometry", Run = (Action)ExplicitRightGeometry },
                 new { Name = "pair-anchor-cache", Run = (Action)PairAnchorCache },
@@ -526,6 +530,14 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 RequireAct(document, "Huddle", "Interact", "Behavior=Idle");
                 Require(Features(document).Contains("social"), "social classes declared no social feature");
             }
+            using (var fixture = new Fixture())
+            {
+                // A social class with no Affordance, so no offer can be what declares 'social': the class must.
+                ConfigureGraph(fixture, new[] { Embedded("Huddle", "Interact", A("Behavior", "Main"), A("Duration", 6)) }, "Huddle");
+                XDocument document = fixture.Convert();
+                Validate(document, "Interact-only member");
+                Require(Features(document).Contains("social"), "an Interact-only member declared no social feature");
+            }
         }
 
         private static void ClassBroadcast()
@@ -541,6 +553,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 RequireAct(document, "CallStay", "BroadcastStay", "Affordance=Wave");
                 RequireAct(document, "CallMove", "BroadcastMove", "Affordance=Wave", "TargetX=300");
                 RequireAct(document, "CallJump", "BroadcastJump", "Affordance=Wave", "TargetY=600");
+                // The aliases offer their Affordance like any action (section 5: "Deprecated aliases").
+                foreach (string name in new[] { "Call", "CallStay", "CallMove", "CallJump" })
+                    Require((string)NamedNode(document, name).Element(Ns + "act").Elements(Ns + "offers").Elements(Ns + "offer")
+                        .Select(o => o.Attribute("value")).SingleOrDefault() == "Wave", name + " lost its offer");
             }
         }
 
@@ -588,6 +604,113 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 RequireAct(document, "Toss", "ThrowIE", "InitialVX=32", "InitialVY=-10", "Gravity=0.5");
                 RequireAct(document, "Shrink", "MinimizeIE", "Duration=6");
                 Require(Features(document).Contains("windows"), "window classes declared no windows feature");
+            }
+        }
+
+        // ---- hotspots and offers (grimoire/06 sections 3, 4.1 and 7)
+
+        private static void HotspotLowering()
+        {
+            using (var fixture = new Fixture())
+            {
+                XDocument actions = BuildActions();
+                XElement animation = actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Stand").Element("Animation");
+                // Interleaved with the poses on purpose: the format puts a variant's hotspots after its poses.
+                animation.AddFirst(S("Hotspot", A("Shape", "Rectangle"), A("Origin", "0,1"), A("Size", "4,3"), A("Behavior", "Idle")));
+                animation.Add(S("Hotspot", A("Shape", "Ellipse"), A("Origin", "-2,2"), A("Size", "3,5")));
+                fixture.Actions(actions);
+                XDocument document = fixture.Convert();
+                Validate(document, "hotspot member");
+                XElement variant = NamedNode(document, "Stand").Element(Ns + "act").Element(Ns + "variants").Element(Ns + "variant");
+                Require(variant.Elements().Last().Name == Ns + "hotspots" && variant.Elements(Ns + "pose").Count() == 4,
+                    "hotspots are not the variant's last child after its four poses");
+                XElement[] spots = variant.Element(Ns + "hotspots").Elements(Ns + "hotspot").ToArray();
+                Require(spots.Length == 2 && (string)spots[0].Attribute("origin") == "0,1" && (string)spots[0].Attribute("size") == "4,3"
+                    && (string)spots[1].Attribute("origin") == "-2,2" && (string)spots[1].Attribute("size") == "3,5",
+                    "hotspot origin or size lost");
+                Require((string)spots[0].Attribute("shape") == "rect" && (string)spots[1].Attribute("shape") == "ellipse",
+                    "hotspot shape is not the source's Rectangle or Ellipse");
+                Require((string)spots[0].Attribute("behaviour") == "Idle", "hotspot lost its behaviour");
+                Require(spots[1].Attribute("behaviour") == null, "a hotspot without a behaviour acquired one");
+                Require(Features(document).Contains("hotspots"), "hotspot member declared no hotspots feature");
+            }
+            using (var fixture = new Fixture())
+            {
+                string[] plain = Features(fixture.Convert());
+                Require(!plain.Contains("hotspots") && !plain.Contains("social"), "a member with no hotspot or offer declared hotspots or social");
+            }
+        }
+
+        // The successor of the first lowering's "only Pose is supported in an Animation": a Hotspot converts, and
+        // any other child, an unknown shape or a behaviour with no root definition still refuses.
+        private static void HotspotRefusal()
+        {
+            var inputs = new[] {
+                new { Child = S("Hotspot", A("Shape", "Circle"), A("Origin", "0,0"), A("Size", "2,2")), Expected = "TICK_HOTSPOT_SHAPE_UNSUPPORTED" },
+                new { Child = S("Hotspot", A("Shape", "Rectangle"), A("Origin", "0,0"), A("Size", "2,2"), A("Behavior", "Ghost")),
+                    Expected = "a hotspot needs a root behaviour named 'Ghost'" },
+                new { Child = S("Constant", A("Name", "k"), A("Value", "1")), Expected = "only Pose and Hotspot are supported in an Animation" },
+            };
+            foreach (var input in inputs)
+                using (var fixture = new Fixture())
+                {
+                    XDocument actions = BuildActions();
+                    actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Stand").Element("Animation").Add(input.Child);
+                    fixture.Actions(actions);
+                    Refusal(fixture, input.Expected);
+                    Require(!Directory.Exists(fixture.Output), "hotspot refusal left output: " + input.Expected);
+                }
+        }
+
+        private static void OfferLowering()
+        {
+            using (var fixture = new Fixture())
+            {
+                XDocument actions = BuildActions();
+                XElement stand = actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Stand");
+                stand.SetAttributeValue("Affordance", "Hug");
+                stand.SetAttributeValue("Condition", "${true}");
+                actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Walk").SetAttributeValue("Affordance", " ");
+                fixture.Actions(actions);
+                XDocument document = fixture.Convert();
+                Validate(document, "offer member");
+                XElement act = NamedNode(document, "Stand").Element(Ns + "act");
+                XElement[] offers = act.Elements(Ns + "offers").Elements(Ns + "offer").ToArray();
+                Require(offers.Length == 1 && (string)offers[0].Attribute("value") == "Hug", "a literal Affordance lost its offer");
+                Require(Bound(act, "param", "Affordance") == "Hug", "a literal Affordance lost the parameter the scan classes read");
+                string[] order = act.Elements().Select(e => e.Name.LocalName).ToArray();
+                Require(order.SkipWhile(n => n == "param").SequenceEqual(new[] { "guard", "offers", "variants" }),
+                    "act children leave the schema's param, guard, offers, variants order");
+                XElement walk = NamedNode(document, "Walk").Element(Ns + "act");
+                Require(walk.Element(Ns + "offers") == null && Bound(walk, "param", "Affordance") == " ",
+                    "a Java-blank Affordance wrote an offer the runtime would skip");
+                Require(Features(document).Contains("social"), "offer member declared no social feature");
+            }
+            using (var fixture = new Fixture())
+            {
+                // Onto an action without its own Affordance the runtime offers the bound parameter: no <offers>, social.
+                XDocument behaviors = BuildBehaviors();
+                behaviors.Descendants("Behavior").Single(b => (string)b.Attribute("Name") == "Idle").SetAttributeValue("Affordance", "Wave");
+                fixture.Behaviors(behaviors);
+                XDocument document = fixture.Convert();
+                Validate(document, "bound offer member");
+                Require(Bound(RootBehavior(document, "Idle").Element(Ns + "behaviour"), "bind", "Affordance") == "Wave"
+                    && NamedNode(document, "Stand").Element(Ns + "act").Element(Ns + "offers") == null,
+                    "an Affordance binding was not kept as a binding");
+                Require(Features(document).Contains("social"), "a bound Affordance declared no social feature");
+            }
+        }
+
+        private static void OfferBindingRefusal()
+        {
+            using (var fixture = new Fixture())
+            {
+                XDocument actions = BuildActions();
+                actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Walk").SetAttributeValue("Affordance", "Hug");
+                actions.Descendants("ActionReference").First().SetAttributeValue("Affordance", "Wave");
+                fixture.Actions(actions);
+                Refusal(fixture, "TICK_AFFORDANCE_BINDING Affordance");
+                Require(!Directory.Exists(fixture.Output), "Affordance binding refusal left output");
             }
         }
 

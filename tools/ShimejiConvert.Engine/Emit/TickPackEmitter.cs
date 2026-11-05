@@ -175,7 +175,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             private readonly Dictionary<string, string> _childMap = new Dictionary<string, string>(StringComparer.Ordinal);
             private int _next = 2;
             // The feature tokens the validator demands for what this member USES (grimoire/06 sections 1 and 10).
-            private bool _lifecycle, _social, _windows, _expressions, _variables;
+            private bool _lifecycle, _social, _windows, _hotspots, _expressions, _variables;
 
             public MemberBuilder(string pack, string member, ShimejiSourceConfig source)
             { _pack = pack; _member = member; _source = source; }
@@ -231,7 +231,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 byte[] png = Composite(out anchorX, out anchorY, out tilesX, out tilesY);
                 // Token order is fixed so a member that uses none of the newer extensions keeps its exact earlier bytes.
                 string features = "tick actions behaviours" + (_lifecycle ? " lifecycle" : "") + (_social ? " social" : "")
-                    + (_windows ? " windows" : "");
+                    + (_windows ? " windows" : "") + (_hotspots ? " hotspots" : "");
                 if (_expressions || _nodes.SelectMany(n => n.Descendants()).Any(n => n.Attribute("when") != null)) features += " expressions";
                 if (_variables) features += " variables";
                 // Display names have a shorter host limit than exact pack member keys.
@@ -313,12 +313,22 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     if (Array.IndexOf(ShimejiFormatValidator.WindowClasses, cls) >= 0) _windows = true;
                 }
                 else if (cls != null) Fail(source, "Class is supported only on Embedded");
-                XElement guard = null;
+                XElement guard = null, offers = null;
                 foreach (ShimejiSourceAttribute attribute in Attributes(source))
                 {
                     if (attribute.SchemaKey == "Name" || attribute.SchemaKey == "Type" || attribute.SchemaKey == "Class") continue;
                     if (!Parameters.Contains(attribute.Name)) Fail(source, "unsupported action attribute '" + attribute.QualifiedName + "'");
                     act.Add(MemberParameter("param", attribute, null, source));
+                    // grimoire/06 4.1: a literal Affordance is the action's offer, replacing the companion's offer list
+                    // at each step (ActionBase.java:88-101). The parameter stays too: the scan classes read the
+                    // affordance they seek by that name (TickSocialFamily.Affordance). A Java-blank one offers nothing
+                    // (the runtime skips it), so it writes no offer. A scripted one was refused in Parameter.
+                    if (attribute.Name == "Affordance" && !JavaBlank(attribute.RawValue))
+                    {
+                        if (attribute.RawValue.Length > 256) Fail(source, "TICK_OFFER_LIMIT: an offer is at most 256 characters");
+                        offers = E("offers", E("offer", new XAttribute("value", attribute.RawValue)));
+                        _social = true;
+                    }
                     // grimoire/06 4.1: a source Condition written with a cache wrapper is a cached parameter that the
                     // guard's when NAMES, so a ${} Condition holds its first value across both checks of a step. The
                     // runtime's guard read evaluates that name through the parameter, so its cache and its draw site
@@ -372,6 +382,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 }
                 act.Add(conditions);
                 if (guard != null) act.Add(guard);
+                if (offers != null) act.Add(offers);
                 if (composite)
                 {
                     if (!children.Elements().Any()) Fail(source, "empty composite");
@@ -454,9 +465,17 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     if (condition != null) variant.Add(new XAttribute("when", condition));
                 }
                 if (source.Attribute("IsTurn") != null) variant.Add(new XAttribute("turn", Bool(source, "IsTurn")));
+                // grimoire/06 sections 3 and 4.1: a variant's <hotspots> follow its poses (the schema's order), whatever
+                // order the source interleaves Pose and Hotspot children in.
+                var hotspots = new List<XElement>();
                 foreach (ShimejiSourceElement child in source.Children)
                 {
-                    if (child.Kind != ShimejiSourceKind.Pose) Fail(child, "only Pose is supported in an Animation");
+                    if (child.Kind == ShimejiSourceKind.Hotspot)
+                    {
+                        hotspots.Add(EmitHotspot(child));
+                        continue;
+                    }
+                    if (child.Kind != ShimejiSourceKind.Pose) Fail(child, "only Pose and Hotspot are supported in an Animation");
                     Check(child, "Image", "ImageRight", "ImageAnchor", "Velocity", "Duration");
                     int dx, dy;
                     Pair(Required(child, "Velocity"), child, out dx, out dy);
@@ -485,7 +504,41 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     variant.Add(pose);
                 }
                 if (!variant.Elements().Any()) Fail(source, "Animation has no poses");
+                if (hotspots.Count > 64) Fail(source, "TICK_HOTSPOT_LIMIT: an Animation has at most 64 hotspots in this format");
+                if (hotspots.Count > 0)
+                {
+                    variant.Add(E("hotspots", hotspots));
+                    // A composite's animations are not written (conditions is null there), so they use nothing.
+                    if (conditions != null) _hotspots = true;
+                }
                 return variant;
+            }
+
+            /// <summary>A source Hotspot (Hotspot.java): a Rectangle or an Ellipse at Origin with Size, in the image's
+            /// pixels, and the behaviour a press on it enters; without one the press is held (a head-pat).</summary>
+            private XElement EmitHotspot(ShimejiSourceElement source)
+            {
+                Check(source, "Shape", "Origin", "Size", "Behaviour");
+                string shape = Required(source, "Shape");
+                // The source's two shapes, by their exact names; any other spelling refuses rather than guesses.
+                string kind = shape == "Rectangle" ? "rect" : shape == "Ellipse" ? "ellipse" : null;
+                if (kind == null) Fail(source, "TICK_HOTSPOT_SHAPE_UNSUPPORTED: Shape '" + shape + "' is neither Rectangle nor Ellipse");
+                int x, y, width, height;
+                Pair(Required(source, "Origin"), source, out x, out y);
+                Pair(Required(source, "Size"), source, out width, out height);
+                if (new[] { x, y, width, height }.Any(v => v < -4096 || v > 4096))
+                    Fail(source, "hotspot origin or size is outside this lowering's geometry limits");
+                var hotspot = E("hotspot", new XAttribute("shape", kind),
+                    new XAttribute("origin", x.ToString(Invariant) + "," + y.ToString(Invariant)),
+                    new XAttribute("size", width.ToString(Invariant) + "," + height.ToString(Invariant)));
+                string behaviour = Value(source, "Behaviour");
+                if (behaviour != null)
+                {
+                    // Entered by name (4.3), so it must be a route behaviour, as a next reference must.
+                    if (!_roots.ContainsKey(behaviour)) Fail(source, "a hotspot needs a root behaviour named '" + behaviour + "'");
+                    hotspot.Add(new XAttribute("behaviour", behaviour));
+                }
+                return hotspot;
             }
 
             private void IndexPairAnchors(ShimejiSourceElement action)
@@ -638,6 +691,18 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     if (inherited == null || inherited.RawValue == _member) return null;
                 }
                 if (attribute.Name == "Characteristics") NoteCharacteristics(attribute, target ?? owner);
+                if (attribute.Name == "Affordance" && target != null && attribute.Cache == ShimejiSourceCache.Literal)
+                {
+                    // A bound Affordance is what the source offers (eval reads the binding), but an action with its own
+                    // literal Affordance offers that literal through <offers>, which a binding cannot change: refuse
+                    // rather than offer the wrong value. Onto an action without one, the runtime offers the bound
+                    // parameter itself (TickAction.CurrentOffers), which is the source's reading, and that is social.
+                    ShimejiSourceAttribute own = target.Attribute("Affordance");
+                    if (own != null && own.Cache == ShimejiSourceCache.Literal && !JavaBlank(own.RawValue))
+                        Fail(owner, "TICK_AFFORDANCE_BINDING " + attribute.QualifiedName
+                            + ": the bound action offers its own literal Affordance, which a binding cannot replace in this format");
+                    _social = true;
+                }
                 return Parameter(tag, attribute, owner);
             }
 
@@ -794,6 +859,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             var edge = E("next", new XAttribute("probability", weight), id);
             if (condition != null) edge.Add(new XAttribute("when", condition));
             return edge;
+        }
+        /// <summary>Java's <c>trim().length() == 0</c>: every character at or below U+0020 (TickAction.IsJavaBlank).</summary>
+        private static bool JavaBlank(string value)
+        {
+            foreach (char c in value) if (c > ' ') return false;
+            return true;
         }
         private static bool IsMemberParameter(string name)
         { return name == "BornMascot" || name == "TransformMascot"; }
