@@ -73,6 +73,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "ignored-behaviour-children", Run = (Action)IgnoredBehaviourChildren },
                 new { Name = "ignored-list-entries", Run = (Action)IgnoredListEntries },
                 new { Name = "class-on-plain-action", Run = (Action)ClassOnPlainAction },
+                new { Name = "bean-getter-scripts", Run = (Action)BeanGetterScripts },
                 new { Name = "information-lowering", Run = (Action)InformationLowering },
                 new { Name = "own-set-binding-reset", Run = (Action)OwnSetBindingReset },
                 new { Name = "japanese-schema-values", Run = (Action)JapaneseSchemaValues },
@@ -1450,6 +1451,39 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 XDocument document = fixture.Convert();
                 Validate(document, "Class on a Move member");
                 Require(document.ToString() == plain, "a Class on a non-Embedded action changed the emitted member");
+            }
+        }
+
+        // A zero-argument JavaBean getter call reads what its property does in Nashorn, so a script written with
+        // getScreen() or isLookRight() is lowered as the property form the host models; one inside a string is left
+        // alone, and a getter the host does not model still refuses under its property name.
+        private static void BeanGetterScripts()
+        {
+            using (var fixture = new Fixture())
+            {
+                XDocument actions = BuildActions();
+                XElement walk = actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Walk");
+                walk.SetAttributeValue("TargetX", "${mascot.environment.getScreen().right - 10}");
+                walk.SetAttributeValue("TargetY", "#{mascot.isLookRight() ? mascot.environment.getWorkArea().bottom : 0}");
+                actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Stand")
+                    .SetAttributeValue("Condition", "${'a.getX()' != 'b' && mascot.environment.screen.width > 0}");
+                fixture.Actions(actions);
+                XDocument document = fixture.Convert();
+                Validate(document, "bean-getter member");
+                XElement act = NamedNode(document, "Walk").Element(Ns + "act");
+                Require(Scripted(act, "param", "TargetX", "action") == "mascot.environment.screen.right - 10"
+                    && Scripted(act, "param", "TargetY", "frame") == "mascot.lookRight ? mascot.environment.workArea.bottom : 0",
+                    "a JavaBean getter call was not written as its property");
+                Require(Scripted(NamedNode(document, "Stand").Element(Ns + "act"), "param", "Condition", "action")
+                    == "'a.getX()' != 'b' && mascot.environment.screen.width > 0", "a getter call inside a string literal was rewritten");
+            }
+            using (var fixture = new Fixture())
+            {
+                XDocument actions = BuildActions();
+                actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Walk")
+                    .SetAttributeValue("TargetX", "${mascot.getManager().count}");
+                fixture.Actions(actions);
+                Refusal(fixture, "TICK_EXPRESSION_UNSUPPORTED TargetX");
             }
         }
 

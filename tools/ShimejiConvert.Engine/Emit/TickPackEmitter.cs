@@ -1067,12 +1067,13 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             {
                 DesktopAICompanion.ScriptProgram program;
                 string error;
-                bool parsed = DesktopAICompanion.SafeScript.TryParse(attribute.Expression, scope, out program, out error);
+                string body = BeanProperties(attribute.Expression);
+                bool parsed = DesktopAICompanion.SafeScript.TryParse(body, scope, out program, out error);
                 if (!parsed) Fail(owner, "TICK_EXPRESSION_UNSUPPORTED " + attribute.QualifiedName + ": " + error);
                 _expressions = true;
                 // The validator demands 'variables' of an expression its parser finds reading or writing them.
                 if (program != null && program.UsesVariables) _variables = true;
-                return attribute.Expression;
+                return body;
             }
 
             /// <summary>A Behavior, BehaviorReference, Condition or Animation selection condition: a literal boolean as
@@ -1245,6 +1246,46 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         {
             // Nothing on a configuration root is read: not its attributes, not its text.
         }
+        // A member call with no arguments to a JavaBean getter: ".getScreen()", ".isLookRight()".
+        private static readonly Regex BeanGetter = new Regex(@"\.\s*(?:get|is)([A-Z][A-Za-z0-9_]*)\s*\(\s*\)");
+
+        /// <summary>
+        /// A script with each zero-argument JavaBean getter call written as the property it reads, outside string
+        /// literals: "mascot.environment.getScreen().bottom" is "mascot.environment.screen.bottom". Nashorn's bean
+        /// linkage evaluates both forms with the same call (a property of a Java object is its getX or isX method), and
+        /// the host's object model is that bean surface (grimoire/06 section 6), so the two read the same value. The
+        /// property is spelt as java.beans.Introspector.decapitalize spells it ("getIE" is "IE"). A getter the host does
+        /// not model is still refused by the grammar, under its property name. A script with no such call is unchanged.
+        /// </summary>
+        private static string BeanProperties(string script)
+        {
+            var result = new StringBuilder(script.Length);
+            int start = 0;
+            for (int i = 0; i <= script.Length; i++)
+            {
+                bool end = i == script.Length;
+                char c = end ? '\0' : script[i];
+                if (end || c == '\'' || c == '"')
+                {
+                    result.Append(BeanGetter.Replace(script.Substring(start, i - start), m => "." + Decapitalize(m.Groups[1].Value)));
+                    if (end) break;
+                    int close = i + 1;
+                    while (close < script.Length && script[close] != c) close += script[close] == '\\' ? 2 : 1;
+                    close = Math.Min(close + 1, script.Length);
+                    result.Append(script, i, close - i);
+                    i = close - 1;
+                    start = close;
+                }
+            }
+            return result.ToString();
+        }
+
+        private static string Decapitalize(string name)
+        {
+            if (name.Length > 1 && char.IsUpper(name[0]) && char.IsUpper(name[1])) return name;
+            return char.ToLowerInvariant(name[0]) + name.Substring(1);
+        }
+
         // A name a script can read: an ASCII identifier, as the host's grammar reads one; and one inside a script.
         private static readonly Regex ScriptToken = new Regex(@"[A-Za-z_$][A-Za-z0-9_$]*");
         private static readonly Regex Identifier = new Regex(@"^[A-Za-z_$][A-Za-z0-9_$]*$");
