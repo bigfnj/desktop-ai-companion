@@ -1,0 +1,19 @@
+{
+  "schema": "oracle-vocabulary-hashes/1",
+  "sourceZipSha256": "cf9e72f74d93f45e9f70a4f69cb1e56ffaedd38af2c5e5413482944f78faccff",
+  "canonicalization": "ordinal key + NUL + read name + LF, UTF-8 without BOM",
+  "vocabularies": {
+    "base": {
+      "pairs": 93,
+      "sha256": "59b189f310abb4b4d5b223db991545d86a98bc7a750cc12bbb57899173bf2093"
+    },
+    "japaneseOverrides": {
+      "pairs": 57,
+      "sha256": "d6bc13b8613386a2621b7b15811d7a461667b2cabe40de3bbc68e2d1aa7a0185"
+    },
+    "japaneseResolved": {
+      "pairs": 95,
+      "sha256": "f3b77543d1cb4ec3aad23d806fe09ee2c47e98bb34a8de53641d5c52e1084208"
+    }
+  }
+}
