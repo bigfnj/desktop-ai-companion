@@ -95,6 +95,10 @@ namespace DesktopAICompanion.Shimeji
         private readonly TickArea _activeWindow = new TickArea { Visible = false };
         private int _cursorX, _cursorY, _cursorDx, _cursorDy;
         private TickPoint _target;
+        private readonly List<TickInput> _inputs = new List<TickInput>();
+        private string _held;   // the companion holding a left press, which receives the pointer's moves
+
+        public IReadOnlyList<TickInput> Inputs { get { return _inputs; } }
 
         public ParityEnvironment(JsonElement scenario)
         {
@@ -136,10 +140,29 @@ namespace DesktopAICompanion.Shimeji
                     _target = new TickPoint(c[0].GetInt32(), c[1].GetInt32());
             }
             // Location.set, integer division truncating toward zero as Java's.
+            bool moved = _target.X != _cursorX || _target.Y != _cursorY;
             _cursorDx = (_cursorDx + _target.X - _cursorX) / 2;
             _cursorDy = (_cursorDy + _target.Y - _cursorY) / 2;
             _cursorX = _target.X;
             _cursorY = _target.Y;
+
+            // Button edges for named companions (CONTRACT section 1). The pointer's move reaches the held companion
+            // first, then this tick's edges in scenario order; a click is a press then a release.
+            _inputs.Clear();
+            var at = new TickPoint(_cursorX, _cursorY);
+            if (moved && _held != null) _inputs.Add(new TickInput(TickInputKind.Move, _held, at));
+            foreach (KeyValuePair<int, JsonElement> entry in _input)
+            {
+                if (entry.Key != tick) continue;
+                JsonElement sidEl, b;
+                string sid = entry.Value.TryGetProperty("sid", out sidEl) ? sidEl.GetString() : null;
+                if (sid == null) continue;
+                bool press = entry.Value.TryGetProperty("press", out b) && b.GetString() == "left";
+                bool release = entry.Value.TryGetProperty("release", out b) && b.GetString() == "left";
+                if (entry.Value.TryGetProperty("click", out b) && b.GetString() == "left") press = release = true;
+                if (press) { _inputs.Add(new TickInput(TickInputKind.Press, sid, at)); _held = sid; }
+                if (release) { _inputs.Add(new TickInput(TickInputKind.Release, sid, at)); _held = null; }
+            }
             _workAreaArea.Set(_workArea[0], _workArea[1], _workArea[2], _workArea[3]);
             JsonElement window = default(JsonElement);
             bool any = false;

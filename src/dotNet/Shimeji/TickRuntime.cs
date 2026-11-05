@@ -381,9 +381,16 @@ namespace DesktopAICompanion.Shimeji
             return one.Length > 0 ? new[] { one } : new string[0];
         }
 
+        /// <summary>ActionBase.refreshHotspots: the current variant's hotspots. The source reads getAnimation() twice
+        /// here (the null test and the loop), and a variant condition is evaluated each time; kept.</summary>
         protected virtual void RefreshHotspots()
         {
             Mascot.Hotspots.Clear();
+            if (CurrentVariant() != null)
+            {
+                TickVariantDef v = CurrentVariant();
+                if (v != null) Mascot.Hotspots.AddRange(v.Hotspots);
+            }
         }
 
         /// <summary>ActionBase.getAnimation: the first variant whose condition holds.</summary>
@@ -848,8 +855,25 @@ namespace DesktopAICompanion.Shimeji
             {
                 if (Action.HasNext()) Action.Next();
 
-                // Hotspot input arrives with the input lane; until then nothing is ever held.
+                // While a hotspot is held (UserBehavior.next 211-247): the first hotspot containing the held point keeps
+                // the hold, and one with a behaviour enters it again, every step; none containing it ends the hold.
                 bool hotspotEntered = false;
+                if (_mascot.IsHotspotClicked)
+                {
+                    bool active = false;
+                    foreach (TickHotspotDef h in _mascot.Hotspots)
+                    {
+                        if (!h.Contains(_mascot.CursorPosition.Value, _mascot.LookRight, _mascot.Bounds.Width)) continue;
+                        active = true;
+                        if (h.Behaviour != null)
+                        {
+                            hotspotEntered = true;
+                            _mascot.SetBehaviour(_world.BuildBehaviourByName(Type, h.Behaviour, _mascot), "forced");
+                        }
+                        break;
+                    }
+                    if (!active) _mascot.CursorPosition = null;
+                }
 
                 if (!hotspotEntered)
                 {
@@ -871,6 +895,36 @@ namespace DesktopAICompanion.Shimeji
             {
                 _mascot.Dragging = false;
                 _mascot.SetBehaviour(_world.BuildBehaviourByName(Type, "Fall"), "forced");
+            }
+        }
+
+        /// <summary>UserBehavior.mousePressed (left button): a containing hotspot whose behaviour is enabled takes the
+        /// press and is held; else an action that refuses dragging takes it; else the companion is dragged.</summary>
+        public void MousePressed(TickPoint local)
+        {
+            bool handled = false;
+            foreach (TickHotspotDef h in _mascot.Hotspots)
+            {
+                if (!h.Contains(local, _mascot.LookRight, _mascot.Bounds.Width) || !_world.IsBehaviourEnabledByName(_mascot.Type, h.Behaviour, _mascot))
+                    continue;
+                handled = true;
+                _mascot.CursorPosition = local;
+                if (h.Behaviour != null) _mascot.SetBehaviour(_world.BuildBehaviourByName(Type, h.Behaviour, _mascot), "forced");
+                break;
+            }
+            if (!handled) handled = !Action.IsDraggable();
+            if (!handled) _mascot.SetBehaviour(_world.BuildBehaviourByName(Type, "Dragged"), "forced");
+        }
+
+        /// <summary>UserBehavior.mouseReleased (left button): a held hotspot lets go; a companion being dragged is
+        /// thrown. A press and release in one step, before any action set the dragging flag, throws nothing.</summary>
+        public void MouseReleased()
+        {
+            if (_mascot.IsHotspotClicked) _mascot.CursorPosition = null;
+            if (_mascot.Dragging)
+            {
+                _mascot.Dragging = false;
+                _mascot.SetBehaviour(_world.BuildBehaviourByName(Type, "Thrown"), "forced");
             }
         }
 
@@ -909,7 +963,12 @@ namespace DesktopAICompanion.Shimeji
         public bool InManager;
         public TickBehaviour Behaviour;
         public readonly List<string> Affordances = new List<string>();
-        public readonly List<object> Hotspots = new List<object>();
+        public readonly List<TickHotspotDef> Hotspots = new List<TickHotspotDef>();
+
+        /// <summary>Where a held hotspot press is, in window-local pixels (Mascot.cursorPosition); null when no hotspot
+        /// is held.</summary>
+        public TickPoint? CursorPosition;
+        public bool IsHotspotClicked { get { return CursorPosition.HasValue; } }
         public readonly Dictionary<string, ScriptValue> Variables = new Dictionary<string, ScriptValue>(StringComparer.Ordinal);
         public readonly TickMascotEnvironment Environment;
         public int Births;
@@ -1002,6 +1061,13 @@ namespace DesktopAICompanion.Shimeji
                 Dispose("error");
             }
             Time++;
+        }
+
+        /// <summary>A screen point as the window-local point a MouseEvent on this companion's window carries: relative
+        /// to where the window was last placed.</summary>
+        public TickPoint ToWindowLocal(TickPoint screen)
+        {
+            return new TickPoint(screen.X - _lastWindowBounds.X, screen.Y - _lastWindowBounds.Y);
         }
 
         /// <summary>Mascot.apply: show the image, or hide the window for an image-less pose.</summary>
@@ -1118,6 +1184,7 @@ namespace DesktopAICompanion.Shimeji
         {
             Step++;
             Environment.Tick(Step);
+            DispatchInputs();
             foreach (TickMascot m in _added)
             {
                 _mascots.Add(m);
@@ -1131,6 +1198,54 @@ namespace DesktopAICompanion.Shimeji
             _removed.Clear();
             for (int i = 0; i < _mascots.Count; i++) _mascots[i].Tick();
             for (int i = 0; i < _mascots.Count; i++) _mascots[i].Apply();
+        }
+
+        // ---- input (Mascot.mousePressed / mouseReleased / mouseDragged, delivered to one companion's window)
+
+        private void DispatchInputs()
+        {
+            foreach (TickInput input in Environment.Inputs)
+            {
+                TickMascot m = null;
+                foreach (TickMascot active in _mascots)
+                    if (active.Sid == input.Sid) { m = active; break; }
+                if (m == null) continue;   // a pending or removed companion has no window to receive it
+                TickPoint local = m.ToWindowLocal(input.Screen);
+                switch (input.Kind)
+                {
+                    case TickInputKind.Press: Press(m, local); break;
+                    case TickInputKind.Release: Release(m); break;
+                    case TickInputKind.Move: MovePointer(m, local); break;
+                }
+            }
+        }
+
+        public void Press(TickMascot mascot, TickPoint local)
+        {
+            if (!mascot.Animating || mascot.Behaviour == null) return;
+            try { mascot.Behaviour.MousePressed(local); }
+            catch (TickCantBeAliveException e) { ReportFault(mascot, e.Message); mascot.Dispose("error"); }
+        }
+
+        public void Release(TickMascot mascot)
+        {
+            if (!mascot.Animating || mascot.Behaviour == null) return;
+            try { mascot.Behaviour.MouseReleased(); }
+            catch (TickCantBeAliveException e) { ReportFault(mascot, e.Message); mascot.Dispose("error"); }
+        }
+
+        /// <summary>Mascot's mouse-motion listener: while a hotspot is held, the held point follows the pointer.</summary>
+        public void MovePointer(TickMascot mascot, TickPoint local)
+        {
+            if (mascot.IsHotspotClicked) mascot.CursorPosition = local;
+        }
+
+        /// <summary>Configuration.isBehaviorEnabled(name, mascot): no name, or no such behaviour, is not enabled.</summary>
+        public bool IsBehaviourEnabledByName(TickType type, string name, TickMascot mascot)
+        {
+            TickBehaviourDef def;
+            if (name == null || !type.RootByName.TryGetValue(name, out def)) return false;
+            return Settings.IsBehaviourEnabled(def, mascot.Type.Name);
         }
 
         public double Draw(TickMascot mascot, string site, string purpose)

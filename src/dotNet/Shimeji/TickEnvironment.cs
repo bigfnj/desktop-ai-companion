@@ -174,6 +174,29 @@ namespace DesktopAICompanion.Shimeji
 
         TickPoint Cursor { get; }
         TickPoint CursorDelta { get; }
+
+        /// <summary>This tick's left-button edges and held-pointer moves, each addressed to the companion whose window
+        /// receives it, in order. A parity run takes them from the scenario; the real desktop delivers window events
+        /// through the window layer instead, and reports none here.</summary>
+        IReadOnlyList<TickInput> Inputs { get; }
+    }
+
+    internal enum TickInputKind { Press, Release, Move }
+
+    /// <summary>One pointer event for one companion's window, at a screen point (the window layer converts it to the
+    /// window-local point the source's MouseEvent carries).</summary>
+    internal struct TickInput
+    {
+        public TickInputKind Kind;
+        public string Sid;
+        public TickPoint Screen;
+
+        public TickInput(TickInputKind kind, string sid, TickPoint screen)
+        {
+            Kind = kind;
+            Sid = sid;
+            Screen = screen;
+        }
     }
 
     /// <summary>

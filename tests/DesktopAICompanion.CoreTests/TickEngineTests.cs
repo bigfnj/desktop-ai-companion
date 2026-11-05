@@ -18,10 +18,17 @@ namespace DesktopAICompanion
             private readonly TickArea _screen = new TickArea(), _work = new TickArea(), _window = new TickArea { Visible = false };
             private readonly List<TickArea> _screens = new List<TickArea>();
             public TickDesk() { _screens.Add(_screen); }
+
+            /// <summary>Pointer events to deliver, by the tick they arrive at.</summary>
+            public readonly Dictionary<int, List<TickInput>> Script = new Dictionary<int, List<TickInput>>();
+            private List<TickInput> _now = new List<TickInput>();
+            public IReadOnlyList<TickInput> Inputs { get { return _now; } }
+
             public void Tick(int tick)
             {
                 _screen.Set(0, 0, 1280, 720);
                 _work.Set(0, 0, 1280, 680);
+                if (!Script.TryGetValue(tick, out _now)) _now = new List<TickInput>();
             }
             public TickArea Screen { get { return _screen; } }
             public TickArea WorkArea { get { return _work; } }

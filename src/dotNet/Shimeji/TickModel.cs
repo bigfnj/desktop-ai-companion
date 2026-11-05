@@ -36,12 +36,39 @@ namespace DesktopAICompanion.Shimeji
         public string Sound;
     }
 
+    /// <summary>
+    /// A clickable region of a variant (hotspot/Hotspot.java): a rectangle or an ellipse in window-local pixels, and the
+    /// behaviour a press on it enters (none: the press is not taken, and becomes a drag).
+    /// </summary>
+    internal sealed class TickHotspotDef
+    {
+        public bool Ellipse;
+        public int X, Y, Width, Height;
+        public string Behaviour;
+
+        /// <summary>Hotspot.contains: a right-facing companion's point is mirrored as width - x (not width - 1 - x);
+        /// a rectangle holds its left and top edges but not its right and bottom (java.awt.Rectangle); an ellipse uses
+        /// Ellipse2D's strict normalised test.</summary>
+        public bool Contains(TickPoint point, bool lookRight, int windowWidth)
+        {
+            int px = lookRight ? windowWidth - point.X : point.X;
+            int py = point.Y;
+            if (!Ellipse)
+                return Width > 0 && Height > 0 && px >= X && py >= Y && px < X + Width && py < Y + Height;
+            if (Width <= 0 || Height <= 0) return false;
+            double nx = (px - (double)X) / Width - 0.5;
+            double ny = (py - (double)Y) / Height - 0.5;
+            return nx * nx + ny * ny < 0.25;
+        }
+    }
+
     internal sealed class TickVariantDef
     {
         public ScriptProgram When;   // null = always
         public bool Turn;
         public TickPoseDef[] Poses;
         public int Duration;
+        public TickHotspotDef[] Hotspots = new TickHotspotDef[0];
 
         /// <summary>Animation.getPoseAt: the pose for an action age, by age modulo the summed durations.</summary>
         public TickPoseDef PoseAt(int time)
@@ -244,6 +271,22 @@ namespace DesktopAICompanion.Shimeji
                 {
                     if (v == null) continue;
                     var def = new TickVariantDef { When = Parse(v.When), Turn = v.TurnSpecified && v.Turn };
+                    if (v.Hotspots != null && v.Hotspots.Hotspot != null)
+                    {
+                        var spots = new List<TickHotspotDef>();
+                        foreach (XmlData.HotspotNode h in v.Hotspots.Hotspot)
+                        {
+                            if (h == null) continue;
+                            int[] origin = ParsePair(h.Origin), size = ParsePair(h.Size);
+                            spots.Add(new TickHotspotDef
+                            {
+                                Ellipse = string.Equals(h.Shape, "ellipse", StringComparison.Ordinal),
+                                X = origin[0], Y = origin[1], Width = size[0], Height = size[1],
+                                Behaviour = string.IsNullOrEmpty(h.Behaviour) ? null : h.Behaviour,
+                            });
+                        }
+                        def.Hotspots = spots.ToArray();
+                    }
                     var poses = new List<TickPoseDef>();
                     foreach (XmlData.PoseNode p in v.Pose)
                     {
@@ -311,6 +354,16 @@ namespace DesktopAICompanion.Shimeji
                     throw new InvalidOperationException("node " + a.Id + " has an edge to " + n.Value + ", which is not a behaviour");
                 yield return new TickEdgeDef { Target = target, Weight = n.Probability, When = Parse(n.When) };
             }
+        }
+
+        private static int[] ParsePair(string value)
+        {
+            string[] parts = (value ?? "").Split(',');
+            int x, y;
+            if (parts.Length != 2 || !int.TryParse(parts[0].Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out x)
+                || !int.TryParse(parts[1].Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out y))
+                throw new InvalidOperationException("a hotspot pair the validator should have refused: '" + value + "'");
+            return new[] { x, y };
         }
 
         private static TickParamDef CompileValue(string name, string value, string cache)

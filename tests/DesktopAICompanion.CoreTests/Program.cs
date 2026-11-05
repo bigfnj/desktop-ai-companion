@@ -88,6 +88,8 @@ namespace DesktopAICompanion
                 Run("Tick instant Look and Offset apply at initialisation", TestTickLookAndOffset);
                 Run("Tick instant Mute and BringToFront", TestTickMuteAndFront);
                 Run("Tick SelfDestruct disposes on its penultimate tick", TestTickSelfDestruct);
+                Run("Tick input press drags, release throws only a dragged companion", TestTickInputDrag);
+                Run("Tick input hotspots hold, re-enter and mirror", TestTickInputHotspot);
             }
             finally
             {
