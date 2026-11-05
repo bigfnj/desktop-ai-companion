@@ -320,18 +320,27 @@ namespace DesktopAICompanion.Shimeji
 
         public bool Get(string setting, string imageSet)
         {
+            // The source's defaults: everything on except Multiscreen, which a scenario always states.
+            return Stated(setting, imageSet) ?? !string.Equals(setting, "Multiscreen", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>The scenario's value for a setting, per type first, then global; null when it does not say.</summary>
+        internal bool? Stated(string setting, string imageSet)
+        {
             Dictionary<string, bool> d;
             bool v;
             if (imageSet != null && _perType.TryGetValue(imageSet, out d) && d.TryGetValue(setting, out v)) return v;
             if (_global.TryGetValue(setting, out v)) return v;
-            // The source's defaults: everything on except Multiscreen, which a scenario always states.
-            return !string.Equals(setting, "Multiscreen", StringComparison.OrdinalIgnoreCase);
+            return null;
         }
 
+        /// <summary>A toggleable behaviour: the scenario's value, else the toggle's header default, as the host's settings
+        /// read it (TickTypeSwitches.IsBehaviourEnabled). A converted pack's toggles carry no default and are on; a
+        /// hand-written one may default off, and the two runtimes must then agree.</summary>
         public bool IsBehaviourEnabled(TickBehaviourDef behaviour, string imageSet)
         {
             if (string.IsNullOrEmpty(behaviour.Toggle)) return true;
-            return Get("behaviour:" + behaviour.Toggle, imageSet);
+            return Stated("behaviour:" + behaviour.Toggle, imageSet) ?? behaviour.ToggleDefault;
         }
 
         private static void Read(JsonElement e, Dictionary<string, bool> into)

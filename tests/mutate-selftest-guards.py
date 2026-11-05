@@ -17207,6 +17207,14 @@ CASES = (
      b'            Border = null; if (type == "Ceiling") Border = Mascot.Environment.GetCeiling();\n',
      CORETESTS_CSPROJ, CORETESTS_DLL,
      CORETESTS, None, 'Tick bordered action: a re-init whose scripted BorderType turns blank keeps the border it had'),
+    # A parity run's toggles read the header default when the scenario does not state them, as the host's do.
+    ('shimeji-host: a parity run reads an unstated toggle as on',
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            return Stated("behaviour:" + behaviour.Toggle, imageSet) ?? behaviour.ToggleDefault;\n',
+     b'            return Get("behaviour:" + behaviour.Toggle, imageSet);\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity settings: a toggle the scenario does not state reads its header default'),
     # ---- lane feature/shimeji-host-motion ----
     # The motion family of embedded classes (src/dotNet/Shimeji/TickMotionFamily.cs) and the engine hooks it added: each
     # case puts back one wrong reading of the official runtime and must fail the CoreTests group that pins it.

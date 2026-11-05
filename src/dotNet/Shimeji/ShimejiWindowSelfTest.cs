@@ -173,6 +173,7 @@ namespace DesktopAICompanion.Shimeji
                 CheckPoseGeometry(check, log);
                 CheckParityGeometry(check);
                 CheckParityHiddenTrace(check, log);
+                CheckParitySettings(check);
             }
             catch (Exception e)
             {
@@ -637,6 +638,23 @@ namespace DesktopAICompanion.Shimeji
                 if (host != null) host.Dispose();
                 if (sprites != null) sprites.Dispose();
             }
+        }
+
+        /// <summary>A parity run's behaviour toggles read as the host's do: the scenario's value, else the toggle's header
+        /// default (TickTypeSwitches.IsBehaviourEnabled). They once read every unstated toggle as on.</summary>
+        private static void CheckParitySettings(Action<bool, string> check)
+        {
+            Func<string, ParitySettings> parse = json =>
+            {
+                using (System.Text.Json.JsonDocument doc = System.Text.Json.JsonDocument.Parse(json)) return new ParitySettings(doc.RootElement);
+            };
+            var offByDefault = new TickBehaviourDef { Name = "Wave", Toggle = "waves", ToggleDefault = false };
+            var onByDefault = new TickBehaviourDef { Name = "Wave", Toggle = "waves" };
+            ParitySettings unstated = parse("{}");
+            ParitySettings stated = parse("{\"settings\":{\"behaviour:waves\":true}}");
+            check(!unstated.IsBehaviourEnabled(offByDefault, "Alpha") && unstated.IsBehaviourEnabled(onByDefault, "Alpha")
+                  && stated.IsBehaviourEnabled(offByDefault, "Alpha"),
+                "parity settings: a toggle the scenario does not state reads its header default, and a stated one wins");
         }
 
         private static void CheckParityGeometry(Action<bool, string> check)
