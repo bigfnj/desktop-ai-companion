@@ -1414,15 +1414,19 @@ CASES = (
         b"            return _timeline != null ? _timeline.Resync(true) : 0;",
         "a rejected re-parse does not resync the timeline",
     ),
+    # Re-pointed 2026-11-05 by lane feature/studio-packs: Studio 1.2.0 put `_tickClock = report.IsTickClock;` first in
+    # the valid branch, so the old bytes matched nothing and the case was a NO-OP. Same intent, current bytes.
     (
         "RenderMap clears the last accepted graph for a rejected report again",
         PETSTUDIO_WINDOW,
         b"            if (report.IsValid)\n"
         b"            {\n"
+        b"                _tickClock = report.IsTickClock;\n"
         b"                _nodesById.Clear();\n",
         b"            _nodesById.Clear();\n"
         b"            if (report.IsValid)\n"
-        b"            {\n",
+        b"            {\n"
+        b"                _tickClock = report.IsTickClock;\n",
         "a rejected re-parse does not resync the timeline",
     ),
     # RA-140: a close overtakes the analysis in flight and refuses what lands afterwards. One mutant drops the
@@ -3833,6 +3837,32 @@ CASES = (
         b"            return a != null && a.StopModuleOwned(owner);\n",
         b"            return a != null && a.StopOwned(owner);\n",
         "shimeji-host-runtime: a module's StopSound reaches",
+    ),
+    # ---- lane feature/studio-packs ----
+    # Companion Studio 1.3.0's pack conversion comes back onto the UI thread: the same call, made inline, with an
+    # await kept so ImportPackAsync still compiles as async.
+    (
+        "studio-packs: the pack converts on the UI thread",
+        PETSTUDIO_WINDOW,
+        b"            PackConversionResult result = await Task.Run(delegate\n"
+        b"            {\n"
+        b"                string r;\n"
+        b"                PackConversionResult converted = PackImport.ConvertGuarded(packRoot, options, PackImport.ConvertWithEngine, out r);\n"
+        b"                refusal = r;\n"
+        b"                return converted;\n"
+        b"            });\n",
+        b"            string r;\n"
+        b"            PackConversionResult converted = PackImport.ConvertGuarded(packRoot, options, PackImport.ConvertWithEngine, out r);\n"
+        b"            refusal = r;\n"
+        b"            PackConversionResult result = await Task.FromResult(converted);\n",
+        "studio-packs: the pack is listed and converted on a pool thread",
+    ),
+    (
+        "studio-packs: the window calls ConvertPack directly, past the guard",
+        PETSTUDIO_WINDOW,
+        b"                PackConversionResult converted = PackImport.ConvertGuarded(packRoot, options, PackImport.ConvertWithEngine, out r);\n",
+        b"                PackConversionResult converted = ShimejiEngine.ConvertPack(packRoot, options, out r);\n",
+        "studio-packs: the pack is listed and converted on a pool thread",
     ),
 )
 

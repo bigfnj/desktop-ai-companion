@@ -5392,6 +5392,26 @@ Assert-True ('a.StopModuleOwned(owner)' -cmatch '\.StopModuleOwned\(owner\)' -an
 Assert-True ($shrStop -cmatch '\.StopModuleOwned\(owner\)' -and $shrStop -cnotmatch '\.StopOwned\(') (
     "shimeji-host-runtime: a module's StopSound reaches the audio output only through StopModuleOwned")
 
+# ---- lane feature/studio-packs ----
+# Companion Studio 1.3.0 converts a whole Shimeji pack: every member's sprites decoded and composited, seconds of work,
+# so it runs on a pool thread like the single-skin conversion pinned near the top of this file. Thread placement is
+# dispatcher ordering no headless self-test can force, so the SHAPE is asserted on comment-stripped source: the member
+# listing and PackImport.ConvertGuarded (the one route to ShimejiEngine.ConvertPack) are each called inside an awaited
+# Task.Run in ImportPackAsync, ConvertGuarded once in the window, and the window never calls ConvertPack itself.
+$spImportCode = Remove-LineComments (Get-Content -LiteralPath (
+    Join-Path $repoRoot 'modules\PetStudio\PackImport.cs') -Raw)
+$spPackBody = Get-MethodBody $petStudioWindowCode 'private async Task ImportPackAsync(string root, DetectedSkin main)' `
+    @("`n        private ", "`n        internal ")
+Assert-True ($spPackBody.Length -gt 0 -and $spImportCode.Length -gt 0) 'studio-packs: ImportPackAsync and PackImport.cs could be sliced out for inspection'
+Assert-True ([regex]::Matches($spImportCode, 'ShimejiEngine\.ConvertPack\(').Count -eq 1) (
+    'studio-packs: WITNESS the ConvertPack pattern finds the one call, in PackImport.cs')
+Assert-True (
+    ([regex]::Matches($petStudioWindowCode, 'ShimejiEngine\.ConvertPack\(').Count -eq 0) -and
+    ([regex]::Matches($petStudioWindowCode, 'PackImport\.ConvertGuarded\(').Count -eq 1) -and
+    ($spPackBody -cmatch '(?s)await Task\.Run\(delegate\s*\{[^}]*PackImport\.ConvertGuarded\(packRoot, options, PackImport\.ConvertWithEngine, out r\);') -and
+    ($spPackBody -cmatch 'await Task\.Run\(delegate \{ return PackImport\.ListMemberKeys\(packRoot\); \}\)')
+) 'studio-packs: the pack is listed and converted on a pool thread: ConvertGuarded is called once in the window, inside the awaited Task.Run, and the window never calls ConvertPack itself'
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever

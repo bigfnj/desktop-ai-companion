@@ -28,7 +28,8 @@ namespace DesktopAICompanion
             supported.Add(Expressions);
             supported.Add(Lifecycle);
             // A single pack member opens, previews (in its own preview scope) and installs like any companion; its
-            // references to other members are reported by the analysis. Importing a whole pack is a later Studio step.
+            // references to other members are reported by the analysis. A whole pack is imported and installed through
+            // PackImport.cs (1.3.0).
             supported.Add(Packs);
             supported.Add(Social);
             supported.Add(Windows);

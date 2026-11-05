@@ -38,20 +38,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             SafeEntry(outDir);
             if (Directory.Exists(outDir) || File.Exists(outDir))
                 throw new InvalidDataException("TICK_OUTPUT_EXISTS: choose a new output directory.");
-            string images = Path.Combine(packRoot, "img");
-            SafeEntry(images);
-            if (!Directory.Exists(images)) throw new InvalidDataException("Tick pack needs an img directory.");
-            string[] members = Directory.GetDirectories(images);
-            Array.Sort(members, StringComparer.Ordinal);
-            if (members.Length == 0) throw new InvalidDataException("Tick pack has no image-set members.");
-            var prepared = new List<MemberOutput>();
-            foreach (string memberPath in members)
-            {
-                SafeEntry(memberPath);
-                string member = Path.GetFileName(memberPath);
-                ShimejiSourceConfig source = ShimejiParser.ParseSourcePack(packRoot, member);
-                prepared.Add(new MemberBuilder(packRoot, member, source).Build());
-            }
+            List<PreparedMember> prepared = PrepareMembers(packRoot, false);
             if (mainMember != null && !prepared.Any(m => m.Name == mainMember))
                 throw new InvalidDataException("TICK_PACK_MAIN_UNKNOWN: the requested main image set is not in this pack.");
             if (prepared.Any(m => m.CrossMember) || mainMember != null || prepared.Any(m => HiddenInSourceChooser(m.Name)))
@@ -59,9 +46,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 if (mainMember == null)
                     throw new InvalidDataException("TICK_PACK_MAIN_REQUIRED: provide the main image set for pack output.");
                 // Output formatting and converter changes must not change a source pack's identity.
-                string packId = "shimeji-" + Hash(Encoding.UTF8.GetBytes("shimeji-source-pack/1\n"
-                    + string.Join("\n", prepared.Select(m => m.Name + "\n" + m.SourceIdentity)))).Substring(0, 24);
-                foreach (MemberOutput member in prepared)
+                string packId = SourcePackId(prepared);
+                foreach (PreparedMember member in prepared)
                 {
                     XDocument document = XDocument.Parse(member.Xml);
                     XElement header = document.Root.Element(Ns + "header");
@@ -78,7 +64,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             }
             // Prepare every member before writing, so an unsupported input does not leave half a pack.
             var paths = new List<string>();
-            foreach (MemberOutput member in prepared)
+            foreach (PreparedMember member in prepared)
             {
                 string directory = Path.Combine(outDir, member.Name);
                 SafeEntry(directory);
@@ -93,13 +79,53 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             return paths.AsReadOnly();
         }
 
-        private static bool HiddenInSourceChooser(string name)
+        internal static List<PreparedMember> PrepareMembers(string packRoot, bool captureRefusals)
+        {
+            packRoot = Path.GetFullPath(packRoot ?? throw new ArgumentNullException("packRoot"));
+            SafeEntry(packRoot);
+            string images = Path.Combine(packRoot, "img");
+            SafeEntry(images);
+            if (!Directory.Exists(images)) throw new InvalidDataException("Tick pack needs an img directory.");
+            string[] members = Directory.GetDirectories(images);
+            Array.Sort(members, StringComparer.Ordinal);
+            if (members.Length == 0) throw new InvalidDataException("Tick pack has no image-set members.");
+            var prepared = new List<PreparedMember>();
+            foreach (string memberPath in members)
+            {
+                string member = Path.GetFileName(memberPath);
+                try
+                {
+                    SafeEntry(memberPath);
+                    ShimejiSourceConfig source = ShimejiParser.ParseSourcePack(packRoot, member);
+                    prepared.Add(new MemberBuilder(packRoot, member, source).Build());
+                }
+                catch (Exception failure) when (failure is InvalidDataException || failure is IOException
+                    || failure is UnauthorizedAccessException || failure is System.Xml.XmlException
+                    || failure is ArgumentException || failure is ExternalException)
+                {
+                    if (!captureRefusals) throw;
+                    prepared.Add(new PreparedMember { Name = member, Error = member + ": " + failure.Message });
+                }
+            }
+            return prepared;
+        }
+
+        internal static string SourcePackId(IEnumerable<PreparedMember> members)
+        {
+            PreparedMember[] prepared = members.ToArray();
+            if (prepared.Length == 0 || prepared.Any(m => m.Error != null || m.SourceIdentity == null))
+                throw new InvalidDataException("TICK_PACK_ID_UNAVAILABLE: source preparation is incomplete.");
+            return "shimeji-" + Hash(Encoding.UTF8.GetBytes("shimeji-source-pack/1\n"
+                + string.Join("\n", prepared.Select(m => m.Name + "\n" + m.SourceIdentity)))).Substring(0, 24);
+        }
+
+        internal static bool HiddenInSourceChooser(string name)
         {
             return name.StartsWith(".", StringComparison.Ordinal)
                 || string.Equals(name, "unused", StringComparison.OrdinalIgnoreCase);
         }
 
-        private sealed class MemberOutput { public string Name, Xml, Map, SourceIdentity; public bool CrossMember; }
+        internal sealed class PreparedMember { public string Name, Xml, Map, SourceIdentity, Error; public bool CrossMember; }
         private sealed class RootBehaviour
         {
             public ShimejiSourceElement Source;
@@ -138,7 +164,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             public MemberBuilder(string pack, string member, ShimejiSourceConfig source)
             { _pack = pack; _member = member; _source = source; }
 
-            public MemberOutput Build()
+            public PreparedMember Build()
             {
                 if (_source.Information != null) Fail(_source.Information.Root, "information metadata is not lowered yet");
                 if (_source.Actions == null || _source.Behaviors == null) throw new InvalidDataException("Tick pack needs both action and behaviour documents.");
@@ -189,7 +215,11 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 byte[] png = Composite(out anchorX, out anchorY, out tilesX, out tilesY);
                 string features = "tick actions behaviours" + (_lifecycle ? " lifecycle" : "");
                 if (_nodes.SelectMany(n => n.Descendants()).Any(n => n.Attribute("when") != null)) features += " expressions";
-                var header = E("header", E("author", "ShimejiConvert"), E("title", _member), E("petname", _member),
+                // Display names have a shorter host limit than exact pack member keys.
+                int displayLength = Math.Min(_member.Length, 128);
+                if (displayLength < _member.Length && char.IsHighSurrogate(_member[displayLength - 1])) displayLength--;
+                string displayName = _member.Substring(0, displayLength);
+                var header = E("header", E("author", "ShimejiConvert"), E("title", _member), E("petname", displayName),
                     E("version", "1"), E("info", "Tick conversion; unsupported constructs are refused."), E("application", 1),
                     E("icon", Convert.ToBase64String(IconBuilder.BuildIco(null))), E("features", features), E("clock", "tick"));
                 var document = new XDocument(new XDeclaration("1.0", "utf-8", null), E("animations", header,
@@ -214,7 +244,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 bool crossMember = _nodes.SelectMany(n => n.Descendants()).Any(n =>
                     (n.Name == Ns + "param" || n.Name == Ns + "bind") &&
                     IsMemberParameter((string)n.Attribute("name")));
-                return new MemberOutput { Name = _member, Xml = xml, Map = map + "\n", CrossMember = crossMember,
+                return new PreparedMember { Name = _member, Xml = xml, Map = map + "\n", CrossMember = crossMember,
                     SourceIdentity = SourceIdentity() };
             }
 
@@ -504,7 +534,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 int index;
                 if (_frameIds.TryGetValue(key, out index)) return index;
                 if (_frames.Count >= SpriteSheetBuilder.MaxTiles) Fail(source, "too many sprite identities");
-                using (var bitmap = new Bitmap(path))
+                // GDI+'s filename entry point has a shorter path limit than managed file I/O.
+                using (var imageInput = File.OpenRead(path))
+                using (var bitmap = new Bitmap(imageInput))
                 {
                     if (bitmap.Width > SpriteSheetBuilder.MaxSheetDimension || bitmap.Height > SpriteSheetBuilder.MaxSheetDimension)
                         Fail(source, "sprite exceeds image dimension limit");
@@ -576,7 +608,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                         for (int i = 0; i < _frames.Count; i++)
                         {
                             Frame frame = _frames[i];
-                            using (var bitmap = new Bitmap(frame.Path))
+                            using (var spriteInput = File.OpenRead(frame.Path))
+                            using (var bitmap = new Bitmap(spriteInput))
                                 CopyPixels(bitmap, destination, (i % tilesX) * width, (i / tilesX) * height);
                         }
                     }

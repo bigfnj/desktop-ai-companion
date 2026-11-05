@@ -20,6 +20,15 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
     public static class ShimejiEngine
     {
         /// <summary>
+        /// Prepare an extracted Shimeji pack in memory. Unsupported source constructs are refused explicitly.
+        /// The caller installs or saves the complete result only when Accepted is true; this method writes no files.
+        /// </summary>
+        public static PackConversionResult ConvertPack(string extractedPackRoot, PackConversionOptions options, out string error)
+        {
+            return PackConverter.Convert(extractedPackRoot, options, out error);
+        }
+
+        /// <summary>
         /// Grade a pet XML string with the app's own validator (XSD + semantic limits). This is the oracle
         /// that makes conversion safe: emitted XML is only accepted if the app itself would load it.
         /// </summary>

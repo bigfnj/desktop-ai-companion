@@ -26,7 +26,22 @@ namespace DesktopAICompanion.PetStudioModule
         {
             Id = "petstudio",
             Name = "Companion Studio",
-            Version = "1.2.0",   // 1.2.0: opens, checks, previews and installs a companion written for the Shimeji
+            Version = "1.3.0",   // 1.3.0: imports a Shimeji pack (several image sets) as one companion for the
+                                 //        Shimeji runtime. The skin picker's "Import all as a pack (Shimeji
+                                 //        runtime)" takes the highlighted skin as the main member; the author sets
+                                 //        each member's role (main, egg, form, helper) and whether it is hidden,
+                                 //        and optionally the member and behaviour it starts as. The converter's
+                                 //        ConvertPack runs off the UI thread; a pack report lists every member and
+                                 //        loads one into the editor read-only; "Install pack" installs every member
+                                 //        only when the converter accepted the whole pack, under safe ids unique
+                                 //        against the installed companions, main member last, and stops at the
+                                 //        first failure naming what it already installed. A hidden main member and
+                                 //        a converter that throws are refused before anything is installed.
+                                 //        "Preview pack" previews the main member alone: the host resolves a
+                                 //        preview's members only inside the preview's own namespace, and nothing
+                                 //        puts the other members there yet. MinHostVersion stays 1.0.0: no new ABI
+                                 //        member (InstallType, InstalledTypes and SpawnPreview are 1.0.0).
+                                 // 1.2.0: opens, checks, previews and installs a companion written for the Shimeji
                                  //        runtime (a tick-clock animations.xml: actions, behaviours, expressions,
                                  //        lifecycle, social, windows, sounds, per-pose geometry, one pack member at a
                                  //        time). The report validates it with this app's feature set and walks its
@@ -632,6 +647,8 @@ namespace DesktopAICompanion.PetStudioModule
 
                 SelfCheckExtractionDeletes(probe);
                 SelfCheckSkinZip(probe);
+                // 1.3.0: the whole-pack import's rules, and the real converter on a synthetic pack (PackImportSelfCheck.cs).
+                PackImportSelfCheck.SelfCheckPackImport(probe);
 
                 string fixture = EmbeddedResources.LoadText(typeof(PetStudioModule).Assembly, "selftest-companion.xml");
                 if (!probe.Check("the self-test companion is embedded (" + fixture.Length + " chars)", fixture.Length > 1000))
