@@ -279,13 +279,20 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             /// behaviours gets that behaviour's emitted name; the target of BornBehavior and TransformBehavior is the
             /// born or transformed member (or this one), so the mapping holds only while every member of the pack
             /// looks engine names up in the same schema, and a literal engine name in a pack that mixes them refuses.
-            /// TargetBehavior names a behaviour of the PARTNER, which can be any companion, so a renamed name there
-            /// refuses; so does a scripted value in a renaming member, which could evaluate to a renamed name.
+            /// TargetBehavior names a behaviour of the PARTNER, which can be any companion, so an engine name there
+            /// refuses in every member; so does a scripted value in a renaming member, which could evaluate to a renamed
+            /// name.
             /// </summary>
             private string BehaviourValue(ShimejiSourceAttribute attribute, ShimejiSourceElement owner)
             {
                 bool engineName = EngineBehaviourKeys.Any(key => key == attribute.RawValue
                     || ShimejiParser.SchemaString(ShimejiSourceSchema.Japanese, key) == attribute.RawValue);
+                // Review F-107-A: in EVERY member, not only a renaming one. A partner converted from a Japanese-runtime
+                // source is known to the host by "Fall" and to the source by its own spelling, and a base one the other
+                // way round, so a literal engine name in either spelling holds for some partners only.
+                if (attribute.Name == "TargetBehavior" && engineName && attribute.Cache == ShimejiSourceCache.Literal)
+                    Fail(owner, "TICK_ENGINE_NAME_PARTNER " + attribute.QualifiedName + ": '" + attribute.RawValue
+                        + "' names a partner's engine behaviour, whose name depends on the partner's schema");
                 if (_mixedRuntime && engineName && attribute.Cache == ShimejiSourceCache.Literal)
                     Fail(owner, "TICK_ENGINE_NAME_MIXED " + attribute.QualifiedName + ": the pack's members look engine behaviour names up in different schemas, so '"
                         + attribute.RawValue + "' cannot be mapped for its target");
@@ -293,9 +300,6 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 if (attribute.Cache != ShimejiSourceCache.Literal)
                     Fail(owner, "TICK_ENGINE_NAME_SCRIPTED " + attribute.QualifiedName
                         + ": this member's engine behaviours are renamed for the host, and a scripted behaviour name cannot follow them");
-                if (attribute.Name == "TargetBehavior" && _engineNames.ContainsKey(attribute.RawValue))
-                    Fail(owner, "TICK_ENGINE_NAME_PARTNER " + attribute.QualifiedName + ": '" + attribute.RawValue
-                        + "' names a partner's engine behaviour, whose name depends on the partner's schema");
                 return BehaviourName(attribute.RawValue);
             }
 
@@ -1463,7 +1467,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         /// only asks the root for its children (hasChild, selectChildren; Configuration.java:41-102), and Main hands it the
         /// document element and nothing else (Main.java:371, 418, 437). So a root attribute, such as the schema-location
         /// pair the stock configuration's root carries, is ignored here exactly as there, and writes nothing. Its direct
-        /// text is not read either (see Check).</summary>
+        /// text is not read either (see Check). The method does nothing; it is kept, with its call sites, as the anchor
+        /// of the mutation cases that put a root check back (review F-008-A).</summary>
         private static void CheckRoot(ShimejiSourceElement root)
         {
             // Nothing on a configuration root is read: not its attributes, not its text.
@@ -1511,9 +1516,19 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         // A name a script can read: an ASCII identifier, as the host's grammar reads one; and one inside a script.
         private static readonly Regex ScriptToken = new Regex(@"[A-Za-z_$][A-Za-z0-9_$]*");
         private static readonly Regex Identifier = new Regex(@"^[A-Za-z_$][A-Za-z0-9_$]*$");
-        // Names a custom variable may not take: the grammar's own words, and the prefix of the parameters this emitter
-        // generates for scripted Animation Conditions.
-        private static readonly HashSet<string> ReservedNames = Set("mascot Math true false null");
+        // Names a custom variable may not take: the grammar's own words (and, in IsCustom, the prefix of the parameters
+        // this emitter generates for scripted Animation Conditions); and the names of the script engine's global object,
+        // which a script's free name resolves to ahead of the action's variables (one engine, Script.java:19, evaluated
+        // against the variable map, :65; review F-1e06-A): ECMAScript 5.1's globals (section 15.1, with escape and
+        // unescape from B.2) and Nashorn's own (print, load, the Java access objects and package roots, the typed
+        // arrays). An attribute of one of these names is not carried, so a script reading it refuses by name.
+        private static readonly HashSet<string> ReservedNames = Set("mascot Math true false null "
+            + "NaN Infinity undefined eval parseInt parseFloat isNaN isFinite decodeURI decodeURIComponent encodeURI "
+            + "encodeURIComponent escape unescape Object Function Array String Boolean Number Date RegExp JSON Error "
+            + "EvalError RangeError ReferenceError SyntaxError TypeError URIError "
+            + "print load loadWithNewGlobal exit quit Java JavaImporter JSAdapter Packages java javax javafx com edu net org "
+            + "ArrayBuffer DataView Int8Array Uint8Array Uint8ClampedArray Int16Array Uint16Array Int32Array Uint32Array "
+            + "Float32Array Float64Array");
 
         /// <summary>
         /// An attribute the schema does not name, on an Action, ActionReference, Behavior or BehaviorReference, is a

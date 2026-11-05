@@ -1393,6 +1393,17 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     fixture.Actions(actions);
                     Refusal(fixture, r.Expected);
                 }
+            // Review F-1e06-A: a script's free name resolves on the engine's global object first, so a variable named
+            // like a global (Number, Date) is not what the script reads there; it is not carried, and the script refuses.
+            foreach (string global in new[] { "Number", "Date" })
+                using (var fixture = new Fixture())
+                {
+                    XDocument actions = BuildActions();
+                    actions.Root.Element("ActionList").Add(S("Action", A("Name", "Odd"), A("Type", "Move"),
+                        A("TargetX", "${" + global + " * 10}"), A(global, "5"), S("Animation", Pose("/p.png", 1))));
+                    fixture.Actions(actions);
+                    Refusal(fixture, "TICK_EXPRESSION_UNSUPPORTED TargetX: unknown name '" + global + "'");
+                }
         }
 
         // 1.0.23 reads only a Behavior's NextBehaviorList children: a <NextBehavior> (the official default
@@ -2103,6 +2114,17 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 Refusal(fixture, "TICK_ENGINE_NAME_PARTNER TargetBehavior: '落下する'");
                 Require(!Directory.Exists(fixture.Output), "a partner engine-name refusal left output");
             }
+            // Review F-107-A: a base member's literal engine name for the partner refuses as well, in either spelling;
+            // a converted Japanese-runtime partner is "Fall" to the host and "落下する" to its source.
+            foreach (string partner in new[] { "Fall", "落下する" })
+                using (var fixture = new Fixture())
+                {
+                    XDocument actions = BuildActions();
+                    actions.Root.Element("ActionList").Add(Embedded("Seek", "ScanMove", A("Affordance", "Hug"), A("Behavior", "Idle"),
+                        A("TargetBehavior", partner)));
+                    fixture.Actions(actions);
+                    Refusal(fixture, "TICK_ENGINE_NAME_PARTNER TargetBehavior: '" + partner + "'");
+                }
         }
 
         /// <summary>A Japanese document's value with no source mapping refuses by name: English Type and BorderType

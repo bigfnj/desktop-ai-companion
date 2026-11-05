@@ -19462,11 +19462,25 @@ CASES = (
     # Review Q7: a partner's engine behaviour named by TargetBehavior refuses (it had no witness).
     ("convert-corpus: a partner's engine behaviour is renamed for this member's schema",
      os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
-     b"                if (attribute.Name == \"TargetBehavior\" && _engineNames.ContainsKey(attribute.RawValue))\n",
-     b"                if (attribute.Name == \"TargetBehavior-\" && _engineNames.ContainsKey(attribute.RawValue))\n",
+     b"                if (attribute.Name == \"TargetBehavior\" && engineName && attribute.Cache == ShimejiSourceCache.Literal)\n",
+     b"                if (attribute.Name == \"TargetBehavior-\" && engineName && attribute.Cache == ShimejiSourceCache.Literal)\n",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
      SHIMEJI, None, "conversion accepted an input requiring refusal: TICK_ENGINE_NAME_PARTNER"),
-    # Root attributes: the source reads none, so they are ignored; the root's text is still refused.
+    # Review F-107-A: the partner refusal holds in a member that renames nothing, too.
+    ("convert-corpus: a partner's engine name is refused only in a renaming member",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
+     b"                if (attribute.Name == \"TargetBehavior\" && engineName && attribute.Cache == ShimejiSourceCache.Literal)\n",
+     b"                if (attribute.Name == \"TargetBehavior\" && engineName && _engineNames.Count > 0 && attribute.Cache == ShimejiSourceCache.Literal)\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "conversion accepted an input requiring refusal: TICK_ENGINE_NAME_PARTNER TargetBehavior: 'Fall'"),
+    # Review F-1e06-A: a custom variable named like a script-engine global is not carried.
+    ("convert-corpus: a custom variable named like an engine global is carried",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
+     b"            + \"encodeURIComponent escape unescape Object Function Array String Boolean Number Date RegExp JSON Error \"\n",
+     b"            + \"encodeURIComponent escape unescape Object Function Array String Boolean RegExp JSON Error \"\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "conversion accepted an input requiring refusal: TICK_EXPRESSION_UNSUPPORTED TargetX: unknown name 'Number'"),
+    # Root attributes: the source reads none, so they are ignored; nor its text (round 2, 008a2b7).
     ("convert-corpus: the action document's root attributes are checked again",
      os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
      b"                CheckRoot(_source.Actions.Root);\n",
