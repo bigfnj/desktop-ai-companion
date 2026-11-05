@@ -17068,6 +17068,14 @@ CASES = (
      HOST_CSPROJ, EXE,
      '--wpf-options-selftest', 'dp-wpf-options-selftest.txt',
      'arrive as an egg: a main member that arrives as an egg has the row on its card'),
+    # The interactive-title list a test copy may narrow for the real-window smoke; the installed app never reads it.
+    ('shimeji-host: the installed app reads the test title list',
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickHost.cs"),
+     b'            return testDataRoot && !string.IsNullOrEmpty(testTitles) ? testTitles : TickWindowRules.DefaultWhitelist;\n',
+     b'            return !string.IsNullOrEmpty(testTitles) ? testTitles : TickWindowRules.DefaultWhitelist;\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'window titles: a test copy may narrow the interactive titles; the installed app never reads the variable'),
     # ---- lane feature/shimeji-host-motion ----
     # The motion family of embedded classes (src/dotNet/Shimeji/TickMotionFamily.cs) and the engine hooks it added: each
     # case puts back one wrong reading of the official runtime and must fail the CoreTests group that pins it.

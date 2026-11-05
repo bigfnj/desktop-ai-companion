@@ -160,6 +160,12 @@ namespace DesktopAICompanion.Shimeji
                 CheckStaging(check);
                 CheckPacks(check, log, scratch);
                 CheckParityTooling(check, scratch, log);
+                // The interactive-title list a test copy may narrow (the real-window smoke's disposable window); the
+                // installed app, on its real data root, keeps the shipped list whatever the variable says.
+                check(Win32InteractiveWindow.WhitelistText(false, "SmokeToken") == TickWindowRules.DefaultWhitelist
+                      && Win32InteractiveWindow.WhitelistText(true, "SmokeToken") == "SmokeToken"
+                      && Win32InteractiveWindow.WhitelistText(true, null) == TickWindowRules.DefaultWhitelist,
+                    "window titles: a test copy may narrow the interactive titles; the installed app never reads the variable");
                 ShimejiSoundSelfTest.Run(check, log);
                 CheckPoseGeometry(check, log);
                 CheckParityGeometry(check);

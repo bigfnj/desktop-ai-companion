@@ -457,7 +457,20 @@ namespace DesktopAICompanion.Shimeji
         }
 
         /// <summary>The InteractiveWindows list, '/'-separated as the source's setting; the source's shipped default.</summary>
-        public string[] Whitelist = TickWindowRules.ParseList(TickWindowRules.DefaultWhitelist);
+        public string[] Whitelist = TickWindowRules.ParseList(
+            WhitelistText(AppPaths.IsDataRootOverridden, System.Environment.GetEnvironmentVariable(TestTitlesVariable)));
+
+        /// <summary>A test copy's title list (its own data root only): the real-window smoke confines companions to a
+        /// disposable window whose title carries a unique token, because the shipped list's "Chat" and "Friends" match
+        /// ordinary windows of the person running it.</summary>
+        public const string TestTitlesVariable = "DESKTOP_AI_COMPANION_TICK_WINDOW_TITLES";
+
+        /// <summary>The list text in force: the shipped default, or the test variable's when the data root is a test one.
+        /// The installed app, on its real data root, never reads the variable.</summary>
+        internal static string WhitelistText(bool testDataRoot, string testTitles)
+        {
+            return testDataRoot && !string.IsNullOrEmpty(testTitles) ? testTitles : TickWindowRules.DefaultWhitelist;
+        }
 
         /// <summary>The InteractiveWindowsBlacklist list; the source ships none.</summary>
         public string[] Blacklist = TickWindowRules.ParseList(TickWindowRules.DefaultBlacklist);
