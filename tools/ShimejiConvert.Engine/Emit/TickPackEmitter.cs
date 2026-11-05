@@ -1118,7 +1118,17 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             /// becomes the cache (grimoire/06 4.1: ${} is "action", #{} is "frame").</summary>
             private XElement ScriptParameter(string tag, string name, ShimejiSourceAttribute attribute, ShimejiSourceElement owner)
             {
-                string body = Script(attribute, owner, _scope ?? ActionScope, NaNReading(name, _readerAction));
+                string reading = NaNReading(name, _readerAction);
+                // Decision 54, review D54-A: the lowered parameter is also a variable of the action's map, under its
+                // source name (ActionBuilder.java:171-179), so a script can read it by name, and that reader sees the
+                // source's NaN where the lowering writes the reader's value (`${TargetX != 0}` is true there, false
+                // here). Only the class's own reader is cited, so a member any script of which names the parameter
+                // refuses.
+                if (reading != null && NaNLowering.Mentions(attribute.Expression)
+                    && (_scriptNames.Contains(name) || _scriptNames.Contains(attribute.SourceName)))
+                    Fail(owner, "TICK_NAN_READER " + attribute.QualifiedName + ": a script of this member names '" + attribute.SourceName
+                        + "', a variable that holds NaN in the source where this lowering writes " + reading);
+                string body = Script(attribute, owner, _scope ?? ActionScope, reading);
                 return E(tag, new XAttribute("name", name), new XAttribute("value", body),
                     new XAttribute("cache", attribute.Cache == ShimejiSourceCache.Action ? "action" : "frame"));
             }

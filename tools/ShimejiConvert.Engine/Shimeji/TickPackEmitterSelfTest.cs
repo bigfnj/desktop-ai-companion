@@ -1541,6 +1541,20 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     Refusal(fixture, c.Expected);
                     Require(!Directory.Exists(fixture.Output), "NaN refusal left output: " + c.Expected);
                 }
+            // Review D54-A: the lowered TargetX is also the action's variable, which another script reads by name. The
+            // source's Condition sees NaN != 0 (true) facing left; a lowered one would see 0 != 0. Read in the same
+            // action and in another one, it refuses.
+            foreach (string reader in new[] { "Walk", "Stand" })
+                using (var fixture = new Fixture())
+                {
+                    XDocument actions = BuildActions();
+                    actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Walk")
+                        .SetAttributeValue("TargetX", "${mascot.lookRight ? 10 : 500 - Math.random*100}");
+                    actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == reader).SetAttributeValue("Condition", "${TargetX != 0}");
+                    fixture.Actions(actions);
+                    Refusal(fixture, "TICK_NAN_READER TargetX: a script of this member names 'TargetX'");
+                    Require(!Directory.Exists(fixture.Output), "a NaN reader refusal left output: " + reader);
+                }
         }
 
         // Decision 55: a next entry naming no root behaviour is dropped with a warning (the source would stop its tick
