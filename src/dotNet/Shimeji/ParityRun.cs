@@ -411,15 +411,18 @@ namespace DesktopAICompanion.Shimeji
                 w.Raw("pose", "{\"image\":" + JsonLine.Quote(map == null ? null : map.ImageOf(m.Pose.Frame))
                     + ",\"imageRight\":" + JsonLine.Quote(map == null ? null : map.ImageOf(m.Pose.Right))
                     + ",\"index\":" + index + "}");
+                // CONTRACT section 3: the effective anchor while the applied pose has an image, null while it has none.
                 TickPoint c = m.ImageCenter;
-                w.Raw("poseAnchor", "[" + c.X + "," + c.Y + "]");
+                w.Raw("poseAnchor", m.HasImage ? "[" + c.X + "," + c.Y + "]" : "null");
             }
             w.Bool("visible", m.Visible).Raw("anchor", "[" + m.Anchor.X + "," + m.Anchor.Y + "]");
             if (m.Pose == null) w.Raw("origin", "null");
             else
             {
-                TickPoint c = m.ImageCenter;
-                w.Raw("origin", "[" + (m.Anchor.X - c.X) + "," + (m.Anchor.Y - c.Y) + "]");
+                // Mascot.getBounds (Mascot.java:714-729): the anchor less the image's anchor with an image; without one
+                // the window's last bounds, which do not follow the anchor while the companion is hidden.
+                TickRect b = m.Bounds;
+                w.Raw("origin", "[" + b.X + "," + b.Y + "]");
             }
             w.Bool("lookRight", m.LookRight).Raw("velocity", "[" + velocity.X + "," + velocity.Y + "]")
                 .StrList("affordances", m.Affordances).Str("target", m.Target == null ? null : m.Target.Sid).Bool("dragging", m.Dragging)

@@ -172,6 +172,7 @@ namespace DesktopAICompanion.Shimeji
                 ShimejiSoundSelfTest.Run(check, log);
                 CheckPoseGeometry(check, log);
                 CheckParityGeometry(check);
+                CheckParityHiddenTrace(check, log);
             }
             catch (Exception e)
             {
@@ -572,6 +573,72 @@ namespace DesktopAICompanion.Shimeji
 
         /// <summary>The parity map's frames carry each image's anchor and size; a pose that disagrees with its frame is
         /// refused before anything is traced (CONTRACT section 9), and one that agrees applies.</summary>
+        /// <summary>
+        /// The trace while an image-less pose hides a companion (CONTRACT section 3): poseAnchor null, origin the bounds
+        /// Mascot.getBounds gives, the window's last ones, which stay put while the hidden companion moves. The trace once
+        /// wrote the anchor less the image-less pose's centre, which followed the anchor.
+        /// </summary>
+        private static void CheckParityHiddenTrace(Action<bool, string> check, StringBuilder log)
+        {
+            TickHost host = null;
+            Xml sprites = null;
+            try
+            {
+                sprites = new Xml(GeometryFrames(), 64, 64);
+                host = new TickHost(t =>
+                    {
+                        var form = new FormCompanion(new Animations(t.Sprites), t.Sprites);
+                        form.Show(t.Type.CellWidth, t.Type.CellHeight);
+                        return form;
+                    },
+                    form => form.Close(),
+                    message => log.AppendLine("LOG: " + message)) { RenderOpacity = 0.0 };
+                host.Environment.SearchesWindows = false;
+                // Small, as two poses: its 30x40 image anchored at (10, 40) for one tick, then no image while it moves
+                // 3 px left a tick.
+                XmlData.RootNode doc = GeometryDocument();
+                XmlData.PoseNode shown = new XmlData.PoseNode
+                {
+                    Frame = 0, Ticks = 1, AnchorX = 10, AnchorXSpecified = true, AnchorY = 40, AnchorYSpecified = true,
+                    Width = 30, WidthSpecified = true, Height = 40, HeightSpecified = true,
+                };
+                XmlData.PoseNode hidden = new XmlData.PoseNode { Frame = -1, Ticks = 10, DX = -3 };
+                doc.Animations.Animation[3].Act.Variants.Variant[0].Pose = new[] { shown, hidden };
+                TickType type = TickType.Compile("Hide", doc);
+                type.ApplyScale(1.0, 64, 64);
+                host.AddType(new TickHostType("Hide", type, sprites));
+                Rectangle work = System.Windows.Forms.Screen.PrimaryScreen.WorkingArea;
+                int x = work.Left + work.Width / 2, floor = work.Bottom;
+                host.Spawn("Hide", new TickPoint(x, floor), false, "Small");
+                Func<string> line = () =>
+                {
+                    var sw = new StringWriter();
+                    new ParityTraceWriter(sw, new Dictionary<string, ParityMap>()).States(host.World);
+                    return sw.ToString();
+                };
+                host.Step();   // the image: bounds (x - 10, floor - 40)
+                string first = line();
+                host.Step();   // hidden, the anchor 3 px left
+                host.Step();   // hidden, 6 px left
+                string later = line();
+                string frozen = "\"origin\":[" + (x - 10) + "," + (floor - 40) + "]";
+                check(first.Contains("\"poseAnchor\":[10,40]") && first.Contains(frozen),
+                    "parity trace: with an image, origin is the anchor less the image anchor (" + first.Trim() + ")");
+                check(later.Contains("\"anchor\":[" + (x - 6) + "," + floor + "]") && later.Contains("\"poseAnchor\":null")
+                      && later.Contains(frozen) && later.Contains("\"visible\":false"),
+                    "parity trace: while hidden, poseAnchor is null and origin keeps the window's last bounds (" + later.Trim() + ")");
+            }
+            catch (Exception e)
+            {
+                check(false, "parity trace: the hidden-pose trace check ran without an exception: " + e);
+            }
+            finally
+            {
+                if (host != null) host.Dispose();
+                if (sprites != null) sprites.Dispose();
+            }
+        }
+
         private static void CheckParityGeometry(Action<bool, string> check)
         {
             Func<string, string, string> map = (frame0, frame1) =>

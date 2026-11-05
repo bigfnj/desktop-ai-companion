@@ -17164,6 +17164,21 @@ CASES = (
      HOST_CSPROJ, EXE,
      SECURITY, None,
      'WITNESS a chain exactly at the depth limit, declared leaf first, validates'),
+    # The trace while an image-less pose hides a companion (CONTRACT v1 section 3).
+    ("shimeji-host: the trace writes a hidden pose's anchor",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                w.Raw("poseAnchor", m.HasImage ? "[" + c.X + "," + c.Y + "]" : "null");\n',
+     b'                w.Raw("poseAnchor", "[" + c.X + "," + c.Y + "]");\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     "parity trace: while hidden, poseAnchor is null and origin keeps the window's last bounds"),
+    ("shimeji-host: the trace's origin follows a hidden companion's anchor",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                TickRect b = m.Bounds;\n',
+     b'                TickRect b = new TickRect(m.Anchor.X - m.ImageCenter.X, m.Anchor.Y - m.ImageCenter.Y, 0, 0);\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     "parity trace: while hidden, poseAnchor is null and origin keeps the window's last bounds"),
     # ---- lane feature/shimeji-host-motion ----
     # The motion family of embedded classes (src/dotNet/Shimeji/TickMotionFamily.cs) and the engine hooks it added: each
     # case puts back one wrong reading of the official runtime and must fail the CoreTests group that pins it.
