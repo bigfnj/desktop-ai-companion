@@ -418,10 +418,10 @@ namespace DesktopAICompanion.Shimeji
         }
 
         /// <summary>
-        /// The real timer on a real message loop: one companion over three seconds of wall time takes the source's 75 steps
-        /// (25 a second, TickPacer), within 8%. Stepping at every firing gave 64 with a 40 ms timer (it fires every 46.9 ms
-        /// here) and 192 with a 10 ms one (every 15.6 ms). The count starts after the first steps: the first firing came
-        /// about 450 ms after the timer started and the first step opens the companion's window, and the source's clock
+        /// The real timer on a real message loop: over three seconds the mean interval between one companion's steps is the
+        /// source's 40 ms (TickPacer), within 36 to 44, gaps over 100 ms (a held-up UI thread) left out. Stepping at every
+        /// firing gave 46.9 with a 40 ms timer and 15.6 with a 10 ms one. Measured after the first steps: the first firing
+        /// came about 450 ms after the timer started and the first step opens the companion's window, and the source's clock
         /// drops slots that late rather than make them up, so counting from the start measured the warm-up (61 of 75).
         /// </summary>
         private static void CheckWallClock(Action<bool, string> check, StringBuilder log)
@@ -448,21 +448,38 @@ namespace DesktopAICompanion.Shimeji
                 int started = host.World.Step;
                 PumpUntil(() => host.World.Step >= started + 3, 5000);
                 bool warmed = host.World.Step >= started + 3;
-                int first = host.World.Step, firstFiring = host.TimerFirings;
+                var times = new List<long>();
+                host.StepTimesForSelfTest = times;
+                int firstFiring = host.TimerFirings;
                 var clock = System.Diagnostics.Stopwatch.StartNew();
                 PumpUntil(() => false, 3000);
                 long elapsed = clock.ElapsedMilliseconds;
-                int steps = host.World.Step - first, firings = host.TimerFirings - firstFiring;
-                // What one step costs here, so a short count says whether the clock or the step is slow.
+                host.StepTimesForSelfTest = null;
+                int firings = host.TimerFirings - firstFiring;
+                // The PACE between steps, stalls left out. A gap over 100 ms is the UI thread held up (a build or a GC on
+                // the same box), which the source's clock drops rather than makes up, so it says nothing about the pacer;
+                // counting steps over the whole window once read 65 of 107 for a 1.3 s stall under a mutation run's load.
+                // The pacer's steps fall 31 or 47 ms apart on the 15.6 ms system tick, 40 on average; a 40 ms timer gives
+                // 46.9 between every step and an unpaced 10 ms one 15.6, both outside 36 to 44.
+                long sum = 0;
+                int kept = 0, stalls = 0;
+                for (int i = 1; i < times.Count; i++)
+                {
+                    long gap = times[i] - times[i - 1];
+                    if (gap <= 100) { sum += gap; kept++; }
+                    else stalls++;
+                }
+                double mean = kept == 0 ? 0 : sum / (double)kept;
+                // What one step costs here, so a slow pace says whether the clock or the step is slow.
                 var cost = System.Diagnostics.Stopwatch.StartNew();
                 for (int i = 0; i < 20; i++) host.Step();
                 double perStep = cost.Elapsed.TotalMilliseconds / 20;
-                double expected = elapsed / (double)TickPacer.TickMilliseconds;
-                check(warmed && Math.Abs(steps - expected) <= expected * 0.08,
-                    "tick clock: the real timer steps 25 times a second, as the source's Manager (" + steps + " steps in "
-                    + elapsed + " ms, " + expected.ToString("0", System.Globalization.CultureInfo.InvariantCulture)
-                    + " expected" + (warmed ? "" : "; the first three steps never came") + "; the timer fired " + firings + " times; one step takes "
-                    + perStep.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " ms)");
+                System.Globalization.CultureInfo inv = System.Globalization.CultureInfo.InvariantCulture;
+                check(warmed && kept >= 40 && mean >= 36 && mean <= 44,
+                    "tick clock: the real timer steps 25 times a second, as the source's Manager (mean step interval "
+                    + mean.ToString("0.0", inv) + " ms over " + kept + " intervals, " + stalls + " stall(s) left out, in "
+                    + elapsed + " ms" + (warmed ? "" : "; the first three steps never came") + "; the timer fired " + firings
+                    + " times; one step takes " + perStep.ToString("0.0", inv) + " ms)");
             }
             catch (Exception e)
             {
@@ -629,6 +646,18 @@ namespace DesktopAICompanion.Shimeji
                 check(later.Contains("\"anchor\":[" + (x - 6) + "," + floor + "]") && later.Contains("\"poseAnchor\":null")
                       && later.Contains(frozen) && later.Contains("\"visible\":false"),
                     "parity trace: while hidden, poseAnchor is null and origin keeps the window's last bounds (" + later.Trim() + ")");
+
+                // The input events, as CONTRACT section 3 names them: drag (op) and hotspot (op, behavior).
+                var input = new StringWriter();
+                var inputWriter = new ParityTraceWriter(input, new Dictionary<string, ParityMap>());
+                TickMascot one = host.World.Mascots[0];
+                inputWriter.Dragged(one, "start");
+                inputWriter.Hotspot(one, "press", "Petted");
+                inputWriter.Hotspot(one, "release", null);
+                string events = input.ToString();
+                check(events.Contains("\"kind\":\"drag\",\"op\":\"start\"") && events.Contains("\"kind\":\"hotspot\",\"op\":\"press\",\"behavior\":\"Petted\"")
+                      && events.Contains("\"kind\":\"hotspot\",\"op\":\"release\",\"behavior\":null"),
+                    "parity trace: drag and hotspot events are written as the contract names them (" + events.Replace(Environment.NewLine, " ").Trim() + ")");
             }
             catch (Exception e)
             {

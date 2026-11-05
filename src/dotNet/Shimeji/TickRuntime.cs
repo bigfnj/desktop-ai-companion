@@ -63,6 +63,16 @@ namespace DesktopAICompanion.Shimeji
 
         /// <summary>A window action minimised the interactive window (CONTRACT event `window-minimize`).</summary>
         void WindowMinimized(TickMascot mascot);
+
+        /// <summary>A press that drags the companion (op "start", UserBehavior.mousePressed's drag branch) or a release
+        /// that throws a dragged one (op "end", mouseReleased) (CONTRACT event `drag`). Written before the behaviour
+        /// change the input causes.</summary>
+        void Dragged(TickMascot mascot, string op);
+
+        /// <summary>A press a hotspot takes (op "press", with the hotspot's behaviour, or null for a hold-only one) or the
+        /// release of a held hotspot (op "release", behaviour null: the source's release only clears the hold) (CONTRACT
+        /// event `hotspot`). Written before the behaviour change the input causes.</summary>
+        void Hotspot(TickMascot mascot, string op, string behaviour);
     }
 
     // ------------------------------------------------------------------ parameters and scripts
@@ -1013,21 +1023,31 @@ namespace DesktopAICompanion.Shimeji
                     continue;
                 handled = true;
                 _mascot.CursorPosition = local;
+                _world.Observer.Hotspot(_mascot, "press", h.Behaviour);
                 if (h.Behaviour != null) _mascot.SetBehaviour(_world.BuildBehaviourByName(Type, h.Behaviour, _mascot), "forced");
                 break;
             }
             if (!handled) handled = !Action.IsDraggable();
-            if (!handled) _mascot.SetBehaviour(_world.BuildBehaviourByName(Type, "Dragged"), "forced");
+            if (!handled)
+            {
+                _world.Observer.Dragged(_mascot, "start");
+                _mascot.SetBehaviour(_world.BuildBehaviourByName(Type, "Dragged"), "forced");
+            }
         }
 
         /// <summary>UserBehavior.mouseReleased (left button): a held hotspot lets go; a companion being dragged is
         /// thrown. A press and release in one step, before any action set the dragging flag, throws nothing.</summary>
         public void MouseReleased()
         {
-            if (_mascot.IsHotspotClicked) _mascot.CursorPosition = null;
+            if (_mascot.IsHotspotClicked)
+            {
+                _mascot.CursorPosition = null;
+                _world.Observer.Hotspot(_mascot, "release", null);
+            }
             if (_mascot.Dragging)
             {
                 _mascot.Dragging = false;
+                _world.Observer.Dragged(_mascot, "end");
                 _mascot.SetBehaviour(_world.BuildBehaviourByName(Type, "Thrown"), "forced");
             }
         }
@@ -1536,7 +1556,17 @@ namespace DesktopAICompanion.Shimeji
             string from = mascot.Type.Name;
             mascot.Type = target;
             Observer.Transformed(mascot, from, target.Name, behaviour);
-            mascot.SetBehaviour(BuildBehaviourByName(target, behaviour, mascot), "forced");
+            // Transform.java:51-65 sets the image set first and catches a behaviour that cannot be built or entered (a
+            // blank or unknown TransformBehavior): it reports the failure and the companion carries on, as the new type,
+            // in the behaviour it was in. Letting it escape ended the companion at the step's catch-all instead.
+            try
+            {
+                mascot.SetBehaviour(BuildBehaviourByName(target, behaviour, mascot), "forced");
+            }
+            catch (TickCantBeAliveException e)
+            {
+                ReportFault(mascot, "Transform into " + target.Name + ": " + e.Message);
+            }
         }
 
         /// <summary>
@@ -1636,6 +1666,8 @@ namespace DesktopAICompanion.Shimeji
             public void Interacted(TickMascot mascot, IReadOnlyList<TickMascot> with) { }
             public void WindowMoved(TickMascot mascot, TickRect from, TickRect to) { }
             public void WindowMinimized(TickMascot mascot) { }
+            public void Dragged(TickMascot mascot, string op) { }
+            public void Hotspot(TickMascot mascot, string op, string behaviour) { }
         }
     }
 }

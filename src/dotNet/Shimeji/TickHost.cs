@@ -203,13 +203,24 @@ namespace DesktopAICompanion.Shimeji
             AttachPacks();
             _world.Start();
             _timer = new Timer { Interval = TickPacer.PollMilliseconds };
-            _timer.Tick += delegate { TimerFirings++; if (_pacer.Due(_clock.ElapsedMilliseconds)) Step(); };
+            _timer.Tick += delegate
+            {
+                TimerFirings++;
+                long now = _clock.ElapsedMilliseconds;
+                if (!_pacer.Due(now)) return;
+                if (StepTimesForSelfTest != null) StepTimesForSelfTest.Add(now);
+                Step();
+            };
         }
 
         public TickWorld World { get { return _world; } }
 
         /// <summary>How many times the polling timer has fired (the window self-test's clock check reports it).</summary>
         internal int TimerFirings { get; private set; }
+
+        /// <summary>When set, the clock time (ms) of every step the timer takes: the window self-test measures the pace
+        /// between steps with it. Null in the app.</summary>
+        internal List<long> StepTimesForSelfTest;
         public Win32TickEnvironment Environment { get { return _environment; } }
         public int Count { get { return _forms.Count; } }
 
@@ -417,6 +428,10 @@ namespace DesktopAICompanion.Shimeji
         {
             _log("tick companion " + mascot.Sid + " (" + mascot.Type.Name + ") minimised the interactive window");
         }
+
+        public void Dragged(TickMascot mascot, string op) { }
+
+        public void Hotspot(TickMascot mascot, string op, string behaviour) { }
 
         /// <summary>The session's record of windows acted on, which "Put windows back" goes through: the real desktop's
         /// interactive window, or a self-test's fake.</summary>

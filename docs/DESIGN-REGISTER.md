@@ -7550,11 +7550,13 @@ once 40 ms have passed since the last step's slot, the slot moves on by 40 ms, a
 the slot to now. Raising the system timer resolution (timeBeginPeriod) would have given even 40 ms steps, at a
 machine-wide power cost the app has no right to impose; the polled pacer keeps the source's long-run rate with up to one
 system tick of jitter per step (steps 31 or 47 ms apart, 40.2 ms on average, measured). CoreTests models the poll on the
-system tick. The window self-test counts real steps over three seconds of a message pump that waits as the app's loop
-does, after three warm-up steps, and wants elapsed / 40 within 8%: a 40 ms timer gave 61 steps there and an unpaced
-10 ms one 188. The warm-up matters: the first firing came about 450 ms after the timer started, and the source's rule
-drops slots that late, so counting from the start measured start-up, not the clock. In the real app, the pack smoke's
-75-tick hatch went from 3.58 s to 2.99 s.
+system tick. The window self-test measures the real timer over three seconds of a message pump that waits as the app's
+loop does, after three warm-up steps: the mean interval between steps must be 36 to 44 ms, with gaps over 100 ms left
+out (a 40 ms timer gives 46.9, an unpaced 10 ms one 15.6). The warm-up matters: the first firing came about 450 ms after
+the timer started, and the source's rule drops slots that late, so measuring from the start measured start-up, not the
+clock. The stall rule matters too: the first version counted steps against elapsed / 40 and failed a mutation run's
+baseline under load (65 of 107, the UI thread held up for 1.3 s), a stall the source's clock drops too and the pacer
+had nothing to do with. In the real app, the pack smoke's 75-tick hatch went from 3.58 s to 2.99 s.
 
 **A member key is the source's image-set name, exactly; a pack id stays compact.** One grammar (1 to 64 letters, digits,
 `.`, `_`, `-`, space) used to serve both, and Codex executed the counterexample against the real validator: members
