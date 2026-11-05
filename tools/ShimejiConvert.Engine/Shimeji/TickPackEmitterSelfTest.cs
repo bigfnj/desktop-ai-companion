@@ -77,6 +77,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "nan-scripts", Run = (Action)NaNScripts },
                 new { Name = "nan-refusal", Run = (Action)NaNRefusal },
                 new { Name = "next-missing-dropped", Run = (Action)NextMissingDropped },
+                new { Name = "sound-lowering", Run = (Action)SoundLowering },
+                new { Name = "sound-refusal", Run = (Action)SoundRefusal },
                 new { Name = "information-lowering", Run = (Action)InformationLowering },
                 new { Name = "own-set-binding-reset", Run = (Action)OwnSetBindingReset },
                 new { Name = "japanese-schema-values", Run = (Action)JapaneseSchemaValues },
@@ -1576,6 +1578,118 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 fixture.Behaviors(behaviours);
                 Refusal(fixture, "TICK_NEXT_MISSING_SCRIPTED");
             }
+        }
+
+        /// <summary>A synthetic 16-bit PCM mono RIFF/WAVE clip of <paramref name="samples"/> frames at 22.05 kHz.</summary>
+        private static byte[] Wave(int samples, int seed)
+        {
+            var data = new byte[samples * 2];
+            for (int i = 0; i < samples; i++)
+            {
+                short value = (short)(((i * 37 + seed) % 2000) - 1000);
+                data[2 * i] = (byte)(value & 0xFF);
+                data[2 * i + 1] = (byte)((value >> 8) & 0xFF);
+            }
+            using (var stream = new MemoryStream())
+            using (var writer = new BinaryWriter(stream))
+            {
+                writer.Write(Encoding.ASCII.GetBytes("RIFF")); writer.Write(36 + data.Length); writer.Write(Encoding.ASCII.GetBytes("WAVE"));
+                writer.Write(Encoding.ASCII.GetBytes("fmt ")); writer.Write(16); writer.Write((short)1); writer.Write((short)1);
+                writer.Write(22050); writer.Write(44100); writer.Write((short)2); writer.Write((short)16);
+                writer.Write(Encoding.ASCII.GetBytes("data")); writer.Write(data.Length); writer.Write(data);
+                writer.Flush();
+                return stream.ToArray();
+            }
+        }
+
+        private static void WriteBytes(Fixture fixture, string relative, byte[] bytes)
+        {
+            fixture.Write(relative, "");
+            File.WriteAllBytes(Path.Combine(fixture.Pack, relative.Replace('/', Path.DirectorySeparatorChar)), bytes);
+        }
+
+        /// <summary>Sets Sound (and Volume) on the Stand action's first pose and Sound on its second.</summary>
+        private static XDocument SoundActions(string first, string volume, string second)
+        {
+            XDocument actions = BuildActions();
+            XElement[] poses = actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Stand").Descendants("Pose").ToArray();
+            if (first != null) poses[0].SetAttributeValue("Sound", first);
+            if (volume != null) poses[0].SetAttributeValue("Volume", volume);
+            if (second != null) poses[1].SetAttributeValue("Sound", second);
+            return actions;
+        }
+
+        // Pose Sound and Volume (grimoire/06 section 3, the WAV lane's rule): each Sound resolves as the source's
+        // AnimationBuilder does (sound/, then sound/<set>/, then img/<set>/sound/), becomes one named WAV clip by its
+        // Sound text with its bytes unchanged, and each pose names it with its Volume in dB; 'wav' is declared.
+        private static void SoundLowering()
+        {
+            using (var fixture = new Fixture())
+            {
+                byte[] tone = Wave(400, 1), shadow = Wave(300, 2), beep = Wave(200, 3);
+                WriteBytes(fixture, "sound/tone.wav", tone);
+                WriteBytes(fixture, "img/A/sound/tone.wav", shadow);
+                WriteBytes(fixture, "img/A/sound/beep.wav", beep);
+                fixture.Actions(SoundActions("/tone.wav", "-6.5", "beep.wav"));
+                // A dot path the source joins under sound/<set>/ and resolves inside the pack: sound/A/../../x.wav is x.wav.
+                WriteBytes(fixture, "up.wav", Wave(150, 6));
+                XDocument withUp = SoundActions("/tone.wav", "-6.5", "beep.wav");
+                withUp.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Stand").Descendants("Pose").ElementAt(2)
+                    .SetAttributeValue("Sound", "../../up.wav");
+                fixture.Actions(withUp);
+                XDocument document = fixture.Convert();
+                Validate(document, "sounded member");
+                Require(Features(document).Contains("wav"), "a member with clips declared no 'wav'");
+                XElement[] sounds = document.Root.Element(Ns + "sounds").Elements(Ns + "sound").ToArray();
+                Require(sounds.Length == 3 && (string)sounds[0].Attribute("id") == "/tone.wav" && (string)sounds[1].Attribute("id") == "beep.wav"
+                    && (string)sounds[2].Attribute("id") == "../../up.wav"
+                    && sounds.All(s => (string)s.Attribute("format") == "wav" && s.Element(Ns + "probability").Value == "0" && s.Element(Ns + "loop") == null),
+                    "the clips are not one named WAV sound per Sound text");
+                Require(Convert.FromBase64String(sounds[0].Element(Ns + "base64").Value).SequenceEqual(tone)
+                    && Convert.FromBase64String(sounds[1].Element(Ns + "base64").Value).SequenceEqual(beep),
+                    "a clip's bytes changed, or the source's resolution order (sound/ before img/<set>/sound/) was not kept");
+                XElement[] poses = NamedNode(document, "Stand").Element(Ns + "act").Descendants(Ns + "pose").ToArray();
+                Require((string)poses[0].Attribute("sound") == "/tone.wav" && (string)poses[0].Attribute("volume") == "-6.5"
+                    && (string)poses[1].Attribute("sound") == "beep.wav" && poses[1].Attribute("volume") == null
+                    && (string)poses[2].Attribute("sound") == "../../up.wav" && poses[3].Attribute("sound") == null,
+                    "a pose lost its clip or its Volume");
+            }
+            using (var fixture = new Fixture())
+            {
+                XDocument plain = fixture.Convert();
+                Require(plain.Root.Element(Ns + "sounds") == null && !Features(plain).Contains("wav"),
+                    "a member without clips wrote sounds or declared 'wav'");
+            }
+        }
+
+        // What the source cannot load refuses the member, by name: a Sound naming no file, MP3 bytes (whatever the
+        // name), a WAVE the host's rule rejects, a Volume outside the gain range, a path out of the pack, an id over
+        // 64 characters, and a clip larger than the host's per-clip limit.
+        private static void SoundRefusal()
+        {
+            byte[] good = Wave(100, 4);
+            byte[] mp3 = new byte[64];
+            mp3[0] = 0x49; mp3[1] = 0x44; mp3[2] = 0x33;
+            byte[] truncated = good.Take(good.Length - 10).ToArray();
+            var cases = new[] {
+                new { File = (string)null, Bytes = good, Sound = "/none.wav", Volume = (string)null, Expected = "TICK_SOUND_MISSING: Sound '/none.wav'" },
+                new { File = "sound/fake.wav", Bytes = mp3, Sound = "/fake.wav", Volume = (string)null, Expected = "TICK_SOUND_MP3: clip '/fake.wav'" },
+                new { File = "sound/cut.wav", Bytes = truncated, Sound = "/cut.wav", Volume = (string)null, Expected = "TICK_SOUND_WAV: clip '/cut.wav' is truncated" },
+                new { File = "sound/ok.wav", Bytes = good, Sound = "/ok.wav", Volume = "7", Expected = "TICK_SOUND_VOLUME: Volume '7'" },
+                new { File = "sound/ok.wav", Bytes = good, Sound = "/ok.wav", Volume = "loud", Expected = "TICK_SOUND_VOLUME: Volume 'loud'" },
+                new { File = (string)null, Bytes = good, Sound = "../../../../ok.wav", Volume = (string)null, Expected = "TICK_SOUND_PATH: Sound '../../../../ok.wav' leaves the pack" },
+                new { File = (string)null, Bytes = good, Sound = new string('s', 65), Volume = (string)null, Expected = "TICK_SOUND_ID_LIMIT" },
+                new { File = "sound/big.wav", Bytes = Wave(DesktopAICompanion.CompanionXmlValidator.MaximumAudioBytesPerSound / 2 + 16, 5),
+                    Sound = "/big.wav", Volume = (string)null, Expected = "TICK_SOUND_CLIP_LIMIT: the host refuses clip '/big.wav'" },
+            };
+            foreach (var c in cases)
+                using (var fixture = new Fixture())
+                {
+                    if (c.File != null) WriteBytes(fixture, c.File, c.Bytes);
+                    fixture.Actions(SoundActions(c.Sound, c.Volume, null));
+                    Refusal(fixture, c.Expected);
+                    Require(!Directory.Exists(fixture.Output), "sound refusal left output: " + c.Expected);
+                }
         }
 
         private static void InformationLowering()

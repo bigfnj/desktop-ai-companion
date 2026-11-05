@@ -242,6 +242,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             private int _next = 2;
             // The feature tokens the validator demands for what this member USES (grimoire/06 sections 1 and 10).
             private bool _lifecycle, _social, _windows, _hotspots, _expressions, _variables;
+            // Pose clips by their source Sound text, in first-use order (Clip); Used marks those an emitted pose names.
+            private sealed class SoundClip { public string Id, PackPath; public byte[] Bytes; public bool Used; }
+            private readonly Dictionary<string, SoundClip> _clips = new Dictionary<string, SoundClip>(StringComparer.Ordinal);
+            private readonly List<SoundClip> _clipOrder = new List<SoundClip>();
             // Corrections the caller is told about (PreparedMember.Warnings).
             private readonly List<string> _warnings = new List<string>();
             // Header toggles, one per Toggleable behaviour name, in first-seen order.
@@ -366,6 +370,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     + (_windows ? " windows" : "") + (_hotspots ? " hotspots" : "");
                 if (_expressions || _nodes.SelectMany(n => n.Descendants()).Any(n => n.Attribute("when") != null)) features += " expressions";
                 if (_variables) features += " variables";
+                List<SoundClip> clips = _clipOrder.Where(c => c.Used).ToList();
+                // grimoire/06 sections 1 and 3: every clip is a WAV (Clip refuses anything else), so 'wav' is declared.
+                if (clips.Count > 0) features += " wav";
                 // Display names have a shorter host limit than exact pack member keys.
                 int displayLength = Math.Min(_member.Length, 128);
                 if (displayLength < _member.Length && char.IsHighSurrogate(_member[displayLength - 1])) displayLength--;
@@ -382,7 +389,11 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                         E("transparency", "Alpha"), E("anchorx", anchorX), E("anchory", anchorY)),
                     E("spawns", E("spawn", new XAttribute("id", 0), new XAttribute("probability", 1),
                         E("x", "0"), E("y", "0"), E("next", new XAttribute("probability", 1), 1))),
-                    E("animations", _nodes), E("childs")));
+                    E("animations", _nodes), E("childs"),
+                    // One named clip per distinct Sound text a pose plays, its bytes unchanged (the WAV lane's rule: id,
+                    // format, probability 0, no loop, no animationid).
+                    clips.Count == 0 ? null : E("sounds", clips.Select(c => E("sound", new XAttribute("id", c.Id),
+                        new XAttribute("format", "wav"), E("probability", 0), E("base64", Convert.ToBase64String(c.Bytes)))))));
                 var frameMap = new List<object>();
                 for (int i = 0; i < _frames.Count; i++)
                 {
@@ -393,6 +404,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     frames = frameMap, actions = _actionMap, children = _childMap, behaviours = _behaviourMap },
                     new JsonSerializerOptions { WriteIndented = true });
                 string xml = document.ToString();
+                CheckAudioLimits(xml, clips);
                 if (png.Length > DesktopAICompanion.CompanionXmlValidator.MaximumImageBytes
                     || Encoding.UTF8.GetByteCount(xml) > DesktopAICompanion.CompanionXmlValidator.MaximumXmlBytes)
                     throw new InvalidDataException("Tick member exceeds the host's image or XML byte limit: " + _member);
@@ -709,7 +721,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                         continue;
                     }
                     if (child.Kind != ShimejiSourceKind.Pose) Fail(child, "only Pose and Hotspot are supported in an Animation");
-                    Check(child, "Image", "ImageRight", "ImageAnchor", "Velocity", "Duration");
+                    Check(child, "Image", "ImageRight", "ImageAnchor", "Velocity", "Duration", "Sound", "Volume");
                     int dx, dy;
                     Pair(Required(child, "Velocity"), child, out dx, out dy);
                     int ticks = Int(child, "Duration", null);
@@ -734,6 +746,21 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                         }
                     }
                     else if (right != null) Fail(child, "TICK_RIGHT_ONLY_UNSUPPORTED: a right-only pose can depend on an earlier image-pair cache entry");
+                    // AnimationBuilder.java:104-105 and 147-166: a pose's Sound loads at configuration load, for every
+                    // animation (a composite's too, which never plays), at the pose's Volume in dB (0 when absent). A
+                    // clip that fails to load refuses the whole image set, so Clip refuses the member the same way.
+                    string soundText = Value(child, "Sound");
+                    if (soundText != null)
+                    {
+                        SoundClip clip = Clip(soundText, child);
+                        float volume = PoseVolume(child);
+                        if (conditions != null)
+                        {
+                            clip.Used = true;
+                            pose.Add(new XAttribute("sound", clip.Id));
+                            if (volume != 0) pose.Add(new XAttribute("volume", volume.ToString("R", Invariant)));
+                        }
+                    }
                     variant.Add(pose);
                 }
                 if (!variant.Elements().Any()) Fail(source, "Animation has no poses");
@@ -956,6 +983,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 paths.Add(_source.Behaviors.PackRelativePath.Replace('\\', '/'));
                 // The information document is a source input too: it decides the schema engine names are read in.
                 if (_source.Information != null) paths.Add(_source.Information.PackRelativePath.Replace('\\', '/'));
+                foreach (SoundClip clip in _clipOrder.Where(c => c.Used)) paths.Add(clip.PackPath);
                 foreach (Frame frame in _frames) paths.Add(frame.Image);
                 var manifest = new StringBuilder();
                 foreach (string relative in paths)
@@ -1129,6 +1157,106 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 // The validator demands 'variables' of an expression its parser finds reading or writing them.
                 if (program != null && program.UsesVariables) _variables = true;
                 return body;
+            }
+
+            /// <summary>
+            /// A pose's Sound, resolved and checked as the source loads it. AnimationBuilder.java:151-156 looks for
+            /// sound/<Sound>, then sound/<image set>/<Sound>, and otherwise takes img/<image set>/sound/<Sound> without
+            /// looking; SoundLoader.java:21-24 opens it with javax.sound, and any failure there (no file, a format
+            /// javax.sound does not read, such as MP3) refuses the image set (AnimationBuilder.java:161-165,
+            /// Main.java:478-484). The format is decided from the BYTES, never the name: a RIFF/WAVE the host decodes
+            /// (WavFormat, the host's own rule) becomes a named clip; MP3 bytes refuse as the source refuses them; a
+            /// WAVE the host's rule rejects (two corpus clips have a bad header field) refuses by name, unrepaired.
+            /// The clip's id is the source's Sound text exactly, since a Mute matches clips by that name's prefix.
+            /// </summary>
+            private SoundClip Clip(string soundText, ShimejiSourceElement pose)
+            {
+                SoundClip clip;
+                if (_clips.TryGetValue(soundText, out clip)) return clip;
+                if (soundText.Length < 1 || soundText.Length > 64)
+                    Fail(pose, "TICK_SOUND_ID_LIMIT: a Sound is its clip's id, 1 to 64 characters in this format");
+                // Paths.get(".", "sound", Sound) joins the text under the folder, a leading separator included, and the
+                // file system resolves its dot segments as Windows does ("sound/../../x" is outside the install). A
+                // candidate that leaves the pack is somewhere this conversion cannot see, so it is passed over as absent;
+                // the last, which the source takes without looking, must be inside.
+                string relative = soundText.TrimStart('/', '\\').Replace('\\', '/');
+                if (relative.Length == 0 || relative.IndexOf(':') >= 0)
+                    Fail(pose, "TICK_SOUND_PATH: Sound '" + soundText + "' does not name a file inside the pack");
+                string[] candidates = { "sound/" + relative, "sound/" + _member + "/" + relative, "img/" + _member + "/sound/" + relative };
+                string path = null;
+                foreach (string candidate in candidates)
+                {
+                    string full = Path.GetFullPath(Path.Combine(_pack, candidate.Replace('/', Path.DirectorySeparatorChar)));
+                    bool last = candidate == candidates[2];
+                    if (!Inside(_pack, full))
+                    {
+                        if (last) Fail(pose, "TICK_SOUND_PATH: Sound '" + soundText + "' leaves the pack");
+                        continue;
+                    }
+                    SafeEntry(full);
+                    if (File.Exists(full) || last) { path = full; break; }
+                }
+                string chosen = Path.GetRelativePath(Path.GetFullPath(_pack), path).Replace('\\', '/');
+                if (!File.Exists(path))
+                    Fail(pose, "TICK_SOUND_MISSING: Sound '" + soundText + "' names no clip in sound/, sound/<image set>/ or img/<image set>/sound/, so the source refuses this image set");
+                byte[] bytes = File.ReadAllBytes(path);
+                string reason;
+                if (DesktopAICompanion.WavFormat.HasWaveHeader(bytes))
+                {
+                    if (!DesktopAICompanion.WavFormat.IsDecodableWave(bytes, out reason))
+                        Fail(pose, "TICK_SOUND_WAV: clip '" + soundText + "' " + reason + ", which the host's WAV rule refuses; no header repair is made");
+                }
+                else if (DesktopAICompanion.Mp3Format.LooksLikeMp3(bytes, out reason))
+                    Fail(pose, "TICK_SOUND_MP3: clip '" + soundText + "' holds MP3 audio, which the source's javax.sound cannot open, so the source refuses this image set");
+                else
+                    Fail(pose, "TICK_SOUND_FORMAT: clip '" + soundText + "' is neither a RIFF/WAVE nor MP3; the host plays WAV clips");
+                clip = new SoundClip { Id = soundText, PackPath = chosen, Bytes = bytes };
+                _clips.Add(soundText, clip);
+                _clipOrder.Add(clip);
+                return clip;
+            }
+
+            /// <summary>A pose's Volume, the clip's gain in dB (AnimationBuilder.java:105, Float.parseFloat, default 0).
+            /// The source sets it as the clip's MASTER_GAIN, which throws outside the control's range and so refuses the
+            /// image set (grimoire/06 section 3: -80 to +6.02 dB); the host would clamp, so a value outside refuses
+            /// here, as does one Float.parseFloat would not read.</summary>
+            private static float PoseVolume(ShimejiSourceElement pose)
+            {
+                string text = Value(pose, "Volume");
+                if (text == null) return 0;
+                float volume;
+                if (!float.TryParse(text.Trim(), NumberStyles.Float, Invariant, out volume) || float.IsNaN(volume) || float.IsInfinity(volume))
+                    Fail(pose, "TICK_SOUND_VOLUME: Volume '" + text + "' is not a number the source reads");
+                if (volume < -80f || volume > 6.0206f)
+                    Fail(pose, "TICK_SOUND_VOLUME: Volume '" + text + "' dB is outside the gain range the source can set (-80 to 6.02)");
+                return volume;
+            }
+
+            /// <summary>
+            /// The host's audio limits, by name. The per-clip and per-document limits are the validator's to set, and a
+            /// host may raise them (declared-format clips are to get a larger one), so they are not copied here: when a
+            /// clip or the document total is over the values compiled in today (CompanionXmlValidator's
+            /// MaximumAudioBytesPerSound and MaximumAudioBytesTotal, a floor the host only raises), the emitted document is
+            /// put to the host's own validator, and only its refusal on size refuses here, naming the clip or the total.
+            /// Any other validation answer is left to the pack API, which validates every member.
+            /// </summary>
+            private void CheckAudioLimits(string xml, List<SoundClip> clips)
+            {
+                if (clips.Count == 0) return;
+                SoundClip largest = clips.OrderByDescending(c => c.Bytes.Length).First();
+                long total = clips.Sum(c => (long)c.Bytes.Length);
+                if (largest.Bytes.Length <= DesktopAICompanion.CompanionXmlValidator.MaximumAudioBytesPerSound
+                    && total <= DesktopAICompanion.CompanionXmlValidator.MaximumAudioBytesTotal) return;
+                XmlData.RootNode ignored;
+                string error;
+                if (DesktopAICompanion.CompanionXmlValidator.TryParseWithFeatures(xml, DesktopAICompanion.CompanionFormatFeatures.All, out ignored, out error))
+                    return;
+                if (error != null && error.IndexOf("sound exceeds its", StringComparison.Ordinal) >= 0)
+                    throw new InvalidDataException("TICK_SOUND_CLIP_LIMIT: the host refuses clip '" + largest.Id + "' (" + largest.Bytes.Length
+                        + " bytes) as larger than its per-clip limit: " + _member);
+                if (error != null && error.IndexOf("Pet audio exceeds the total size limit", StringComparison.Ordinal) >= 0)
+                    throw new InvalidDataException("TICK_SOUND_DOCUMENT_LIMIT: the host refuses the member's " + clips.Count + " clips (" + total
+                        + " bytes) as more audio than one document may hold: " + _member);
             }
 
             /// <summary>

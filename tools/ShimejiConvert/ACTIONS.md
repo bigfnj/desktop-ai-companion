@@ -118,8 +118,12 @@ NaN. NaN anywhere else (a comparison, a condition, text, a call other than a NaN
 holding a draw, any other reader) is refused by name. A Behavior's children other than its
 NextBehaviorList elements (a NextBehavior among them) are ignored, as 1.0.23 never reads them, and so is any child
 of a behaviour list other than a Condition and a Behavior (root list) or BehaviorReference (next list).
+A pose's Sound becomes a named WAV clip, its id the Sound text and its bytes unchanged, resolved as the source does
+(sound/, sound/<set>/, img/<set>/sound/), with the pose's Volume in dB; the member declares 'wav'. A missing clip,
+MP3 bytes, a WAVE the host's rule rejects, a Volume outside -80 to 6.02 dB and a clip or document over the host's
+audio limits are refused by name.
 It refuses unsupported attributes and
-classes, sounds, constants and next references without a root definition. An information document (info.xml) is
+classes, constants and next references without a root definition. An information document (info.xml) is
 accepted when it holds only <Information> (chooser and credits metadata, which no mascot reads); a Constant, an
 ActionList or a BehaviourList in it is refused.
 Bindings across differing document schemas are refused until target-schema resolution is implemented.
