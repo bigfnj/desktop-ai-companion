@@ -399,9 +399,53 @@ namespace DesktopAICompanion.Wpf
             // Null for a classic companion: only a tick-clock one has switches, and only for what it uses.
             FrameworkElement switches = BuildTickSwitchRows(addId, row.DisplayName ?? row.Id, GetStats(addId).TickRows);
             if (switches != null) sp.Children.Add(switches);
+            // Null unless this companion is a pack's main member that arrives as an egg.
+            FrameworkElement egg = BuildEggArrivalRow(addId, row.DisplayName ?? row.Id, GetStats(addId).OffersEgg);
+            if (egg != null) sp.Children.Add(egg);
 
             card.Child = sp;
             return card;
+        }
+
+        /// <summary>
+        /// "Arrive as an egg" for a pack's main member whose startup member is an egg (grimoire/06 section 2): on, the
+        /// companion arrives as the egg and hatches; off, it arrives as itself. Stored per type id (LocalData
+        /// GetArriveAsEgg/SetArriveAsEgg) and read when a companion of the type is spawned, so it applies from the next
+        /// arrival. The box follows the STORE, as the card's other controls do. Null when the type does not offer it.
+        /// </summary>
+        internal FrameworkElement BuildEggArrivalRow(string addId, string displayName, bool offered)
+        {
+            if (!offered || string.IsNullOrEmpty(addId) || Program.MyData == null) return null;
+            const string label = "Arrive as an egg";
+            var box = new CheckBox
+            {
+                Content = new TextBlock { Text = label, FontSize = 10, TextWrapping = TextWrapping.Wrap },
+                IsChecked = Program.MyData.GetArriveAsEgg(addId),
+                ToolTip = "Starts as its egg and hatches. Off: it arrives as itself. Applies from its next arrival.",
+                Margin = new Thickness(0, 4, 0, 0),
+                Tag = "arriveAsEgg",
+            };
+            System.Windows.Automation.AutomationProperties.SetName(box, label + " for " + displayName);
+            bool syncing = false;
+            RoutedEventHandler changed = delegate
+            {
+                if (syncing) return;
+                bool wanted = box.IsChecked == true;
+                try { Program.MyData.SetArriveAsEgg(addId, wanted); } catch { }
+                bool stored = Program.MyData.GetArriveAsEgg(addId);
+                if (stored != wanted)
+                {
+                    _status.Text = "Couldn't save " + label + " for " + displayName + "; it is unchanged.";
+                    syncing = true;
+                    try { box.IsChecked = stored; }
+                    finally { syncing = false; }
+                    return;
+                }
+                _status.Text = displayName + ": " + label + (wanted ? " on." : " off.") + " It applies from its next arrival.";
+            };
+            box.Checked += changed;
+            box.Unchecked += changed;
+            return box;
         }
 
         /// <summary>
@@ -1082,7 +1126,9 @@ namespace DesktopAICompanion.Wpf
 
         // Animation + sound counts read from the pet's XML, cached per id (the sheep XMLs are large).
         // TickRows: a tick-clock companion's own switches (TickPaneRows), decided from the same XML; empty for a classic one.
-        private sealed class CompanionStats { public int Animations; public int Sounds; public List<Shimeji.TickSettingRow> TickRows = new List<Shimeji.TickSettingRow>(); }
+        // OffersEgg: a pack's main member whose startup member is an egg, so "Arrive as an egg" applies (StartUp.OffersEggArrival
+        // reads the pack index, so it is asked once per companion here rather than once per card build).
+        private sealed class CompanionStats { public int Animations; public int Sounds; public List<Shimeji.TickSettingRow> TickRows = new List<Shimeji.TickSettingRow>(); public bool OffersEgg; }
         private static readonly Dictionary<string, CompanionStats> _statsCache = new Dictionary<string, CompanionStats>(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>
@@ -1135,6 +1181,9 @@ namespace DesktopAICompanion.Wpf
                     s.Animations = System.Text.RegularExpressions.Regex.Matches(xml, "<animation\\s").Count;
                     s.Sounds = System.Text.RegularExpressions.Regex.Matches(xml, "<sound\\b").Count;
                     s.TickRows = Shimeji.TickPaneRows.ForPetXml(xml);
+                    // Only a document with a startup can offer it; the pack index is read only then.
+                    if (xml.IndexOf("<startup", StringComparison.Ordinal) >= 0 && Program.Mainthread != null)
+                        s.OffersEgg = Program.Mainthread.OffersEggArrival(id);
                 }
             }
             catch { }

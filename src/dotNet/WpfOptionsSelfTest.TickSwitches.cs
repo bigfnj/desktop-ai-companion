@@ -82,6 +82,33 @@ namespace DesktopAICompanion
                         windowsOn && breedingOn && windowsOff && boxes[1].IsChecked == false && boxes[0].IsChecked == true
                         && Program.MyData.GetCompanionSwitch(id, "toggle:Standing") == null);
                 }
+
+                // "Arrive as an egg": no row unless the type offers it; offered, it shows the stored choice (default on)
+                // and the user's change is stored for the type; a card whose stats say the type offers it carries it.
+                ok &= Check(sb, "arrive as an egg: a type that does not offer it gets no row",
+                    pane.BuildEggArrivalRow(id, "Tick Pet", false) == null);
+                var eggBox = pane.BuildEggArrivalRow(id, "Tick Pet", true) as CheckBox;
+                bool shownOn = eggBox != null && eggBox.IsChecked == true;
+                if (eggBox != null) eggBox.IsChecked = false;
+                bool storedOff = !Program.MyData.GetArriveAsEgg(id);
+                if (eggBox != null) eggBox.IsChecked = true;
+                bool storedOn = Program.MyData.GetArriveAsEgg(id);
+                ok &= Check(sb, "arrive as an egg: offered, the row shows the stored choice (default on) and stores the user's change",
+                    shownOn && storedOff && storedOn);
+                object eggStats = Activator.CreateInstance(statsType, true);
+                statsType.GetField("OffersEgg").SetValue(eggStats, true);
+                lock (cache) cache[id] = eggStats;
+                FrameworkElement eggCard;
+                try
+                {
+                    eggCard = (FrameworkElement)paneType.GetMethod("BuildCard", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(pane,
+                        new object[] { new DesktopAICompanion.Options.CompanionRow { Id = id, DisplayName = "Tick Pet" }, new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) });
+                }
+                finally { DesktopAICompanion.Wpf.CompanionsPaneControl.ForgetStats(id); }
+                var eggLabels = new List<string>();
+                foreach (CheckBox b in CheckBoxesIn(eggCard)) eggLabels.Add(((TextBlock)b.Content).Text);
+                ok &= Check(sb, "arrive as an egg: a main member that arrives as an egg has the row on its card (" + string.Join(", ", eggLabels) + ")",
+                    eggLabels.Count == 1 && eggLabels[0] == "Arrive as an egg");
             }
             catch (Exception ex)
             {

@@ -17045,6 +17045,29 @@ CASES = (
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      'a companion whose first behaviour cannot be built is declined, not thrown'),
+    # The Pets pane's "Arrive as an egg" row (the packs lane's preference, offered in the pane): absent unless the type
+    # offers it, it stores the user's change for the type, and a main member's card carries it.
+    ('shimeji-host: the egg row appears for a type that does not offer it',
+     os.path.join(REPO, "src", "Portable", "Wpf", "CompanionsPaneControl.cs"),
+     b'            if (!offered || string.IsNullOrEmpty(addId) || Program.MyData == null) return null;\n',
+     b'            if (string.IsNullOrEmpty(addId) || Program.MyData == null) return null;\n',
+     HOST_CSPROJ, EXE,
+     '--wpf-options-selftest', 'dp-wpf-options-selftest.txt',
+     'arrive as an egg: a type that does not offer it gets no row'),
+    ('shimeji-host: the egg row does not store the change',
+     os.path.join(REPO, "src", "Portable", "Wpf", "CompanionsPaneControl.cs"),
+     b'                try { Program.MyData.SetArriveAsEgg(addId, wanted); } catch { }\n',
+     b'                try { Program.MyData.SetArriveAsEgg(addId, !wanted && wanted); } catch { }\n',
+     HOST_CSPROJ, EXE,
+     '--wpf-options-selftest', 'dp-wpf-options-selftest.txt',
+     "arrive as an egg: offered, the row shows the stored choice (default on) and stores the user's change"),
+    ('shimeji-host: the card leaves out the egg row',
+     os.path.join(REPO, "src", "Portable", "Wpf", "CompanionsPaneControl.cs"),
+     b'            if (egg != null) sp.Children.Add(egg);\n',
+     b'            if (egg != null && egg == null) sp.Children.Add(egg);\n',
+     HOST_CSPROJ, EXE,
+     '--wpf-options-selftest', 'dp-wpf-options-selftest.txt',
+     'arrive as an egg: a main member that arrives as an egg has the row on its card'),
     # ---- lane feature/shimeji-host-motion ----
     # The motion family of embedded classes (src/dotNet/Shimeji/TickMotionFamily.cs) and the engine hooks it added: each
     # case puts back one wrong reading of the official runtime and must fail the CoreTests group that pins it.
