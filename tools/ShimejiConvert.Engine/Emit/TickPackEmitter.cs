@@ -407,7 +407,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                         if (!_roots.ContainsKey(name)) _rootOrder.Add(name);
                         _roots[name] = new RootBehaviour { Source = node, Condition = CheckedCombine(condition, SelectionCondition(node), node) };
                     }
-                    else Fail(node, "unsupported root behaviour entry");
+                    // Configuration.loadBehaviors takes only Condition and Behaviour children (Configuration.java:104-121):
+                    // any other child of the root list, or of a Condition in it, is never read, so it is skipped.
                 }
             }
 
@@ -867,7 +868,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                         EmitBehaviour(entry, when, id);
                         sequence.Add(Edge(id, Int(entry, "Frequency", null), when));
                     }
-                    else Fail(entry, "unsupported next-list entry");
+                    // BehaviorBuilder.loadBehaviors takes only Condition and BehaviourReference children
+                    // (BehaviorBuilder.java:102-121): any other child of a next list is never read, so it is skipped.
                 }
             }
 

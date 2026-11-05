@@ -111,7 +111,8 @@ with another action's is refused. An attribute the schema does not name on an ac
 behaviour is a variable of the source's action map: it is carried under its own name when it is a plain
 identifier the host does not read as a parameter of its own and some script of the member names it, and the
 scripts of that map see it; one nothing reads is refused, as before. A Behavior's children other than its
-NextBehaviorList elements (a NextBehavior among them) are ignored, as 1.0.23 never reads them.
+NextBehaviorList elements (a NextBehavior among them) are ignored, as 1.0.23 never reads them, and so is any child
+of a behaviour list other than a Condition and a Behavior (root list) or BehaviorReference (next list).
 It refuses unsupported attributes and
 classes, sounds, constants and next references without a root definition. An information document (info.xml) is
 accepted when it holds only <Information> (chooser and credits metadata, which no mascot reads); a Constant, an

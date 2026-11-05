@@ -71,6 +71,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "anonymous-nested-actions", Run = (Action)AnonymousNestedActions },
                 new { Name = "custom-variables", Run = (Action)CustomVariables },
                 new { Name = "ignored-behaviour-children", Run = (Action)IgnoredBehaviourChildren },
+                new { Name = "ignored-list-entries", Run = (Action)IgnoredListEntries },
                 new { Name = "information-lowering", Run = (Action)InformationLowering },
                 new { Name = "own-set-binding-reset", Run = (Action)OwnSetBindingReset },
                 new { Name = "japanese-schema-values", Run = (Action)JapaneseSchemaValues },
@@ -1410,6 +1411,28 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         // Replaces information-refusal: an information document holding only <Information> (a name, a preview, credits)
         // converts to exactly the bytes the member has without it, since no mascot reads that metadata; a Constant, an
         // ActionList or a BehaviourList in it, which the source would load as configuration, refuses by name.
+        // Both behaviour-list readers take only Condition and Behaviour (root list) or BehaviourReference (next list)
+        // children: a NextBehavior or a BehaviorReference straight in the root list or in a Condition there, and an
+        // unknown element in a next list, convert to exactly the bytes the member has without them.
+        private static void IgnoredListEntries()
+        {
+            string plain;
+            using (var fixture = new Fixture())
+                plain = fixture.Convert().ToString();
+            using (var fixture = new Fixture())
+            {
+                XDocument behaviours = BuildBehaviors();
+                XElement list = behaviours.Root.Element("BehaviorList");
+                list.Add(S("Condition", A("Condition", "true"), S("NextBehavior", S("BehaviorReference", A("Name", "Idle"), A("Frequency", 1)))),
+                    S("BehaviorReference", A("Name", "Idle"), A("Frequency", 4)));
+                behaviours.Descendants("NextBehaviorList").First().Add(S("Aside", A("Name", "Idle")));
+                fixture.Behaviors(behaviours);
+                XDocument document = fixture.Convert();
+                Validate(document, "ignored list entries member");
+                Require(document.ToString() == plain, "a behaviour-list child the source never reads changed the emitted member");
+            }
+        }
+
         private static void InformationLowering()
         {
             string plain;
