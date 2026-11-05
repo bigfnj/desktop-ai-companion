@@ -131,16 +131,19 @@ pack, one with equal-content copies at the lower-precedence `conf/<set>/` and `c
 the source never opens; both must run complete with every refKey in `img/<set>/conf/` (`V1_DOCUMENT_WITNESS`).
 
 Each scenario gets one status: `complete`, or a distinct failure (`truncated`, `timeout`, `error`, or the comparer's
-trace-check class). A requested scenario without a result fails the action (`V1_SCENARIO_SKIPPED`). The first
-complete scenario is run again with observation off, and its final tick, draw and event totals must equal the traced
-run's (CONTRACT section 5). Draws from a script `Math.random` are refused (`V1_RNG_SCRIPT_SITE_UNATTRIBUTED`) until
+trace-check class). A requested scenario without a result fails the action (`V1_SCENARIO_SKIPPED`). The named proof
+scenario `S-input-drag-01`, which must be directed (`none` or `tape`), is run again with observation off; both runs
+must complete and its final tick (an empty one included), draw and event totals must equal the traced run's (CONTRACT
+section 5). Without that scenario the proof is reported unavailable and the action is incomplete. Draws from a script `Math.random` are refused (`V1_RNG_SCRIPT_SITE_UNATTRIBUTED`) until
 the contract's script site names are attributed. Scan sites report their result through `DraftParityHooks.scanned`
 (the `wrap-assigned-value` spec operation, which refuses any call outside the hooks class) and Interact reports the
 start of its step. A runner refusal (Mute, or a sounding pose with sounds on, whose events have no seam yet) ends the
 run `aborted` and names itself; an exception from the source itself ends it `error`. Traces and launch records stay in
 the private evidence folder.
 
-`V1Failures` reuses the latest `V1` evidence on private copies: a header without its build witness, a trace without
+`V1Failures` reuses the latest `V1` evidence on private copies, and first refuses it (`V1_EVIDENCE_STALE`) unless
+`oracle.py`, the runner, the draft JAR and patch and the base trace's bytes are still the ones that run recorded and
+the draft build still validates: a header without its build witness, a trace without
 its footer, a tampered copy of the private patch, a draft record missing a field and a run missing a scenario must
 each fail by name, and a real trace judged against itself relabelled as a host trace must be `exact` until it is
 changed, then fail as `entity-mismatch` (companions out of manager order), `state-mismatch` on `pose` (another image,

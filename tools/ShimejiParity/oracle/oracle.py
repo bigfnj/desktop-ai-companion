@@ -695,6 +695,32 @@ def v1_self_test(args, labels):
             raise AssertionError("V1_SCENARIO_ID_WITNESS a refused id still wrote " + str(sorted(p.name for p in root.iterdir())))
         labels.append("v1-scenario-id-traversal-rooted-separator-refused-before-any-write")
 
+        # V1Failures binding: stale producer, build or trace bytes are refused.
+        recorded = root / "recorded-trace.jsonl"
+        recorded.write_bytes(b"synthetic trace\n")
+        row = {"scenario": "S-a", "trace": str(recorded), "trace_sha256": sha(b"synthetic trace\n")}
+        latest = {"tool_sha256": "a" * 64, "runner_sha256": "b" * 64,
+                  "build": {"artifactSha256": state["artifact_sha256"], "patchSha256": state["patch_sha256"]}}
+        require_current_v1_evidence(latest, "a" * 64, "b" * 64, state, row)
+        for tool, runner_sha, witness in (("c" * 64, "b" * 64, "V1_EVIDENCE_TOOL_WITNESS"), ("a" * 64, "c" * 64, "V1_EVIDENCE_TOOL_WITNESS")):
+            expect_refusal(lambda: require_current_v1_evidence(latest, tool, runner_sha, state, row), "V1_EVIDENCE_STALE oracle.py", witness)
+        expect_refusal(lambda: require_current_v1_evidence(dict(latest, build={"artifactSha256": "d" * 64, "patchSha256": state["patch_sha256"]}),
+                                                           "a" * 64, "b" * 64, state, row), "V1_EVIDENCE_STALE the draft", "V1_EVIDENCE_BUILD_WITNESS")
+        recorded.write_bytes(b"synthetic trace, edited\n")
+        expect_refusal(lambda: require_current_v1_evidence(latest, "a" * 64, "b" * 64, state, row), "V1_EVIDENCE_STALE trace", "V1_EVIDENCE_TRACE_WITNESS")
+        labels.append("v1-failures-stale-tool-runner-build-trace-refused")
+
+        # The proof case is named and directed: a splitmix64 proof scenario is unavailable, a tape one is used.
+        proof_root = root / "proof"
+        proof_root.mkdir()
+        (proof_root / (V1_PROOF_SCENARIO + ".json")).write_text(json.dumps({"rng": {"kind": "tape", "values": [0.5]}}), encoding="utf-8")
+        if v1_proof_case(proof_root)[0] is None:
+            raise AssertionError("V1_PROOF_KIND_WITNESS a tape proof scenario was refused")
+        (proof_root / (V1_PROOF_SCENARIO + ".json")).write_text(json.dumps({"rng": {"kind": "splitmix64", "seed": "0x1"}}), encoding="utf-8")
+        if v1_proof_case(proof_root)[0] is not None:
+            raise AssertionError("V1_PROOF_KIND_WITNESS a free-running proof scenario was accepted")
+        labels.append("v1-proof-case-named-and-directed")
+
 
 def png(red, green, blue):
     def chunk(kind, payload):
@@ -885,6 +911,12 @@ def mutate(args):
     legs.extend([
         ("v1-empty-final", [('if final_on ' + '!= final_off:', 'if not final_on or final_on != final_off:')], "V1_EMPTY_FINAL_WITNESS"),
         ("v1-observation-status", [('if on[-1].get("status") != "complete" or off[-1].get("status") ' + '!= "complete"', 'if False')], "V1_OBSERVATION_STATUS_WITNESS")])
+    # V1Failures bound to current evidence; the proof case named and directed.
+    legs.extend([
+        ("v1-evidence-tool", [('if latest.get("tool_sha256") != tool_sha or latest.get("runner_sha256") ' + '!= runner_sha:', 'if False:')], "V1_EVIDENCE_TOOL_WITNESS"),
+        ("v1-evidence-build", [('if build.get("artifactSha256") != state["artifact_sha256"] or build.get("patchSha256") ' + '!= state["patch_sha256"]:', 'if False:')], "V1_EVIDENCE_BUILD_WITNESS"),
+        ("v1-evidence-trace", [('or sha(Path(row["trace"]).read_bytes()) ' + '!= row.get("trace_sha256"):', 'or False:')], "V1_EVIDENCE_TRACE_WITNESS"),
+        ("v1-proof-kind", [('if kind not in ' + '("none", "tape"):', 'if False:')], "V1_PROOF_KIND_WITNESS")])
     # Review fixes F1 (scenario id paths) and F2 (helper inventory).
     legs.extend([
         ("v1-scenario-id", [('if not isinstance(scenario_id, str) or not V1_SCENARIO_ID.fullmatch(scenario_id) ' + 'or scenario_id.endswith("."):', 'if False:')], "V1_SCENARIO_ID_WITNESS"),
@@ -1278,6 +1310,31 @@ def v1_observation_proof(on_trace, off_trace):
 
 
 V1_DOCUMENT_SCENARIO = "S-slice-stand-walk-01"
+# The trace-on/off proof's case, named rather than taken from whichever scenario completes first: a directed
+# scenario with input, so the dispatch branch is inside the proof (review F3).
+V1_PROOF_SCENARIO = "S-input-drag-01"
+
+
+def v1_proof_case(shared_root):
+    """The proof scenario's file, or None and the reason: CONTRACT section 5 asks for a directed (none or tape) one."""
+    path = shared_root / (V1_PROOF_SCENARIO + ".json")
+    if not path.is_file():
+        return None, "no " + path.name
+    kind = json.loads(path.read_text(encoding="utf-8")).get("rng", {}).get("kind")
+    if kind not in ("none", "tape"):
+        return None, "rng kind " + str(kind) + " is not directed"
+    return path, None
+
+
+def require_current_v1_evidence(latest, tool_sha, runner_sha, state, row):
+    """V1Failures judges the evidence the CURRENT producer and build wrote, byte for byte, never a stale copy."""
+    build = latest.get("build", {})
+    if latest.get("tool_sha256") != tool_sha or latest.get("runner_sha256") != runner_sha:
+        raise Refusal("V1_EVIDENCE_STALE oracle.py or the runner changed since the V1 run")
+    if build.get("artifactSha256") != state["artifact_sha256"] or build.get("patchSha256") != state["patch_sha256"]:
+        raise Refusal("V1_EVIDENCE_STALE the draft build changed since the V1 run")
+    if not row.get("trace") or not Path(row["trace"]).is_file() or sha(Path(row["trace"]).read_bytes()) != row.get("trace_sha256"):
+        raise Refusal("V1_EVIDENCE_STALE trace bytes differ from the run's record " + str(row.get("scenario")))
 
 
 def v1_document_witnesses(args, compare, root, classpath, runner, build):
@@ -1333,15 +1390,20 @@ def v1(args):
         except compare.Unjudgeable as failure:
             rows.append({"scenario": path.stem, "status": failure.cls, "detail": str(failure)[:400], "trace": None})
     require_v1_results(requested, rows)
-    proof = None
-    directed = [row for row in rows if row["status"] == "complete"]
-    if directed:
-        first = next(path for path in v1_scenarios(args) if path.stem == directed[0]["scenario"])
-        off = v1_run(args, compare, first, root, classpath, runner, build, observe=False)
-        proof = v1_observation_proof(directed[0]["trace"], off["trace"])
+    proof_path, reason = v1_proof_case(args.shared_root)
+    proof = {"status": "unavailable", "scenario": V1_PROOF_SCENARIO, "reason": reason}
+    if proof_path is not None:
+        traced = next((row for row in rows if row["scenario"] == V1_PROOF_SCENARIO), None)
+        if traced is None:
+            traced = v1_run(args, compare, proof_path, root, classpath, runner, build)
+        if traced["status"] != "complete":
+            proof["reason"] = "the traced run is " + traced["status"]
+        else:
+            off = v1_run(args, compare, proof_path, root, classpath, runner, build, observe=False)
+            proof = dict(v1_observation_proof(traced["trace"], off["trace"]), status="pass")
     documents = v1_document_witnesses(args, compare, root, classpath, runner, build)
     validate_v1_build(state, (HERE / "edit-spec.json").read_bytes(), HERE / "draft")
-    passed = all(row["status"] == "complete" for row in rows) and documents["status"] == "pass"
+    passed = all(row["status"] == "complete" for row in rows) and documents["status"] == "pass" and proof["status"] == "pass"
     result = {"status": "pass" if passed else "incomplete",
               "schema": "shimeji-parity-trace/1", "build": build, "results": rows, "observation_proof": proof,
               "document_witnesses": documents,
@@ -1361,6 +1423,11 @@ def v1_failures(args):
     latest = json.loads((args.output_root / "v1-latest.json").read_text(encoding="utf-8"))
     complete = {row["scenario"]: row for row in latest["results"] if row["status"] == "complete"}
     base_id = "S-slice-breed-01" if "S-slice-breed-01" in complete else sorted(complete)[0]
+    # Bound to the current producer, draft build and helpers, and to the trace bytes the run recorded.
+    current = validate_v1_build(json.loads((args.cache_root / "latest-draft.json").read_text(encoding="utf-8")),
+                                (HERE / "edit-spec.json").read_bytes(), HERE / "draft")
+    require_current_v1_evidence(latest, sha((HERE / "oracle.py").read_bytes()), sha((HERE / V1_RUNNER).read_bytes()),
+                                current, complete[base_id])
     base = [json.loads(line) for line in Path(complete[base_id]["trace"]).read_text(encoding="utf-8").splitlines() if line.strip()]
     root = args.output_root / ("v1-failures-" + uuid.uuid4().hex[:8])
     root.mkdir(parents=True)
@@ -1451,7 +1518,8 @@ def v1_failures(args):
     judge("wrong RNG use: another site", "event-mismatch", draw_site)
     judge("wrong RNG use: an extra draw", "rng-draw-count", extra_draw)
     result = {"status": "pass", "base": base_id, "base_trace_sha256": complete[base_id]["trace_sha256"],
-              "witnesses": results, "evidence": str(root)}
+              "tool_sha256": latest["tool_sha256"], "runner_sha256": latest["runner_sha256"],
+              "artifact_sha256": current["artifact_sha256"], "witnesses": results, "evidence": str(root)}
     write_json(root / "results.json", result)
     write_json(args.output_root / "v1-failures-latest.json", result)
     return result
