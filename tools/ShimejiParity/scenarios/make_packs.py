@@ -374,13 +374,16 @@ def pack_scan_interact(root):
 
 
 def pack_interact(root):
+    # A start companion initialises before it joins the manager (CONTRACT section 4), and Interact's first check reads
+    # the manager, so the Interact scenarios start in Gather, a one-tick Stay whose next list hands to Huddle once the
+    # companions are managed.
     member(root, "Alpha",
            [posed("Huddle", "Embedded", [img("shime1.png", ticks=15), img("shime2.png", ticks=15)], cls="Interact",
                   Behavior="Huddled"),
             posed("Huddled", "Stay", [img("shime6.png", ticks=5)], Duration=40),
             posed("Approach", "Move", [img("shime2.png", dx=-2, ticks=2), img("shime3.png", dx=-2, ticks=2)], TargetX=640),
-            IDLE],
-           then("Idle", "Huddle", "Approach") + [beh("Huddled", 0, hidden=True), beh("Idle", 1)])
+            IDLE, posed("Gather", "Stay", [img("shime1.png", ticks=1)], Duration=1)],
+           then("Idle", "Huddle", "Approach") + then("Huddle", "Gather") + [beh("Huddled", 0, hidden=True), beh("Idle", 1)])
 
 
 # 7. Move: either axis ends it; a turn variant (Move with IsTurn, and the MoveWithTurn class); both facings.
@@ -711,16 +714,19 @@ SCENARIOS += [
               mascot("m3", "Beta", "QuietThenWave", 300)],
              tape(0.5, 0.5, 0.5, 0.5)),
     scenario("S-interact-arrive-01",
-             "Interact while a third companion arrives: m1 and m2 Huddle on x 640, each interact event naming the other; "
-             "m3 walks in from x 700 and, from its arrival, is named too; at 30 ticks m1 and m2 enter Huddled",
+             "Interact while a third companion arrives: m1 and m2 start in Gather on x 640 (a companion cannot start inside "
+             "Interact, which reads the manager it joins only after initialising) and enter Huddle by its next list once "
+             "managed, each interact event naming the other; m3 walks in from x 700 and, from its arrival, is named too; "
+             "on the last tick of Huddle's 30-tick animation m1 and m2 enter Huddled",
              "interact", 50,
-             [mascot("m1", "Alpha", "Huddle", 640), mascot("m2", "Alpha", "Huddle", 640), mascot("m3", "Alpha", "Approach", 700)],
+             [mascot("m1", "Alpha", "Gather", 640), mascot("m2", "Alpha", "Gather", 640), mascot("m3", "Alpha", "Approach", 700)],
              tape(0.5, 0.5, 0.5)),
     scenario("S-interact-shared-01",
-             "Interact while three share an anchor: m1 and m2 Huddle on x 640 beside m3 (Idle, also on 640); each "
-             "interact event names the other two in manager order, never m4 at x 900; at 30 ticks m1 and m2 enter Huddled",
+             "Interact while three share an anchor: m1 and m2 start in Gather on x 640 beside m3 (Idle, also on 640) and "
+             "enter Huddle by its next list once managed; each interact event names the other two in manager order, never "
+             "m4 at x 900; on the last tick of Huddle's 30-tick animation m1 and m2 enter Huddled",
              "interact", 40,
-             [mascot("m1", "Alpha", "Huddle", 640), mascot("m2", "Alpha", "Huddle", 640), mascot("m3", "Alpha", "Idle", 640),
+             [mascot("m1", "Alpha", "Gather", 640), mascot("m2", "Alpha", "Gather", 640), mascot("m3", "Alpha", "Idle", 640),
               mascot("m4", "Alpha", "Idle", 900)],
              tape(0.5, 0.5)),
     # 7. Move
