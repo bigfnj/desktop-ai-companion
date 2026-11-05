@@ -994,10 +994,16 @@ namespace DesktopAICompanion.Shimeji
                     }
                     else if (_mascot.ArrivalBehaviour != null)
                     {
-                        // The arrival has landed: the pack's startup behaviour now, once (ArrivalBehaviour).
+                        // The arrival has landed: the pack's startup behaviour now, once (ArrivalBehaviour). One the user
+                        // turned off is skipped and the route chooses, as with no startup behaviour: the source's drop-in for
+                        // a turned-off behaviour (BuildBehaviourByName) is for one it was asked to enter, and here it would
+                        // throw a companion that has just landed back above the screen. An unknown name still cannot live.
                         string arrival = _mascot.ArrivalBehaviour;
                         _mascot.ArrivalBehaviour = null;
-                        _mascot.SetBehaviour(_world.BuildBehaviourByName(Type, arrival, _mascot), "forced");
+                        if (!Type.RootByName.ContainsKey(arrival) || _world.IsBehaviourEnabledByName(Type, arrival, _mascot))
+                            _mascot.SetBehaviour(_world.BuildBehaviourByName(Type, arrival), "forced");
+                        else
+                            _mascot.SetBehaviour(_world.BuildNextBehaviour(Type, _mascot, Name), _world.LastSelectionCause);
                     }
                     else
                     {
@@ -1555,6 +1561,9 @@ namespace DesktopAICompanion.Shimeji
             TickType target = ResolveReference(mascot.Type, targetName);
             string from = mascot.Type.Name;
             mascot.Type = target;
+            // A startup behaviour still to come belonged to the type that arrived; the Transform has chosen what this
+            // companion does now, and the old name looked up on the new type could end it (policy:startup-after-arrival).
+            mascot.ArrivalBehaviour = null;
             Observer.Transformed(mascot, from, target.Name, behaviour);
             // Transform.java:51-65 sets the image set first and catches a behaviour that cannot be built or entered (a
             // blank or unknown TransformBehavior): it reports the failure and the companion carries on, as the new type,

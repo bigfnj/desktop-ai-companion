@@ -7540,7 +7540,11 @@ set by `TickHost.SpawnLikeSource`), and the first behaviour to end of itself aft
 Thrown if it was caught on the way down) hands over to it once instead of the route. Placing the companion straight on
 the floor in that behaviour was the other option and was not taken: it would drop the source's arrival for packs only.
 The source itself has no startup behaviour (its createMascot picks from the route), so this is the format extension's
-own rule; parity runs place start companions by scenario and never take this path.
+own rule; parity runs place start companions by scenario and never take this path. Two edges, found by an independent
+review: the hand-over first built the behaviour with the enabled check, so a startup behaviour the user had turned off
+dropped the just-landed companion in a second time (the source's drop-in is for a behaviour it was asked to enter, which
+this is not); it is now skipped and the route chooses. And a Transform before the hand-over left the old type's name
+pending, to be looked up on the new type, where a missing name ends the companion; a Transform now cancels it.
 
 **The clock is the source's wall clock, not a 40 ms timer.** The real-app pack smoke timed an egg's 75-tick hatch at
 about 3.5 s, not 3.0 s. Measured on this box, a WinForms timer set to 40 ms fires every 46.9 ms (64 firings in 3001 ms):

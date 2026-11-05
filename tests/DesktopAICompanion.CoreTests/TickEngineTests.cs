@@ -63,7 +63,9 @@ namespace DesktopAICompanion
                 if (imageSet != null && Off.TryGetValue(imageSet + ":" + setting, out v)) return v;
                 return setting == "Multiscreen" ? Multiscreen : true;
             }
-            public bool IsBehaviourEnabled(TickBehaviourDef behaviour, string imageSet) { return true; }
+            /// <summary>Behaviours the user turned off, by name; every other behaviour is on.</summary>
+            public readonly HashSet<string> BehavioursOff = new HashSet<string>(StringComparer.Ordinal);
+            public bool IsBehaviourEnabled(TickBehaviourDef behaviour, string imageSet) { return !BehavioursOff.Contains(behaviour.Name); }
         }
 
         private sealed class TickLog : ITickObserver

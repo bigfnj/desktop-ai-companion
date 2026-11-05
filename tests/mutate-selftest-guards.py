@@ -17229,6 +17229,20 @@ CASES = (
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      'arrival: a spawn with a startup behaviour keeps it for after the drop-in'),
+    # The hand-over skips a startup behaviour the user turned off (the route chooses), and a Transform during the
+    # arrival cancels it. Each is the defect as it was, put back.
+    ('shimeji-host: arrival hand-over drops a landed companion in again for a turned-off startup behaviour',
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'                        if (!Type.RootByName.ContainsKey(arrival) || _world.IsBehaviourEnabledByName(Type, arrival, _mascot))\n                            _mascot.SetBehaviour(_world.BuildBehaviourByName(Type, arrival), "forced");\n',
+     b'                        if (arrival != null)\n                            _mascot.SetBehaviour(_world.BuildBehaviourByName(Type, arrival, _mascot), "forced");\n',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, 'A turned-off startup behaviour was not skipped on landing'),
+    ('shimeji-host: arrival hand-over survives a Transform',
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'            mascot.ArrivalBehaviour = null;\n            Observer.Transformed(',
+     b'            if (mascot.ArrivalBehaviour == "never-set") mascot.ArrivalBehaviour = null;\n            Observer.Transformed(',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, 'A Transform during the arrival left the startup behaviour pending'),
     # A Transform whose behaviour cannot be built reports it and keeps the companion (Transform.java:51-65).
     ('shimeji-host: a Transform that cannot enter its behaviour ends the companion',
      os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),

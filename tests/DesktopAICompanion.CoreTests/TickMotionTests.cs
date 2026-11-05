@@ -195,6 +195,36 @@ namespace DesktopAICompanion
             for (int i = 0; i < 300 && !log2.Events.Contains("m1 behaviour Fall>Stand duration"); i++) v.StepOnce();
             AssertTrue(!log2.Events.Contains("m1 behaviour Fall>Hatch forced") && log2.Events.Exists(e => e.StartsWith("m1 behaviour Fall>Stand")),
                 "Without an arrival behaviour the landed companion did not take the route's choice: " + string.Join("; ", log2.Events));
+
+            // A startup behaviour the user turned off is skipped once the companion lands: the route chooses, and the
+            // companion is not dropped in a second time. Created off screen, it loses the ground at once (Stand>Fall) and
+            // the out-of-bounds rule drops it in (one Fall>Fall); a second drop-in would be a draw at the
+            // disabled-behaviour site and another Fall>Fall straight after the landing.
+            var off = new TickSwitches();
+            off.BehavioursOff.Add("Hatch");
+            var log3 = new TickLog();
+            TickWorld u = MotionWorld(null, log3, null, off, t);
+            TickMascot n = u.CreateAtStart("m1", t, new TickPoint(-4000, -4000), false, "Stand");
+            n.ArrivalBehaviour = "Hatch";
+            for (int i = 0; i < 300 && !log3.Events.Exists(e => e.StartsWith("m1 behaviour Fall>Stand")); i++) u.StepOnce();
+            AssertTrue(log3.Events.Exists(e => e.StartsWith("m1 behaviour Fall>Stand"))
+                && log3.Events.FindAll(e => e == "m1 behaviour Fall>Fall forced").Count == 1
+                && !log3.Draws.Contains("builtin:disabled-behavior-drop-x") && n.ArrivalBehaviour == null,
+                "A turned-off startup behaviour was not skipped on landing: " + string.Join("; ", log3.Events) + " | draws: " + string.Join(", ", log3.Draws));
+
+            // A Transform during the arrival cancels the startup behaviour still to come: it belonged to the type that
+            // arrived, and the Transform chose what the companion does now. Here the Transform keeps the type (an empty
+            // target resolves to the current one) and enters Fall, so the landing then takes the route's choice.
+            var log4 = new TickLog();
+            TickWorld x = MotionWorld(null, log4, null, null, t);
+            TickMascot p = x.CreateAtStart("m1", t, new TickPoint(-4000, -4000), false, "Hatch");
+            p.ArrivalBehaviour = "Hatch";
+            x.StepOnce();
+            x.TransformInPlace(p, "", "Fall");
+            for (int i = 0; i < 300 && !log4.Events.Exists(e => e.StartsWith("m1 behaviour Fall>Stand") || e == "m1 behaviour Fall>Hatch forced"); i++) x.StepOnce();
+            AssertTrue(p.ArrivalBehaviour == null && !log4.Events.Contains("m1 behaviour Fall>Hatch forced")
+                && log4.Events.Exists(e => e.StartsWith("m1 behaviour Fall>Stand")),
+                "A Transform during the arrival left the startup behaviour pending: " + string.Join("; ", log4.Events));
         }
 
         private static void TestTickBorderKeptOnBlankReinit()
