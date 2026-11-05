@@ -147,6 +147,62 @@ namespace DesktopAICompanion.Shimeji
         public readonly Dictionary<int, TickBehaviourDef> BehavioursById = new Dictionary<int, TickBehaviourDef>();
         public readonly Dictionary<string, ScriptValue> Constants = new Dictionary<string, ScriptValue>(StringComparer.Ordinal);
 
+        /// <summary>The size this type is drawn at (1 = the sheet's own pixels); the source's global Scaling setting,
+        /// which the host keeps per type.</summary>
+        public double Scale { get; private set; } = 1.0;
+        private bool _scaled;
+
+        /// <summary>
+        /// Apply a drawing scale once, the way the source applies its Scaling setting while loading
+        /// (AnimationBuilder.java:143-144 and 186-189, ImagePairLoader.java:37-38): the image anchor becomes
+        /// round(anchor * s); the cell is the host sprite store's scaled frame size; a pose's per-tick move becomes
+        /// round(move * s), except that a non-zero move scaled below one pixel stays one pixel in its direction; hotspot
+        /// origin and size become round(value * s). Parameters (TargetX, Gravity, ...) are not scaled, as in the source.
+        /// </summary>
+        public void ApplyScale(double scale, int spriteWidth, int spriteHeight)
+        {
+            if (_scaled) throw new InvalidOperationException("type " + Name + " is already scaled");
+            _scaled = true;
+            Scale = scale;
+            AnchorX = JavaRound(AnchorX * scale);
+            AnchorY = JavaRound(AnchorY * scale);
+            CellWidth = spriteWidth;
+            CellHeight = spriteHeight;
+            foreach (TickActDef act in Actions.Values)
+                foreach (TickVariantDef v in act.Variants)
+                {
+                    foreach (TickPoseDef p in v.Poses)
+                    {
+                        p.Dx = ScaleMove(p.Dx, scale);
+                        p.Dy = ScaleMove(p.Dy, scale);
+                    }
+                    foreach (TickHotspotDef h in v.Hotspots)
+                    {
+                        h.X = JavaRound(h.X * scale);
+                        h.Y = JavaRound(h.Y * scale);
+                        h.Width = JavaRound(h.Width * scale);
+                        h.Height = JavaRound(h.Height * scale);
+                    }
+                }
+        }
+
+        private static int ScaleMove(int move, double scale)
+        {
+            if (move != 0 && Math.Abs(move * scale) < 1) return move > 0 ? 1 : -1;
+            return JavaRound(move * scale);
+        }
+
+        /// <summary>(int) Math.round(double): floor(x + 0.5), so halves go up (-3.5 is -3, where .NET's default
+        /// banker's rounding gives -4).</summary>
+        public static int JavaRound(double value)
+        {
+            double r = Math.Floor(value + 0.5);
+            if (double.IsNaN(r)) return 0;
+            if (r >= int.MaxValue) return int.MaxValue;
+            if (r <= int.MinValue) return int.MinValue;
+            return (int)r;
+        }
+
         /// <summary>Compile a validated tick-clock document. Throws <see cref="InvalidOperationException"/> on anything
         /// the validator should have refused, naming it.</summary>
         public static TickType Compile(string name, XmlData.RootNode root)

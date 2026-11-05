@@ -93,6 +93,32 @@ namespace DesktopAICompanion
             AssertTrue(f.BringToFrontRequested, "BringToFront did not ask for the window to be raised.");
         }
 
+        /// <summary>The Scaling setting, applied once at load: anchors and hotspots round(v * s) with Java's rounding,
+        /// pose moves the same except that a non-zero move under one pixel stays one pixel.</summary>
+        private static void TestTickScale()
+        {
+            XmlData.AnimationNode walk = TAct(30, "Walk", "Stay", null, new[] { TParam("Duration", "50") },
+                TPose(0, 1, -3), TPose(1, 1, -7), TPose(2, 1, 0), TPose(3, 1, 1));
+            walk.Act.Variants.Variant[0].Hotspots = new XmlData.HotspotsNode { Hotspot = new[] { THotspot("Walk") } };
+            Func<double, TickType> make = s =>
+            {
+                TickType t = TickType.Compile("Alpha", TickDoc(TRoute(TEdge(10, 1)), TBeh(10, "Walk", "Walk", 1, null), walk));
+                t.ApplyScale(s, TickScriptContext.JavaInt(64 * s), TickScriptContext.JavaInt(64 * s));
+                return t;
+            };
+            TickType half = make(0.5);
+            TickPoseDef[] hp = half.Actions["Walk"].Variants[0].Poses;
+            AssertEqual("-1,-3,0,1", hp[0].Dx + "," + hp[1].Dx + "," + hp[2].Dx + "," + hp[3].Dx,
+                "Half scale did not scale moves as the source (-3 -> round(-1.5) = -1, -7 -> round(-3.5) = -3 with halves up, 0 stays 0, 1 -> 0.5 kept at 1).");
+            AssertTrue(half.AnchorX == 16 && half.AnchorY == 32 && half.CellWidth == 32, "Half scale did not scale the anchor and cell.");
+            TickType quarter = make(0.25);
+            TickPoseDef[] qp = quarter.Actions["Walk"].Variants[0].Poses;
+            // A move of 1 at a quarter is 0.25, which rounds to 0: only the one-pixel rule keeps it moving.
+            AssertTrue(qp[0].Dx == -1 && qp[3].Dx == 1, "A non-zero move scaled under one pixel did not stay one pixel in its direction.");
+            TickHotspotDef h = make(1.5).Actions["Walk"].Variants[0].Hotspots[0];
+            AssertTrue(h.Width == 30 && h.Height == 30 && h.X == 0, "Hotspot size was not scaled with the type.");
+        }
+
         private static void TestTickSelfDestruct()
         {
             TickType t = TickType.Compile("Alpha", TickDoc(
