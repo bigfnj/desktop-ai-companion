@@ -192,15 +192,17 @@ namespace DesktopAICompanion.Shimeji
             return JavaRound(move * scale);
         }
 
-        /// <summary>(int) Math.round(double): floor(x + 0.5), so halves go up (-3.5 is -3, where .NET's default
-        /// banker's rounding gives -4).</summary>
+        /// <summary>(int) Math.round(double) as Java 8 computes it: the nearest integer with halves toward positive
+        /// infinity (-3.5 is -3, where .NET's default banker's rounding gives -4), exact where floor(x + 0.5) is not
+        /// (0.49999999999999994 is 0, not 1), NaN 0, and an out-of-range value saturating to a long that the int cast
+        /// then truncates to its low 32 bits.</summary>
         public static int JavaRound(double value)
         {
-            double r = Math.Floor(value + 0.5);
-            if (double.IsNaN(r)) return 0;
-            if (r >= int.MaxValue) return int.MaxValue;
-            if (r <= int.MinValue) return int.MinValue;
-            return (int)r;
+            if (double.IsNaN(value)) return 0;
+            double f = Math.Floor(value);
+            double r = value - f >= 0.5 ? f + 1 : f;
+            long l = r >= 9.2233720368547758E18 ? long.MaxValue : r <= -9.2233720368547758E18 ? long.MinValue : (long)r;
+            return unchecked((int)l);
         }
 
         /// <summary>Compile a validated tick-clock document. Throws <see cref="InvalidOperationException"/> on anything

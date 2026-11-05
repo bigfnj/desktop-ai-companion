@@ -262,8 +262,9 @@ namespace DesktopAICompanion.Shimeji
         public TickArea GetActiveWindow()
         {
             TickArea active = _impl.ActiveWindow;
-            // Single-screen mode swaps a window that is not inside the companion's own work area for the empty area.
-            if (_currentWorkArea != null && !_multiscreen() && !ContainsRect(_currentWorkArea, active))
+            // Single-screen mode swaps a window that does not even TOUCH the companion's own work area for the empty
+            // area (MascotEnvironment.java:82 tests intersects, not contains: a window partly off it is kept).
+            if (_currentWorkArea != null && !_multiscreen() && !IntersectsRect(_currentWorkArea, active))
                 return NoWindow;
             return active;
         }
@@ -350,6 +351,19 @@ namespace DesktopAICompanion.Shimeji
                 if (_impl.WorkArea.RightBorder.IsOn(location)) return true;
             }
             return count == 1;
+        }
+
+        /// <summary>java.awt.Rectangle.intersects, overflow cases included: an empty rectangle intersects nothing.</summary>
+        private static bool IntersectsRect(TickArea a, TickArea r)
+        {
+            int tw = a.Width, th = a.Height, rw = r.Width, rh = r.Height;
+            if (rw <= 0 || rh <= 0 || tw <= 0 || th <= 0) return false;
+            int tx = a.Left, ty = a.Top, rx = r.Left, ry = r.Top;
+            rw = unchecked(rw + rx);
+            rh = unchecked(rh + ry);
+            tw = unchecked(tw + tx);
+            th = unchecked(th + ty);
+            return (rw < rx || rw > tx) && (rh < ry || rh > ty) && (tw < tx || tw > rx) && (th < ty || th > ry);
         }
 
         private static bool ContainsRect(TickArea outer, TickArea inner)

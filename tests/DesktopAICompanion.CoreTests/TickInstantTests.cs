@@ -117,6 +117,45 @@ namespace DesktopAICompanion
             AssertTrue(qp[0].Dx == -1 && qp[3].Dx == 1, "A non-zero move scaled under one pixel did not stay one pixel in its direction.");
             TickHotspotDef h = make(1.5).Actions["Walk"].Variants[0].Hotspots[0];
             AssertTrue(h.Width == 30 && h.Height == 30 && h.X == 0, "Hotspot size was not scaled with the type.");
+
+            // Java 8's Math.round: exact, halves up. floor(x + 0.5) gets 0.49999999999999994 wrong (the sum rounds to 1).
+            AssertEqual(0, TickType.JavaRound(0.49999999999999994), "JavaRound(0.49999999999999994) is not 0, as Java 8 rounds it.");
+            AssertEqual(-3, TickType.JavaRound(-3.5), "JavaRound(-3.5) is not -3 (halves go up).");
+            AssertEqual(3, TickType.JavaRound(2.5), "JavaRound(2.5) is not 3.");
+
+            // Breed's BornX is scaled by the PARENT type's scale (the source's global Scaling, kept per type here).
+            TickType breeder = TickType.Compile("Alpha", TickDoc(
+                TRoute(TEdge(10, 1), TEdge(11, 0)),
+                TBeh(10, "Throw", "Throw", 1, null),
+                TBeh(11, "Stand", "Stand", 0, null),
+                TAct(30, "Throw", "Embedded", "Breed", new[] { TParam("BornX", "40"), TParam("BornBehavior", "Stand") }, TPose(0, 1), TPose(1, 1)),
+                TAct(31, "Stand", "Stay", null, new[] { TParam("Duration", "50") }, TPose(0, 1))));
+            breeder.ApplyScale(2.0, 128, 128);
+            var log = new TickLog();
+            TickWorld w = TickWorldOf(log, null, breeder);
+            w.CreateAtStart("m1", breeder, new TickPoint(640, 680), false, "Throw");
+            w.StepOnce();
+            w.StepOnce();
+            AssertTrue(log.Events.Exists(e => e.StartsWith("m1 birth m1.b1 #1 try1 at (720, 680)")),
+                "A birth's BornX was not scaled by its parent type's scale (40 at 2x is 80): " + string.Join("; ", log.Events));
+        }
+
+        /// <summary>Single-screen mode keeps an interactive window that only TOUCHES the companion's work area
+        /// (MascotEnvironment.java:82 tests intersects), so a companion can stand on a window hanging off the edge.</summary>
+        private static void TestTickWindowIntersects()
+        {
+            TickType t = TickType.Compile("Alpha", TickDoc(
+                TRoute(TEdge(10, 1)),
+                TBeh(10, "Stand", "Stand", 1, null),
+                TAct(30, "Stand", "Stay", null, new[] { TParam("Duration", "50") }, TPose(0, 1))));
+            var desk = new MotionDesk { Window = new[] { 1200, 500, 200, 100 } };   // x 1200..1400: past the work area's right edge
+            var w = new TickWorld(desk, new TickTape(), new TickSwitches(), new TickLog());
+            w.AddType(t);
+            w.Start();
+            TickMascot m = w.CreateAtStart("m1", t, new TickPoint(1250, 500), false, "Stand");
+            m.Environment.GetWorkArea();   // remembers the work area, so the single-screen window test applies
+            ITickBorder floor = m.Environment.GetFloor();
+            AssertTrue(floor.IsOn(m.Anchor), "A window partly outside the work area was dropped in single-screen mode; the source keeps any window that intersects it.");
         }
 
         private static void TestTickSelfDestruct()

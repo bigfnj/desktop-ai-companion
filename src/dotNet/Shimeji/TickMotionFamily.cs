@@ -209,7 +209,7 @@ namespace DesktopAICompanion.Shimeji
         public override void Init(TickMascot mascot)
         {
             base.Init(mascot);
-            _scaling = World.Scaling;
+            _scaling = Mascot.Type.Scale;
             _footX = World.Environment.Cursor.X + TickBreed.JavaRound(EvalInt("OffsetX", 0) * _scaling);
             _timeToRegist = 250;
         }
@@ -278,7 +278,7 @@ namespace DesktopAICompanion.Shimeji
         public override void Init(TickMascot mascot)
         {
             base.Init(mascot);
-            _scaling = World.Scaling;
+            _scaling = Mascot.Type.Scale;
         }
 
         public override bool HasNext()

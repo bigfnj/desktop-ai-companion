@@ -772,7 +772,7 @@ namespace DesktopAICompanion.Shimeji
 
         public static int JavaRound(double d)
         {
-            return TickScriptContext.JavaInt(Math.Floor(d + 0.5));
+            return TickType.JavaRound(d);
         }
     }
 
@@ -822,7 +822,8 @@ namespace DesktopAICompanion.Shimeji
         /// <summary>breed: BornCount children of BornMascot (else the parent's type), placed from the parent's anchor.</summary>
         public void Breed(TickMascot parent)
         {
-            double scaling = _world.Scaling;
+            // The source scales by its one global Scaling; the host keeps a size per type, so the parent type is used.
+            double scaling = parent.Type.Scale;
             string bornMascot = _action.EvalString("BornMascot", null, "");
             TickType childType = _world.FindType(bornMascot) ?? parent.Type;
             // The loop bound is evaluated every pass, as the source's `index < getBornCount()`.
@@ -1178,7 +1179,6 @@ namespace DesktopAICompanion.Shimeji
         public readonly ITickRandom Random;
         public readonly ITickSettings Settings;
         public readonly ITickObserver Observer;
-        public double Scaling = 1.0;
         public int MaximumCompanions = 16;
         public int Step { get; private set; }
 
