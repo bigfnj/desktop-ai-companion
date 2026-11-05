@@ -219,12 +219,16 @@ namespace DesktopAICompanion.Shimeji
 
         public ITickEnvironment Impl { get { return _impl; } }
 
-        public TickArea GetWorkArea()
+        public TickArea GetWorkArea() { return GetWorkArea(false); }
+
+        /// <summary>getWorkArea(ignoreSettings): ignoring the settings takes the multiscreen path in single-screen mode
+        /// too, so the companion's work area follows its anchor (refreshWorkArea, which Dragged calls every tick).</summary>
+        public TickArea GetWorkArea(bool ignoreSettings)
         {
             TickPoint a = _mascot.Anchor;
             if (_currentWorkArea != null)
             {
-                if (_multiscreen())
+                if (ignoreSettings || _multiscreen())
                 {
                     if (_currentWorkArea != _impl.WorkArea && ContainsRect(_currentWorkArea, _impl.WorkArea)
                         && _impl.WorkArea.Contains(a.X, a.Y))
@@ -264,13 +268,20 @@ namespace DesktopAICompanion.Shimeji
             return active;
         }
 
-        public ITickBorder GetFloor()
+        /// <summary>refreshWorkArea: the work area looked up again with the settings ignored.</summary>
+        public void RefreshWorkArea() { GetWorkArea(true); }
+
+        public ITickBorder GetFloor() { return GetFloor(false); }
+
+        /// <summary>getFloor(ignoreSeparator): with the separator ignored, a work-area bottom that is not exactly one
+        /// screen edge (two stacked screens meet there) is no floor, so Fall passes through it.</summary>
+        public ITickBorder GetFloor(bool ignoreSeparator)
         {
             TickPoint a = _mascot.Anchor;
             TickArea active = GetActiveWindow();
             if (active.TopBorder.IsOn(a)) return active.TopBorder;
             TickArea work = GetWorkArea();
-            if (work.BottomBorder.IsOn(a)) return work.BottomBorder;
+            if (work.BottomBorder.IsOn(a) && (!ignoreSeparator || IsScreenTopBottom(a))) return work.BottomBorder;
             return TickNotOnBorder.Instance;
         }
 
@@ -284,7 +295,10 @@ namespace DesktopAICompanion.Shimeji
             return TickNotOnBorder.Instance;
         }
 
-        public ITickBorder GetWall()
+        public ITickBorder GetWall() { return GetWall(false); }
+
+        /// <summary>getWall(ignoreSeparator): as <see cref="GetFloor(bool)"/>, for side-by-side screens.</summary>
+        public ITickBorder GetWall(bool ignoreSeparator)
         {
             TickPoint a = _mascot.Anchor;
             TickArea active = GetActiveWindow();
@@ -293,15 +307,49 @@ namespace DesktopAICompanion.Shimeji
             {
                 if (active.LeftBorder.IsOn(a)) return active.LeftBorder;
                 work = GetWorkArea();
-                if (work.RightBorder.IsOn(a)) return work.RightBorder;
+                if (work.RightBorder.IsOn(a) && (!ignoreSeparator || IsScreenLeftRight(a))) return work.RightBorder;
             }
             else
             {
                 if (active.RightBorder.IsOn(a)) return active.RightBorder;
                 work = GetWorkArea();
-                if (work.LeftBorder.IsOn(a)) return work.LeftBorder;
+                if (work.LeftBorder.IsOn(a) && (!ignoreSeparator || IsScreenLeftRight(a))) return work.LeftBorder;
             }
             return TickNotOnBorder.Instance;
+        }
+
+        // Environment.isScreenTopBottom / isScreenLeftRight: the point is on exactly one screen edge, or on none and on
+        // the environment's own work area's edge (its WorkArea, not the companion's).
+        private bool IsScreenTopBottom(TickPoint location)
+        {
+            int count = 0;
+            foreach (TickArea area in _impl.Screens)
+            {
+                if (area.TopBorder.IsOn(location)) ++count;
+                if (area.BottomBorder.IsOn(location)) ++count;
+            }
+            if (count == 0)
+            {
+                if (_impl.WorkArea.TopBorder.IsOn(location)) return true;
+                if (_impl.WorkArea.BottomBorder.IsOn(location)) return true;
+            }
+            return count == 1;
+        }
+
+        private bool IsScreenLeftRight(TickPoint location)
+        {
+            int count = 0;
+            foreach (TickArea area in _impl.Screens)
+            {
+                if (area.LeftBorder.IsOn(location)) ++count;
+                if (area.RightBorder.IsOn(location)) ++count;
+            }
+            if (count == 0)
+            {
+                if (_impl.WorkArea.LeftBorder.IsOn(location)) return true;
+                if (_impl.WorkArea.RightBorder.IsOn(location)) return true;
+            }
+            return count == 1;
         }
 
         private static bool ContainsRect(TickArea outer, TickArea inner)

@@ -91,6 +91,26 @@ namespace DesktopAICompanion
                 Run("Tick type scale applies as the source's Scaling", TestTickScale);
                 Run("Tick input press drags, release throws only a dragged companion", TestTickInputDrag);
                 Run("Tick input hotspots hold, re-enter and mirror", TestTickInputHotspot);
+                Run("Tick motion Fall: velocity, resistance and gravity accumulate as the source's doubles", TestTickMotionFallArithmetic);
+                Run("Tick motion Fall: a floor in the 80 px sweep or a wall stops it and ends the fall", TestTickMotionFallStops);
+                Run("Tick motion Fall: a floor where two stacked screens meet is passed through", TestTickMotionFallSeparator);
+                Run("Tick motion Fall: remainders outlive a re-init, velocities restart", TestTickMotionFallReinit);
+                Run("Tick motion Jump: re-aims with the arc each step and truncates toward zero", TestTickMotionJumpAim);
+                Run("Tick motion Jump: publishes its velocity before the pose and lands with none", TestTickMotionJumpPose);
+                Run("Tick motion Dragged: follows the cursor at its offset, facing left, with the damped foot sway", TestTickMotionDraggedFollows);
+                Run("Tick motion Dragged: a 5 px move restarts the clock; the regist time extends on a draw", TestTickMotionDraggedRegist);
+                Run("Tick motion Dragged: OffsetType Origin measures from the image centre", TestTickMotionDraggedOrigin);
+                Run("Tick motion Dragged: the work area follows the dragged companion", TestTickMotionDraggedWorkArea);
+                Run("Tick motion Regist: plays to its last tick, draws a facing, loses the ground; 5 px off ends it", TestTickMotionRegist);
+                Run("Tick motion Turn: faces LookRight and plays only on a change", TestTickMotionTurn);
+                Run("Tick motion Turn: without LookRight it flips every tick", TestTickMotionTurnFlips);
+                Run("Tick motion Turn: an instance that has turned plays again when re-initialised", TestTickMotionTurnReinit);
+                Run("Tick motion MoveWithTurn: the last variant is the turn", TestTickMotionMoveWithTurn);
+                Run("Tick motion Broadcast: the deprecated aliases run as their bases", TestTickMotionBroadcast);
+                Run("Tick motion BreedMove: breeds after each BornInterval step, never while turning", TestTickMotionBreedMove);
+                Run("Tick motion BreedJump: breeds at its new anchor each BornInterval step, capped as Breed is", TestTickMotionBreedJump);
+                Run("Tick motion BreedFall: breeds as it falls, under the Breeding toggle", TestTickMotionBreedFall);
+                Run("Tick motion Breed variants: BornCount or BornInterval below 1 cannot start", TestTickMotionBreedValidation);
             }
             finally
             {
