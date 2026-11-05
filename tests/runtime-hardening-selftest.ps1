@@ -1911,7 +1911,8 @@ Assert-True ($selfTestFlagCount -gt 10) (
 # sentence is written and a digit would not match.
 $projectCount = @(git -C $repoRoot ls-files '*.csproj').Count
 $numeralNames = @{ 14 = 'fourteen'; 15 = 'fifteen'; 16 = 'sixteen'; 17 = 'seventeen';
-                   18 = 'eighteen'; 19 = 'nineteen'; 20 = 'twenty'; 31 = 'thirty-one'; 32 = 'thirty-two' }
+                   18 = 'eighteen'; 19 = 'nineteen'; 20 = 'twenty'; 31 = 'thirty-one'; 32 = 'thirty-two';
+                   33 = 'thirty-three' }
 Assert-True ($projectCount -gt 10) (
     "the tracked project count is countable (found $projectCount)")
 Assert-True ($numeralNames.ContainsKey($projectCount)) (

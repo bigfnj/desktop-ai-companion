@@ -104,11 +104,12 @@ if ($ExpectedCommit) {
     if ($LASTEXITCODE -ne 0 -or $head -cne $actualCommit) { throw 'PROBE_HOST_SOURCE_CHANGED_DURING_RUN' }
 }
 if ((Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash.ToLowerInvariant() -cne $runnerSha256) { throw 'PROBE_RUNNER_CHANGED_DURING_RUN' }
-[pscustomobject]@{ schema='shimeji-validation-witness/1'; hostSourceRoot=$HostSourceRoot; expectedCommit=$ExpectedCommit;
+# Written with an explicit encoding object: Out-File -Encoding utf8 writes a BOM under 5.1 and none under pwsh.
+$witnessJson = [pscustomobject]@{ schema='shimeji-validation-witness/1'; hostSourceRoot=$HostSourceRoot; expectedCommit=$ExpectedCommit;
     actualCommit=$actualCommit; sourceHashes=$sourceHashes; inputHashes=$inputHashes; runnerSha256=$runnerSha256; buildArgs=$buildArgs;
     artifactSha256=$artifactHash; artifactLastWriteUtc=[IO.File]::GetLastWriteTimeUtc($artifact);
     buildExit=$buildExit; executeExit=$executeExit; coreOnly=$true; featureOverride='CompanionFormatFeatures.All';
-    productionRuntimeProof=$false; result=$resultPath } | ConvertTo-Json -Depth 6 |
-    Out-File -LiteralPath (Join-Path $OutputRoot 'witness.json') -Encoding utf8
+    productionRuntimeProof=$false; result=$resultPath } | ConvertTo-Json -Depth 6
+[IO.File]::WriteAllText((Join-Path $OutputRoot 'witness.json'), $witnessJson, (New-Object Text.UTF8Encoding($false)))
 Write-Output ('Evidence: ' + $OutputRoot)
 if ($executeExit -ne 0 -or $record.status -ne 'pass') { exit 1 }
