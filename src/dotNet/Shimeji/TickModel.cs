@@ -34,6 +34,24 @@ namespace DesktopAICompanion.Shimeji
         public int Dx;
         public int Dy;
         public string Sound;
+
+        /// <summary>The pose image's own geometry (grimoire/06 section 3; the source gives every image its own size and
+        /// anchor, ImagePairLoader.java:37-38): the anchor in the left image's pixels, the left image's size (drawn at
+        /// its cell's top-left), and the right image's size (the explicit right frame's, else the left's, mirrored).
+        /// Compiled with the type's anchor and cell as defaults; scaled by <see cref="TickType.ApplyScale"/>.</summary>
+        public int AnchorX, AnchorY, Width, Height, RightWidth, RightHeight;
+
+        /// <summary>The image's anchor as the source's MascotImage holds it for a facing: the left image's is the
+        /// pose's; the right image's x is measured from its own width (ImagePairLoader.java:38), so a mirrored image's
+        /// anchor is mirrored with it.</summary>
+        public TickPoint ImageCenter(bool right)
+        {
+            return new TickPoint(right ? RightWidth - AnchorX : AnchorX, AnchorY);
+        }
+
+        /// <summary>The image's size for a facing (MascotImage.getSize).</summary>
+        public int ImageWidth(bool right) { return right ? RightWidth : Width; }
+        public int ImageHeight(bool right) { return right ? RightHeight : Height; }
     }
 
     /// <summary>
@@ -158,6 +176,8 @@ namespace DesktopAICompanion.Shimeji
         /// round(anchor * s); the cell is the host sprite store's scaled frame size; a pose's per-tick move becomes
         /// round(move * s), except that a non-zero move scaled below one pixel stays one pixel in its direction; hotspot
         /// origin and size become round(value * s). Parameters (TargetX, Gravity, ...) are not scaled, as in the source.
+        /// A pose's own anchor scales as the type's; its image sizes become the sprite store's scaled size of that region
+        /// (<see cref="ScaleSize"/>).
         /// </summary>
         public void ApplyScale(double scale, int spriteWidth, int spriteHeight)
         {
@@ -166,6 +186,7 @@ namespace DesktopAICompanion.Shimeji
             Scale = scale;
             AnchorX = JavaRound(AnchorX * scale);
             AnchorY = JavaRound(AnchorY * scale);
+            int cellWidth = CellWidth, cellHeight = CellHeight;
             CellWidth = spriteWidth;
             CellHeight = spriteHeight;
             foreach (TickActDef act in Actions.Values)
@@ -175,6 +196,12 @@ namespace DesktopAICompanion.Shimeji
                     {
                         p.Dx = ScaleMove(p.Dx, scale);
                         p.Dy = ScaleMove(p.Dy, scale);
+                        p.AnchorX = JavaRound(p.AnchorX * scale);
+                        p.AnchorY = JavaRound(p.AnchorY * scale);
+                        p.Width = ScaleSize(p.Width, cellWidth, spriteWidth, scale);
+                        p.Height = ScaleSize(p.Height, cellHeight, spriteHeight, scale);
+                        p.RightWidth = ScaleSize(p.RightWidth, cellWidth, spriteWidth, scale);
+                        p.RightHeight = ScaleSize(p.RightHeight, cellHeight, spriteHeight, scale);
                     }
                     foreach (TickHotspotDef h in v.Hotspots)
                     {
@@ -184,6 +211,16 @@ namespace DesktopAICompanion.Shimeji
                         h.Height = JavaRound(h.Height * scale);
                     }
                 }
+        }
+
+        /// <summary>An image size at a scale (ImagePairLoader.scale: round(size * s), Java's rounding). A whole cell is
+        /// the sprite store's scaled frame, which the host rounds its own way, so a pose that fills its cell is never a
+        /// pixel wider than the frame it is cut from; a size that rounds to nothing keeps one pixel (the source cannot
+        /// make a 0-pixel image at all).</summary>
+        private static int ScaleSize(int size, int cell, int sprite, double scale)
+        {
+            if (size >= cell) return sprite;
+            return Math.Max(1, JavaRound(size * scale));
         }
 
         private static int ScaleMove(int move, double scale)
@@ -230,7 +267,7 @@ namespace DesktopAICompanion.Shimeji
                 if (a == null) continue;
                 if (a.Act != null)
                 {
-                    TickActDef act = CompileAct(a);
+                    TickActDef act = CompileAct(a, type);
                     type.Actions[act.Name] = act;
                     type.ActionsById[act.NodeId] = act;
                 }
@@ -293,7 +330,7 @@ namespace DesktopAICompanion.Shimeji
             return width > 0 && height > 0;
         }
 
-        private static TickActDef CompileAct(XmlData.AnimationNode a)
+        private static TickActDef CompileAct(XmlData.AnimationNode a, TickType type)
         {
             XmlData.ActNode n = a.Act;
             var act = new TickActDef
@@ -348,6 +385,10 @@ namespace DesktopAICompanion.Shimeji
                     var poses = new List<TickPoseDef>();
                     foreach (XmlData.PoseNode p in v.Pose)
                     {
+                        // A pose's image geometry defaults to the type's: its anchor and a whole cell; a right image's size
+                        // to the left image's (the mirrored left image, or an explicit right frame of the same size).
+                        int width = p.WidthSpecified ? p.Width : type.CellWidth;
+                        int height = p.HeightSpecified ? p.Height : type.CellHeight;
                         poses.Add(new TickPoseDef
                         {
                             Frame = p.Frame,
@@ -356,6 +397,12 @@ namespace DesktopAICompanion.Shimeji
                             Dx = p.DX,
                             Dy = p.DY,
                             Sound = p.Sound,
+                            AnchorX = p.AnchorXSpecified ? p.AnchorX : type.AnchorX,
+                            AnchorY = p.AnchorYSpecified ? p.AnchorY : type.AnchorY,
+                            Width = width,
+                            Height = height,
+                            RightWidth = p.RightWidthSpecified ? p.RightWidth : width,
+                            RightHeight = p.RightHeightSpecified ? p.RightHeight : height,
                         });
                         def.Duration += p.Ticks;
                     }

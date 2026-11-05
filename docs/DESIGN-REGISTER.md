@@ -7466,6 +7466,18 @@ in the saved mix and is not announced to modules as an arrival, so a clutch of e
 hatchling and is not back at the next launch. A companion that destroys itself leaves the saved mix as it was, so it
 returns at the next launch: the user's choice of companions is not something a skin changes.
 
+**Each pose carries its image's geometry, and the window is that image.** The source gives every image its own size and
+anchor, and 84% of the corpus's image sets mix them, so padding every frame to one canvas would have moved four things the
+source measures from the image: the window, the off-screen drop-in, a mirrored hotspot and Dragged's and Regist's Origin
+offsets. A pose says how much of its cell is the image and where the image's anchor is (`ax ay w h rw rh`, grimoire/06
+section 3), the engine takes all four from the image the last pose set, for the facing it was set with, and the host
+draws only that region (a mirrored image is the flipped cell's top-right) in a window of its size. A facing change
+therefore never moves the anchor on screen: the image's anchor is mirrored with the image. The sprite store cuts each
+region once and disposes it with the frames, and bounds what it keeps by pixels as it bounds the frames; past that it
+hands back the whole cell, drawn so the region still lands at the bounds, and says so once in the log rather than
+growing. A pose that fills its cell takes the store's own scaled frame, because the store rounds a 32.5-pixel cell to
+32 where Java's rounding gives 33, and a region one pixel wider than its frame cannot be cut.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

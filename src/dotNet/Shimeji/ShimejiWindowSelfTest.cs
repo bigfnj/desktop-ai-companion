@@ -157,6 +157,8 @@ namespace DesktopAICompanion.Shimeji
 
                 CheckStaging(check);
                 CheckParityTooling(check, scratch, log);
+                CheckPoseGeometry(check, log);
+                CheckParityGeometry(check);
             }
             catch (Exception e)
             {
@@ -260,6 +262,244 @@ namespace DesktopAICompanion.Shimeji
                 "parity: the pack hash refuses a link before reading through it (" + (refusal ?? "read through it") + ")");
         }
 
+        /// <summary>
+        /// Per-pose geometry in real windows (grimoire/06 section 3). Frame 0's image is its cell's top-left 30x40 (green,
+        /// its first column yellow) on a blue cell; frame 1's is a 50x20 orange top-left, first column yellow. A pose
+        /// shows only its image: the window is the image's size, at the anchor minus the pose's anchor, facing left and
+        /// right (the mirrored image is the flipped cell's top-RIGHT, so it is green with the yellow column last), and an
+        /// explicit right frame sizes the window to itself; on the colour-key and the alpha path alike. The store cuts a
+        /// region once and disposes it with the frames; past its region budget it hands back the whole cell, which is
+        /// drawn so the region still lands at the companion's bounds, and that is logged once.
+        /// </summary>
+        private static void CheckPoseGeometry(Action<bool, string> check, StringBuilder log)
+        {
+            TickHost host = null;
+            Xml colourKey = null, alpha = null, spent = null;
+            var geoLog = new StringBuilder();
+            try
+            {
+                colourKey = new Xml(GeometryFrames(), 64, 64);
+                alpha = new Xml(GeometryFrames(), 64, 64, true);
+                spent = new Xml(GeometryFrames(), 64, 64);
+                spent.SetSpriteRegionBudgetForSelfTest(100);
+                host = new TickHost(t =>
+                    {
+                        var form = new FormCompanion(new Animations(t.Sprites), t.Sprites);
+                        form.Show(t.Type.CellWidth, t.Type.CellHeight);
+                        return form;
+                    },
+                    form => form.Close(),
+                    message => geoLog.AppendLine(message)) { RenderOpacity = 0.0 };
+                host.Environment.SearchesWindows = false;
+                foreach (KeyValuePair<string, Xml> t in new[]
+                    {
+                        new KeyValuePair<string, Xml>("Geo", colourKey), new KeyValuePair<string, Xml>("GeoA", alpha),
+                        new KeyValuePair<string, Xml>("GeoB", spent),
+                    })
+                {
+                    TickType type = TickType.Compile(t.Key, GeometryDocument());
+                    type.ApplyScale(1.0, 64, 64);
+                    host.AddType(new TickHostType(t.Key, type, t.Value));
+                }
+
+                Rectangle work = System.Windows.Forms.Screen.PrimaryScreen.WorkingArea;
+                int x = work.Left + work.Width / 2 - 300, floor = work.Bottom;
+                TickMascot left = host.Spawn("Geo", new TickPoint(x, floor), false, "Small");
+                TickMascot right = host.Spawn("Geo", new TickPoint(x + 150, floor), true, "Small");
+                TickMascot pair = host.Spawn("Geo", new TickPoint(x + 300, floor), true, "Pair");
+                TickMascot pairLeft = host.Spawn("Geo", new TickPoint(x + 450, floor), false, "Pair");
+                TickMascot alphaRight = host.Spawn("GeoA", new TickPoint(x + 600, floor), true, "Small");
+                TickMascot whole = host.Spawn("GeoB", new TickPoint(x + 750, floor), true, "Small");
+                host.Step();
+
+                // Facing left: the 30x40 image anchored at (10, 40), so the window is at (x - 10, floor - 40).
+                FormCompanion f = host.FormOf(left);
+                check(f != null && f.Bounds == new Rectangle(x - 10, floor - 40, 30, 40) && Shows(f, 30, 40, 0, 0, Color.Yellow) && Shows(f, 30, 40, 29, 39, Color.Green),
+                    "geometry: facing left, a window is its pose image (30x40 from the cell's top-left) at the anchor minus the pose anchor (" + Describe(f) + ")");
+                // Facing right, mirrored: anchor x 30 - 10 = 20, window at (x + 150 - 20); the image is the flipped cell's
+                // top-right, so the yellow column is last and nothing blue (the rest of the cell) is in it.
+                f = host.FormOf(right);
+                check(f != null && f.Bounds == new Rectangle(x + 130, floor - 40, 30, 40) && Shows(f, 30, 40, 29, 0, Color.Yellow) && Shows(f, 30, 40, 0, 39, Color.Green),
+                    "geometry: facing right, a mirrored pose shows the flipped cell's top-right 30x40 at the anchor minus (w - ax, ay) (" + Describe(f) + ")");
+                // An explicit right frame of 50x20: anchor x 50 - 10 = 40, window (x + 300 - 40, floor - 40), 50x20.
+                f = host.FormOf(pair);
+                check(f != null && f.Bounds == new Rectangle(x + 260, floor - 40, 50, 20) && Shows(f, 50, 20, 0, 0, Color.Yellow) && Shows(f, 50, 20, 49, 19, Color.Orange),
+                    "geometry: an explicit right frame of another size sizes and places the window by itself (" + Describe(f) + ")");
+                f = host.FormOf(pairLeft);
+                check(f != null && f.Bounds == new Rectangle(x + 440, floor - 40, 30, 40) && Shows(f, 30, 40, 0, 0, Color.Yellow),
+                    "geometry: the same pose facing left shows its left image (" + Describe(f) + ")");
+                // The alpha path pushes the region itself, so the layered window takes its size.
+                f = host.FormOf(alphaRight);
+                check(f != null && f.Bounds == new Rectangle(x + 580, floor - 40, 30, 40) && Shows(f, 30, 40, 29, 0, Color.Yellow),
+                    "geometry: on the alpha path a mirrored pose's window is its image too (" + Describe(f) + ")");
+
+                // The region is cut once: the next step draws the same bitmap, and the store keeps three regions (frame
+                // 0's, flipped frame 0's, frame 1's) for its four companions.
+                Image first = host.FormOf(left) == null ? null : host.FormOf(left).TickFrameForSelfTest;
+                host.Step();
+                check(first != null && ReferenceEquals(first, host.FormOf(left).TickFrameForSelfTest) && colourKey.SpriteRegionCount == 3,
+                    "geometry: a pose's region is cut once and shared (" + colourKey.SpriteRegionCount + " regions kept)");
+
+                // Past the region budget the whole 64x64 cell is drawn, its window moved left by the region's x (64 - 30)
+                // so the image still lies at the bounds (x + 750 - 20), and the log says so once.
+                f = host.FormOf(whole);
+                int notices = CountOf(geoLog.ToString(), "the sprite region budget is spent");
+                check(f != null && f.Bounds == new Rectangle(x + 730 - 34, floor - 40, 64, 64) && notices == 1,
+                    "geometry: past the region budget the whole cell is drawn with the image at the bounds, said once ("
+                    + Describe(f) + ", " + notices + " notices)");
+
+                host.Dispose();
+                host = null;
+                Image cut = first;
+                colourKey.Dispose();
+                colourKey = null;
+                check(cut != null && IsDisposed(cut), "geometry: a cut region is disposed with its sprite store");
+            }
+            catch (Exception e)
+            {
+                check(false, "geometry: the pose geometry checks ran without an exception: " + e);
+            }
+            finally
+            {
+                if (host != null) host.Dispose();
+                if (colourKey != null) colourKey.Dispose();
+                if (alpha != null) alpha.Dispose();
+                if (spent != null) spent.Dispose();
+                if (geoLog.Length > 0) log.Append("LOG: " + geoLog);
+            }
+        }
+
+        /// <summary>The parity map's frames carry each image's anchor and size; a pose that disagrees with its frame is
+        /// refused before anything is traced (CONTRACT section 9), and one that agrees applies.</summary>
+        private static void CheckParityGeometry(Action<bool, string> check)
+        {
+            Func<string, string, string> map = (frame0, frame1) =>
+                "{\"schema\":\"shimeji-parity-map/1\",\"imageSet\":\"Geo\",\"frames\":["
+                + "{\"frame\":0,\"image\":\"img/Geo/a.png\"," + frame0 + "},{\"frame\":1,\"image\":\"img/Geo/b.png\"," + frame1 + "}],"
+                + "\"actions\":{\"30\":\"Geo|a|1\",\"31\":\"Geo|a|2\"},\"behaviours\":{\"10\":\"Geo|b|1\",\"11\":\"Geo|b|2\"}}";
+            Func<string, string> apply = json =>
+            {
+                try
+                {
+                    ParityMap.Parse(json).Apply(TickType.Compile("Geo", GeometryDocument()));
+                    return null;
+                }
+                catch (InvalidDataException e) { return e.Message; }
+            };
+            string agree = apply(map("\"anchor\":[10,40],\"size\":[30,40]", "\"anchor\":[10,40],\"size\":[50,20]"));
+            check(agree == null, "parity: a map whose frames' anchors and sizes are the poses' applies" + (agree == null ? "" : " (" + agree + ")"));
+            string anchor = apply(map("\"anchor\":[11,40],\"size\":[30,40]", "\"anchor\":[10,40],\"size\":[50,20]"));
+            check(anchor != null && anchor.Contains("is anchored at (11, 40)"),
+                "parity: a frame anchored elsewhere than its poses is refused (" + (anchor ?? "applied") + ")");
+            string size = apply(map("\"anchor\":[10,40],\"size\":[30,40]", "\"anchor\":[10,40],\"size\":[50,21]"));
+            check(size != null && size.Contains("is 50x21"),
+                "parity: a right frame sized otherwise than its poses' rw x rh is refused (" + (size ?? "applied") + ")");
+        }
+
+        /// <summary>Whether the window's frame is <paramref name="w"/> x <paramref name="h"/> with
+        /// <paramref name="colour"/> at (<paramref name="px"/>, <paramref name="py"/>).</summary>
+        private static bool Shows(FormCompanion f, int w, int h, int px, int py, Color colour)
+        {
+            var b = f.TickFrameForSelfTest as Bitmap;
+            return b != null && b.Width == w && b.Height == h && b.GetPixel(px, py).ToArgb() == colour.ToArgb();
+        }
+
+        private static string Describe(FormCompanion f)
+        {
+            if (f == null) return "no window";
+            Image i = f.TickFrameForSelfTest;
+            return "window " + f.Bounds + ", frame " + (i == null ? "none" : i.Width + "x" + i.Height);
+        }
+
+        private static bool IsDisposed(Image image)
+        {
+            try { return image.Width < 0; }
+            catch (ArgumentException) { return true; }
+        }
+
+        private static int CountOf(string text, string part)
+        {
+            int n = 0;
+            for (int i = text.IndexOf(part, StringComparison.Ordinal); i >= 0; i = text.IndexOf(part, i + part.Length, StringComparison.Ordinal)) n++;
+            return n;
+        }
+
+        private static List<Bitmap> GeometryFrames()
+        {
+            var frames = new List<Bitmap>();
+            foreach (Size image in new[] { new Size(30, 40), new Size(50, 20) })
+            {
+                var b = new Bitmap(64, 64);
+                using (Graphics g = Graphics.FromImage(b))
+                {
+                    g.Clear(Color.Blue);
+                    using (var fill = new SolidBrush(image.Width == 30 ? Color.Green : Color.Orange))
+                        g.FillRectangle(fill, 0, 0, image.Width, image.Height);
+                    using (var column = new SolidBrush(Color.Yellow))
+                        g.FillRectangle(column, 0, 0, 1, image.Height);
+                }
+                frames.Add(b);
+            }
+            return frames;
+        }
+
+        /// <summary>Small: frame 0's 30x40 image anchored at (10, 40). Pair: the same, with frame 1 as an explicit 50x20
+        /// right image. Cells 64x64, the type's anchor (32, 64).</summary>
+        private static XmlData.RootNode GeometryDocument()
+        {
+            var still = new XmlData.MovingNode { X = "0", Y = "0", Interval = "40" };
+            Func<int, string, XmlData.AnimationNode> node = (id, name) => new XmlData.AnimationNode
+            {
+                Id = id, Name = name, Start = still, End = still,
+                Sequence = new XmlData.SequenceNode { RepeatCount = "0", Next = new XmlData.NextNode[0] },
+            };
+            Func<int, string, XmlData.PoseNode, XmlData.AnimationNode> act = (id, name, pose) =>
+            {
+                XmlData.AnimationNode a = node(id, name);
+                a.Act = new XmlData.ActNode
+                {
+                    Type = "Stay", Border = "Floor",
+                    Params = new[] { new XmlData.ParamNode { Name = "Duration", Value = "500", Cache = "none" } },
+                    Variants = new XmlData.VariantsNode { Variant = new[] { new XmlData.VariantNode { Pose = new[] { pose } } } },
+                };
+                return a;
+            };
+            Func<int, string, int, XmlData.AnimationNode> beh = (id, name, frequency) =>
+            {
+                XmlData.AnimationNode a = node(id, "beh:" + name);
+                a.Behaviour = new XmlData.BehaviourNode { Name = name, Runs = name, Frequency = frequency };
+                return a;
+            };
+            Func<XmlData.PoseNode> small = () => new XmlData.PoseNode
+            {
+                Frame = 0, Ticks = 1, AnchorX = 10, AnchorXSpecified = true, AnchorY = 40, AnchorYSpecified = true,
+                Width = 30, WidthSpecified = true, Height = 40, HeightSpecified = true,
+            };
+            XmlData.PoseNode paired = small();
+            paired.Right = 1;
+            paired.RightSpecified = true;
+            paired.RightWidth = 50;
+            paired.RightWidthSpecified = true;
+            paired.RightHeight = 20;
+            paired.RightHeightSpecified = true;
+            XmlData.AnimationNode route = node(1, "route");
+            route.Route = new XmlData.RouteNode();
+            route.Sequence.Next = new[] { new XmlData.NextNode { Value = 10, Probability = 1 }, new XmlData.NextNode { Value = 11, Probability = 0 } };
+            return new XmlData.RootNode
+            {
+                Header = new XmlData.HeaderNode { Title = "t", Features = "tick actions behaviours", Clock = "tick" },
+                Image = new XmlData.ImageNode
+                {
+                    TilesX = 2, TilesY = 1, Png = PngHeader(128, 64),
+                    AnchorX = 32, AnchorXSpecified = true, AnchorY = 64, AnchorYSpecified = true,
+                },
+                Animations = new XmlData.AnimationsNode
+                {
+                    Animation = new[] { route, beh(10, "Small", 1), beh(11, "Pair", 0), act(30, "Small", small()), act(31, "Pair", paired) },
+                },
+            };
+        }
+
         private static bool TryMakeDirectoryLink(string link, string target)
         {
             try
@@ -274,13 +514,11 @@ namespace DesktopAICompanion.Shimeji
                 {
                     CreateNoWindow = true,
                     UseShellExecute = false,
-                    RedirectStandardOutput = true,
                 };
+                // mklink's message is not read, so it is not redirected: a synchronous read of it would wait for cmd to
+                // exit and leave the 5-second bound below unreachable.
                 using (System.Diagnostics.Process p = System.Diagnostics.Process.Start(psi))
-                {
-                    p.StandardOutput.ReadToEnd();
                     p.WaitForExit(5000);
-                }
                 return Directory.Exists(link) && (File.GetAttributes(link) & FileAttributes.ReparsePoint) != 0;
             }
             catch (Exception)

@@ -140,6 +140,12 @@ namespace DesktopAICompanion
                 Run("Tick windows walk: the first eligible window in z-order; a maximised one ends the walk", TestTickWindowsWalkOrder);
                 Run("Tick windows safety: each refused kind of window is refused", TestTickWindowsSafety);
                 Run("Tick windows safety clamp: a moved or thrown window stays inside its work area", TestTickWindowsClamp);
+                Run("Tick geometry: a pose's own anchor and size make the bounds, mirrored as the source mirrors an image", TestTickGeometryBounds);
+                Run("Tick geometry: a scale makes a pose's anchor and sizes round(v * s) with halves up, and a whole cell the sprite store's", TestTickGeometryScale);
+                Run("Tick geometry: the off-screen drop-in tests the pose image's edges, not the cell's", TestTickGeometryOffScreen);
+                Run("Tick geometry: a right-facing hotspot mirrors across the pose image's width, pressed and held", TestTickGeometryHotspot);
+                Run("Tick geometry: Dragged's Origin offset reads the image the last pose set, facing and all", TestTickGeometryDragged);
+                Run("Tick geometry: Regist's Origin offset reads the last pose's anchor", TestTickGeometryRegist);
             }
             finally
             {

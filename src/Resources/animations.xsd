@@ -409,6 +409,12 @@
                       <xsd:attribute name="dy" type="xsd:int" />
                       <xsd:attribute name="sound" type="xsd:string" />
                       <xsd:attribute name="volume" type="xsd:double" />
+                      <xsd:attribute name="ax" type="xsd:int" />
+                      <xsd:attribute name="ay" type="xsd:int" />
+                      <xsd:attribute name="w" type="xsd:int" />
+                      <xsd:attribute name="h" type="xsd:int" />
+                      <xsd:attribute name="rw" type="xsd:int" />
+                      <xsd:attribute name="rh" type="xsd:int" />
                     </xsd:complexType>
                   </xsd:element>
                   <xsd:element name="hotspots" minOccurs="0" maxOccurs="1">

@@ -303,11 +303,10 @@ namespace DesktopAICompanion.Shimeji
                 form.RenderTick(null, 0, 0, 0, 0, false);
                 return;
             }
-            // ImagePairs: facing right shows the explicit right frame, else the left frame mirrored.
-            Image frame = m.PoseRight
-                ? (m.Pose.Right >= 0 ? t.Sprites.GetSpriteFrame(m.Pose.Right, false) : t.Sprites.GetSpriteFrame(m.Pose.Frame, true))
-                : t.Sprites.GetSpriteFrame(m.Pose.Frame, false);
-            TickRect b = m.Bounds;
+            // ImagePairs: facing right shows the explicit right frame, else the left frame mirrored; the window shows only
+            // the pose image's region of that cell, at the companion's bounds (TickPoseImage).
+            TickRect b;
+            Image frame = TickPoseImage.Frame(m, t.Sprites, _log, out b);
             form.RenderTick(frame, b.X, b.Y, b.Width, b.Height, true, RenderOpacity);
         }
 

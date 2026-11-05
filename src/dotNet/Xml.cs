@@ -124,6 +124,14 @@ namespace DesktopAICompanion
             ReplaceSpriteFrames(frames, frameWidth, frameHeight);
         }
 
+        /// <summary>The diagnostic constructor for a pet drawn on the per-pixel alpha path (the window self-test draws
+        /// tick frames both ways).</summary>
+        internal Xml(IList<Bitmap> frames, int frameWidth, int frameHeight, bool alpha)
+            : this(frames, frameWidth, frameHeight)
+        {
+            usesAlpha = alpha;
+        }
+
         /// <summary>
         /// Replaces the owned atlas used by linked diagnostic tooling. Ownership of
         /// <paramref name="frames"/> transfers to this instance only when the method succeeds.
@@ -157,6 +165,32 @@ namespace DesktopAICompanion
             if (spriteFrames == null)
                 throw new InvalidOperationException("Pet sprite frames are unavailable.");
             return spriteFrames.GetFrame(index, flipped);
+        }
+
+        /// <summary>The part of a frame a tick pose shows (<see cref="SpriteFrameStore.GetRegion"/>), owned by the store.</summary>
+        internal Bitmap GetSpriteRegion(int index, bool flipped, Rectangle region, out bool exact)
+        {
+            if (disposed) throw new ObjectDisposedException("Xml");
+            if (spriteFrames == null)
+                throw new InvalidOperationException("Pet sprite frames are unavailable.");
+            return spriteFrames.GetRegion(index, flipped, region, out exact);
+        }
+
+        /// <summary>See <see cref="SpriteFrameStore.TakeRegionBudgetNotice"/>.</summary>
+        internal bool TakeSpriteRegionBudgetNotice()
+        {
+            return spriteFrames != null && spriteFrames.TakeRegionBudgetNotice();
+        }
+
+        internal int SpriteRegionCount
+        {
+            get { return spriteFrames == null ? 0 : spriteFrames.RegionCount; }
+        }
+
+        /// <summary>Self-test seam: see <see cref="SpriteFrameStore.SetRegionPixelBudgetForSelfTest"/>.</summary>
+        internal void SetSpriteRegionBudgetForSelfTest(long pixels)
+        {
+            if (spriteFrames != null) spriteFrames.SetRegionPixelBudgetForSelfTest(pixels);
         }
 
         internal int MaterializedFlippedFrameCount
@@ -831,6 +865,16 @@ namespace DesktopAICompanion
         private int materializedFlippedCount;
         private bool disposed;
 
+        // Regions of frames (a tick pose shows only its image's part of a cell, grimoire/06 section 3): each cut once,
+        // shared like the frames, and disposed with them. Bounded by pixels, as the frames are; past the budget a region
+        // is not cut and the caller draws the whole frame.
+        private readonly Dictionary<(int Index, bool Flipped, Rectangle Region), Bitmap> regions =
+            new Dictionary<(int Index, bool Flipped, Rectangle Region), Bitmap>();
+        private long regionPixels;
+        private long regionPixelBudget = MaximumOriginalPixels;
+        private bool regionBudgetSpent;
+        private bool regionBudgetReported;
+
         public SpriteFrameStore(IList<Bitmap> frames)
         {
             if (frames == null) throw new ArgumentNullException("frames");
@@ -906,21 +950,81 @@ namespace DesktopAICompanion
             }
         }
 
+        /// <summary>
+        /// The part of a frame (mirrored or not) a pose shows: the whole frame when the region is all of it, else that
+        /// region cut once and kept. <paramref name="exact"/> is false only when the region budget is spent: the whole
+        /// frame comes back uncut, and the caller draws it with the region at the region's offset.
+        /// </summary>
+        public Bitmap GetRegion(int index, bool isFlipped, Rectangle region, out bool exact)
+        {
+            Bitmap frame = GetFrame(index, isFlipped);
+            exact = true;
+            if (region.X == 0 && region.Y == 0 && region.Width == frame.Width && region.Height == frame.Height) return frame;
+            if (region.Width < 1 || region.Height < 1 || !new Rectangle(0, 0, frame.Width, frame.Height).Contains(region))
+                throw new ArgumentOutOfRangeException("region", "the region " + region + " is not inside frame " + index);
+            lock (sync)
+            {
+                if (disposed) throw new ObjectDisposedException("SpriteFrameStore");
+                Bitmap cut;
+                if (regions.TryGetValue((index, isFlipped, region), out cut)) return cut;
+                long pixels = (long)region.Width * region.Height;
+                if (regionPixels + pixels > regionPixelBudget)
+                {
+                    regionBudgetSpent = true;
+                    exact = false;
+                    return frame;
+                }
+                cut = frame.Clone(region, frame.PixelFormat);
+                regions.Add((index, isFlipped, region), cut);
+                regionPixels += pixels;
+                return cut;
+            }
+        }
+
+        /// <summary>How many regions are cut and kept.</summary>
+        public int RegionCount
+        {
+            get { lock (sync) return disposed ? 0 : regions.Count; }
+        }
+
+        /// <summary>True once, the first time a region was refused for the budget, so the host says so once.</summary>
+        public bool TakeRegionBudgetNotice()
+        {
+            lock (sync)
+            {
+                if (!regionBudgetSpent || regionBudgetReported) return false;
+                regionBudgetReported = true;
+                return true;
+            }
+        }
+
+        /// <summary>Self-test seam: a smaller region budget, so the budget's fallback can be reached.</summary>
+        internal void SetRegionPixelBudgetForSelfTest(long pixels)
+        {
+            lock (sync) regionPixelBudget = pixels;
+        }
+
         public void Dispose()
         {
             Bitmap[] ownedOriginals;
             Bitmap[] ownedFlipped;
+            Bitmap[] ownedRegions;
             lock (sync)
             {
                 if (disposed) return;
                 disposed = true;
                 ownedOriginals = originals;
                 ownedFlipped = flipped;
+                ownedRegions = new Bitmap[regions.Count];
+                regions.Values.CopyTo(ownedRegions, 0);
+                regions.Clear();
+                regionPixels = 0;
                 originals = null;
                 flipped = null;
                 materializedFlippedCount = 0;
             }
 
+            foreach (Bitmap region in ownedRegions) region.Dispose();
             if (ownedFlipped != null)
                 foreach (Bitmap frame in ownedFlipped)
                     if (frame != null) frame.Dispose();

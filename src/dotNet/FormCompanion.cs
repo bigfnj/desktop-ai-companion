@@ -428,6 +428,13 @@ namespace DesktopAICompanion
             return timer1.Enabled || _tickFaults != faults || AnimationStep != step;
         }
 
+        /// <summary>Self-test: the frame this window shows now, as its transparency mode drew it (the alpha path's last
+        /// per-pixel push, else the picture box's image).</summary>
+        internal Image TickFrameForSelfTest
+        {
+            get { return Xml != null && Xml.UsesAlpha ? lastLayeredFrame : pictureBox1.Image; }
+        }
+
         /// <summary>Self-test: a left-button press through the real handler, as a click on the window delivers it.</summary>
         internal void LeftPressForSelfTest()
         {

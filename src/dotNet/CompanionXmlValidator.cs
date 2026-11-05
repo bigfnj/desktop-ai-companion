@@ -699,7 +699,14 @@ namespace DesktopAICompanion
                         tick);
             }
             if (tick)
-                ShimejiFormatValidator.ValidateTickDocument(root, tileCount, declared, runsClass);
+            {
+                // The cell a pose's image geometry must fit (grimoire/06 section 3); ValidateImage proved the sheet is a
+                // PNG whose size divides into the tiles.
+                int sheetWidth, sheetHeight;
+                TryReadPngDimensions(imageBytes, out sheetWidth, out sheetHeight);
+                ShimejiFormatValidator.ValidateTickDocument(root, tileCount, sheetWidth / root.Image.TilesX,
+                    sheetHeight / root.Image.TilesY, declared, runsClass);
+            }
 
             int spawnWeight = 0;
             var spawnIds = new HashSet<int>();

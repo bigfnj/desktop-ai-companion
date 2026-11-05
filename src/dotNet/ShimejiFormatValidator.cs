@@ -86,6 +86,9 @@ namespace DesktopAICompanion
         public const int TickMaximumAnimations = 2048;
         public const int TickMaximumTransitions = 1024;
         public const int MaximumPoseTicks = 100000;
+        /// <summary>How far a pose's anchor may lie from its image's top-left, in either direction (grimoire/06 section 3).
+        /// An anchor may sit outside its image (a hanging pose); this bounds how far.</summary>
+        public const int MaximumPoseAnchor = 4096;
         /// <summary>How deep composites may nest, and how many actions one activation may build. The source has no limit;
         /// these bound the work one action start can cost the app.</summary>
         public const int MaximumCompositeDepth = 32;
@@ -240,6 +243,7 @@ namespace DesktopAICompanion
                     if (a.Act.Variants != null && a.Act.Variants.Variant != null)
                         foreach (XmlData.VariantNode v in a.Act.Variants.Variant)
                             Require(declared, CompanionFormatFeatures.Hotspots, v != null && v.Hotspots != null, where + " hotspots");
+                    Require(declared, CompanionFormatFeatures.Tick, HasPoseGeometry(a.Act), where + " pose geometry (ax, ay, w, h, rw, rh)");
                     bool scripted = false;
                     if (a.Act.Params != null)
                         foreach (XmlData.ParamNode p in a.Act.Params)
@@ -262,6 +266,19 @@ namespace DesktopAICompanion
         {
             if (used && !declared.Contains(token))
                 throw new InvalidDataException(what + " needs feature '" + token + "' declared in header/features.");
+        }
+
+        /// <summary>Whether any pose of the action gives its own image geometry (grimoire/06 section 3).</summary>
+        private static bool HasPoseGeometry(XmlData.ActNode act)
+        {
+            if (act.Variants == null || act.Variants.Variant == null) return false;
+            foreach (XmlData.VariantNode v in act.Variants.Variant)
+                if (v != null && v.Pose != null)
+                    foreach (XmlData.PoseNode p in v.Pose)
+                        if (p != null && (p.AnchorXSpecified || p.AnchorYSpecified || p.WidthSpecified || p.HeightSpecified
+                                          || p.RightWidthSpecified || p.RightHeightSpecified))
+                            return true;
+            return false;
         }
 
         private static bool HasVariantConditions(XmlData.ActNode act)
@@ -313,8 +330,8 @@ namespace DesktopAICompanion
         }
 
         /// <summary>The tick-mode document rules: node kinds, poses, composites, names and expressions.</summary>
-        public static void ValidateTickDocument(XmlData.RootNode root, int tileCount, HashSet<string> declared,
-            Func<string, bool> runsClass)
+        public static void ValidateTickDocument(XmlData.RootNode root, int tileCount, int cellWidth, int cellHeight,
+            HashSet<string> declared, Func<string, bool> runsClass)
         {
             XmlData.AnimationNode[] animations = root.Animations.Animation;
             var actByName = new Dictionary<string, XmlData.AnimationNode>(StringComparer.Ordinal);
@@ -428,7 +445,7 @@ namespace DesktopAICompanion
             {
                 string where = "animation " + a.Id + " '" + a.Name + "'";
                 if (a.Act != null)
-                    ValidateAct(a, a.Act, where, tileCount, soundIds, actByName, behaviourByName, boundNames, declared, runsClass);
+                    ValidateAct(a, a.Act, where, tileCount, cellWidth, cellHeight, soundIds, actByName, behaviourByName, boundNames, declared, runsClass);
                 else if (a.Behaviour != null)
                 {
                     if (string.IsNullOrWhiteSpace(a.Behaviour.Runs) || !actByName.ContainsKey(a.Behaviour.Runs))
@@ -508,8 +525,28 @@ namespace DesktopAICompanion
             return n => names.Contains(n);
         }
 
+        /// <summary>A pose's image geometry stays inside its cell: each frame is drawn at its cell's top-left, so an image
+        /// is 1 to the cell size in each direction, and a right image's size is only given with its right frame. The
+        /// anchor may lie outside the image, within <see cref="MaximumPoseAnchor"/>.</summary>
+        private static void ValidatePoseGeometry(XmlData.PoseNode p, string where, int cellWidth, int cellHeight)
+        {
+            if (p.WidthSpecified && (p.Width < 1 || p.Width > cellWidth))
+                throw new InvalidDataException(where + " has a pose whose image width w is not 1 to the cell width " + cellWidth + ".");
+            if (p.HeightSpecified && (p.Height < 1 || p.Height > cellHeight))
+                throw new InvalidDataException(where + " has a pose whose image height h is not 1 to the cell height " + cellHeight + ".");
+            if ((p.RightWidthSpecified || p.RightHeightSpecified) && !p.RightSpecified)
+                throw new InvalidDataException(where + " has a pose giving rw or rh without a right frame.");
+            if (p.RightWidthSpecified && (p.RightWidth < 1 || p.RightWidth > cellWidth))
+                throw new InvalidDataException(where + " has a pose whose right image width rw is not 1 to the cell width " + cellWidth + ".");
+            if (p.RightHeightSpecified && (p.RightHeight < 1 || p.RightHeight > cellHeight))
+                throw new InvalidDataException(where + " has a pose whose right image height rh is not 1 to the cell height " + cellHeight + ".");
+            if ((p.AnchorXSpecified && (p.AnchorX < -MaximumPoseAnchor || p.AnchorX > MaximumPoseAnchor))
+                || (p.AnchorYSpecified && (p.AnchorY < -MaximumPoseAnchor || p.AnchorY > MaximumPoseAnchor)))
+                throw new InvalidDataException(where + " has a pose whose anchor (ax, ay) is outside -" + MaximumPoseAnchor + ".." + MaximumPoseAnchor + ".");
+        }
+
         private static void ValidateAct(XmlData.AnimationNode a, XmlData.ActNode act, string where, int tileCount,
-            HashSet<string> soundIds, Dictionary<string, XmlData.AnimationNode> actByName,
+            int cellWidth, int cellHeight, HashSet<string> soundIds, Dictionary<string, XmlData.AnimationNode> actByName,
             Dictionary<string, XmlData.AnimationNode> behaviourByName, Dictionary<string, HashSet<string>> boundNames,
             HashSet<string> declared, Func<string, bool> runsClass)
         {
@@ -566,6 +603,7 @@ namespace DesktopAICompanion
                             throw new InvalidDataException(where + " has a pose with an invalid volume.");
                         if (p.Sound != null && !soundIds.Contains(p.Sound))
                             throw new InvalidDataException(where + " has a pose naming sound '" + p.Sound + "', which is not defined.");
+                        ValidatePoseGeometry(p, where, cellWidth, cellHeight);
                     }
                     if (v.Hotspots != null && v.Hotspots.Hotspot != null)
                         foreach (XmlData.HotspotNode h in v.Hotspots.Hotspot)
