@@ -418,6 +418,10 @@ namespace DesktopAICompanion.Shimeji
             _log("tick companion " + mascot.Sid + " (" + mascot.Type.Name + ") minimised the interactive window");
         }
 
+        public void Dragged(TickMascot mascot, string op) { }
+
+        public void Hotspot(TickMascot mascot, string op, string behaviour) { }
+
         /// <summary>The session's record of windows acted on, which "Put windows back" goes through: the real desktop's
         /// interactive window, or a self-test's fake.</summary>
         public ITickWindowRecord WindowRecord { get; set; }

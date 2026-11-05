@@ -546,6 +546,16 @@ namespace DesktopAICompanion.Shimeji
             _out.WriteLine(Event(mascot, "window-minimize").End());
         }
 
+        public void Dragged(TickMascot mascot, string op)
+        {
+            _out.WriteLine(Event(mascot, "drag").Str("op", op).End());
+        }
+
+        public void Hotspot(TickMascot mascot, string op, string behaviour)
+        {
+            _out.WriteLine(Event(mascot, "hotspot").Str("op", op).Str("behavior", behaviour).End());
+        }
+
         /// <summary>A rectangle as the scenario writes a window's: [left, top, right, bottom].</summary>
         private static string Ltrb(TickRect r)
         {

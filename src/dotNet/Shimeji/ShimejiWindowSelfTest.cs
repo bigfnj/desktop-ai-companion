@@ -629,6 +629,18 @@ namespace DesktopAICompanion.Shimeji
                 check(later.Contains("\"anchor\":[" + (x - 6) + "," + floor + "]") && later.Contains("\"poseAnchor\":null")
                       && later.Contains(frozen) && later.Contains("\"visible\":false"),
                     "parity trace: while hidden, poseAnchor is null and origin keeps the window's last bounds (" + later.Trim() + ")");
+
+                // The input events, as CONTRACT section 3 names them: drag (op) and hotspot (op, behavior).
+                var input = new StringWriter();
+                var inputWriter = new ParityTraceWriter(input, new Dictionary<string, ParityMap>());
+                TickMascot one = host.World.Mascots[0];
+                inputWriter.Dragged(one, "start");
+                inputWriter.Hotspot(one, "press", "Petted");
+                inputWriter.Hotspot(one, "release", null);
+                string events = input.ToString();
+                check(events.Contains("\"kind\":\"drag\",\"op\":\"start\"") && events.Contains("\"kind\":\"hotspot\",\"op\":\"press\",\"behavior\":\"Petted\"")
+                      && events.Contains("\"kind\":\"hotspot\",\"op\":\"release\",\"behavior\":null"),
+                    "parity trace: drag and hotspot events are written as the contract names them (" + events.Replace(Environment.NewLine, " ").Trim() + ")");
             }
             catch (Exception e)
             {

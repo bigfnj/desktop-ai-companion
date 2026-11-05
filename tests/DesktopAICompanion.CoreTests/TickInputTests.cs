@@ -70,6 +70,12 @@ namespace DesktopAICompanion
             ((TickDesk)w.Environment).Script[3] = new List<TickInput> { new TickInput(TickInputKind.Release, "m1", new TickPoint(618, 626)) };
             w.StepOnce();
             AssertTrue(log.Events.Contains("m1 behaviour Dragged>Thrown forced") && !m.Dragging, "Releasing a dragged companion did not throw it.");
+            // CONTRACT event `drag`: start at the press that drags, end at the release that throws, each written before
+            // the behaviour change it causes.
+            int dragStart = log.Events.IndexOf("m1 drag start"), toDragged = log.Events.IndexOf("m1 behaviour Stand>Dragged forced");
+            int dragEnd = log.Events.IndexOf("m1 drag end"), toThrown = log.Events.IndexOf("m1 behaviour Dragged>Thrown forced");
+            AssertTrue(dragStart >= 0 && dragStart < toDragged && dragEnd > toDragged && dragEnd < toThrown,
+                "The drag events are missing or out of order: " + string.Join("; ", log.Events));
 
             // Press and release in one step: the dragging flag was never set, so nothing is thrown.
             var quick = new TickLog();
@@ -97,12 +103,26 @@ namespace DesktopAICompanion
             w.StepOnce();
             AssertTrue(log.Events.Contains("m1 behaviour Stand>Petted forced") && m.IsHotspotClicked,
                 "A press inside a hotspot did not enter its behaviour and hold: " + string.Join("; ", log.Events));
+            // CONTRACT event `hotspot`: the press, with its behaviour, written before the behaviour change it causes.
+            int press = log.Events.IndexOf("m1 hotspot press Petted"), toPetted = log.Events.IndexOf("m1 behaviour Stand>Petted forced");
+            AssertTrue(press >= 0 && press < toPetted && !log.Events.Exists(e => e.StartsWith("m1 drag")),
+                "The hotspot press event is missing, out of order, or a drag was reported: " + string.Join("; ", log.Events));
             w.StepOnce();
             w.StepOnce();
             AssertEqual(3, TCount(log, "m1 behaviour Petted>Petted forced"), "A held hotspot did not re-enter its behaviour on every step (2, 3, 4).");
             w.StepOnce();   // the pointer left the hotspot at tick 5
             AssertTrue(!m.IsHotspotClicked && TCount(log, "m1 behaviour Petted>Petted forced") == 3,
                 "Moving the held pointer out of the hotspot did not end the hold.");
+
+            // The release of a held hotspot is reported with no behaviour (the source's release only clears the hold).
+            var released = new TickLog();
+            TickWorld rel = TInputWorld(released, TInputType(true, THotspot("Petted")), false,
+                2, TickInputKind.Press, 618, 626, 3, TickInputKind.Release, 618, 626);
+            rel.StepOnce();
+            rel.StepOnce();
+            rel.StepOnce();
+            AssertTrue(released.Events.Contains("m1 hotspot release -") && rel.Mascots.Count == 1 && !rel.Mascots[0].IsHotspotClicked,
+                "Releasing a held hotspot was not reported, or the hold was kept: " + string.Join("; ", released.Events));
 
             var bare = new TickLog();
             TickWorld b = TInputWorld(bare, TInputType(true, THotspot(null)), false, 2, TickInputKind.Press, 618, 626);

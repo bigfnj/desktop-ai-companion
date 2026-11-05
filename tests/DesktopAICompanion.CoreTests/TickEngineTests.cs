@@ -91,6 +91,8 @@ namespace DesktopAICompanion
             }
             public void WindowMoved(TickMascot m, TickRect from, TickRect to) { Events.Add(m.Sid + " window-move " + Ltrb(from) + ">" + Ltrb(to)); }
             public void WindowMinimized(TickMascot m) { Events.Add(m.Sid + " window-minimize"); }
+            public void Dragged(TickMascot m, string op) { Events.Add(m.Sid + " drag " + op); }
+            public void Hotspot(TickMascot m, string op, string behaviour) { Events.Add(m.Sid + " hotspot " + op + " " + (behaviour ?? "-")); }
 
             /// <summary>A rectangle as the contract writes one: [left,top,right,bottom].</summary>
             public static string Ltrb(TickRect r) { return "[" + r.X + "," + r.Y + "," + (r.X + r.Width) + "," + (r.Y + r.Height) + "]"; }
@@ -338,6 +340,24 @@ namespace DesktopAICompanion
             AssertEqual("Egg", m.PoseType.Name, "Right after a Transform the image shown is not still the old type's (it is until the new type's first pose).");
             w.StepOnce();
             AssertEqual("Beta", m.PoseType.Name, "The new type's first pose did not replace the old type's image.");
+
+            // A blank TransformBehavior cannot be built (Transform.java:51-65 catches it): the failure is reported and the
+            // companion stays, as the new type, in the behaviour it was in, rather than being ended.
+            TickType blankEgg = TickType.Compile("Egg", TickDoc(
+                TRoute(TEdge(10, 1)),
+                TBeh(10, "Laid", "Laid", 1, null),
+                TAct(30, "Laid", "Embedded", "Transform", new[] { TParam("TransformMascot", "Beta"), TParam("TransformBehavior", "") },
+                    TPose(0, 1), TPose(1, 1))));
+            var log2 = new TickLog();
+            TickWorld v = TickWorldOf(log2, null, blankEgg, beta);
+            TickMascot b = v.CreateAtStart("m1", blankEgg, new TickPoint(640, 680), false, "Laid");
+            v.StepOnce();
+            v.StepOnce();
+            AssertTrue(!b.Disposing && v.Mascots.Count == 1 && b.Type.Name == "Beta" && b.Behaviour.Name == "Laid",
+                "A Transform whose behaviour could not be built did not keep the companion, as the new type, in its behaviour ("
+                + (b.Disposing ? "disposing" : b.Type.Name + " / " + b.Behaviour.Name) + ").");
+            AssertTrue(log2.Faults.Count == 1 && log2.Faults[0].Contains("Transform into Beta"),
+                "The failed Transform was not reported: " + string.Join("; ", log2.Faults));
         }
 
         private static void TestTickMove()
