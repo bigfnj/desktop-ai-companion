@@ -46,6 +46,14 @@ namespace DesktopAICompanion.Shimeji
 
         /// <summary>Mute ran: a named clip to stop, or null for every clip (CONTRACT event `mute`).</summary>
         void Muted(TickMascot mascot, string clip);
+
+        /// <summary>A scan ran (Manager.getMascotWithAffordance): the affordance sought and the companion found, or
+        /// null (CONTRACT event `scan-target`).</summary>
+        void ScanTargeted(TickMascot mascot, string affordance, TickMascot target);
+
+        /// <summary>An Interact step plays: the other active companions sharing this one's anchor, in manager order
+        /// (CONTRACT event `interact`).</summary>
+        void Interacted(TickMascot mascot, IReadOnlyList<TickMascot> with);
     }
 
     // ------------------------------------------------------------------ parameters and scripts
@@ -330,6 +338,8 @@ namespace DesktopAICompanion.Shimeji
         public virtual void Init(TickMascot mascot)
         {
             Mascot = mascot;
+            // The scan target belongs to the action that chose it; a scanning class sets it again after this.
+            mascot.Target = null;
             Context = new TickScriptContext(World, mascot, Vars, null);
             SetTime(0);
             Vars.Init();
@@ -1059,6 +1069,10 @@ namespace DesktopAICompanion.Shimeji
 
         /// <summary>BringToFront ran since the window layer last raised this companion's window.</summary>
         public bool BringToFrontRequested;
+
+        /// <summary>The companion the running scan action chose (its WeakReference target), or null; written to the
+        /// state line's <c>target</c>. Cleared whenever an action initialises.</summary>
+        public TickMascot Target;
         public bool Visible;
         private TickRect _lastWindowBounds;
 
@@ -1541,6 +1555,8 @@ namespace DesktopAICompanion.Shimeji
             public void RandomDrawn(TickMascot mascot, string site, double value, string purpose) { }
             public void Fault(TickMascot mascot, string message) { }
             public void Muted(TickMascot mascot, string clip) { }
+            public void ScanTargeted(TickMascot mascot, string affordance, TickMascot target) { }
+            public void Interacted(TickMascot mascot, IReadOnlyList<TickMascot> with) { }
         }
     }
 }
