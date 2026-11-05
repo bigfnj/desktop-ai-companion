@@ -413,6 +413,11 @@ namespace DesktopAICompanion.Shimeji
             _out.WriteLine(Event(mascot, "error").Str("message", message).End());
         }
 
+        public void Muted(TickMascot mascot, string clip)
+        {
+            _out.WriteLine(Event(mascot, "mute").Str("clip", clip).End());
+        }
+
         public void Footer(int ticks, string status)
         {
             _out.WriteLine(new JsonLine().Str("type", "footer").Num("ticks", ticks).Str("status", status)

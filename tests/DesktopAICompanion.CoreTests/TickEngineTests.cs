@@ -63,6 +63,7 @@ namespace DesktopAICompanion
             public void Disposed(TickMascot m) { Events.Add(m.Sid + " disposed"); }
             public void RandomDrawn(TickMascot m, string site, double value, string purpose) { Draws.Add(site); }
             public void Fault(TickMascot m, string message) { Faults.Add(m.Sid + ": " + message); }
+            public void Muted(TickMascot m, string clip) { Events.Add(m.Sid + " mute " + (clip ?? "-")); }
         }
 
         // ---- building companions in code (validated documents compile the same way)

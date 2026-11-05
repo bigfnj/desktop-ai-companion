@@ -43,6 +43,9 @@ namespace DesktopAICompanion.Shimeji
         void Disposed(TickMascot mascot);
         void RandomDrawn(TickMascot mascot, string site, double value, string purpose);
         void Fault(TickMascot mascot, string message);
+
+        /// <summary>Mute ran: a named clip to stop, or null for every clip (CONTRACT event `mute`).</summary>
+        void Muted(TickMascot mascot, string clip);
     }
 
     // ------------------------------------------------------------------ parameters and scripts
@@ -922,6 +925,12 @@ namespace DesktopAICompanion.Shimeji
 
         /// <summary>A start companion: queued by Manager.add like a birth, but activated with no birth event.</summary>
         public bool IsStartup;
+
+        /// <summary>The clip the current pose asks for (Mascot.setSound), played by the window layer's apply.</summary>
+        public string Sound;
+
+        /// <summary>BringToFront ran since the window layer last raised this companion's window.</summary>
+        public bool BringToFrontRequested;
         public bool Visible;
         private TickRect _lastWindowBounds;
 
@@ -966,6 +975,7 @@ namespace DesktopAICompanion.Shimeji
             PoseVariant = variant;
             PoseRight = LookRight;
             PoseType = Type;
+            Sound = pose.Sound;
         }
 
         /// <summary>Mascot.setBehavior: set, then init (which may itself hand on to another behaviour).</summary>
@@ -1318,6 +1328,7 @@ namespace DesktopAICompanion.Shimeji
             public void Disposed(TickMascot mascot) { }
             public void RandomDrawn(TickMascot mascot, string site, double value, string purpose) { }
             public void Fault(TickMascot mascot, string message) { }
+            public void Muted(TickMascot mascot, string clip) { }
         }
     }
 }
