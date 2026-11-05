@@ -589,9 +589,13 @@ def v1_self_test(args, labels):
         (root / "seams.patch").write_bytes(b"synthetic patch")
         helpers = root / "helpers"
         helpers.mkdir()
-        (helpers / "DraftParityHooks.java").write_bytes(b"synthetic helper\n")
-        write_json(root / "file-witnesses.json", [{"file": "src/com/group_finity/mascot/parity/DraftParityHooks.java",
-                                                    "beforeSha256": None, "expectedAfterSha256": sha(b"synthetic helper\n")}])
+        inventory = [{"file": "src/com/group_finity/mascot/config/Changed.java", "beforeSha256": "0" * 64,
+                      "expectedAfterSha256": "1" * 64}]
+        for name in V1_HELPERS:
+            (helpers / name).write_bytes(b"synthetic helper " + name.encode("ascii") + b"\n")
+            inventory.append({"file": V1_HELPER_PATH + name, "beforeSha256": None,
+                              "expectedAfterSha256": sha(b"synthetic helper " + name.encode("ascii") + b"\n")})
+        write_json(root / "file-witnesses.json", inventory)
         spec = b"synthetic edit specification"
         state = {"artifact": str(root / "draft.jar"), "artifact_sha256": sha(b"synthetic draft runtime"),
                  "patch": str(root / "seams.patch"), "patch_sha256": sha(b"synthetic patch"), "source": str(root),
@@ -609,6 +613,8 @@ def v1_self_test(args, labels):
         expect_refusal(lambda: validate_v1_build(state, spec + b" edited", helpers), "V1_DRAFT_STALE edit-spec", "V1_SPEC_STALE_WITNESS")
         (helpers / "DraftParityHooks.java").write_bytes(b"synthetic helper, edited\n")
         expect_refusal(lambda: validate_v1_build(state, spec, helpers), "V1_DRAFT_STALE helper", "V1_HELPER_STALE_WITNESS")
+        (helpers / "DraftParityHooks.java").write_bytes(b"synthetic helper DraftParityHooks.java\n")
+        validate_v1_build(state, spec, helpers)
         labels.append("v1-build-witness-patch-artifact-spec-helper-refused")
 
         # Distinct statuses. The stub stands in for compare.load_trace, whose own classes compare.py --self-test proves.
@@ -642,6 +648,22 @@ def v1_self_test(args, labels):
         expect_refusal(lambda: v1_observation_proof(root / "on.jsonl", root / "off.jsonl"),
                        "V1_OBSERVATION_CHANGED_BEHAVIOUR", "V1_OBSERVATION_WITNESS")
         labels.append("v1-observation-proof-refuses-a-changed-final-tick")
+
+        # F1: a scenario id is one safe leaf name; nothing is written for a traversal, rooted or separator id.
+        runs = root / "runs"
+        runs.mkdir()
+        v1_run_directory(runs, "S-ok_01.a")
+        for bad in ("../escaped", "S-a/../../escaped", "S-a\\b", str(root / "rooted"), "/rooted", "C:escaped", "S-.", "", None):
+            expect_refusal(lambda: v1_run_directory(runs, bad), "V1_SCENARIO_ID_REFUSAL", "V1_SCENARIO_ID_WITNESS")
+        expect_refusal(lambda: v1_contained(runs, runs.parent / "outside"), "V1_RUN_CONTAINMENT_REFUSAL", "V1_CONTAINMENT_WITNESS")
+        escaping = root / "scenario.json"
+        escaping.write_text(json.dumps({"id": "../escaped", "pack": "packs/none"}), encoding="utf-8")
+        refusing = SimpleNamespace(validate_scenario=lambda doc: None,
+                                   pack_preflight=lambda pack: (_ for _ in ()).throw(AssertionError("V1_SCENARIO_ID_WITNESS reached the pack")))
+        expect_refusal(lambda: v1_run(args, refusing, escaping, runs, "", root, {}), "V1_SCENARIO_ID_REFUSAL", "V1_SCENARIO_ID_WITNESS")
+        if (root / "escaped").exists() or any(runs.iterdir()):
+            raise AssertionError("V1_SCENARIO_ID_WITNESS a refused id still wrote " + str(sorted(p.name for p in root.iterdir())))
+        labels.append("v1-scenario-id-traversal-rooted-separator-refused-before-any-write")
 
 
 def png(red, green, blue):
@@ -829,6 +851,10 @@ def mutate(args):
         ("v1-footer-status", [('footer.get("status") in ' + '("timeout", "aborted", "error"):', 'False:')], "V1_TIMEOUT_WITNESS"),
         ("v1-skipped", [('if missing:\n        raise Refusal("V1_SCENARIO_' + 'SKIPPED "', 'if False:\n        raise Refusal("V1_SCENARIO_SKIPPED "')], "V1_SKIPPED_WITNESS"),
         ("v1-observation", [('if not final_on or final_on ' + '!= final_off:', 'if False:')], "V1_OBSERVATION_WITNESS")])
+    # Review fix F1 (scenario id paths).
+    legs.extend([
+        ("v1-scenario-id", [('if not isinstance(scenario_id, str) or not V1_SCENARIO_ID.fullmatch(scenario_id) ' + 'or scenario_id.endswith("."):', 'if False:')], "V1_SCENARIO_ID_WITNESS"),
+        ("v1-run-containment", [('if base != resolved and base ' + 'not in resolved.parents:', 'if False:')], "V1_CONTAINMENT_WITNESS")])
     results = []
     with tempfile.TemporaryDirectory(prefix="oracle-mutations-", dir=os.environ["TEMP"]) as folder:
         root = Path(folder)
@@ -1022,6 +1048,7 @@ V1_RUNNER = "V1ScenarioRunner.java"
 V1_TIMEOUT = 120
 V1_MAIN_CLASS = "com.group_finity.mascot.parity.V1ScenarioRunner"
 V1_HELPERS = ("DraftParityHooks.java", "DraftTraceWriter.java", "NativeFactoryImpl.java", "ScenarioEnvironment.java")
+V1_HELPER_PATH = "src/com/group_finity/mascot/parity/"
 
 
 def comparer():
@@ -1119,14 +1146,34 @@ def v1_prepare(args, root):
     return state, classpath, runner, build
 
 
+V1_SCENARIO_ID = re.compile(r"S-[A-Za-z0-9][A-Za-z0-9._-]*")
+
+
+def v1_contained(root, path):
+    """A derived run path must resolve to a child of the run root (a link at that name could lead elsewhere)."""
+    resolved, base = Path(os.path.abspath(path)).resolve(), Path(root).resolve()
+    if base != resolved and base not in resolved.parents:
+        raise Refusal("V1_RUN_CONTAINMENT_REFUSAL " + str(path))
+    return path
+
+
+def v1_run_directory(root, scenario_id, observe=True):
+    """The scenario id names exactly one leaf folder of the run root: an S- id of letters, digits, dot, underscore
+    and hyphen, never a separator, a drive or rooted form, a dot name or a trailing dot (CONTRACT section 8)."""
+    if not isinstance(scenario_id, str) or not V1_SCENARIO_ID.fullmatch(scenario_id) or scenario_id.endswith("."):
+        raise Refusal("V1_SCENARIO_ID_REFUSAL " + repr(scenario_id))
+    run = v1_contained(root, root / (scenario_id + ("" if observe else "-off")))
+    return run, v1_contained(root, run / "pack")
+
+
 def v1_run(args, compare, scenario_path, root, classpath, runner, build, observe=True):
     raw = scenario_path.read_bytes()
     doc = json.loads(raw.decode("utf-8"))
     compare.validate_scenario(doc)
+    # The id is checked before any path is derived from it or anything is written (review F1).
+    run, workdir = v1_run_directory(root, doc.get("id"), observe)
     pack = scenario_path.parent / doc["pack"]
     files = compare.pack_preflight(str(pack))
-    run = root / (doc["id"] + ("" if observe else "-off"))
-    workdir = run / "pack"
     for relative, full in files:
         payload = Path(full).read_bytes()
         target = workdir.joinpath(*PurePosixPath(relative).parts)
