@@ -192,39 +192,49 @@ namespace DesktopAICompanion
         }
 
         /// <summary>
+        /// The most a pet sound or companion clip may decode to: 60 seconds at the mixer format (about 21 MB of floats),
+        /// for MP3 and WAV alike. The validator bounds a clip's BYTES; this bounds what they become, because an MP3 at
+        /// 8 kbps decodes to about 353 times its bytes and a decode runs on the UI thread under <see cref="_sync"/>. Measured
+        /// before it was chosen (feature/shimeji-host-limits): the 276 sounds of the 55 shipped pet documents (Companions
+        /// and the built-in) are all MP3 and the longest plays 4.18 s, so it leaves them 14 times their length. The same
+        /// figure as <see cref="MaximumModuleDecodedSamples"/>. A clip past it is refused at decode, reported once
+        /// (<see cref="ClipSamples"/>) and stays silent; the companion runs on.
+        /// </summary>
+        internal const int MaximumClipDecodedSamples = 60 * 44100 * 2;
+
+        /// <summary>
         /// A clip's samples at the mixer format, by its DECLARED format (never sniffed: the validator proved the bytes
-        /// are it): an MP3 through the OS's ACM codec as every pet sound, a WAV through NAudio's reader, which converts
-        /// PCM and IEEE float with no codec. Throws when the bytes will not decode; static and side-effect free so
-        /// --audio-selftest decodes each accepted encoding with no device.
+        /// are it): an MP3 through the OS's ACM codec as every pet sound, a WAV as the samples WavFormat.TryParse found,
+        /// the same parse the validator ran, never NAudio's own RIFF reader (review F1: the two disagreed about which fmt
+        /// and data chunks a clip has). Throws when the bytes will not decode or decode past
+        /// <see cref="MaximumClipDecodedSamples"/>; static and side-effect free so --audio-selftest decodes each accepted
+        /// encoding with no device.
         /// </summary>
         internal static float[] DecodeClip(byte[] audio, bool wav)
         {
             if (!wav) return Decode(audio);
-            using (var ms = new MemoryStream(audio, false))
-            using (var reader = new WaveFileReader(ms))
-            {
-                WaveFormat f = reader.WaveFormat;
-                var extra = f as WaveFormatExtraData;
-                if (f.Encoding != WaveFormatEncoding.Extensible || extra == null || f.ExtraSize < 22)
-                    return ReadAll(ToMixFormat(reader.ToSampleProvider()), int.MaxValue);
-                // NAudio's sample converters take only the plain PCM and IEEE float tags ("Unsupported source encoding"
-                // for an extensible one, measured by --audio-selftest). An extensible header carries the same samples
-                // with the tag in its subformat GUID's first two bytes (the extra data's bytes 6 and 7, after the valid
-                // bits and the channel mask), which the validator proved standard, so the samples are read under the
-                // plain header they mean; the bytes are untouched.
-                int tag = BitConverter.ToUInt16(extra.ExtraData, 6);
-                WaveFormat plain = WaveFormat.CreateCustomFormat((WaveFormatEncoding)tag, f.SampleRate, f.Channels,
-                    f.AverageBytesPerSecond, f.BlockAlign, f.BitsPerSample);
-                // Whole frames per read: a WaveStream refuses part of one. A loop of its own, because Stream.CopyTo reads
-                // into a pooled buffer whose length is rounded up past the size asked for (8192 for 6144, measured).
-                var samples = new MemoryStream();
-                var frames = new byte[f.BlockAlign * 2048];
-                int n;
-                while ((n = reader.Read(frames, 0, frames.Length)) > 0) samples.Write(frames, 0, n);
-                samples.Position = 0;
-                using (var raw = new RawSourceWaveStream(samples, plain))
-                    return ReadAll(ToMixFormat(raw.ToSampleProvider()), int.MaxValue);
-            }
+            WavFormat.WaveLayout layout;
+            string invalid;
+            if (!WavFormat.TryParse(audio, out layout, out invalid))
+                throw new InvalidDataException("the clip " + invalid);
+            // The plain tag (an extensible clip's subformat): NAudio's sample converters take only plain PCM and IEEE
+            // float. Exactly the data chunk's bytes, under exactly the fmt the validator read.
+            WaveFormat format = WaveFormat.CreateCustomFormat((WaveFormatEncoding)layout.Tag, layout.SampleRate, layout.Channels,
+                layout.SampleRate * layout.BlockAlign, layout.BlockAlign, layout.BitsPerSample);
+            using (var data = new MemoryStream(audio, layout.DataOffset, layout.DataLength, false))
+            using (var raw = new RawSourceWaveStream(data, format))
+                return ReadClip(raw.ToSampleProvider());
+        }
+
+        /// <summary>A clip's source drained at the mixer format, refused past <see cref="MaximumClipDecodedSamples"/>. The one
+        /// place both formats' decodes end, so the cap cannot be on one and missing from the other.</summary>
+        private static float[] ReadClip(ISampleProvider source)
+        {
+            float[] samples = ReadAll(ToMixFormat(source), MaximumClipDecodedSamples);
+            if (samples == null)
+                throw new InvalidDataException("it decodes to more than the " + (MaximumClipDecodedSamples / 2 / MixFormat.SampleRate)
+                    + " s a clip may play");
+            return samples;
         }
 
         /// <summary>Where a clip that will not decode is reported, once (see <see cref="CachedDecode(byte[], bool, out string)"/>):
@@ -607,7 +617,7 @@ namespace DesktopAICompanion
         {
             using (var ms = new MemoryStream(mp3, false))
             using (var reader = new Mp3FileReaderBase(ms, wf => new AcmMp3FrameDecompressor(wf)))
-                return ReadAll(ToMixFormat(reader.ToSampleProvider()), int.MaxValue);
+                return ReadClip(reader.ToSampleProvider());
         }
 
         /// <summary>Resample and upmix a source to the mixer's own format.</summary>
@@ -621,7 +631,8 @@ namespace DesktopAICompanion
         }
 
         /// <summary>Drain a mixer-format source into one buffer, giving up past <paramref name="maxSamples"/>
-        /// (null). The engine path passes int.MaxValue so no bundled pet changes behaviour.</summary>
+        /// (null). The engine path passes <see cref="MaximumClipDecodedSamples"/> (through ReadClip), which every shipped
+        /// pet's sounds fit 14 times over; modules pass <see cref="MaximumModuleDecodedSamples"/>.</summary>
         private static float[] ReadAll(ISampleProvider sp, int maxSamples)
         {
             var all = new List<float>(1 << 16);

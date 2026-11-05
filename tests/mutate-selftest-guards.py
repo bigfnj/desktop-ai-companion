@@ -19437,10 +19437,12 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--audio-selftest", "dp-audio-selftest.txt",
      "wav clip: PCM 16-bit passes the validator and decodes to the mixer format"),
+    # Re-pointed by feature/shimeji-host-limits (review F1): the decoder no longer reads a header of its own; the one parse
+    # (WavFormat.TryParse) hands it the subformat's plain tag, so an extensible clip read under its own tag is that.
     ("host-wav: an extensible WAV is read under its own header",
-     os.path.join(REPO, "src", "dotNet", "AudioOutput.cs"),
-     b'if (f.Encoding != WaveFormatEncoding.Extensible || extra == null || f.ExtraSize < 22)',
-     b'if (f.Encoding != WaveFormatEncoding.Extensible || extra != null || f.ExtraSize < 22)',
+     os.path.join(REPO, "src", "dotNet", "CompanionXmlValidator.cs"),
+     b'                tag = ReadUInt16(b, f + 24);\n',
+     b'                tag = ReadUInt16(b, f);\n',
      HOST_CSPROJ, EXE,
      "--audio-selftest", "dp-audio-selftest.txt",
      "wav clip: PCM 16-bit extensible passes the validator and decodes to the mixer format"),
@@ -19458,6 +19460,27 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--audio-selftest", "dp-audio-selftest.txt",
      "wav clip: one that will not decode at runtime is silent and reported once"),
+    # ---- lane feature/shimeji-host-limits ----
+    # The WAV lane's stand-in review (F1-F3), then the tick frame cap and the declared clip's size limit. Named
+    # "host-limits:" so one --only=host-limits: run covers the lane.
+    # F1: one parse. The decoder plays the fmt and data WavFormat.TryParse found; restoring NAudio's own RIFF reader
+    # brings back the second parse (it keeps the LAST fmt), and the 1 Hz duplicate decodes past the cap.
+    ("host-limits: F1 the decoder parses the RIFF again",
+     os.path.join(REPO, "src", "dotNet", "AudioOutput.cs"),
+     b'            using (var data = new MemoryStream(audio, layout.DataOffset, layout.DataLength, false))\n'
+     b'            using (var raw = new RawSourceWaveStream(data, format))\n',
+     b'            using (var data = new MemoryStream(audio, false))\n'
+     b'            using (var raw = new WaveFileReader(data))\n',
+     HOST_CSPROJ, EXE,
+     "--audio-selftest", "dp-audio-selftest.txt",
+     "wav clip: a second fmt chunk at 1 Hz is refused or plays exactly what the validator read"),
+    ("host-limits: F1 a clip's decode is not capped",
+     os.path.join(REPO, "src", "dotNet", "AudioOutput.cs"),
+     b'            float[] samples = ReadAll(ToMixFormat(source), MaximumClipDecodedSamples);\n',
+     b'            float[] samples = ReadAll(ToMixFormat(source), int.MaxValue);\n',
+     HOST_CSPROJ, EXE,
+     "--audio-selftest", "dp-audio-selftest.txt",
+     "wav clip: one frame past the decode cap is refused at decode"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

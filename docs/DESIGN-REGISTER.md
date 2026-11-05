@@ -7737,6 +7737,28 @@ memory decision for the coordinator, not this lane.
 **A parity run writes no sound event for WAV either.** ParityRun has no clip output until CONTRACT defines a clip clock
 (ParityRun.cs, `Sound`), so a WAV clip's start is asserted in --shimeji-window-selftest through a recording sink.
 
+#### feature/shimeji-host-limits
+
+The WAV lane's stand-in review (F1-F3), then the tick frame cap and the declared clip's size limit.
+
+**One parse of a WAV clip, for the validator and the decoder.** `WavFormat.TryParse` returns what it proved (the plain
+tag, an extensible clip's subformat; channels, rate, bits, block align; the data chunk's offset and length), and
+`AudioOutput.DecodeClip` plays exactly that slice under exactly that format through `RawSourceWaveStream`. Before, the
+decoder handed the bytes to NAudio's `WaveFileReader`, which keeps the LAST fmt and data chunks and skips a pad byte only
+when it is zero, where the validator keeps the FIRST and skips any pad: a second fmt at 1 Hz, or one hidden behind a
+non-zero pad byte, was validated under one format and decoded under the other (568 bytes to 44.1 M samples). Refusing
+duplicate chunks and non-zero pads instead was rejected: that list follows one reader's internals and would have to keep
+following them, and one parse keeps the accepted set the WAV lane measured. The extensible workaround the WAV lane
+recorded above is gone with it: the parse hands the decoder the plain tag.
+
+**Every pet sound and clip decodes to at most 60 seconds at the mixer format** (`MaximumClipDecodedSamples`, about 21 MB
+of floats), MP3 and WAV alike, through one function (`ReadClip`), so the cap cannot be on one format and missing from the
+other. The validator bounds bytes, not what they become: an 8 kbps MP3 decodes to about 353 times its bytes. Measured
+before choosing it: the 276 sounds of the 55 shipped pet documents are all MP3 and the longest plays 4.18 s. A clip past
+the cap is refused at decode, logged once and silent, and the companion runs on. The same figure as the module cap
+(`MaximumModuleDecodedSamples`). The decode still runs on the UI thread under the audio lock: BACKLOG
+N-shimeji-host-limits-01, with its measured times.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

@@ -1290,7 +1290,8 @@ namespace DesktopAICompanion
     /// plain or WAVE_FORMAT_EXTENSIBLE. ADPCM, mu-law and A-law would need the OS's ACM codecs and are refused, since no
     /// clip of the converter's corpus uses them (all 1168 of its WAVE clips are 8- or 16-bit PCM). And the structure is no
     /// stricter than real clips: chunks after the data chunk, an 18-byte fmt chunk and an odd-sized LAST chunk with no pad
-    /// byte all pass, as they do in NAudio's reader and the source's javax.sound one. What is refused is what leaves the
+    /// byte all pass, as they do in the source's javax.sound reader. NAudio's own chunk reader never sees a clip: the
+    /// decoder plays the fmt and data <see cref="TryParse"/> found (review F1). What is refused is what leaves the
     /// bytes in doubt: a RIFF size that disagrees with the clip (truncated, or trailing bytes), a chunk past the end, no
     /// fmt or no data chunk, an empty or ragged data chunk, a block align that contradicts the channels and bits.
     /// </summary>
@@ -1298,7 +1299,8 @@ namespace DesktopAICompanion
     {
         /// <summary>The sample rates a clip may have. The lower bound also bounds the decoded size: the mixer resamples to
         /// 44.1 kHz stereo float, so a clip costs at most 44100 x 8 / (8000 x 1) = 44 times its bytes once decoded (8-bit
-        /// mono at 8 kHz); a 16-bit stereo 44.1 kHz clip costs twice its bytes.</summary>
+        /// mono at 8 kHz); a 16-bit stereo 44.1 kHz clip costs twice its bytes. True of what PLAYS because the decoder reads
+        /// this parse's fmt (<see cref="TryParse"/>); AudioOutput.MaximumClipDecodedSamples caps it again at decode.</summary>
         public const int MinimumSampleRate = 8000;
         public const int MaximumSampleRate = 192000;
 
@@ -1328,6 +1330,30 @@ namespace DesktopAICompanion
         /// phrase that follows "but" ("is truncated: ...").</summary>
         internal static bool IsDecodableWave(byte[] b, out string error)
         {
+            WaveLayout layout;
+            return TryParse(b, out layout, out error);
+        }
+
+        /// <summary>What the parse below proved about a clip: the plain format tag (an extensible clip's subformat), its
+        /// shape, and where its samples are. The decoder (AudioOutput.DecodeClip) reads exactly this and never parses the
+        /// RIFF itself, so what plays is what was validated (review F1, feature/shimeji-host-limits).</summary>
+        internal struct WaveLayout
+        {
+            public int Tag, Channels, SampleRate, BitsPerSample, BlockAlign, DataOffset, DataLength;
+        }
+
+        /// <summary>
+        /// The ONE parse of a clip's RIFF/WAVE bytes, for the validator and the decoder alike. It takes the FIRST fmt and
+        /// the FIRST data chunk and skips an odd chunk's pad byte whatever its value. NAudio's WaveFileReader takes the
+        /// LAST of each and skips a pad only when it is zero, so while the decoder handed it the bytes a clip could be
+        /// validated under one fmt and decoded under another the validator never saw: a second fmt at 1 Hz, or one hidden
+        /// behind a non-zero pad byte, turned a 568-byte clip into 44.1 M samples on the UI thread (the stand-in review,
+        /// F1). Refusing duplicates and non-zero pads instead was rejected: that list tracks one reader's internals and
+        /// would have to follow them; one parse has nothing to track, and the set it accepts is the one already measured.
+        /// </summary>
+        internal static bool TryParse(byte[] b, out WaveLayout layout, out string error)
+        {
+            layout = default(WaveLayout);
             error = null;
             if (!HasWaveHeader(b))
             {
@@ -1444,6 +1470,11 @@ namespace DesktopAICompanion
                 error = dataSize == 0 ? "has no audio (its data chunk is empty)" : "has a data chunk that is not a whole number of frames";
                 return false;
             }
+            layout = new WaveLayout
+            {
+                Tag = tag, Channels = channels, SampleRate = (int)rate, BitsPerSample = bits, BlockAlign = blockAlign,
+                DataOffset = (int)data, DataLength = (int)dataSize,
+            };
             return true;
         }
 

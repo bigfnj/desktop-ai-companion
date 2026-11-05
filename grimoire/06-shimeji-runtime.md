@@ -163,10 +163,13 @@ run.
     with that standard subformat; ADPCM, mu-law, A-law and every other tag are refused, by tag;
   - mono or stereo, 8000 to 192000 Hz, with a block align of channels x bits / 8;
   - with a non-empty `data` chunk of whole frames.
+  The walk takes the FIRST `fmt ` and the FIRST `data` chunk and skips an odd chunk's pad byte whatever its value; the
+  host decodes exactly those, never re-reading the RIFF, so what plays is what was checked.
   The source loads clips through javax.sound (WAV, AU, AIFF; not MP3), and a clip it cannot open refuses the whole
   image set at load (`SoundLoader.java:21-24`, `AnimationBuilder.java:161-165`, `Main.java:478-484`). A clip this
   validator accepts that the host's decoder then cannot decode plays silently: the app logs it once and the
-  companion keeps running.
+  companion keeps running. So does a clip, WAV or MP3, that would decode to more than 60 seconds at the mixer's
+  44.1 kHz stereo (`AudioOutput.MaximumClipDecodedSamples`).
 - **Playing a clip** (`Mascot.java:612-625`, `Sounds.java`, `SoundLoader.java`):
   - A clip is one sound at one volume. Every companion whose applied pose names the same clip of a type at the same
     volume shares it: one clip, one playing state. The same sound at another volume is another clip.

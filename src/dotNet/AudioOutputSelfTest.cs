@@ -156,6 +156,9 @@ namespace DesktopAICompanion
             ok &= Check(sb, "wav clip: 16-bit stereo at 48 kHz is resampled to 44.1 kHz (" + (stereo == null ? -1 : stereo.Length / 2) + " frames)",
                 stereo != null && Math.Abs(stereo.Length / 2 - 4410) <= 64);
 
+            ok &= PlaysWhatTheValidatorRead(sb);
+            ok &= ClipDecodeIsCapped(sb);
+
             byte[] adpcm = SyntheticWave(1, 16, 1, 22050, 2205, false);
             adpcm[20] = 0x02;   // format tag 1 -> 2, MS ADPCM
             string refused;
@@ -176,6 +179,163 @@ namespace DesktopAICompanion
                     good != null && good.Length > 0 && lines.Count == 1);
             }
             return ok;
+        }
+
+        /// <summary>
+        /// Review F1: the decoder plays the fmt and data the validator read, whatever another RIFF reader would make of the
+        /// same bytes. The stand-in review's three layouts, rebuilt here from a clean 0.1 s clip: a second fmt chunk at 1 Hz
+        /// (NAudio's reader keeps the LAST fmt), a 1 Hz fmt hidden behind a non-zero pad byte (NAudio skips a pad only when
+        /// it is zero, so it walks one byte behind the validator and meets the hidden chunk), and a data chunk before its
+        /// fmt. Each must validate and decode to exactly the clean clip's samples; under the old decoder the first two
+        /// decoded at 1 Hz, 88,200 samples a frame.
+        /// </summary>
+        private static bool PlaysWhatTheValidatorRead(StringBuilder sb)
+        {
+            bool ok = true;
+            byte[] clean = SyntheticWave(1, 16, 1, 22050, 2205, false);
+            byte[] fmt = Slice(clean, 12, 24), data = Slice(clean, 36, clean.Length - 36);
+            byte[] slow = (byte[])fmt.Clone();
+            WriteUInt32(slow, 12, 1);   // the sample rate: 1 Hz
+            WriteUInt32(slow, 16, 2);   // bytes a second
+            float[] expected = AudioOutput.DecodeClip(clean, true);
+
+            // The hidden layout, byte by byte from offset 36 (after the clean fmt). The validator walks junk(1), skips its
+            // pad 'J', reads "unk\n"(0) and junk(40), and lands on data at 102; NAudio does not skip the 'J', reads
+            // "Junk"(10), then the hidden fmt at 63 and junk(7), and lands on data at 102 too.
+            var hidden = new byte[66];
+            Ascii(hidden, 0, "junk"); WriteUInt32(hidden, 4, 1); hidden[8] = (byte)'x'; hidden[9] = (byte)'J';
+            Ascii(hidden, 10, "unk"); hidden[13] = 0x0A;                      // its size, bytes 14-17, is 0
+            Ascii(hidden, 18, "junk"); WriteUInt32(hidden, 22, 40);
+            Ascii(hidden, 27, "fmt "); WriteUInt32(hidden, 31, 16); Array.Copy(slow, 8, hidden, 35, 16);
+            Ascii(hidden, 51, "junk"); WriteUInt32(hidden, 55, 7);
+
+            var layouts = new[]
+            {
+                new { Name = "a second fmt chunk at 1 Hz", Bytes = Riff(fmt, slow, data) },
+                new { Name = "a 1 Hz fmt hidden behind a non-zero pad byte", Bytes = Riff(fmt, hidden, data) },
+                new { Name = "a data chunk before its fmt", Bytes = Riff(data, fmt) },
+            };
+            foreach (var layout in layouts)
+            {
+                string invalid;
+                bool valid = WavFormat.IsDecodableWave(layout.Bytes, out invalid);
+                float[] decoded = null;
+                string failure = "";
+                try { decoded = AudioOutput.DecodeClip(layout.Bytes, true); }
+                catch (Exception ex) { failure = ex.GetType().Name + ": " + ex.Message; }
+                bool same = decoded != null && expected != null && decoded.Length == expected.Length;
+                for (int i = 0; same && i < decoded.Length; i++) same = decoded[i] == expected[i];
+                ok &= Check(sb, "wav clip: " + layout.Name + " is refused or plays exactly what the validator read ("
+                    + (valid ? "valid" : "refused: " + invalid) + ", " + (decoded == null ? failure : decoded.Length + " samples")
+                    + " against " + (expected == null ? -1 : expected.Length) + ")",
+                    !valid || same);
+            }
+            return ok;
+        }
+
+        /// <summary>
+        /// The decode cap (<see cref="AudioOutput.MaximumClipDecodedSamples"/>), for both formats: a WAV that decodes to
+        /// exactly the cap plays (44.1 kHz mono, so no resampling moves the count), one frame more is refused at decode and
+        /// reported once, and an MP3 past it (the bundled 8 kbps fixture's frames repeated, about 353 decoded bytes a byte) is
+        /// refused too. The cap-sized decode is timed and the time printed, for BACKLOG N-shimeji-host-limits-01 (decoding runs
+        /// on the UI thread under the audio lock).
+        /// </summary>
+        private static bool ClipDecodeIsCapped(StringBuilder sb)
+        {
+            bool ok = true;
+            int capFrames = AudioOutput.MaximumClipDecodedSamples / 2;
+            byte[] atCap = SyntheticWave(1, 8, 1, 44100, capFrames, false);
+            float[] decoded = null;
+            string failure = "";
+            var timer = System.Diagnostics.Stopwatch.StartNew();
+            try { decoded = AudioOutput.DecodeClip(atCap, true); }
+            catch (Exception ex) { failure = " " + ex.GetType().Name + ": " + ex.Message; }
+            timer.Stop();
+            ok &= Check(sb, "wav clip: WITNESS a clip that decodes to exactly the cap plays ("
+                + (decoded == null ? "no samples" + failure : decoded.Length + " samples") + ")",
+                decoded != null && decoded.Length == AudioOutput.MaximumClipDecodedSamples);
+            sb.AppendLine("NOTE: wav clip: a cap-sized clip (" + atCap.Length + " bytes, 8-bit mono 44.1 kHz) decoded in "
+                + timer.ElapsedMilliseconds + " ms");
+            decoded = null;
+
+            byte[] overCap = SyntheticWave(1, 8, 1, 44100, capFrames + 1, false);
+            failure = "";
+            try { decoded = AudioOutput.DecodeClip(overCap, true); }
+            catch (Exception ex) { failure = ex.GetType().Name + ": " + ex.Message; }
+            ok &= Check(sb, "wav clip: one frame past the decode cap is refused at decode (" + (decoded == null ? failure : decoded.Length + " samples") + ")",
+                decoded == null && failure.IndexOf("decodes to more than the 60 s a clip may play", StringComparison.Ordinal) >= 0);
+            decoded = null;
+            using (var output = new AudioOutput())
+            {
+                var lines = new System.Collections.Generic.List<string>();
+                output.ClipFailureSink = lines.Add;
+                string owner = AudioOutput.ClipOwnerPrefix + "type|long|0";
+                float[] first = output.ClipSamplesForTest(owner, overCap, true);
+                float[] second = output.ClipSamplesForTest(owner, overCap, true);
+                ok &= Check(sb, "wav clip: a clip past the decode cap is silent and reported once (" + lines.Count + " line(s)"
+                    + (lines.Count > 0 ? ": " + lines[0] : "") + ")",
+                    (first == null || first.Length == 0) && second != null && second.Length == 0 && lines.Count == 1
+                    && lines[0].IndexOf("type|long|0 (WAV) would not decode", StringComparison.Ordinal) >= 0);
+            }
+
+            byte[] mp3 = SecuritySelfTest.ValidMp3Fixture();
+            float[] shortMp3 = null;
+            try { shortMp3 = AudioOutput.DecodeClip(mp3, false); }
+            catch (Exception) { }
+            int copies = (int)(AudioOutput.MaximumClipDecodedSamples / Math.Max(1L, shortMp3 == null ? 1L : shortMp3.Length)) + 2;
+            var longMp3 = new byte[(long)mp3.Length * copies];
+            for (int i = 0; i < copies; i++) Array.Copy(mp3, 0, longMp3, (long)i * mp3.Length, mp3.Length);
+            failure = "";
+            float[] longDecoded = null;
+            timer.Restart();
+            try { longDecoded = AudioOutput.DecodeClip(longMp3, false); }
+            catch (Exception ex) { failure = ex.GetType().Name + ": " + ex.Message; }
+            timer.Stop();
+            sb.AppendLine("NOTE: wav clip: an 8 kbps MP3 decoded up to the cap and refused in " + timer.ElapsedMilliseconds + " ms");
+            // The slowest WAV path to the cap: 8 kHz upsampled (the resampler), 8-bit mono.
+            byte[] slowAtCap = SyntheticWave(1, 8, 1, 8000, (int)((long)capFrames * 8000 / 44100) - 64, false);
+            timer.Restart();
+            float[] slowDecoded = null;
+            try { slowDecoded = AudioOutput.DecodeClip(slowAtCap, true); }
+            catch (Exception) { }
+            timer.Stop();
+            sb.AppendLine("NOTE: wav clip: an 8 kHz clip just under the cap (" + slowAtCap.Length + " bytes, "
+                + (slowDecoded == null ? -1 : slowDecoded.Length) + " samples) decoded in " + timer.ElapsedMilliseconds + " ms");
+            slowDecoded = null;
+            ok &= Check(sb, "wav clip: an MP3 past the decode cap is refused at decode too (" + copies + " copies of a "
+                + (shortMp3 == null ? -1 : shortMp3.Length) + "-sample fixture, " + longMp3.Length + " bytes: "
+                + (longDecoded == null ? failure : longDecoded.Length + " samples") + ")",
+                shortMp3 != null && shortMp3.Length > 0 && longDecoded == null
+                && failure.IndexOf("decodes to more than the 60 s a clip may play", StringComparison.Ordinal) >= 0);
+            return ok;
+        }
+
+        private static byte[] Riff(params byte[][] chunks)
+        {
+            int length = 12;
+            foreach (byte[] c in chunks) length += c.Length;
+            var b = new byte[length];
+            Ascii(b, 0, "RIFF"); WriteUInt32(b, 4, (uint)(length - 8)); Ascii(b, 8, "WAVE");
+            int at = 12;
+            foreach (byte[] c in chunks) { Array.Copy(c, 0, b, at, c.Length); at += c.Length; }
+            return b;
+        }
+
+        private static byte[] Slice(byte[] b, int at, int length)
+        {
+            var s = new byte[length];
+            Array.Copy(b, at, s, 0, length);
+            return s;
+        }
+
+        private static void Ascii(byte[] b, int at, string text)
+        {
+            for (int i = 0; i < text.Length; i++) b[at + i] = (byte)text[i];
+        }
+
+        private static void WriteUInt32(byte[] b, int at, uint value)
+        {
+            b[at] = (byte)value; b[at + 1] = (byte)(value >> 8); b[at + 2] = (byte)(value >> 16); b[at + 3] = (byte)(value >> 24);
         }
 
         /// <summary>
