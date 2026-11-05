@@ -102,8 +102,9 @@ def pack_preflight(pack_dir):
             # Two entries that differ only in case (a pack built in a case-sensitive folder) are one file or folder to
             # a case-insensitive copy, which keeps the first name and the last bytes, so the copied pack no longer
             # matches its manifest (review W123 F4). Both upper() and casefold() are tried: between them they cover
-            # the simple folds of the NTFS upcase table; they also join a few pairs NTFS keeps apart (sharp s and
-            # "ss"), a refusal of a pack no runtime here could copy faithfully anyway.
+            # the simple folds of the NTFS upcase table. These folds conservatively reject some Unicode pairs that the
+            # destination can preserve (sharp s and "ss", which an ordinary Windows copy keeps apart): such a pack is
+            # refused as pack-invalid rather than judged.
             relative = os.path.relpath(full, pack_dir).replace(os.sep, "/")
             for key in (relative.upper(), relative.casefold()):
                 other = folded.setdefault(key, relative)
