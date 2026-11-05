@@ -83,6 +83,7 @@ namespace DesktopAICompanion
                 Run("Tick engine action clock", TestTickActionClock);
                 Run("Tick engine Breed queues and names lineage", TestTickBreed);
                 Run("Tick engine Transform in place", TestTickTransform);
+                Run("Tick engine Breed: a failed birth reports its fault, then its refusal", TestTickBirthErrorOrder);
                 Run("Tick engine Move ends and clamps at its target", TestTickMove);
                 Run("Tick engine lost ground enters Fall", TestTickLostGround);
                 Run("Tick engine: an internal fault ends one companion, reported, and the step goes on", TestTickInternalFault);
