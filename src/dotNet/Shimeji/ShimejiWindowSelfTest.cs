@@ -76,6 +76,15 @@ namespace DesktopAICompanion.Shimeji
                 TickMascot breeder = host.Spawn("Alpha", new TickPoint(x, floor), false, "Throw");
                 TickMascot popper = host.Spawn("Alpha", new TickPoint(x + 200, floor), false, "Pop");
 
+                // A companion whose first behaviour cannot be built is declined, not thrown into the app's spawn path.
+                int formsBefore = host.Count;
+                TickMascot unbuildable = null;
+                string thrown = null;
+                try { unbuildable = host.Spawn("Alpha", new TickPoint(x, floor), false, "NoSuchBehaviour"); }
+                catch (Exception e) { thrown = e.GetType().Name; }
+                check(thrown == null && unbuildable == null && host.Count == formsBefore && host.World.Pending.Count == 3,
+                    "a companion whose first behaviour cannot be built is declined, not thrown" + (thrown == null ? "" : " (threw " + thrown + ")"));
+
                 host.Step();   // step 1: the three start companions activate, step and are drawn
                 FormCompanion standForm = host.FormOf(stander);
                 check(standForm != null && host.Count == 3, "each start companion gets a window at its first step");

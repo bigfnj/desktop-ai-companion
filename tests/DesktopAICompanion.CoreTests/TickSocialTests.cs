@@ -364,7 +364,7 @@ namespace DesktopAICompanion
             // A start companion has no manager while its behaviour initialises: the source's unguarded manager call
             // fails there, and the engine refuses the companion.
             TickWorld d = MotionWorld(new TickDesk(), new TickLog(), null, null, t);
-            AssertThrows<TickCantBeAliveException>(() => d.CreateAtStart("m1", t, new TickPoint(640, 680), false, "Meet"),
+            AssertStartRefused(d, () => d.CreateAtStart("m1", t, new TickPoint(640, 680), false, "Meet"),
                 "Interact started on a companion with no manager.");
         }
 

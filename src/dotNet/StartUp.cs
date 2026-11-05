@@ -658,6 +658,11 @@ namespace DesktopAICompanion
                         pet.Show(petXml.spriteWidth, petXml.spriteHeight);
                         pet.Play();
                     });
+            if (newSheep == null)
+            {
+                AddDebugInfo(DEBUG_TYPE.warning, "a tick companion could not start: its first behaviour could not be built");
+                return null;
+            }
             sheeps[iSheeps] = newSheep;
             iSheeps++;
 
@@ -729,13 +734,19 @@ namespace DesktopAICompanion
                 type.Name = string.IsNullOrEmpty(petAnimations.PetTypeId) ? "default" : petAnimations.PetTypeId;
             host.AddType(new Shimeji.TickHostType(petAnimations.PetTypeId ?? "", type, petXml, petAnimations));
             tickEntries[type.Name] = entry;
-            return CreateAndInitializeOwnedPet(
+            Shimeji.TickMascot spawned = null;
+            FormCompanion form = CreateAndInitializeOwnedPet(
                 delegate { return new FormCompanion(petAnimations, petXml); },
                 delegate (FormCompanion pet)
                 {
                     pet.Show(petXml.spriteWidth, petXml.spriteHeight);
-                    host.SpawnLikeSource(type.Name, null, pet);
+                    spawned = host.SpawnLikeSource(type.Name, null, pet);
                 });
+            if (spawned != null) return form;
+            // Its first behaviour could not be built (the tick host logged why), as the source's createMascot reports and
+            // disposes such a mascot: the window it was given goes, and the spawn is declined.
+            try { form.Close(); form.Dispose(); } catch { }
+            return null;
         }
 
         /// <summary>A window for a companion born at this step (the tick host asks). Null when there is no room or the

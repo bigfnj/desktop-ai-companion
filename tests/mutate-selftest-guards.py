@@ -17030,6 +17030,21 @@ CASES = (
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      'parity: the pack hash refuses a link before reading through it'),
+    # A start companion whose first behaviour cannot be built is reported and disposed (Main.createMascot), and the
+    # tick host declines it instead of throwing into the app's spawn path.
+    ('shimeji-host: a start that cannot be built throws at the caller',
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'            catch (Exception e)\n            {\n                // Main.createMascot catches a first behaviour',
+     b'            catch (Exception e) when (e == null)\n            {\n                // Main.createMascot catches a first behaviour',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, 'Tick engine: a start companion whose first behaviour cannot be built is reported and never joins'),
+    ('shimeji-host: the tick host hands back a companion that never started',
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickHost.cs"),
+     b'            if (m.Disposing) return null;\n',
+     b'            if (m.Disposing && m.Sid == null) return null;\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'a companion whose first behaviour cannot be built is declined, not thrown'),
     # ---- lane feature/shimeji-host-motion ----
     # The motion family of embedded classes (src/dotNet/Shimeji/TickMotionFamily.cs) and the engine hooks it added: each
     # case puts back one wrong reading of the official runtime and must fail the CoreTests group that pins it.

@@ -394,6 +394,42 @@ namespace DesktopAICompanion
                 "Priming advanced the clock or wrote a birth event: " + string.Join("; ", log.Events));
         }
 
+        /// <summary>Main.createMascot reports a first behaviour that cannot be built and disposes the mascot: CreateAtStart
+        /// returns it disposed and never queued, and nothing is thrown at the caller.</summary>
+        private static void AssertStartRefused(TickWorld w, Func<TickMascot> create, string message)
+        {
+            TickMascot m;
+            try { m = create(); }
+            catch (Exception e) { throw new InvalidOperationException(message + " (it threw " + e.GetType().Name + " instead of being refused)"); }
+            bool queued = false;
+            foreach (TickMascot p in w.Pending) if (ReferenceEquals(p, m)) queued = true;
+            AssertTrue(m != null && m.Disposing && !queued, message);
+        }
+
+        private static void TestTickStartCannotBuild()
+        {
+            // MoveWithTurn with one animation: its constructor refuses the definition, as the source's does, so the first
+            // behaviour cannot be built. Main.createMascot reports and disposes such a mascot; it never joins the manager.
+            TickType t = TickType.Compile("Alpha", TickDoc(
+                TRoute(TEdge(10, 1), TEdge(11, 0)),
+                TBeh(10, "Bad", "Bad", 1, null),
+                TBeh(11, "Fall", "Stand", 0, null),
+                TAct(30, "Bad", "Embedded", "MoveWithTurn", new[] { TParam("TargetX", "100") }, TPose(0, 1, -2)),
+                TAct(31, "Stand", "Stay", null, new[] { TParam("Duration", "100") }, TPose(0, 1))));
+            var log = new TickLog();
+            TickWorld w = TickWorldOf(log, null, t);
+            TickMascot m = null;
+            string escaped = null;
+            try { m = w.CreateAtStart("m1", t, new TickPoint(600, 680), false, "Bad"); }
+            catch (Exception e) { escaped = e.GetType().Name + ": " + e.Message; }
+            AssertTrue(escaped == null, "A first behaviour that cannot be built escaped CreateAtStart: " + escaped);
+            AssertTrue(m != null && m.Disposing && w.Pending.Count == 0, "The companion was not disposed, or was queued anyway.");
+            AssertTrue(log.Faults.Count == 1 && log.Faults[0].Contains("the first behaviour could not be built"),
+                "The failure was not reported: " + string.Join("; ", log.Faults));
+            w.StepOnce();
+            AssertEqual(0, w.Mascots.Count, "A companion whose first behaviour could not be built became active.");
+        }
+
         private static void TestTickOfferBlank()
         {
             // Java's trim keeps a no-break space (U+00A0 is above U+0020), so that offer is real; a tab-and-space one is

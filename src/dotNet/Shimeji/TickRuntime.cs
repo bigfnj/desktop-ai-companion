@@ -1260,8 +1260,21 @@ namespace DesktopAICompanion.Shimeji
         public TickMascot CreateAtStart(string sid, TickType type, TickPoint anchor, bool lookRight, string behaviour)
         {
             var m = new TickMascot(this, sid, type) { Anchor = anchor, LookRight = lookRight, IsStartup = true };
-            m.SetBehaviour(string.IsNullOrEmpty(behaviour) ? BuildNextBehaviour(type, m, null) : BuildBehaviourByName(type, behaviour, m),
-                string.IsNullOrEmpty(behaviour) ? LastSelectionCause : "forced");
+            try
+            {
+                m.SetBehaviour(string.IsNullOrEmpty(behaviour) ? BuildNextBehaviour(type, m, null) : BuildBehaviourByName(type, behaviour, m),
+                    string.IsNullOrEmpty(behaviour) ? LastSelectionCause : "forced");
+            }
+            catch (Exception e)
+            {
+                // Main.createMascot catches a first behaviour that cannot be built (a missing name, a class that refuses
+                // its definition), shows the error and disposes the mascot, which never joins the manager. Same here:
+                // reported, disposed, not added; the caller sees Disposing.
+                ReportFault(m, (e is TickCantBeAliveException ? "" : "internal fault: " + e.GetType().Name + ": ")
+                    + "the first behaviour could not be built: " + e.Message);
+                m.Dispose("error");
+                return m;
+            }
             Add(m);
             return m;
         }

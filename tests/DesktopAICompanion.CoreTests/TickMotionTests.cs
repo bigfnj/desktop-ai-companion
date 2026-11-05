@@ -540,7 +540,7 @@ namespace DesktopAICompanion
             TickType u = MotionType("Walk", MAct(30, "Walk", "Embedded", "MoveWithTurn", "Floor", new[] { TParam("TargetX", "700") },
                 MVar(null, false, TPose(0, 1, -2))));
             TickWorld v = MotionWorld(new TickDesk(), null, null, null, u);
-            AssertThrows<TickCantBeAliveException>(() => v.CreateAtStart("m1", u, new TickPoint(640, 680), false, "Walk"),
+            AssertStartRefused(v, () => v.CreateAtStart("m1", u, new TickPoint(640, 680), false, "Walk"),
                 "A MoveWithTurn with one variant was built.");
         }
 
@@ -666,7 +666,7 @@ namespace DesktopAICompanion
                     TickType t = MotionType("Go", MAct(30, "Go", "Embedded", cls, "Floor",
                         new[] { bad, TParam("TargetX", "700"), TParam("TargetY", "600") }, MVar(null, false, TPose(0, 1))));
                     TickWorld w = MotionWorld(new TickDesk(), null, null, null, t);
-                    AssertThrows<TickCantBeAliveException>(() => w.CreateAtStart("m1", t, new TickPoint(640, 680), false, "Go"),
+                    AssertStartRefused(w, () => w.CreateAtStart("m1", t, new TickPoint(640, 680), false, "Go"),
                         cls + " started with " + bad.Name + " " + bad.Value + ".");
                 }
             }

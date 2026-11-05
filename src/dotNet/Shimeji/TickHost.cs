@@ -216,12 +216,16 @@ namespace DesktopAICompanion.Shimeji
         /// <summary>A new companion of a type, placed at <paramref name="anchor"/> facing as given, entering
         /// <paramref name="behaviour"/> (or one chosen from the route when null). It appears at the next step, in
         /// <paramref name="form"/> when one is given (the app creates a spawned companion's window itself, so the window
-        /// is in its pet list from the start), else in one opened then.</summary>
+        /// is in its pet list from the start), else in one opened then. Null when its first behaviour could not be
+        /// built: the fault is logged and the form is left to the caller.</summary>
         public TickMascot Spawn(string imageSet, TickPoint anchor, bool lookRight, string behaviour, FormCompanion form = null)
         {
             TickType type = _world.FindType(imageSet);
             if (type == null) throw new InvalidOperationException("no tick companion type '" + imageSet + "'");
             TickMascot m = _world.CreateAtStart("t" + (++_nextSid), type, anchor, lookRight, behaviour);
+            // Its first behaviour could not be built (reported through the log): it never joins the world, and the
+            // caller closes the window it made.
+            if (m.Disposing) return null;
             if (form != null)
             {
                 form.AttachTick(this, m);
