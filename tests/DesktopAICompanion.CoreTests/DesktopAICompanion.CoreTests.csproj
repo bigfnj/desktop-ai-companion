@@ -72,6 +72,7 @@
     <Compile Include="ModuleKitTests.cs" />
     <Compile Include="SafeScriptTests.cs" />
     <Compile Include="TickEngineTests.cs" />
+    <Compile Include="TickMotionTests.cs" />
     <Compile Include="..\..\src\Portable\AppPaths.cs">
       <Link>Production\AppPaths.cs</Link>
     </Compile>

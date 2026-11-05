@@ -414,13 +414,15 @@ namespace DesktopAICompanion.Shimeji
 
         protected bool Present(string name, ScriptProgram guard) { return guard != null || Vars.Has(name); }
 
-        protected bool EvalBool(string name, ScriptProgram guard, bool fallback)
+        // protected internal: the source's eval is protected, which in Java includes the package, and Breed.Delegate
+        // (TickBreedDelegate) reads its action's parameters through it.
+        protected internal bool EvalBool(string name, ScriptProgram guard, bool fallback)
         {
             if (!Present(name, guard)) return fallback;
             return Truth(Read(name, guard), name);
         }
 
-        protected int EvalInt(string name, ScriptProgram guard, int fallback)
+        protected internal int EvalInt(string name, ScriptProgram guard, int fallback)
         {
             if (!Present(name, guard)) return fallback;
             ScriptValue v = Read(name, guard);
@@ -432,9 +434,22 @@ namespace DesktopAICompanion.Shimeji
             return TickScriptContext.JavaInt(v.ToNumber());
         }
 
-        protected int EvalInt(string name, int fallback) { return EvalInt(name, null, fallback); }
+        protected internal int EvalInt(string name, int fallback) { return EvalInt(name, null, fallback); }
 
-        protected string EvalString(string name, ScriptProgram guard, string fallback)
+        /// <summary>eval(name, Number.class, fallback).doubleValue(): as <see cref="EvalInt(string, int)"/>, unnarrowed.</summary>
+        protected internal double EvalDouble(string name, double fallback)
+        {
+            if (!Present(name, null)) return fallback;
+            ScriptValue v = Read(name, null);
+            if (v.Kind != ScriptValueKind.Number)
+            {
+                World.ReportFault(Mascot, Name + ": " + name + " is not a number (" + v.ToDisplayString() + ")");
+                if (v.Kind == ScriptValueKind.Null) return fallback;
+            }
+            return v.ToNumber();
+        }
+
+        protected internal string EvalString(string name, ScriptProgram guard, string fallback)
         {
             if (!Present(name, guard)) return fallback;
             ScriptValue v = Read(name, guard);
@@ -519,8 +534,9 @@ namespace DesktopAICompanion.Shimeji
         }
     }
 
-    /// <summary>Move: walk to TargetX/TargetY, turning (with an IsTurn variant) when the direction changes.</summary>
-    internal sealed class TickMove : TickBorderedAction
+    /// <summary>Move: walk to TargetX/TargetY, turning (with an IsTurn variant) when the direction changes. Not sealed:
+    /// MoveWithTurn and BreedMove extend it (TickMotionFamily.cs).</summary>
+    internal class TickMove : TickBorderedAction
     {
         private const int DefaultTarget = int.MaxValue;
         private bool _turning;
@@ -576,7 +592,11 @@ namespace DesktopAICompanion.Shimeji
             return v.Duration;
         }
 
-        private bool HasTurningVariant()
+        /// <summary>Move.isTurning.</summary>
+        protected bool IsTurning { get { return _turning; } }
+
+        /// <summary>Move.hasTurningAnimation (MoveWithTurn answers true without looking).</summary>
+        protected virtual bool HasTurningVariant()
         {
             if (_hasTurning == null)
             {
@@ -717,12 +737,17 @@ namespace DesktopAICompanion.Shimeji
     /// <summary>Breed: an Animate that, on its penultimate tick, creates BornCount companions.</summary>
     internal sealed class TickBreed : TickAnimate
     {
-        public TickBreed(TickWorld world, TickActDef def, Dictionary<string, TickParamDef> incoming) : base(world, def, incoming) { }
+        private readonly TickBreedDelegate _delegate;
+
+        public TickBreed(TickWorld world, TickActDef def, Dictionary<string, TickParamDef> incoming) : base(world, def, incoming)
+        {
+            _delegate = new TickBreedDelegate(world, this);
+        }
 
         public override void Init(TickMascot mascot)
         {
             base.Init(mascot);
-            if (EvalInt("BornCount", 1) < 1) throw new TickCantBeAliveException(Name + ": BornCount must be positive");
+            _delegate.ValidateBornCount();
         }
 
         protected override void Tick()
@@ -731,55 +756,98 @@ namespace DesktopAICompanion.Shimeji
             if (Time == AnimationDuration() - 1 && IsEnabled()) Breed();
         }
 
-        private bool IsEnabled()
-        {
-            bool transient = EvalBool("BornTransient", null, false);
-            return World.Settings.Get(transient ? "Transients" : "Breeding", Mascot.Type.Name);
-        }
+        private bool IsEnabled() { return _delegate.IsEnabled(Mascot); }
 
-        private void Breed()
-        {
-            double scaling = World.Scaling;
-            string bornMascot = EvalString("BornMascot", null, "");
-            TickType childType = World.FindType(bornMascot) ?? Mascot.Type;
-            // The loop bound is evaluated every pass, as the source's `index < getBornCount()`.
-            for (int index = 0; index < EvalInt("BornCount", 1); index++)
-            {
-                int attempt = ++Mascot.BirthAttempts;
-                if (!World.HasRoomForBirth())
-                {
-                    // policy:birth-cap: refused before anything is evaluated or allocated for it.
-                    World.Observer.BirthRefused(Mascot, attempt, "cap");
-                    continue;
-                }
-                var child = new TickMascot(World, Mascot.Sid + ".b" + (Mascot.Births + 1), childType);
-                int bornX = EvalInt("BornX", 0);
-                int bornY = EvalInt("BornY", 0);
-                int dx = JavaRound(bornX * scaling), dy = JavaRound(bornY * scaling);
-                child.Anchor = Mascot.LookRight
-                    ? new TickPoint(Mascot.Anchor.X - dx, Mascot.Anchor.Y + dy)
-                    : new TickPoint(Mascot.Anchor.X + dx, Mascot.Anchor.Y + dy);
-                child.LookRight = Mascot.LookRight;
-                string behaviour = EvalString("BornBehavior", null, "");
-                try
-                {
-                    World.EnterBirthBehaviour(child, behaviour, Mascot);
-                }
-                catch (TickCantBeAliveException e)
-                {
-                    World.Observer.BirthRefused(Mascot, attempt, "error");
-                    World.ReportFault(Mascot, "a birth failed: " + e.Message);
-                    continue;
-                }
-                Mascot.Births++;
-                World.Observer.BirthRequested(Mascot, child, Mascot.Births, attempt);
-                World.Add(child);
-            }
-        }
+        private void Breed() { _delegate.Breed(Mascot); }
 
         public static int JavaRound(double d)
         {
             return TickScriptContext.JavaInt(Math.Floor(d + 0.5));
+        }
+    }
+
+    /// <summary>
+    /// Breed.Delegate (Breed.java:26-162): the birth parameters and the birth loop, shared by Breed and the classes that
+    /// breed as they move (BreedMove, BreedJump, BreedFall). Each parameter is read through its action, at the source's
+    /// own evaluation site.
+    /// </summary>
+    internal sealed class TickBreedDelegate
+    {
+        private readonly TickWorld _world;
+        private readonly TickAction _action;
+
+        public TickBreedDelegate(TickWorld world, TickAction action)
+        {
+            _world = world;
+            _action = action;
+        }
+
+        /// <summary>isEnabled: BornTransient picks the toggle (Transients or Breeding), read for the parent's image set.</summary>
+        public bool IsEnabled(TickMascot parent)
+        {
+            bool transient = _action.EvalBool("BornTransient", null, false);
+            return _world.Settings.Get(transient ? "Transients" : "Breeding", parent.Type.Name);
+        }
+
+        /// <summary>isIntervalFrame: the action's age is a multiple of BornInterval, read afresh each time.</summary>
+        public bool IsIntervalFrame()
+        {
+            int interval = _action.EvalInt("BornInterval", 1);
+            // Java's int remainder by 0 throws ArithmeticException, which nothing in the source catches. Init refuses
+            // an interval below 1, so only a script that later yields 0 gets here; the companion ends (recorded divergence).
+            if (interval == 0) throw new TickCantBeAliveException(_action.Name + ": BornInterval became 0");
+            return _action.Time % interval == 0;
+        }
+
+        public void ValidateBornCount()
+        {
+            if (_action.EvalInt("BornCount", 1) < 1) throw new TickCantBeAliveException(_action.Name + ": BornCount must be positive");
+        }
+
+        public void ValidateBornInterval()
+        {
+            if (_action.EvalInt("BornInterval", 1) < 1) throw new TickCantBeAliveException(_action.Name + ": BornInterval must be positive");
+        }
+
+        /// <summary>breed: BornCount children of BornMascot (else the parent's type), placed from the parent's anchor.</summary>
+        public void Breed(TickMascot parent)
+        {
+            double scaling = _world.Scaling;
+            string bornMascot = _action.EvalString("BornMascot", null, "");
+            TickType childType = _world.FindType(bornMascot) ?? parent.Type;
+            // The loop bound is evaluated every pass, as the source's `index < getBornCount()`.
+            for (int index = 0; index < _action.EvalInt("BornCount", 1); index++)
+            {
+                int attempt = ++parent.BirthAttempts;
+                if (!_world.HasRoomForBirth())
+                {
+                    // policy:birth-cap: refused before anything is evaluated or allocated for it.
+                    _world.Observer.BirthRefused(parent, attempt, "cap");
+                    continue;
+                }
+                var child = new TickMascot(_world, parent.Sid + ".b" + (parent.Births + 1), childType);
+                int bornX = _action.EvalInt("BornX", 0);
+                int bornY = _action.EvalInt("BornY", 0);
+                int dx = TickBreed.JavaRound(bornX * scaling), dy = TickBreed.JavaRound(bornY * scaling);
+                child.Anchor = parent.LookRight
+                    ? new TickPoint(parent.Anchor.X - dx, parent.Anchor.Y + dy)
+                    : new TickPoint(parent.Anchor.X + dx, parent.Anchor.Y + dy);
+                child.LookRight = parent.LookRight;
+                string behaviour = _action.EvalString("BornBehavior", null, "");
+                try
+                {
+                    _world.EnterBirthBehaviour(child, behaviour, parent);
+                }
+                catch (TickCantBeAliveException e)
+                {
+                    _world.Observer.BirthRefused(parent, attempt, "error");
+                    _world.ReportFault(parent, "a birth failed: " + e.Message);
+                    continue;
+                }
+                parent.Births++;
+                _world.Observer.BirthRequested(parent, child, parent.Births, attempt);
+                _world.Add(child);
+            }
         }
     }
 
