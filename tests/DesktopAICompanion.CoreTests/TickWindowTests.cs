@@ -31,7 +31,7 @@ namespace DesktopAICompanion
 
         private static void TestTickWindowsWalkCarries()
         {
-            // WalkWithIE.java:46-92. Facing left, the grip is the window's lower RIGHT corner: anchor.x + IeOffsetX is its
+            // WalkWithIE.java:45-92. Facing left, the grip is the window's lower RIGHT corner: anchor.x + IeOffsetX is its
             // right and anchor.y + IeOffsetY its bottom. The window (350, 416) 300x200 has right 650 = 640 + 10 and bottom
             // 616 = 680 - 64. Each step the Move goes 2 px left, then the window is put back at the grip:
             // (anchor.x + 10 - 300, 680 - 64 - 200): (348, 416), (346, 416), (344, 416).
@@ -81,12 +81,17 @@ namespace DesktopAICompanion
             }
 
             // The window goes away (closed, hidden) after the first step: the second step sees no visible window and
-            // loses the ground (WalkWithIE.java:49-53), although the anchor still matches the rectangle it last had.
+            // loses the ground (WalkWithIE.java:49-53). The walk's pose has no velocity, so the window was put back where
+            // it was and the area's last rectangle still matches the grip: only the visibility test can lose it.
+            TickType still = MotionType("Carry", MAct(30, "Carry", "Embedded", "WalkWithIE", "Floor",
+                new[] { TParam("TargetX", "600"), TParam("IeOffsetX", "10"), TParam("IeOffsetY", "-64") },
+                MVar(null, false, TPose(0, 1, 0))));
             var gone = new MotionDesk { Window = new[] { 350, 416, 300, 200 } };
             var log2 = new TickLog();
-            TickWorld v = MotionWorld(gone, log2, null, null, t);
-            v.CreateAtStart("m1", t, new TickPoint(640, 680), false, "Carry");
+            TickWorld v = MotionWorld(gone, log2, null, null, still);
+            v.CreateAtStart("m1", still, new TickPoint(640, 680), false, "Carry");
             v.StepOnce();
+            AssertEqual("move (350, 416)", string.Join("|", gone.WindowCalls), "A still WalkWithIE did not put the window back at its grip.");
             gone.Window = null;
             v.StepOnce();
             AssertTrue(log2.Events.Contains("m1 behaviour Carry>Fall forced"), "Losing the window did not lose the ground: " + string.Join("; ", log2.Events));
@@ -144,7 +149,7 @@ namespace DesktopAICompanion
 
         private static void TestTickWindowsFallCarries()
         {
-            // FallWithIE.java:46-92 from (640, 300) facing left, IeOffsetY -64, no resistance, Gravity 2: vy 2, 4, 6, so y
+            // FallWithIE.java:45-92 from (640, 300) facing left, IeOffsetY -64, no resistance, Gravity 2: vy 2, 4, 6, so y
             // 302, 306, 312 (Fall.java). The window's lower right corner (right 640, bottom 236) follows to
             // (640 - 300, y - 64 - 200): (340, 38), (340, 42), (340, 48).
             TickType t = MotionType("Drop", MAct(30, "Drop", "Embedded", "FallWithIE", "",
@@ -163,7 +168,7 @@ namespace DesktopAICompanion
 
         private static void TestTickWindowsJumpCarries()
         {
-            // JumpWithIE.java:46-92 from (100, 600) facing right to (160, 600), Arc off, IeOffsetY -64: 20 px a step to
+            // JumpWithIE.java:45-92 from (100, 600) facing right to (160, 600), Arc off, IeOffsetY -64: 20 px a step to
             // 120 and 140, then within reach it lands on 160 (Jump.java). The window's lower left corner (left 100,
             // bottom 536) follows to (x, 600 - 64 - 200): (120, 336), (140, 336), (160, 336).
             TickType t = MotionType("Leap", MAct(30, "Leap", "Embedded", "JumpWithIE", "",
@@ -183,7 +188,7 @@ namespace DesktopAICompanion
 
         private static void TestTickWindowsThrow()
         {
-            // ThrowIE.java:52-73, the defaults InitialVX 32, InitialVY -10, Gravity .5, a five-tick animation, the window
+            // ThrowIE.java:50-70, the defaults InitialVX 32, InitialVY -10, Gravity .5, a five-tick animation, the window
             // at (400, 100). Each step, from where the window is: x +32 facing right, y -10 + (int)(age * .5):
             //   age 0: (432, 90); 1: (464, 80); 2: (496, 71); 3: (528, 62); 4: (560, 54); then the animation ends.
             TickType t = MotionType("Toss", MAct(30, "Toss", "Embedded", "ThrowIE", "Floor", null, MVar(null, false, TPose(2, 5))));
@@ -227,7 +232,7 @@ namespace DesktopAICompanion
 
         private static void TestTickWindowsMinimize()
         {
-            // MinimizeIE.java:35-42, a three-tick animation, the companion on the work area's floor far from the window:
+            // MinimizeIE.java:35-44, a three-tick animation, the companion on the work area's floor far from the window:
             // nothing at ages 0 and 1; at age 2 (duration - 1) the window is minimised. At the next step the window is
             // gone, so the action ends.
             TickType t = MotionType("Hide", MAct(30, "Hide", "Embedded", "MinimizeIE", "Floor", null, MVar(null, false, TPose(3, 3))));
@@ -275,6 +280,9 @@ namespace DesktopAICompanion
             d.ApplyTo(area, screen);
             AssertFalse(area.Visible, "A minimised window was still found.");
             AssertFalse(d.Move(new TickPoint(0, 0), 300, 200, screen, out from, out to), "A minimised window was moved.");
+            d.Show(new TickRect(100, 100, 300, 200));
+            d.ApplyTo(area, screen);
+            AssertTrue(area.Visible, "Showing the window again (the next timeline entry) did not replace its minimised state.");
             d.Show(new TickRect(1280, 100, 300, 200));
             d.ApplyTo(area, screen);
             AssertFalse(area.Visible, "A window wholly off the screen was found.");

@@ -62,8 +62,8 @@ namespace DesktopAICompanion.Shimeji
     }
 
     /// <summary>
-    /// The grip the three carrying classes share. Their tick bodies are identical in the source (WalkWithIE.java:46-92,
-    /// FallWithIE.java:46-92, JumpWithIE.java:46-92): before the base class moves the companion, the window must be
+    /// The grip the three carrying classes share. Their tick bodies are identical in the source (WalkWithIE.java:45-92,
+    /// FallWithIE.java:45-92, JumpWithIE.java:45-92): before the base class moves the companion, the window must be
     /// visible and held EXACTLY at its lower corner; after, the window is moved so that corner is at the grip again.
     /// </summary>
     internal static class TickWindowGrip
@@ -204,7 +204,7 @@ namespace DesktopAICompanion.Shimeji
             // read. (The source reads it, then its Throwing setting decides.)
             if (!TickWindowFamily.IsOn(World, Mascot)) return base.HasNext();
 
-            // Read before the base check, as the source does (ThrowIE.java:46-48).
+            // Read before the base check, as the source does (ThrowIE.java:45-47).
             bool ieVisible = Mascot.Environment.GetActiveWindow().Visible;
 
             return base.HasNext() && ieVisible;
@@ -270,7 +270,7 @@ namespace DesktopAICompanion.Shimeji
             if (!TickWindowFamily.IsOn(World, Mascot)) return;
 
             // The source looks the animation up again for each test, the second only when the first fails
-            // (MinimizeIE.java:39); a null animation is its NullPointerException, the companion's end here.
+            // (MinimizeIE.java:40); a null animation is its NullPointerException, the companion's end here.
             if (Time == TickMotionFamily.Require(CurrentVariant(), Name).Duration - 1
                 || TickMotionFamily.Require(CurrentVariant(), Name).Duration == 1)
             {
@@ -377,7 +377,7 @@ namespace DesktopAICompanion.Shimeji
     }
 
     /// <summary>
-    /// The real desktop's window rules, pure. Detection follows the source (WindowsEnvironment.java:43-165); acting adds
+    /// The real desktop's window rules, pure. Detection follows the source (WindowsEnvironment.java:43-167); acting adds
     /// the host's safety rules (grimoire/06 section 8), each a recorded divergence.
     /// </summary>
     internal static class TickWindowRules
