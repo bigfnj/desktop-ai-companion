@@ -89,8 +89,18 @@
     <Compile Include="..\..\src\dotNet\CompanionXmlValidator.cs">
       <Link>Shared\CompanionXmlValidator.cs</Link>
     </Compile>
+    <Compile Include="..\..\src\dotNet\SafeScript.cs">
+      <Link>Shared\SafeScript.cs</Link>
+    </Compile>
+    <Compile Include="..\..\src\dotNet\ShimejiFormatValidator.cs">
+      <Link>Shared\ShimejiFormatValidator.cs</Link>
+    </Compile>
     <Compile Include="..\..\src\dotNet\SafeExpression.cs">
       <Link>Shared\SafeExpression.cs</Link>
+    </Compile>
+    <!-- PetGraph walks a tick-clock document with the same edges the host's AnimationReachability does. -->
+    <Compile Include="..\..\src\dotNet\TickReachability.cs">
+      <Link>Shared\TickReachability.cs</Link>
     </Compile>
   </ItemGroup>
 

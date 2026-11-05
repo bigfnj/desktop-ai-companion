@@ -184,6 +184,49 @@ namespace DesktopAICompanion
                 });
         }
 
+        /// <summary>
+        /// The user's choice for one per-type switch of a tick companion (Breeding, Transients, Transformation,
+        /// WindowActions, or "toggle:&lt;id&gt;" for a header toggle), or null while the type follows the switch's
+        /// default. Read on every decision the companion makes, so a change applies to live companions without a
+        /// restart (Shimeji.TickTypeSwitches decides the default).
+        /// </summary>
+        public bool? GetCompanionSwitch(string id, string key)
+        {
+            if (string.IsNullOrEmpty(id) || string.IsNullOrEmpty(key)) return null;
+            lock (_sync) return FindCompanionSwitchNoLock(id, key);
+        }
+
+        private bool? FindCompanionSwitchNoLock(string id, string key)
+        {
+            if (_settings.CompanionSwitches == null) return null;
+            foreach (CompanionSwitchEntry e in _settings.CompanionSwitches)
+                if (e != null && string.Equals(e.Key, key, StringComparison.Ordinal) &&
+                    string.Equals(e.Id, id, StringComparison.OrdinalIgnoreCase))
+                    return e.On;
+            return null;
+        }
+
+        /// <summary>Record the user's choice for one switch of a companion type; null forgets it, so the default
+        /// applies again. False when the id or key is unusable or the durable write failed.</summary>
+        public bool SetCompanionSwitch(string id, string key, bool? on)
+        {
+            string typeId = (id ?? "").Trim();
+            if (typeId.Length == 0 || typeId.Length > AppSettingsDocument.MaximumPetIdLength) return false;
+            if (!AppSettingsDocument.IsAcceptableSwitchKey(key)) return false;
+            return Update(
+                delegate { return FindCompanionSwitchNoLock(typeId, key) != on; },
+                delegate
+                {
+                    if (_settings.CompanionSwitches == null) _settings.CompanionSwitches = new List<CompanionSwitchEntry>();
+                    _settings.CompanionSwitches.RemoveAll(delegate (CompanionSwitchEntry e)
+                    {
+                        return e == null || (string.Equals(e.Key, key, StringComparison.Ordinal) &&
+                                             string.Equals(e.Id, typeId, StringComparison.OrdinalIgnoreCase));
+                    });
+                    if (on.HasValue) _settings.CompanionSwitches.Add(new CompanionSwitchEntry { Id = typeId, Key = key, On = on.Value });
+                });
+        }
+
         // GetPetSizeLevel(string) and the GetPetSizeLevelNoLock behind it were here. The public wrapper went on
         // 2026-09-27 with a note that the NoLock form "is used by the size-override paths in this file"; it was
         // not. Those paths need the whole entry (Percent first, then the legacy Level) and read it through
@@ -387,6 +430,36 @@ namespace DesktopAICompanion
                     list.RemoveAll(delegate (string m) { return string.Equals(m ?? "", key, StringComparison.OrdinalIgnoreCase); });
                     if (!enabled) list.Add(key);
                     _settings.MutedPets = list;
+                });
+        }
+
+        /// <summary>"Arrive as an egg" for a pack's main member (type id): on unless the user turned it off. Only
+        /// asked when the pack's startup member is an egg (grimoire/06 section 2).</summary>
+        public bool GetArriveAsEgg(string id)
+        {
+            lock (_sync) return !IsEggArrivalOffNoLock(id ?? "");
+        }
+
+        private bool IsEggArrivalOffNoLock(string key)
+        {
+            if (key.Length == 0 || _settings.EggArrivalOff == null) return false;
+            foreach (string m in _settings.EggArrivalOff)
+                if (string.Equals(m ?? "", key, StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
+        }
+
+        internal bool SetArriveAsEgg(string id, bool enabled)
+        {
+            string key = id ?? "";
+            if (key.Length == 0) return false;
+            return Update(
+                delegate { return IsEggArrivalOffNoLock(key) == enabled; },   // off==enabled means the state must flip
+                delegate
+                {
+                    var list = _settings.EggArrivalOff ?? new List<string>();
+                    list.RemoveAll(delegate (string m) { return string.Equals(m ?? "", key, StringComparison.OrdinalIgnoreCase); });
+                    if (!enabled) list.Add(key);
+                    _settings.EggArrivalOff = list;
                 });
         }
 

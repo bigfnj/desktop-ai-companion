@@ -742,6 +742,8 @@ namespace DesktopAICompanion.PetStudioModule
                     "the chain builder's verdicts hold on the fixture pet");
                 RunChecks(probe, "AnimCapabilitySelfCheck", AnimCapabilitySelfCheck.RunChecks, fixture,
                     "the capability map reports what each animation DOES, not just its name");
+                RunChecks(probe, "TickStudioSelfCheck", TickStudioSelfCheck.RunChecks, fixture,
+                    "a tick-clock companion validates, walks with the tick edges, and the debugger refuses it by name");
 
                 module.Shutdown();
             }

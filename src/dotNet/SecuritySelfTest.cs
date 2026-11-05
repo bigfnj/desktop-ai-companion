@@ -16,7 +16,7 @@ using System.Threading.Tasks;
 namespace DesktopAICompanion
 {
     /// <summary>Dependency-free security regression checks run by CI and release packaging.</summary>
-    internal static class SecuritySelfTest
+    internal static partial class SecuritySelfTest
     {
         /// <summary>
         /// A structurally valid MPEG audio clip (frame sync, a few near-silent frames), shared with
@@ -66,6 +66,9 @@ namespace DesktopAICompanion
                 delegate(ref int f, TextWriter o) { CheckAudioValidation(defaultXml, ref f, o); },
                 ref failures, output);
             Section("CheckAboutLinkPolicy", CheckAboutLinkPolicy, ref failures, output);
+            Section("CheckShimejiExtensionGate",
+                delegate(ref int f, TextWriter o) { CheckShimejiExtensionGate(defaultXml, ref f, o); },
+                ref failures, output);
             Section("CheckSharedSpriteFrameOwnership", CheckSharedSpriteFrameOwnership, ref failures, output);
             // The smart-fortune lifecycle checks moved to the Fortunes module with the engine (S3d) and run
             // under --fortunes-engine-selftest; the idle-schedule check that stood beside them went with

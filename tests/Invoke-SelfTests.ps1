@@ -151,6 +151,10 @@ $SelfTestFlags = [ordered]@{
     # Questions by the clock (app 1.6.0, lane feature/tray-questions): the rules, the queue against a fake clock, the
     # card's placement on every taskbar edge and DPI, a real card window, and that no log line carries question text.
     '--trayquestions-selftest'           = 'dp-trayquestions-selftest.txt'
+    # Tick companions in real windows (the Shimeji runtime, lane feature/shimeji-host-runtime): placement at anchor minus
+    # image anchor, hiding for an image-less pose, a birth opening a window, SelfDestruct closing one, a press entering
+    # Dragged. Drawn at opacity 0, so nothing appears on the desktop.
+    '--shimeji-window-selftest'          = 'dp-shimeji-window-selftest.txt'
     # NO --module-selftest=<id> ROWS. The convention-based module self-tests (the host loading a
     # module through the REAL loader and calling its public static bool SelfTest) ran here for four
     # modules from 2026-09-17 and, from 2026-09-27, ran AGAIN for all seven covered modules in

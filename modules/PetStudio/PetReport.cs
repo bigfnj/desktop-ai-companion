@@ -97,6 +97,10 @@ namespace DesktopAICompanion.PetStudioModule
         internal int StagedSpriteFrames = -1;
         internal bool StagedFromParsedGraph;
 
+        /// <summary>The companion runs on the tick clock (grimoire/06): its nodes are routes, behaviours and actions,
+        /// walked by the tick walk, and the behaviour debugger does not build it.</summary>
+        public bool IsTickClock;
+
         /// <summary>A human-readable report, which is also exactly what the self-test asserts on.</summary>
         public string Describe()
         {
@@ -123,6 +127,13 @@ namespace DesktopAICompanion.PetStudioModule
             sb.AppendLine("  " + UnreachableAnimations.Count + " animation(s) can NEVER play:");
             foreach (int id in UnreachableAnimations)
                 sb.AppendLine("    animation " + id + " is never reached");
+            if (IsTickClock)
+            {
+                sb.AppendLine("  (on the Shimeji runtime a node is reachable from the route, from Fall, Dragged or Thrown, " +
+                    "from a selection with a non-zero frequency, from a behaviour that runs it, a composite that contains " +
+                    "it, a hotspot or a behaviour name an action sets, each starting from a node that is itself reachable)");
+                return sb.ToString();
+            }
             sb.AppendLine("  (an animation is reachable from drag/fall/kill/sync, from a spawn with a " +
                 "non-zero probability, from a transition with a non-zero probability, or from a child whose " +
                 "PARENT animation is itself reachable)");
@@ -176,6 +187,25 @@ namespace DesktopAICompanion.PetStudioModule
                 report.SpawnCount = root.Spawns.Spawn.Length;
             if (root.Childs != null && root.Childs.Child != null)
                 report.ChildCount = root.Childs.Child.Length;
+
+            // A tick-clock companion (grimoire/06) runs on the Shimeji runtime: the host stages it with an EMPTY classic
+            // animation set (StartUp.TryStageRuntime), so there is no entry animation to resolve and nothing to load
+            // here. Its walk is AnimationReachability's tick branch, over route, behaviour, action and hotspot edges.
+            if (ShimejiFormatValidator.IsTickMode(root))
+            {
+                report.IsTickClock = true;
+                try
+                {
+                    List<int> dead = AnimationReachability.FindUnreachable(root, null);
+                    report.UnreachableAnimations.AddRange(dead);
+                    BuildTickNodes(report, root, dead);
+                }
+                catch (Exception)
+                {
+                    // Advisory, as below: the validator's verdict stands.
+                }
+                return report;
+            }
 
             // The reachability walk needs the runtime's own view of the entry animations (drag/fall/kill/
             // sync), which only exists once the graph is loaded into an Xml + Animations pair -- the same
@@ -293,6 +323,46 @@ namespace DesktopAICompanion.PetStudioModule
                         node.Edges.Add(new AnimEdge { To = childNext, Probability = 100, Kind = "child" });
                 report.Nodes.Add(node);
             }
+        }
+
+        /// <summary>A tick-clock companion's nodes: roots, engine entries and edges as the tick walk reads them (route,
+        /// next, runs, composite, hotspot, enters), the dead set straight from AnimationReachability as for a classic one,
+        /// and an action's frames from its first variant's poses (an image-less pose, frame -1, draws nothing).</summary>
+        private static void BuildTickNodes(PetReport report, XmlData.RootNode root, List<int> dead)
+        {
+            TickGraph graph = TickReachability.Build(root);
+            var deadSet = new HashSet<int>(dead);
+            var roots = new HashSet<int>(graph.Roots);
+            foreach (XmlData.AnimationNode a in root.Animations.Animation)
+            {
+                if (a == null) continue;
+                var node = new AnimNode
+                {
+                    Id = a.Id,
+                    Name = a.Name ?? "",
+                    IsRoot = roots.Contains(a.Id),
+                    IsEngineEntry = graph.EngineEntries.Contains(a.Id),
+                    IsReachable = !deadSet.Contains(a.Id),
+                    Frames = PoseFrames(a.Act),
+                };
+                foreach (TickGraphEdge e in graph.EdgesOf(a.Id))
+                    node.Edges.Add(new AnimEdge { To = e.To, Probability = e.Probability, Kind = e.Kind });
+                report.Nodes.Add(node);
+            }
+        }
+
+        private static int[] PoseFrames(XmlData.ActNode act)
+        {
+            if (act == null || act.Variants == null || act.Variants.Variant == null) return System.Array.Empty<int>();
+            foreach (XmlData.VariantNode v in act.Variants.Variant)
+            {
+                if (v == null || v.Pose == null) continue;
+                var frames = new List<int>();
+                foreach (XmlData.PoseNode p in v.Pose)
+                    if (p != null && p.Frame >= 0) frames.Add(p.Frame);
+                return frames.ToArray();
+            }
+            return System.Array.Empty<int>();
         }
 
         /// <summary>One velocity component, or 0 with <paramref name="numeric"/> cleared when it is an

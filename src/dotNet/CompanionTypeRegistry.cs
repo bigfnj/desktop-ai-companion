@@ -140,8 +140,16 @@ namespace DesktopAICompanion
             DisposePair(entry);
         }
 
-        private static void DisposePair(Entry entry)
+        /// <summary>Told just before an entry's pair is disposed, while entry.Xml is still set: the tick host forgets the
+        /// type drawn from it, so a later pack reference stages it afresh instead of drawing from a disposed sheet.</summary>
+        internal Action<Entry> EntryDisposing;
+
+        private void DisposePair(Entry entry)
         {
+            if (entry.Xml != null && EntryDisposing != null)
+            {
+                try { EntryDisposing(entry); } catch { }
+            }
             // Xml.Dispose/Animations.Dispose are idempotent, so a double-dispose is harmless.
             if (entry.Animations != null) { entry.Animations.Dispose(); entry.Animations = null; }
             if (entry.Xml != null) { entry.Xml.Dispose(); entry.Xml = null; }

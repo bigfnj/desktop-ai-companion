@@ -7378,6 +7378,243 @@ left is a real skin missing one sprite. Detect now parses each conf once more be
 on these packs it took tens of milliseconds (two uncontrolled runs on one box, so indicative only) against seconds
 for the conversion that follows.
 
+#### feature/shimeji-format
+
+The companion format's Shimeji runtime extensions (grimoire/06): the schema, the DTOs, SafeScript and the
+validator's rules, with the host still unable to run any of it.
+
+**This build runs no extension, and says so by name.** `CompanionFormatFeatures.Supported` is empty, so a companion
+that declares `tick`, `actions` or any other extension is refused with "uses feature 'tick', which this version of
+Desktop AI Companion does not run yet", and one naming a token this build has never heard of is told it needs a newer
+app. The schema and validator land before the runtime on purpose: Studio and the converter can build against a
+frozen format while the host lane works, and an older host never half-plays a companion written for a newer one.
+Each runtime piece adds its token to `Supported` in the commit that makes it run.
+
+**The feature gate is checked once, before the schema, and not again on the parsed document.** The pre-check reads
+`header/features` with a non-validating reader, so a companion written for a newer host gets the feature message
+instead of a schema error about an element this schema does not know. A second, identical check over the parsed
+document was written and removed: every document reaching it had already passed the same test, so it could not
+fail. What the parsed pass does check is the other direction, that every extension a document USES is declared.
+
+**Studio's behaviour chain and the converter's migrations do not yet carry the new fields.** `BehaviourChain`'s
+`CopyEdges` drops an edge's `when`, and `CloneAnimation` builds classic nodes only. Neither is reachable today: the
+gate above refuses any document declaring a feature before Studio or a migration sees it. They change, with tests
+that can fail, in the lane that first adds a token to `Supported` (Studio packs for the chain, the converter lane for
+the migrations). A guard added now would be a check no input can reach.
+
+*Superseded in part by feature/shimeji-host-runtime (below): the APP now runs the extensions; Studio and the converter
+still do not. Studio's half by feature/shimeji-host-studio: the chain refuses a tick-clock document by name instead of
+carrying its fields, and Studio then filled its set.*
+
+**`NodeCopy.Deep` copies DTOs by reflection over public fields.** The DTOs are plain public fields for
+`XmlSerializer`, and every hand-written copy in this codebase has dropped a field the format later gained. A
+reflection copy cannot fall behind the format. The security self-test proves both properties it needs: the copy
+serialises identically to its source, and changing the copy changes nothing in the source.
+
+#### feature/shimeji-host-runtime
+
+The tick-clock runtime (src/dotNet/Shimeji) and its first integration into the app: a converted Shimeji companion is
+staged, validated and run on the source's 40 ms logical tick, next to classic pets.
+
+**Only the app's supported set is filled.** `CompanionFormatFeatures` is partial, and the app alone compiles
+`Shimeji/TickFeatures.cs`, which implements its two hooks: the tokens this runtime runs (tick, actions, behaviours,
+expressions, lifecycle, social, windows, hotspots, variables, packs) and a per-class question. Studio and the converter compile the validator
+without that file, so their set stays empty and they still refuse a tick companion by feature name. That keeps the
+deferral above honest instead of reaching it: Studio's `BehaviourChain` and the converter's migrations still copy
+documents through code that does not carry every field, and they cannot be handed a tick companion until their own
+lanes fix that. A compile symbol was the other way to split the set and was not used: this project once lost
+DefineConstants silently on a plain build, and a missing partial-method body cannot be lost that way.
+
+*Superseded for Studio by feature/shimeji-host-studio (below): Studio implements the token hook in a file of its own
+with the app's tokens. The converter's set stays empty.*
+
+**A token covers a family; the validator also asks per class.** `RunsClass` asks the runtime's real construction path
+(`TickWorld.RunsEmbeddedClass`), not a list kept beside it, so a family that lands a class is accepted in the same
+commit and a list cannot fall behind. The probe's definition is empty and a constructor may refuse it the way the
+source's does (MoveWithTurn wants two animations), so an exception means a family CLAIMED the class; only a family
+returning nothing means it does not run. The security self-test asserts both directions: every class a supported token
+gates constructs here, and a class no family builds is refused by name with every feature supported. Social and windows
+joined once their families merged; packs joined once members resolve each other at run time (feature/shimeji-host-packs,
+below). With every feature supported, the self-test's production-set refusal says NOTE (not exercised) on every run; the
+refusal by feature name stays exercised through the supplied-set checks. With every class built, the refusal is
+still exercised: the validator takes the class answer as a predicate, and the self-test supplies one that says a class
+does not run, beside a witness that the same companion validates on the build's own answer.
+
+**Windows run with the switch off until the user turns it on.** 'windows' is supported, and every window class
+constructs, but the per-type window switch defaults OFF (the owner's decision), so a converted companion's window
+actions play their animation and move nothing (`policy:window-off-plays`) until the user ticks "Let it move windows" on
+that companion's card. The app's tick settings name every switch the engine reads; any other setting answers OFF,
+because the earlier default of on would have turned window actions on had their switch not been listed.
+
+**Per-type switches (lane feature/shimeji-host-settings).** Breeding, Transients, Transformation, WindowActions and one
+switch per header toggle are stored in the settings document's `companionSwitches`, one entry per choice the user made,
+keyed by companion type id as the source keys them by image set; an absent entry is the default (the lifecycle three
+on, window actions off, a toggle its header `default`), which the runtime knows and the document does not.
+`HostTickSettings` reads them through `TickTypeSwitches` at every decision, with no cache, so a change in the Pets pane
+reaches live companions at their next move, and a transformed companion reads its new type's choices because every read
+names the companion's current type. The pane offers a row only for what the compiled type runs: a breed only when
+something runs it, with BornTransient as each reference passes it deciding Breeding or Transients (a script offers
+both), Transform, a window-family class (asked of the family, not listed), and the header toggles; a classic companion's
+card has none. Throwing, the source's own window switch, stays on and is not a user row. The source's per-instance
+overrides are not reproduced. "Put windows back" is a tray item shown only while the session's record holds a window a
+companion moved or minimised; it goes through `ITickWindowRecord`, which the real interactive window implements and the
+window self-test replaces with a fake, so no self-test touches a real window. An engine fault that is not the source's CantBeAlive (a null where the source would have died too) ends that one
+companion with a report, and the step goes on; before, it escaped the step and, in the app, the tick timer.
+
+**Accepting tick companions made the validator's holes reachable, so they were closed first.** The converter lane's
+review executed eight counterexamples against the full validator. All are refused now, each with a self-test check and
+a mutation that kills it: scripted bindings without `expressions`; `mascot.variables` without `variables` (judged from
+the parse, because a text match would have to list every spelling the parser accepts); a scripted
+Characteristics without both `lifecycle` and `social`; `BornMascot`/`TransformMascot` without `packs`; undeclared or
+repeated toggles; and composites that contain themselves, nest past 32 or build more than 4096 actions per start. The
+last matters most: the runtime builds a fresh child per reference at every start, so a self-containing composite would
+have recursed until the process died. Tick sounds are named clips with their own validation path, keeping the audio
+size limits and MP3 sniff; the classic path had refused them.
+
+**Staging and the window.** `StartUp.TryStageRuntime` stages a tick document as before (Xml, sheet, icon) but keeps the
+classic animation set EMPTY and compiles the tick type beside the Xml (`TickStaging`, a weak side table, because
+Studio compiles Xml.cs too). `AddSheepCore` hands such a companion to one `TickHost`, which places it as the source's
+`createMascot` does: off screen, a facing drawn at `builtin:create-facing`, and the first step drops it in. Its window
+is an ordinary pet in the app's list, so the tray, removal and speech work on it. Classic entry points that a tick
+window can still receive are defined: `Play` and `PlayChild` do nothing (the host places it), `Kill` closes it at once
+(no death animation exists), sync and module animation requests find nothing to play. A fullscreen window on its
+monitor hides it while it keeps running; it does not move to a free monitor, because its position belongs to the engine.
+
+**Births share the cap and are session-only.** Tick companions, active and pending, get what the classic pets leave of
+16 (`policy:birth-cap`); a birth whose window cannot open leaves rather than running unseen. A born companion is never
+in the saved mix and is not announced to modules as an arrival, so a clutch of eggs does not fire a welcome per
+hatchling and is not back at the next launch. A companion that destroys itself leaves the saved mix as it was, so it
+returns at the next launch: the user's choice of companions is not something a skin changes.
+
+**Pose sounds decide in the engine and play through the app's output.** The source's rule (a shared clip per sound and
+volume, restarted at each apply unless still running; Mute stopping by prefix) lives in the engine (`TickSound`), so it
+is tested without a device and the parity trace's `sound` event comes from the decision itself. The engine asks a clip
+seam (`ITickClips`) whether a clip is running and starts or stops it; the tick host implements it with one AudioOutput
+owner per clip (type, name, volume), so "is it still playing" and "stop it wherever it plays" are both questions the
+output can answer. The app hands the host its output through a callback object (`AppTickAudio`), which applies the
+fullscreen hold and the user's volume; the global switch and the per-type mute are the engine's Sounds setting, read
+for the companion's current type as the source reads it. Staging keeps the validator's decoded bytes by clip name
+beside the type, because the staged Xml's own base64 is blanked. A clip owner carries a prefix no module id can take,
+and cutting every module's sound (speech or notification sounds switched off) keeps the companions' clips, as it
+always kept the classic engine's. A parity run has no clip output, so no clip is loaded there and no `sound` event is
+written until the contract defines a clip clock both runtimes can share.
+
+**Packs (feature/shimeji-host-packs): a member is an ordinary type, found by key inside its pack.** Each member installs
+as its own companion type, so the validator, Studio's catalog and the Pets pane keep working on it; hidden members
+(egg stages, helpers) are left out of the tray's Add list and the Companions pane (`CompanionCatalog.EnumerateAddable`).
+A type's `Name` stays the host's unique key (its installed id), and Transform's TransformMascot and Breed's BornMascot
+are matched against the member key inside the referring type's pack scope (`TickType.PackScope`, `ReferenceKey`). Making
+the member key the name was the other option and was not taken: two packs that both have an "Egg" would then collide
+in every per-type lookup the host makes by name (settings, the window maps), while a scope keeps them apart with no
+change to those. Resolution is: an empty name is the current type; a type already in the world with that (scope, key);
+a reference already known to be missing; the host, which stages the member on demand from the pack index (library
+first, then bundled; folder order; a duplicate is logged and never wins) through the same validated staging as any
+added type; otherwise the current type, as `Transform.java:50` and `Breed.java:76` do, with one diagnostic per (type,
+reference). The diagnostic is a callback, not an observer event, so a parity trace gains nothing the source never
+emits. A preview's scope is its own id plus the pack id, so it never resolves an installed member. A staged member
+whose header disagrees with the index, or whose transparency differs from the referring type's (a window keeps the
+mode it was made with), is refused and the reference falls back. The source loads every literally named member when it
+loads a set (`Main.java:443-470`); staging on demand gives the same answers and stages nothing a companion never names,
+at the cost of one staging on the UI thread the first time a member is named.
+
+**A type stays loaded while a companion runs or draws as it.** The tick host holds a registry reference for each
+companion's current type and for the type of the image it shows, which differ for one step after a Transform (the old
+type's last image stays until the new type's first pose); pending births hold theirs from the step that queued them. A
+form keeps its own reference on the type it was made for, which is also what the saved mix and removal read, so a
+hatched egg is still saved as the main member the user added. When the last holder lets go, the registry disposes the
+pair and the host forgets the type, so a later reference stages it again rather than drawing from a disposed sheet.
+
+**Startup and "Arrive as an egg".** Spawning a main member starts it as `<startup member behaviour>`. When the startup
+member's role is `egg`, "Arrive as an egg" decides (per main member's type id, default on, stored in settings.json's
+`companionsNoEggArrival` list of exceptions, read by `LocalData.GetArriveAsEgg`); off starts the main member with the
+route's choice. A startup naming the main member itself gives only the entry behaviour. The startup behaviour is entered
+when the companion is created, and the source-style arrival then applies: created off screen, the first step drops it in
+and enters Fall, as `Main.createMascot` placement does for every new companion.
+
+**The clock is the source's wall clock, not a 40 ms timer.** The real-app pack smoke timed an egg's 75-tick hatch at
+about 3.5 s, not 3.0 s. Measured on this box, a WinForms timer set to 40 ms fires every 46.9 ms (64 firings in 3001 ms):
+Windows fires it on the 15.6 ms system timer tick, so every tick companion ran at 85% of the source's speed. The host's
+timer now polls every 10 ms (15.7 ms measured) and `TickPacer` applies the rule from `Manager.java:90-103`: a step is due
+once 40 ms have passed since the last step's slot, the slot moves on by 40 ms, and a step more than two ticks late moves
+the slot to now. Raising the system timer resolution (timeBeginPeriod) would have given even 40 ms steps, at a
+machine-wide power cost the app has no right to impose; the polled pacer keeps the source's long-run rate with up to one
+system tick of jitter per step (steps 31 or 47 ms apart, 40.2 ms on average, measured). CoreTests models the poll on the
+system tick. The window self-test counts real steps over three seconds of a message pump that waits as the app's loop
+does, after three warm-up steps, and wants elapsed / 40 within 8%: a 40 ms timer gave 61 steps there and an unpaced
+10 ms one 188. The warm-up matters: the first firing came about 450 ms after the timer started, and the source's rule
+drops slots that late, so counting from the start measured start-up, not the clock. In the real app, the pack smoke's
+75-tick hatch went from 3.58 s to 2.99 s.
+
+**A member key is the source's image-set name, exactly; a pack id stays compact.** One grammar (1 to 64 letters, digits,
+`.`, `_`, `-`, space) used to serve both, and Codex executed the counterexample against the real validator: members
+`Egg (2)` and `A+B`, both valid image-set names, were refused. Rewriting a name into a slug was not an option, because
+a scripted TransformMascot or BornMascot names the member and must find it unchanged. A member key (and the startup
+member) now takes what a Windows folder name may hold: 1 to 255 characters, not all blank, no control character, none of
+`\ / : * ? " < > |`. The control-character rule is what keeps the lookups unambiguous: the pack index and the engine's
+index both join pack id and member with a line feed, and the pack id, still compact, can hold none. The pack id keeps
+the compact grammar because a preview's scope relies on a `:` no pack id may hold.
+
+**No window found leaves the active-window area empty at (0, 0), and single-screen ThrowIE goes on throwing at it.**
+The source's environment refresh sets the area from `getIERect(findActiveIE())`, and with no window found both native
+calls fail and leave the rectangle at (0, 0, 0, 0) (`WindowsEnvironment.java:193-206, 297-299`). The app's Win32
+environment already did this; the scripted desktop the parity runs and CoreTests use kept the last rectangle found
+instead, which Codex's oracle review caught. Keeping it changed two observable things. A window that reappears gets
+border deltas measured from (0, 0), and the move after a restore in the same tick uses the cached 0x0 size. The second
+is the one that looks like a bug. With Multiscreen off, a window area that does not touch the companion's work area,
+the empty one included, is handed over as a fresh `Area`, which is VISIBLE (`MascotEnvironment.java:82-83`). ThrowIE
+reads only visibility, so it keeps going after its window leaves the screen, and each throw after that finds no
+window to move. The old refresh hid this only because the stale rectangle still touched the work area. CoreTests now
+pins both modes: Multiscreen on stops after two throws, Multiscreen off throws a third time at the empty area.
+#### feature/shimeji-host-studio
+
+Companion Studio opens, analyses, previews and installs a tick-clock companion, one companion at a time. Importing a
+multi-member pack waits for the converter's tick emitter and the host's packs lane.
+
+**Studio fills its own supported set, and the gate compares it with the app's.** `modules/PetStudio/StudioFeatures.cs`
+implements the token hook with the tokens the app's `Shimeji/TickFeatures.cs` lists. Linking the app's file was not
+possible: its class hook calls into the tick runtime, which Studio does not compile. Two lists of the same tokens can
+drift, so `--petstudio-selftest` compares the module's `Supported` with the app's, and a token either side gains alone
+fails the gate until the other side is decided (packs did, and Studio took it: a single member opens, previews and installs).  The class hook is left out on purpose. `RunsClass` keeps
+the format's answer in Studio, and the host re-validates with `TickWorld.RunsEmbeddedClass` when Studio previews
+(`ICompanionManager.SpawnPreview`) or installs (`InstallType`), so a class the app does not run is refused there, by
+name, before anything runs or is written. The converter compiles neither file and keeps its empty set.
+
+**Every Studio path that re-serialises a parsed document was checked before the set was filled.** Only the behaviour
+debugger does it: `BehaviourChain.BuildDebugXml` parses, clones the chain's nodes as classic ones (`CloneAnimation` has
+no `<act>`, `<behaviour>` or `<route>`, `CopyEdges` drops `when`) and serialises the result. It now refuses a tick-clock
+document by name before cloning: "The behaviour debugger works on classic companions; this one runs on the Shimeji
+runtime. Use "Preview on my desktop" to watch it run." Making it carry every field was declined, because it would
+still be wrong: a chain wired nose-to-tail cannot be said in a tick-clock document, whose behaviour layer chooses what
+follows. The other paths: Preview, Install and Save hand the editor's text over unchanged; the analyzer parses and
+never writes; an import builds a new document from a Shimeji conf with the classic emitter and round-trips only that;
+the converter's migration verbs run in its CLI, and nothing in Studio calls them.
+
+**Reachability learns the tick edges, in one walk shared by the host, Studio and the converter.**
+`src/dotNet/TickReachability.cs` (C# 7.3, compiled by the host, Studio, the converter's engine and CoreTests) roots the
+route, the behaviours the runtime enters by name (Fall, Dragged, Thrown) and this member's startup behaviour, and
+follows route and next-list selections, the action a behaviour runs, a composite's children, hotspots, and literal
+behaviour names that the classes reading them set (grimoire/06 section 10a). Next-list continuation follows
+`TickWorld.BuildNextBehaviour`, which looks the list up by the ending behaviour's NAME among the route's behaviours, so
+an off-route entry continues with its root namesake's list, not with edges of its own. `AnimationReachability` and
+`PetGraph` hand a document to it only when its clock is tick, and the classic code below that branch is untouched, so no
+classic result can change: no shipped companion declares a clock, `ShimejiConvert verify Companions` still passes, and
+the converter's self-test gains a tick case whose WITNESS shows the classic walk over the same nodes disagreeing. Studio's map draws the tick edges with
+their kinds, marks Fall, Dragged and Thrown as engine entries, and shows an action's frames from its first variant.
+"Preview highlighted action" is withheld for a tick-clock companion, with its reason as the tooltip: `IHost.TryPlayAnimation`
+looks in the classic animation set, which the host keeps empty for a tick window, so the request could only fail, and
+it used to fail with advice to re-preview.
+**Each pose carries its image's geometry, and the window is that image.** The source gives every image its own size and
+anchor, and 84% of the corpus's image sets mix them, so padding every frame to one canvas would have moved four things the
+source measures from the image: the window, the off-screen drop-in, a mirrored hotspot and Dragged's and Regist's Origin
+offsets. A pose says how much of its cell is the image and where the image's anchor is (`ax ay w h rw rh`, grimoire/06
+section 3), the engine takes all four from the image the last pose set, for the facing it was set with, and the host
+draws only that region (a mirrored image is the flipped cell's top-right) in a window of its size. A facing change
+therefore never moves the anchor on screen: the image's anchor is mirrored with the image. The sprite store cuts each
+region once and disposes it with the frames, and bounds what it keeps by pixels as it bounds the frames; past that it
+hands back the whole cell, drawn so the region still lands at the bounds, and says so once in the log rather than
+growing. A pose that fills its cell takes the store's own scaled frame, because the store rounds a 32.5-pixel cell to
+32 where Java's rounding gives 33, and a region one pixel wider than its frame cannot be cut.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

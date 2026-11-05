@@ -26,6 +26,9 @@ namespace DesktopAICompanion
             /// </summary>
         static ToolStripMenuItem removePetMenuItem;
         static ToolStripMenuItem syncPetsMenuItem;
+            /// <summary>"Put windows back": shown only while a tick companion has moved or minimised a window this
+            /// session that is not back yet.</summary>
+        static ToolStripMenuItem putWindowsBackMenuItem;
             /// <summary>Display name of the active/default pet, for the Remove submenu's "" entry.</summary>
         static string activePetName = "Sheep";
             /// <summary>
@@ -336,6 +339,15 @@ namespace DesktopAICompanion
             syncPetsMenuItem.Visible = false;   // re-evaluated on every open, below
             menu.Items.Add(syncPetsMenuItem);
 
+            // Item: Put windows back (hidden until a tick companion that may move windows has moved or minimised one
+            // this session; TickWindowsTray decides, on every open, below).
+            putWindowsBackMenuItem = new ToolStripMenuItem { Text = "Put &windows back", Visible = false };
+            putWindowsBackMenuItem.Click += (s, ev) =>
+            {
+                if (Program.Mainthread != null) Program.Mainthread.PutWindowsBackFromTray();
+            };
+            menu.Items.Add(putWindowsBackMenuItem);
+
             // Item: Test Speech (optional — hidden when speech disabled)
             item = new ToolStripMenuItem { Text = "&Test Speech" };
             item.Image = Resources.speechbubble;
@@ -369,6 +381,8 @@ namespace DesktopAICompanion
                 syncPetsMenuItem.Visible =
                     Program.Mainthread != null && Program.Mainthread.AnyCompanionCanSync;
             };
+            menu.Opening += (s, ev) =>
+                Shimeji.TickWindowsTray.Refresh(putWindowsBackMenuItem, Program.Mainthread == null ? null : Program.Mainthread.TickHostOrNull);
 
 			// Item: Options.
 			item = new ToolStripMenuItem
@@ -451,7 +465,7 @@ namespace DesktopAICompanion
         {
             ClearAndDispose(addPetMenuItem.DropDownItems);
             bool full = Program.Mainthread != null && Program.Mainthread.IsAtMaxPets;
-            foreach (CompanionCatalog.CompanionInfo info in CompanionCatalog.EnumerateLocal())
+            foreach (CompanionCatalog.CompanionInfo info in CompanionCatalog.EnumerateAddable())   // hidden pack members arrive through their pack
             {
                 // Add the specific pet the entry names — the built-in adds the default eSheep, not the
                 // active pet (id "" means "active", which would add the wrong pet after "Use this companion").
@@ -767,6 +781,7 @@ namespace DesktopAICompanion
             testSpeechMenuItem = null;
             petSpeechMenuItem = null;
             syncPetsMenuItem = null;
+            putWindowsBackMenuItem = null;
         }
     }
 }

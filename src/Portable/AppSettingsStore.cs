@@ -115,6 +115,12 @@ namespace DesktopAICompanion
         [JsonPropertyName("mutedCompanions"), JsonPropertyOrder(17)]
         public List<string> MutedPets;
 
+        // Pack main members (type ids) whose companions do NOT arrive as an egg (grimoire/06 section 2): the
+        // "Arrive as an egg" preference, offered only when the pack's startup member is an egg. Absent from this
+        // list = on (the default), the way mutedCompanions records only the exceptions. Optional (older docs: on).
+        [JsonPropertyName("companionsNoEggArrival"), JsonPropertyOrder(60)]
+        public List<string> EggArrivalOff;
+
         // The real id of the active/default pet, so per-pet settings (size/sound) key by the actual pet
         // rather than the "" active-slot placeholder. Default = the built-in eSheep. Set when the user picks
         // a pet ("Use"/restore). Optional (older docs default to the built-in).
@@ -270,6 +276,14 @@ namespace DesktopAICompanion
         [JsonPropertyName("diagnosticLogMutedModules"), JsonPropertyOrder(46)]
         public string DiagnosticLogMutedModules;
 
+        // A tick-clock companion's per-type switches (lane feature/shimeji-host-settings, grimoire/06 section 2):
+        // Breeding, Transients, Transformation, WindowActions, and "toggle:<id>" for each of the type's header
+        // toggles. Only a choice the user made is here; a switch absent from the list follows its default (the
+        // lifecycle switches on, window actions off, a toggle its own `default`), which the runtime knows and this
+        // document does not. Keyed by companion type id, as the source keys them by image set.
+        [JsonPropertyName("companionSwitches"), JsonPropertyOrder(50)]
+        public List<CompanionSwitchEntry> CompanionSwitches;
+
         // Keep in sync with CompanionCatalog.BuiltInPetId (which AppSettingsStore can't reference — it compiles
         // into the SecureDownload-free CoreTests set).
         internal const string DefaultActivePetId = "eSheep";
@@ -304,6 +318,7 @@ namespace DesktopAICompanion
                 ThemeMode = "system",
                 AudioDeviceId = "",
                 MutedPets = new List<string>(),
+                EggArrivalOff = new List<string>(),
                 ActivePetId = DefaultActivePetId,
                 SuppressRepeats = true,
                 RandomDropEnabled = false,
@@ -326,7 +341,8 @@ namespace DesktopAICompanion
                 DiagnosticLogKeep = 2,
                 DiagnosticLogMutedCategories = "",
                 DiagnosticLogMutedModules = "",
-                TriggerSpeech = new List<TriggerSpeechEntry>()
+                TriggerSpeech = new List<TriggerSpeechEntry>(),
+                CompanionSwitches = new List<CompanionSwitchEntry>()
             };
         }
 
@@ -389,6 +405,7 @@ namespace DesktopAICompanion
             changed |= NormalizePetMix();
             changed |= NormalizePetSizes();
             changed |= NormalizePetMonitors();
+            changed |= NormalizeCompanionSwitches();
             changed |= NormalizeTriggerSpeech();
             string theme = NormalizeThemeMode(ThemeMode);
             if (!string.Equals(theme, ThemeMode, StringComparison.Ordinal)) { ThemeMode = theme; changed = true; }
@@ -397,6 +414,7 @@ namespace DesktopAICompanion
             string sound = NormalizeNotificationSoundPath(NotificationSoundPath);
             if (!string.Equals(sound, NotificationSoundPath, StringComparison.Ordinal)) { NotificationSoundPath = sound; changed = true; }
             changed |= NormalizeMutedPets();
+            changed |= NormalizeEggArrivalOff();
             string active = NormalizeActivePetId(ActivePetId);
             if (!string.Equals(active, ActivePetId, StringComparison.Ordinal)) { ActivePetId = active; changed = true; }
             changed |= NormalizeRandomDrop();
@@ -450,6 +468,29 @@ namespace DesktopAICompanion
                     result.Add(id);
                 }
             MutedPets = result;
+            if (original == null) return true;
+            if (original.Count != result.Count) return true;
+            for (int i = 0; i < result.Count; i++)
+                if (!string.Equals(original[i] ?? "", result[i], StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
+        }
+
+        // The egg-arrival exceptions: the muted list's rule (safe ids, case-insensitive dedupe, capped), with "" (the
+        // active slot) refused, since a pack member is always named by its own type id.
+        private bool NormalizeEggArrivalOff()
+        {
+            List<string> original = EggArrivalOff;
+            var result = new List<string>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (EggArrivalOff != null)
+                foreach (string raw in EggArrivalOff)
+                {
+                    string id = raw ?? "";
+                    if (id.Length == 0 || !IsAcceptablePetId(id) || !seen.Add(id)) continue;
+                    if (result.Count >= MaximumPetSizeEntries) break;
+                    result.Add(id);
+                }
+            EggArrivalOff = result;
             if (original == null) return true;
             if (original.Count != result.Count) return true;
             for (int i = 0; i < result.Count; i++)
@@ -684,6 +725,83 @@ namespace DesktopAICompanion
                     result.Add(new CompanionMonitorEntry { Id = entry.Id, Display = entry.Display });
             return result;
         }
+
+        /// <summary>The longest switch key kept: "toggle:" and a header toggle's id, which the format bounds only by
+        /// the document's own size.</summary>
+        public const int MaximumCompanionSwitchKeyLength = 160;
+
+        /// <summary>The most switch choices kept, across every type (a type has four named switches and its toggles).</summary>
+        public const int MaximumCompanionSwitchEntries = 1024;
+
+        // Validated on every load like the lists above: drop null entries, unsafe or empty type ids, and empty, over-long
+        // or control-character keys; dedupe by (type id case-insensitively, key exactly, since toggle ids are
+        // case-sensitive) with the last entry winning, the setter's own rule; then cap. The key's meaning is NOT judged
+        // here: a toggle a later version of the companion no longer declares is kept, harmless, and is back in force if
+        // the toggle returns.
+        private bool NormalizeCompanionSwitches()
+        {
+            List<CompanionSwitchEntry> original = CompanionSwitches;
+            var merged = new List<CompanionSwitchEntry>();
+            var indexByKey = new Dictionary<string, int>(StringComparer.Ordinal);
+            if (CompanionSwitches != null)
+            {
+                foreach (CompanionSwitchEntry entry in CompanionSwitches)
+                {
+                    if (entry == null) continue;
+                    string id = entry.Id ?? "";
+                    if (id.Length == 0 || !IsAcceptablePetId(id)) continue;
+                    if (!IsAcceptableSwitchKey(entry.Key)) continue;
+                    string identity = id.ToUpperInvariant() + "\n" + entry.Key;
+                    int existing;
+                    if (indexByKey.TryGetValue(identity, out existing))
+                        merged[existing].On = entry.On;                     // last wins
+                    else
+                    {
+                        indexByKey[identity] = merged.Count;
+                        merged.Add(new CompanionSwitchEntry { Id = id, Key = entry.Key, On = entry.On });
+                    }
+                }
+            }
+
+            List<CompanionSwitchEntry> result = merged.Count > MaximumCompanionSwitchEntries
+                ? merged.GetRange(0, MaximumCompanionSwitchEntries)
+                : merged;
+            CompanionSwitches = result;
+            return !CompanionSwitchesEqual(original, result);
+        }
+
+        internal static bool IsAcceptableSwitchKey(string key)
+        {
+            if (string.IsNullOrEmpty(key) || key.Length > MaximumCompanionSwitchKeyLength) return false;
+            foreach (char c in key)
+                if (char.IsControl(c)) return false;
+            return true;
+        }
+
+        internal static bool CompanionSwitchesEqual(List<CompanionSwitchEntry> a, List<CompanionSwitchEntry> b)
+        {
+            if (ReferenceEquals(a, b)) return true;
+            if (a == null || b == null) return (a == null ? 0 : a.Count) == (b == null ? 0 : b.Count);
+            if (a.Count != b.Count) return false;
+            for (int i = 0; i < a.Count; i++)
+            {
+                CompanionSwitchEntry x = a[i], y = b[i];
+                if (x == null || y == null) { if (x != y) return false; continue; }
+                if (!string.Equals(x.Id, y.Id, StringComparison.Ordinal) ||
+                    !string.Equals(x.Key, y.Key, StringComparison.Ordinal) || x.On != y.On) return false;
+            }
+            return true;
+        }
+
+        internal static List<CompanionSwitchEntry> CloneCompanionSwitches(List<CompanionSwitchEntry> source)
+        {
+            var result = new List<CompanionSwitchEntry>();
+            if (source == null) return result;
+            foreach (CompanionSwitchEntry entry in source)
+                if (entry != null && !string.IsNullOrEmpty(entry.Id))
+                    result.Add(new CompanionSwitchEntry { Id = entry.Id, Key = entry.Key, On = entry.On });
+            return result;
+        }
         internal static bool PetSizesEqual(List<CompanionSizeEntry> a, List<CompanionSizeEntry> b)
         {
             if (ReferenceEquals(a, b)) return true;
@@ -814,6 +932,20 @@ namespace DesktopAICompanion
         /// hide the pet for ever on a display that does not exist.</summary>
         [JsonPropertyName("display")]
         public int Display;
+    }
+
+    /// <summary>One choice the user made for a tick companion type's switch (Breeding, Transients, Transformation,
+    /// WindowActions, or "toggle:&lt;id&gt;"). Absent = the switch's default.</summary>
+    internal sealed class CompanionSwitchEntry
+    {
+        [JsonPropertyName("id")]
+        public string Id;
+
+        [JsonPropertyName("key")]
+        public string Key;
+
+        [JsonPropertyName("on")]
+        public bool On;
     }
 
     /// <summary>One per-pet size override: a pet type id with its legacy scale level (1/2/3) and, since the
@@ -1202,6 +1334,8 @@ namespace DesktopAICompanion
                 target.AudioDeviceId = current.AudioDeviceId;
             if (all || !StringListEquals(current.MutedPets, baseline.MutedPets))
                 target.MutedPets = current.MutedPets == null ? null : new List<string>(current.MutedPets);
+            if (all || !StringListEquals(current.EggArrivalOff, baseline.EggArrivalOff))
+                target.EggArrivalOff = current.EggArrivalOff == null ? null : new List<string>(current.EggArrivalOff);
             if (all || !string.Equals(current.ActivePetId, baseline.ActivePetId, StringComparison.Ordinal))
                 target.ActivePetId = current.ActivePetId;
             if (all || current.SuppressRepeats != baseline.SuppressRepeats)
@@ -1252,6 +1386,8 @@ namespace DesktopAICompanion
                 target.DiagnosticLogMutedModules = current.DiagnosticLogMutedModules;
             if (all || !AppSettingsDocument.TriggerSpeechEqual(current.TriggerSpeech, baseline.TriggerSpeech))
                 target.TriggerSpeech = AppSettingsDocument.CloneTriggerSpeech(current.TriggerSpeech);
+            if (all || !AppSettingsDocument.CompanionSwitchesEqual(current.CompanionSwitches, baseline.CompanionSwitches))
+                target.CompanionSwitches = AppSettingsDocument.CloneCompanionSwitches(current.CompanionSwitches);
         }
 
         internal static bool StringListEquals(List<string> a, List<string> b)
@@ -1297,6 +1433,7 @@ namespace DesktopAICompanion
                 ThemeMode = source.ThemeMode,
                 AudioDeviceId = source.AudioDeviceId,
                 MutedPets = source.MutedPets == null ? null : new List<string>(source.MutedPets),
+                EggArrivalOff = source.EggArrivalOff == null ? null : new List<string>(source.EggArrivalOff),
                 ActivePetId = source.ActivePetId,
                 SuppressRepeats = source.SuppressRepeats,
                 RandomDropEnabled = source.RandomDropEnabled,
@@ -1320,6 +1457,7 @@ namespace DesktopAICompanion
                 DiagnosticLogMutedCategories = source.DiagnosticLogMutedCategories,
                 DiagnosticLogMutedModules = source.DiagnosticLogMutedModules,
                 TriggerSpeech = AppSettingsDocument.CloneTriggerSpeech(source.TriggerSpeech),
+                CompanionSwitches = AppSettingsDocument.CloneCompanionSwitches(source.CompanionSwitches),
                 ExtensionData = extension
             };
         }

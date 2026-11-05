@@ -110,6 +110,7 @@
     <Compile Include="DesktopAICompanion.ModuleKit\UnicodeTextProgress.cs" Link="Generated\UnicodeTextProgress.cs" />
     <Compile Include="dotNet\Animations.cs" />
     <Compile Include="dotNet\AnimationReachability.cs" />
+    <Compile Include="dotNet\TickReachability.cs" />
     <Compile Include="dotNet\AudioOutput.cs" />
     <Compile Include="dotNet\ContextMenus.cs" />
     <Compile Include="dotNet\AppLifetime.cs" />
@@ -120,6 +121,10 @@
     <Compile Include="dotNet\DiagnosticLog.cs" />
     <Compile Include="dotNet\FactoryReset.cs" />
     <Compile Include="dotNet\CompanionCatalog.cs" />
+    <Compile Include="dotNet\CompanionCatalog.Packs.cs" />
+    <Compile Include="dotNet\CompanionPackIndex.cs" />
+    <Compile Include="dotNet\PackValidator.cs" />
+    <Compile Include="dotNet\StartUp.Packs.cs" />
     <Compile Include="dotNet\ActiveCompanionSource.cs" />
     <Compile Include="dotNet\AppUpdateCheck.cs" />
     <Compile Include="dotNet\CompanionFreshness.cs" />
@@ -164,8 +169,33 @@
     <Compile Include="dotNet\RemoteCatalog.cs" />
     <Compile Include="dotNet\SafeExpression.cs" />
     <Compile Include="dotNet\CompanionXmlValidator.cs" />
+    <Compile Include="dotNet\SafeScript.cs" />
+    <Compile Include="dotNet\ShimejiFormatValidator.cs" />
+    <Compile Include="dotNet\Shimeji\TickEnvironment.cs" />
+    <Compile Include="dotNet\Shimeji\TickModel.cs" />
+    <Compile Include="dotNet\Shimeji\TickRuntime.cs" />
+    <Compile Include="dotNet\Shimeji\TickMotionFamily.cs" />
+    <Compile Include="dotNet\Shimeji\TickInstantFamily.cs" />
+    <Compile Include="dotNet\Shimeji\TickSocialFamily.cs" />
+    <Compile Include="dotNet\Shimeji\TickWindowFamily.cs" />
+    <Compile Include="dotNet\Shimeji\ParityRun.cs" />
+    <Compile Include="dotNet\Shimeji\TickHost.cs" />
+    <Compile Include="dotNet\Shimeji\TickHost.Packs.cs" />
+    <Compile Include="dotNet\Shimeji\TickPackBinding.cs" />
+    <Compile Include="dotNet\Shimeji\TickPoseImage.cs" />
+    <Compile Include="dotNet\Shimeji\TickStaging.cs" />
+    <Compile Include="dotNet\Shimeji\TickTypeSettings.cs" />
+    <Compile Include="dotNet\Shimeji\TickSettingsHost.cs" />
+    <Compile Include="dotNet\Shimeji\TickFeatures.cs" />
+    <Compile Include="dotNet\Shimeji\TickPacks.cs" />
+    <Compile Include="dotNet\Shimeji\ShimejiWindowSelfTest.cs" />
+    <Compile Include="dotNet\Shimeji\TickSound.cs" />
+    <Compile Include="dotNet\Shimeji\TickAudio.cs" />
+    <Compile Include="dotNet\Shimeji\ShimejiSoundSelfTest.cs" />
+    <Compile Include="dotNet\Shimeji\ShimejiWindowSelfTest.Packs.cs" />
     <Compile Include="dotNet\AudioOutputSelfTest.cs" />
     <Compile Include="dotNet\SecuritySelfTest.cs" />
+    <Compile Include="dotNet\SecuritySelfTest.ShimejiGate.cs" />
     <Compile Include="dotNet\FormCompanion.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -185,6 +215,7 @@
     <Compile Include="dotNet\CompanionThumbnails.cs" />
     <Compile Include="dotNet\RuntimeHardeningSelfTest.cs" />
     <Compile Include="dotNet\WpfOptionsSelfTest.cs" />
+    <Compile Include="dotNet\WpfOptionsSelfTest.TickSwitches.cs" />
     <Compile Include="dotNet\Plugins\ModuleHost.cs" />
     <Compile Include="dotNet\Plugins\ModuleHostRequirement.cs" />
     <Compile Include="dotNet\Plugins\ModuleUpdateScan.cs" />

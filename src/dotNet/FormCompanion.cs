@@ -320,6 +320,127 @@ namespace DesktopAICompanion
             Show();
         }
 
+        // ---- tick mode (the Shimeji runtime, src/dotNet/Shimeji): an outside clock drives this window
+
+        /// <summary>The tick host driving this window, or null for a classic pet. While set, the window's own timer
+        /// never runs and the left button's events go to the host as tick input.</summary>
+        internal Shimeji.TickHost TickHost { get; private set; }
+
+        /// <summary>Hand this window to a tick host: its own timer stops for good, and the pointer's moves are
+        /// forwarded while the host may need them (a held hotspot follows the pointer).</summary>
+        internal void AttachTick(Shimeji.TickHost host, Shimeji.TickMascot mascot)
+        {
+            TickHost = host;
+            timer1.Enabled = false;
+            pictureBox1.MouseMove += TickPointerMove;
+        }
+
+        /// <summary>
+        /// Draw one tick frame with the window's top-left at (<paramref name="left"/>, <paramref name="top"/>), or hide
+        /// the window (an image-less pose, a disposed companion). Left and Top move BEFORE the frame is pushed, because
+        /// an alpha pet's push draws at the window's current position.
+        /// </summary>
+        internal void RenderTick(Image frame, int left, int top, int width, int height, bool visible, double opacity = 1.0)
+        {
+            // The fullscreen rule (SMOKETEST's watchlist: nothing visible over a fullscreen game): a tick companion on a
+            // monitor a fullscreen window owns hides and keeps running, as a classic one pinned there does. It does not
+            // move to a free monitor, because where it is belongs to the engine. Its speech is held until the screen frees.
+            bool blocked = TickMonitorBlocked(new Rectangle(left, top, Math.Max(1, width), Math.Max(1, height)));
+            if (blocked != _fullscreenHidden)
+            {
+                _fullscreenHidden = blocked;
+                if (_speech != null && !_speech.IsDisposed) _speech.SetFullscreenSuppressed(blocked);
+                if (!blocked) ReplayDeferredSpeech();
+            }
+            if (!visible || frame == null || blocked)
+            {
+                if (Visible) Visible = false;
+                return;
+            }
+            if (Width != width || Height != height)
+            {
+                Width = width;
+                Height = height;
+                pictureBox1.Width = width;
+                pictureBox1.Height = height;
+            }
+            Left = left;
+            Top = top;
+            if (petOpacity != opacity) SetPetOpacity(opacity);
+            RenderCurrentFrame(frame);
+            if (!Visible) Visible = true;
+            UpdateSpeechFollow();   // a bubble stays over the companion as it moves
+        }
+
+        /// <summary>The window self-test's stand-in for the fullscreen scan (which needs the running app). Null in production.</summary>
+        internal Func<Rectangle, bool> TickBlockedForSelfTest;
+
+        /// <summary>Whether a fullscreen window owns the monitor under <paramref name="area"/>, from the app's shared scan
+        /// (StartUp.BlockedMonitorsForStandDown, throttled once for the whole desktop). A failed scan reads as not blocked
+        /// and is said once in the log, as <see cref="CheckFullScreen"/> says it. With no app running (a self-test) there
+        /// is no scan to ask, and nothing is blocked.</summary>
+        private bool TickMonitorBlocked(Rectangle area)
+        {
+            if (TickBlockedForSelfTest != null) return TickBlockedForSelfTest(area);
+            if (Program.Mainthread == null) return false;
+            Screen[] screens = Screen.AllScreens;
+            if (screens.Length == 0)
+            {
+                NoteFullscreenStandDown("no screens reported");
+                return false;
+            }
+            bool[] blocked;
+            try { blocked = Program.Mainthread.BlockedMonitorsForStandDown(); }
+            catch (Exception ex)
+            {
+                NoteFullscreenStandDown("the monitor scan threw " + ex.GetType().Name);
+                return false;
+            }
+            if (blocked == null || blocked.Length != screens.Length)
+            {
+                NoteFullscreenStandDown(blocked == null ? "the monitor scan returned nothing"
+                    : "the monitor scan returned " + blocked.Length + " results for " + screens.Length + " screens");
+                return false;
+            }
+            bool any = false;
+            for (int i = 0; i < blocked.Length; i++) if (blocked[i]) { any = true; break; }
+            if (!any) return false;
+            string device = Screen.FromRectangle(area).DeviceName;
+            for (int i = 0; i < screens.Length; i++)
+                if (screens[i].DeviceName == device) return blocked[i];
+            return false;
+        }
+
+        private void TickPointerMove(object sender, MouseEventArgs e)
+        {
+            if (TickHost != null) TickHost.Pointer(this, Shimeji.TickInputKind.Move, Cursor.Position);
+        }
+
+        /// <summary>Self-test: re-arm the classic timer the way Play or the debug menu would, fire it once, and say
+        /// whether the classic engine ran (a step taken or a step that faulted) or the timer is still running
+        /// afterwards. A tick-driven window must do neither. The timer alone is not enough to watch: a classic step
+        /// that faults calls Play, which leaves the timer off on a tick window, so the engine can run unseen.</summary>
+        internal bool ClassicTimerSurvivesForSelfTest()
+        {
+            int faults = _tickFaults, step = AnimationStep;
+            timer1.Enabled = true;
+            Timer1_Tick(timer1, EventArgs.Empty);
+            return timer1.Enabled || _tickFaults != faults || AnimationStep != step;
+        }
+
+        /// <summary>Self-test: the frame this window shows now, as its transparency mode drew it (the alpha path's last
+        /// per-pixel push, else the picture box's image).</summary>
+        internal Image TickFrameForSelfTest
+        {
+            get { return Xml != null && Xml.UsesAlpha ? lastLayeredFrame : pictureBox1.Image; }
+        }
+
+        /// <summary>Self-test: a left-button press through the real handler, as a click on the window delivers it.</summary>
+        internal void LeftPressForSelfTest()
+        {
+            PictureBox1_MouseDown(pictureBox1, new MouseEventArgs(MouseButtons.Left, 1, 0, 0, 0));
+        }
+
         private Image GetSpriteFrame(int index)
         {
             if (Xml == null)
@@ -621,6 +742,9 @@ namespace DesktopAICompanion
         public void Play(int forceSpawn = -1)
         {
             timer1.Enabled = false;                     // Stop the timer
+            // A tick-driven window has no classic spawns, and where it is belongs to the tick host: a respawn, a
+            // relocation or the debug menu changes nothing here.
+            if (TickHost != null) return;
 
 			AnimationStep = 0;                         // First step
             _killFade = double.NaN;                     // a fresh life owns its own opacity again (RA-235)
@@ -704,6 +828,7 @@ namespace DesktopAICompanion
 		public void PlayChild(int aniID, TChild child)
         {
             timer1.Enabled = false;                     // Stop the timer
+            if (TickHost != null) return;               // as in Play: a tick-driven window is placed by its host
 
 			AnimationStep = 0;                          // First step
             hwndWindow = (IntPtr)0;                     // It is not over a window
@@ -814,6 +939,9 @@ namespace DesktopAICompanion
         private void Timer1_Tick(object sender, EventArgs e)
         {
             timer1.Enabled = false;
+            // A tick-driven window never runs the classic engine: whatever re-armed the timer (Play, PlayChild, the
+            // debug menu, a fault respawn) stops here, and the timer stays off.
+            if (TickHost != null) return;
             if (AnimationStep < 0) AnimationStep = 0;
             try
             {
@@ -2362,6 +2490,11 @@ namespace DesktopAICompanion
             /// <param name="e">Mouse event values.</param>
         private void PictureBox1_MouseDown(object sender, MouseEventArgs e)
         {
+            if (TickHost != null && e.Button == MouseButtons.Left)
+            {
+                TickHost.Pointer(this, Shimeji.TickInputKind.Press, Cursor.Position);
+                return;
+            }
             if (e.Button == MouseButtons.Left && Name.IndexOf("child") < 0)
             {
                 hwndWindow = (IntPtr)0;             // Remove window handles
@@ -2453,6 +2586,11 @@ namespace DesktopAICompanion
             /// <param name="e">Mouse event values.</param>
         private void PictureBox1_MouseUp(object sender, MouseEventArgs e)
         {
+            if (TickHost != null)
+            {
+                if (e.Button == MouseButtons.Left) TickHost.Pointer(this, Shimeji.TickInputKind.Release, Cursor.Position);
+                return;
+            }
             if (e.Button == MouseButtons.Left && Name.IndexOf("child") < 0)
             {
                 SetNewAnimation(Animations.AnimationFall);
@@ -2672,6 +2810,9 @@ namespace DesktopAICompanion
         private void Form2_FormClosed(object sender, FormClosedEventArgs e)
         {
             timer1.Stop();
+            // A tick companion closed from outside (the user removed it) leaves the tick world too; one the host
+            // closed itself is already unmapped, so this does nothing then.
+            if (TickHost != null) TickHost.FormClosed(this);
             CloseChildren();
             pictureBox1.Image = null;
             if (_speech != null) _speech.Dispose();
