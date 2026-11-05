@@ -105,6 +105,61 @@ The entries below came out of a peer Claude session's report of 2026-10-30 (five
 - 📌 **N-agentflow-focus-03** [info/known limit] A card can defeat the focus guard by calling `window.focus()` and then `element.focus()`: the guard wraps HTMLElement/SVGElement `focus` and input/textarea `select` in the card's realm, but not `window.focus`, because VS Code switches to a webview through `contentWindow.focus()` and wrapping it would break switching to a card. Found by Codex's round-4 review with a real-Chromium probe; none of the Claude Code or Codex card paths traced during the 1.12.3 work does this. Recorded rather than changed; revisit only if a card is seen doing it.
 
 
+## Shimeji runtime campaign follow-up (filed 2026-11-05)
+
+The campaign of 2026-11-04 (every Shimeji action converts and runs, with parity against the real runtime) shipped its
+first release as v1.9.0. What is still open, by area. The converter and oracle lanes are Codex's; their review findings
+are in the reviews named in each entry.
+
+- 📌 **N-shimeji-convert-01** [medium/converter] `ShimejiEngine.ConvertPack` THROWS instead of returning a refusal for a
+  pack root with no `img\` (the usual zip nested one folder deep), an empty `img\`, or a root reached through a junction:
+  `IsRefusal` leaves out `InvalidDataException` (tools/ShimejiConvert.Engine, PackConversion.cs:321-323). Companion Studio
+  1.3.0 catches it and reports a refusal. Review of d009f4be, finding M1.
+- 📌 **N-shimeji-convert-02** [medium/converter] A hidden main member is accepted, so a pack can install with nothing a
+  user can add (PackConversion.cs:254-255 guesses a "."-prefixed main hidden). Studio refuses a hidden main before the
+  call. Review of d009f4be, M2.
+- 📌 **N-shimeji-convert-03** [medium/converter] A pack whose members define no Fall, Dragged or Thrown behaviour
+  converts (Accepted) and installs, and then cannot arrive: the host logs "no behaviour named 'Fall'" and removes the
+  companion, as the source disposes such a mascot. Warn per member, or refuse when the main or startup member lacks Fall.
+  Found by the real-app check of Studio's pack import.
+- 📌 **N-shimeji-convert-04** [low/converter] Messages a user cannot act on: a corrupt sprite reports "Parameter is not
+  valid." with no file; a member with no conf reports the pack-level conf path; `TICK_PACK_MEMBER_INVALID` omits the key;
+  in a refused pack, members still marked Prepared carry the subset pack id inside their XML; "retains N source action or
+  behaviour nodes that the reachability graph cannot enter" reads as a fault on a minimal pack. Review of d009f4be, L1,
+  L2, I1.
+- 📌 **N-shimeji-convert-05** [low/converter] An out-of-range pose Volume (the source refuses outside -80 to +6.02 dB) is
+  not reported; the host clamps it.
+- 📌 **N-shimeji-convert-06** [high/converter] The tick emitter lowers a literal subset: of the 32 directed scenario packs
+  (tools/ShimejiParity/scenarios/make_packs.py) it refuses 14, for BreedMove, BreedJump, BreedFall, ScanMove, ScanInteract,
+  Interact, MoveWithTurn, Jump, WalkWithIE/FallWithIE/JumpWithIE, Regist, hotspots and `${}`/`#{}` expressions (one of
+  the 14 is a deliberate dangling next name, which should stay refused). This is the campaign's main open work; each
+  lowering lands with its scenario moving from pending to traced, and tools/ShimejiConvert/ACTIONS.md records the verdict.
+- 📌 **N-shimeji-oracle-01** [high/parity] The oracle writes `oracle-feasibility/0`, not CONTRACT v1 traces (pose
+  image/index, actionStack/refKey, the event kinds, rng-draw sites), so compare.py cannot yet judge a real runtime's trace
+  against the host's. The host's trace writer is v1. Codex's lane.
+- 📌 **N-shimeji-contract-01** [low/parity] For CONTRACT v1.1 (v1 is frozen and signed): the birth-refused reasons
+  `toggle-off` and `missing-member` look unproducible (Breed.java:184 stops before an attempt; :76 falls back to the
+  parent's type); an `error` refusal has no child sid rule; write the drag/hotspot emission points (the host emits drag
+  start at a press entering Dragged, drag end at a release that throws, hotspot press/release at the hotspot's press and
+  the held hotspot's release, each before the behaviour change); list `policy:startup-after-arrival` and
+  `policy:animate-no-variant`; S-slice-breed-01's description says "in front" where the child is born behind.
+- 📌 **N-shimeji-host-01** [low/parity] SafeScript and TickType.ParseLiteral do not read Java hexadecimal floating
+  literals (`0x1.8p1`); decimal f/F/d/D suffixes work.
+- 📌 **N-shimeji-host-02** [medium/usability] Hidden pack members (an egg stage, a helper) have no card in the Pets pane,
+  so their switches cannot be set and run on their defaults. Show a pack's members with its main member's card.
+- 📌 **N-shimeji-host-03** [low/perf] Two costs to measure before calling them fine, cold and interleaved against a
+  variant without them: Win32TickEnvironment's per-tick window walk (the source caches title verdicts per window), and the
+  Pets pane compiling a tick companion's XML on the UI thread once per process (cached; a large pack is the case).
+- 📌 **N-shimeji-host-04** [low/classic] Classic pets' frame intervals are rounded up to the 15.6 ms system timer tick by
+  their WinForms timers (an interval of 40 plays at 46.9 ms, 100 at 109): measured while fixing the tick clock, which now
+  keeps the source's 40 ms. Decide whether any classic animation depends on short intervals.
+- 📌 **N-shimeji-classic-01** [medium/converter] The classic converter reports Group 2 floor actions "kept" but never emits
+  them; an image-less pose makes its action vanish (PetEmitter FramesOf); a Behavior's `Action=` mapping is ignored.
+- 📌 **N-shimeji-docs-01** [low/docs] grimoire/03 and tools/ShimejiConvert/MAPPING.md have drifted from the code.
+- 📌 **N-shimeji-tests-01** [low/tests] tests/mutate-diagnostics.py ignores unknown flags rather than refusing them.
+- 📌 **N-shimeji-tooling-01** [low/tooling] Recommend Temurin 8 (the oracle's pinned JDK) to the scripts-utilities tool
+  catalog.
+
 ## Closed: 2026-09-29 full audit and its fix campaign (summary; the record is in docs/audits/)
 
 The full code audit of 2026-09-29 verified 447 findings at `35725396`; the campaign that followed closed every one, plus the 72 items
