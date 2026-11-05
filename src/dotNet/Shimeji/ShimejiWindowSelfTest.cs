@@ -147,6 +147,7 @@ namespace DesktopAICompanion.Shimeji
                     "Kill() closes a tick window at once and its companion leaves the world at the next step");
 
                 CheckStaging(check);
+                CheckParityTooling(check, scratch, log);
             }
             catch (Exception e)
             {
@@ -211,6 +212,71 @@ namespace DesktopAICompanion.Shimeji
             {
                 if (animations != null) animations.Dispose();
                 if (xml != null) xml.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// The parity run's witnesses (CONTRACT section 3): the converter's hash binds its managed assemblies and ignores
+        /// an apphost, whose bytes do not change with the code; the pack hash refuses a link before reading through it.
+        /// </summary>
+        private static void CheckParityTooling(Action<bool, string> check, string scratch, StringBuilder log)
+        {
+            string conv = Path.Combine(scratch, "converter");
+            Directory.CreateDirectory(conv);
+            File.WriteAllBytes(Path.Combine(conv, "Engine.dll"), new byte[] { 1 });
+            File.WriteAllBytes(Path.Combine(conv, "Convert.exe"), new byte[] { 2 });
+            string first = ParityRun.ConverterSha256(conv);
+            File.WriteAllBytes(Path.Combine(conv, "Convert.exe"), new byte[] { 3 });
+            string apphostChanged = ParityRun.ConverterSha256(conv);
+            File.WriteAllBytes(Path.Combine(conv, "Engine.dll"), new byte[] { 4 });
+            string codeChanged = ParityRun.ConverterSha256(conv);
+            check(first == apphostChanged && first != codeChanged,
+                "parity: the converter witness binds the managed assemblies and ignores the apphost");
+
+            string pack = Path.Combine(scratch, "pack"), outside = Path.Combine(scratch, "outside");
+            Directory.CreateDirectory(Path.Combine(pack, "img"));
+            Directory.CreateDirectory(outside);
+            File.WriteAllBytes(Path.Combine(pack, "img", "a.png"), new byte[] { 5 });
+            string link = Path.Combine(pack, "img", "link");
+            if (!TryMakeDirectoryLink(link, outside))
+            {
+                log.AppendLine("NOTE: parity: the pack-link refusal is not exercised (no symlink or junction could be made here)");
+                return;
+            }
+            string refusal = null;
+            try { ParityRun.PackSha256(pack); }
+            catch (InvalidDataException e) { refusal = e.Message; }
+            finally { try { Directory.Delete(link); } catch { } }
+            check(refusal != null && refusal.Contains("pack-invalid"),
+                "parity: the pack hash refuses a link before reading through it (" + (refusal ?? "read through it") + ")");
+        }
+
+        private static bool TryMakeDirectoryLink(string link, string target)
+        {
+            try
+            {
+                Directory.CreateSymbolicLink(link, target);
+                return true;
+            }
+            catch (Exception) { }
+            try
+            {
+                var psi = new System.Diagnostics.ProcessStartInfo("cmd.exe", "/c mklink /J \"" + link + "\" \"" + target + "\"")
+                {
+                    CreateNoWindow = true,
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                };
+                using (System.Diagnostics.Process p = System.Diagnostics.Process.Start(psi))
+                {
+                    p.StandardOutput.ReadToEnd();
+                    p.WaitForExit(5000);
+                }
+                return Directory.Exists(link) && (File.GetAttributes(link) & FileAttributes.ReparsePoint) != 0;
+            }
+            catch (Exception)
+            {
+                return false;
             }
         }
 

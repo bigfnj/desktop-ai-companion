@@ -87,6 +87,7 @@ namespace DesktopAICompanion
                 Run("Tick engine lost ground enters Fall", TestTickLostGround);
                 Run("Tick engine: an internal fault ends one companion, reported, and the step goes on", TestTickInternalFault);
                 Run("Tick engine: offers are blank as Java's trim judges them", TestTickOfferBlank);
+                Run("Tick engine: parity startup adds the start companions without a step", TestTickStartupPriming);
                 Run("Tick instant Look and Offset apply at initialisation", TestTickLookAndOffset);
                 Run("Tick instant Mute and BringToFront", TestTickMuteAndFront);
                 Run("Tick SelfDestruct disposes on its penultimate tick", TestTickSelfDestruct);

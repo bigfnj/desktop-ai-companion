@@ -1266,6 +1266,15 @@ namespace DesktopAICompanion.Shimeji
             return m;
         }
 
+        /// <summary>CONTRACT section 4, startup step 3: the parity driver adds the start companions to the manager
+        /// WITHOUT a step (no environment, time, action or render advances, and no birth event), so they are active at
+        /// tick 0. Both runtimes normalise the source's queued createMascot this way; the app does not call it.</summary>
+        public void ActivateStartup()
+        {
+            foreach (TickMascot m in _added) _mascots.Add(m);
+            _added.Clear();
+        }
+
         /// <summary>Manager.add: queued; active from the next step.</summary>
         public void Add(TickMascot mascot)
         {

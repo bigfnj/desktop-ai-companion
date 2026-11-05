@@ -374,6 +374,26 @@ namespace DesktopAICompanion
             AssertTrue(!good.Disposing && good.Time == 1, "The step did not go on for the companion after the faulty one.");
         }
 
+        private static void TestTickStartupPriming()
+        {
+            // CONTRACT section 4: start companions are all initialised (counts 0), then added WITHOUT a step: active at
+            // tick 0, none pending, no time or step advanced, and no birth event.
+            TickType t = TickType.Compile("Alpha", TickDoc(
+                TRoute(TEdge(10, 1)),
+                TBeh(10, "Stand", "Stand", 1, null),
+                TAct(30, "Stand", "Stay", null, new[] { TParam("Duration", "100") }, TPose(0, 1))));
+            var log = new TickLog();
+            TickWorld w = TickWorldOf(log, null, t);
+            TickMascot a = w.CreateAtStart("m1", t, new TickPoint(600, 680), false, "Stand");
+            TickMascot b = w.CreateAtStart("m2", t, new TickPoint(700, 680), false, "Stand");
+            AssertTrue(w.Mascots.Count == 0 && w.Pending.Count == 2, "Start companions were not queued while being initialised.");
+            w.ActivateStartup();
+            AssertTrue(w.Mascots.Count == 2 && w.Pending.Count == 0 && ReferenceEquals(w.Mascots[0], a) && ReferenceEquals(w.Mascots[1], b),
+                "Priming did not make the start companions active, in creation order.");
+            AssertTrue(w.Step == 0 && a.Time == 0 && b.Time == 0 && !log.Events.Exists(e => e.Contains("activated")),
+                "Priming advanced the clock or wrote a birth event: " + string.Join("; ", log.Events));
+        }
+
         private static void TestTickOfferBlank()
         {
             // Java's trim keeps a no-break space (U+00A0 is above U+0020), so that offer is real; a tab-and-space one is

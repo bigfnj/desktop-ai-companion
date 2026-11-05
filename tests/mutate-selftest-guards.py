@@ -17008,6 +17008,28 @@ CASES = (
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      'tick settings: lifecycle switches on, window actions off, an unknown setting off'),
+    # CONTRACT v1, host side: the parity driver primes start companions without a step; the converter witness binds
+    # managed code, not an apphost; the parity pack hash refuses a link before reading through it.
+    ('shimeji-host: parity startup leaves the start companions pending',
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'            foreach (TickMascot m in _added) _mascots.Add(m);\n            _added.Clear();\n',
+     b'            foreach (TickMascot m in _added) if (m == null) _mascots.Add(m);\n',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, 'Tick engine: parity startup adds the start companions without a step'),
+    ('shimeji-host: the converter witness hashes the apphost too',
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            string[] files = Directory.Exists(path) ? Directory.GetFiles(path, "*.dll") : new[] { path };\n',
+     b'            string[] files = Directory.Exists(path) ? Directory.GetFiles(path, "*") : new[] { path };\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity: the converter witness binds the managed assemblies and ignores the apphost'),
+    ('shimeji-host: the parity pack hash reads through a linked folder',
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                    if (IsLink(d)) throw new InvalidDataException("pack-invalid: the pack holds a link: " + Relative(packDir, d));\n',
+     b'                    if (IsLink(d) && d == null) throw new InvalidDataException("pack-invalid: the pack holds a link: " + Relative(packDir, d));\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity: the pack hash refuses a link before reading through it'),
     # ---- lane feature/shimeji-host-motion ----
     # The motion family of embedded classes (src/dotNet/Shimeji/TickMotionFamily.cs) and the engine hooks it added: each
     # case puts back one wrong reading of the official runtime and must fail the CoreTests group that pins it.

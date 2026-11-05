@@ -597,7 +597,7 @@ namespace DesktopAICompanion.Shimeji
                 { "commit", typeof(ParityRun).Assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false) is System.Reflection.AssemblyInformationalVersionAttribute[] v && v.Length > 0 ? v[0].InformationalVersion : "unknown" },
                 { "exeSha256", ParityRun.Sha256(File.ReadAllBytes(Environment.ProcessPath)) },
                 { "engineSha256", ParityRun.Sha256(File.ReadAllBytes(typeof(TickWorld).Assembly.Location)) },
-                { "converterSha256", ParityRun.Sha256(File.ReadAllBytes(args[at + 4])) },
+                { "converterSha256", ParityRun.ConverterSha256(args[at + 4]) },
             };
             return ParityRun.Run(args[at + 1], args[at + 2], args[at + 3], build, log);
         }
@@ -664,6 +664,8 @@ namespace DesktopAICompanion.Shimeji
                         world.CreateAtStart(m.GetProperty("sid").GetString(), type, new TickPoint(a[0].GetInt32(), a[1].GetInt32()),
                             m.GetProperty("lookRight").GetBoolean(), m.TryGetProperty("behavior", out beh) ? beh.GetString() : null);
                     }
+                    // Every start companion is initialised; now they join the manager without a step (CONTRACT section 4).
+                    world.ActivateStartup();
                     writer.States(world);
                     for (int t = 1; t <= ticks; t++)
                     {
@@ -701,20 +703,63 @@ namespace DesktopAICompanion.Shimeji
             }
         }
 
-        /// <summary>CONTRACT section 3: '&lt;sha256&gt;  &lt;relative path&gt;\n' per file, sorted by path in ordinal order.</summary>
+        /// <summary>CONTRACT section 3: '&lt;sha256&gt;  &lt;relative path&gt;\n' per file, sorted by the paths' UTF-8 bytes.
+        /// The pack is walked without following links, and a link anywhere in it (the directory included) is refused
+        /// before any file is read: only a link can lead a pack path outside the pack.</summary>
         public static string PackSha256(string packDir)
         {
-            var rows = new List<KeyValuePair<string, string>>();
-            foreach (string file in Directory.GetFiles(packDir, "*", SearchOption.AllDirectories))
+            if (IsLink(packDir)) throw new InvalidDataException("pack-invalid: the pack " + packDir + " is a link");
+            var files = new List<string>();
+            var dirs = new Stack<string>();
+            dirs.Push(packDir);
+            while (dirs.Count > 0)
             {
-                string rel = file.Substring(packDir.Length).TrimStart('\\', '/').Replace('\\', '/');
-                rows.Add(new KeyValuePair<string, string>(rel, Sha256(File.ReadAllBytes(file))));
+                string dir = dirs.Pop();
+                foreach (string d in Directory.GetDirectories(dir))
+                {
+                    if (IsLink(d)) throw new InvalidDataException("pack-invalid: the pack holds a link: " + Relative(packDir, d));
+                    dirs.Push(d);
+                }
+                foreach (string f in Directory.GetFiles(dir))
+                {
+                    if (IsLink(f)) throw new InvalidDataException("pack-invalid: the pack holds a link: " + Relative(packDir, f));
+                    files.Add(f);
+                }
             }
-            // Ordinal by UTF-8 bytes, as the comparer sorts; UTF-16 order differs for some non-ASCII paths.
+            var rows = new List<KeyValuePair<string, string>>();
+            foreach (string file in files)
+                rows.Add(new KeyValuePair<string, string>(Relative(packDir, file), Sha256(File.ReadAllBytes(file))));
+            return ManifestSha256(rows);
+        }
+
+        /// <summary>CONTRACT section 3, converterSha256: the converter's CODE, as a manifest in the pack form over its
+        /// managed assemblies when given a directory (every *.dll in it, never an apphost, whose bytes do not change with
+        /// the code), or over the one file given (a script).</summary>
+        public static string ConverterSha256(string path)
+        {
+            string[] files = Directory.Exists(path) ? Directory.GetFiles(path, "*.dll") : new[] { path };
+            var rows = new List<KeyValuePair<string, string>>();
+            foreach (string f in files) rows.Add(new KeyValuePair<string, string>(Path.GetFileName(f), Sha256(File.ReadAllBytes(f))));
+            return ManifestSha256(rows);
+        }
+
+        private static string ManifestSha256(List<KeyValuePair<string, string>> rows)
+        {
+            // By UTF-8 bytes, as the comparer sorts; UTF-16 order differs for supplementary characters.
             rows.Sort((x, y) => CompareUtf8(x.Key, y.Key));
             var text = new StringBuilder();
             foreach (KeyValuePair<string, string> r in rows) text.Append(r.Value).Append("  ").Append(r.Key).Append('\n');
             return Sha256(Encoding.UTF8.GetBytes(text.ToString()));
+        }
+
+        private static bool IsLink(string path)
+        {
+            return (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0;
+        }
+
+        private static string Relative(string root, string path)
+        {
+            return path.Substring(root.Length).TrimStart('\\', '/').Replace('\\', '/');
         }
     }
 }
