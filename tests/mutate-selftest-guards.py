@@ -19406,6 +19406,19 @@ CASES = (
      b"",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
      SHIMEJI, None, "conversion accepted an input requiring refusal: unexpected source text"),
+    # Instant embedded classes need no Animation; every other posed action still does.
+    ("convert-corpus: an instant action without an Animation is refused again",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
+     b"                else if (!variants.Elements().Any() && type == \"Embedded\" && InstantClasses.Contains(cls))\n",
+     b"                else if (!variants.Elements().Any() && type == \"Embedded\" && InstantClasses.Contains(cls + \"-\"))\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "posed action has no Animation"),
+    ("convert-corpus: any embedded action without an Animation is accepted",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
+     b"                else if (!variants.Elements().Any() && type == \"Embedded\" && InstantClasses.Contains(cls))\n",
+     b"                else if (!variants.Elements().Any() && type == \"Embedded\")\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "conversion accepted an input requiring refusal: posed action has no Animation"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

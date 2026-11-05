@@ -25,6 +25,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         private static readonly HashSet<string> Types = Set("Stay Move Animate Sequence Select Embedded");
         // UserBehavior's BEHAVIOURNAME_FALL, _THROWN and _DRAGGED: the names BehaviorBuilder never lets be toggleable.
         private static readonly HashSet<string> RequiredBehaviours = Set("Fall Thrown Dragged");
+        // The source's InstantAction subclasses, which the host's TickInstantFamily builds as TickInstantAction.
+        private static readonly HashSet<string> InstantClasses = Set("Look Offset Mute BringToFront");
         // The closed class list of grimoire/06 section 5: every class the host's tick runtime constructs
         // (TickWorld.CreateEmbedded and its four family files), the deprecated Broadcast aliases included.
         private static readonly HashSet<string> Classes = Set("Fall Jump Dragged Regist Look Turn Offset Mute BringToFront SelfDestruct "
@@ -524,6 +526,13 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 {
                     if (!children.Elements().Any()) Fail(source, "empty composite");
                     act.Add(children);
+                }
+                else if (!variants.Elements().Any() && type == "Embedded" && InstantClasses.Contains(cls))
+                {
+                    // An instant class is built without animations (Look, Offset, Mute and BringToFront have only the
+                    // (schema, params) constructor ActionBuilder falls back to, ActionBuilder.java:107-113) and ends in
+                    // the step it starts (InstantAction.java), as the host's TickInstantAction does, which reads no
+                    // variant. So one with no Animation, the stock configuration's shape, writes no <variants>.
                 }
                 else
                 {

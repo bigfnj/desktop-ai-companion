@@ -66,6 +66,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "toggle-required-names", Run = (Action)ToggleRequiredNames },
                 new { Name = "toggle-id-refusal", Run = (Action)ToggleIdRefusal },
                 new { Name = "root-attributes-ignored", Run = (Action)RootAttributesIgnored },
+                new { Name = "instant-without-animation", Run = (Action)InstantWithoutAnimation },
                 new { Name = "information-refusal", Run = (Action)InformationRefusal },
                 new { Name = "own-set-binding-reset", Run = (Action)OwnSetBindingReset },
                 new { Name = "japanese-schema-values", Run = (Action)JapaneseSchemaValues },
@@ -1237,6 +1238,44 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 fixture.Actions(actions);
                 Refusal(fixture, "unexpected source text");
             }
+        }
+
+        // An instant embedded class (Look, Offset, Mute, BringToFront) is built without animations and ends in the step
+        // it starts, so one written with no Animation, as the stock configuration writes them, converts to an act with
+        // its parameters and no <variants>; a posed action with no Animation, embedded or not, still refuses.
+        private static void InstantWithoutAnimation()
+        {
+            using (var fixture = new Fixture())
+            {
+                XDocument actions = BuildActions();
+                Func<string, string, object[], XElement> bare = (name, cls, content) => S("Action", A("Name", name), A("Type", "Embedded"),
+                    A("Class", "com.group_finity.mascot.action." + cls), content);
+                actions.Root.Element("ActionList").Add(bare("Face", "Look", new object[] { A("LookRight", "true") }),
+                    bare("Nudge", "Offset", new object[] { A("X", 1), A("Y", -2) }), bare("Hush", "Mute", new object[] { A("Sound", "chime") }),
+                    bare("Raise", "BringToFront", new object[0]));
+                fixture.Actions(actions);
+                XDocument document = fixture.Convert();
+                Validate(document, "instant-without-animation member");
+                foreach (string[] row in new[] { new[] { "Face", "Look" }, new[] { "Nudge", "Offset" }, new[] { "Hush", "Mute" }, new[] { "Raise", "BringToFront" } })
+                {
+                    XElement act = NamedNode(document, row[0]).Element(Ns + "act");
+                    Require((string)act.Attribute("class") == row[1] && act.Element(Ns + "variants") == null,
+                        "instant action " + row[0] + " without an Animation is not a bare " + row[1] + " act");
+                }
+                Require(Bound(NamedNode(document, "Nudge").Element(Ns + "act"), "param", "Y") == "-2"
+                    && Bound(NamedNode(document, "Face").Element(Ns + "act"), "param", "LookRight") == "true",
+                    "an instant action without an Animation lost its parameters");
+            }
+            foreach (XElement posed in new[] {
+                S("Action", A("Name", "Drop"), A("Type", "Embedded"), A("Class", "com.group_finity.mascot.action.Fall")),
+                S("Action", A("Name", "Wait"), A("Type", "Stay")) })
+                using (var fixture = new Fixture())
+                {
+                    XDocument actions = BuildActions();
+                    actions.Root.Element("ActionList").Add(posed);
+                    fixture.Actions(actions);
+                    Refusal(fixture, "posed action has no Animation");
+                }
         }
 
         private static void InformationRefusal()
