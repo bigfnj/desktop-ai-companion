@@ -78,6 +78,8 @@ def edit_line(line, edit, oracle):
         if not delimiter or value is None:
             raise oracle.Refusal("DRAFT_ASSIGNMENT_SHAPE_REFUSAL")
         return left + "= " + edit["condition"] + " ? " + edit["value"] + " : (" + value.group(1) + ");" + newline
+    if operation == "wrap-assigned-value":
+        return assigned_value(body, newline, edit, oracle)
     if operation == "replace-random-token":
         if edit["site"] not in BUILTIN_SITES:
             raise oracle.Refusal("DRAFT_RNG_SITE_REFUSAL " + edit["site"])
@@ -86,6 +88,18 @@ def edit_line(line, edit, oracle):
             raise oracle.Refusal("DRAFT_RNG_LINE_COUNT_REFUSAL")
         return result
     raise oracle.Refusal("DRAFT_OPERATION_REFUSAL " + operation)
+
+
+def assigned_value(body, newline, edit, oracle):
+    """wrap-assigned-value: the assigned value passes through a hooks method that returns it unchanged. The
+    expression itself is read from the verified private line, so the specification never holds it."""
+    left, delimiter, right = body.partition("=")
+    value = re.fullmatch(r"\s*(.*?);[ \t]*", right)
+    call = edit.get("call", "")
+    if not delimiter or value is None or not call.startswith(HOOKS + "."):
+        raise oracle.Refusal("DRAFT_ASSIGNED_VALUE_REFUSAL")
+    arguments = "".join(item + ", " for item in edit.get("arguments", []))
+    return left + "= " + call + "(" + arguments + "(" + value.group(1) + "));" + newline
 
 
 def derive_changes(source, spec, oracle):
@@ -145,7 +159,8 @@ def derive_changes(source, spec, oracle):
 
 def spec_negative_cases(source, original, oracle, derive=derive_changes, only=None):
     results = []
-    labels = ("source-pin", "file-sha", "line-sha", "line-range", "rng-count-spec", "rng-operation", "rng-coordinate", "unknown-op")
+    labels = ("source-pin", "file-sha", "line-sha", "line-range", "rng-count-spec", "rng-operation", "rng-coordinate", "unknown-op",
+              "assigned-call")
     for label in labels:
         if only is not None and label not in only:
             continue
@@ -174,6 +189,10 @@ def spec_negative_cases(source, original, oracle, derive=derive_changes, only=No
                         and edit["line"] in (237, 248)]
             matching[0]["site"], matching[1]["site"] = matching[1]["site"], matching[0]["site"]
             expected = "DRAFT_RNG_COORDINATE_REFUSAL"
+        elif label == "assigned-call":
+            # A wrapped value may pass only through the hooks class, never through an arbitrary method.
+            next(edit for edit in spec["edits"] if edit["op"] == "wrap-assigned-value")["call"] = "java.lang.System.identityHashCode"
+            expected = "DRAFT_ASSIGNED_VALUE_REFUSAL"
         else:
             spec["edits"][0]["op"] = "unexpected"
             expected = "DRAFT_OPERATION_REFUSAL"
@@ -200,6 +219,7 @@ def spec_guard_witnesses(source, spec, oracle):
         ("line-sha", "verify", "draft-source-line "),
         ("rng-count-spec", "condition", "DRAFT_RNG_COUNT_SPEC_REFUSAL"),
         ("rng-coordinate", "condition", "DRAFT_RNG_COORDINATE_REFUSAL"),
+        ("assigned-call", "condition", "DRAFT_ASSIGNED_VALUE_REFUSAL"),
     ):
         class DisableGuard(ast.NodeTransformer):
             count = 0

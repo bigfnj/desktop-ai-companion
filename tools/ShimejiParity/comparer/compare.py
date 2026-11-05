@@ -93,12 +93,23 @@ def pack_preflight(pack_dir):
     link resolves inside it, so the link test is the whole rule. Returns the files to hash, as (relative path, full path)."""
     if not os.path.isdir(pack_dir) or _is_link(pack_dir):
         raise Unjudgeable("pack-invalid", f"the pack {pack_dir} is not a plain directory")
-    files = []
+    files, folded = [], {}
     for root, dirs, names in os.walk(pack_dir, followlinks=False):
         for name in dirs + names:
             full = os.path.join(root, name)
             if _is_link(full):
                 raise Unjudgeable("pack-invalid", f"the pack holds a link: {os.path.relpath(full, pack_dir)}")
+            # Two entries that differ only in case (a pack built in a case-sensitive folder) are one file or folder to
+            # a case-insensitive copy, which keeps the first name and the last bytes, so the copied pack no longer
+            # matches its manifest (review W123 F4). Both upper() and casefold() are tried: between them they cover
+            # the simple folds of the NTFS upcase table. These folds conservatively reject some Unicode pairs that the
+            # destination can preserve (sharp s and "ss", which an ordinary Windows copy keeps apart): such a pack is
+            # refused as pack-invalid rather than judged.
+            relative = os.path.relpath(full, pack_dir).replace(os.sep, "/")
+            for key in (relative.upper(), relative.casefold()):
+                other = folded.setdefault(key, relative)
+                if other != relative:
+                    raise Unjudgeable("pack-invalid", f"the pack holds entries that differ only in case: {other}, {relative}")
         for name in names:
             full = os.path.join(root, name)
             files.append((os.path.relpath(full, pack_dir).replace(os.sep, "/"), full))
@@ -755,6 +766,33 @@ def self_test():
         good = pack_manifest(d) == want and pack_sha256(d) == sha256_bytes(want.encode("utf-8"))
         ok &= good
         print(f"  {'the pack manifest is sorted by UTF-8 bytes, forward slashes':52} {'OK' if good else 'WRONG'}")
+
+        # Two entries that differ only in case are refused by name (review W123 F4). A case-sensitive folder holds
+        # both for real; a case-insensitive one cannot, so its walk is made to list what a case-sensitive source
+        # folder would, both names then resolving to the one file a copy of such a pack leaves.
+        twin = os.path.join(d, "img", "Alpha", "B.png")
+        try:
+            with open(twin, "xb") as f:
+                f.write(b"B, second spelling")
+            listed = os.walk
+        except FileExistsError:
+            twin, real_walk = None, os.walk
+
+            def listed(top, **kwargs):
+                for root, dirs, names in real_walk(top, **kwargs):
+                    yield root, dirs, names + (["B.png"] if "b.png" in names else [])
+        saved, os.walk = os.walk, listed
+        try:
+            pack_preflight(d)
+            good = False
+        except Unjudgeable as u:
+            good = u.cls == "pack-invalid" and "differ only in case" in str(u)
+        finally:
+            os.walk = saved
+            if twin:
+                os.remove(twin)
+        ok &= good
+        print(f"  {'entries differing only in case are refused':52} {'FIRED' if good else 'SURVIVED'}")
 
         # The preflight refuses a link before reading anything: a junction inside the pack to a folder outside it.
         outside = os.path.join(d, "..", os.path.basename(d) + "-outside")
