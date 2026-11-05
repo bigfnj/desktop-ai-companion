@@ -2,7 +2,8 @@
 
     make_packs.py <out dir>
 
-Writes <out>/packs/<pack>/ (a Shimeji-EE layout: conf/actions.xml, conf/behaviors.xml, img/<Set>/*.png) and
+Writes <out>/packs/<pack>/ (a Shimeji-EE layout: img/<Set>/conf/actions.xml, img/<Set>/conf/behaviors.xml,
+img/<Set>/*.png; the conf-tiers pack keeps its documents at the source's lower tiers, conf/<Set>/ and conf/) and
 <out>/<scenario id>.json for every scenario below. The sprites are generated, so nothing here is anyone's art: each is
 an asymmetric body (a notch on its LEFT side, so a mirrored frame is visibly mirrored), a red anchor dot at the
 authored ImageAnchor, and its frame number as white marks along the top, so a clip shows which pose is on screen.
@@ -69,7 +70,11 @@ def lifecycle_behaviours():
 
 
 def write_conf(root, set_name, actions, behaviours):
-    conf = root / "img" / set_name / "conf"
+    write_documents(root / "img" / set_name / "conf", actions, behaviours)
+
+
+def write_documents(conf, actions, behaviours):
+    """One configuration folder's actions.xml and behaviors.xml, wherever the pack keeps them."""
     conf.mkdir(parents=True, exist_ok=True)
     (conf / "actions.xml").write_text(
         f'<?xml version="1.0" encoding="UTF-8"?>\n<Mascot xmlns="{NS}">\n  <ActionList>\n' + "\n".join(actions)
@@ -556,6 +561,25 @@ def pack_input_hotspot(root):
            [beh("Stand", 1)] + then("Stand", "Petted"))
 
 
+# 16. The source's lower configuration tiers. Main.loadConfiguration takes conf/, then conf/<set>/, then
+# img/<set>/conf/, a later tier's file replacing an earlier one's; every other pack keeps its documents in
+# img/<set>/conf/. Here Alpha's are in conf/Alpha/ (the set tier, over conf/), and Beta, with none of its own, takes the
+# pack's shared conf/.
+def pack_conf_tiers(root):
+    sprites(root, "Alpha", 5)
+    sprites(root, "Beta", 5)
+    write_documents(root / "conf" / "Alpha",
+                    [posed("Stand", "Stay", [img("shime1.png", ticks=5), img("shime2.png", ticks=5)], Duration=20),
+                     posed("Walk", "Move", [img("shime3.png", dx=-2, ticks=4), img("shime1.png", dx=-2, ticks=4)], TargetX=600)]
+                    + lifecycle_actions("shime"),
+                    [beh("Stand", 1, nxt=[("Walk", 1)], add="false"), beh("Walk", 0, hidden=True, nxt=[("Stand", 1)], add="false")]
+                    + lifecycle_behaviours())
+    write_documents(root / "conf",
+                    [posed("Rest", "Stay", [img("shime1.png", ticks=5), img("shime2.png", ticks=5)], Duration=30)]
+                    + lifecycle_actions("shime"),
+                    [beh("Rest", 1)] + lifecycle_behaviours())
+
+
 PACKS.update({
     "transform-forms": pack_transform_forms, "breed-forms": pack_breed_forms, "breedmove": pack_breedmove,
     "breedjump": pack_breedjump, "breedfall": pack_breedfall, "breed-cap": pack_breed_cap, "egg-hatch": pack_egg,
@@ -565,7 +589,7 @@ PACKS.update({
     "select-missing": pack_select_missing, "select-fallback": pack_select_fallback, "vars-cache": pack_vars_cache,
     "vars-transform": pack_vars_transform, "refs": pack_refs, "window-carry": pack_window_carry,
     "window-throw": pack_window_throw, "window-minimize": pack_window_minimize, "input": pack_input,
-    "input-regist": pack_input_regist, "input-hotspot": pack_input_hotspot,
+    "input-regist": pack_input_regist, "input-hotspot": pack_input_hotspot, "conf-tiers": pack_conf_tiers,
 })
 
 # The image set the converter's paritypack verb is told is the pack's main member. The converter needs one when a
@@ -877,6 +901,12 @@ SCENARIOS += [
              "Petted (forced) instead of a drag; Petted stands 20 ticks and hands back to Stand",
              "input-hotspot", 40, [mascot("m1", "Alpha", "Stand", 640)], tape(0.5),
              input=[{"tick": 0, "cursor": [640, 630]}, {"tick": 5, "sid": "m1", "click": "left"}]),
+    # 16. Configuration tiers
+    scenario("S-conf-tiers-01",
+             "documents at the source's lower tiers: Alpha, configured from conf/Alpha/, stands 20 ticks, walks left from "
+             "x 660 to 600 and stands again; Beta, configured from the pack's conf/, rests in 30-tick turns; every refKey "
+             "names its own set's chosen file (conf/Alpha/... for m1, conf/... for m2)",
+             "conf-tiers", 80, [mascot("m1", "Alpha", "Stand", 660), mascot("m2", "Beta", "Rest", 300)], tape(0.5)),
 ]
 
 
