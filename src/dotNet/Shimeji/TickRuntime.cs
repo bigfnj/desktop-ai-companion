@@ -912,10 +912,16 @@ namespace DesktopAICompanion.Shimeji
         public int Births;
         public int BirthAttempts;
 
-        /// <summary>The pose last applied and the facing it was applied with (Mascot.setImage).</summary>
+        /// <summary>The pose last applied, the facing it was applied with, and the type whose sheet it came from
+        /// (Mascot.setImage). After a Transform the companion still shows the old type's image until the new type's
+        /// first pose, so the image is sized and named by <see cref="PoseType"/>, not <see cref="Type"/>.</summary>
         public TickPoseDef Pose;
         public TickVariantDef PoseVariant;
         public bool PoseRight;
+        public TickType PoseType;
+
+        /// <summary>A start companion: queued by Manager.add like a birth, but activated with no birth event.</summary>
+        public bool IsStartup;
         public bool Visible;
         private TickRect _lastWindowBounds;
 
@@ -932,7 +938,11 @@ namespace DesktopAICompanion.Shimeji
         /// <summary>The image's offset from the anchor: the cell anchor, mirrored when the image faces right.</summary>
         public TickPoint ImageCenter
         {
-            get { return new TickPoint(PoseRight ? Type.CellWidth - Type.AnchorX : Type.AnchorX, Type.AnchorY); }
+            get
+            {
+                TickType t = PoseType ?? Type;
+                return new TickPoint(PoseRight ? t.CellWidth - t.AnchorX : t.AnchorX, t.AnchorY);
+            }
         }
 
         /// <summary>Mascot.getBounds: from the image, or the window's last bounds when there is no image.</summary>
@@ -942,7 +952,8 @@ namespace DesktopAICompanion.Shimeji
             {
                 if (!HasImage) return _lastWindowBounds;
                 TickPoint c = ImageCenter;
-                return new TickRect(Anchor.X - c.X, Anchor.Y - c.Y, Type.CellWidth, Type.CellHeight);
+                TickType t = PoseType ?? Type;
+                return new TickRect(Anchor.X - c.X, Anchor.Y - c.Y, t.CellWidth, t.CellHeight);
             }
         }
 
@@ -954,6 +965,7 @@ namespace DesktopAICompanion.Shimeji
             Pose = pose;
             PoseVariant = variant;
             PoseRight = LookRight;
+            PoseType = Type;
         }
 
         /// <summary>Mascot.setBehavior: set, then init (which may itself hand on to another behaviour).</summary>
@@ -1062,14 +1074,16 @@ namespace DesktopAICompanion.Shimeji
         /// <summary>Startup (CONTRACT section 4): the tick-0 environment first, then companions in order.</summary>
         public void Start() { Environment.Tick(0); }
 
-        /// <summary>A start companion: the state is applied before its behaviour is initialised, so no initial random
-        /// placement or facing is drawn; it is active from tick 0.</summary>
+        /// <summary>A start companion, as Main.createMascot makes one: the state is applied before its behaviour is
+        /// initialised (so no initial random placement or facing is drawn), the behaviour is initialised before the
+        /// companion has a manager (so its counts read 0), and then it is queued: pending at tick 0, active from step 1,
+        /// with no birth event.</summary>
         public TickMascot CreateAtStart(string sid, TickType type, TickPoint anchor, bool lookRight, string behaviour)
         {
-            var m = new TickMascot(this, sid, type) { Anchor = anchor, LookRight = lookRight, InManager = true };
-            _mascots.Add(m);
+            var m = new TickMascot(this, sid, type) { Anchor = anchor, LookRight = lookRight, IsStartup = true };
             m.SetBehaviour(string.IsNullOrEmpty(behaviour) ? BuildNextBehaviour(type, m, null) : BuildBehaviourByName(type, behaviour, m),
                 string.IsNullOrEmpty(behaviour) ? LastSelectionCause : "forced");
+            Add(m);
             return m;
         }
 
@@ -1097,7 +1111,7 @@ namespace DesktopAICompanion.Shimeji
             foreach (TickMascot m in _added)
             {
                 _mascots.Add(m);
-                Observer.BirthActivated(m);
+                if (!m.IsStartup) Observer.BirthActivated(m);
             }
             _added.Clear();
             foreach (TickMascot m in _removed)

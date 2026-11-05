@@ -256,7 +256,11 @@ namespace DesktopAICompanion
             var log = new TickLog();
             TickWorld w = TickWorldOf(log, null, alpha);
             w.CreateAtStart("m1", alpha, new TickPoint(640, 680), false, "Throw");
+            AssertTrue(w.Mascots.Count == 0 && w.Pending.Count == 1,
+                "A start companion was active at tick 0; the source queues it (Manager.add) until step 1.");
             w.StepOnce();   // age 0
+            AssertTrue(w.Mascots.Count == 1 && !log.Events.Exists(e => e.StartsWith("m1 activated")),
+                "A start companion was not active from step 1, or its activation was reported as a birth.");
             AssertEqual(0, w.Pending.Count, "Breed fired before its penultimate tick.");
             w.StepOnce();   // age 1 = duration - 1: two births
             AssertEqual(2, w.Pending.Count, "Breed did not queue BornCount children on its penultimate tick.");
@@ -300,6 +304,9 @@ namespace DesktopAICompanion
             AssertTrue(ReferenceEquals(m, w.Mascots[0]) && m.Sid == "m1" && m.Variables["mood"].Number == 3,
                 "Transform did not keep the companion, its sid and its variables.");
             AssertTrue(log.Events.Contains("m1 transform Egg>Beta Stand"), "No transform event.");
+            AssertEqual("Egg", m.PoseType.Name, "Right after a Transform the image shown is not still the old type's (it is until the new type's first pose).");
+            w.StepOnce();
+            AssertEqual("Beta", m.PoseType.Name, "The new type's first pose did not replace the old type's image.");
         }
 
         private static void TestTickMove()

@@ -302,8 +302,9 @@ namespace DesktopAICompanion.Shimeji
 
         private void State(TickMascot m, bool pending)
         {
+            // The image belongs to the type whose pose set it, which after a Transform is still the old one.
             ParityMap map;
-            _maps.TryGetValue(m.Type.Name, out map);
+            _maps.TryGetValue((m.PoseType ?? m.Type).Name, out map);
             TickBehaviour beh = m.Behaviour;
             TickAction leaf = beh == null ? null : beh.Action.Leaf;
             List<string> stack = beh == null ? new List<string>() : beh.ActionStack();
@@ -565,7 +566,8 @@ namespace DesktopAICompanion.Shimeji
                 var writer = new ParityTraceWriter(trace, maps);
                 string packDir = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(scenarioPath)), s.GetProperty("pack").GetString()));
                 writer.Header(s.GetProperty("id").GetString(), Sha256(scenarioBytes), PackSha256(packDir), build,
-                    s.GetProperty("rng").GetRawText(), s.GetProperty("dpiScale").GetDouble());
+                    // Re-serialised compactly: the scenario's own text may be indented, and a trace is one object per line.
+                    JsonSerializer.Serialize(s.GetProperty("rng")), s.GetProperty("dpiScale").GetDouble());
 
                 var world = new TickWorld(env, random, settings, writer);
                 foreach (TickType t in types) world.AddType(t);
