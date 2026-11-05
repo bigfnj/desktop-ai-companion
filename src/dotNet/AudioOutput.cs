@@ -160,17 +160,72 @@ namespace DesktopAICompanion
             lock (_sync)
             {
                 if (_disposed || !EnsureStarted()) return;
-                float[] samples;
-                if (!_cache.TryGetValue(mp3, out samples))
-                {
-                    try { samples = Decode(mp3); }
-                    catch { samples = null; }
-                    // Undecodable is recorded too, so a broken sound is not re-decoded on every trigger.
-                    _cache.Add(mp3, samples ?? Undecodable);
-                }
+                float[] samples = CachedDecode(mp3);
                 if (samples == null || samples.Length == 0) return;
                 AddInput(samples, Math.Max(0, Math.Min(20, loop)), (float)Math.Max(0.0, Math.Min(1.0, volume)), EngineOwner);
             }
+        }
+
+        /// <summary>The decoded samples of a pet MP3, decoded once while its bytes live. Caller holds _sync.</summary>
+        private float[] CachedDecode(byte[] mp3)
+        {
+            float[] samples;
+            if (!_cache.TryGetValue(mp3, out samples))
+            {
+                try { samples = Decode(mp3); }
+                catch { samples = null; }
+                // Undecodable is recorded too, so a broken sound is not re-decoded on every trigger.
+                _cache.Add(mp3, samples ?? Undecodable);
+            }
+            return samples;
+        }
+
+        /// <summary>
+        /// Owner prefix of a tick companion's clips (src/dotNet/Shimeji/TickAudio.cs), one owner per clip, so a clip can be
+        /// asked whether it is still playing and stopped by itself, as the source's shared Clip is. '|' is never in a
+        /// module id (SecureDownload.IsSafeId), so no module's sound takes this form. They are the pet engine's sounds:
+        /// <see cref="StopAllExcept"/> keeps them with <see cref="EngineOwner"/>'s.
+        /// </summary>
+        internal const string ClipOwnerPrefix = "companion-clip|";
+
+        internal static bool IsClipOwner(string owner)
+        {
+            return owner != null && owner.StartsWith(ClipOwnerPrefix, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>Play a tick companion's clip once (an MP3 the validator proved, decoded once and cached as
+        /// <see cref="Play"/>'s are) under its own owner. False when nothing will be heard.</summary>
+        public bool PlayClip(string owner, byte[] mp3, double volume)
+        {
+            if (mp3 == null || mp3.Length == 0 || volume <= 0.0) return false;
+            lock (_sync)
+            {
+                if (_disposed || !EnsureStarted()) return false;
+                float[] samples = CachedDecode(mp3);
+                if (samples == null || samples.Length == 0) return false;
+                AddInput(samples, 0, (float)Math.Max(0.0, Math.Min(1.0, volume)), owner ?? "");
+                return true;
+            }
+        }
+
+        /// <summary>Whether anything of this owner's is playing (the source's Clip.isRunning): from the moment it is added
+        /// until it ends or is stopped. Owners compare as <see cref="StopOwned"/> compares them.</summary>
+        public bool IsPlaying(string owner)
+        {
+            string key = owner ?? "";
+            lock (_liveSync)
+                foreach (LiveInput live in _live.Values)
+                    if (string.Equals(live.Owner, key, StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
+        }
+
+        /// <summary>A live input for this owner that plays nowhere: no device is opened, so the owner bookkeeping
+        /// (<see cref="IsPlaying"/>, <see cref="StopOwned"/>, <see cref="StopAllExcept"/>) can be asserted without a
+        /// sound. Self-tests only.</summary>
+        internal void RegisterLiveForTest(string owner)
+        {
+            var cached = new CachedSampleProvider(new float[2], MixFormat, 0);
+            lock (_liveSync) _live[new VolumeSampleProvider(cached)] = new LiveInput { Owner = owner ?? "", Source = cached };
         }
 
         /// <summary>
@@ -229,7 +284,8 @@ namespace DesktopAICompanion
         }
 
         /// <summary>Cut every owner except the pet engine -- used when the user switches speech off, since a
-        /// module has no way to notice a settings change on its own.</summary>
+        /// module has no way to notice a settings change on its own. A tick companion's clips are the pet
+        /// engine's too (<see cref="ClipOwnerPrefix"/>), so they are kept as well.</summary>
         public bool StopAllExcept(string keepOwner)
         {
             string keep = keepOwner ?? "";
@@ -237,7 +293,7 @@ namespace DesktopAICompanion
             lock (_liveSync)
                 foreach (KeyValuePair<ISampleProvider, LiveInput> pair in _live)
                     if (!string.Equals(pair.Value.Owner, keep, StringComparison.OrdinalIgnoreCase) &&
-                        !owners.Contains(pair.Value.Owner))
+                        !IsClipOwner(pair.Value.Owner) && !owners.Contains(pair.Value.Owner))
                         owners.Add(pair.Value.Owner);
             bool any = false;
             foreach (string owner in owners) any |= StopOwned(owner);

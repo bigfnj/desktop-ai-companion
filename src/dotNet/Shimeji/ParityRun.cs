@@ -463,6 +463,13 @@ namespace DesktopAICompanion.Shimeji
             _out.WriteLine(Event(mascot, "mute").Str("clip", clip).End());
         }
 
+        /// <summary>A clip the engine started, or a running one a Mute stopped (TickSound). A parity run has no clip output,
+        /// so no clip is loaded there and none is written until the contract defines a clip clock.</summary>
+        public void Sound(TickMascot mascot, string clip, string op)
+        {
+            _out.WriteLine(Event(mascot, "sound").Str("clip", clip).Str("op", op).End());
+        }
+
         public void ScanTargeted(TickMascot mascot, string affordance, TickMascot target)
         {
             _out.WriteLine(Event(mascot, "scan-target").Str("affordance", affordance).Str("target", target == null ? null : target.Sid).End());

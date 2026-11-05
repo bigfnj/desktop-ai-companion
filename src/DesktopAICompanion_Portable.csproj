@@ -178,6 +178,9 @@
     <Compile Include="dotNet\Shimeji\TickStaging.cs" />
     <Compile Include="dotNet\Shimeji\TickFeatures.cs" />
     <Compile Include="dotNet\Shimeji\ShimejiWindowSelfTest.cs" />
+    <Compile Include="dotNet\Shimeji\TickSound.cs" />
+    <Compile Include="dotNet\Shimeji\TickAudio.cs" />
+    <Compile Include="dotNet\Shimeji\ShimejiSoundSelfTest.cs" />
     <Compile Include="dotNet\AudioOutputSelfTest.cs" />
     <Compile Include="dotNet\SecuritySelfTest.cs" />
     <Compile Include="dotNet\SecuritySelfTest.ShimejiGate.cs" />

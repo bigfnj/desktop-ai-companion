@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 
 namespace DesktopAICompanion.Shimeji
@@ -24,10 +25,13 @@ namespace DesktopAICompanion.Shimeji
             try
             {
                 XmlData.RootNode root;
-                if (!CompanionXmlValidator.TryParse(xml.AnimationXMLString, out root, out error)) return false;
+                byte[] sheet, icon;
+                byte[][] sounds;
+                if (!CompanionXmlValidator.TryParse(xml.AnimationXMLString, out root, out sheet, out icon, out sounds, out error)) return false;
                 TickType type = TickType.Compile("", root);
                 type.ApplyScale(xml.ScaleFactorD, xml.spriteWidth, xml.spriteHeight);
                 Types.Add(xml, type);
+                Clips.Add(xml, ClipsByName(root, sounds));
                 return true;
             }
             catch (Exception ex)
@@ -42,6 +46,35 @@ namespace DesktopAICompanion.Shimeji
         {
             TickType type;
             return xml != null && Types.TryGetValue(xml, out type) ? type : null;
+        }
+
+        /// <summary>
+        /// A staged tick companion's named clips, by name: the bytes the validator decoded and proved MP3 in the second
+        /// parse above (TryReadXml blanks every Sound.Base64 in the Xml's own graph, so this is where they survive). The
+        /// source loads every clip with its configuration (AnimationBuilder.java:147-166); so does this. Null for a
+        /// classic companion.
+        /// </summary>
+        public static IReadOnlyDictionary<string, byte[]> ClipsOf(Xml xml)
+        {
+            Dictionary<string, byte[]> clips;
+            return xml != null && Clips.TryGetValue(xml, out clips) ? clips : null;
+        }
+
+        private static readonly ConditionalWeakTable<Xml, Dictionary<string, byte[]>> Clips =
+            new ConditionalWeakTable<Xml, Dictionary<string, byte[]>>();
+
+        /// <summary>Each named sound's decoded bytes, matched to the document's sounds by position (the validator hands
+        /// them back in document order).</summary>
+        private static Dictionary<string, byte[]> ClipsByName(XmlData.RootNode root, byte[][] sounds)
+        {
+            var clips = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+            if (root.Sounds == null || root.Sounds.Sound == null || sounds == null) return clips;
+            for (int i = 0; i < root.Sounds.Sound.Length && i < sounds.Length; i++)
+            {
+                XmlData.SoundNode node = root.Sounds.Sound[i];
+                if (node != null && node.SoundId != null && sounds[i] != null) clips[node.SoundId] = sounds[i];
+            }
+            return clips;
         }
     }
 }
