@@ -496,7 +496,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     if (Array.IndexOf(ShimejiFormatValidator.SocialClasses, cls) >= 0) _social = true;
                     if (Array.IndexOf(ShimejiFormatValidator.WindowClasses, cls) >= 0) _windows = true;
                 }
-                else if (cls != null) Fail(source, "Class is supported only on Embedded");
+                // ActionBuilder reads Class for every action but uses it only for an Embedded type (ActionBuilder.java:
+                // 50, 101-126); a Move, Stay, Animate or composite is built from its type whatever Class says, so a Class
+                // there is ignored (and, as on every action, never written as a parameter).
                 XElement guard = null, offers = null;
                 Func<string, bool> scope = ScopeFor(source);
                 _scope = scope;

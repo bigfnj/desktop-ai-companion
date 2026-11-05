@@ -19467,6 +19467,13 @@ CASES = (
      b"                    else Fail(entry, \"unsupported next-list entry\");\n",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
      SHIMEJI, None, "unsupported next-list entry"),
+    # Round 2. A Class on a non-Embedded action is never used by the source.
+    ("convert-corpus: a Class on a non-Embedded action is refused again",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
+     b"                // there is ignored (and, as on every action, never written as a parameter).\n",
+     b"                else if (cls != null) Fail(source, \"Class is supported only on Embedded\");\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "class-on-plain-action: actions.xml#/Mascot[1]/ActionList[1]/Action[3]"),
     # Round 2. Information documents: their metadata has no runtime effect; configuration inside one refuses.
     ("convert-corpus: an information document is refused again",
      os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),

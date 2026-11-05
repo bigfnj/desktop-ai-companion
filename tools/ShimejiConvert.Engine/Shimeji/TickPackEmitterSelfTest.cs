@@ -72,6 +72,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "custom-variables", Run = (Action)CustomVariables },
                 new { Name = "ignored-behaviour-children", Run = (Action)IgnoredBehaviourChildren },
                 new { Name = "ignored-list-entries", Run = (Action)IgnoredListEntries },
+                new { Name = "class-on-plain-action", Run = (Action)ClassOnPlainAction },
                 new { Name = "information-lowering", Run = (Action)InformationLowering },
                 new { Name = "own-set-binding-reset", Run = (Action)OwnSetBindingReset },
                 new { Name = "japanese-schema-values", Run = (Action)JapaneseSchemaValues },
@@ -1430,6 +1431,25 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 XDocument document = fixture.Convert();
                 Validate(document, "ignored list entries member");
                 Require(document.ToString() == plain, "a behaviour-list child the source never reads changed the emitted member");
+            }
+        }
+
+        // A Class on an action whose Type is not Embedded is never used by the source (ActionBuilder builds the class
+        // only for Embedded), so it converts to exactly the bytes the action has without it.
+        private static void ClassOnPlainAction()
+        {
+            string plain;
+            using (var fixture = new Fixture())
+                plain = fixture.Convert().ToString();
+            using (var fixture = new Fixture())
+            {
+                XDocument actions = BuildActions();
+                actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Walk")
+                    .SetAttributeValue("Class", "com.group_finity.mascot.action.Fall");
+                fixture.Actions(actions);
+                XDocument document = fixture.Convert();
+                Validate(document, "Class on a Move member");
+                Require(document.ToString() == plain, "a Class on a non-Embedded action changed the emitted member");
             }
         }
 

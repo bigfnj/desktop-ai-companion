@@ -103,7 +103,7 @@ and Thrown wherever a literal names them; an English Fall beside them, a scripte
 member, a TargetBehavior naming one, and a literal engine name in a pack that mixes the two vocabularies are
 refused.
 Attributes on a configuration document's root element, and direct text in any configuration element, are ignored,
-as the source never reads them. An instant
+as the source never reads them; so is a Class on an action that is not Embedded. An instant
 embedded action (Look, Offset, Mute, BringToFront) written with no Animation becomes an act with no variants, as
 the source builds those classes without animations; any other posed action without an Animation is refused.
 An anonymous nested action becomes a node named after its place, `<parent>/<position>`; a name that collides
