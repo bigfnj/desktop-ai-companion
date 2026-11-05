@@ -28,6 +28,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
     public sealed class PackStartupOptions
     {
         public string Member { get; set; }
+        /// <summary>An exact source root-behaviour name, or an unambiguous emitted name, in the selected member.</summary>
         public string Behaviour { get; set; }
     }
 
@@ -142,6 +143,17 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                         if (!keys.Contains(key)) errors.Add("TICK_PACK_OPTIONS_UNKNOWN: member metadata names an image set that is not in this pack: " + key);
 
                     List<TickPackEmitter.PreparedMember> ready = prepared.Where(member => member.Error == null).ToList();
+                    if (snapshot.HasStartup)
+                    {
+                        TickPackEmitter.PreparedMember target = ready.SingleOrDefault(member => member.Name == snapshot.StartupMember);
+                        if (target != null)
+                        {
+                            string startupError;
+                            string mapped = ResolveStartupBehaviour(target, snapshot.StartupBehaviour, out startupError);
+                            if (startupError == null) snapshot.StartupBehaviour = mapped;
+                            else errors.Add(startupError);
+                        }
+                    }
                     // A subset identity is useful only inside refused-pack diagnostic previews. It must not be
                     // exposed as the identity of the complete source pack.
                     string previewIdentity = ready.Count == 0 ? null : TickPackEmitter.SourcePackId(ready);
@@ -154,6 +166,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                         else
                             report = Prepare(member, previewIdentity, snapshot, copy, serialize);
                         members.Add(report);
+                        foreach (string warning in member.Warnings)
+                        {
+                            string diagnostic = "Image set '" + member.Name + "': " + warning;
+                            warnings.Add(diagnostic);
+                            report.Residue.Notes.Add(diagnostic);
+                        }
                         if (report.Error != null) errors.Add("Image set '" + member.Name + "': " + report.Error);
                         else
                         {
@@ -193,6 +211,20 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             var result = new PackConversionResult(identity, snapshot == null ? null : snapshot.MainMember, members, errors, warnings);
             error = result.Error;
             return result;
+        }
+
+        internal static string ResolveStartupBehaviour(TickPackEmitter.PreparedMember member, string requested, out string error)
+        {
+            string[] matches = member.BehaviourNames.Where(pair => pair.Key == requested || pair.Value == requested)
+                .Select(pair => pair.Value).Distinct(StringComparer.Ordinal).ToArray();
+            if (matches.Length == 1)
+            {
+                error = null;
+                return matches[0];
+            }
+            error = (matches.Length == 0 ? "TICK_PACK_STARTUP_UNMAPPED" : "TICK_PACK_STARTUP_AMBIGUOUS")
+                + ": image set '" + member.Name + "' cannot resolve startup behaviour '" + requested + "'.";
+            return null;
         }
 
         private static OptionsSnapshot Snapshot(PackConversionOptions options, List<string> errors)

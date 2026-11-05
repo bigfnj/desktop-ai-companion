@@ -41,6 +41,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "hidden-main-refusal", Run = (Action)HiddenMain },
                 new { Name = "source-hidden-main-visible", Run = (Action)SourceHiddenMain },
                 new { Name = "runtime-entry-warnings", Run = (Action)RuntimeEntryWarnings },
+                new { Name = "prepared-member-warnings", Run = (Action)PreparedMemberWarnings },
+                new { Name = "startup-schema-mapping", Run = (Action)StartupSchemaMapping },
+                new { Name = "startup-unmapped-name", Run = (Action)StartupUnmappedName },
+                new { Name = "startup-ambiguous-name", Run = (Action)StartupAmbiguousName },
             };
             if (onlyCase != null && !cases.Any(c => c.Name == onlyCase))
             { detail = "pack-conversion unknown case: " + onlyCase; return false; }
@@ -457,6 +461,112 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     Require(result.Warnings.Where(w => w.Contains("has no ") && w.Contains(" behaviour;"))
                         .All(w => w.Contains("dispos")), "runtime entry warning did not state the companion is disposed");
                 }
+        }
+
+        private static void PreparedMemberWarnings()
+        {
+            using (var fixture = new Fixture())
+            {
+                foreach (string key in new[] { "Alpha", "Beta" })
+                {
+                    XDocument behaviours = Behaviours();
+                    behaviours.Root.Element("BehaviorList").Elements("Behavior").First().Add(
+                        E("NextBehaviorList", A("Add", true), E("BehaviorReference", A("Name", "Missing-" + key),
+                            A("Action", "Stand"), A("Frequency", 1))));
+                    fixture.Member(key, Actions(), behaviours);
+                }
+                PackConversionResult result = Accepted(fixture, Options());
+                CheckPreparedWarnings(result);
+
+                // Preparation succeeded, but a later copy fault must preserve its diagnostics.
+                PackConversionOptions options = Options();
+                string before = fixture.Inventory(), error;
+                PackConversionResult refused = PackConverter.Convert(fixture.PackRoot, options,
+                    root => { throw new InvalidDataException("Injected copy refusal after source preparation."); }, ShimejiEngine.Serialize, out error);
+                Require(!refused.Accepted && error != null && refused.Members.All(m => m.Disposition == PackMemberDisposition.Refused),
+                    "injected post-preparation refusal did not refuse the pack");
+                CheckPreparedWarnings(refused);
+                Require(before == fixture.Inventory(), "refused warning conversion changed source files");
+            }
+        }
+
+        private static void CheckPreparedWarnings(PackConversionResult result)
+        {
+            foreach (string key in new[] { "Alpha", "Beta" })
+            {
+                string prefix = "Image set '" + key + "': Behaviour 'Main': the next entry 'Missing-" + key + "'";
+                Require(result.Warnings.Count(w => w.StartsWith(prefix, StringComparison.Ordinal) && w.Contains("was dropped")) == 1,
+                    "prepared-member warning missing, duplicated or missing its member identity: " + key);
+                Require(Member(result, key).Residue.Notes.Count(w => w.StartsWith(prefix, StringComparison.Ordinal)) == 1,
+                    "member residue lost its prepared warning: " + key);
+                Require(!Member(result, key).Residue.Notes.Any(w => w.Contains("Missing-" + (key == "Alpha" ? "Beta" : "Alpha"))),
+                    "prepared-member warning leaked into a sibling's residue: " + key);
+            }
+        }
+
+        private static XDocument JapaneseBehaviours()
+        {
+            XElement list = E("行動リスト", E("行動", A("名前", "Main"), A("動作", "Stand"), A("頻度", 1)));
+            foreach (string name in new[] { "落下する", "ドラッグされる", "投げられる" })
+                list.Add(E("行動", A("名前", name), A("動作", "Stand"), A("頻度", 0)));
+            return new XDocument(E("Mascot", list));
+        }
+
+        private static void StartupSchemaMapping()
+        {
+            using (var fixture = new Fixture())
+            {
+                fixture.Member("Alpha", Actions(), Behaviours());
+                fixture.Member("Beta", Actions(), JapaneseBehaviours());
+                string[] sourceNames = { "落下する", "ドラッグされる", "投げられる", "Main", "Fall" };
+                string[] emittedNames = { "Fall", "Dragged", "Thrown", "Main", "Fall" };
+                for (int index = 0; index < sourceNames.Length; index++)
+                {
+                    PackConversionOptions options = Options();
+                    options.Startup = new PackStartupOptions { Member = "Beta", Behaviour = sourceNames[index] };
+                    PackConversionResult result = Accepted(fixture, options);
+                    XElement startup = Document(Member(result, "Alpha")).Root.Element(Ns + "header").Element(Ns + "startup");
+                    Require((string)startup.Attribute("member") == "Beta" && (string)startup.Attribute("behaviour") == emittedNames[index],
+                        "startup did not use the target member's emitted root name: " + sourceNames[index]);
+                    Require(options.Startup.Member == "Beta" && options.Startup.Behaviour == sourceNames[index],
+                        "startup mapping mutated caller-owned options");
+                }
+            }
+        }
+
+        private static void StartupUnmappedName()
+        {
+            using (var fixture = new Fixture())
+            {
+                fixture.Member("Alpha", Actions(), Behaviours());
+                fixture.Member("Beta", Actions(), JapaneseBehaviours());
+                foreach (var request in new[] { new { Member = "Beta", Name = "Absent" }, new { Member = "Alpha", Name = "落下する" },
+                    new { Member = "Beta", Name = "fall" } })
+                {
+                    PackConversionOptions options = Options();
+                    options.Startup = new PackStartupOptions { Member = request.Member, Behaviour = request.Name };
+                    PackConversionResult result = Refused(fixture, options, "TICK_PACK_STARTUP_UNMAPPED");
+                    Require(result.Errors.Any(e => e.Contains("image set '" + request.Member + "'") && e.Contains("'" + request.Name + "'")),
+                        "unmapped startup refusal did not name both member and requested behaviour");
+                }
+            }
+        }
+
+        private static void StartupAmbiguousName()
+        {
+            // The emitter rejects its present schema collisions. Exercise the API guard independently so a future
+            // mapping cannot make an emitted alias silently select another source root.
+            var target = new Emit.TickPackEmitter.PreparedMember { Name = "Beta", BehaviourNames = new Dictionary<string, string> {
+                { "First", "Second" }, { "Second", "Third" }
+            } };
+            string error;
+            string mapped = PackConverter.ResolveStartupBehaviour(target, "Second", out error);
+            Require(mapped == null && error != null && error.Contains("TICK_PACK_STARTUP_AMBIGUOUS") && error.Contains("'Beta'") && error.Contains("'Second'"),
+                "ambiguous startup alias did not refuse with member and requested name");
+            Require(PackConverter.ResolveStartupBehaviour(target, "First", out error) == "Second" && error == null,
+                "an unambiguous source name was refused");
+            Require(PackConverter.ResolveStartupBehaviour(target, "Third", out error) == "Third" && error == null,
+                "an unambiguous emitted name was refused");
         }
 
         private static XElement E(string name, params object[] content) { return new XElement(name, content); }

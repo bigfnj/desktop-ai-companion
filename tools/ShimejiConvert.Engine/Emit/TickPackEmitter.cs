@@ -200,6 +200,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         {
             public string Name, Xml, Map, SourceIdentity, Error;
             public bool CrossMember;
+            // Root names as the emitter actually writes them, including this member's schema mapping.
+            public IReadOnlyDictionary<string, string> BehaviourNames = new Dictionary<string, string>(StringComparer.Ordinal);
             /// <summary>What this lowering corrected on purpose and the caller should be told (a dropped next entry).
             /// The pack API's warnings are PackConversion's to collect; this list is where they come from.</summary>
             public List<string> Warnings = new List<string>();
@@ -431,7 +433,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     (n.Name == Ns + "param" || n.Name == Ns + "bind") &&
                     IsMemberParameter((string)n.Attribute("name")));
                 return new PreparedMember { Name = _member, Xml = xml, Map = map + "\n", CrossMember = crossMember, Warnings = _warnings,
-                    SourceIdentity = SourceIdentity() };
+                    SourceIdentity = SourceIdentity(), BehaviourNames = _rootOrder.ToDictionary(name => name, BehaviourName, StringComparer.Ordinal) };
             }
 
             private void CollectRoots(ShimejiSourceElement parent, string condition)
