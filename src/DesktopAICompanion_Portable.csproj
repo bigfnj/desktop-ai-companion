@@ -110,6 +110,7 @@
     <Compile Include="DesktopAICompanion.ModuleKit\UnicodeTextProgress.cs" Link="Generated\UnicodeTextProgress.cs" />
     <Compile Include="dotNet\Animations.cs" />
     <Compile Include="dotNet\AnimationReachability.cs" />
+    <Compile Include="dotNet\TickReachability.cs" />
     <Compile Include="dotNet\AudioOutput.cs" />
     <Compile Include="dotNet\ContextMenus.cs" />
     <Compile Include="dotNet\AppLifetime.cs" />

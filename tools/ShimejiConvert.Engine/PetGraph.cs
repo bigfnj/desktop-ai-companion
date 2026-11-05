@@ -68,6 +68,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
         {
             var report = new GraphReport();
             if (root == null) return report;
+            if (ShimejiFormatValidator.IsTickMode(root)) return AnalyzeTick(root, report);
 
             XmlData.AnimationNode[] animations =
                 root.Animations != null && root.Animations.Animation != null
@@ -152,6 +153,34 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             foreach (int id in declared)
                 if (!reached.Contains(id)) report.Unreachable.Add(id);
 
+            report.Unreachable.Sort();
+            report.Terminal.Sort();
+            return report;
+        }
+
+        /// <summary>A tick-clock companion (grimoire/06 section 4) has no sequence, border or gravity edge between its
+        /// nodes and no magic entry name, so it is walked by the host's own tick walk (src/dotNet/TickReachability.cs):
+        /// the route and the behaviours the runtime enters by name are its roots, and its edges are route and next-list
+        /// selections, the action a behaviour runs, a composite's children, hotspots and literal behaviour names.
+        /// Zero-weight selections are listed by the walk and, as here, are not edges.</summary>
+        private static GraphReport AnalyzeTick(XmlData.RootNode root, GraphReport report)
+        {
+            TickGraph graph = TickReachability.Build(root);
+            var declared = new HashSet<int>();
+            if (root.Animations != null && root.Animations.Animation != null)
+                foreach (XmlData.AnimationNode animation in root.Animations.Animation)
+                {
+                    if (animation == null || !declared.Add(animation.Id)) continue;
+                    int live = 0;
+                    foreach (TickGraphEdge edge in graph.EdgesOf(animation.Id))
+                        if (edge.Probability > 0) live++;
+                    report.EdgeCount += live;
+                    if (live == 0) report.Terminal.Add(animation.Id);
+                }
+            report.AnimationCount = declared.Count;
+            report.Roots.AddRange(graph.Roots);
+            foreach (int id in declared)
+                if (!graph.Reachable.Contains(id)) report.Unreachable.Add(id);
             report.Unreachable.Sort();
             report.Terminal.Sort();
             return report;

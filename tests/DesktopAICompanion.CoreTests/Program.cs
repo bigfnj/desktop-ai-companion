@@ -140,6 +140,11 @@ namespace DesktopAICompanion
                 Run("Tick windows walk: the first eligible window in z-order; a maximised one ends the walk", TestTickWindowsWalkOrder);
                 Run("Tick windows safety: each refused kind of window is refused", TestTickWindowsSafety);
                 Run("Tick windows safety clamp: a moved or thrown window stays inside its work area", TestTickWindowsClamp);
+                Run("Tick studio reachability: route, runs, composite and hotspot edges reach what the runtime runs", TestTickStudioStructuralEdges);
+                Run("Tick studio reachability: a zero-weight selection is listed and never followed", TestTickStudioZeroWeight);
+                Run("Tick studio reachability: a next-list entry continues with its root namesake's list", TestTickStudioNextContinuation);
+                Run("Tick studio reachability: Fall, Dragged, Thrown and this member's startup behaviour are roots", TestTickStudioEngineRoots);
+                Run("Tick studio reachability: a literal behaviour name an action or binding sets is an edge", TestTickStudioNamedBehaviours);
             }
             finally
             {

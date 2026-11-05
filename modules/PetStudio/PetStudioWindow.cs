@@ -135,6 +135,8 @@ namespace DesktopAICompanion.PetStudioModule
         private string _openedPath;
         private PetSprite _sprite;
         private string _spriteKey;
+        // Whether the graph on the map (the last accepted one) is a tick-clock companion's, for the detail pane's words.
+        private bool _tickClock;
         private ICompanionPreview _preview;
         // The map node the author last clicked, kept so "Preview highlighted action" knows WHAT to play.
         // The detail pane already renders this node, but it rendered it straight into TextBlocks and kept
@@ -1528,6 +1530,7 @@ namespace DesktopAICompanion.PetStudioModule
             // its own and both asserted: the graph stands, and Resync is told whether there is one at all.
             if (report.IsValid)
             {
+                _tickClock = report.IsTickClock;
                 _nodesById.Clear();
                 // Whole-pet, and BEFORE the chips are built: each chip's badge reads from it.
                 _capabilities = AnimCapabilities.ClassifyAll(report.Nodes);
@@ -1623,7 +1626,9 @@ namespace DesktopAICompanion.PetStudioModule
             {
                 // Explain WHY it never plays — the common case is an animation that is fully built (has frames
                 // and its own exits) but that nothing transitions INTO, i.e. it was authored but never wired up.
-                status = "Never played — no transition, spawn, or entry point (drag/fall/kill/sync) leads into it.";
+                status = _tickClock
+                    ? "Never runs: nothing reachable selects it, runs it, contains it or enters it, and it is not the route, Fall, Dragged or Thrown."
+                    : "Never played — no transition, spawn, or entry point (drag/fall/kill/sync) leads into it.";
                 if (node.Frames.Length > 0 || node.Edges.Count > 0)
                     status += " It has " + node.Frames.Length + " frame(s) and " + node.Edges.Count +
                         " exit(s), so it looks complete but was never hooked up.";

@@ -97,6 +97,12 @@ namespace DesktopAICompanion.PetStudioModule
         /// identifiable in a report.</summary>
         internal const string ClonePrefix = "dbg";
 
+        /// <summary>What the debugger says to a tick-clock companion (grimoire/06), which it does not build: Preview runs
+        /// one as it is.</summary>
+        internal const string TickClockRefusal =
+            "The behaviour debugger works on classic companions; this one runs on the Shimeji runtime. " +
+            "Use \"Preview on my desktop\" to watch it run.";
+
         /// <summary>
         /// The timeline steps a re-analysis drops: those whose animation the pet no longer has -- and NONE
         /// when the analysis produced no graph. A rejected text (an unclosed tag during a 750 ms typing pause,
@@ -250,6 +256,15 @@ namespace DesktopAICompanion.PetStudioModule
             if (!CompanionXmlValidator.TryParse(sourceXml, out root, out parseError))
             {
                 error = "The companion XML does not parse: " + parseError;
+                return null;
+            }
+            // A tick-clock companion is refused before anything is cloned. CloneAnimation builds classic nodes only (no
+            // <act>, <behaviour> or <route>) and CopyEdges drops an edge's condition, so the debug pet would lose the very
+            // fields that make it run; and its behaviour layer picks what follows, so a chain wired nose-to-tail cannot
+            // be expressed in it at all.
+            if (ShimejiFormatValidator.IsTickMode(root))
+            {
+                error = TickClockRefusal;
                 return null;
             }
             if (root.Animations == null || root.Animations.Animation == null || root.Animations.Animation.Length == 0)
