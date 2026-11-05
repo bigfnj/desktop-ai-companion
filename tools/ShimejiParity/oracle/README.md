@@ -14,6 +14,7 @@ $oracle = @{
     JdkRoot = '<installed-jdk-8-directory>'
     PythonPath = $env:TOOLBOX_PYTHON
 }
+.\Invoke-Oracle.ps1 @oracle -Action Preflight
 .\Invoke-Oracle.ps1 @oracle -Action Fetch
 .\Invoke-Oracle.ps1 @oracle -Action Build
 .\Invoke-Oracle.ps1 @oracle -Action Compare
@@ -28,6 +29,9 @@ processes. It uses the supplied JDK path directly and does not change PATH or JA
 checkout. `CacheRoot` and `JdkRoot` are required, or can be supplied through `SHIMEJI_ORACLE_CACHE` and
 `SHIMEJI_ORACLE_JDK8`. `OutputRoot` defaults to the cache's evidence directory. The wrapper supplies isolation
 variables through the child process environment and preserves the calling shell's environment.
+Every supplied path is resolved against the current PowerShell location, including JDK, shared-input and Python
+paths. Cache and output roots inside this tool's repository are refused before directories are created. The Python
+preflight also checks resolved physical paths. `Preflight` prints resolved paths and creates no directories.
 
 `Fetch` checks the source archive against its pinned SHA-256 before extraction. Archive paths, symbolic links,
 protected credential-file paths and expanded size are checked before payload extraction. Later verification
@@ -85,14 +89,20 @@ events, assign canonical reference keys, dispatch input timelines, or produce th
 Java RNG labels use the contract's canonical builtin site names. The environment helper models one active window and one screen; broader
 scenario behavior requires the reviewed contract adapter. Trace fields remain subject to contract sign-off.
 
+The simulated desktop keeps native window state separate from the area cached for a tick. Moves and minimization
+become visible in the cached area at the next tick; each tick resets area deltas. Actions reacquire the live target,
+so a missing, minimized or offscreen window cannot be moved again. Restoration relocates a shown offscreen window
+without undoing minimization or inventing a restore event. The absent-window zero rectangle follows the source's
+freshly allocated RECTs after failed native calls. This assumption has not been checked with native Win32 probing.
+
 ## Failure witnesses
 
 ```powershell
 .\Invoke-Oracle.ps1 @oracle -Action SelfTest
 .\Invoke-Oracle.ps1 @oracle -Action Mutate
 .\Invoke-Oracle.ps1 @oracle -Action Failures
-.\Test-OracleIsolation.ps1 -PythonPath $env:TOOLBOX_PYTHON
-.\Test-OracleIsolation.ps1 -Mutate -PythonPath $env:TOOLBOX_PYTHON
+.\Test-OracleIsolation.ps1 -PythonPath $env:TOOLBOX_PYTHON -Mutate
+.\Test-OraclePaths.ps1 -PythonPath $env:TOOLBOX_PYTHON -Mutate
 ```
 
 `SelfTest` exercises checksum refusal, archive containment, protected-path refusal, bytecode difference
@@ -103,6 +113,23 @@ remained byte-identical.
 
 `Draft` also exercises malformed edit specifications and in-memory guard mutations. `Test-OracleIsolation.ps1`
 runs the wrapper in the calling shell and checks that its environment markers survive unchanged.
+Its mutation changes only a private wrapper copy. `Test-OraclePaths.ps1` starts with different native and PowerShell
+locations, checks every resolved root, exercises both repository refusals, and kills a native-CWD regression. Both
+PowerShell checks remove their own fixtures and verify the tracked wrapper was unchanged.
+
+Two additional focused checks use an explicitly supplied Python interpreter:
+
+```powershell
+& '<python-executable>' -I -B .\verify_windows.py --cache-root $oracle.CacheRoot --output-root $oracle.OutputRoot --jdk-root $oracle.JdkRoot --mutate
+& '<python-executable>' -I -B .\verify_vocabulary.py --cache-root $oracle.CacheRoot --converter-parser '<converter-parser-file>'
+```
+
+`verify_windows.py` builds only the original helper/probe sources over the private draft runtime, then runs headless
+directed cases and optional mutants. Each mutant must produce a newly built, changed adapter class and exactly its
+named execution failure. It creates no display or native window and sends no input. Evidence remains private.
+`verify_vocabulary.py` compares sorted vocabulary facts with the verified private schema files. The repository holds
+the canonicalization code and hashes, never properties-file contents. Its difference guard is mutation-tested in
+memory. Canonical bytes are ordinal key, NUL, XML read name and LF, encoded as UTF-8 without a BOM.
 
 `Failures` requires current successful runtime probes first. It launches isolated negative probes with an
 incorrect expected offset and an incorrect runtime fingerprint, requiring named failures and exited child

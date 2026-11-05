@@ -41,7 +41,7 @@ public final class DraftParityHooks {
             this.cursor = new Point(cursor);
             this.screens = new LinkedHashMap<String, Rectangle>();
             this.screens.put("scenario-screen", new Rectangle(screen));
-            this.window = new Rectangle(window);
+            this.window = window == null ? null : new Rectangle(window);
             this.windowVisible = visible;
             this.windowChanged = changed;
             this.windowTitle = title;

@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('Fetch', 'Build', 'Compare', 'Probe', 'Check', 'Draft', 'Bridge', 'Failures', 'Shared', 'SelfTest', 'Mutate')]
+    [ValidateSet('Preflight', 'Fetch', 'Build', 'Compare', 'Probe', 'Check', 'Draft', 'Bridge', 'Failures', 'Shared', 'SelfTest', 'Mutate')]
     [string]$Action,
     [string]$CacheRoot = $env:SHIMEJI_ORACLE_CACHE,
     [string]$OutputRoot,
@@ -16,19 +16,49 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
+function Resolve-OraclePath([string]$Value) {
+    return [IO.Path]::GetFullPath($ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Value))
+}
+
+function Get-OracleRepository {
+    $directory = New-Object IO.DirectoryInfo($PSScriptRoot)
+    while ($null -ne $directory) {
+        $marker = Join-Path $directory.FullName '.git'
+        if ([IO.File]::Exists($marker) -or [IO.Directory]::Exists($marker)) { return $directory.FullName }
+        $directory = $directory.Parent
+    }
+    return $PSScriptRoot
+}
+
+function Assert-OracleExternalStorage([string]$Value, [string]$Label) {
+    $repository = [IO.Path]::GetFullPath((Get-OracleRepository)).TrimEnd('\', '/')
+    if ([string]::Equals($Value.TrimEnd('\', '/'), $repository, [StringComparison]::OrdinalIgnoreCase) -or
+        $Value.StartsWith($repository + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+        throw ('ORACLE_REPOSITORY_STORAGE_REFUSAL ' + $Label)
+    }
+}
+
 if ([string]::IsNullOrWhiteSpace($CacheRoot)) { throw 'Pass -CacheRoot or set SHIMEJI_ORACLE_CACHE to a private cache outside the checkout.' }
 if ([string]::IsNullOrWhiteSpace($JdkRoot)) { throw 'Pass -JdkRoot or set SHIMEJI_ORACLE_JDK8 to a JDK 8 installation.' }
-$CacheRoot = [IO.Path]::GetFullPath($CacheRoot)
+$CacheRoot = Resolve-OraclePath $CacheRoot
 if ([string]::IsNullOrWhiteSpace($OutputRoot)) { $OutputRoot = Join-Path $CacheRoot 'evidence' }
-$OutputRoot = [IO.Path]::GetFullPath($OutputRoot)
+$OutputRoot = Resolve-OraclePath $OutputRoot
 if ([string]::IsNullOrWhiteSpace($DataRoot)) { $DataRoot = Join-Path $OutputRoot 'data' }
 if ([string]::IsNullOrWhiteSpace($TempRoot)) { $TempRoot = Join-Path $OutputRoot 'temp' }
-$DataRoot = [IO.Path]::GetFullPath($DataRoot)
-$TempRoot = [IO.Path]::GetFullPath($TempRoot)
+$DataRoot = Resolve-OraclePath $DataRoot
+$TempRoot = Resolve-OraclePath $TempRoot
+$JdkRoot = Resolve-OraclePath $JdkRoot
+if (-not [string]::IsNullOrWhiteSpace($SharedRoot)) { $SharedRoot = Resolve-OraclePath $SharedRoot }
 if ($Action -eq 'Shared' -and [string]::IsNullOrWhiteSpace($SharedRoot)) { throw 'Shared needs -SharedRoot naming generated synthetic scenarios.' }
 if ([string]::IsNullOrWhiteSpace($PythonPath)) { $PythonPath = (Get-Command python.exe -ErrorAction Stop).Source }
-elseif (-not [IO.File]::Exists($PythonPath)) { $PythonPath = (Get-Command $PythonPath -ErrorAction Stop).Source }
-foreach ($oracleDirectory in @($DataRoot, $TempRoot)) { [void][IO.Directory]::CreateDirectory($oracleDirectory) }
+else {
+    $candidate = Resolve-OraclePath $PythonPath
+    if ([IO.File]::Exists($candidate)) { $PythonPath = $candidate }
+    else { $PythonPath = (Get-Command $PythonPath -ErrorAction Stop).Source }
+}
+$PythonPath = Resolve-OraclePath $PythonPath
+Assert-OracleExternalStorage $CacheRoot 'cache-root'
+Assert-OracleExternalStorage $OutputRoot 'output-root'
 
 function Quote-OracleArgument([string]$Value) {
     $escaped = [regex]::Replace($Value, '(\\*)"', '$1$1\"')
@@ -50,8 +80,8 @@ $oracleEnvironment = @{
 $oracleStart = New-Object Diagnostics.ProcessStartInfo
 $oracleStart.FileName = $PythonPath
 $oracleStart.Arguments = (($oracleArguments | ForEach-Object { Quote-OracleArgument $_ }) -join ' ')
-$oracleStart.WorkingDirectory = $OutputRoot
-[void][IO.Directory]::CreateDirectory($OutputRoot)
+# The child validates physical storage paths before creating any directory.
+$oracleStart.WorkingDirectory = $PSScriptRoot
 $oracleStart.UseShellExecute = $false
 $oracleStart.CreateNoWindow = $true
 $oracleStart.RedirectStandardOutput = $true

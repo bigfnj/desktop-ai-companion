@@ -9,7 +9,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import re
-from types import SimpleNamespace
+from types import FunctionType, SimpleNamespace
 import subprocess
 import sys
 import tempfile
@@ -34,6 +34,23 @@ HERE = Path(__file__).resolve().parent
 
 class Refusal(RuntimeError):
     pass
+
+
+def repository_root(here=HERE):
+    for parent in (here, *here.parents):
+        if (parent / ".git").exists():
+            return parent.resolve()
+    return here.resolve()
+
+
+def validate_storage_roots(args, repository=None):
+    repository = repository_root() if repository is None else Path(repository).resolve()
+    for label, supplied in (("cache-root", args.cache_root), ("output-root", args.output_root)):
+        # Check both spellings: an in-checkout junction must not disguise a private destination.
+        for target in (Path(os.path.abspath(supplied)), Path(supplied).resolve()):
+            if target == repository or repository in target.parents:
+                raise Refusal("REPOSITORY_STORAGE_REFUSAL " + label + " must be outside the tool's repository")
+    return repository
 
 
 def sha(data):
@@ -121,6 +138,7 @@ def fetch_bytes(url):
 
 
 def cache_source(args):
+    validate_storage_roots(args)
     root = args.cache_root
     archive_path = root / "shimejieesrc.zip"
     if archive_path.exists():
@@ -254,6 +272,7 @@ def verify_distribution_jar(data):
 
 
 def distribution(args):
+    validate_storage_roots(args)
     path = args.cache_root / "shimejiee.zip"
     if path.exists():
         data = path.read_bytes()
@@ -261,13 +280,15 @@ def distribution(args):
     else:
         data, headers = fetch_bytes(DISTRIBUTION_URL)
     digest = verify_distribution(data)
+    if not path.exists():
+        args.cache_root.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
     root = args.cache_root / ("distribution-" + digest[:12])
     state_path = args.cache_root / "distribution.json"
     if not state_path.exists():
         if root.exists():
             raise Refusal("DISTRIBUTION_STATE_REFUSAL extraction has no inventory")
         inventory = extract(data, root)
-        path.write_bytes(data)
         jars = [root / n for n in inventory if n.lower().endswith("shimejiee.jar") or n.lower().endswith("shimeji-ee.jar")]
         if len(jars) != 1:
             raise Refusal("DISTRIBUTION_LAYOUT_REFUSAL expected one runtime JAR")
@@ -419,8 +440,49 @@ def validate_shared_rng(scenario):
         raise Refusal("SHARED_RNG_UNCONTROLLED_REFUSAL only declared rng.kind=none is accepted by this provisional driver")
 
 
+def distribution_cache_witness(args):
+    runtime = b"synthetic-runtime-for-cache-witness"
+    payload = io.BytesIO()
+    with zipfile.ZipFile(payload, "w") as archive:
+        archive.writestr("Shimeji-ee.jar", runtime)
+        archive.writestr("conf/synthetic.properties", "fixture=true")
+    data = payload.getvalue()
+    fetches = []
+
+    def synthetic_fetch(url):
+        fetches.append(url)
+        return data, {"witness": "synthetic-no-network"}
+
+    # Separate function globals use synthetic fixture identities, never changing live pins.
+    namespace = dict(globals(), DISTRIBUTION_SHA256=sha(data), DISTRIBUTION_JAR_SHA256=sha(runtime),
+                     fetch_bytes=synthetic_fetch)
+    for function in (verify_distribution, verify_distribution_jar, distribution):
+        namespace[function.__name__] = FunctionType(function.__code__, namespace, function.__name__)
+    with tempfile.TemporaryDirectory(prefix="oracle-distribution-cache-", dir=args.temp_root) as directory:
+        root = Path(directory)
+        fixture_args = SimpleNamespace(cache_root=root / "cache", output_root=root / "evidence")
+        namespace["distribution"](fixture_args)
+        cached = fixture_args.cache_root / "shimejiee.zip"
+        assert cached.is_file(), "DISTRIBUTION_CACHE_WITNESS initial archive was not retained"
+        cached.unlink()
+        namespace["distribution"](fixture_args)
+        assert cached.is_file() and cached.read_bytes() == data, "DISTRIBUTION_CACHE_WITNESS missing archive was not restored"
+        namespace["distribution"](fixture_args)
+        assert len(fetches) == 2, "DISTRIBUTION_CACHE_WITNESS restored archive was downloaded again"
+
+
 def self_test(args):
     labels = []
+    repository = repository_root()
+    forbidden = SimpleNamespace(cache_root=repository / "unwritten-cache", output_root=args.output_root)
+    expect_refusal(lambda: validate_storage_roots(forbidden), "REPOSITORY_STORAGE_REFUSAL cache-root", "REPOSITORY_CACHE_WITNESS")
+    forbidden = SimpleNamespace(cache_root=args.cache_root, output_root=repository / "unwritten-evidence")
+    expect_refusal(lambda: validate_storage_roots(forbidden), "REPOSITORY_STORAGE_REFUSAL output-root", "REPOSITORY_OUTPUT_WITNESS")
+    sibling = repository.parent / (repository.name + "-separate")
+    validate_storage_roots(SimpleNamespace(cache_root=sibling / "cache", output_root=sibling / "evidence"))
+    labels.append("repository-storage-and-prefix-boundary")
+    distribution_cache_witness(args)
+    labels.append("distribution-cache-writeback")
     verify(b"known", sha(b"known"), "positive-control")
     try:
         verify(b"corrupt", sha(b"known"), "synthetic-corruption")
@@ -651,6 +713,8 @@ def mutate(args):
         ("class-inventory", [('if ' + 'result.get("only_rebuilt") != [] or result.get("only_official") != []:', 'if False:')], "CLASS_INVENTORY_WITNESS"),
         ("class-bytecode", [('if ' + 'result.get("instruction_or_signature_differences") != {}:', 'if False:')], "CLASS_BYTECODE_WITNESS")]
     legs.extend([
+        ("repository-storage", [('if target == repository ' + 'or repository in target.parents:', 'if False:')], "REPOSITORY_CACHE_WITNESS"),
+        ("distribution-cache-writeback", [('if not ' + 'path.exists():', 'if not path.exists() and not (args.cache_root / "distribution.json").exists():')], "DISTRIBUTION_CACHE_WITNESS"),
         ("isolation-value", [('if ' + 'any(environment.get(key) != value for key, value in flags.items()):', 'if False:')], "ISOLATION_VALUE_WITNESS"),
         ("isolation-path", [('if ' + 'any(not environment.get(key) or Path(environment[key]).resolve() != Path(value).resolve() for key, value in paths.items()):', 'if False:')], "ISOLATION_PATH_WITNESS"),
         ("shared-rng", [('if ' + 'scenario.get("rng", {}).get("kind") != "none":', 'if False:')], "SHARED_RNG_WITNESS")])
@@ -843,7 +907,7 @@ def shared(args):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=("fetch", "build", "compare", "probe", "check", "draft", "bridge", "failures", "shared", "selftest", "mutate"))
+    parser.add_argument("action", choices=("preflight", "fetch", "build", "compare", "probe", "check", "draft", "bridge", "failures", "shared", "selftest", "mutate"))
     parser.add_argument("--cache-root", type=Path, required=True)
     parser.add_argument("--output-root", type=Path, required=True)
     parser.add_argument("--jdk-root", type=Path, required=True)
@@ -852,7 +916,15 @@ def main():
     parser.add_argument("--data-root", type=Path, required=True)
     parser.add_argument("--temp-root", type=Path, required=True)
     args = parser.parse_args()
+    repository = validate_storage_roots(args)
     validate_isolation(args)
+    if args.action == "preflight":
+        print(json.dumps({"status": "preflight-pass", "repository": str(repository), "paths": {
+            name: str(getattr(args, name)) if getattr(args, name) is not None else None
+            for name in ("cache_root", "output_root", "jdk_root", "shared_root", "data_root", "temp_root")}}, indent=2))
+        return
+    for directory in (args.output_root, args.data_root, args.temp_root):
+        directory.mkdir(parents=True, exist_ok=True)
     if args.action == "fetch":
         result = {"status": "verified", "source": str(cache_source(args)), "sha256": SOURCE_SHA256}
     elif args.action == "build":

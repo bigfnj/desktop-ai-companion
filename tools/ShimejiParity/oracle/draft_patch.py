@@ -28,6 +28,19 @@ RNG_COUNTS = {
     "src/com/group_finity/mascot/action/Dragged.java": 1,
     "src/com/group_finity/mascot/action/Regist.java": 1,
 }
+RNG_COORDINATES = {
+    ("src/com/group_finity/mascot/Main.java", 1290): "builtin:create-imageset",
+    ("src/com/group_finity/mascot/Main.java", 1308): "builtin:create-facing",
+    ("src/com/group_finity/mascot/config/Configuration.java", 237): "builtin:no-candidate-drop-x",
+    ("src/com/group_finity/mascot/config/Configuration.java", 242): "builtin:no-candidate-drop-x",
+    ("src/com/group_finity/mascot/config/Configuration.java", 248): "builtin:behavior-select",
+    ("src/com/group_finity/mascot/config/Configuration.java", 274): "builtin:disabled-behavior-drop-x",
+    ("src/com/group_finity/mascot/config/Configuration.java", 279): "builtin:disabled-behavior-drop-x",
+    ("src/com/group_finity/mascot/behavior/UserBehavior.java", 261): "builtin:out-of-bounds-drop-x",
+    ("src/com/group_finity/mascot/behavior/UserBehavior.java", 266): "builtin:out-of-bounds-drop-x",
+    ("src/com/group_finity/mascot/action/Dragged.java", 104): "builtin:dragged-regist",
+    ("src/com/group_finity/mascot/action/Regist.java", 69): "builtin:regist-facing",
+}
 
 
 def normalized(data):
@@ -118,6 +131,9 @@ def derive_changes(source, spec, oracle):
         random_sites.extend({"file": name, "line": number, "site": edit["site"]} for number, edit in selected_random)
     if len(random_sites) != 11 or {item["site"] for item in random_sites} != BUILTIN_SITES:
         raise oracle.Refusal("DRAFT_RNG_SITE_SET_REFUSAL")
+    actual_coordinates = {(item["file"], item["line"]): item["site"] for item in random_sites}
+    if actual_coordinates != RNG_COORDINATES:
+        raise oracle.Refusal("DRAFT_RNG_COORDINATE_REFUSAL")
     helper_root = (oracle.HERE / "draft").resolve()
     for helper_name in HELPERS:
         helper = (helper_root / helper_name).resolve()
@@ -129,7 +145,7 @@ def derive_changes(source, spec, oracle):
 
 def spec_negative_cases(source, original, oracle, derive=derive_changes, only=None):
     results = []
-    labels = ("source-pin", "file-sha", "line-sha", "line-range", "rng-count-spec", "rng-operation", "unknown-op")
+    labels = ("source-pin", "file-sha", "line-sha", "line-range", "rng-count-spec", "rng-operation", "rng-coordinate", "unknown-op")
     for label in labels:
         if only is not None and label not in only:
             continue
@@ -153,6 +169,11 @@ def spec_negative_cases(source, original, oracle, derive=derive_changes, only=No
             spec["edits"][-1]["op"] = "insert-before"
             spec["edits"][-1]["code"] = [";"]
             expected = "DRAFT_RNG_FILE_COUNT_REFUSAL"
+        elif label == "rng-coordinate":
+            matching = [edit for edit in spec["edits"] if edit["file"].endswith("/Configuration.java")
+                        and edit["line"] in (237, 248)]
+            matching[0]["site"], matching[1]["site"] = matching[1]["site"], matching[0]["site"]
+            expected = "DRAFT_RNG_COORDINATE_REFUSAL"
         else:
             spec["edits"][0]["op"] = "unexpected"
             expected = "DRAFT_OPERATION_REFUSAL"
@@ -178,6 +199,7 @@ def spec_guard_witnesses(source, spec, oracle):
         ("file-sha", "verify", "draft-source-file "),
         ("line-sha", "verify", "draft-source-line "),
         ("rng-count-spec", "condition", "DRAFT_RNG_COUNT_SPEC_REFUSAL"),
+        ("rng-coordinate", "condition", "DRAFT_RNG_COORDINATE_REFUSAL"),
     ):
         class DisableGuard(ast.NodeTransformer):
             count = 0
