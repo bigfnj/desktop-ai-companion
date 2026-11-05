@@ -790,12 +790,38 @@ namespace DesktopAICompanion
                 audioTotal = checked(audioTotal + audioBytes.Length);
                 if (audioTotal > MaximumAudioBytesTotal)
                     throw new InvalidDataException("Pet audio exceeds the total size limit.");
-                string audioError;
-                if (!Mp3Format.LooksLikeMp3(audioBytes, out audioError))
+                string audioError = AudioRefusal(sound, audioBytes);
+                if (audioError != null)
                     throw new InvalidDataException(audioError);
                 soundBytes[soundIndex++] = audioBytes;
             }
             soundBytesOut = soundBytes;
+        }
+
+        /// <summary>
+        /// Null when a sound's bytes are the format it DECLARES, otherwise the refusal, naming the sound (grimoire/06
+        /// section 3). The declaration decides which check runs; the bytes are looked at again only to word a mismatch, so
+        /// the author is told which way round it is. A classic sound is always MP3: the format attribute needs feature
+        /// 'wav', which needs 'tick', and a tick-clock companion's sounds are all named clips, so it never reaches here
+        /// with one.
+        /// </summary>
+        private static string AudioRefusal(XmlData.SoundNode sound, byte[] audioBytes)
+        {
+            string error;
+            if (WavFormat.IsDeclaredWav(sound))
+            {
+                if (WavFormat.IsDecodableWave(audioBytes, out error)) return null;
+                string mp3Error;
+                if (Mp3Format.LooksLikeMp3(audioBytes, out mp3Error))
+                    return "Sound '" + sound.SoundId + "' is declared format=\"wav\" but holds MP3 audio; an MP3 clip carries no format.";
+                return "Sound '" + sound.SoundId + "' is declared format=\"wav\" but " + error + ".";
+            }
+            if (Mp3Format.LooksLikeMp3(audioBytes, out error)) return null;
+            if (WavFormat.HasWaveHeader(audioBytes))
+                return sound.SoundId != null
+                    ? "Sound '" + sound.SoundId + "' holds WAV audio but is declared MP3 (no format, or format=\"mp3\"): declare format=\"wav\" and feature 'wav'."
+                    : "Sound for animation " + sound.Id + " holds WAV audio; a classic sound is MP3 (only a tick-clock companion's named clips may be WAV).";
+            return sound.SoundId != null ? "Sound '" + sound.SoundId + "': " + error : error;
         }
 
         private static void ValidateMoving(XmlData.MovingNode moving, string location)
@@ -1250,6 +1276,216 @@ namespace DesktopAICompanion
             if (buff.Length >= 2 && buff[0] == 0xFF && (buff[1] & 0xE0) == 0xE0) return true;
             error = "Sound is not a usable MP3 (no ID3 tag or MPEG frame sync).";
             return false;
+        }
+    }
+
+    /// <summary>
+    /// The structural check for a named clip declared <c>format="wav"</c> (grimoire/06 section 3, feature 'wav'): its bytes
+    /// must BE a RIFF/WAVE the host decodes, proved from the header and the chunk walk with no decode, as
+    /// <see cref="Mp3Format"/> proves an MP3. It lives in this file for the reason given there: no csproj that compiles
+    /// the validator has to change.
+    ///
+    /// What it accepts follows two measurements (feature/shimeji-host-wav). The encodings are those the host's NAudio
+    /// decodes with no OS codec, each decoded by --audio-selftest: PCM of 8, 16, 24 or 32 bits and IEEE float of 32 or 64,
+    /// plain or WAVE_FORMAT_EXTENSIBLE. ADPCM, mu-law and A-law would need the OS's ACM codecs and are refused, since no
+    /// clip of the converter's corpus uses them (all 1168 of its WAVE clips are 8- or 16-bit PCM). And the structure is no
+    /// stricter than real clips: chunks after the data chunk, an 18-byte fmt chunk and an odd-sized LAST chunk with no pad
+    /// byte all pass, as they do in NAudio's reader and the source's javax.sound one. What is refused is what leaves the
+    /// bytes in doubt: a RIFF size that disagrees with the clip (truncated, or trailing bytes), a chunk past the end, no
+    /// fmt or no data chunk, an empty or ragged data chunk, a block align that contradicts the channels and bits.
+    /// </summary>
+    internal static class WavFormat
+    {
+        /// <summary>The sample rates a clip may have. The lower bound also bounds the decoded size: the mixer resamples to
+        /// 44.1 kHz stereo float, so a clip costs at most 44100 x 8 / (8000 x 1) = 44 times its bytes once decoded (8-bit
+        /// mono at 8 kHz); a 16-bit stereo 44.1 kHz clip costs twice its bytes.</summary>
+        public const int MinimumSampleRate = 8000;
+        public const int MaximumSampleRate = 192000;
+
+        private const int Pcm = 0x0001;
+        private const int IeeeFloat = 0x0003;
+        private const int Extensible = 0xFFFE;
+
+        /// <summary>The tail every standard KSDATAFORMAT_SUBTYPE GUID shares after its two-byte format tag.</summary>
+        private static readonly byte[] SubtypeGuidTail = { 0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x80, 0x00, 0x00, 0xAA, 0x00, 0x38, 0x9B, 0x71 };
+
+        /// <summary>Whether a sound declares its bytes WAV. The one reading of the attribute: the validator and the
+        /// runtime's staging both ask here, so they cannot disagree about what a document said.</summary>
+        internal static bool IsDeclaredWav(XmlData.SoundNode sound)
+        {
+            return sound != null && string.Equals(sound.Format, "wav", StringComparison.Ordinal);
+        }
+
+        /// <summary>Whether the bytes open as a RIFF/WAVE form. Used only to word a refusal: the declared format decides
+        /// which check runs.</summary>
+        internal static bool HasWaveHeader(byte[] b)
+        {
+            return b != null && b.Length >= 12 && b[0] == 'R' && b[1] == 'I' && b[2] == 'F' && b[3] == 'F'
+                && b[8] == 'W' && b[9] == 'A' && b[10] == 'V' && b[11] == 'E';
+        }
+
+        /// <summary>True when the bytes are a RIFF/WAVE this app decodes; otherwise <paramref name="error"/> says why, as a
+        /// phrase that follows "but" ("is truncated: ...").</summary>
+        internal static bool IsDecodableWave(byte[] b, out string error)
+        {
+            error = null;
+            if (!HasWaveHeader(b))
+            {
+                error = "is not a RIFF/WAVE";
+                return false;
+            }
+            long riffEnd = (long)ReadUInt32(b, 4) + 8;
+            if (riffEnd > b.Length)
+            {
+                error = "is truncated: its RIFF header claims " + riffEnd + " bytes and it holds " + b.Length;
+                return false;
+            }
+            if (riffEnd < b.Length)
+            {
+                error = "has " + (b.Length - riffEnd) + " bytes after its RIFF form";
+                return false;
+            }
+
+            long fmt = -1, fmtSize = 0, data = -1, dataSize = 0;
+            long at = 12;
+            while (at + 8 <= riffEnd)
+            {
+                long size = ReadUInt32(b, (int)at + 4);
+                long body = at + 8;
+                if (body + size > riffEnd)
+                {
+                    error = "is truncated: its '" + ChunkName(b, (int)at) + "' chunk runs past the end";
+                    return false;
+                }
+                if (fmt < 0 && IsChunk(b, (int)at, "fmt ")) { fmt = body; fmtSize = size; }
+                else if (data < 0 && IsChunk(b, (int)at, "data")) { data = body; dataSize = size; }
+                at = body + size;
+                // A chunk of odd size is followed by a pad byte, which a writer may leave off the very last one.
+                if ((size & 1) == 1 && at < riffEnd) at++;
+            }
+            if (at != riffEnd)
+            {
+                error = "ends in " + (riffEnd - at) + " bytes that are not a chunk";
+                return false;
+            }
+            if (fmt < 0)
+            {
+                error = "has no fmt chunk";
+                return false;
+            }
+            if (fmtSize < 16)
+            {
+                error = "has a fmt chunk too short to describe its audio";
+                return false;
+            }
+            int f = (int)fmt;
+            int tag = ReadUInt16(b, f), channels = ReadUInt16(b, f + 2), blockAlign = ReadUInt16(b, f + 12), bits = ReadUInt16(b, f + 14);
+            long rate = ReadUInt32(b, f + 4);
+            if (tag == Extensible)
+            {
+                // WAVEFORMATEXTENSIBLE: cbSize, valid bits, channel mask, then the subformat GUID at +24.
+                if (fmtSize < 40)
+                {
+                    error = "has an extensible fmt chunk too short for its subformat";
+                    return false;
+                }
+                for (int i = 0; i < SubtypeGuidTail.Length; i++)
+                    if (b[f + 26 + i] != SubtypeGuidTail[i])
+                    {
+                        error = "uses an extensible subformat this app does not decode; a clip is PCM or IEEE float";
+                        return false;
+                    }
+                tag = ReadUInt16(b, f + 24);
+            }
+            if (tag == Pcm)
+            {
+                if (bits != 8 && bits != 16 && bits != 24 && bits != 32)
+                {
+                    error = "is " + bits + "-bit PCM; PCM clips are 8, 16, 24 or 32 bits";
+                    return false;
+                }
+            }
+            else if (tag == IeeeFloat)
+            {
+                if (bits != 32 && bits != 64)
+                {
+                    error = "is " + bits + "-bit float; float clips are 32 or 64 bits";
+                    return false;
+                }
+            }
+            else
+            {
+                error = "uses WAVE format 0x" + tag.ToString("X4", System.Globalization.CultureInfo.InvariantCulture)
+                    + TagName(tag) + ", which this app does not decode; a clip is PCM or IEEE float";
+                return false;
+            }
+            if (channels < 1 || channels > 2)
+            {
+                error = "has " + channels + " channels; a clip is mono or stereo";
+                return false;
+            }
+            if (rate < MinimumSampleRate || rate > MaximumSampleRate)
+            {
+                error = "has a sample rate of " + rate + " Hz, outside " + MinimumSampleRate + " to " + MaximumSampleRate;
+                return false;
+            }
+            if (blockAlign != channels * bits / 8)
+            {
+                error = "has a block align of " + blockAlign + ", which " + channels + " channel(s) of " + bits + " bits contradict";
+                return false;
+            }
+            if (data < 0)
+            {
+                error = "has no data chunk";
+                return false;
+            }
+            if (dataSize == 0 || dataSize % blockAlign != 0)
+            {
+                error = dataSize == 0 ? "has no audio (its data chunk is empty)" : "has a data chunk that is not a whole number of frames";
+                return false;
+            }
+            return true;
+        }
+
+        private static string TagName(int tag)
+        {
+            switch (tag)
+            {
+                case 0x0002: return " (MS ADPCM)";
+                case 0x0006: return " (A-law)";
+                case 0x0007: return " (mu-law)";
+                case 0x0011: return " (IMA ADPCM)";
+                case 0x0055: return " (MPEG layer 3)";
+                default: return "";
+            }
+        }
+
+        private static bool IsChunk(byte[] b, int at, string id)
+        {
+            return b[at] == id[0] && b[at + 1] == id[1] && b[at + 2] == id[2] && b[at + 3] == id[3];
+        }
+
+        /// <summary>A chunk id for a message: its four characters when printable, else their hex.</summary>
+        private static string ChunkName(byte[] b, int at)
+        {
+            var name = new StringBuilder(4);
+            for (int i = 0; i < 4; i++)
+            {
+                byte c = b[at + i];
+                if (c < 0x20 || c > 0x7E) return BitConverter.ToString(b, at, 4);
+                name.Append((char)c);
+            }
+            return name.ToString();
+        }
+
+        private static int ReadUInt16(byte[] b, int at)
+        {
+            return b[at] | (b[at + 1] << 8);
+        }
+
+        private static long ReadUInt32(byte[] b, int at)
+        {
+            return (uint)(b[at] | (b[at + 1] << 8) | (b[at + 2] << 16) | (b[at + 3] << 24));
         }
     }
 }

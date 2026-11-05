@@ -169,15 +169,94 @@ namespace DesktopAICompanion
         /// <summary>The decoded samples of a pet MP3, decoded once while its bytes live. Caller holds _sync.</summary>
         private float[] CachedDecode(byte[] mp3)
         {
+            string failure;
+            return CachedDecode(mp3, false, out failure);
+        }
+
+        /// <summary>As above for a clip of either format. <paramref name="failure"/> is set only by the decode that
+        /// FAILED, which happens once per byte array: the failure is cached like a success, so the clip is not decoded
+        /// again and its caller reports it once. Caller holds _sync.</summary>
+        private float[] CachedDecode(byte[] audio, bool wav, out string failure)
+        {
+            failure = null;
             float[] samples;
-            if (!_cache.TryGetValue(mp3, out samples))
+            if (!_cache.TryGetValue(audio, out samples))
             {
-                try { samples = Decode(mp3); }
-                catch { samples = null; }
+                try { samples = DecodeClip(audio, wav); }
+                catch (Exception ex) { samples = null; failure = ex.GetType().Name + ": " + ex.Message; }
+                if ((samples == null || samples.Length == 0) && failure == null) failure = "no samples";
                 // Undecodable is recorded too, so a broken sound is not re-decoded on every trigger.
-                _cache.Add(mp3, samples ?? Undecodable);
+                _cache.Add(audio, samples ?? Undecodable);
             }
             return samples;
+        }
+
+        /// <summary>
+        /// A clip's samples at the mixer format, by its DECLARED format (never sniffed: the validator proved the bytes
+        /// are it): an MP3 through the OS's ACM codec as every pet sound, a WAV through NAudio's reader, which converts
+        /// PCM and IEEE float with no codec. Throws when the bytes will not decode; static and side-effect free so
+        /// --audio-selftest decodes each accepted encoding with no device.
+        /// </summary>
+        internal static float[] DecodeClip(byte[] audio, bool wav)
+        {
+            if (!wav) return Decode(audio);
+            using (var ms = new MemoryStream(audio, false))
+            using (var reader = new WaveFileReader(ms))
+            {
+                WaveFormat f = reader.WaveFormat;
+                var extra = f as WaveFormatExtraData;
+                if (f.Encoding != WaveFormatEncoding.Extensible || extra == null || f.ExtraSize < 22)
+                    return ReadAll(ToMixFormat(reader.ToSampleProvider()), int.MaxValue);
+                // NAudio's sample converters take only the plain PCM and IEEE float tags ("Unsupported source encoding"
+                // for an extensible one, measured by --audio-selftest). An extensible header carries the same samples
+                // with the tag in its subformat GUID's first two bytes (the extra data's bytes 6 and 7, after the valid
+                // bits and the channel mask), which the validator proved standard, so the samples are read under the
+                // plain header they mean; the bytes are untouched.
+                int tag = BitConverter.ToUInt16(extra.ExtraData, 6);
+                WaveFormat plain = WaveFormat.CreateCustomFormat((WaveFormatEncoding)tag, f.SampleRate, f.Channels,
+                    f.AverageBytesPerSecond, f.BlockAlign, f.BitsPerSample);
+                // Whole frames per read: a WaveStream refuses part of one. A loop of its own, because Stream.CopyTo reads
+                // into a pooled buffer whose length is rounded up past the size asked for (8192 for 6144, measured).
+                var samples = new MemoryStream();
+                var frames = new byte[f.BlockAlign * 2048];
+                int n;
+                while ((n = reader.Read(frames, 0, frames.Length)) > 0) samples.Write(frames, 0, n);
+                samples.Position = 0;
+                using (var raw = new RawSourceWaveStream(samples, plain))
+                    return ReadAll(ToMixFormat(raw.ToSampleProvider()), int.MaxValue);
+            }
+        }
+
+        /// <summary>Where a clip that will not decode is reported, once (see <see cref="CachedDecode(byte[], bool, out string)"/>):
+        /// the diagnostic log; a self-test records the lines instead.</summary>
+        internal Action<string> ClipFailureSink = delegate (string line)
+        {
+            try { DiagnosticLog.Write(LogCategory.Audio, "warning", null, line); }
+            catch { }
+        };
+
+        /// <summary>A clip's samples, decoded once; the first failure reported through <see cref="ClipFailureSink"/>.
+        /// The companion keeps running either way: a clip that will not decode is silent. Caller holds _sync.</summary>
+        private float[] ClipSamples(string owner, byte[] audio, bool wav)
+        {
+            string failure;
+            float[] samples = CachedDecode(audio, wav, out failure);
+            if (failure != null)
+                ClipFailureSink("companion clip " + ClipName(owner) + " (" + (wav ? "WAV" : "MP3")
+                    + ") would not decode and stays silent: " + failure);
+            return samples;
+        }
+
+        /// <summary>The type|name|volume part of a clip owner, for a diagnostic.</summary>
+        private static string ClipName(string owner)
+        {
+            return IsClipOwner(owner) ? owner.Substring(ClipOwnerPrefix.Length) : owner ?? "";
+        }
+
+        /// <summary>Self-tests: <see cref="ClipSamples"/> without a device, under the lock every caller takes.</summary>
+        internal float[] ClipSamplesForTest(string owner, byte[] audio, bool wav)
+        {
+            lock (_sync) return ClipSamples(owner, audio, wav);
         }
 
         /// <summary>
@@ -193,15 +272,16 @@ namespace DesktopAICompanion
             return owner != null && owner.StartsWith(ClipOwnerPrefix, StringComparison.OrdinalIgnoreCase);
         }
 
-        /// <summary>Play a tick companion's clip once (an MP3 the validator proved, decoded once and cached as
-        /// <see cref="Play"/>'s are) under its own owner. False when nothing will be heard.</summary>
-        public bool PlayClip(string owner, byte[] mp3, double volume)
+        /// <summary>Play a tick companion's clip once (an MP3, or a WAV when <paramref name="wav"/>, as the validator
+        /// proved it; decoded once and cached as <see cref="Play"/>'s are) under its own owner. False when nothing will be
+        /// heard, a clip that will not decode included (reported once, <see cref="ClipSamples"/>).</summary>
+        public bool PlayClip(string owner, byte[] audio, bool wav, double volume)
         {
-            if (mp3 == null || mp3.Length == 0 || volume <= 0.0) return false;
+            if (audio == null || audio.Length == 0 || volume <= 0.0) return false;
             lock (_sync)
             {
                 if (_disposed || !EnsureStarted()) return false;
-                float[] samples = CachedDecode(mp3);
+                float[] samples = ClipSamples(owner, audio, wav);
                 if (samples == null || samples.Length == 0) return false;
                 AddInput(samples, 0, (float)Math.Max(0.0, Math.Min(1.0, volume)), owner ?? "");
                 return true;

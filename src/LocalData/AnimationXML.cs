@@ -310,6 +310,10 @@ namespace XmlData
         /// <summary>A name a tick-mode pose refers to (<see cref="PoseNode.Sound"/>); null on a classic sound.</summary>
         [XmlAttribute("id")]
         public string SoundId;
+        /// <summary>The declared format of <see cref="Base64"/>'s bytes: null (absent) or "mp3" is MP3, "wav" a RIFF/WAVE.
+        /// Declared, never sniffed: the validator proves the bytes ARE what this says (grimoire/06 section 3, feature 'wav').</summary>
+        [XmlAttribute("format")]
+        public string Format;
         /// <summary>
         ///  Probability (in %) that this sound will be played together with the animation.
         /// </summary>

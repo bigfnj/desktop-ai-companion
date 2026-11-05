@@ -369,7 +369,8 @@ Optional. Each `<sound>` ties an MP3 to an animation id; when that animation sta
 `probability`% and, on success, plays it (looped `loop` extra times) at the current volume
 (`Animations.AddSound` / `TSound`).
 
-`<sound>` attribute: `animationid` (int).
+`<sound>` attribute: `animationid` (int). A classic sound is always MP3; a tick-clock companion's named clips
+(`id`, and `format="wav"` for a RIFF/WAVE clip) are [06](06-shimeji-runtime.md) section 3.
 `<sound>` children (`xsd:all`): `<probability>` (int, %), `<loop>` (int, optional — extra repeats),
 `<base64>` (base64 MP3; a leading `data:...;base64,` prefix is stripped automatically).
 
