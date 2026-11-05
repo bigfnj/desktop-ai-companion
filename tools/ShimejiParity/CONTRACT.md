@@ -75,7 +75,7 @@ Every consumer draws from the one stream: the oracle's Java `Math.random` call s
 | `builtin:create-facing` | a created companion's initial facing (Main.java:1308) |
 | `builtin:behavior-select` | choosing the next behaviour: ONE draw over the candidate list, even for a single candidate (Configuration.java:248) |
 | `builtin:no-candidate-drop-x` | no behaviour is eligible: the companion drops in at a random x (Configuration.java:237/242) |
-| `builtin:missing-behavior-drop-x` | a named behaviour does not exist: same drop-in (Configuration.java:274/279) |
+| `builtin:disabled-behavior-drop-x` | a behaviour entered by name is turned off: the companion it is built for drops in instead, which for a birth is the PARENT (Configuration.java:274/279; a name that does not exist throws instead) |
 | `builtin:out-of-bounds-drop-x` | the companion left the screen: same drop-in (UserBehavior.java:261/266) |
 | `builtin:dragged-regist` | Dragged's 90% chance of resisting at regist time (Dragged.java:104) |
 | `builtin:regist-facing` | Regist's random facing (Regist.java:69) |
@@ -113,7 +113,7 @@ active companions in manager order, then the pending births in add-queue order.
   "actionClass": "Move", "actionStack": ["Alpha|conf/behaviors.xml|/Mascot[1]/BehaviorList[1]/Behavior[3]",
   "Alpha|conf/actions.xml|/Mascot[1]/ActionList[1]/Action[2]"],
   "refKey": "Alpha|conf/actions.xml|/Mascot[1]/ActionList[1]/Action[2]", "actionAge": 7,
-  "pose": { "image": "/shime2.png", "imageRight": null, "index": 1 }, "poseAnchor": [32, 128], "visible": true,
+  "pose": { "image": "img/Alpha/shime2.png", "imageRight": null, "index": 1 }, "poseAnchor": [32, 128], "visible": true,
   "anchor": [622, 680], "origin": [590, 552], "lookRight": false, "velocity": [-2, 0],
   "affordances": [], "target": null, "dragging": false, "pending": false, "disposing": false, "vars": {} }
 ```
@@ -126,7 +126,7 @@ active companions in manager order, then the pending births in add-queue order.
 | `actionStack` | the refKeys from the behaviour's root action to the leaf; `[]` when there is none | no |
 | `refKey` | the declaration or reference that started the leaf action; equals the last `actionStack` entry | yes, when the stack is empty |
 | `actionAge` | the leaf action's time in ticks | yes, before evaluation |
-| `pose` | the current pose's source image keys and its index in the animation | yes, before evaluation |
+| `pose` | the image the companion shows: `image` and `imageRight` are pack-relative paths with forward slashes (`img/Egg/shime3.png`), so they name the image set the image belongs to, which after a Transform can be the OLD type's until the new type's first pose; `index` is the pose's position in its animation | yes, before any pose |
 | `poseAnchor` | the offset from `origin` to the rendered image's authored anchor, after facing and `dpiScale` | yes, with `pose` |
 | `visible` | false while an image-less pose hides the companion, and once it is disposing | no |
 | `anchor` | the contact point in screen pixels | no |
@@ -187,7 +187,9 @@ status is `complete`, `timeout`, `aborted` or `error`. A trace with no footer is
 Startup (tick 0):
 
 1. The environment applies the tick-0 timeline entries.
-2. Each `mascots` entry is created in order, its start state applied, then its behaviour initialised.
+2. Each `mascots` entry is created in order, its start state applied, then its behaviour initialised, and then it is
+   queued as the source's `Main.createMascot` queues it (`Manager.add`): it is listed `pending: true` at tick 0, and
+   becomes active at step 1's phase 2 with no birth event. Its counts during initialisation are 0.
 3. Tick-0 state lines are written.
 
 Each step t = 1 to N, in this order:
