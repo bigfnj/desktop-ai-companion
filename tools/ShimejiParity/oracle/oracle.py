@@ -755,6 +755,35 @@ def v1_self_test(args, labels):
                      "V1_DOCUMENT_KEY_BASELINE", "V1_DOCUMENT_BASELINE_WITNESS", baseline=good)
     labels.append("v1-document-check-exact-file-per-set-and-position-listed-and-as-the-baseline")
 
+    # Review W123 F2: a scenario spelling its set unlike the folder is judged against the baseline renamed to it.
+    lowered = {"alpha": expected["Alpha"]}
+    if v1_document_check([good[0], stacked("m1", "alpha", expected["Alpha"])], lowered, manifest,
+                         v1_renamed_sets([good[0], good[1]], {"Alpha": "alpha"})):
+        raise AssertionError("V1_DOCUMENT_RENAME_WITNESS a renamed set failed its baseline")
+    # Review W123 F1: a case the runner must refuse passes only aborted with the named refusal at the expected path.
+    named = {"status": "aborted", "detail": "V1_REFUSAL V1_REFKEY_DOCUMENT_SPELLING ../pack/img/A/conf/behaviors.xml: 0 pack entries spell .."}
+    if v1_document_refusal(named, "../pack/img/A/conf/"):
+        raise AssertionError("V1_DOCUMENT_REFUSAL_WITNESS the named refusal was not accepted")
+    for row in ({"status": "complete", "detail": ""}, dict(named, detail="V1_REFUSAL V1_CONFIGURATION_REFUSED ../A"),
+                dict(named, status="error"), dict(named, detail=named["detail"].replace("../pack", "img"))):
+        problems = v1_document_refusal(row, "../pack/img/A/conf/")
+        if not problems or not problems[0].startswith("V1_DOCUMENT_REFUSAL_MISSING"):
+            raise AssertionError("V1_DOCUMENT_REFUSAL_WITNESS accepted " + row["status"] + " " + row["detail"][:60])
+    labels.append("v1-document-renamed-set-baseline-and-named-spelling-refusal")
+
+    # Review W123 F4: two entries a case-insensitive disk holds as one file are refused after the copy. Windows only,
+    # as the oracle is: the second write replaces the first file's bytes under its name.
+    with tempfile.TemporaryDirectory(prefix="oracle-v1-copy-", dir=args.temp_root) as folder:
+        source = Path(folder) / "source"
+        for part, payload in (("one", b"first entry"), ("two", b"second entry")):
+            (source / part).mkdir(parents=True)
+            (source / part / "actions.xml").write_bytes(payload)
+        v1_copy_pack([("conf/actions.xml", source / "one" / "actions.xml")], Path(folder) / "single")
+        expect_refusal(lambda: v1_copy_pack([("conf/actions.xml", source / "one" / "actions.xml"),
+                                             ("conf/Actions.xml", source / "two" / "actions.xml")], Path(folder) / "merged"),
+                       "CHECKSUM_REFUSAL v1-pack-copy-merged conf/actions.xml", "V1_PACK_COPY_MERGE_WITNESS")
+    labels.append("v1-pack-copy-merged-entries-refused")
+
 
 def png(red, green, blue):
     def chunk(kind, payload):
@@ -964,6 +993,11 @@ def mutate(args):
         ("v1-document-unlisted", [('if document ' + 'not in manifest:', 'if False:')], "V1_DOCUMENT_UNLISTED_WITNESS"),
         ("v1-document-none", [('if not any(line["actionStack"] ' + 'for line in states):', 'if False:')], "V1_DOCUMENT_NONE_WITNESS"),
         ("v1-document-baseline", [('if mine ' + '!= theirs:', 'if False:')], "V1_DOCUMENT_BASELINE_WITNESS")])
+    # Review W123 F1, F2, F4: the refusal cases' expectation, the renamed baseline and the copy's final check.
+    legs.extend([
+        ("v1-document-refusal", [('if row["status"] != "aborted" or not detail.startswith("V1_REFUSAL ' + 'V1_REFKEY_DOCUMENT_SPELLING " + path):', 'if False:')], "V1_DOCUMENT_REFUSAL_WITNESS"),
+        ("v1-document-rename", [('return key if parts is None or parts[0] ' + 'not in names else', 'return key if True else')], "V1_DOCUMENT_RENAME_WITNESS"),
+        ("v1-pack-copy-merged", [('for target, digest, relative ' + 'in written:', 'for target, digest, relative in []:')], "V1_PACK_COPY_MERGE_WITNESS")])
     results = []
     with tempfile.TemporaryDirectory(prefix="oracle-mutations-", dir=os.environ["TEMP"]) as folder:
         root = Path(folder)
@@ -1285,6 +1319,23 @@ def v1_run_directory(root, scenario_id, observe=True):
     return run, v1_contained(root, run / "pack")
 
 
+def v1_copy_pack(files, workdir):
+    """Copies the preflighted pack into the run folder. Each target is checked as it is written and every one again
+    once all are: two entries a case-insensitive disk holds as one file each pass their own check, and leave the first
+    one's name with the last one's bytes (review W123 F4). The preflight already refuses entries that differ only in
+    case; this catches a fold it does not know."""
+    written = []
+    for relative, full in files:
+        payload = Path(full).read_bytes()
+        target = workdir.joinpath(*PurePosixPath(relative).parts)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(payload)
+        verify(target.read_bytes(), sha(payload), "v1-pack-copy " + relative)
+        written.append((target, sha(payload), relative))
+    for target, digest, relative in written:
+        verify(target.read_bytes(), digest, "v1-pack-copy-merged " + relative)
+
+
 def v1_run(args, compare, scenario_path, root, classpath, runner, build, observe=True):
     raw = scenario_path.read_bytes()
     doc = json.loads(raw.decode("utf-8"))
@@ -1292,13 +1343,7 @@ def v1_run(args, compare, scenario_path, root, classpath, runner, build, observe
     # The id is checked before any path is derived from it or anything is written (review F1).
     run, workdir = v1_run_directory(root, doc.get("id"), observe)
     pack = scenario_path.parent / doc["pack"]
-    files = compare.pack_preflight(str(pack))
-    for relative, full in files:
-        payload = Path(full).read_bytes()
-        target = workdir.joinpath(*PurePosixPath(relative).parts)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(payload)
-        verify(target.read_bytes(), sha(payload), "v1-pack-copy " + relative)
+    v1_copy_pack(compare.pack_preflight(str(pack)), workdir)
     header = {"type": "header", "schema": "shimeji-parity-trace/1", "runtime": "oracle",
               "scenario": {"id": doc["id"], "sha256": sha(raw), "packSha256": compare.pack_sha256(str(pack))},
               "build": build, "rng": doc["rng"], "tickMs": 40, "dpiScale": doc["dpiScale"],
@@ -1422,14 +1467,59 @@ def v1_document_check(lines, expected, manifest, baseline=None):
 # The document witness's fixtures, each a private copy of V1_DOCUMENT_SCENARIO's pack. The source's search
 # (Main.loadConfiguration) takes conf/, then conf/<set>/, then img/<set>/conf/, a later tier's file replacing an
 # earlier one's (review W2).
-V1_DOCUMENT_CASES = ("baseline", "equal-content-override", "ignored-malformed-xml", "set-tier", "pack-tier", "mixed-case")
+V1_DOCUMENT_CASES = ("baseline", "equal-content-override", "ignored-malformed-xml", "set-tier", "pack-tier", "mixed-case",
+                     "directory-case", "outside-pack", "unlisted-component")
 
 
-def v1_document_fixture(case, pack, name):
+def v1_document_refusal(row, path):
+    """Review W123 F1: a case the runner must refuse ends aborted, its refusal V1_REFKEY_DOCUMENT_SPELLING naming the
+    path the source opened, never completes or fails another way."""
+    detail = row.get("detail") or ""
+    if row["status"] != "aborted" or not detail.startswith("V1_REFUSAL V1_REFKEY_DOCUMENT_SPELLING " + path):
+        return ["V1_DOCUMENT_REFUSAL_MISSING run " + row["status"] + " " + detail[:160]]
+    return []
+
+
+def v1_renamed_sets(lines, names):
+    """State lines with each key's image set renamed (`names` maps old to new); everything else unchanged."""
+    def rename(key):
+        parts = None if key is None else key.split("|")
+        return key if parts is None or parts[0] not in names else "|".join([names[parts[0]]] + parts[1:])
+    return [dict(line, actionStack=[rename(key) for key in line["actionStack"]], refKey=rename(line["refKey"]))
+            if line.get("type") == "state" else line for line in lines]
+
+
+def v1_document_fixture(case, pack, name, doc):
     """Lays out one case in a copy of the pack, whose one image set `name` keeps behaviors.xml and actions.xml in
-    img/<set>/conf/, and returns the (behaviours, actions) pack paths the source must choose."""
+    img/<set>/conf/, and in `doc`, the case's copy of the scenario. Returns the image set the keys carry, the
+    (behaviours, actions) pack paths the source must choose and, for a case the runner must refuse, the path its
+    refusal names."""
     chosen = pack / "img" / name / "conf"
     top = ("img/" + name + "/conf/behaviors.xml", "img/" + name + "/conf/actions.xml")
+    spec = {"set": name, "files": top, "refusal": None}
+    if case == "directory-case":
+        # Review W123 F2: directories as well as the file. The scenario names the set in another case than its folder
+        # and the set folder's conf is spelled Conf; the source's probes find both, and the keys carry the scenario's
+        # set name with the pack's spelling of every path component.
+        spelled = name.lower() if name.lower() != name else name.upper()
+        for mascot in doc["mascots"]:
+            mascot["imageSet"] = spelled
+        chosen.rename(chosen.parent / "Conf")
+        return dict(spec, set=spelled, files=("img/" + name + "/Conf/behaviors.xml", "img/" + name + "/Conf/actions.xml"))
+    if case == "outside-pack":
+        # Review W123 F1: a path that leaves the pack lexically. v1_run keeps the pack copy at <run>/pack, so this set
+        # name leads the source's img/<set>/conf/ probe out of the pack and back in: it reads only the pack's own file,
+        # nothing outside the run folder, and the runner refuses the key, since no pack entry spells "..". One "../"
+        # is not enough: the source's img/ prefix brings the path back inside the pack, where nothing is found.
+        for mascot in doc["mascots"]:
+            mascot["imageSet"] = "../../pack/img/" + name
+        return dict(spec, set=None, files=(), refusal="../pack/img/" + name + "/conf/")
+    if case == "unlisted-component":
+        # Review W123 F1: a component the source opens that no pack entry spells. Win32 drops a trailing dot, so
+        # img/<set>./conf/ opens img/<set>/conf/, while the img listing holds no "<set>." entry.
+        for mascot in doc["mascots"]:
+            mascot["imageSet"] = name + "."
+        return dict(spec, set=None, files=(), refusal="img/" + name + "./conf/")
     if case == "equal-content-override":
         for tier in (pack / "conf" / name, pack / "conf"):
             tier.mkdir(parents=True, exist_ok=True)
@@ -1443,7 +1533,7 @@ def v1_document_fixture(case, pack, name):
         # pack does (review W3). The oracle runs on Windows only (java.exe), so the probe always finds them.
         (chosen / "behaviors.xml").rename(chosen / "Behaviors.xml")
         (chosen / "actions.xml").rename(chosen / "Actions.xml")
-        return "img/" + name + "/conf/Behaviors.xml", "img/" + name + "/conf/Actions.xml"
+        return dict(spec, files=("img/" + name + "/conf/Behaviors.xml", "img/" + name + "/conf/Actions.xml"))
     elif case in ("set-tier", "pack-tier"):
         # The documents leave img/<set>/conf/. At conf/<set>/ an equal copy also sits at conf/, the tier below, so a
         # seam that reported the lowest tier fails as well as one that reported the highest.
@@ -1457,8 +1547,8 @@ def v1_document_fixture(case, pack, name):
                 (pack / "conf" / document).write_bytes(payload)
         chosen.rmdir()
         prefix = "conf/" + name + "/" if case == "set-tier" else "conf/"
-        return prefix + "behaviors.xml", prefix + "actions.xml"
-    return top
+        return dict(spec, files=(prefix + "behaviors.xml", prefix + "actions.xml"))
+    return spec
 
 
 def v1_document_witnesses(args, compare, root, classpath, runner, build, rows=()):
@@ -1481,10 +1571,17 @@ def v1_document_witnesses(args, compare, root, classpath, runner, build, rows=()
     for case in V1_DOCUMENT_CASES:
         fixture = root / "document-fixtures" / case
         fixture.mkdir(parents=True)
-        (fixture / path.name).write_bytes(path.read_bytes())
         pack = fixture / doc["pack"]
         shutil.copytree(str(source_pack), str(pack))
-        expected = {name: v1_document_fixture(case, pack, name)}
+        scenario = json.loads(json.dumps(doc))
+        spec = v1_document_fixture(case, pack, name, scenario)
+        # The scenario's own bytes unless the case changed it.
+        (fixture / path.name).write_bytes(path.read_bytes() if scenario == doc else
+                                          (json.dumps(scenario, indent=1, sort_keys=True) + "\n").encode("utf-8"))
+        # Keyed by the set name the keys carry, the scenario's spelling, while the files are the pack's; the baseline's
+        # keys carry the folder's spelling, so they are renamed to match (review W123 F2: keyed by the folder name, a
+        # scenario spelling its set another way failed as an unknown set).
+        expected = {spec["set"]: spec["files"]}
         manifest = {relative for relative, _ in compare.pack_preflight(str(pack))}
         row = next((item for item in rows if item["scenario"] == V1_DOCUMENT_SCENARIO), None) if case == "baseline" else None
         origin = "scenario row" if row is not None else "own run"
@@ -1493,12 +1590,18 @@ def v1_document_witnesses(args, compare, root, classpath, runner, build, rows=()
         trace = Path(row["trace"]) if row.get("trace") else None
         lines = ([json.loads(line) for line in trace.read_text(encoding="utf-8").splitlines() if line.strip()]
                  if trace is not None and trace.is_file() else [])
-        problems = (["run " + row["status"] + " " + row.get("detail", "")[:160]] if row["status"] != "complete"
-                    else v1_document_check(lines, expected, manifest, None if case == "baseline" else baseline))
+        if spec["refusal"] is not None:
+            problems = v1_document_refusal(row, spec["refusal"])
+        elif row["status"] != "complete":
+            problems = ["run " + row["status"] + " " + row.get("detail", "")[:160]]
+        else:
+            problems = v1_document_check(lines, expected, manifest, None if case == "baseline" or baseline is None
+                                         else v1_renamed_sets(baseline, {name: spec["set"]}))
         if case == "baseline" and row["status"] == "complete":
             baseline = lines
         documents = sorted({key.split("|")[1] for line in lines if line.get("type") == "state" for key in line["actionStack"]})
-        results.append({"case": case, "status": "failed" if problems else "complete", "expected": list(expected[name]),
+        results.append({"case": case, "status": "failed" if problems else ("refused" if spec["refusal"] else "complete"),
+                        "expected": list(spec["files"]) if spec["refusal"] is None else "refused at " + spec["refusal"],
                         "documents": documents, "origin": origin, "problems": problems})
         if problems:
             failures.append(case + ": " + "; ".join(problems)[:320] + " | keys name " + ",".join(documents))

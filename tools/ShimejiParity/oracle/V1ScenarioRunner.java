@@ -424,24 +424,27 @@ public final class V1ScenarioRunner implements DraftParityHooks.Controller {
      * fixed lower-case names, so on a case-insensitive file system it also finds a file the pack spells Actions.xml,
      * and then opens it under its own spelling. CONTRACT section 3 names the configuration file relative to the pack,
      * so the key carries each component as its directory lists it: the spelling of the pack manifest the header
-     * binds. Only directories are listed, the same in both modes, so nothing the source reads changes. A path outside
-     * the pack, or a component with no entry or with more than one case-insensitive match, is kept and refused by
-     * name when a key needs it, never inside the source's own catch. Rejected alternative: Path.toRealPath, whose
-     * case correction the Java documentation leaves optional.
+     * binds. Only directories are listed, the same in both modes, so nothing the source reads changes. A component
+     * with no entry or with more than one case-insensitive match is kept and refused by name when a key needs it.
+     * That covers a path leaving the pack, because no entry spells "..", and one Win32 opens under another name (a
+     * trailing dot). Any exception of the listing, unchecked ones included (DirectoryIteratorException reports an I/O
+     * error mid-listing), is kept the same way, so nothing reaches the source's own catch (review W123 F3). Rejected
+     * alternative: Path.toRealPath, whose case correction the Java documentation leaves optional.
      */
     private void bindDocument(Document document, Path opened) {
         try {
             documents.put(document, packEntry(opened));
-        } catch (IOException | IllegalStateException failure) {
-            documentRefusals.put(document, "V1_REFKEY_DOCUMENT_SPELLING " + packPath(opened) + ": " + failure.getMessage());
+        } catch (IOException | RuntimeException failure) {
+            String reason = failure instanceof IllegalStateException ? failure.getMessage() : failure.toString();
+            documentRefusals.put(document, "V1_REFKEY_DOCUMENT_SPELLING " + packPath(opened) + ": " + reason);
         }
     }
 
     private static String packEntry(Path opened) throws IOException {
         Path relative = opened.normalize();
-        if (relative.isAbsolute() || relative.toString().isEmpty() || relative.startsWith("..")) {
-            throw new IllegalStateException("not inside the pack");
-        }
+        // Every path the source opens is relative, starting "." (Main.loadConfiguration); an absolute one would be
+        // listed against the pack, so it is refused rather than mis-bound. The listing below refuses a leading "..".
+        if (relative.isAbsolute()) throw new IllegalStateException("an absolute path");
         Path directory = Paths.get(".");
         StringBuilder entry = new StringBuilder();
         for (Path component : relative) {
