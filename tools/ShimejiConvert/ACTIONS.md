@@ -86,15 +86,25 @@ scripted Affordance is refused, and so is a script-shaped value in any attribute
 Every embedded class of the host's closed list is lowered, with its parameters by the names the host's family
 files read; the member declares `lifecycle`, `social` and `windows` for the classes the validator gates by
 them, and ComplexMove and ComplexJump declare theirs by their Characteristics, split on commas exactly.
-A Hotspot becomes a `<hotspot>` of its variant (Rectangle as `rect`, Ellipse as `ellipse`, any other shape
-refused; a behaviour must be a root behaviour). A literal Affordance becomes the action's `<offers>` and stays
+A Hotspot becomes a `<hotspot>` of its variant (Rectangle as `rect`, Ellipse as `ellipse`, in any case, as the
+source compares them ignoring case; any other shape refused; a behaviour must be a root behaviour). A literal
+Affordance becomes the action's `<offers>` and stays
 a parameter, which the scan classes read; an Affordance binding onto an action that offers its own literal is
 refused, since the binding could not change the offer. A Toggleable behaviour becomes a header toggle whose
 id and label are its name (the source keys a disabled behaviour by name), and each Behavior or
-BehaviorReference that says Toggleable itself names it; a name over 64 characters is refused.
+BehaviorReference that says Toggleable itself names it; a name over 64 characters is refused. A behaviour
+named exactly Fall, Thrown or Dragged never becomes a toggle, whatever it says, as the source's builder
+overrides the flag for those three.
+A Japanese-vocabulary document's enumerated values are read through its own schema: its Type and BorderType
+values map to the English ones the host reads, and one with no mapping, or a scripted BorderType, is refused by
+name. A member whose behaviour document is Japanese (with no information document after it) enters its
+Japanese engine behaviours on a fall, a drag and a release, so those three take the host's names Fall, Dragged
+and Thrown wherever a literal names them; an English Fall beside them, a scripted behaviour name in such a
+member, a TargetBehavior naming one, and a literal engine name in a pack that mixes the two vocabularies are
+refused.
 It refuses unsupported attributes and
 classes, sounds, constants, information metadata, anonymous
-nested actions and next references without a root definition. This first emitter refuses non-base action schemas.
+nested actions and next references without a root definition.
 Bindings across differing document schemas are refused until target-schema resolution is implemented.
 Composite activation cycles, depth above 32 and expansion above 4096 actions are refused before output is written.
 

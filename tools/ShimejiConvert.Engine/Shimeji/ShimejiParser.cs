@@ -615,6 +615,19 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             { "Y", "Y" },
         };
 
+        /// <summary>The source's <c>schema.getString(key)</c> for a document read in <paramref name="schema"/>: the
+        /// Japanese override when the document is Japanese and the key has one, else the base read name (the
+        /// ResourceBundle parent fallback, Configuration.java:62), or null for a key neither table holds. The source
+        /// reads enumerated attribute VALUES this way too (Type, BorderType, OffsetType, a Characteristics piece) and
+        /// the engine's behaviour names (Fall, Dragged, Thrown), so a converter mapping a value reads it here, from the
+        /// same verified facts the element and attribute names resolve through.</summary>
+        internal static string SchemaString(ShimejiSourceSchema schema, string key)
+        {
+            string value;
+            if (schema == ShimejiSourceSchema.Japanese && SourceJapaneseSchemaFacts.TryGetValue(key, out value)) return value;
+            return SourceBaseSchemaFacts.TryGetValue(key, out value) ? value : null;
+        }
+
         private static Dictionary<string, string> CreateSourceSchema(bool japanese)
         {
             var values = new Dictionary<string, string>(SourceBaseSchemaFacts, StringComparer.Ordinal);

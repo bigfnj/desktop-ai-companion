@@ -106,6 +106,21 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             string[] members = Directory.GetDirectories(images);
             Array.Sort(members, StringComparer.Ordinal);
             if (members.Length == 0) throw new InvalidDataException("Tick pack has no image-set members.");
+            // Whether the members disagree on the schema the source looks engine behaviour names up in (RuntimeSchema).
+            // A member that fails to parse is refused below and judged by nothing here.
+            var runtimeSchemas = new HashSet<ShimejiSourceSchema>();
+            foreach (string memberPath in members)
+            {
+                try
+                {
+                    SafeEntry(memberPath);
+                    runtimeSchemas.Add(RuntimeSchema(ShimejiParser.ParseSourcePack(packRoot, Path.GetFileName(memberPath))));
+                }
+                catch (Exception failure) when (failure is InvalidDataException || failure is IOException
+                    || failure is UnauthorizedAccessException || failure is System.Xml.XmlException
+                    || failure is ArgumentException || failure is ExternalException) { }
+            }
+            bool mixedRuntime = runtimeSchemas.Count > 1;
             var prepared = new List<PreparedMember>();
             foreach (string memberPath in members)
             {
@@ -114,7 +129,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 {
                     SafeEntry(memberPath);
                     ShimejiSourceConfig source = ShimejiParser.ParseSourcePack(packRoot, member);
-                    prepared.Add(new MemberBuilder(packRoot, member, source).Build());
+                    prepared.Add(new MemberBuilder(packRoot, member, source, mixedRuntime).Build());
                 }
                 catch (Exception failure) when (failure is InvalidDataException || failure is IOException
                     || failure is UnauthorizedAccessException || failure is System.Xml.XmlException
@@ -135,6 +150,28 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             return "shimeji-" + Hash(Encoding.UTF8.GetBytes("shimeji-source-pack/1\n"
                 + string.Join("\n", prepared.Select(m => m.Name + "\n" + m.SourceIdentity)))).Substring(0, 24);
         }
+
+        /// <summary>
+        /// The schema the source looks its engine behaviours up in. <c>Configuration.schema</c> is ONE field that every
+        /// <c>load</c> reassigns (Configuration.java:62), and Main loads the action document, then the behaviour
+        /// document, then an information document when there is one (Main.java:371, 418, 437). UserBehavior and
+        /// Configuration read it at run time for the behaviour a ground loss, a drag and a release enter
+        /// (<c>schema.getString("Fall")</c>, UserBehavior.java:164, 192, 272, 303; Configuration.java:245, 282), so a
+        /// member whose last document is Japanese enters 落下する, ドラッグされる and 投げられる there.
+        /// </summary>
+        internal static ShimejiSourceSchema RuntimeSchema(ShimejiSourceConfig source)
+        {
+            if (source.Information != null) return source.Information.Schema;
+            return source.Behaviors != null ? source.Behaviors.Schema : ShimejiSourceSchema.Base;
+        }
+
+        /// <summary>The behaviours the host enters by name on its own events, which are always these English names
+        /// (TickRuntime's BuildBehaviourByName(type, "Fall"), TickReachability.EngineBehaviours).</summary>
+        private static readonly string[] EngineBehaviourKeys = { "Fall", "Dragged", "Thrown" };
+
+        /// <summary>The behaviour-naming parameters the host classes read (Interact and the scan classes' Behavior and
+        /// TargetBehavior, the Breed family's BornBehavior, Transform's TransformBehavior).</summary>
+        private static readonly string[] BehaviourParameters = { "Behavior", "TargetBehavior", "BornBehavior", "TransformBehavior" };
 
         internal static bool HiddenInSourceChooser(string name)
         {
@@ -180,16 +217,61 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             private bool _lifecycle, _social, _windows, _hotspots, _expressions, _variables;
             // Header toggles, one per Toggleable behaviour name, in first-seen order.
             private readonly List<string> _toggles = new List<string>();
+            // Source behaviour name -> the host's engine name, for a member whose RuntimeSchema is Japanese
+            // (落下する is the Fall the source enters); empty for a base one, whose engine names are the host's already.
+            private readonly Dictionary<string, string> _engineNames = new Dictionary<string, string>(StringComparer.Ordinal);
+            // Some member of this pack looks engine names up in another schema than this one (see BehaviourValue).
+            private readonly bool _mixedRuntime;
 
-            public MemberBuilder(string pack, string member, ShimejiSourceConfig source)
-            { _pack = pack; _member = member; _source = source; }
+            public MemberBuilder(string pack, string member, ShimejiSourceConfig source, bool mixedRuntime = false)
+            {
+                _pack = pack; _member = member; _source = source; _mixedRuntime = mixedRuntime;
+                foreach (string key in EngineBehaviourKeys)
+                {
+                    string sourceName = ShimejiParser.SchemaString(RuntimeSchema(source), key);
+                    if (sourceName != key) _engineNames.Add(sourceName, key);
+                }
+            }
+
+            /// <summary>The name a source behaviour has in the emitted document: its engine name when the source enters
+            /// it on an engine event, else its own.</summary>
+            private string BehaviourName(string sourceName)
+            {
+                string engine;
+                return _engineNames.TryGetValue(sourceName, out engine) ? engine : sourceName;
+            }
+
+            /// <summary>
+            /// A behaviour-naming parameter's value as the host must read it. A literal naming one of this member's own
+            /// behaviours gets that behaviour's emitted name; the target of BornBehavior and TransformBehavior is the
+            /// born or transformed member (or this one), so the mapping holds only while every member of the pack
+            /// looks engine names up in the same schema, and a literal engine name in a pack that mixes them refuses.
+            /// TargetBehavior names a behaviour of the PARTNER, which can be any companion, so a renamed name there
+            /// refuses; so does a scripted value in a renaming member, which could evaluate to a renamed name.
+            /// </summary>
+            private string BehaviourValue(ShimejiSourceAttribute attribute, ShimejiSourceElement owner)
+            {
+                bool engineName = EngineBehaviourKeys.Any(key => key == attribute.RawValue
+                    || ShimejiParser.SchemaString(ShimejiSourceSchema.Japanese, key) == attribute.RawValue);
+                if (_mixedRuntime && engineName && attribute.Cache == ShimejiSourceCache.Literal)
+                    Fail(owner, "TICK_ENGINE_NAME_MIXED " + attribute.QualifiedName + ": the pack's members look engine behaviour names up in different schemas, so '"
+                        + attribute.RawValue + "' cannot be mapped for its target");
+                if (_engineNames.Count == 0) return attribute.RawValue;
+                if (attribute.Cache != ShimejiSourceCache.Literal)
+                    Fail(owner, "TICK_ENGINE_NAME_SCRIPTED " + attribute.QualifiedName
+                        + ": this member's engine behaviours are renamed for the host, and a scripted behaviour name cannot follow them");
+                if (attribute.Name == "TargetBehavior" && _engineNames.ContainsKey(attribute.RawValue))
+                    Fail(owner, "TICK_ENGINE_NAME_PARTNER " + attribute.QualifiedName + ": '" + attribute.RawValue
+                        + "' names a partner's engine behaviour, whose name depends on the partner's schema");
+                return BehaviourName(attribute.RawValue);
+            }
 
             public PreparedMember Build()
             {
                 if (_source.Information != null) Fail(_source.Information.Root, "information metadata is not lowered yet");
                 if (_source.Actions == null || _source.Behaviors == null) throw new InvalidDataException("Tick pack needs both action and behaviour documents.");
-                if (_source.Actions.Schema != ShimejiSourceSchema.Base)
-                    Fail(_source.Actions.Root, "TICK_SCHEMA_UNSUPPORTED: action enum values require the base document schema.");
+                // A Japanese action document's enumerated VALUES are Japanese too: ActionType and BorderValue map them
+                // through the document's own schema, exactly as the source compares them (see SchemaValue).
                 Check(_source.Actions.Root);
                 Check(_source.Behaviors.Root);
                 foreach (ShimejiSourceElement list in _source.Actions.Root.Children)
@@ -213,6 +295,11 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     CollectRoots(list, null);
                 }
                 if (_roots.Count == 0 || _actions.Count == 0) throw new InvalidDataException("Tick member has no actions or root behaviours: " + _member);
+                // Under a Japanese RuntimeSchema an English "Fall" is an ordinary behaviour the source never enters on
+                // an event, and the host would; the Japanese one takes that name here, so the two cannot both exist.
+                foreach (string key in EngineBehaviourKeys)
+                    if (_engineNames.ContainsValue(key) && _roots.ContainsKey(key))
+                        Fail(_roots[key].Source, "TICK_ENGINE_NAME_COLLISION: '" + key + "' is an ordinary behaviour under this member's Japanese schema, and the host enters a behaviour of that name on its own events");
                 // Source image pairs are loaded eagerly, including from unused actions. Their cache
                 // excludes the authored anchor, so later poses with the same pair use the first one.
                 foreach (ShimejiSourceElement action in _actionOrder) IndexPairAnchors(action);
@@ -294,10 +381,51 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 }
             }
 
+            /// <summary>The key whose <c>schema.getString</c> in the action document's schema equals <paramref name="raw"/>,
+            /// ordinally, among the keys the source compares that attribute with; null when none does. This is the
+            /// source's own test (<c>type.equals(schema.getString("Stay"))</c>, ActionBuilder.java:101-138, and
+            /// <c>schema.getString("Floor").equals(borderType)</c>, BorderedAction.java:44-49), with the schema the
+            /// action was built under: ActionBuilder takes the configuration's schema while its document loads, which is
+            /// the action document's (Configuration.java:62). So a Japanese document's 静止 is Stay, and its English
+            /// "Stay" is no type at all. OffsetType (Origin) and a Characteristics piece (Breed, Scan) are compared the
+            /// same way, but the Japanese schema has no override for those keys (ShimejiParser's facts), so their values
+            /// read the same in both vocabularies and pass through unmapped.</summary>
+            private string SchemaValue(string raw, params string[] keys)
+            {
+                foreach (string key in keys)
+                    if (string.Equals(ShimejiParser.SchemaString(_source.Actions.Schema, key), raw, StringComparison.Ordinal)) return key;
+                return null;
+            }
+
+            private string ActionType(ShimejiSourceElement source)
+            {
+                string raw = Required(source, "Type");
+                if (_source.Actions.Schema == ShimejiSourceSchema.Base)
+                {
+                    if (!Types.Contains(raw)) Fail(source, "unsupported action type '" + raw + "'");
+                    return raw;
+                }
+                string type = SchemaValue(raw, "Embedded", "Move", "Stay", "Animate", "Sequence", "Select");
+                if (type == null)
+                    Fail(source, "TICK_SCHEMA_VALUE_UNMAPPED Type: '" + raw + "' is none of the action types in this document's Japanese schema");
+                return type;
+            }
+
+            /// <summary>A literal BorderType as the host reads it: Floor, Wall, Ceiling or empty. A base document's value is
+            /// checked as before; a Japanese one is mapped (地面 is Floor), and one that maps to nothing refuses by name.</summary>
+            private string BorderValue(ShimejiSourceAttribute attribute, ShimejiSourceElement owner)
+            {
+                string raw = attribute.RawValue;
+                if (_source.Actions.Schema == ShimejiSourceSchema.Base || raw == "") return raw;
+                string border = SchemaValue(raw, "Floor", "Wall", "Ceiling");
+                if (border == null)
+                    Fail(owner, "TICK_SCHEMA_VALUE_UNMAPPED BorderType: '" + raw + "' is none of the borders in this document's Japanese schema");
+                return border;
+            }
+
             private int EmitAction(ShimejiSourceElement source, bool nested)
             {
-                string name = Required(source, "Name"), type = Required(source, "Type");
-                if (!Types.Contains(type)) Fail(source, "unsupported action type '" + type + "'");
+                string name = Required(source, "Name"), type = ActionType(source);
                 if (nested)
                 {
                     if (_actions.ContainsKey(name)) Fail(source, "a nested action needs a unique name for this first lowering: '" + name + "'");
@@ -347,9 +475,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     // TickBorderedAction.Init reads the parameter first); the act's border attribute is the literal form.
                     if (attribute.Name == "BorderType" && attribute.Cache == ShimejiSourceCache.Literal)
                     {
-                        if (attribute.RawValue != "Floor" && attribute.RawValue != "Wall" && attribute.RawValue != "Ceiling" && attribute.RawValue != "")
+                        string border = BorderValue(attribute, source);
+                        if (border != "Floor" && border != "Wall" && border != "Ceiling" && border != "")
                             Fail(source, "unsupported border '" + attribute.RawValue + "'");
-                        act.Add(new XAttribute("border", attribute.RawValue));
+                        act.Add(new XAttribute("border", border));
                     }
                 }
                 XElement node = Node(id, name, act);
@@ -432,7 +561,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 active.Add(name);
                 path.Add(name);
                 int count = 1, depth = 1;
-                string type = Required(source, "Type");
+                string type = ActionType(source);
                 if (type == "Sequence" || type == "Select")
                     foreach (ShimejiSourceElement child in source.Children)
                     {
@@ -546,7 +675,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 {
                     // Entered by name (4.3), so it must be a route behaviour, as a next reference must.
                     if (!_roots.ContainsKey(behaviour)) Fail(source, "a hotspot needs a root behaviour named '" + behaviour + "'");
-                    hotspot.Add(new XAttribute("behaviour", behaviour));
+                    hotspot.Add(new XAttribute("behaviour", BehaviourName(behaviour)));
                 }
                 return hotspot;
             }
@@ -593,7 +722,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     Check(list, "Add");
                     add = Bool(list, "Add");
                 }
-                var behaviour = E("behaviour", new XAttribute("name", name), new XAttribute("runs", runs),
+                var behaviour = E("behaviour", new XAttribute("name", BehaviourName(name)), new XAttribute("runs", runs),
                     new XAttribute("frequency", frequency), new XAttribute("hidden", Bool(source, "Hidden")));
                 if (rootDefinition) behaviour.Add(new XAttribute("add", add));
                 foreach (ShimejiSourceAttribute attribute in Attributes(source))
@@ -622,7 +751,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     if (!Parameters.Contains(attribute.Name)) Fail(source, "unsupported behaviour binding '" + attribute.QualifiedName + "'");
                     behaviour.Add(MemberParameter("bind", attribute, _actions[runs], source));
                 }
-                XElement node = Node(id, "beh:" + name, behaviour);
+                XElement node = Node(id, "beh:" + BehaviourName(name), behaviour);
                 _nodes.Add(node);
                 _behaviourMap.Add(Key(id), Ref(_source.Behaviors, source));
                 // Continuations are subsequently looked up through the ROOT behaviour by name by the host.
@@ -744,13 +873,28 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
 
             private XElement Parameter(string tag, ShimejiSourceAttribute attribute, ShimejiSourceElement owner)
             {
+                // The host reads a BorderType parameter by its English value (TickBorderedAction.Init), the source by the
+                // action document's schema: a Japanese literal is written mapped, and a Japanese script, whose value is
+                // known only at run time, cannot be.
+                bool japaneseBorder = attribute.Name == "BorderType" && _source.Actions.Schema == ShimejiSourceSchema.Japanese;
+                if (Array.IndexOf(BehaviourParameters, attribute.Name) >= 0)
+                {
+                    string named = BehaviourValue(attribute, owner);
+                    if (attribute.Cache == ShimejiSourceCache.Literal && named != attribute.RawValue)
+                        return E(tag, new XAttribute("name", attribute.Name), new XAttribute("value", named), new XAttribute("cache", "none"));
+                }
                 if (attribute.Cache != ShimejiSourceCache.Literal)
                 {
                     // grimoire/06 4.1 gives an offer no expression form: Affordance is a literal string there.
                     if (attribute.Name == "Affordance")
                         Fail(owner, "TICK_AFFORDANCE_SCRIPTED " + attribute.QualifiedName + ": an offer has no expression form in this format");
+                    if (japaneseBorder)
+                        Fail(owner, "TICK_SCHEMA_SCRIPTED_VALUE " + attribute.QualifiedName
+                            + ": a scripted BorderType in a Japanese document yields a Japanese value the host cannot map at run time");
                     return ScriptParameter(tag, attribute.Name, attribute, owner);
                 }
+                if (japaneseBorder)
+                    return E(tag, new XAttribute("name", attribute.Name), new XAttribute("value", BorderValue(attribute, owner)), new XAttribute("cache", "none"));
                 // Java accepts hexadecimal floating literals here. The host's current literal reader
                 // retains those as strings, so this lowering must refuse them.
                 string literal = attribute.RawValue.Trim();

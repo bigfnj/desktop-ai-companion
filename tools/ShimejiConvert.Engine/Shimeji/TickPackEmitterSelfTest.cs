@@ -67,7 +67,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "toggle-id-refusal", Run = (Action)ToggleIdRefusal },
                 new { Name = "information-refusal", Run = (Action)InformationRefusal },
                 new { Name = "own-set-binding-reset", Run = (Action)OwnSetBindingReset },
-                new { Name = "action-schema-refusal", Run = (Action)ActionSchemaRefusal },
+                new { Name = "japanese-schema-values", Run = (Action)JapaneseSchemaValues },
+                new { Name = "japanese-schema-refusal", Run = (Action)JapaneseSchemaRefusal },
+                new { Name = "japanese-engine-names", Run = (Action)JapaneseEngineNames },
+                new { Name = "japanese-engine-name-refusal", Run = (Action)JapaneseEngineNameRefusal },
                 new { Name = "ignored-reference-lists", Run = (Action)IgnoredReferenceLists },
                 new { Name = "cross-member-pack-metadata", Run = (Action)CrossMemberPackMetadata },
                 new { Name = "pack-source-identity", Run = (Action)PackSourceIdentity },
@@ -1365,20 +1368,170 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             }
         }
 
-        private static void ActionSchemaRefusal()
+        /// <summary>A synthetic Japanese-vocabulary pose (ポーズ): image, anchor, velocity, duration.</summary>
+        private static XElement JaPose(string image, int duration)
+        {
+            return S("ポーズ", A("画像", image), A("基準座標", "2,3"), A("移動速度", "0,0"), A("長さ", duration));
+        }
+
+        /// <summary>A Japanese action document's enumerated values, read through its own schema as the source compares
+        /// them (ActionBuilder.java:101-138, BorderedAction.java:44-49): every Type value and every BorderType value of
+        /// schema_ja, the literal BorderType written mapped both as the act's border and as its parameter (the host
+        /// reads the parameter first), and a reference binding of BorderType mapped too. Replaces action-schema-refusal,
+        /// which refused every Japanese action document outright; its successor refusal is japanese-schema-refusal.</summary>
+        private static void JapaneseSchemaValues()
         {
             using (var fixture = new Fixture())
             {
-                // English enum values are deliberate: removing the document-schema guard
-                // would otherwise emit these values under the wrong runtime enum vocabulary.
-                fixture.Actions(new XDocument(S("Mascot", S("動作リスト", S("動作", A("名前", "Stand"),
-                    A("種類", "Stay"), A("枠", "Floor"), S("アニメーション", S("ポーズ", A("画像", "/p.png"),
-                        A("基準座標", "2,3"), A("移動速度", "0,0"), A("長さ", 2))))))));
-                fixture.Behaviors(new XDocument(S("Mascot", S("BehaviorList", S("Behavior", A("Name", "Main"),
-                    A("Action", "Stand"), A("Frequency", 1))))));
-                Refusal(fixture, "TICK_SCHEMA_UNSUPPORTED");
-                Require(!Directory.Exists(fixture.Output), "action-schema refusal left output");
+                fixture.Actions(new XDocument(S("Mascot", S("動作リスト",
+                    S("動作", A("名前", "Stand"), A("種類", "静止"), A("枠", "地面"), S("アニメーション", JaPose("/p.png", 2))),
+                    S("動作", A("名前", "Climb"), A("種類", "移動"), A("枠", "壁"), A("目的地X", 5), S("アニメーション", JaPose("/q.png", 2))),
+                    S("動作", A("名前", "Hang"), A("種類", "固定"), A("枠", "天井"), S("アニメーション", JaPose("/p.png", 3))),
+                    S("動作", A("名前", "Drop"), A("種類", "組み込み"), A("クラス", "com.group_finity.mascot.action.Fall"),
+                        S("アニメーション", JaPose("/q.png", 1))),
+                    S("動作", A("名前", "Pick"), A("種類", "選択"), S("動作参照", A("名前", "Stand")), S("動作参照", A("名前", "Hang"))),
+                    S("動作", A("名前", "Chain"), A("種類", "複合"), A("繰り返し", "true"),
+                        S("動作参照", A("名前", "Stand"), A("枠", "天井")), S("動作参照", A("名前", "Climb")))))));
+                fixture.Behaviors(new XDocument(S("Mascot", S("行動リスト",
+                    S("行動", A("名前", "Main"), A("動作", "Chain"), A("頻度", 3)),
+                    S("行動", A("名前", "Other"), A("動作", "Pick"), A("頻度", 1)),
+                    S("行動", A("名前", "Drop"), A("頻度", 0))))));
+                XDocument document = fixture.Convert();
+                Validate(document, "Japanese-vocabulary member");
+                var expected = new[] { new[] { "Stand", "Stay", "Floor" }, new[] { "Climb", "Move", "Wall" }, new[] { "Hang", "Animate", "Ceiling" },
+                    new[] { "Drop", "Embedded", null }, new[] { "Pick", "Select", null }, new[] { "Chain", "Sequence", null } };
+                foreach (string[] row in expected)
+                {
+                    XElement act = NamedNode(document, row[0]).Element(Ns + "act");
+                    Require((string)act.Attribute("type") == row[1],
+                        "Japanese Type of " + row[0] + " became '" + (string)act.Attribute("type") + "', expected " + row[1]);
+                    Require((string)act.Attribute("border") == row[2],
+                        "Japanese BorderType of " + row[0] + " became '" + (string)act.Attribute("border") + "', expected " + (row[2] ?? "none"));
+                    if (row[2] != null)
+                        Require(Bound(act, "param", "BorderType") == row[2],
+                            "Japanese BorderType parameter of " + row[0] + " kept its source value: " + Bound(act, "param", "BorderType"));
+                }
+                Require((string)NamedNode(document, "Drop").Element(Ns + "act").Attribute("class") == "Fall", "Japanese Embedded class lost");
+                XElement chain = NamedNode(document, "Chain").Element(Ns + "act");
+                Require(Bound(chain.Element(Ns + "children").Elements(Ns + "child").First(), "bind", "BorderType") == "Ceiling",
+                    "a Japanese BorderType reference binding kept its source value");
+                Require((string)chain.Element(Ns + "children").Attribute("mode") == "sequence"
+                    && (string)NamedNode(document, "Pick").Element(Ns + "act").Element(Ns + "children").Attribute("mode") == "select",
+                    "a Japanese composite lost its mode");
+                // The keys the source also reads by value have no Japanese override, so their values pass through
+                // unmapped; if the facts ever gave them one, these would need mapping too.
+                foreach (string key in new[] { "Origin", "Breed", "Scan" })
+                    Require(ShimejiParser.SchemaString(ShimejiSourceSchema.Japanese, key) == key,
+                        "the Japanese schema now overrides the by-value key " + key);
             }
+        }
+
+        /// <summary>The Japanese engine behaviours: a member whose behaviour document is Japanese enters 落下する,
+        /// ドラッグされる and 投げられる on a ground loss, a drag and a release (UserBehavior.java, through the configuration's
+        /// schema), which the host enters as Fall, Dragged and Thrown, so each takes that name everywhere a literal
+        /// names it: the route, a next reference, a hotspot and a BornBehavior. Other names stay as they are.</summary>
+        private static void JapaneseEngineNames()
+        {
+            using (var fixture = new Fixture())
+            {
+                fixture.Actions(JapaneseEngineActions(A("生まれた時の行動", "落下する")));
+                fixture.Behaviors(JapaneseEngineBehaviours());
+                XDocument document = fixture.Convert();
+                Validate(document, "Japanese engine-name member");
+                string[] routeNames = Nodes(document).Single(n => n.Element(Ns + "route") != null).Element(Ns + "sequence").Elements(Ns + "next")
+                    .Select(e => (string)Nodes(document).Single(n => n.Attribute("id").Value == e.Value).Element(Ns + "behaviour").Attribute("name")).ToArray();
+                Require(new[] { "Fall", "Dragged", "Thrown" }.All(routeNames.Contains),
+                    "route behaviours do not carry the host's engine names: " + string.Join(", ", routeNames));
+                foreach (string name in new[] { "Fall", "Dragged", "Thrown", "Main" })
+                    Require(RootBehavior(document, name).Element(Ns + "name").Value == "beh:" + name,
+                        "route behaviour " + name + " missing after the engine-name mapping");
+                Require(!Nodes(document).Any(n => n.Element(Ns + "name").Value.IndexOf("落下する", StringComparison.Ordinal) >= 0
+                    || (string)n.Element(Ns + "behaviour")?.Attribute("name") == "落下する"), "a Japanese engine name survived");
+                XElement next = Nodes(document).Single(n => n.Attribute("id").Value
+                    == RootBehavior(document, "Main").Element(Ns + "sequence").Elements(Ns + "next").Single().Value);
+                Require((string)next.Element(Ns + "behaviour").Attribute("name") == "Fall", "a next reference to 落下する was not renamed");
+                Require(Bound(NamedNode(document, "Born").Element(Ns + "act"), "param", "BornBehavior") == "Fall",
+                    "a literal BornBehavior naming 落下する was not renamed");
+                XElement hotspot = NamedNode(document, "Stand").Descendants(Ns + "hotspot").Single();
+                Require((string)hotspot.Attribute("behaviour") == "Thrown", "a hotspot naming 投げられる was not renamed");
+            }
+        }
+
+        private static XDocument JapaneseEngineActions(XAttribute bornBehaviour)
+        {
+            return new XDocument(S("Mascot", S("動作リスト",
+                S("動作", A("名前", "Stand"), A("種類", "静止"), A("枠", "地面"), S("アニメーション", JaPose("/p.png", 2),
+                    S("Hotspot", A("Shape", "Rectangle"), A("Origin", "0,0"), A("Size", "2,2"), A("行動", "投げられる")))),
+                S("動作", A("名前", "Drop"), A("種類", "組み込み"), A("クラス", "com.group_finity.mascot.action.Fall"), S("アニメーション", JaPose("/q.png", 1))),
+                S("動作", A("名前", "Hold"), A("種類", "組み込み"), A("クラス", "com.group_finity.mascot.action.Dragged"), S("アニメーション", JaPose("/p.png", 1))),
+                S("動作", A("名前", "Born"), A("種類", "組み込み"), A("クラス", "com.group_finity.mascot.action.Breed"), A("長さ", 4), bornBehaviour,
+                    S("アニメーション", JaPose("/q.png", 4))))));
+        }
+
+        private static XDocument JapaneseEngineBehaviours(params XElement[] extra)
+        {
+            return new XDocument(S("Mascot", S("行動リスト",
+                S("行動", A("名前", "Main"), A("動作", "Stand"), A("頻度", 3),
+                    S("次の行動リスト", A("追加", "true"), S("行動参照", A("名前", "落下する"), A("動作", "Drop"), A("頻度", 1)))),
+                S("行動", A("名前", "落下する"), A("動作", "Drop"), A("頻度", 0)),
+                S("行動", A("名前", "ドラッグされる"), A("動作", "Hold"), A("頻度", 0)),
+                S("行動", A("名前", "投げられる"), A("動作", "Drop"), A("頻度", 0)),
+                S("行動", A("名前", "Breeding"), A("動作", "Born"), A("頻度", 0)),
+                extra)));
+        }
+
+        /// <summary>What the engine-name mapping cannot follow refuses by name: an English "Fall" that is an ordinary
+        /// behaviour under a Japanese schema (the host would enter it on events), a scripted behaviour name in a
+        /// renaming member, and a literal engine name in a pack whose members look those names up in different
+        /// schemas.</summary>
+        private static void JapaneseEngineNameRefusal()
+        {
+            using (var fixture = new Fixture())
+            {
+                fixture.Actions(JapaneseEngineActions(A("生まれた時の行動", "Main")));
+                fixture.Behaviors(JapaneseEngineBehaviours(S("行動", A("名前", "Fall"), A("動作", "Drop"), A("頻度", 0))));
+                Refusal(fixture, "TICK_ENGINE_NAME_COLLISION: 'Fall'");
+                Require(!Directory.Exists(fixture.Output), "engine-name collision left output");
+            }
+            using (var fixture = new Fixture())
+            {
+                fixture.Actions(JapaneseEngineActions(A("生まれた時の行動", "${'Main'}")));
+                fixture.Behaviors(JapaneseEngineBehaviours());
+                Refusal(fixture, "TICK_ENGINE_NAME_SCRIPTED 生まれた時の行動");
+            }
+            using (var fixture = new Fixture())
+            {
+                fixture.Actions(JapaneseEngineActions(A("生まれた時の行動", "Main")));
+                fixture.Behaviors(JapaneseEngineBehaviours());
+                fixture.Member("B");
+                XDocument english = BuildActions();
+                english.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Born").SetAttributeValue("BornBehavior", "Fall");
+                fixture.Write("conf/B/actions.xml", english.ToString());
+                fixture.Write("conf/B/behaviors.xml", BuildBehaviors().ToString());
+                Refusal(fixture, "TICK_ENGINE_NAME_MIXED BornBehavior");
+            }
+        }
+
+        /// <summary>A Japanese document's value with no source mapping refuses by name: English Type and BorderType
+        /// values (the source compares them with 静止 and 地面 and matches nothing), and a scripted BorderType, whose
+        /// Japanese value the host could not map at run time.</summary>
+        private static void JapaneseSchemaRefusal()
+        {
+            var cases = new[] {
+                new { Type = "Stay", Border = "地面", Expected = "TICK_SCHEMA_VALUE_UNMAPPED Type: 'Stay'" },
+                new { Type = "静止", Border = "Floor", Expected = "TICK_SCHEMA_VALUE_UNMAPPED BorderType: 'Floor'" },
+                new { Type = "静止", Border = "${'地面'}", Expected = "TICK_SCHEMA_SCRIPTED_VALUE 枠" },
+            };
+            foreach (var c in cases)
+                using (var fixture = new Fixture())
+                {
+                    fixture.Actions(new XDocument(S("Mascot", S("動作リスト", S("動作", A("名前", "Stand"),
+                        A("種類", c.Type), A("枠", c.Border), S("アニメーション", JaPose("/p.png", 2)))))));
+                    fixture.Behaviors(new XDocument(S("Mascot", S("行動リスト", S("行動", A("名前", "Main"),
+                        A("動作", "Stand"), A("頻度", 1))))));
+                    Refusal(fixture, c.Expected);
+                    Require(!Directory.Exists(fixture.Output), "Japanese value refusal left output");
+                }
         }
 
         private static void IgnoredReferenceLists()
