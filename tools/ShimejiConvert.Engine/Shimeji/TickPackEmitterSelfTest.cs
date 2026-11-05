@@ -36,6 +36,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "class-complex", Run = (Action)ClassComplex },
                 new { Name = "class-windows", Run = (Action)ClassWindows },
                 new { Name = "hotspot-lowering", Run = (Action)HotspotLowering },
+                new { Name = "hotspot-shape-case", Run = (Action)HotspotShapeCase },
                 new { Name = "hotspot-refusal", Run = (Action)HotspotRefusal },
                 new { Name = "offer-lowering", Run = (Action)OfferLowering },
                 new { Name = "offer-binding-refusal", Run = (Action)OfferBindingRefusal },
@@ -641,6 +642,39 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 string[] plain = Features(fixture.Convert());
                 Require(!plain.Contains("hotspots") && !plain.Contains("social"), "a member with no hotspot or offer declared hotspots or social");
             }
+        }
+
+        // The source matches a hotspot's Shape with equalsIgnoreCase (AnimationBuilder.java:192-196): any case of
+        // Rectangle or Ellipse is that shape, a dotless i included (Java maps it to I), and a name that is neither in
+        // any case still refuses.
+        private static void HotspotShapeCase()
+        {
+            var shapes = new[] {
+                new { Shape = "rectangle", Kind = "rect" }, new { Shape = "RECTANGLE", Kind = "rect" },
+                new { Shape = "ELLIPSE", Kind = "ellipse" }, new { Shape = "eLLiPsE", Kind = "ellipse" },
+                new { Shape = "Ell" + (char)0x131 + "pse", Kind = "ellipse" },
+            };
+            using (var fixture = new Fixture())
+            {
+                XDocument actions = BuildActions();
+                XElement animation = actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Stand").Element("Animation");
+                foreach (var shape in shapes) animation.Add(S("Hotspot", A("Shape", shape.Shape), A("Origin", "0,0"), A("Size", "2,2")));
+                fixture.Actions(actions);
+                XDocument document = fixture.Convert();
+                Validate(document, "case-varied hotspot member");
+                string[] kinds = NamedNode(document, "Stand").Descendants(Ns + "hotspot").Select(h => (string)h.Attribute("shape")).ToArray();
+                Require(kinds.SequenceEqual(shapes.Select(s => s.Kind)),
+                    "a case variant of Rectangle or Ellipse did not lower to its shape: " + string.Join(", ", kinds));
+            }
+            foreach (string unknown in new[] { "rectangles", "ELIPSE" })
+                using (var fixture = new Fixture())
+                {
+                    XDocument actions = BuildActions();
+                    actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Stand").Element("Animation")
+                        .Add(S("Hotspot", A("Shape", unknown), A("Origin", "0,0"), A("Size", "2,2")));
+                    fixture.Actions(actions);
+                    Refusal(fixture, "TICK_HOTSPOT_SHAPE_UNSUPPORTED: Shape '" + unknown + "'");
+                }
         }
 
         // The successor of the first lowering's "only Pose is supported in an Animation": a Hotspot converts, and

@@ -528,8 +528,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             {
                 Check(source, "Shape", "Origin", "Size", "Behaviour");
                 string shape = Required(source, "Shape");
-                // The source's two shapes, by their exact names; any other spelling refuses rather than guesses.
-                string kind = shape == "Rectangle" ? "rect" : shape == "Ellipse" ? "ellipse" : null;
+                // The source's two shapes, matched as it matches them: shapeText.equalsIgnoreCase("Rectangle") and
+                // ("Ellipse") (AnimationBuilder.java:192-196), so "rectangle" and "ELLIPSE" are those shapes. Any other
+                // name refuses rather than guesses, as the source refuses it (HotspotShapeNotSupported).
+                string kind = JavaEqualsIgnoreCase(shape, "Rectangle") ? "rect" : JavaEqualsIgnoreCase(shape, "Ellipse") ? "ellipse" : null;
                 if (kind == null) Fail(source, "TICK_HOTSPOT_SHAPE_UNSUPPORTED: Shape '" + shape + "' is neither Rectangle nor Ellipse");
                 int x, y, width, height;
                 Pair(Required(source, "Origin"), source, out x, out y);
@@ -881,6 +883,26 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             if (condition != null) edge.Add(new XAttribute("when", condition));
             return edge;
         }
+        /// <summary>Java's <c>String.equalsIgnoreCase</c> (String.regionMatches with ignoreCase): equal lengths, and each
+        /// pair of UTF-16 units equal, or equal upper-cased, or equal lower-cased after upper-casing. .NET's invariant
+        /// casing leaves the dotless i (U+0131) and the dotted capital I (U+0130) unmapped where Java's Character maps
+        /// them to I and i, so those two are mapped here; so "Ellıpse" is an Ellipse in both. Not OrdinalIgnoreCase,
+        /// which compares upper-cased units only.</summary>
+        private static bool JavaEqualsIgnoreCase(string value, string other)
+        {
+            if (value == null || other == null || value.Length != other.Length) return false;
+            for (int i = 0; i < value.Length; i++)
+            {
+                char a = value[i], b = other[i];
+                if (a == b) continue;
+                char upperA = JavaUpper(a), upperB = JavaUpper(b);
+                if (upperA == upperB || JavaLower(upperA) == JavaLower(upperB)) continue;
+                return false;
+            }
+            return true;
+        }
+        private static char JavaUpper(char c) { return c == (char)0x131 ? 'I' : char.ToUpperInvariant(c); }
+        private static char JavaLower(char c) { return c == (char)0x130 ? 'i' : char.ToLowerInvariant(c); }
         /// <summary>Java's <c>trim().length() == 0</c>: every character at or below U+0020 (TickAction.IsJavaBlank).</summary>
         private static bool JavaBlank(string value)
         {
