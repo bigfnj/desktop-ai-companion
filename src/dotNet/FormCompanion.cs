@@ -342,7 +342,17 @@ namespace DesktopAICompanion
         /// </summary>
         internal void RenderTick(Image frame, int left, int top, int width, int height, bool visible, double opacity = 1.0)
         {
-            if (!visible || frame == null)
+            // The fullscreen rule (SMOKETEST's watchlist: nothing visible over a fullscreen game): a tick companion on a
+            // monitor a fullscreen window owns hides and keeps running, as a classic one pinned there does. It does not
+            // move to a free monitor, because where it is belongs to the engine. Its speech is held until the screen frees.
+            bool blocked = TickMonitorBlocked(new Rectangle(left, top, Math.Max(1, width), Math.Max(1, height)));
+            if (blocked != _fullscreenHidden)
+            {
+                _fullscreenHidden = blocked;
+                if (_speech != null && !_speech.IsDisposed) _speech.SetFullscreenSuppressed(blocked);
+                if (!blocked) ReplayDeferredSpeech();
+            }
+            if (!visible || frame == null || blocked)
             {
                 if (Visible) Visible = false;
                 return;
@@ -359,6 +369,46 @@ namespace DesktopAICompanion
             if (petOpacity != opacity) SetPetOpacity(opacity);
             RenderCurrentFrame(frame);
             if (!Visible) Visible = true;
+            UpdateSpeechFollow();   // a bubble stays over the companion as it moves
+        }
+
+        /// <summary>The window self-test's stand-in for the fullscreen scan (which needs the running app). Null in production.</summary>
+        internal Func<Rectangle, bool> TickBlockedForSelfTest;
+
+        /// <summary>Whether a fullscreen window owns the monitor under <paramref name="area"/>, from the app's shared scan
+        /// (StartUp.BlockedMonitorsForStandDown, throttled once for the whole desktop). A failed scan reads as not blocked
+        /// and is said once in the log, as <see cref="CheckFullScreen"/> says it. With no app running (a self-test) there
+        /// is no scan to ask, and nothing is blocked.</summary>
+        private bool TickMonitorBlocked(Rectangle area)
+        {
+            if (TickBlockedForSelfTest != null) return TickBlockedForSelfTest(area);
+            if (Program.Mainthread == null) return false;
+            Screen[] screens = Screen.AllScreens;
+            if (screens.Length == 0)
+            {
+                NoteFullscreenStandDown("no screens reported");
+                return false;
+            }
+            bool[] blocked;
+            try { blocked = Program.Mainthread.BlockedMonitorsForStandDown(); }
+            catch (Exception ex)
+            {
+                NoteFullscreenStandDown("the monitor scan threw " + ex.GetType().Name);
+                return false;
+            }
+            if (blocked == null || blocked.Length != screens.Length)
+            {
+                NoteFullscreenStandDown(blocked == null ? "the monitor scan returned nothing"
+                    : "the monitor scan returned " + blocked.Length + " results for " + screens.Length + " screens");
+                return false;
+            }
+            bool any = false;
+            for (int i = 0; i < blocked.Length; i++) if (blocked[i]) { any = true; break; }
+            if (!any) return false;
+            string device = Screen.FromRectangle(area).DeviceName;
+            for (int i = 0; i < screens.Length; i++)
+                if (screens[i].DeviceName == device) return blocked[i];
+            return false;
         }
 
         private void TickPointerMove(object sender, MouseEventArgs e)
@@ -367,12 +417,15 @@ namespace DesktopAICompanion
         }
 
         /// <summary>Self-test: re-arm the classic timer the way Play or the debug menu would, fire it once, and say
-        /// whether it is still running afterwards (a tick-driven window must leave it off).</summary>
+        /// whether the classic engine ran (a step taken or a step that faulted) or the timer is still running
+        /// afterwards. A tick-driven window must do neither. The timer alone is not enough to watch: a classic step
+        /// that faults calls Play, which leaves the timer off on a tick window, so the engine can run unseen.</summary>
         internal bool ClassicTimerSurvivesForSelfTest()
         {
+            int faults = _tickFaults, step = AnimationStep;
             timer1.Enabled = true;
             Timer1_Tick(timer1, EventArgs.Empty);
-            return timer1.Enabled;
+            return timer1.Enabled || _tickFaults != faults || AnimationStep != step;
         }
 
         /// <summary>Self-test: a left-button press through the real handler, as a click on the window delivers it.</summary>
@@ -682,6 +735,9 @@ namespace DesktopAICompanion
         public void Play(int forceSpawn = -1)
         {
             timer1.Enabled = false;                     // Stop the timer
+            // A tick-driven window has no classic spawns, and where it is belongs to the tick host: a respawn, a
+            // relocation or the debug menu changes nothing here.
+            if (TickHost != null) return;
 
 			AnimationStep = 0;                         // First step
             _killFade = double.NaN;                     // a fresh life owns its own opacity again (RA-235)
@@ -765,6 +821,7 @@ namespace DesktopAICompanion
 		public void PlayChild(int aniID, TChild child)
         {
             timer1.Enabled = false;                     // Stop the timer
+            if (TickHost != null) return;               // as in Play: a tick-driven window is placed by its host
 
 			AnimationStep = 0;                          // First step
             hwndWindow = (IntPtr)0;                     // It is not over a window

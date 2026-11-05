@@ -48,7 +48,7 @@ namespace DesktopAICompanion
                 error = ex.Message;
                 return false;
             }
-            program = new ScriptProgram(source, root, parser.RandomSites);
+            program = new ScriptProgram(source, root, parser.RandomSites, parser.UsesVariables);
             return true;
         }
 
@@ -221,6 +221,8 @@ namespace DesktopAICompanion
             private int _pos;
             private int _depth;
             public readonly List<int> RandomSites = new List<int>();
+            /// <summary>Whether the expression reads or writes mascot.variables (the 'variables' feature).</summary>
+            public bool UsesVariables;
 
             public Parser(List<Token> tokens, Func<string, bool> scope) { _tokens = tokens; _scope = scope; }
 
@@ -431,7 +433,7 @@ namespace DesktopAICompanion
                             {
                                 case "anchor": kind = ObjectKind.Anchor; path = next; continue;
                                 case "environment": kind = ObjectKind.Environment; path = next; continue;
-                                case "variables": kind = ObjectKind.Variables; path = next; continue;
+                                case "variables": kind = ObjectKind.Variables; path = next; UsesVariables = true; continue;
                                 case "lookRight": return new MascotValueNode(MascotValue.LookRight);
                                 case "dragging": return new MascotValueNode(MascotValue.Dragging);
                                 case "count": return new MascotValueNode(MascotValue.Count);
@@ -949,12 +951,16 @@ namespace DesktopAICompanion
         /// <summary>The character offsets of every Math.random() site, in source order: each evaluation of a site is one
         /// draw, which the parity trace logs with that offset.</summary>
         public IReadOnlyList<int> RandomSites { get; }
+        /// <summary>Whether the expression reads or writes mascot.variables, so the validator can require the 'variables'
+        /// feature from what was parsed rather than from the text.</summary>
+        public bool UsesVariables { get; }
 
-        internal ScriptProgram(string source, SafeScript.Node root, List<int> randomSites)
+        internal ScriptProgram(string source, SafeScript.Node root, List<int> randomSites, bool usesVariables = false)
         {
             Source = source;
             _root = root;
             RandomSites = randomSites.AsReadOnly();
+            UsesVariables = usesVariables;
         }
 
         /// <summary>Evaluate. A runtime fault yields null and is reported once through <see cref="IScriptContext.ReportFault"/>.</summary>

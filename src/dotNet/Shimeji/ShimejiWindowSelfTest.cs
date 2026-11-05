@@ -104,6 +104,40 @@ namespace DesktopAICompanion.Shimeji
                 breedForm.LeftPressForSelfTest();
                 host.Step();
                 check(breeder.Behaviour != null && breeder.Behaviour.Name == "Dragged", "a left press on a window enters Dragged at the next step");
+
+                // A fullscreen window on the companion's monitor hides its window while the companion keeps running, and
+                // the window is back at the first step after the monitor frees.
+                // (The dragged companion: Dragged's one pose always shows an image.)
+                int timeBefore = breeder.Time;
+                bool shownBefore = breedForm.Visible;
+                breedForm.TickBlockedForSelfTest = area => true;
+                host.Step();
+                bool hidden = !breedForm.Visible && breedForm.IsStoodDownForFullscreen && breeder.Time == timeBefore + 1;
+                breedForm.TickBlockedForSelfTest = area => false;
+                host.Step();
+                check(shownBefore && hidden && breedForm.Visible && !breedForm.IsStoodDownForFullscreen,
+                    "a fullscreen window on its monitor hides a tick window while the companion runs on, and it returns after");
+                breedForm.TickBlockedForSelfTest = null;
+
+                // Play (a respawn, a relocation, the debug menu) changes nothing on a tick-driven window: its host places it.
+                Rectangle placed = breedForm.Bounds;
+                bool shown = breedForm.Visible;
+                string playFault = null;
+                try { breedForm.Play(); }
+                catch (Exception e) { playFault = e.GetType().Name; }
+                check(playFault == null && breedForm.Bounds == placed && breedForm.Visible == shown,
+                    "Play() on a tick-driven window moves and shows nothing" + (playFault == null ? "" : " (threw " + playFault + ")"));
+
+                // Kill, as the user's double right-click and the app's exit call it: a tick window has no death animation,
+                // so it closes at once, and its companion leaves the world at the next step without the host closing it twice.
+                FormCompanion standing = host.FormOf(stander);
+                standing.Kill();
+                host.Step();
+                check(standing.IsDisposed && stander.Disposing && host.FormOf(stander) == null
+                      && !Contains(host.World.Mascots, stander) && !closed.Contains(standing),
+                    "Kill() closes a tick window at once and its companion leaves the world at the next step");
+
+                CheckStaging(check);
             }
             catch (Exception e)
             {
@@ -120,6 +154,61 @@ namespace DesktopAICompanion.Shimeji
             output.Write(log.ToString());
             try { File.WriteAllText(Path.Combine(Path.GetTempPath(), MarkerName), log.ToString(), new UTF8Encoding(false)); } catch { }
             return ok;
+        }
+
+        /// <summary>
+        /// The app's staging of a tick-clock document (StartUp.TryStageRuntime): it compiles a tick type beside the Xml,
+        /// scaled to the frames' staged size, and leaves the classic animation set empty; a classic document stages as it
+        /// always has, with no tick type. The document is the extension gate's fixture, on the bundled pet's real sheet.
+        /// </summary>
+        private static void CheckStaging(Action<bool, string> check)
+        {
+            XmlData.RootNode classic;
+            string error;
+            if (!CompanionXmlValidator.TryParse(Properties.Resources.animations, out classic, out error))
+            {
+                check(false, "staging: the bundled pet parses (" + error + ")");
+                return;
+            }
+            string tickText = SecuritySelfTest.Serialize(SecuritySelfTest.TickFixture(classic));
+            Xml xml;
+            Animations animations;
+            bool staged = StartUp.TryStageRuntime(tickText, 2.0, out xml, out animations, out error);
+            try
+            {
+                TickType type = staged ? TickStaging.Of(xml) : null;
+                check(type != null && animations.SheepAnimations.Count == 0 && animations.SheepSpawn.Count == 0,
+                    "staging: a tick-clock document stages a tick type and an empty classic set" + (staged ? "" : " (" + error + ")"));
+                check(type != null && type.Scale == xml.ScaleFactorD && type.CellWidth == xml.spriteWidth
+                      && type.CellHeight == xml.spriteHeight && type.RootByName.ContainsKey("Stand"),
+                    "staging: the tick type is scaled to its frames' staged size and keeps its behaviours"
+                    + (type == null ? "" : " (scale " + type.Scale + " vs " + xml.ScaleFactorD + ", cell " + type.CellWidth + "x"
+                       + type.CellHeight + " vs " + xml.spriteWidth + "x" + xml.spriteHeight + ")"));
+            }
+            finally
+            {
+                if (animations != null) animations.Dispose();
+                if (xml != null) xml.Dispose();
+            }
+
+            // WITNESS: a classic document stages classically, with no tick type beside it.
+            staged = StartUp.TryStageRuntime(Properties.Resources.animations, 1.0, out xml, out animations, out error);
+            try
+            {
+                check(staged && TickStaging.Of(xml) == null && animations.SheepAnimations.Count > 0,
+                    "staging: WITNESS a classic document stages classically with no tick type" + (staged ? "" : " (" + error + ")"));
+            }
+            finally
+            {
+                if (animations != null) animations.Dispose();
+                if (xml != null) xml.Dispose();
+            }
+        }
+
+        private static bool Contains(IReadOnlyList<TickMascot> list, TickMascot m)
+        {
+            foreach (TickMascot x in list) if (ReferenceEquals(x, m)) return true;
+            return false;
         }
 
         private static TickMascot FindChild(TickWorld world)

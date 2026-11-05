@@ -1449,6 +1449,44 @@ namespace DesktopAICompanion.Shimeji
             mascot.SetBehaviour(BuildBehaviourByName(target, behaviour, mascot), "forced");
         }
 
+        /// <summary>
+        /// Whether this build constructs an embedded class: the per-class half of the feature gate
+        /// (CompanionFormatFeatures.RunsClass). Asked of the real construction path rather than a list kept beside it, so
+        /// a family that lands a class is accepted by the validator in the same commit and a list cannot fall behind.
+        /// The probe's definition is empty, and a constructor may refuse it as the source's does (MoveWithTurn wants two
+        /// animations): an exception means a family CLAIMED the class, because a family that does not run a class
+        /// returns null without constructing anything. Only that null answers "does not run".
+        /// </summary>
+        public static bool RunsEmbeddedClass(string embeddedClass)
+        {
+            if (string.IsNullOrEmpty(embeddedClass)) return false;
+            var probe = new TickWorld(null, null, null, null);
+            var def = new TickActDef { Name = "probe", Type = "Embedded", Class = embeddedClass };
+            try
+            {
+                return probe.CreateEmbedded(null, def, new Dictionary<string, TickParamDef>(StringComparer.Ordinal)) != null;
+            }
+            catch (Exception)
+            {
+                return true;
+            }
+        }
+
+        /// <summary>The embedded class's action, or null when no family in this build runs the class.</summary>
+        private TickAction CreateEmbedded(TickType type, TickActDef def, Dictionary<string, TickParamDef> incoming)
+        {
+            switch (def.Class)
+            {
+                case "Breed": return new TickBreed(this, def, incoming);
+                case "Transform": return new TickTransform(this, def, incoming);
+            }
+            // Each family of embedded classes lives in its own file (grimoire/06 section 5).
+            return TickMotionFamily.TryCreate(this, type, def, incoming)
+                ?? TickInstantFamily.TryCreate(this, type, def, incoming)
+                ?? TickSocialFamily.TryCreate(this, type, def, incoming)
+                ?? TickWindowFamily.TryCreate(this, type, def, incoming);
+        }
+
         public TickAction BuildAction(TickType type, string name, Dictionary<string, TickParamDef> incoming)
         {
             TickActDef def;
@@ -1481,16 +1519,7 @@ namespace DesktopAICompanion.Shimeji
                 }
                 case "Embedded":
                 {
-                    switch (def.Class)
-                    {
-                        case "Breed": return new TickBreed(this, def, incoming);
-                        case "Transform": return new TickTransform(this, def, incoming);
-                    }
-                    // Each family of embedded classes lives in its own file (grimoire/06 section 5).
-                    TickAction embedded = TickMotionFamily.TryCreate(this, type, def, incoming)
-                        ?? TickInstantFamily.TryCreate(this, type, def, incoming)
-                        ?? TickSocialFamily.TryCreate(this, type, def, incoming)
-                        ?? TickWindowFamily.TryCreate(this, type, def, incoming);
+                    TickAction embedded = CreateEmbedded(type, def, incoming);
                     if (embedded != null) return embedded;
                     throw new TickCantBeAliveException("embedded class '" + def.Class + "' does not run in this build yet");
                 }

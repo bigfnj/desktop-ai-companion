@@ -9,8 +9,14 @@ namespace DesktopAICompanion
     /// The feature tokens of the Shimeji runtime extensions (grimoire/06 section 1): what a companion declares in
     /// <c>&lt;header&gt;&lt;features&gt;</c>, and what THIS build's runtime runs. A token joins <see cref="Supported"/>
     /// only in the build whose runtime implements it, so no build accepts a companion it cannot run.
+    ///
+    /// Partial because the runtime is not in every build that compiles this file. The app compiles the runtime and
+    /// implements the two hooks below (Shimeji/TickFeatures.cs); Studio and the converter compile this file without it,
+    /// so the hooks vanish there, their <see cref="Supported"/> stays empty, and they keep refusing a tick companion by
+    /// feature name. That is deliberate: both re-serialise documents through copies that do not yet carry every field
+    /// (DESIGN-REGISTER, feature/shimeji-host-runtime).
     /// </summary>
-    internal static class CompanionFormatFeatures
+    internal static partial class CompanionFormatFeatures
     {
         public const string Tick = "tick";
         public const string Actions = "actions";
@@ -27,9 +33,31 @@ namespace DesktopAICompanion
         public static readonly string[] All =
             { Tick, Actions, Behaviours, Expressions, Packs, Social, Lifecycle, Windows, Hotspots, Variables };
 
-        /// <summary>What this build runs. Empty until the runtime lands: the schema and validator exist first, and a
-        /// companion that uses the extensions is refused, by feature name, until the host can run it.</summary>
-        public static readonly IReadOnlyCollection<string> Supported = new string[0];
+        /// <summary>What this build runs: the tokens its runtime registers, none where no runtime is compiled in. A
+        /// companion that uses anything else is refused, by feature name.</summary>
+        public static readonly IReadOnlyCollection<string> Supported = RuntimeFeatures();
+
+        private static string[] RuntimeFeatures()
+        {
+            var supported = new List<string>();
+            AddRuntimeFeatures(supported);
+            return supported.ToArray();
+        }
+
+        /// <summary>The runtime's tokens; implemented only in a build that runs them.</summary>
+        static partial void AddRuntimeFeatures(List<string> supported);
+
+        /// <summary>Whether this build constructs an embedded class. A token covers a family of classes, and a family
+        /// can land a class at a time, so the validator also asks per class. Where no runtime is compiled in, the
+        /// format alone decides (true), since <see cref="Supported"/> already refuses every tick companion there.</summary>
+        public static bool RunsClass(string embeddedClass)
+        {
+            bool runs = true;
+            CheckRuntimeClass(embeddedClass, ref runs);
+            return runs;
+        }
+
+        static partial void CheckRuntimeClass(string embeddedClass, ref bool runs);
 
         public static HashSet<string> Parse(string features)
         {
@@ -58,6 +86,10 @@ namespace DesktopAICompanion
         public const int TickMaximumAnimations = 2048;
         public const int TickMaximumTransitions = 1024;
         public const int MaximumPoseTicks = 100000;
+        /// <summary>How deep composites may nest, and how many actions one activation may build. The source has no limit;
+        /// these bound the work one action start can cost the app.</summary>
+        public const int MaximumCompositeDepth = 32;
+        public const int MaximumExpandedActions = 4096;
 
         /// <summary>The embedded classes the host runs (grimoire/06 section 5). With the six base types this is the
         /// official runtime's 36 concrete actions.</summary>
@@ -70,9 +102,11 @@ namespace DesktopAICompanion
             "WalkWithIE", "FallWithIE", "JumpWithIE", "ThrowIE", "MinimizeIE",
         };
 
-        private static readonly string[] LifecycleClasses = { "Breed", "BreedMove", "BreedJump", "BreedFall", "Transform", "SelfDestruct" };
-        private static readonly string[] SocialClasses = { "ScanMove", "ScanJump", "ScanInteract", "Interact" };
-        private static readonly string[] WindowClasses = { "WalkWithIE", "FallWithIE", "JumpWithIE", "ThrowIE", "MinimizeIE" };
+        /// <summary>The classes each feature gates; every other embedded class needs only 'actions' (ComplexMove and
+        /// ComplexJump add 'lifecycle' and 'social' by their Characteristics).</summary>
+        public static readonly string[] LifecycleClasses = { "Breed", "BreedMove", "BreedJump", "BreedFall", "Transform", "SelfDestruct" };
+        public static readonly string[] SocialClasses = { "ScanMove", "ScanJump", "ScanInteract", "Interact" };
+        public static readonly string[] WindowClasses = { "WalkWithIE", "FallWithIE", "JumpWithIE", "ThrowIE", "MinimizeIE" };
 
         /// <summary>Locals the source publishes into an action's context (grimoire/06 section 4.1).</summary>
         public static readonly string[] Locals = { "TargetX", "TargetY", "VelocityX", "VelocityY", "FootX", "FootDX" };
@@ -176,6 +210,13 @@ namespace DesktopAICompanion
                 Require(declared, CompanionFormatFeatures.Behaviours, a.Behaviour != null || a.Route != null, where + " <behaviour>/<route>");
                 foreach (XmlData.NextNode n in EdgesOf(a))
                     Require(declared, CompanionFormatFeatures.Expressions, n.When != null, where + " transition condition");
+                // A binding sets a parameter of the action it enters, so a scripted one is an expression, and one naming
+                // another pack member is a cross-member reference, exactly as the parameter itself would be.
+                foreach (XmlData.BindNode b in BindsOf(a))
+                {
+                    Require(declared, CompanionFormatFeatures.Expressions, IsScripted(b.Cache), where + " binding expression");
+                    Require(declared, CompanionFormatFeatures.Packs, IsMemberReference(b.Name), where + " binding " + b.Name + " (another pack member)");
+                }
                 if (a.Act != null)
                 {
                     string cls = a.Act.Class ?? "";
@@ -184,10 +225,18 @@ namespace DesktopAICompanion
                     Require(declared, CompanionFormatFeatures.Windows, Array.IndexOf(WindowClasses, cls) >= 0, where + " class " + cls);
                     if (cls == "ComplexMove" || cls == "ComplexJump")
                     {
-                        string ch = ParamValue(a.Act, "Characteristics") ?? "";
-                        Require(declared, CompanionFormatFeatures.Lifecycle, ch.Contains("Breed"), where + " Characteristics Breed");
-                        Require(declared, CompanionFormatFeatures.Social, ch.Contains("Scan"), where + " Characteristics Scan");
+                        // The runtime splits Characteristics on commas and compares each piece exactly (ComplexMove.java,
+                        // ComplexJump.java), so a literal is judged the same way. A scripted value could turn out to be
+                        // either, so it needs both features.
+                        XmlData.ParamNode ch = Param(a.Act, "Characteristics");
+                        bool scriptedCh = ch != null && IsScripted(ch.Cache);
+                        string[] pieces = ch == null || scriptedCh || ch.Value == null ? new string[0] : ch.Value.Split(',');
+                        Require(declared, CompanionFormatFeatures.Lifecycle, scriptedCh || Array.IndexOf(pieces, "Breed") >= 0, where + " Characteristics Breed");
+                        Require(declared, CompanionFormatFeatures.Social, scriptedCh || Array.IndexOf(pieces, "Scan") >= 0, where + " Characteristics Scan");
                     }
+                    if (a.Act.Params != null)
+                        foreach (XmlData.ParamNode p in a.Act.Params)
+                            Require(declared, CompanionFormatFeatures.Packs, p != null && IsMemberReference(p.Name), where + " " + (p == null ? "" : p.Name) + " (another pack member)");
                     if (a.Act.Variants != null && a.Act.Variants.Variant != null)
                         foreach (XmlData.VariantNode v in a.Act.Variants.Variant)
                             Require(declared, CompanionFormatFeatures.Hotspots, v != null && v.Hotspots != null, where + " hotspots");
@@ -228,12 +277,32 @@ namespace DesktopAICompanion
             return string.Equals(cache, "action", StringComparison.Ordinal) || string.Equals(cache, "frame", StringComparison.Ordinal);
         }
 
-        private static string ParamValue(XmlData.ActNode act, string name)
+        private static XmlData.ParamNode Param(XmlData.ActNode act, string name)
         {
             if (act.Params == null) return null;
             foreach (XmlData.ParamNode p in act.Params)
-                if (p != null && string.Equals(p.Name, name, StringComparison.Ordinal)) return p.Value;
+                if (p != null && string.Equals(p.Name, name, StringComparison.Ordinal)) return p;
             return null;
+        }
+
+        /// <summary>BornMascot and TransformMascot name an image set: another member of a pack. Without 'packs' the
+        /// runtime would fall back to the companion's own type, so a document that names one must say it is a pack
+        /// member. (The converter omits the parameter when the source names the companion's own set.)</summary>
+        private static bool IsMemberReference(string parameter)
+        {
+            return string.Equals(parameter, "BornMascot", StringComparison.Ordinal)
+                || string.Equals(parameter, "TransformMascot", StringComparison.Ordinal);
+        }
+
+        /// <summary>Every binding on a node: a behaviour's, and each composite child's.</summary>
+        private static IEnumerable<XmlData.BindNode> BindsOf(XmlData.AnimationNode a)
+        {
+            if (a.Behaviour != null && a.Behaviour.Bind != null)
+                foreach (XmlData.BindNode b in a.Behaviour.Bind) if (b != null) yield return b;
+            if (a.Act != null && a.Act.Children != null && a.Act.Children.Child != null)
+                foreach (XmlData.CompositeChildNode c in a.Act.Children.Child)
+                    if (c != null && c.Bind != null)
+                        foreach (XmlData.BindNode b in c.Bind) if (b != null) yield return b;
         }
 
         private static IEnumerable<XmlData.NextNode> EdgesOf(XmlData.AnimationNode a)
@@ -307,11 +376,33 @@ namespace DesktopAICompanion
                     throw new InvalidDataException("animation " + a.Id + " is off the route and named '" + a.Behaviour.Name
                         + "', which no behaviour on the route is; the source finds what follows it by that name.");
 
+            // A tick-clock companion's sounds are NAMED clips a pose plays (grimoire/03 keeps animationid for classic use).
             var soundIds = new HashSet<string>(StringComparer.Ordinal);
             if (root.Sounds != null && root.Sounds.Sound != null)
                 foreach (XmlData.SoundNode s in root.Sounds.Sound)
-                    if (s != null && s.SoundId != null && !soundIds.Add(s.SoundId))
+                {
+                    if (s == null || string.IsNullOrWhiteSpace(s.SoundId) || s.SoundId.Length > 64)
+                        throw new InvalidDataException("A tick-clock companion's sounds are named clips: each needs an id of 1 to 64 characters.");
+                    if (!soundIds.Add(s.SoundId))
                         throw new InvalidDataException("Sound id '" + s.SoundId + "' is used twice.");
+                }
+
+            // A behaviour's toggle names a header toggle, and header toggles have distinct ids.
+            var toggleIds = new HashSet<string>(StringComparer.Ordinal);
+            if (root.Header.Toggles != null && root.Header.Toggles.Toggle != null)
+                foreach (XmlData.ToggleNode t in root.Header.Toggles.Toggle)
+                    if (t == null || string.IsNullOrWhiteSpace(t.Id) || t.Id.Length > 64 || !toggleIds.Add(t.Id))
+                        throw new InvalidDataException("header/toggles has a missing, over-long or repeated toggle id.");
+            foreach (XmlData.AnimationNode a in animations)
+                if (a.Behaviour != null && !string.IsNullOrEmpty(a.Behaviour.Toggle) && !toggleIds.Contains(a.Behaviour.Toggle))
+                    throw new InvalidDataException("animation " + a.Id + " names toggle '" + a.Behaviour.Toggle
+                        + "', which header/toggles does not declare.");
+
+            // Composite activation must be finite. The runtime builds a fresh child for each reference every time a
+            // composite starts, so one that contains itself would recurse without end, and nested repetition multiplies.
+            var expanded = new Dictionary<string, int>(StringComparer.Ordinal);
+            foreach (string name in actByName.Keys)
+                ExpandedSize(name, actByName, expanded, new List<string>());
 
             // Which parameter names reach each action through references, for its expression scope.
             var boundNames = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
@@ -343,10 +434,10 @@ namespace DesktopAICompanion
                         throw new InvalidDataException(where + " runs '" + a.Behaviour.Runs + "', which is not an action of this companion.");
                     if (a.Behaviour.Frequency < 0 || a.Behaviour.Frequency > 1000000)
                         throw new InvalidDataException(where + " has an invalid frequency.");
-                    ValidateBinds(a.Behaviour.Bind, ScopeFor(a.Behaviour.Runs, actByName, boundNames), where);
+                    ValidateBinds(a.Behaviour.Bind, ScopeFor(a.Behaviour.Runs, actByName, boundNames), where, declared);
                 }
                 foreach (XmlData.NextNode n in EdgesOf(a))
-                    if (n.When != null) ParseExpression(n.When, selectionScope, where + " transition condition");
+                    if (n.When != null) ParseExpression(n.When, selectionScope, where + " transition condition", declared);
             }
 
             XmlData.StartupNode startup = root.Header.Startup;
@@ -362,6 +453,37 @@ namespace DesktopAICompanion
                 if (!IsPackKey(root.Header.Pack.Id) || !IsPackKey(root.Header.Pack.Member))
                     throw new InvalidDataException("header/pack id and member must be 1 to 64 characters of letters, digits, '.', '_', '-' or space.");
             }
+        }
+
+        /// <summary>How many actions one activation of <paramref name="name"/> builds (itself and every nested child), refusing
+        /// a composite that contains itself, nesting deeper than <see cref="MaximumCompositeDepth"/> or building more than
+        /// <see cref="MaximumExpandedActions"/>. A reference to a missing action is skipped here; ValidateAct names it.</summary>
+        private static int ExpandedSize(string name, Dictionary<string, XmlData.AnimationNode> acts,
+            Dictionary<string, int> memo, List<string> path)
+        {
+            int size;
+            if (memo.TryGetValue(name, out size)) return size;
+            XmlData.AnimationNode node;
+            if (!acts.TryGetValue(name, out node)) return 0;
+            if (path.Contains(name))
+                throw new InvalidDataException("Action '" + name + "' contains itself through its children ("
+                    + string.Join(" -> ", path) + " -> " + name + ").");
+            if (path.Count >= MaximumCompositeDepth)
+                throw new InvalidDataException("Action '" + path[0] + "' nests its children more than " + MaximumCompositeDepth + " deep.");
+            path.Add(name);
+            size = 1;
+            if (node.Act.Children != null && node.Act.Children.Child != null)
+                foreach (XmlData.CompositeChildNode c in node.Act.Children.Child)
+                {
+                    if (c == null || c.Animation == null) continue;
+                    size += ExpandedSize(c.Animation, acts, memo, path);
+                    if (size > MaximumExpandedActions)
+                        throw new InvalidDataException("Action '" + name + "' builds more than " + MaximumExpandedActions
+                            + " nested actions each time it starts.");
+                }
+            path.RemoveAt(path.Count - 1);
+            memo[name] = size;
+            return size;
         }
 
         private static void AddBound(Dictionary<string, HashSet<string>> bound, string action, XmlData.BindNode[] binds)
@@ -396,6 +518,9 @@ namespace DesktopAICompanion
                 throw new InvalidDataException(where + ": a class is required for Embedded and allowed for nothing else.");
             if (embedded && Array.IndexOf(EmbeddedClasses, cls) < 0)
                 throw new InvalidDataException(where + ": embedded class '" + cls + "' is not one this host runs.");
+            if (embedded && !CompanionFormatFeatures.RunsClass(cls))
+                throw new InvalidDataException(where + ": embedded class '" + cls
+                    + "' does not run in this version of Desktop AI Companion yet.");
             bool composite = act.Type == "Sequence" || act.Type == "Select";
             if (composite != (act.Children != null))
                 throw new InvalidDataException(where + ": <children> belongs on Sequence and Select actions, and they need it.");
@@ -409,13 +534,13 @@ namespace DesktopAICompanion
                 {
                     if (p == null || string.IsNullOrWhiteSpace(p.Name) || !paramNames.Add(p.Name))
                         throw new InvalidDataException(where + " has a missing or repeated parameter name.");
-                    if (IsScripted(p.Cache)) ParseExpression(p.Value, scope, where + " parameter " + p.Name);
+                    if (IsScripted(p.Cache)) ParseExpression(p.Value, scope, where + " parameter " + p.Name, declared);
                 }
             if (act.Guard != null)
             {
-                if (act.Guard.When != null) ParseExpression(act.Guard.When, scope, where + " guard when");
-                if (act.Guard.Duration != null) ParseExpression(act.Guard.Duration, scope, where + " guard duration");
-                if (act.Guard.Draggable != null) ParseExpression(act.Guard.Draggable, scope, where + " guard draggable");
+                if (act.Guard.When != null) ParseExpression(act.Guard.When, scope, where + " guard when", declared);
+                if (act.Guard.Duration != null) ParseExpression(act.Guard.Duration, scope, where + " guard duration", declared);
+                if (act.Guard.Draggable != null) ParseExpression(act.Guard.Draggable, scope, where + " guard draggable", declared);
             }
             if (act.Offers != null && act.Offers.Offer != null)
                 foreach (XmlData.OfferNode o in act.Offers.Offer)
@@ -427,7 +552,7 @@ namespace DesktopAICompanion
                 {
                     if (v == null || v.Pose == null || v.Pose.Length == 0)
                         throw new InvalidDataException(where + " has a variant with no poses.");
-                    if (!string.IsNullOrEmpty(v.When)) ParseExpression(v.When, scope, where + " variant condition");
+                    if (!string.IsNullOrEmpty(v.When)) ParseExpression(v.When, scope, where + " variant condition", declared);
                     foreach (XmlData.PoseNode p in v.Pose)
                     {
                         if (p == null || p.Frame < -1 || p.Frame >= tileCount)
@@ -462,12 +587,12 @@ namespace DesktopAICompanion
                 {
                     if (c == null || string.IsNullOrEmpty(c.Animation) || !actByName.ContainsKey(c.Animation))
                         throw new InvalidDataException(where + " references action '" + (c == null ? null : c.Animation) + "', which this companion does not have.");
-                    ValidateBinds(c.Bind, ScopeFor(c.Animation, actByName, boundNames), where + " -> " + c.Animation);
+                    ValidateBinds(c.Bind, ScopeFor(c.Animation, actByName, boundNames), where + " -> " + c.Animation, declared);
                 }
             }
         }
 
-        private static void ValidateBinds(XmlData.BindNode[] binds, Func<string, bool> scope, string where)
+        private static void ValidateBinds(XmlData.BindNode[] binds, Func<string, bool> scope, string where, HashSet<string> declared)
         {
             if (binds == null) return;
             var names = new HashSet<string>(StringComparer.Ordinal);
@@ -475,16 +600,19 @@ namespace DesktopAICompanion
             {
                 if (b == null || string.IsNullOrWhiteSpace(b.Name) || !names.Add(b.Name))
                     throw new InvalidDataException(where + " has a missing or repeated binding name.");
-                if (IsScripted(b.Cache)) ParseExpression(b.Value, scope, where + " binding " + b.Name);
+                if (IsScripted(b.Cache)) ParseExpression(b.Value, scope, where + " binding " + b.Name, declared);
             }
         }
 
-        private static void ParseExpression(string source, Func<string, bool> scope, string where)
+        /// <summary>Parse an expression in its scope; one that reads or writes mascot.variables needs the 'variables'
+        /// feature, judged from what the parser found rather than from the text.</summary>
+        private static void ParseExpression(string source, Func<string, bool> scope, string where, HashSet<string> declared)
         {
             ScriptProgram program;
             string error;
             if (!SafeScript.TryParse(source, scope, out program, out error))
                 throw new InvalidDataException(where + " has an invalid expression: " + error);
+            Require(declared, CompanionFormatFeatures.Variables, program.UsesVariables, where + " mascot.variables");
         }
 
         private static bool IsPair(string value)

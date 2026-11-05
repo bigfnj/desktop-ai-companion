@@ -84,7 +84,9 @@ run.
     facing right (`Pose.java:70-85`, right-facing subtracts).
   - `sound` names a `<sound id>`; `volume` is the pose's Volume.
   - The pose for a given action age is chosen by age modulo the summed durations (`Animation.java:54-78`).
-- **`<sound id="...">`.** A new optional attribute, so poses can name clips. `animationid` stays for classic use.
+- **`<sound id="...">`.** A new optional attribute, so poses can name clips. `animationid` stays for classic use. In a
+  tick-clock companion every sound is a named clip (an id of 1 to 64 characters, unique, no `animationid`), and its
+  audio passes the same size limits and MP3 check as a classic sound.
 
 ---
 
@@ -100,9 +102,9 @@ still an `<animation id name>` with a `<sequence>`. In tick mode a sequence carr
   <name>Walk</name>
   <start>...</start><end>...</end>
   <act type="Move" class="" border="Floor" loop="false">
-    <param name="TargetX" value="${mascot.environment.cursor.x}" cache="action"/>
+    <param name="TargetX" value="mascot.environment.cursor.x" cache="action"/>
     <param name="Duration" value="250"/>
-    <guard when="#{mascot.environment.floor.isOn(mascot.anchor)}" duration="Duration" draggable="true"/>
+    <guard when="mascot.environment.floor.isOn(mascot.anchor)" duration="Duration" draggable="true"/>
     <offers><offer value="hug"/></offers>
     <variants>
       <variant when="" turn="false">
@@ -128,9 +130,13 @@ still an `<animation id name>` with a `<sequence>`. In tick mode a sequence carr
 - `border` is `Floor`, `Wall`, `Ceiling` or empty (`BorderedAction.java:39-61`). `loop` applies to Sequence only.
 
 **Parameters.**
-- `<param name value cache>` declares a parameter's default. `value` is a literal or an expression (section 6).
-  `cache` is `action` (source `${}`), `frame` (source `#{}`) or `none` (a literal). Both caches are lazy: the value is
-  computed at its first use and kept until the cache is cleared (section 6, Caching).
+- `<param name value cache>` declares a parameter's default. `value` is a literal or an expression BODY (section 6):
+  the source's `${...}` or `#{...}` wrapper is not written; it becomes `cache`, which is `action` (source `${}`),
+  `frame` (source `#{}`) or `none` (a literal). Both caches are lazy: the value is computed at its first use and kept
+  until the cache is cleared (section 6, Caching).
+- A guard or variant `when` is evaluated at every check and has no cache of its own. A source Condition written with a
+  cache wrapper is lowered to a cached parameter, and the `when` names that parameter, so a `${}` Condition holds its
+  first value across both checks of a step as it does in the source.
 - The `<guard>` attributes name parameters or hold expressions:
   - `when` is the source Condition. False ends the action, as `ActionBase.hasNext` does. It is checked exactly where
     the source checks it (4.5), which is more than once per step.
@@ -141,7 +147,8 @@ still an `<animation id name>` with a `<sequence>`. In tick mode a sequence carr
   immutable and shared. Locals the source publishes (`TargetX`, `TargetY`, `VelocityX`, `VelocityY`, `FootX`,
   `FootDX`) live in that frame.
 
-**`<offers>`.** Affordance values (literal or expression) broadcast while this action runs. Each step of an action
+**`<offers>`.** Affordance values, LITERAL strings, broadcast while this action runs. A source `Affordance` written as an
+expression has no representation in this version; the converter reports such an action. Each step of an action
 REPLACES the companion's offer list with its own offers (`ActionBase.java:88-101`): a composite steps first and its
 active child after it, so the leaf decides, and a leaf with no offer leaves the list empty. The source declares one
 `Affordance` per action, so a converted action has at most one offer; the format allows up to 8 for hand-written
@@ -419,8 +426,10 @@ lane before freeze.
 - **A member missing at runtime** falls back the way the source does. A Transform or Breed whose target is missing
   uses the current type (`Transform.java`, `Breed.java:73-113`), with one diagnostic per (type, reference).
 - **Studio** warns at import about every unresolved reference, and refuses only what cannot load.
-- **Settings sharing.** Members share the main member's per-type settings (size, sound, monitor pin, toggles), so a
-  hatch does not visibly resize or change its settings.
+- **Settings.** Each member keeps its OWN per-type settings (size, sound, monitor pin, toggles), as the source keys
+  every setting by the current image set (section 2, `<toggles>`): a transformed companion takes the target type's
+  settings. A hatch can therefore change size if the user sized the two members differently; Studio's pack view sets
+  members together.
 
 ---
 
@@ -439,7 +448,21 @@ lane before freeze.
   - route and behaviour edges lead to behaviour nodes, and action nodes have none (4.1);
   - route behaviours have unique names, and an off-route behaviour carries a route behaviour's name (4.2);
   - `<startup>` only on a `main` member;
-  - an action with Breed or Transform keeps a fallback edge, so a missing member does not respawn the companion.
+  - an action with Breed or Transform keeps a fallback edge, so a missing member does not respawn the companion;
+  - what a document USES is declared, judged from what it contains: a scripted binding (behaviour or composite child)
+    needs `expressions`; an expression the parser finds reading or writing `mascot.variables` needs `variables`; a
+    `BornMascot` or `TransformMascot`, as a parameter or a binding, needs `packs`; ComplexMove and ComplexJump need
+    `lifecycle` and `social` by their Characteristics, split on commas and compared exactly as the runtime does, and
+    both when Characteristics is scripted;
+  - composites are finite: none contains itself, none nests more than 32 deep, and one activation builds at most 4096
+    actions (the runtime builds a fresh child per reference at every start);
+  - header toggle ids are distinct, and a behaviour's `toggle` names one of them;
+  - a tick-clock companion's sounds are named clips (section 3).
+- **Per build:** a feature joins the build's supported set only when its runtime runs every class and construct it
+  gates, and every embedded class is also asked whether THIS build constructs it, so a class whose family has not
+  landed is refused by name even with every feature supported. Only the app fills the set: Studio and the converter
+  compile the validator without the runtime, keep it empty and refuse tick companions by feature name until their own
+  copies of a document carry every field.
 - **Pack-level (`PackValidator`):**
   - one `main`, and member keys unique;
   - references resolve, or are reported;

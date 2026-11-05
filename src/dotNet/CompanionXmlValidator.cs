@@ -744,21 +744,28 @@ namespace DesktopAICompanion
             foreach (XmlData.SoundNode sound in sounds)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                if (sound == null || !ids.Contains(sound.Id) ||
+                // A NAMED clip (id=) belongs to a tick-clock companion, whose poses play it by name; it has no classic
+                // animation and no per-animation probability, and ShimejiFormatValidator checks its name. A classic sound
+                // is tied to an animation id. The audio checks below apply to both.
+                bool named = sound != null && sound.SoundId != null;
+                if (sound == null || (!named && !ids.Contains(sound.Id)) || (named && sound.Id != 0) ||
                     sound.Probability < 0 || sound.Probability > 100 ||
                     sound.Loop < 0 || sound.Loop > 20)
                     throw new InvalidDataException("A sound entry is invalid.");
-                int cumulativeProbability;
-                soundProbabilityByAnimation.TryGetValue(
-                    sound.Id,
-                    out cumulativeProbability);
-                cumulativeProbability = checked(
-                    cumulativeProbability + sound.Probability);
-                if (cumulativeProbability > 100)
-                    throw new InvalidDataException(
-                        "Sound probabilities for animation " + sound.Id +
-                        " exceed 100 percent.");
-                soundProbabilityByAnimation[sound.Id] = cumulativeProbability;
+                if (!named)
+                {
+                    int cumulativeProbability;
+                    soundProbabilityByAnimation.TryGetValue(
+                        sound.Id,
+                        out cumulativeProbability);
+                    cumulativeProbability = checked(
+                        cumulativeProbability + sound.Probability);
+                    if (cumulativeProbability > 100)
+                        throw new InvalidDataException(
+                            "Sound probabilities for animation " + sound.Id +
+                            " exceed 100 percent.");
+                    soundProbabilityByAnimation[sound.Id] = cumulativeProbability;
+                }
                 byte[] audioBytes = DecodeBase64(
                     sound.Base64,
                     MaximumAudioBytesPerSound,

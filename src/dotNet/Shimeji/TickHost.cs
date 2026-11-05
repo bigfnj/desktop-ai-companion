@@ -98,12 +98,16 @@ namespace DesktopAICompanion.Shimeji
         public readonly string Id;
         public readonly TickType Type;
         public readonly Xml Sprites;
+        /// <summary>The (empty) classic animation set staged with the type: a window takes one, and it carries the
+        /// type's id. Null in a self-test that builds its windows itself.</summary>
+        public readonly Animations Animations;
 
-        public TickHostType(string id, TickType type, Xml sprites)
+        public TickHostType(string id, TickType type, Xml sprites, Animations animations = null)
         {
             Id = id;
             Type = type;
             Sprites = sprites;
+            Animations = animations;
         }
     }
 
@@ -169,19 +173,54 @@ namespace DesktopAICompanion.Shimeji
         }
 
         /// <summary>A new companion of a type, placed at <paramref name="anchor"/> facing as given, entering
-        /// <paramref name="behaviour"/> (or one chosen from the route when null). It appears at the next step.</summary>
-        public TickMascot Spawn(string imageSet, TickPoint anchor, bool lookRight, string behaviour)
+        /// <paramref name="behaviour"/> (or one chosen from the route when null). It appears at the next step, in
+        /// <paramref name="form"/> when one is given (the app creates a spawned companion's window itself, so the window
+        /// is in its pet list from the start), else in one opened then.</summary>
+        public TickMascot Spawn(string imageSet, TickPoint anchor, bool lookRight, string behaviour, FormCompanion form = null)
         {
             TickType type = _world.FindType(imageSet);
             if (type == null) throw new InvalidOperationException("no tick companion type '" + imageSet + "'");
             TickMascot m = _world.CreateAtStart("t" + (++_nextSid), type, anchor, lookRight, behaviour);
+            if (form != null)
+            {
+                form.AttachTick(this, m);
+                _forms[m] = form;
+            }
             if (!_timer.Enabled) _timer.Start();
             return m;
+        }
+
+        /// <summary>
+        /// A new companion placed the way the source's Main.createMascot places one: off screen at (-4000, -4000), facing
+        /// right on a draw below one half (site builtin:create-facing), entering <paramref name="behaviour"/> or the
+        /// route's choice. Its first step finds it outside the work area and drops it in at a random x, which is how a
+        /// Shimeji arrives.
+        /// </summary>
+        public TickMascot SpawnLikeSource(string imageSet, string behaviour, FormCompanion form)
+        {
+            bool lookRight = _world.Draw(null, "builtin:create-facing", "facing") < 0.5;
+            return Spawn(imageSet, new TickPoint(-4000, -4000), lookRight, behaviour, form);
+        }
+
+        /// <summary>How many tick companions may exist at once, active and pending together, asked before every step:
+        /// the app's shared cap less its classic companions (policy:birth-cap). Null keeps the world's own cap.</summary>
+        public Func<int> CompanionBudget { get; set; }
+
+        /// <summary>Births queued for the next step: companions that will need a window the app has not counted yet.</summary>
+        public int PendingBirths
+        {
+            get
+            {
+                int n = 0;
+                foreach (TickMascot m in _world.Pending) if (!_forms.ContainsKey(m)) n++;
+                return n;
+            }
         }
 
         /// <summary>One step and one render (also the self-test's way to advance the clock deterministically).</summary>
         public void Step()
         {
+            if (CompanionBudget != null) _world.MaximumCompanions = Math.Max(0, CompanionBudget());
             _world.StepOnce();
             foreach (TickMascot m in _world.Mascots)
             {
@@ -191,6 +230,14 @@ namespace DesktopAICompanion.Shimeji
                     TickHostType t;
                     if (!_typesByName.TryGetValue(m.Type.Name, out t)) continue;
                     form = _openForm(t);
+                    if (form == null)
+                    {
+                        // The app had no room for another window after all; the companion leaves rather than running
+                        // unseen. Disposed at once, so the next step removes it.
+                        _log("tick companion " + m.Sid + " (" + m.Type.Name + "): no window could be opened; removed");
+                        m.Dispose("no-window");
+                        continue;
+                    }
                     form.AttachTick(this, m);
                     _forms[m] = form;
                 }

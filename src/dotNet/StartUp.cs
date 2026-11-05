@@ -398,7 +398,7 @@ namespace DesktopAICompanion
             catch { }
         }
 
-        private static bool TryStageRuntime(
+        internal static bool TryStageRuntime(
             string source,
             double scaleFactor,
             out Xml stagedXml,
@@ -414,6 +414,15 @@ namespace DesktopAICompanion
                     throw new InvalidDataException(error);
 
                 stagedAnimations = new Animations(stagedXml);
+                if (ShimejiFormatValidator.IsTickMode(stagedXml.AnimationXML))
+                {
+                    // A tick-clock companion runs on the Shimeji runtime (src/dotNet/Shimeji), not the classic engine:
+                    // its Animations stays empty, because its windows still take one, and its compiled type is kept
+                    // beside the Xml, where AddSheepCore finds it and hands the companion to the tick host.
+                    if (!Shimeji.TickStaging.TryStage(stagedXml, out error))
+                        throw new InvalidDataException(error);
+                    return true;
+                }
                 stagedXml.LoadAnimations(stagedAnimations);
                 if (stagedAnimations.SheepAnimations.Count == 0 ||
                     stagedAnimations.SheepSpawn.Count == 0)
@@ -562,6 +571,9 @@ namespace DesktopAICompanion
                 moduleUpdateTimerHandler = null;
             }
 
+            // The tick clock stops before the windows go, so no step runs against a closing window; its own windows close
+            // through RetireTickPet, which takes them out of the pet list first.
+            if (tickHost != null) { tickHost.Dispose(); tickHost = null; }
             CloseAllPetsImmediate();
             registry.DisposeAll();   // extra pet types (their FormClosed already released most)
             if (animations != null) { animations.Dispose(); animations = null; }
@@ -629,19 +641,23 @@ namespace DesktopAICompanion
                 AddDebugInfo(DEBUG_TYPE.warning, "spawn refused: the app is shutting down");
                 return null;
             }
-            if (iSheeps >= MAX_SHEEPS)
+            // Births a tick companion has queued for the next step count already: they are about to take windows.
+            if (iSheeps >= MAX_SHEEPS - PendingTickBirths)
             {
                 AddDebugInfo(DEBUG_TYPE.warning, "max PETs reached");
                 return null;
             }
 
-            FormCompanion newSheep = CreateAndInitializeOwnedPet(
-                delegate { return new FormCompanion(petAnimations, petXml); },
-                delegate(FormCompanion pet)
-                {
-                    pet.Show(petXml.spriteWidth, petXml.spriteHeight);
-                    pet.Play();
-                });
+            Shimeji.TickType tickType = Shimeji.TickStaging.Of(petXml);
+            FormCompanion newSheep = tickType != null
+                ? SpawnTickPet(petXml, petAnimations, tickType, entry)
+                : CreateAndInitializeOwnedPet(
+                    delegate { return new FormCompanion(petAnimations, petXml); },
+                    delegate(FormCompanion pet)
+                    {
+                        pet.Show(petXml.spriteWidth, petXml.spriteHeight);
+                        pet.Play();
+                    });
             sheeps[iSheeps] = newSheep;
             iSheeps++;
 
@@ -661,6 +677,116 @@ namespace DesktopAICompanion
             if (Host != null && (entry == null || !entry.IsTransient) && !reloadInProgress)
                 Host.RaiseCompanionSpawned(newSheep);
             return newSheep;
+        }
+
+        // ---- tick-clock companions (the Shimeji runtime, src/dotNet/Shimeji)
+
+        /// <summary>One 40 ms clock for every tick-clock companion, created with the first one. Its windows are ordinary
+        /// pets in <see cref="sheeps"/>: counted toward the cap, removable, spoken through.</summary>
+        private Shimeji.TickHost tickHost;
+
+        /// <summary>The registry entry behind each tick type, by type name (null for the default type, which the registry
+        /// does not hold), so a born companion keeps its type's shared pair alive as a spawned one does.</summary>
+        private readonly Dictionary<string, CompanionTypeRegistry.Entry> tickEntries =
+            new Dictionary<string, CompanionTypeRegistry.Entry>(StringComparer.Ordinal);
+
+        /// <summary>Companions born this session (Breed). Session-only, as in the source: never in the saved mix, so they
+        /// are not back at the next launch, and not announced to modules as arrivals (an egg clutch would otherwise
+        /// fire a welcome per hatchling).</summary>
+        private readonly HashSet<FormCompanion> bornPets = new HashSet<FormCompanion>();
+
+        /// <summary>Births queued for the tick host's next step: each is about to take a window, so the cap counts them.</summary>
+        private int PendingTickBirths { get { return tickHost != null ? tickHost.PendingBirths : 0; } }
+
+        private Shimeji.TickHost EnsureTickHost()
+        {
+            if (tickHost != null) return tickHost;
+            tickHost = new Shimeji.TickHost(OpenBornTickPet, RetireTickPet,
+                message => AddDebugInfo(DEBUG_TYPE.warning, "[tick] " + message));
+            // One cap for both engines (policy:birth-cap): tick companions, active and pending, get what the classic
+            // pets leave of MAX_SHEEPS.
+            tickHost.CompanionBudget = () => MAX_SHEEPS - ClassicPetCount();
+            return tickHost;
+        }
+
+        private int ClassicPetCount()
+        {
+            int n = 0;
+            for (int i = 0; i < iSheeps; i++)
+                if (sheeps[i] != null && sheeps[i].TickHost == null) n++;
+            return n;
+        }
+
+        /// <summary>A spawned tick companion: its window is made here, still transparent, and handed to the tick host,
+        /// which places the companion as the source places a new one (off screen, then dropped in by its first step)
+        /// and draws it from the next step on.</summary>
+        private FormCompanion SpawnTickPet(Xml petXml, Animations petAnimations, Shimeji.TickType type,
+            CompanionTypeRegistry.Entry entry)
+        {
+            Shimeji.TickHost host = EnsureTickHost();
+            // The type's name is its pet id: what Breed's BornMascot and Transform's target are matched against.
+            if (string.IsNullOrEmpty(type.Name))
+                type.Name = string.IsNullOrEmpty(petAnimations.PetTypeId) ? "default" : petAnimations.PetTypeId;
+            host.AddType(new Shimeji.TickHostType(petAnimations.PetTypeId ?? "", type, petXml, petAnimations));
+            tickEntries[type.Name] = entry;
+            return CreateAndInitializeOwnedPet(
+                delegate { return new FormCompanion(petAnimations, petXml); },
+                delegate (FormCompanion pet)
+                {
+                    pet.Show(petXml.spriteWidth, petXml.spriteHeight);
+                    host.SpawnLikeSource(type.Name, null, pet);
+                });
+        }
+
+        /// <summary>A window for a companion born at this step (the tick host asks). Null when there is no room or the
+        /// type's shared pair is gone (its last window closed while the birth was queued); the host then removes the
+        /// companion rather than run it unseen.</summary>
+        private FormCompanion OpenBornTickPet(Shimeji.TickHostType type)
+        {
+            if (disposed || shuttingDown || iSheeps >= MAX_SHEEPS) return null;
+            CompanionTypeRegistry.Entry entry;
+            tickEntries.TryGetValue(type.Type.Name, out entry);
+            if (entry != null && entry.Animations == null) return null;
+            if (type.Animations == null || type.Sprites == null) return null;
+            FormCompanion pet = CreateAndInitializeOwnedPet(
+                delegate { return new FormCompanion(type.Animations, type.Sprites); },
+                delegate (FormCompanion p) { p.Show(type.Sprites.spriteWidth, type.Sprites.spriteHeight); });
+            sheeps[iSheeps] = pet;
+            iSheeps++;
+            bornPets.Add(pet);
+            pet.FormClosed += BornPet_FormClosed;
+            if (entry != null)
+            {
+                petEntries[pet] = entry;
+                registry.Increment(entry);
+                pet.FormClosed += ExtraPet_FormClosed;
+            }
+            return pet;
+        }
+
+        private void BornPet_FormClosed(object sender, FormClosedEventArgs e)
+        {
+            FormCompanion pet = sender as FormCompanion;
+            if (pet == null) return;
+            pet.FormClosed -= BornPet_FormClosed;
+            bornPets.Remove(pet);
+        }
+
+        /// <summary>A tick companion the engine removed (SelfDestruct, a fault, no window): its window leaves the pet list
+        /// and closes. The saved mix is NOT rewritten, so a companion that destroyed itself is back at the next launch:
+        /// the user's choice of companions is not something a skin can change.</summary>
+        private void RetireTickPet(FormCompanion pet)
+        {
+            if (pet == null) return;
+            for (int i = 0; i < iSheeps; i++)
+                if (ReferenceEquals(sheeps[i], pet))
+                {
+                    for (int j = i; j < iSheeps - 1; j++) sheeps[j] = sheeps[j + 1];
+                    iSheeps--;
+                    sheeps[iSheeps] = null;
+                    break;
+                }
+            try { if (!pet.IsDisposed) pet.Close(); } catch { }
         }
 
         /// <summary>The number of preview pets currently on screen, capped so a module that forgets to
@@ -1426,7 +1552,7 @@ namespace DesktopAICompanion
         }
 
         /// <summary>True when the max-pets cap is reached (no more can be added).</summary>
-        public bool IsAtMaxPets { get { return iSheeps >= MAX_SHEEPS; } }
+        public bool IsAtMaxPets { get { return iSheeps >= MAX_SHEEPS - PendingTickBirths; } }
 
         /// <summary>The active pet's ID, normalised by LocalData (absent or unsafe becomes the built-in).
         /// Replaced ActivePetXml, whose only consumer compared whole documents to answer this.</summary>
@@ -1443,7 +1569,8 @@ namespace DesktopAICompanion
             for (int i = 0; i < iSheeps; i++)
             {
                 FormCompanion pet = sheeps[i];
-                if (pet == null) continue;
+                // A born companion is session-only: it is on screen but not part of what the user chose.
+                if (pet == null || bornPets.Contains(pet)) continue;
                 CompanionTypeRegistry.Entry entry;
                 types.Add(petEntries.TryGetValue(pet, out entry) ? entry : null);
             }

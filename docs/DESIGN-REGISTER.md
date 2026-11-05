@@ -7402,10 +7402,60 @@ gate above refuses any document declaring a feature before Studio or a migration
 that can fail, in the lane that first adds a token to `Supported` (Studio packs for the chain, the converter lane for
 the migrations). A guard added now would be a check no input can reach.
 
+*Superseded in part by feature/shimeji-host-runtime (below): the APP now runs the extensions; Studio and the converter
+still do not.*
+
 **`NodeCopy.Deep` copies DTOs by reflection over public fields.** The DTOs are plain public fields for
 `XmlSerializer`, and every hand-written copy in this codebase has dropped a field the format later gained. A
 reflection copy cannot fall behind the format. The security self-test proves both properties it needs: the copy
 serialises identically to its source, and changing the copy changes nothing in the source.
+
+#### feature/shimeji-host-runtime
+
+The tick-clock runtime (src/dotNet/Shimeji) and its first integration into the app: a converted Shimeji companion is
+staged, validated and run on the source's 40 ms logical tick, next to classic pets.
+
+**Only the app's supported set is filled.** `CompanionFormatFeatures` is partial, and the app alone compiles
+`Shimeji/TickFeatures.cs`, which implements its two hooks: the tokens this runtime runs (tick, actions, behaviours,
+expressions, lifecycle, hotspots, variables) and a per-class question. Studio and the converter compile the validator
+without that file, so their set stays empty and they still refuse a tick companion by feature name. That keeps the
+deferral above honest instead of reaching it: Studio's `BehaviourChain` and the converter's migrations still copy
+documents through code that does not carry every field, and they cannot be handed a tick companion until their own
+lanes fix that. A compile symbol was the other way to split the set and was not used: this project once lost
+DefineConstants silently on a plain build, and a missing partial-method body cannot be lost that way.
+
+**A token covers a family; the validator also asks per class.** `RunsClass` asks the runtime's real construction path
+(`TickWorld.RunsEmbeddedClass`), not a list kept beside it, so a family that lands a class is accepted in the same
+commit and a list cannot fall behind. The probe's definition is empty and a constructor may refuse it the way the
+source's does (MoveWithTurn wants two animations), so an exception means a family CLAIMED the class; only a family
+returning nothing means it does not run. The security self-test asserts both directions: every class a supported token
+gates constructs here, and a class no family builds is refused by name with every feature supported. Social and windows
+join the set when their families merge; packs when installs resolve members.
+
+**Accepting tick companions made the validator's holes reachable, so they were closed first.** The converter lane's
+review executed eight counterexamples against the full validator. All are refused now, each with a self-test check and
+a mutation that kills it: scripted bindings without `expressions`; `mascot.variables` without `variables` (judged from
+the parse, because a text match would have to list every spelling the parser accepts); a scripted
+Characteristics without both `lifecycle` and `social`; `BornMascot`/`TransformMascot` without `packs`; undeclared or
+repeated toggles; and composites that contain themselves, nest past 32 or build more than 4096 actions per start. The
+last matters most: the runtime builds a fresh child per reference at every start, so a self-containing composite would
+have recursed until the process died. Tick sounds are named clips with their own validation path, keeping the audio
+size limits and MP3 sniff; the classic path had refused them.
+
+**Staging and the window.** `StartUp.TryStageRuntime` stages a tick document as before (Xml, sheet, icon) but keeps the
+classic animation set EMPTY and compiles the tick type beside the Xml (`TickStaging`, a weak side table, because
+Studio compiles Xml.cs too). `AddSheepCore` hands such a companion to one `TickHost`, which places it as the source's
+`createMascot` does: off screen, a facing drawn at `builtin:create-facing`, and the first step drops it in. Its window
+is an ordinary pet in the app's list, so the tray, removal and speech work on it. Classic entry points that a tick
+window can still receive are defined: `Play` and `PlayChild` do nothing (the host places it), `Kill` closes it at once
+(no death animation exists), sync and module animation requests find nothing to play. A fullscreen window on its
+monitor hides it while it keeps running; it does not move to a free monitor, because its position belongs to the engine.
+
+**Births share the cap and are session-only.** Tick companions, active and pending, get what the classic pets leave of
+16 (`policy:birth-cap`); a birth whose window cannot open leaves rather than running unseen. A born companion is never
+in the saved mix and is not announced to modules as an arrival, so a clutch of eggs does not fire a welcome per
+hatchling and is not back at the next launch. A companion that destroys itself leaves the saved mix as it was, so it
+returns at the next launch: the user's choice of companions is not something a skin changes.
 
 ## Known ABI gaps
 

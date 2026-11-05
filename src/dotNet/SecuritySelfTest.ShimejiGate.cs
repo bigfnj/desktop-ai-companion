@@ -29,15 +29,31 @@ namespace DesktopAICompanion
                 return;
             }
 
-            // The production gate (this build's Supported set) refuses every extension until its runtime lands.
+            // The production gate (this build's Supported set, which the app's runtime fills): a tick-clock companion that
+            // uses only what this build runs is accepted...
             string tickDoc = Serialize(TickFixture(classic));
             XmlData.RootNode parsed;
-            Check(!CompanionXmlValidator.TryParse(tickDoc, out parsed, out error) && Contains(error, "does not run yet"),
-                "extension gate: a tick-clock companion is refused by this build, naming the feature (" + error + ")",
+            Check(CompanionXmlValidator.TryParse(tickDoc, out parsed, out error),
+                "extension gate: this build accepts a tick-clock companion that uses only features it runs" + FormatError(error),
                 ref failures, output);
             Check(CompanionXmlValidator.TryParseWithFeatures(tickDoc, AllExtensionFeatures, out parsed, out error),
-                "extension gate: the same companion validates when its features are supported" + FormatError(error),
+                "extension gate: the same companion validates when exactly its features are supported" + FormatError(error),
                 ref failures, output);
+            // ...and one declaring a feature this build does not run is refused by that feature's name.
+            string notRun = null;
+            foreach (string token in CompanionFormatFeatures.All)
+                if (!System.Linq.Enumerable.Contains(CompanionFormatFeatures.Supported, token)) { notRun = token; break; }
+            if (notRun != null)
+            {
+                string unrun = Serialize(With(TickFixture(classic), r => r.Header.Features += " " + notRun));
+                Check(!CompanionXmlValidator.TryParse(unrun, out parsed, out error)
+                      && Contains(error, "uses feature '" + notRun + "', which this version of Desktop AI Companion does not run yet"),
+                    "extension gate: a companion declaring a feature this build does not run is refused by its name (" + error + ")",
+                    ref failures, output);
+            }
+            else output.WriteLine("NOTE extension gate: every defined feature runs in this build; the unsupported-feature refusal is not exercised");
+
+            CheckClassGate(classic, ref failures, output);
 
             string unknown = Serialize(With(TickFixture(classic), r => r.Header.Features += " teleport"));
             Check(!CompanionXmlValidator.TryParseWithFeatures(unknown, AllExtensionFeatures, out parsed, out error)
@@ -162,6 +178,188 @@ namespace DesktopAICompanion
                 "a route edge to an action node is refused", ref failures, output);
             ExpectRefused(classic, r => r.Animations.Animation[2].Sequence.Next = new[] { new XmlData.NextNode { Value = 2, Probability = 1 } },
                 "is an action with an edge", "an action node with an edge is refused", ref failures, output);
+
+            CheckUsageAndShapeRules(classic, ref failures, output);
+        }
+
+        /// <summary>
+        /// What a document USES must be declared, judged from what it contains rather than from its text, and its shape
+        /// must be one the runtime can build: the counterexamples the format review executed against the full validator.
+        /// </summary>
+        private static void CheckUsageAndShapeRules(XmlData.RootNode classic, ref int failures, TextWriter output)
+        {
+            // A scripted binding is an expression, on a behaviour or on a composite child.
+            ExpectRefused(classic, r =>
+                {
+                    r.Header.Features = "tick actions behaviours";
+                    r.Animations.Animation[0].Sequence.Next[0].When = null;
+                    StandAct(r).Guard = null;
+                    r.Animations.Animation[1].Behaviour.Bind = new[] { new XmlData.BindNode { Name = "Duration", Value = "Math.random() * 10", Cache = "action" } };
+                }, "binding expression needs feature 'expressions'", "a scripted binding without 'expressions' declared is refused",
+                ref failures, output);
+            // mascot.variables, found by the parser rather than by the text.
+            ExpectRefused(classic, r => StandAct(r).Guard.When = "mascot.variables['k'] == null",
+                "mascot.variables needs feature 'variables'", "a guard using mascot.variables without 'variables' declared is refused",
+                ref failures, output);
+            XmlData.RootNode withVariables = With(TickFixture(classic), r =>
+                {
+                    r.Header.Features += " variables";
+                    StandAct(r).Guard.When = "mascot.variables['k'] == null";
+                });
+            XmlData.RootNode parsed;
+            string error;
+            var withVariablesSupported = new System.Collections.Generic.List<string>(AllExtensionFeatures) { CompanionFormatFeatures.Variables };
+            Check(CompanionXmlValidator.TryParseWithFeatures(Serialize(withVariables), withVariablesSupported, out parsed, out error),
+                "extension gate: WITNESS the same guard validates with 'variables' declared" + FormatError(error), ref failures, output);
+            // A scripted Characteristics could turn out to be either flag, so it needs both features.
+            ExpectRefused(classic, r =>
+                {
+                    StandAct(r).Type = "Embedded";
+                    StandAct(r).Class = "ComplexMove";
+                    StandAct(r).Params = new[]
+                    {
+                        new XmlData.ParamNode { Name = "Duration", Value = "20", Cache = "none" },
+                        new XmlData.ParamNode { Name = "Characteristics", Value = "'B' + 'reed'", Cache = "action" },
+                    };
+                }, "Characteristics Breed needs feature 'lifecycle'", "a scripted Characteristics without 'lifecycle' declared is refused",
+                ref failures, output);
+            // Naming another member is a pack's business, as a parameter or as a binding.
+            ExpectRefused(classic, r =>
+                {
+                    var ps = new System.Collections.Generic.List<XmlData.ParamNode>(StandAct(r).Params)
+                        { new XmlData.ParamNode { Name = "BornMascot", Value = "Beta", Cache = "none" } };
+                    StandAct(r).Params = ps.ToArray();
+                }, "BornMascot (another pack member) needs feature 'packs'", "a BornMascot parameter without 'packs' declared is refused",
+                ref failures, output);
+            ExpectRefused(classic, r => r.Animations.Animation[1].Behaviour.Bind = new[]
+                    { new XmlData.BindNode { Name = "TransformMascot", Value = "Beta", Cache = "none" } },
+                "binding TransformMascot (another pack member) needs feature 'packs'",
+                "a TransformMascot binding without 'packs' declared is refused", ref failures, output);
+            // Toggles: a behaviour names a declared one, and ids are distinct.
+            ExpectRefused(classic, r => r.Animations.Animation[1].Behaviour.Toggle = "Ghost",
+                "names toggle 'Ghost', which header/toggles does not declare", "a behaviour naming an undeclared toggle is refused",
+                ref failures, output);
+            ExpectRefused(classic, r => r.Header.Toggles = new XmlData.TogglesNode
+                    { Toggle = new[] { new XmlData.ToggleNode { Id = "T", Label = "a" }, new XmlData.ToggleNode { Id = "T", Label = "b" } } },
+                "repeated toggle id", "two header toggles with one id are refused", ref failures, output);
+            // Composite activation is finite: no self-containment, bounded depth and size.
+            ExpectRefused(classic, r => AddComposites(r, 1, 1, true), "contains itself through its children",
+                "a composite that contains itself is refused", ref failures, output);
+            ExpectRefused(classic, r => AddComposites(r, ShimejiFormatValidator.MaximumCompositeDepth + 1, 1, false),
+                "deep", "composites nested past the depth limit are refused", ref failures, output);
+            ExpectRefused(classic, r => AddComposites(r, 13, 2, false), "nested actions each time it starts",
+                "a composite that builds more than the action limit per start is refused (2^13 by doubling)", ref failures, output);
+            XmlData.RootNode shallow = With(TickFixture(classic), r => AddComposites(r, 4, 2, false));
+            Check(CompanionXmlValidator.TryParseWithFeatures(Serialize(shallow), AllExtensionFeatures, out parsed, out error),
+                "extension gate: WITNESS a four-deep doubling composite (31 actions per start) validates" + FormatError(error),
+                ref failures, output);
+            // Sounds: a tick companion's clips are named, and a named clip with real audio validates.
+            string audio = Convert.ToBase64String(ValidMp3Fixture());
+            XmlData.RootNode sounded = With(TickFixture(classic), r =>
+                {
+                    r.Sounds = new XmlData.SoundsNode { Sound = new[] { new XmlData.SoundNode { SoundId = "clip", Base64 = audio } } };
+                    StandAct(r).Variants.Variant[0].Pose[0].Sound = "clip";
+                });
+            Check(CompanionXmlValidator.TryParseWithFeatures(Serialize(sounded), AllExtensionFeatures, out parsed, out error),
+                "extension gate: a named clip that a pose plays validates, audio checks included" + FormatError(error),
+                ref failures, output);
+            ExpectRefused(classic, r => r.Sounds = new XmlData.SoundsNode
+                    { Sound = new[] { new XmlData.SoundNode { Id = 3, Probability = 100, Base64 = audio } } },
+                "sounds are named clips", "a tick-clock companion's unnamed (classic) sound is refused", ref failures, output);
+            ExpectRefused(classic, r => r.Sounds = new XmlData.SoundsNode
+                    { Sound = new[] { new XmlData.SoundNode { SoundId = "clip", Base64 = Convert.ToBase64String(new byte[64]) } } },
+                "not a usable MP3", "a named clip that is not MP3 audio is refused by the audio sniff", ref failures, output);
+        }
+
+        /// <summary>Add composite actions C0..C(depth-1), each a Sequence of <paramref name="fanout"/> references to the
+        /// next, the last a Stay; with <paramref name="selfLoop"/> C0 references itself instead.</summary>
+        private static void AddComposites(XmlData.RootNode r, int depth, int fanout, bool selfLoop)
+        {
+            XmlData.MovingNode still = new XmlData.MovingNode { X = "0", Y = "0", Interval = "40" };
+            var nodes = new System.Collections.Generic.List<XmlData.AnimationNode>(r.Animations.Animation);
+            for (int i = 0; i < depth; i++)
+            {
+                bool last = i == depth - 1 && !selfLoop;
+                var node = new XmlData.AnimationNode
+                {
+                    Id = 500 + i, Name = "C" + i, Start = still, End = still,
+                    Sequence = new XmlData.SequenceNode { RepeatCount = "0" },
+                };
+                if (last)
+                    node.Act = new XmlData.ActNode
+                    {
+                        Type = "Stay",
+                        Params = new[] { new XmlData.ParamNode { Name = "Duration", Value = "5", Cache = "none" } },
+                        Variants = new XmlData.VariantsNode { Variant = new[] { new XmlData.VariantNode { Pose = new[] { new XmlData.PoseNode { Frame = 0, Ticks = 5 } } } } },
+                    };
+                else
+                {
+                    var children = new XmlData.CompositeChildNode[fanout];
+                    for (int k = 0; k < fanout; k++) children[k] = new XmlData.CompositeChildNode { Animation = selfLoop ? "C0" : "C" + (i + 1) };
+                    node.Act = new XmlData.ActNode { Type = "Sequence", Children = new XmlData.ChildrenNode { Mode = "sequence", Child = children } };
+                }
+                nodes.Add(node);
+            }
+            r.Animations.Animation = nodes.ToArray();
+        }
+
+        /// <summary>
+        /// The per-class half of the gate. A feature token joins Supported only when every class it gates runs, so each
+        /// supported token's classes must construct here; and a class this build does not construct is refused by name
+        /// even when every feature it needs is supported, rather than accepted and ended at its first step.
+        /// </summary>
+        private static void CheckClassGate(XmlData.RootNode classic, ref int failures, TextWriter output)
+        {
+            Check(CompanionFormatFeatures.RunsClass("Fall") && !CompanionFormatFeatures.RunsClass(""),
+                "extension gate: the class probe is wired to the runtime (Fall runs, a blank class does not)", ref failures, output);
+
+            foreach (string token in CompanionFormatFeatures.Supported)
+            {
+                var missing = new System.Collections.Generic.List<string>();
+                foreach (string cls in ClassesGatedBy(token))
+                    if (!CompanionFormatFeatures.RunsClass(cls)) missing.Add(cls);
+                Check(missing.Count == 0,
+                    "extension gate: every class supported feature '" + token + "' gates runs in this build"
+                    + (missing.Count == 0 ? "" : " (not: " + string.Join(", ", missing) + ")"), ref failures, output);
+            }
+
+            string unbuilt = null;
+            foreach (string cls in ShimejiFormatValidator.EmbeddedClasses)
+                if (!CompanionFormatFeatures.RunsClass(cls)) { unbuilt = cls; break; }
+            if (unbuilt == null)
+            {
+                output.WriteLine("NOTE extension gate: every embedded class runs in this build; the unbuilt-class refusal is not exercised");
+                return;
+            }
+            XmlData.RootNode doc = TickFixture(classic);
+            StandAct(doc).Type = "Embedded";
+            StandAct(doc).Class = unbuilt;
+            doc.Header.Features = string.Join(" ", CompanionFormatFeatures.All);
+            XmlData.RootNode parsed;
+            string error;
+            Check(!CompanionXmlValidator.TryParseWithFeatures(Serialize(doc), CompanionFormatFeatures.All, out parsed, out error)
+                  && Contains(error, "embedded class '" + unbuilt + "' does not run in this version"),
+                "extension gate: a class this build does not run is refused by name with every feature supported (" + error + ")",
+                ref failures, output);
+        }
+
+        /// <summary>The embedded classes a feature token gates. 'actions' gates every class no other token does, except
+        /// ComplexMove and ComplexJump, which run with the social family (their Characteristics add 'lifecycle' and
+        /// 'social'; with neither they are plain moves, and the class gate refuses them until that family lands).</summary>
+        private static string[] ClassesGatedBy(string token)
+        {
+            if (token == CompanionFormatFeatures.Lifecycle) return ShimejiFormatValidator.LifecycleClasses;
+            if (token == CompanionFormatFeatures.Social) return ShimejiFormatValidator.SocialClasses;
+            if (token == CompanionFormatFeatures.Windows) return ShimejiFormatValidator.WindowClasses;
+            if (token != CompanionFormatFeatures.Actions) return new string[0];
+            var classes = new System.Collections.Generic.List<string>();
+            foreach (string cls in ShimejiFormatValidator.EmbeddedClasses)
+                if (Array.IndexOf(ShimejiFormatValidator.LifecycleClasses, cls) < 0
+                    && Array.IndexOf(ShimejiFormatValidator.SocialClasses, cls) < 0
+                    && Array.IndexOf(ShimejiFormatValidator.WindowClasses, cls) < 0
+                    && cls != "ComplexMove" && cls != "ComplexJump")
+                    classes.Add(cls);
+            return classes.ToArray();
         }
 
         /// <summary>Add behaviour node 4, named <paramref name="name"/>, running Stand, reached only from beh:Stand's
@@ -200,8 +398,9 @@ namespace DesktopAICompanion
             return r.Animations.Animation[2].Act;
         }
 
-        /// <summary>A minimal tick-clock companion: one route, one behaviour, one Stay action of two poses.</summary>
-        private static XmlData.RootNode TickFixture(XmlData.RootNode classic)
+        /// <summary>A minimal tick-clock companion: one route, one behaviour, one Stay action of two poses, on the bundled
+        /// pet's image (so it is a real document with a real sheet). The window self-test stages it too.</summary>
+        internal static XmlData.RootNode TickFixture(XmlData.RootNode classic)
         {
             XmlData.RootNode r = Clone(classic);
             r.Header.Features = "tick actions behaviours expressions";
@@ -272,7 +471,7 @@ namespace DesktopAICompanion
             return r;
         }
 
-        private static string Serialize(XmlData.RootNode root)
+        internal static string Serialize(XmlData.RootNode root)
         {
             var serializer = new XmlSerializer(typeof(XmlData.RootNode));
             var sb = new StringBuilder();
