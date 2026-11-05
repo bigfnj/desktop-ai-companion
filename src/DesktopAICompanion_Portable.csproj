@@ -169,6 +169,10 @@
     <Compile Include="dotNet\Shimeji\TickEnvironment.cs" />
     <Compile Include="dotNet\Shimeji\TickModel.cs" />
     <Compile Include="dotNet\Shimeji\TickRuntime.cs" />
+    <Compile Include="dotNet\Shimeji\TickMotionFamily.cs" />
+    <Compile Include="dotNet\Shimeji\TickInstantFamily.cs" />
+    <Compile Include="dotNet\Shimeji\TickSocialFamily.cs" />
+    <Compile Include="dotNet\Shimeji\TickWindowFamily.cs" />
     <Compile Include="dotNet\Shimeji\ParityRun.cs" />
     <Compile Include="dotNet\AudioOutputSelfTest.cs" />
     <Compile Include="dotNet\SecuritySelfTest.cs" />

@@ -112,6 +112,18 @@
     <Compile Include="..\..\src\dotNet\Shimeji\TickRuntime.cs">
       <Link>Production\Shimeji\TickRuntime.cs</Link>
     </Compile>
+    <Compile Include="..\..\src\dotNet\Shimeji\TickMotionFamily.cs">
+      <Link>Production\Shimeji\TickMotionFamily.cs</Link>
+    </Compile>
+    <Compile Include="..\..\src\dotNet\Shimeji\TickInstantFamily.cs">
+      <Link>Production\Shimeji\TickInstantFamily.cs</Link>
+    </Compile>
+    <Compile Include="..\..\src\dotNet\Shimeji\TickSocialFamily.cs">
+      <Link>Production\Shimeji\TickSocialFamily.cs</Link>
+    </Compile>
+    <Compile Include="..\..\src\dotNet\Shimeji\TickWindowFamily.cs">
+      <Link>Production\Shimeji\TickWindowFamily.cs</Link>
+    </Compile>
   </ItemGroup>
 
   <Target Name="GenerateDesktopAICompanionCoreTestProductInfo" BeforeTargets="CoreCompile">

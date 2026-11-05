@@ -1287,12 +1287,20 @@ namespace DesktopAICompanion.Shimeji
                         : new TickSelect(this, def, incoming, children);
                 }
                 case "Embedded":
+                {
                     switch (def.Class)
                     {
                         case "Breed": return new TickBreed(this, def, incoming);
                         case "Transform": return new TickTransform(this, def, incoming);
                     }
+                    // Each family of embedded classes lives in its own file (grimoire/06 section 5).
+                    TickAction embedded = TickMotionFamily.TryCreate(this, type, def, incoming)
+                        ?? TickInstantFamily.TryCreate(this, type, def, incoming)
+                        ?? TickSocialFamily.TryCreate(this, type, def, incoming)
+                        ?? TickWindowFamily.TryCreate(this, type, def, incoming);
+                    if (embedded != null) return embedded;
                     throw new TickCantBeAliveException("embedded class '" + def.Class + "' does not run in this build yet");
+                }
                 default:
                     throw new TickCantBeAliveException("action type '" + def.Type + "' is unknown");
             }
