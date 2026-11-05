@@ -159,6 +159,7 @@ are in the reviews named in each entry.
 - 📌 **N-shimeji-tests-01** [low/tests] tests/mutate-diagnostics.py ignores unknown flags rather than refusing them.
 - 📌 **N-shimeji-tooling-01** [low/tooling] Recommend Temurin 8 (the oracle's pinned JDK) to the scripts-utilities tool
   catalog.
+- 📌 **N-host-pack-abi-01** [low/correctness] Removing a SINGLE preview's handle (`ICompanionManager.SpawnPreview`) removes only the window it was handed (`src/dotNet/Plugins/CompanionHost.cs`, `PreviewHandle.Remove`, `RemovePetInstance(pet)`). A tick-clock preview that breeds (a Breed naming no member, or a member a single preview cannot resolve, is born as the preview's own type) gives each born companion the preview's transient registry entry (`StartUp.OpenBornTickPet`), so those companions outlive Remove: not persisted, not in the tray, not reachable by RemoveOne, gone only when they end themselves or the app exits. Found by lane feature/host-pack-abi, whose whole-pack preview removes by namespace (`StartUp.RemovePackPreview`, `TickPreviewPacks.Owns`) and could serve the single preview the same way; not changed there, to keep that lane's behaviour change to the new member.
 
 ## Closed: 2026-09-29 full audit and its fix campaign (summary; the record is in docs/audits/)
 

@@ -7651,29 +7651,58 @@ Companion Studio 1.3.0 imports a Shimeji pack whole through `ShimejiEngine.Conve
 
 **The main member is installed LAST, and a partial install is not rolled back.** Install pack stops at the first member
 `InstallType` refuses and names, by key and id, every member already installed. Main-last means a failure part way leaves
-no main member behind, and only the main member appears in Add a companion (`CompanionCatalog.EnumerateAddable`), so a
-half-installed pack is never offered as if it were whole. Uninstalling what went in was declined: it deletes from the
-user's library on a path nobody asked for, and its own failure would leave less said than the report does.
+no main member behind, so the pack's own arrival is never offered half-installed. Add a companion drops only hidden
+members (`CompanionCatalog.EnumerateAddableFrom`), so a VISIBLE member installed before the failure is addable on its own,
+and the report names which ones are (corrected by feature/host-pack-abi: this paragraph and the report used to say only
+the main member appears there). Install pack again replaces what went in under the same ids (feature/host-pack-abi).
+Uninstalling what went in was declined: it deletes from the user's library on a path nobody asked for, and its own
+failure would leave less said than the report does.
 
 **While a pack member is open, "Install this companion…" is withheld.** The editor holds one member, read-only, and a
 member installed on its own has no pack to belong to: an egg alone is hidden from Add a companion, a main member alone
 has no members to transform into. The pack installs whole through Install pack, enabled only when `result.Accepted`.
 
-**Preview pack previews the main member alone.** A preview's pack scope is the preview id plus the pack id
-(`TickPackBinding.ScopeForPreview`), and `Stage` resolves members only from the installed pack index, which never holds
-a preview scope, so a preview's Transform, Breed or egg startup falls back to the main member itself
-(`ShimejiWindowSelfTest.Packs`). `ICompanionManager.SpawnPreview` takes one document, so Studio has nowhere to put the
-other members. Previewing a whole pack needs a host change: an ABI member that takes every member's document and
-stages them as transient registry entries in the preview's namespace, which `Stage` would consult for a preview scope.
+**Preview pack previewed the main member alone, until feature/host-pack-abi.** `ICompanionManager.SpawnPreview` takes one
+document and a preview's members resolve only in its own namespace, so Transform, Breed and the egg startup fell back to
+the main member. Host 1.10.0's `ICompanionPackPreview.SpawnPackPreview` takes every member; see below.
 
-**Installed ids are unique against the installed companions, so installing the same pack twice installs a second
-copy.** Both copies share a pack id, and `CompanionPackIndex` keeps one per pack id and member key and logs the rest, so
-the second main member's references resolve to the first copy's members. Offering "replace the installed pack" when its
-pack id is already installed was left for later: the ABI has no way to read an installed type's pack header short of
-`TryReadTypeXml` on every installed type.
+**Installing the same pack twice installed a second copy, until feature/host-pack-abi.** Both copies shared a pack id
+and `CompanionPackIndex` keeps one per pack id and member key, so the second copy's members never ran. Host 1.10.0's
+`CompanionTypeInfo.PackId` lets Install pack find the earlier install and replace it; see below.
 
 **Only a skin laid out as `<root>\img\<member>\` can be imported as a pack.** That is what `ConvertPack` reads. A skin
 whose sprites sit at the root or deeper converts on its own, and the picker's pack button says why in its tooltip.
+
+#### feature/host-pack-abi
+
+Host 1.10.0 gives Companion Studio a whole-pack preview and each installed type's pack facts; Studio 1.3.0 uses both and
+declares MinHostVersion 1.10.0.
+
+**The pack preview is a separate interface, `ICompanionPackPreview`, not a new `ICompanionManager` member.** The brief
+asked for a member on `ICompanionManager`. `ModuleKit.Testing.DenyingCompanionManager` implements that interface and ships
+in every module's zip, and AgentFlow, Reminder and Studio implement it in their self-test doubles, so a new member would
+have changed every module's payload and broken each double's build (and, against a copy already published, its type
+load): the reason `ICompanionStandDown` gives for keeping IHost frozen. The host's managers implement it, the refusing one
+included, so a module asks with `pets as ICompanionPackPreview` and a module without the permission reads a reason rather
+than a null cast that looks like an older host.
+
+**A pack preview always arrives as its startup member.** "Arrive as an egg" is a setting of an installed type; a draft
+has none, and the point of the preview is to see the egg hatch. `TickPackBinding.PlanStart` keeps reading no role for a
+preview scope, so `TickPack.StartPlan` never applies the preference to one.
+
+**A preview's members are staged on demand from the preview's own namespace (`TickPreviewPacks`), never from the
+installed index.** Same lifetime as an installed pack's members (held while a companion runs or draws as them), under
+registry ids of the preview's own (`<preview id>/<position>`: the registry ignores case and member keys do not). Removing
+the handle closes the namespace first, so a birth still queued gets no window, then removes every window whose entry the
+preview owns. A single `SpawnPreview` handle still removes only its own window; a classic or packless tick preview that
+breeds leaves its born copies (N-host-pack-abi-01).
+
+**Install pack over an earlier install replaces it or installs nothing; it never adds a copy.** A copy's members would
+never run (the index keeps the first per key), so the only choices offered are Replace and Cancel. Replace writes each
+member again under the id it has, with the roles and visibility chosen now; a member new to the pack gets a fresh id; a
+member the earlier install had and the pack no longer has is left installed and named, because removing it is the
+user's call. The same path makes a retry after a partial install, and a re-import that changed a role, replace rather
+than duplicate.
 
 ## Known ABI gaps
 

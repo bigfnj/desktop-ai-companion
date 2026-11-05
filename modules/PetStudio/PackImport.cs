@@ -22,6 +22,8 @@ namespace DesktopAICompanion.PetStudioModule
     internal sealed class PackInstallOutcome
     {
         public bool Complete;
+        /// <summary>The install replaced an earlier install of the same pack (same ids), rather than adding one.</summary>
+        public bool Replaced;
         public readonly List<string> InstalledKeys = new List<string>();
         public readonly List<string> InstalledIds = new List<string>();
         public string FailedKey;
@@ -325,15 +327,66 @@ namespace DesktopAICompanion.PetStudioModule
         /// again and owns the path. Nothing is installed unless <see cref="PackConversionResult.Accepted"/>: a refused
         /// pack can still carry Prepared members, as diagnostic previews, and those must never reach the library.
         ///
-        /// ORDER: the other members first, the main member LAST. A failure part way then leaves no main member behind,
-        /// and only the main member appears in Add a companion, so a half-installed pack is never offered to the user as
-        /// if it were whole. The first failure STOPS the install and the outcome names every member already installed,
-        /// by key and id. Rejected: uninstalling them again, which deletes from the user's library on a path the author
-        /// did not ask for, and whose own failure would leave less said than this does.
+        /// ORDER: the other members first, the main member LAST. A failure part way then leaves no main member behind, so
+        /// the pack's own arrival (its startup egg, its births) is never offered half-installed. Add a companion drops only
+        /// HIDDEN members (CompanionCatalog.EnumerateAddableFrom), so a visible member installed before the failure is
+        /// addable on its own, and the outcome says which ones are. The first failure STOPS the install and the outcome
+        /// names every member already installed, by key and id; Install pack again then replaces them under those ids
+        /// (<see cref="PriorInstall"/>). Rejected: uninstalling them again, which deletes from the user's library on a
+        /// path the author did not ask for, and whose own failure would leave less said than this does.
         ///
         /// On the UI thread, like the single install: InstallType swaps the copies on screen onto the new definition.
         /// </summary>
         internal static PackInstallOutcome InstallPack(PackConversionResult result, string packTitle, ICompanionManager pets)
+        {
+            return InstallPack(result, packTitle, pets, null);
+        }
+
+        /// <summary>
+        /// The installed types that already carry this pack's id, by member key: what "Install pack" offers to replace.
+        /// Read from the host's per-type pack facts (CompanionTypeInfo.PackId and PackMember, host 1.10.0), never guessed
+        /// from ids. When two installed types claim one key (a second copy installed before 1.3.0 could replace), the first
+        /// by id ignoring case is the one replaced, the same order the host's index takes within a folder. Empty when the
+        /// pack has no id, nothing carries it, or the host cannot list its types.
+        /// </summary>
+        internal static Dictionary<string, string> PriorInstall(ICompanionManager pets, string packId)
+        {
+            var prior = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (pets == null || string.IsNullOrEmpty(packId)) return prior;
+            IReadOnlyList<CompanionTypeInfo> installed;
+            try { installed = pets.InstalledTypes(); }
+            catch (Exception) { return prior; }
+            if (installed == null) return prior;
+            foreach (CompanionTypeInfo t in installed
+                .Where(t => t != null && !t.IsBuiltIn && !string.IsNullOrEmpty(t.TypeId) && !string.IsNullOrEmpty(t.PackMember)
+                            && string.Equals(t.PackId, packId, StringComparison.Ordinal))
+                .OrderBy(t => t.TypeId, StringComparer.OrdinalIgnoreCase))
+            {
+                if (!prior.ContainsKey(t.PackMember)) prior.Add(t.PackMember, t.TypeId);
+            }
+            return prior;
+        }
+
+        /// <summary>The question "Install pack" asks before replacing an earlier install of the same pack. Pure.</summary>
+        internal static string ReplaceQuestion(string packTitle, IReadOnlyDictionary<string, string> prior)
+        {
+            var parts = prior.OrderBy(p => p.Key, StringComparer.Ordinal).Select(p => "'" + p.Key + "' as '" + p.Value + "'");
+            return "The pack '" + packTitle + "' is installed already, in whole or in part: " + string.Join(", ", parts) + ".\n\n" +
+                "Replace that install? Every member is written again under the id it already has, with the roles and " +
+                "visibility chosen now, so the companions you added keep working; a member not installed yet gets a new id. " +
+                "A second copy is not offered: the app uses one installed copy of each member of a pack, so a copy would " +
+                "never run.";
+        }
+
+        /// <summary>
+        /// Install every member of an accepted pack, as <see cref="InstallPack(PackConversionResult, string, ICompanionManager)"/>
+        /// does, or REPLACE an earlier install of it: with <paramref name="replace"/> (member key to installed id, from
+        /// <see cref="PriorInstall"/>) a member already installed is written again under its own id, so nothing gets a
+        /// "-2" copy the host's index would ignore, and only a member new to the pack gets a fresh id. A member the earlier
+        /// install had and this pack lacks is left installed, and the outcome names it: removing it is the user's call.
+        /// </summary>
+        internal static PackInstallOutcome InstallPack(PackConversionResult result, string packTitle, ICompanionManager pets,
+            IReadOnlyDictionary<string, string> replace)
         {
             var outcome = new PackInstallOutcome();
             if (result == null || !result.Accepted)
@@ -361,7 +414,19 @@ namespace DesktopAICompanion.PetStudioModule
                 .Where(m => !string.Equals(m.SourceKey, result.MainMember, StringComparison.Ordinal))
                 .Concat(result.Members.Where(m => string.Equals(m.SourceKey, result.MainMember, StringComparison.Ordinal)))
                 .ToList();
-            Dictionary<string, string> ids = PackInstallIds(packTitle, order.Select(m => m.SourceKey), taken);
+            // A replace keeps every installed member's own id; only a member new to the pack is given one, unique against
+            // everything installed (the replaced ids included, which are in the installed list already).
+            bool replacing = replace != null && replace.Count > 0;
+            var ids = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (replacing)
+                foreach (PackMemberConversionResult m in order)
+                {
+                    string keptId;
+                    if (replace.TryGetValue(m.SourceKey, out keptId) && !string.IsNullOrEmpty(keptId)) ids[m.SourceKey] = keptId;
+                }
+            foreach (KeyValuePair<string, string> fresh in PackInstallIds(packTitle,
+                         order.Select(m => m.SourceKey).Where(k => !ids.ContainsKey(k)), taken))
+                ids[fresh.Key] = fresh.Value;
 
             foreach (PackMemberConversionResult member in order)
             {
@@ -382,7 +447,7 @@ namespace DesktopAICompanion.PetStudioModule
                 if (!ok)
                 {
                     outcome.FailedKey = member.SourceKey;
-                    outcome.Message = PartialInstallMessage(member.SourceKey, id, error, outcome, result.MainMember);
+                    outcome.Message = PartialInstallMessage(member.SourceKey, id, error, outcome, result.MainMember, HiddenKeys(result));
                     return outcome;
                 }
                 outcome.InstalledKeys.Add(member.SourceKey);
@@ -390,23 +455,94 @@ namespace DesktopAICompanion.PetStudioModule
             }
             outcome.Complete = true;
             string mainId = ids[result.MainMember];
-            outcome.Message = "Installed the pack: " + outcome.InstalledKeys.Count + " member(s). Add '" + result.MainMember +
-                "' (installed as '" + mainId + "') from Add a companion; its other members arrive through it.";
+            if (!replacing)
+            {
+                outcome.Message = "Installed the pack: " + outcome.InstalledKeys.Count + " member(s). Add '" + result.MainMember +
+                    "' (installed as '" + mainId + "') from Add a companion; its other members arrive through it.";
+                return outcome;
+            }
+            outcome.Replaced = true;
+            int kept = outcome.InstalledKeys.Count(k => replace.ContainsKey(k));
+            string text = "Replaced the installed pack: " + kept + " member(s) written again under the ids they had";
+            int added = outcome.InstalledKeys.Count - kept;
+            if (added > 0) text += ", " + added + " new member(s) added";
+            text += ". '" + result.MainMember + "' is still '" + mainId + "' in Add a companion.";
+            var left = replace.Where(p => !ids.ContainsKey(p.Key)).OrderBy(p => p.Key, StringComparer.Ordinal)
+                .Select(p => "'" + p.Key + "' as '" + p.Value + "'").ToList();
+            if (left.Count > 0)
+                text += " Still installed from before, and no longer in this pack: " + string.Join(", ", left) + ".";
+            outcome.Message = text;
             return outcome;
         }
 
-        /// <summary>"Stopped installing the pack at 'B' (as 'p-b'): reason. Already installed: 'A' as 'p-a'. ..." Pure.</summary>
-        internal static string PartialInstallMessage(string failedKey, string failedId, string error, PackInstallOutcome outcome, string mainKey)
+        /// <summary>Every prepared member's document by its exact key: what "Preview pack" hands the host. Pure.</summary>
+        internal static Dictionary<string, string> PreviewMembers(PackConversionResult result)
+        {
+            var members = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (result == null) return members;
+            foreach (PackMemberConversionResult m in result.Members)
+                if (m != null && m.Disposition == PackMemberDisposition.Prepared && !string.IsNullOrEmpty(m.EmittedXml) && !members.ContainsKey(m.SourceKey))
+                    members.Add(m.SourceKey, m.EmittedXml);
+            return members;
+        }
+
+        /// <summary>
+        /// "Preview pack": the WHOLE pack through the host's pack preview (ICompanionPackPreview, host 1.10.0), every
+        /// prepared member with its exact key and the main member's key, so the main member arrives as its startup says
+        /// (an egg) and hatches, transforms and breeds into the other members inside the preview. Only an accepted pack:
+        /// a refused one is missing members its references name. Null with the reason in <paramref name="error"/> when the
+        /// host refuses, cannot preview a pack, or throws; the caller owns and removes the returned handle, and removing it
+        /// removes every companion the preview produced.
+        /// </summary>
+        internal static ICompanionPreview PreviewPack(PackConversionResult result, ICompanionManager pets, out string error)
+        {
+            error = null;
+            if (result == null || !result.Accepted) { error = "Only a pack the converter accepted whole can be previewed."; return null; }
+            ICompanionPackPreview packs = pets as ICompanionPackPreview;
+            if (packs == null) { error = "This app cannot preview a whole pack (it needs version 1.10.0 or later)."; return null; }
+            try { return packs.SpawnPackPreview(PreviewMembers(result), result.MainMember, out error); }
+            catch (Exception ex) { error = ex.Message; return null; }
+        }
+
+        /// <summary>The members whose emitted header marks them hidden: the ones Add a companion leaves out. Pure.</summary>
+        internal static HashSet<string> HiddenKeys(PackConversionResult result)
+        {
+            var hidden = new HashSet<string>(StringComparer.Ordinal);
+            if (result == null) return hidden;
+            foreach (PackMemberConversionResult m in result.Members)
+                if (m != null && m.Root != null && m.Root.Header != null && m.Root.Header.Pack != null && m.Root.Header.Pack.Hidden)
+                    hidden.Add(m.SourceKey);
+            return hidden;
+        }
+
+        /// <summary>"Stopped installing the pack at 'B' (as 'p-b'): reason. Already installed: 'A' as 'p-a'. ..." and what
+        /// Add a companion lists now: only the visible members already installed, each on its own, since it drops only
+        /// hidden members (review item 3: this said the pack "cannot be added yet", which a visible member contradicts).
+        /// Pure.</summary>
+        internal static string PartialInstallMessage(string failedKey, string failedId, string error, PackInstallOutcome outcome, string mainKey,
+            ICollection<string> hiddenKeys)
         {
             string text = "Stopped installing the pack at '" + failedKey + "' (as '" + failedId + "'): " +
                 (string.IsNullOrWhiteSpace(error) ? "the host refused it." : error.Trim());
             if (outcome.InstalledKeys.Count == 0) return text + " Nothing was installed.";
             var parts = new List<string>();
+            var addable = new List<string>();
             for (int i = 0; i < outcome.InstalledKeys.Count; i++)
-                parts.Add("'" + outcome.InstalledKeys[i] + "' as '" + outcome.InstalledIds[i] + "'");
+            {
+                string part = "'" + outcome.InstalledKeys[i] + "' as '" + outcome.InstalledIds[i] + "'";
+                parts.Add(part);
+                if (hiddenKeys == null || !hiddenKeys.Contains(outcome.InstalledKeys[i])) addable.Add(part);
+            }
             text += " Already installed: " + string.Join(", ", parts) + ".";
             if (!outcome.InstalledKeys.Contains(mainKey))
-                text += " The main member was not installed, so the pack cannot be added yet; the members above stay in your companion library under those ids.";
+            {
+                text += addable.Count == 0
+                    ? " The main member was not installed, and every member above is hidden, so Add a companion lists none of them yet."
+                    : " The main member was not installed. Add a companion already lists " + string.Join(", ", addable) +
+                      (addable.Count == 1 ? " on its own, without the rest of the pack, because it is not hidden."
+                                          : ", each on its own, without the rest of the pack, because they are not hidden.");
+                text += " Install pack again to finish: it replaces these under the same ids.";
+            }
             return text;
         }
 

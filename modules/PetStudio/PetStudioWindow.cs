@@ -91,8 +91,8 @@ namespace DesktopAICompanion.PetStudioModule
         private readonly Button _installPackButton = new Button { Content = "Install pack", Padding = new Thickness(10, 3, 10, 3), IsEnabled = false };
         private readonly Button _previewPackButton = new Button { Content = "Preview pack", Padding = new Thickness(10, 3, 10, 3), IsEnabled = false, Margin = new Thickness(6, 0, 0, 0) };
         private const string PreviewPackTip =
-            "Previews the main member on its own. The host looks for a preview's other members only inside the preview, " +
-            "and nothing puts them there yet, so an egg does not hatch and a transform stays as the main member.";
+            "Previews the whole pack on your desktop: the main member arrives as the pack starts it (an egg hatches), and " +
+            "its transforms and births reach the pack's other members, inside the preview only. Nothing is installed.";
         // Set by PickSkin when the author pressed "Import all as a pack"; read and cleared by the import core around
         // SelectSkin, whose rule (one skin converts unasked) stays the one the self-test pins. UI thread only.
         private bool _pickedAsPack;
@@ -1509,6 +1509,10 @@ namespace DesktopAICompanion.PetStudioModule
             _openedPath = null;                         // Save prompts for a path, as after a single import
             _path.Text = "Imported pack: " + title;
             _packSummary.Text = PackImport.Summary(result, title);
+            // The document that was open is not this pack's. Until this, a pack whose main member was refused, or that
+            // had no members at all, left it in the editor under "Imported pack: X", Save still offered (review item 4).
+            // Selecting the main member below fills the editor again when it was prepared.
+            ClearPackDocument();
             int select = -1;
             foreach (PackMemberConversionResult member in result.Members)
             {
@@ -1520,11 +1524,15 @@ namespace DesktopAICompanion.PetStudioModule
             _previewPackButton.IsEnabled = offered;
             _installButton.IsEnabled = false;
             _installButton.ToolTip = "This is one member of a pack: use Install pack, which installs every member together.";
+            // The button is disabled here, and WPF shows a disabled control's tooltip only when told to (review item 5).
+            ToolTipService.SetShowOnDisabled(_installButton, true);
             _packSection.Visibility = Visibility.Visible;
             if (_packMembers.Items.Count == 0)
             {
                 HideImportLoss();
-                SetStatus(PackStatusPrefix() + (result.Error ?? ""));
+                // PackStatusPrefix already carries the converter's error for a pack it did not accept, which a pack with
+                // no members never is; appending result.Error again printed it twice (review item 4).
+                SetStatus(PackStatusPrefix() + "It has no members to open.");
                 return;
             }
             _packMembers.SelectedIndex = select >= 0 ? select : 0;
@@ -1551,15 +1559,34 @@ namespace DesktopAICompanion.PetStudioModule
             ShowImportLoss(member.Residue, member.SourceKey);
             if (member.Disposition != PackMemberDisposition.Prepared || string.IsNullOrEmpty(member.EmittedXml))
             {
+                // No document: the previous member's must not stay in the editor, savable, under this row.
+                ClearPackDocument();
                 SetStatus(PackStatusPrefix() + "'" + member.SourceKey + "' was refused (" +
                     (member.Error ?? "no document was prepared").Trim().TrimEnd('.') +
                     "). It has no document to open; its notes are under Import loss.");
                 return;
             }
             _editor.IsReadOnly = true;
+            // Another member is another document: Save must prompt again rather than write it over the file the previous
+            // member was saved to and report that path as a success (review item 1; the F157 guard OnInstalledPicked keeps).
+            _openedPath = null;
+            _path.Text = "Imported pack: " + _packTitle;
             _saveButton.IsEnabled = true;
             SetEditorText(member.EmittedXml);
             BeginAnalyze(PackStatusPrefix() + "Showing '" + member.SourceKey + "' read-only. ");
+        }
+
+        /// <summary>In pack mode with no member open (none prepared, or a refused one picked): an empty read-only editor,
+        /// nothing to save, no file it came from, and no analysis of a document that is not there.</summary>
+        private void ClearPackDocument()
+        {
+            _editor.IsReadOnly = true;
+            SetEditorText("");
+            _openedPath = null;
+            _saveButton.IsEnabled = false;
+            _map.Children.Clear();
+            _chipsById.Clear();
+            ResetDetail();
         }
 
         /// <summary>Leave pack mode: called by every other load path before it fills the editor.</summary>
@@ -1578,7 +1605,10 @@ namespace DesktopAICompanion.PetStudioModule
         }
 
         /// <summary>Install pack: every member, main last, through the one rule in <see cref="PackImport.InstallPack"/>.
-        /// Withdrawn after a complete install, so a second click cannot install a second copy of the same pack.</summary>
+        /// When the host already lists types carrying this pack's id (an earlier install), the author is asked to REPLACE
+        /// that install under the same ids, or install nothing: a second copy is never offered, because the host's pack
+        /// index uses one installed copy of each member and a copy's members would never run. Withdrawn after a complete
+        /// install, so a second click cannot install a second copy of the same pack.</summary>
         private void InstallPackClicked()
         {
             if (!PackImport.CanInstall(_pack, _pets != null))
@@ -1586,29 +1616,34 @@ namespace DesktopAICompanion.PetStudioModule
                 SetStatus("Nothing was installed: the converter did not accept the whole pack.");
                 return;
             }
-            PackInstallOutcome outcome = PackImport.InstallPack(_pack, _packTitle, _pets);
+            Dictionary<string, string> prior = PackImport.PriorInstall(_pets, _pack.PackId);
+            if (prior.Count > 0)
+            {
+                MessageBoxResult answer = MessageBox.Show(this, PackImport.ReplaceQuestion(_packTitle, prior), "Install pack",
+                    MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel);
+                if (answer != MessageBoxResult.OK)
+                {
+                    SetStatus("Install pack cancelled: the pack installed before is unchanged, and nothing was installed.");
+                    return;
+                }
+            }
+            PackInstallOutcome outcome = PackImport.InstallPack(_pack, _packTitle, _pets, prior.Count > 0 ? prior : null);
             SetStatus(outcome.Message);
             if (outcome.Complete) _installPackButton.IsEnabled = false;
         }
 
         /// <summary>
-        /// Preview pack: the MAIN member alone, through the ordinary preview. The host scopes a preview's pack references
-        /// to the preview's own namespace (TickPackBinding.ScopeForPreview) and resolves members only from the installed
-        /// pack index, which never holds a preview scope, so a preview's Transform, Breed or egg startup falls back to the
-        /// main member itself (ShimejiWindowSelfTest.Packs: "a preview member does not resolve an installed pack's
-        /// member"). Previewing the whole pack needs a host change; the lane report names it. The status and the tooltip
-        /// say what the author is and is not seeing.
+        /// Preview pack: the WHOLE pack, through the host's pack preview (PackImport.PreviewPack, host 1.10.0). Every
+        /// prepared member goes to the host as one preview namespace, so the main member arrives as its startup says and
+        /// its Transforms and Breeds reach the preview's other members, never an installed copy of the pack. Remove preview
+        /// takes away every companion the preview produced.
         /// </summary>
         private void PreviewPack()
         {
             if (_pack == null || _pets == null || !_pack.Accepted) return;
-            PackMemberConversionResult main = null;
-            foreach (PackMemberConversionResult member in _pack.Members)
-                if (string.Equals(member.SourceKey, _pack.MainMember, StringComparison.Ordinal)) main = member;
-            if (main == null || string.IsNullOrEmpty(main.EmittedXml)) return;
             RemovePreview();
             string error;
-            _preview = _pets.SpawnPreview(main.EmittedXml, out error);
+            _preview = PackImport.PreviewPack(_pack, _pets, out error);
             if (_preview == null)
             {
                 SetStatus("Preview refused: " + error);
@@ -1616,9 +1651,9 @@ namespace DesktopAICompanion.PetStudioModule
             }
             _removeButton.IsEnabled = true;
             RefreshPlayOnPreview();
-            SetStatus("Previewing the main member '" + main.SourceKey + "' on your desktop, on its own. A preview cannot reach " +
-                "the pack's other members yet, so a hatch or a transform stays as '" + main.SourceKey + "'. Install the pack " +
-                "to see them together.");
+            SetStatus("Previewing the pack '" + _packTitle + "' on your desktop: '" + _pack.MainMember + "' arrives as the pack " +
+                "starts it, and its hatches, transforms and births reach the pack's other " + (_pack.Members.Count - 1) +
+                " member(s), inside the preview only. Remove preview takes every one of them away.");
         }
 
         /// <summary>Put a freshly converted skin (desktop or Android bundle) into the editor, analysis, and

@@ -263,6 +263,9 @@ namespace DesktopAICompanion.PetStudioModule
                     !thrown.Complete && thrown.FailedKey == ".Helper" && thrown.InstalledKeys.Count == 0
                     && thrown.Message.IndexOf("Nothing was installed", StringComparison.Ordinal) >= 0);
 
+                CheckPreviewAndReplace(probe, accepted);
+                CheckRetryAndReimport(probe, accepted, packRoot, rows);
+
                 probe.Check("WITNESS the pack report names the verdict and every member: " + PackImport.MemberRow(eggResult, options),
                     PackImport.Summary(accepted, "Synthetic Pack").StartsWith("✓ Pack 'Synthetic Pack': accepted, 3 member(s).", StringComparison.Ordinal)
                     && PackImport.Summary(notAccepted, "Synthetic Pack").StartsWith("✗ Pack 'Synthetic Pack': not accepted", StringComparison.Ordinal)
@@ -336,17 +339,20 @@ namespace DesktopAICompanion.PetStudioModule
 
         /// <summary>A module-local ICompanionManager double: records every InstallType, reports a fixed installed list,
         /// and fails (or throws on) one id when told to. ModuleKit.Testing ships only the denying manager.</summary>
-        private sealed class RecordingCompanionManager : ICompanionManager
+        private class RecordingCompanionManager : ICompanionManager
         {
             public readonly List<string> Installed = new List<string>();
             public readonly List<KeyValuePair<string, string>> Installs = new List<KeyValuePair<string, string>>();
+            /// <summary>Installed types with their pack facts (host 1.10.0), listed after <see cref="Installed"/>'s bare ids.</summary>
+            public readonly List<CompanionTypeInfo> InstalledInfo = new List<CompanionTypeInfo>();
+            public int SinglePreviews;
             public string FailId;
             public bool Throw;
 
             public string CompanionsDirectory { get { return ""; } }
             public IReadOnlyList<CompanionTypeInfo> InstalledTypes()
             {
-                return Installed.Select(id => new CompanionTypeInfo { TypeId = id, DisplayName = id }).ToList();
+                return Installed.Select(id => new CompanionTypeInfo { TypeId = id, DisplayName = id }).Concat(InstalledInfo).ToList();
             }
             public bool TryReadTypeXml(string typeId, out string animationsXml, out string error) { animationsXml = null; error = "not recorded"; return false; }
             public IReadOnlyList<CompanionCount> OnScreenMix() { return new List<CompanionCount>(); }
@@ -355,7 +361,7 @@ namespace DesktopAICompanion.PetStudioModule
             public bool SpawnOne(string typeId) { return false; }
             public bool RemoveOne(string typeId) { return false; }
             public bool ValidateXml(string animationsXml, out string error) { error = null; return true; }
-            public ICompanionPreview SpawnPreview(string animationsXml, out string error) { error = "not recorded"; return null; }
+            public ICompanionPreview SpawnPreview(string animationsXml, out string error) { SinglePreviews++; error = "not recorded"; return null; }
             public bool InstallType(string typeId, string animationsXml, out string error)
             {
                 error = null;
@@ -366,10 +372,194 @@ namespace DesktopAICompanion.PetStudioModule
                     return false;
                 }
                 Installs.Add(new KeyValuePair<string, string>(typeId, animationsXml));
-                Installed.Add(typeId);
+                // As the host does from 1.10.0: an installed pack member is listed with its header's pack facts, so a
+                // later Install pack can find it. A document without a pack is listed by its id alone.
+                CompanionTypeInfo facts = PackFactsOf(typeId, animationsXml);
+                if (facts == null) Installed.Add(typeId);
+                else
+                {
+                    InstalledInfo.RemoveAll(t => string.Equals(t.TypeId, typeId, StringComparison.OrdinalIgnoreCase));
+                    InstalledInfo.Add(facts);
+                }
                 return true;
             }
+
+            private static CompanionTypeInfo PackFactsOf(string typeId, string xml)
+            {
+                try
+                {
+                    XElement pack = XDocument.Parse(xml).Descendants().FirstOrDefault(e => e.Name.LocalName == "pack"
+                        && e.Parent != null && e.Parent.Name.LocalName == "header");
+                    if (pack == null) return null;
+                    return new CompanionTypeInfo
+                    {
+                        TypeId = typeId, DisplayName = typeId,
+                        PackId = (string)pack.Attribute("id"), PackMember = (string)pack.Attribute("member"),
+                        PackRole = (string)pack.Attribute("role"), PackHidden = (string)pack.Attribute("hidden") == "true",
+                    };
+                }
+                catch (Exception) { return null; }
+            }
             public bool UninstallType(string typeId, out string error) { error = null; return Installed.Remove(typeId); }
+        }
+
+        /// <summary>The recording manager plus the host's pack preview (ICompanionPackPreview, 1.10.0): records the members
+        /// and main key it is handed and answers a handle that records its removal.</summary>
+        private sealed class RecordingPackPreviewManager : RecordingCompanionManager, ICompanionPackPreview
+        {
+            public Dictionary<string, string> PreviewedMembers;
+            public string PreviewedMain;
+            public int PackPreviews;
+
+            public ICompanionPreview SpawnPackPreview(IReadOnlyDictionary<string, string> memberXmlByKey, string mainKey, out string error)
+            {
+                error = null;
+                PackPreviews++;
+                PreviewedMembers = memberXmlByKey == null ? null : memberXmlByKey.ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal);
+                PreviewedMain = mainKey;
+                return new RecordedPreview();
+            }
+        }
+
+        private sealed class RecordedPreview : ICompanionPreview
+        {
+            public bool Removed;
+            public ICompanion Pet { get { return null; } }
+            public bool IsAlive { get { return !Removed; } }
+            public void Remove() { Removed = true; }
+            public void Dispose() { Remove(); }
+        }
+
+        // ---- a retry after a partial install, and a re-import with a changed role, replace rather than duplicate ----
+
+        /// <summary>The review of Studio's pack import (items 2 and 3): a retry after a partial failure, and a re-import
+        /// that changed a member's role and visibility, REPLACE the earlier install under the same ids with the new
+        /// choices; and a partial install's message names only what Add a companion really lists, the visible members.
+        /// The recording manager lists what it installed with the header's pack facts, as the host does.</summary>
+        private static void CheckRetryAndReimport(SelfTestProbe probe, PackConversionResult accepted, string packRoot,
+            List<PackMemberChoice> rows)
+        {
+            var host = new RecordingCompanionManager { FailId = "synthetic-pack-egg-2" };
+            PackInstallOutcome partial = PackImport.InstallPack(accepted, "Synthetic Pack", host);
+            probe.Check("a partial install of hidden members says Add a companion lists none of them: " + partial.Message,
+                !partial.Complete
+                && partial.Message.IndexOf("every member above is hidden, so Add a companion lists none of them yet", StringComparison.Ordinal) >= 0
+                && partial.Message.IndexOf("cannot be added yet", StringComparison.Ordinal) < 0);
+            host.FailId = null;
+            Dictionary<string, string> prior = PackImport.PriorInstall(host, accepted.PackId);
+            PackInstallOutcome retry = PackImport.InstallPack(accepted, "Synthetic Pack", host, prior.Count > 0 ? prior : null);
+            List<string> retryIds = host.Installs.Skip(1).Select(i => i.Key).ToList();
+            probe.Check("a retry after a partial install replaces what went in under the same ids, no '-2' copy: "
+                        + string.Join(", ", retryIds) + " / " + retry.Message,
+                retry.Complete && retry.Replaced && prior.Count == 1 && prior.ContainsKey(".Helper") && prior[".Helper"] == "synthetic-pack-helper"
+                && retryIds.SequenceEqual(new[] { "synthetic-pack-helper", "synthetic-pack-egg-2", "synthetic-pack-alpha" })
+                && retry.Message.IndexOf("1 member(s) written again under the ids they had, 2 new member(s) added", StringComparison.Ordinal) >= 0);
+
+            // The same source with the egg made a visible form: the pack id is the source's, so it does not change.
+            List<PackMemberChoice> formRows = rows.Select(r => new PackMemberChoice { Key = r.Key, Role = r.Role, Hidden = r.Hidden }).ToList();
+            PackMemberChoice egg = formRows.First(r => r.Key == "Egg (2)");
+            egg.Role = "form";
+            egg.Hidden = false;
+            string refusal;
+            PackConversionOptions formOptions = PackImport.SelectPackOptions(formRows, "Alpha", null, null, out refusal);
+            PackConversionResult reimported = formOptions == null ? null
+                : PackImport.ConvertGuarded(packRoot, formOptions, PackImport.ConvertWithEngine, out refusal);
+            bool ok = reimported != null && reimported.Accepted && reimported.PackId == accepted.PackId;
+            probe.Check("WITNESS a re-import with a changed role keeps the pack id: "
+                        + (reimported == null ? refusal : reimported.PackId + " / " + accepted.PackId), ok);
+            if (!ok) return;
+            int before = host.Installs.Count;
+            Dictionary<string, string> again = PackImport.PriorInstall(host, reimported.PackId);
+            PackInstallOutcome replaced = PackImport.InstallPack(reimported, "Synthetic Pack", host, again.Count > 0 ? again : null);
+            List<string> againIds = host.Installs.Skip(before).Select(i => i.Key).ToList();
+            CompanionTypeInfo eggNow = host.InstalledTypes().FirstOrDefault(t => t.TypeId == "synthetic-pack-egg-2");
+            probe.Check("a re-import with a changed role replaces the install under the same ids, with the new role: "
+                        + string.Join(", ", againIds) + " / " + (eggNow == null ? "none" : eggNow.PackRole + (eggNow.PackHidden ? ", hidden" : "")),
+                replaced.Complete && replaced.Replaced
+                && againIds.SequenceEqual(new[] { "synthetic-pack-helper", "synthetic-pack-egg-2", "synthetic-pack-alpha" })
+                && eggNow != null && eggNow.PackRole == "form" && !eggNow.PackHidden);
+
+            // A partial install whose installed member is VISIBLE: Add a companion lists it on its own, and says so.
+            var visible = new RecordingCompanionManager { FailId = "synthetic-pack-alpha" };
+            PackInstallOutcome visiblePartial = PackImport.InstallPack(reimported, "Synthetic Pack", visible);
+            probe.Check("a partial install names the visible member Add a companion lists on its own: " + visiblePartial.Message,
+                !visiblePartial.Complete
+                && visiblePartial.Message.IndexOf("Add a companion already lists 'Egg (2)' as 'synthetic-pack-egg-2' on its own", StringComparison.Ordinal) >= 0
+                && visiblePartial.Message.IndexOf("lists '.Helper'", StringComparison.Ordinal) < 0
+                && visiblePartial.Message.IndexOf("Install pack again to finish: it replaces these under the same ids.", StringComparison.Ordinal) >= 0);
+        }
+
+        // ---- Preview pack hands the host every member; Install pack replaces an earlier install of the same pack ----
+
+        private static void CheckPreviewAndReplace(SelfTestProbe probe, PackConversionResult accepted)
+        {
+            var host = new RecordingPackPreviewManager();
+            string error;
+            ICompanionPreview preview = PackImport.PreviewPack(accepted, host, out error);
+            Dictionary<string, string> sent = host.PreviewedMembers ?? new Dictionary<string, string>();
+            probe.Check("Preview pack hands the host's pack preview every prepared member by its exact key, and the main member's key: "
+                        + string.Join(", ", sent.Keys.OrderBy(k => k, StringComparer.Ordinal)) + " / " + host.PreviewedMain,
+                preview != null && host.PackPreviews == 1 && host.SinglePreviews == 0 && host.PreviewedMain == accepted.MainMember
+                && sent.Count == accepted.Members.Count
+                && accepted.Members.All(m => sent.ContainsKey(m.SourceKey) && string.Equals(sent[m.SourceKey], m.EmittedXml, StringComparison.Ordinal)));
+            string oldHostError;
+            ICompanionPreview none = PackImport.PreviewPack(accepted, new RecordingCompanionManager(), out oldHostError);
+            probe.Check("WITNESS a host without the pack preview is a refusal with a reason, not a single-member fallback: " + oldHostError,
+                none == null && oldHostError != null && oldHostError.IndexOf("1.10.0", StringComparison.Ordinal) >= 0);
+
+            // The same pack installed before (its ids from an earlier install, its pack facts as the host reports them).
+            var prior = new RecordingPackPreviewManager();
+            prior.Installed.Add("synthetic-pack-alpha-9");   // an unrelated companion that is not a member of this pack
+            foreach (KeyValuePair<string, string> earlier in new Dictionary<string, string>
+                     { { "Alpha", "synthetic-pack-alpha" }, { "Egg (2)", "synthetic-pack-egg-2" }, { ".Helper", "synthetic-pack-helper" } })
+            {
+                prior.InstalledInfo.Add(new CompanionTypeInfo
+                {
+                    TypeId = earlier.Value, DisplayName = earlier.Key, PackId = accepted.PackId, PackMember = earlier.Key,
+                    PackRole = earlier.Key == "Alpha" ? "main" : "egg", PackHidden = earlier.Key != "Alpha",
+                });
+            }
+            Dictionary<string, string> found = PackImport.PriorInstall(prior, accepted.PackId);
+            probe.Check("Install pack finds an earlier install of the same pack by the host's pack id and member keys: "
+                        + string.Join(", ", found.OrderBy(p => p.Key, StringComparer.Ordinal).Select(p => p.Key + "=" + p.Value)),
+                found.Count == 3 && found["Alpha"] == "synthetic-pack-alpha" && found["Egg (2)"] == "synthetic-pack-egg-2"
+                && found[".Helper"] == "synthetic-pack-helper");
+            PackInstallOutcome replaced = PackImport.InstallPack(accepted, "Synthetic Pack", prior, found);
+            string written = string.Join(", ", prior.Installs.Select(i => i.Key));
+            probe.Check("Install pack over an installed same-id pack replaces it under the same ids, no '-2' copy: " + written,
+                replaced.Complete && replaced.Replaced && prior.Installs.Count == 3
+                && prior.Installs.Select(i => i.Key).OrderBy(k => k, StringComparer.Ordinal)
+                    .SequenceEqual(new[] { "synthetic-pack-alpha", "synthetic-pack-egg-2", "synthetic-pack-helper" })
+                && prior.Installs[2].Key == "synthetic-pack-alpha");
+            probe.Check("a replace says it replaced, naming the main member's id: " + replaced.Message,
+                replaced.Message.StartsWith("Replaced the installed pack: 3 member(s) written again under the ids they had.", StringComparison.Ordinal)
+                && replaced.Message.IndexOf("'synthetic-pack-alpha'", StringComparison.Ordinal) >= 0);
+
+            // An earlier install missing a member and holding one this pack lacks: the new member gets a fresh id, the
+            // old one is left installed and named.
+            var partial = new RecordingPackPreviewManager();
+            partial.InstalledInfo.Add(new CompanionTypeInfo { TypeId = "synthetic-pack-alpha", PackId = accepted.PackId, PackMember = "Alpha", PackRole = "main" });
+            partial.InstalledInfo.Add(new CompanionTypeInfo { TypeId = "synthetic-pack-gone", PackId = accepted.PackId, PackMember = "Gone", PackRole = "form" });
+            partial.InstalledInfo.Add(new CompanionTypeInfo { TypeId = "other-pack-helper", PackId = "shimeji-otherpack", PackMember = ".Helper", PackRole = "helper" });
+            Dictionary<string, string> partialPrior = PackImport.PriorInstall(partial, accepted.PackId);
+            PackInstallOutcome mixed = PackImport.InstallPack(accepted, "Synthetic Pack", partial, partialPrior);
+            probe.Check("a replace gives a member new to the pack a fresh id and names a member the pack no longer has: " + mixed.Message,
+                mixed.Complete && mixed.Replaced && !partialPrior.ContainsKey(".Helper")
+                && partial.Installs.Any(i => i.Key == "synthetic-pack-alpha") && partial.Installs.Any(i => i.Key == "synthetic-pack-helper")
+                && mixed.Message.IndexOf("1 member(s) written again", StringComparison.Ordinal) >= 0
+                && mixed.Message.IndexOf("2 new member(s) added", StringComparison.Ordinal) >= 0
+                && mixed.Message.IndexOf("no longer in this pack: 'Gone' as 'synthetic-pack-gone'", StringComparison.Ordinal) >= 0);
+
+            // No earlier install: nothing to replace, and the install is the one it always was.
+            var fresh = new RecordingPackPreviewManager();
+            fresh.Installed.Add("synthetic-pack-alpha");
+            Dictionary<string, string> nothing = PackImport.PriorInstall(fresh, accepted.PackId);
+            PackInstallOutcome first = PackImport.InstallPack(accepted, "Synthetic Pack", fresh, nothing.Count > 0 ? nothing : null);
+            probe.Check("WITNESS with no earlier install of the pack, Install pack installs as before (a clash with another companion is suffixed): "
+                        + string.Join(", ", fresh.Installs.Select(i => i.Key)),
+                nothing.Count == 0 && first.Complete && !first.Replaced && fresh.Installs.Count == 3
+                && fresh.Installs[2].Key == "synthetic-pack-alpha-2"
+                && first.Message.StartsWith("Installed the pack: 3 member(s).", StringComparison.Ordinal));
         }
     }
 }
