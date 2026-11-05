@@ -73,10 +73,29 @@ run.
 
 ## 3. Image and pose additions
 
-- **`<image><anchorx>`, `<anchory>`.** The contact point (Shimeji's ImageAnchor) in cell pixels, before scaling. The
-  converter bakes every pose so its anchor lands on this one point. The default is bottom-centre, (cellW/2, cellH).
+- **`<image><anchorx>`, `<anchory>`.** The type's default contact point (Shimeji's ImageAnchor) in cell pixels,
+  before scaling, used by every pose that does not give its own (below). The default is bottom-centre, (cellW/2, cellH).
+- **Per-pose geometry.** In the source every image has its OWN size and anchor (`ImagePairLoader.java:37-38`), and four
+  things read them: the window rectangle, the off-screen drop-in test (`UserBehavior.java:252-255`, the image's left,
+  right and top edges against the screen), a mirrored hotspot (`Hotspot.java:31`, the image's width) and Dragged's and
+  Regist's offsets (`Dragged.java:82-83`, `Regist.java:51`, the image's anchor). 84% of image sets in the corpus mix
+  sizes or anchors, so the format carries them per pose rather than padding frames to one canvas, which would move all
+  four. The sheet's cells are the size of the largest image, each frame drawn at its cell's TOP-LEFT; a pose says how
+  much of its cell is the image and where the image's anchor is:
+  `<pose frame="12" right="40" ticks="6" ax="61" ay="118" w="100" h="120" rw="104" rh="120"/>`
+  - `ax`, `ay`: this image's ImageAnchor, in the LEFT image's pixels, before scaling. Default: the type's anchor.
+  - `w`, `h`: the left image's size inside its cell (1 to the cell size). Default: the cell size.
+  - `rw`, `rh`: the explicit right image's size, when `right` is given. Default: `w`, `h`.
+  - Facing left, the image is (`w`, `h`) with its anchor at (`ax`, `ay`). Facing right it is the right image, or the left
+    mirrored: (`rw`, `rh`) with its anchor at (`rw - ax`, `ay`), as the source computes it (`ImagePairLoader.java:38`).
+  - The companion's bounds, window, off-screen test, hotspot mirror and drag offsets use the CURRENT pose's image, as
+    the source does; until a companion's first pose they use the type's defaults.
+  - Scaling applies as the source's: the anchor is `round(a * s)` (Java rounding), the size is the sprite store's scaled
+    size of that region (`round(w * s)`).
+  - All six need feature `tick`; the validator keeps each inside its cell (`w`, `h`, `rw`, `rh` from 1 to the cell size)
+    and the anchor within -4096..4096.
 - **`<pose>`.** Replaces `<frame>` inside `<variant>`:
-  `<pose frame="12" right="40" ticks="6" dx="-2" dy="0" sound="s3" volume="-6"/>`
+  `<pose frame="12" right="40" ticks="6" dx="-2" dy="0" sound="s3" volume="-6"/>` (plus the geometry above)
   - `frame` is a sheet index, or `-1` for an image-less pose. It HIDES the companion's window while the companion
     keeps its timing, motion, sound and count (`Pose.java:70-85`, `ImagePairs.java:61-65`, `Mascot.java:587-609`).
   - `right` is the right-facing frame (`ImageRight`). Omitted, the left frame is mirrored, as today.
