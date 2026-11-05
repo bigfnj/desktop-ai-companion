@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <UseSharedCompilation>false</UseSharedCompilation>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <Target Name="RequireHostSourceRoot" BeforeTargets="PrepareForBuild">
+    <Error Condition="'$(HostSourceRoot)' == ''" Text="HostSourceRoot must name the host source tree to validate against." />
+  </Target>
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="$(HostSourceRoot)/src/LocalData/AnimationXML.cs" Link="AnimationXML.cs" />
+    <Compile Include="$(HostSourceRoot)/src/dotNet/SafeScript.cs" Link="SafeScript.cs" />
+    <Compile Include="$(HostSourceRoot)/src/dotNet/ShimejiFormatValidator.cs" Link="ShimejiFormatValidator.cs" />
+    <Compile Include="$(HostSourceRoot)/src/dotNet/CompanionXmlValidator.cs" Link="CompanionXmlValidator.cs" />
+    <Compile Include="$(HostSourceRoot)/src/dotNet/SafeExpression.cs" Link="SafeExpression.cs" />
+    <Compile Include="$(HostSourceRoot)/tools/ShimejiConvert.Engine/ValidatorResources.cs" Link="ValidatorResources.cs" />
+    <EmbeddedResource Include="$(HostSourceRoot)/src/Resources/animations.xsd" LogicalName="ShimejiConvert.animations.xsd" />
+  </ItemGroup>
+</Project>

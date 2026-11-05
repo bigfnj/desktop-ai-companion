@@ -168,17 +168,27 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         public string Name { get; private set; }
         public string SourceName { get; private set; }
         public string NamespaceName { get; private set; }
+        public string QualifiedName { get; private set; }
+        public string Prefix { get; private set; }
+        public bool IsNamespaceDeclaration { get; private set; }
+        /// <summary>The exact source ResourceBundle key, or null for an unrecognised qualified name.</summary>
+        public string SchemaKey { get; private set; }
         public string RawValue { get; private set; }
         public string Expression { get; private set; }
         public ShimejiSourceCache Cache { get; private set; }
         public string SourceKey { get; private set; }
 
         internal ShimejiSourceAttribute(string name, string sourceName, string namespaceName,
-            string rawValue, string sourceKey)
+            string rawValue, string sourceKey, string schemaKey = null, string qualifiedName = null,
+            string prefix = "", bool isNamespaceDeclaration = false)
         {
             Name = name;
             SourceName = sourceName;
             NamespaceName = namespaceName;
+            SchemaKey = schemaKey;
+            QualifiedName = qualifiedName ?? sourceName;
+            Prefix = prefix;
+            IsNamespaceDeclaration = isNamespaceDeclaration;
             RawValue = rawValue;
             SourceKey = sourceKey;
             // Match Java Variable.parse exactly. Embedded or padded markers are literal strings;
@@ -205,6 +215,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         public string Name { get; private set; }
         public string SourceName { get; private set; }
         public string NamespaceName { get; private set; }
+        public string QualifiedName { get; private set; }
+        public string Prefix { get; private set; }
+        public string SchemaKey { get; private set; }
         public string ElementPath { get; private set; }
         /// <summary>Original XML local names and same-named sibling ordinals, for the parity refKey.
         /// ElementPath and SourceKey retain their canonical-name identity for existing consumers.</summary>
@@ -212,6 +225,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         public string SourceKey { get; private set; }
         public int Line { get; private set; }
         public int Column { get; private set; }
+        /// <summary>Direct text and CDATA only; descendant text is not copied into each ancestor.</summary>
         public string Text { get; private set; }
         public ReadOnlyCollection<ShimejiSourceAttribute> Attributes { get; private set; }
         public ReadOnlyCollection<ShimejiSourceElement> Children { get; private set; }
@@ -219,13 +233,21 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         internal ShimejiSourceElement(string name, string sourceName, string namespaceName,
             string path, string sourceKey, int line, int column, string text,
             IList<ShimejiSourceAttribute> attributes, IList<ShimejiSourceElement> children,
-            string sourceElementPath = null)
+            string sourceElementPath = null, string schemaKey = null, string qualifiedName = null, string prefix = "")
         {
             ShimejiSourceKind kind;
-            Kind = System.Enum.TryParse(name, false, out kind) ? kind : ShimejiSourceKind.Unknown;
+            string kindName = schemaKey;
+            if (schemaKey == "Behaviour") kindName = "Behavior";
+            else if (schemaKey == "BehaviourList") kindName = "BehaviorList";
+            else if (schemaKey == "BehaviourReference") kindName = "BehaviorReference";
+            else if (schemaKey == "NextBehaviourList") kindName = "NextBehaviorList";
+            Kind = kindName != null && System.Enum.TryParse(kindName, false, out kind) ? kind : ShimejiSourceKind.Unknown;
             Name = name;
             SourceName = sourceName;
             NamespaceName = namespaceName;
+            SchemaKey = schemaKey;
+            QualifiedName = qualifiedName ?? sourceName;
+            Prefix = prefix;
             ElementPath = path;
             SourceElementPath = sourceElementPath ?? path;
             SourceKey = sourceKey;
@@ -236,12 +258,19 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             Children = new List<ShimejiSourceElement>(children).AsReadOnly();
         }
 
-        /// <summary>Returns the first canonical attribute, retaining any alias collision in Attributes
-        /// for the lowering validator to diagnose rather than overwriting it during parsing.</summary>
-        public ShimejiSourceAttribute Attribute(string canonicalName)
+        /// <summary>Resolves a source ResourceBundle key under this document's selected schema.
+        /// Ignored aliases remain in Attributes and can be inspected through RawAttribute.</summary>
+        public ShimejiSourceAttribute Attribute(string schemaKey)
         {
             foreach (ShimejiSourceAttribute attribute in Attributes)
-                if (string.Equals(attribute.Name, canonicalName, System.StringComparison.Ordinal)) return attribute;
+                if (attribute.SchemaKey != null && string.Equals(attribute.SchemaKey, schemaKey, System.StringComparison.Ordinal)) return attribute;
+            return null;
+        }
+
+        public ShimejiSourceAttribute RawAttribute(string qualifiedName)
+        {
+            foreach (ShimejiSourceAttribute attribute in Attributes)
+                if (string.Equals(attribute.QualifiedName, qualifiedName, System.StringComparison.Ordinal)) return attribute;
             return null;
         }
 
@@ -258,16 +287,25 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         }
     }
 
+    public enum ShimejiSourceSchema { Base, Japanese }
+
     public sealed class ShimejiSourceDocument
     {
         /// <summary>Relative configuration leaf, never an absolute workstation path.</summary>
         public string FileName { get; private set; }
+        public string PackRelativePath { get; private set; }
+        public string ImageSet { get; private set; }
+        public ShimejiSourceSchema Schema { get; private set; }
         public ShimejiSourceElement Root { get; private set; }
 
-        internal ShimejiSourceDocument(string fileName, ShimejiSourceElement root)
+        internal ShimejiSourceDocument(string fileName, ShimejiSourceElement root,
+            ShimejiSourceSchema schema = ShimejiSourceSchema.Base, string imageSet = null, string packRelativePath = null)
         {
             FileName = fileName;
             Root = root;
+            Schema = schema;
+            ImageSet = imageSet;
+            PackRelativePath = packRelativePath ?? fileName;
         }
     }
 
@@ -275,11 +313,14 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
     {
         public ShimejiSourceDocument Actions { get; private set; }
         public ShimejiSourceDocument Behaviors { get; private set; }
+        public ShimejiSourceDocument Information { get; private set; }
 
-        internal ShimejiSourceConfig(ShimejiSourceDocument actions, ShimejiSourceDocument behaviors)
+        internal ShimejiSourceConfig(ShimejiSourceDocument actions, ShimejiSourceDocument behaviors,
+            ShimejiSourceDocument information = null)
         {
             Actions = actions;
             Behaviors = behaviors;
+            Information = information;
         }
     }
 }

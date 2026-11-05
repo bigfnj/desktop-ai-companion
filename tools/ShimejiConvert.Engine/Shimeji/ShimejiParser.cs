@@ -21,6 +21,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
     /// </summary>
     public static class ShimejiParser
     {
+        public const int MaximumSourceDepth = 256;
+        public const int MaximumSourceCharacters = 16 * 1024 * 1024;
+        public const int MaximumSourceMaterializationCharacters = 8 * 1024 * 1024;
         /// <summary>
         /// The leaf names a conf directory may give its ACTIONS file, in the reference loader's own order of
         /// precedence (Shimeji-Desktop's Main.java tries actions.xml, 動作.xml, one.xml, 1.xml). The original
@@ -51,6 +54,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         /// </summary>
         public static ShimejiConfig ParseConfDirectory(string confDir)
         {
+            return ParseConfDirectory(confDir, null, null);
+        }
+
+        /// <summary>Legacy file selection, with explicit source identity for the pack converter.</summary>
+        public static ShimejiConfig ParseConfDirectory(string confDir, string packRoot, string imageSet)
+        {
             if (string.IsNullOrEmpty(confDir)) throw new ArgumentNullException("confDir");
             if (!Directory.Exists(confDir)) throw new DirectoryNotFoundException("No such conf directory: " + confDir);
 
@@ -60,14 +69,16 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             string behaviorsPath = FindBehaviorsFile(confDir);
 
             var config = new ShimejiConfig();
-            XDocument actions = XDocument.Load(actionsPath, LoadOptions.SetLineInfo | LoadOptions.PreserveWhitespace);
-            ShimejiSourceDocument actionSource = ReadSource(actions, Path.GetFileName(actionsPath));
+            XDocument actions = LoadXmlFile(actionsPath);
+            ShimejiSourceDocument actionSource = ReadSource(actions, Path.GetFileName(actionsPath), imageSet,
+                packRoot == null ? Path.GetFileName(actionsPath) : PackPath(packRoot, actionsPath));
             ParseActions(actions, config);
             ShimejiSourceDocument behaviorSource = null;
             if (behaviorsPath != null)
             {
-                XDocument behaviors = XDocument.Load(behaviorsPath, LoadOptions.SetLineInfo | LoadOptions.PreserveWhitespace);
-                behaviorSource = ReadSource(behaviors, Path.GetFileName(behaviorsPath));
+                XDocument behaviors = LoadXmlFile(behaviorsPath);
+                behaviorSource = ReadSource(behaviors, Path.GetFileName(behaviorsPath), imageSet,
+                    packRoot == null ? Path.GetFileName(behaviorsPath) : PackPath(packRoot, behaviorsPath));
                 ParseBehaviorConditions(behaviors, config);
                 ParseBehaviorFrequencies(behaviors, config);
                 config.BehaviorsFile = behaviorsPath;
@@ -119,9 +130,22 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         /// data as an English one.</summary>
         public static ShimejiConfig ParseActionsXml(string actionsXml)
         {
+            return ParseActionsXml(actionsXml, null, "actions.xml");
+        }
+
+        public static ShimejiConfig ParseActionsXml(string actionsXml, string imageSet, string packRelativePath)
+        {
+            return ParseActionsXml(actionsXml, imageSet, packRelativePath, MaximumSourceMaterializationCharacters);
+        }
+
+        internal static ShimejiConfig ParseActionsXml(string actionsXml, string imageSet, string packRelativePath,
+            int maximumMaterializationCharacters)
+        {
+            packRelativePath = ValidatePackPath(packRelativePath);
             var config = new ShimejiConfig();
-            XDocument actions = XDocument.Parse(actionsXml, LoadOptions.SetLineInfo | LoadOptions.PreserveWhitespace);
-            config.Source = new ShimejiSourceConfig(ReadSource(actions, "actions.xml"), null);
+            XDocument actions = ParseXml(actionsXml, Path.GetFileName(packRelativePath.Replace('\\', '/')), maximumMaterializationCharacters);
+            config.Source = new ShimejiSourceConfig(ReadSource(actions, Path.GetFileName(packRelativePath.Replace('\\', '/')),
+                imageSet, packRelativePath), null);
             ParseActions(actions, config);
             return config;
         }
@@ -132,20 +156,77 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         /// rule tests the filesystem as much as the parser.</summary>
         public static ShimejiConfig ParseConfXml(string actionsXml, string behaviorsXml)
         {
+            return ParseConfXml(actionsXml, behaviorsXml, null, "actions.xml", "behaviors.xml");
+        }
+
+        public static ShimejiConfig ParseConfXml(string actionsXml, string behaviorsXml, string imageSet,
+            string actionsRelativePath, string behaviorsRelativePath)
+        {
+            actionsRelativePath = ValidatePackPath(actionsRelativePath);
             var config = new ShimejiConfig();
-            XDocument actions = XDocument.Parse(actionsXml, LoadOptions.SetLineInfo | LoadOptions.PreserveWhitespace);
-            ShimejiSourceDocument actionSource = ReadSource(actions, "actions.xml");
+            XDocument actions = ParseXml(actionsXml, Path.GetFileName(actionsRelativePath.Replace('\\', '/')));
+            ShimejiSourceDocument actionSource = ReadSource(actions, Path.GetFileName(actionsRelativePath.Replace('\\', '/')),
+                imageSet, actionsRelativePath);
             ParseActions(actions, config);
             ShimejiSourceDocument behaviorSource = null;
             if (!string.IsNullOrEmpty(behaviorsXml))
             {
-                XDocument behaviors = XDocument.Parse(behaviorsXml, LoadOptions.SetLineInfo | LoadOptions.PreserveWhitespace);
-                behaviorSource = ReadSource(behaviors, "behaviors.xml");
+                behaviorsRelativePath = ValidatePackPath(behaviorsRelativePath);
+                XDocument behaviors = ParseXml(behaviorsXml, Path.GetFileName(behaviorsRelativePath.Replace('\\', '/')));
+                behaviorSource = ReadSource(behaviors, Path.GetFileName(behaviorsRelativePath.Replace('\\', '/')),
+                    imageSet, behaviorsRelativePath);
                 ParseBehaviorConditions(behaviors, config);
                 ParseBehaviorFrequencies(behaviors, config);
             }
             config.Source = new ShimejiSourceConfig(actionSource, behaviorSource);
             return config;
+        }
+
+        /// <summary>Read only the source IR, using Main.loadConfiguration's three configuration tiers.
+        /// This does not use the legacy converter's tolerant filename or vocabulary rules.</summary>
+        public static ShimejiSourceConfig ParseSourcePack(string packRoot, string imageSet)
+        {
+            if (string.IsNullOrEmpty(packRoot)) throw new ArgumentNullException("packRoot");
+            if (string.IsNullOrEmpty(imageSet) || imageSet == "." || imageSet == ".."
+                || imageSet.IndexOfAny(new[] { '/', '\\', ':' }) >= 0)
+                throw new ArgumentException("Source image set must be one directory name.", "imageSet");
+            string actions = SourceConfigFile(packRoot, imageSet, false);
+            string behaviors = SourceConfigFile(packRoot, imageSet, true);
+            string info = Path.Combine(packRoot, "conf", "info.xml");
+            foreach (string directory in new[] { Path.Combine(packRoot, "conf", imageSet), Path.Combine(packRoot, "img", imageSet, "conf") })
+                if (File.Exists(Path.Combine(directory, "info.xml"))) info = Path.Combine(directory, "info.xml");
+            return new ShimejiSourceConfig(ReadSourceFile(packRoot, actions, imageSet), ReadSourceFile(packRoot, behaviors, imageSet),
+                File.Exists(info) ? ReadSourceFile(packRoot, info, imageSet) : null);
+        }
+
+        private static ShimejiSourceDocument ReadSourceFile(string packRoot, string path, string imageSet)
+        {
+            string relativePath = PackPath(packRoot, path);
+            return ReadSource(LoadXmlFile(path), Path.GetFileName(path), imageSet, relativePath);
+        }
+
+        private static string SourceConfigFile(string packRoot, string imageSet, bool behaviors)
+        {
+            string defaultName = behaviors ? "behaviors.xml" : "actions.xml";
+            string japaneseName = behaviors ? "行動.xml" : "動作.xml";
+            string rootConf = Path.Combine(packRoot, "conf");
+            string selected = Path.Combine(rootConf, defaultName);
+            if (File.Exists(Path.Combine(rootConf, japaneseName))) selected = Path.Combine(rootConf, japaneseName);
+            string[] names = behaviors
+                ? new[] { "behaviors.xml", "behavior.xml", "行動.xml", "\u00DE\u00ED\u00EE\u00D5\u00EF\u00F2.xml",
+                    "\u00AA\u00B5\u00A6-.xml", "\u00ECs\u00F4\u00AB.xml", "two.xml", "2.xml" }
+                : new[] { "actions.xml", "動作.xml", "\u00D5\u00EF\u00F2\u00F5\u00A2\u00A3.xml",
+                    "\u00A6-\u00BA@.xml", "\u00F4\u00AB\u00EC\u00FD.xml", "one.xml", "1.xml" };
+            foreach (string directory in new[] { Path.Combine(rootConf, imageSet), Path.Combine(packRoot, "img", imageSet, "conf") })
+            {
+                foreach (string name in names)
+                    if (File.Exists(Path.Combine(directory, name)))
+                    {
+                        selected = Path.Combine(directory, name);
+                        break;
+                    }
+            }
+            return selected;
         }
 
         /// <summary>Parse the bundled Shimeji-EE base behaviour config (embedded in this assembly), used for a
@@ -178,13 +259,125 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             using (Stream s = asm.GetManifestResourceStream(logicalName))
             {
                 if (s == null) throw new InvalidOperationException("Bundled Shimeji conf resource missing: " + logicalName);
-                return XDocument.Load(s, LoadOptions.SetLineInfo | LoadOptions.PreserveWhitespace);
+                using (var bytes = new MemoryStream())
+                {
+                    s.CopyTo(bytes);
+                    return LoadXmlBytes(bytes.ToArray(), logicalName);
+                }
             }
         }
 
-        private static ShimejiSourceDocument ReadSource(XDocument document, string fileName)
+        private sealed class SourceXmlName
+        {
+            internal string QualifiedName;
+            internal string Prefix;
+            internal bool IsNamespaceDeclaration;
+            internal readonly List<SourceXmlName> Attributes = new List<SourceXmlName>();
+        }
+
+        private static XmlReaderSettings SourceReaderSettings()
+        {
+            return new XmlReaderSettings { MaxCharactersInDocument = MaximumSourceCharacters, XmlResolver = null };
+        }
+
+        private static XDocument ParseXml(string text, string sourceFileName,
+            int maximumMaterializationCharacters = MaximumSourceMaterializationCharacters)
+        {
+            return LoadXml(() => XmlReader.Create(new StringReader(text), SourceReaderSettings()), sourceFileName,
+                maximumMaterializationCharacters);
+        }
+
+        private static XDocument LoadXmlFile(string path)
+        {
+            return LoadXmlBytes(File.ReadAllBytes(path), Path.GetFileName(path));
+        }
+
+        private static XDocument LoadXmlBytes(byte[] bytes, string sourceFileName)
+        {
+            return LoadXml(() => XmlReader.Create(new MemoryStream(bytes, false), SourceReaderSettings()), sourceFileName,
+                MaximumSourceMaterializationCharacters);
+        }
+
+        // Conservative units count the strings the IR will retain, before constructing them. Each ordinal is
+        // charged ten digits, the Int32 maximum; node/attribute overhead is charged too. Direct text is separately
+        // bounded by MaximumSourceCharacters and is not duplicated down the tree.
+        private static XDocument LoadXml(Func<XmlReader> open, string sourceFileName, int maximumMaterializationCharacters)
+        {
+            var names = new List<SourceXmlName>();
+            var canonicalPathCharacters = new long[MaximumSourceDepth];
+            var rawPathCharacters = new long[MaximumSourceDepth];
+            long materializationCharacters = 0;
+            int keyPrefixCharacters = sourceFileName.Length + 1;
+            using (XmlReader reader = open())
+            {
+                while (reader.Read())
+                {
+                    if (reader.NodeType != XmlNodeType.Element) continue;
+                    if (reader.Depth + 1 > MaximumSourceDepth)
+                        throw new InvalidDataException("SOURCE_DEPTH_LIMIT: maximum element depth is " + MaximumSourceDepth);
+                    int depth = reader.Depth;
+                    long canonical = (depth == 0 ? 0 : canonicalPathCharacters[depth - 1]) + Canon(reader.LocalName).Length + 13;
+                    long raw = (depth == 0 ? 0 : rawPathCharacters[depth - 1]) + reader.LocalName.Length + 13;
+                    materializationCharacters += 32 + keyPrefixCharacters + 2 * canonical + raw;
+                    if (materializationCharacters > maximumMaterializationCharacters)
+                        throw new InvalidDataException("SOURCE_MATERIALIZATION_LIMIT: cumulative node paths exceed " + maximumMaterializationCharacters);
+                    canonicalPathCharacters[depth] = canonical;
+                    rawPathCharacters[depth] = raw;
+                    var name = new SourceXmlName { QualifiedName = reader.Name, Prefix = reader.Prefix };
+                    if (reader.MoveToFirstAttribute())
+                    {
+                        do
+                        {
+                            materializationCharacters += 16 + keyPrefixCharacters + canonical + Canon(reader.LocalName).Length + 13 + reader.Name.Length;
+                            if (materializationCharacters > maximumMaterializationCharacters)
+                                throw new InvalidDataException("SOURCE_MATERIALIZATION_LIMIT: cumulative attribute keys exceed " + maximumMaterializationCharacters);
+                            name.Attributes.Add(new SourceXmlName { QualifiedName = reader.Name, Prefix = reader.Prefix,
+                                IsNamespaceDeclaration = reader.Name == "xmlns" || reader.Prefix == "xmlns" });
+                        } while (reader.MoveToNextAttribute());
+                        reader.MoveToElement();
+                    }
+                    names.Add(name);
+                }
+            }
+            XDocument document;
+            using (XmlReader reader = open())
+                document = XDocument.Load(reader, LoadOptions.SetLineInfo | LoadOptions.PreserveWhitespace);
+            if (document.Root == null) return document;
+            var elements = document.Root.DescendantsAndSelf().ToList();
+            if (elements.Count != names.Count) throw new InvalidDataException("SOURCE_NAME_MISMATCH: element count changed");
+            for (int i = 0; i < elements.Count; i++)
+            {
+                elements[i].AddAnnotation(names[i]);
+                var attributes = elements[i].Attributes().ToList();
+                if (attributes.Count != names[i].Attributes.Count) throw new InvalidDataException("SOURCE_NAME_MISMATCH: attribute count changed");
+                for (int j = 0; j < attributes.Count; j++) attributes[j].AddAnnotation(names[i].Attributes[j]);
+            }
+            return document;
+        }
+
+        private static string PackPath(string packRoot, string path)
+        {
+            return ValidatePackPath(Path.GetRelativePath(Path.GetFullPath(packRoot), Path.GetFullPath(path)).Replace('\\', '/'));
+        }
+
+        private static string ValidatePackPath(string path)
+        {
+            if (string.IsNullOrEmpty(path)) throw new ArgumentException("Source configuration needs a pack-relative path.");
+            string result = path.Replace('\\', '/');
+            if (Path.IsPathRooted(result) || result.IndexOf(':') >= 0
+                || result.Split('/').Any(p => p == ".." || p == "." || p.Length == 0))
+                throw new ArgumentException("Source configuration path must stay relative to the pack: " + path);
+            return result;
+        }
+
+        private static ShimejiSourceDocument ReadSource(XDocument document, string fileName,
+            string imageSet = null, string packRelativePath = null)
         {
             if (document.Root == null) throw new InvalidDataException("Shimeji configuration has no root element: " + fileName);
+            string relativePath = ValidatePackPath(packRelativePath ?? fileName);
+            bool japanese = document.Root.Elements().Any(e => e.Annotation<SourceXmlName>().QualifiedName == "動作リスト"
+                || e.Annotation<SourceXmlName>().QualifiedName == "行動リスト");
+            Dictionary<string, string> schema = CreateSourceSchema(japanese);
             var elements = document.Root.DescendantsAndSelf().ToList();
             var paths = new Dictionary<XElement, string>();
             var counts = new Dictionary<XElement, Dictionary<string, int>>();
@@ -241,17 +434,201 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     int previous;
                     attributeCounts.TryGetValue(name, out previous);
                     attributeCounts[name] = previous + 1;
+                    SourceXmlName sourceAttribute = attribute.Annotation<SourceXmlName>();
                     attributes.Add(new ShimejiSourceAttribute(name, attribute.Name.LocalName, attribute.Name.NamespaceName,
-                        attribute.Value, key + "@" + name + "[" + (previous + 1).ToString(System.Globalization.CultureInfo.InvariantCulture) + "]"));
+                        attribute.Value, key + "@" + name + "[" + (previous + 1).ToString(System.Globalization.CultureInfo.InvariantCulture) + "]",
+                        ResolveSchemaKey(schema, sourceAttribute.QualifiedName), sourceAttribute.QualifiedName,
+                        sourceAttribute.Prefix, sourceAttribute.IsNamespaceDeclaration));
                 }
                 var children = new List<ShimejiSourceElement>();
                 foreach (XElement child in element.Elements()) children.Add(nodes[child]);
                 IXmlLineInfo line = element;
+                SourceXmlName sourceElement = element.Annotation<SourceXmlName>();
                 nodes[element] = new ShimejiSourceElement(CanonLocal(element), element.Name.LocalName,
                     element.Name.NamespaceName, paths[element], key, line.HasLineInfo() ? line.LineNumber : 0,
-                    line.HasLineInfo() ? line.LinePosition : 0, element.Value, attributes, children, sourcePaths[element]);
+                    line.HasLineInfo() ? line.LinePosition : 0, string.Concat(element.Nodes().OfType<XText>().Select(t => t.Value)),
+                    attributes, children, sourcePaths[element], ResolveSchemaKey(schema, sourceElement.QualifiedName),
+                    sourceElement.QualifiedName, sourceElement.Prefix);
             }
-            return new ShimejiSourceDocument(fileName, nodes[document.Root]);
+            return new ShimejiSourceDocument(fileName, nodes[document.Root],
+                japanese ? ShimejiSourceSchema.Japanese : ShimejiSourceSchema.Base, imageSet, relativePath);
+        }
+
+        // Vocabulary facts in ordinal key order. File layout and properties-line syntax are not retained.
+        private static readonly Dictionary<string, string> SourceBaseSchemaFacts =
+            new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            { "Action", "Action" },
+            { "ActionList", "ActionList" },
+            { "ActionReference", "ActionReference" },
+            { "Add", "Add" },
+            { "Affordance", "Affordance" },
+            { "Animate", "Animate" },
+            { "Animation", "Animation" },
+            { "Arc", "Arc" },
+            { "Artist", "Artist" },
+            { "Behaviour", "Behavior" },
+            { "BehaviourList", "BehaviorList" },
+            { "BehaviourReference", "BehaviorReference" },
+            { "BorderType", "BorderType" },
+            { "BornBehaviour", "BornBehavior" },
+            { "BornCount", "BornCount" },
+            { "BornInterval", "BornInterval" },
+            { "BornMascot", "BornMascot" },
+            { "BornTransient", "BornTransient" },
+            { "BornX", "BornX" },
+            { "BornY", "BornY" },
+            { "Breed", "Breed" },
+            { "Ceiling", "Ceiling" },
+            { "Characteristics", "Characteristics" },
+            { "ChaseMouse", "ChaseMouse" },
+            { "Class", "Class" },
+            { "Commissioner", "Commissioner" },
+            { "Condition", "Condition" },
+            { "Constant", "Constant" },
+            { "Draggable", "Draggable" },
+            { "Dragged", "Dragged" },
+            { "Duration", "Duration" },
+            { "Embedded", "Embedded" },
+            { "Fall", "Fall" },
+            { "Floor", "Floor" },
+            { "FootDX", "FootDX" },
+            { "FootX", "FootX" },
+            { "Frequency", "Frequency" },
+            { "Gravity", "Gravity" },
+            { "Hidden", "Hidden" },
+            { "Hotspot", "Hotspot" },
+            { "IeOffsetX", "IeOffsetX" },
+            { "IeOffsetY", "IeOffsetY" },
+            { "Image", "Image" },
+            { "ImageAnchor", "ImageAnchor" },
+            { "ImageRight", "ImageRight" },
+            { "Information", "Information" },
+            { "InitialVX", "InitialVX" },
+            { "InitialVY", "InitialVY" },
+            { "IsTurn", "IsTurn" },
+            { "Look", "Look" },
+            { "LookRight", "LookRight" },
+            { "Loop", "Loop" },
+            { "Move", "Move" },
+            { "Name", "Name" },
+            { "NextBehaviourList", "NextBehaviorList" },
+            { "OffsetType", "OffsetType" },
+            { "OffsetX", "OffsetX" },
+            { "OffsetY", "OffsetY" },
+            { "Origin", "Origin" },
+            { "Pose", "Pose" },
+            { "PreviewImage", "PreviewImage" },
+            { "ResistanceX", "RegistanceX" },
+            { "ResistanceY", "RegistanceY" },
+            { "Scan", "Scan" },
+            { "Scripter", "Scripter" },
+            { "Select", "Select" },
+            { "Sequence", "Sequence" },
+            { "Shape", "Shape" },
+            { "Size", "Size" },
+            { "Sound", "Sound" },
+            { "SplashImage", "SplashImage" },
+            { "SplashImages", "SplashImages" },
+            { "Stay", "Stay" },
+            { "Support", "Support" },
+            { "TargetBehaviour", "TargetBehavior" },
+            { "TargetLook", "TargetLook" },
+            { "TargetX", "TargetX" },
+            { "TargetY", "TargetY" },
+            { "Thrown", "Thrown" },
+            { "Toggleable", "Toggleable" },
+            { "TransformBehaviour", "TransformBehavior" },
+            { "TransformMascot", "TransformMascot" },
+            { "Type", "Type" },
+            { "URL", "URL" },
+            { "Value", "Value" },
+            { "Velocity", "Velocity" },
+            { "VelocityParam", "VelocityParam" },
+            { "VelocityX", "VelocityX" },
+            { "VelocityY", "VelocityY" },
+            { "Volume", "Volume" },
+            { "Wall", "Wall" },
+            { "X", "X" },
+            { "Y", "Y" },
+        };
+
+        private static readonly Dictionary<string, string> SourceJapaneseSchemaFacts =
+            new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            { "Action", "動作" },
+            { "ActionList", "動作リスト" },
+            { "ActionReference", "動作参照" },
+            { "Add", "追加" },
+            { "Animate", "固定" },
+            { "Animation", "アニメーション" },
+            { "Behaviour", "行動" },
+            { "BehaviourList", "行動リスト" },
+            { "BehaviourReference", "行動参照" },
+            { "BorderType", "枠" },
+            { "BornBehaviour", "生まれた時の行動" },
+            { "BornX", "生まれる場所X" },
+            { "BornY", "生まれる場所Y" },
+            { "Ceiling", "天井" },
+            { "ChaseMouse", "マウスの周りに集まる" },
+            { "Class", "クラス" },
+            { "Condition", "条件" },
+            { "Constant", "定数" },
+            { "Dragged", "ドラッグされる" },
+            { "Duration", "長さ" },
+            { "Embedded", "組み込み" },
+            { "Fall", "落下する" },
+            { "Floor", "地面" },
+            { "FootX", "footX" },
+            { "Frequency", "頻度" },
+            { "Gravity", "重力" },
+            { "H", "H" },
+            { "IeOffsetX", "IEの端X" },
+            { "IeOffsetY", "IEの端Y" },
+            { "Image", "画像" },
+            { "ImageAnchor", "基準座標" },
+            { "InitialVX", "初速X" },
+            { "InitialVY", "初速Y" },
+            { "LookRight", "右向き" },
+            { "Loop", "繰り返し" },
+            { "Move", "移動" },
+            { "Name", "名前" },
+            { "NextBehaviourList", "次の行動リスト" },
+            { "OffsetX", "端X" },
+            { "OffsetY", "端Y" },
+            { "Pose", "ポーズ" },
+            { "ResistanceX", "空気抵抗X" },
+            { "ResistanceY", "空気抵抗Y" },
+            { "Select", "選択" },
+            { "Sequence", "複合" },
+            { "Stay", "静止" },
+            { "TargetX", "目的地X" },
+            { "TargetY", "目的地Y" },
+            { "Thrown", "投げられる" },
+            { "Type", "種類" },
+            { "Value", "値" },
+            { "Velocity", "移動速度" },
+            { "VelocityParam", "速度" },
+            { "W", "W" },
+            { "Wall", "壁" },
+            { "X", "X" },
+            { "Y", "Y" },
+        };
+
+        private static Dictionary<string, string> CreateSourceSchema(bool japanese)
+        {
+            var values = new Dictionary<string, string>(SourceBaseSchemaFacts, StringComparer.Ordinal);
+            if (japanese)
+                foreach (KeyValuePair<string, string> pair in SourceJapaneseSchemaFacts) values[pair.Key] = pair.Value;
+            var byQualifiedName = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (KeyValuePair<string, string> pair in values) byQualifiedName.Add(pair.Value, pair.Key);
+            return byQualifiedName;
+        }
+
+        private static string ResolveSchemaKey(Dictionary<string, string> schema, string qualifiedName)
+        {
+            string key;
+            return schema.TryGetValue(qualifiedName, out key) ? key : null;
         }
 
         // Shimeji XML ships in three vocabularies: English (Pose/Image/...), British (Behaviour...), and the
@@ -272,7 +649,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             { "画像", "Image" }, { "基準座標", "ImageAnchor" }, { "移動速度", "Velocity" }, { "長さ", "Duration" },
             { "頻度", "Frequency" }, { "繰り返し", "Loop" }, { "追加", "Add" }, { "重力", "Gravity" }, { "値", "Value" },
             { "目的地X", "TargetX" }, { "目的地Y", "TargetY" }, { "速度", "VelocityParam" },
-            { "初速X", "InitialVX" }, { "初速Y", "InitialVY" }, { "空気抵抗X", "ResistanceX" }, { "空気抵抗Y", "ResistanceY" },
+            { "初速X", "InitialVX" }, { "初速Y", "InitialVY" }, { "空気抵抗X", "RegistanceX" }, { "空気抵抗Y", "RegistanceY" },
             { "右向き", "LookRight" }, { "IEの端X", "IeOffsetX" }, { "IEの端Y", "IeOffsetY" },
             { "生まれる場所X", "BornX" }, { "生まれる場所Y", "BornY" }, { "生まれた時の行動", "BornBehavior" },
             { "端X", "OffsetX" }, { "端Y", "OffsetY" },

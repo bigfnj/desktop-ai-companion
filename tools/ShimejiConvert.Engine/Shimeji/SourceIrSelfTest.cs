@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Xml;
 
 namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
 {
@@ -20,6 +21,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "behavior-wrappers-and-add", Run = (Action)BehaviorWrappers },
                 new { Name = "aliases-and-collisions", Run = (Action)Aliases },
                 new { Name = "source-path-raw-ordinals", Run = (Action)RawSourcePaths },
+                new { Name = "source-schema-resolution", Run = (Action)SchemaResolution },
+                new { Name = "qualified-names-and-depth", Run = (Action)QualifiedNamesAndDepth },
+                new { Name = "source-materialization-budget", Run = (Action)MaterializationBudget },
+                new { Name = "source-pack-context", Run = (Action)SourcePackContext },
                 new { Name = "immutable-snapshot", Run = (Action)ImmutableSnapshot },
                 new { Name = "entrypoints-and-locators", Run = (Action)EntryPoints },
             };
@@ -88,7 +93,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             ShimejiSourceElement custom = root.DescendantsAndSelf().Single(e => e.Attribute("Class") != null);
             Require(custom.Attribute("Class").RawValue == "org.fixture.CustomAction",
                 "full embedded class path shortened");
-            Require(custom.Attribute("FutureParameter").RawValue == "preserve-me",
+            Require(custom.RawAttribute("FutureParameter").RawValue == "preserve-me",
                 "unknown action parameter dropped");
             ShimejiSourceElement motion = Named(root, ShimejiSourceKind.Action, "Motion");
             Require(motion.Attributes.Select(a => a.SourceName).SequenceEqual(new[] { "Name", "Type", "BorderType" }),
@@ -107,15 +112,15 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             Require(animation.Children[1].Attribute("Image") == null
                 && animation.Children[2].Attribute("Image").RawValue == "", "missing image merged with explicit empty image");
             ShimejiSourceElement hotspot = animation.Children[3];
-            Require(hotspot.Kind == ShimejiSourceKind.Hotspot && hotspot.Attribute("Behavior").RawValue == "Touch"
-                && hotspot.Attribute("Unknown").RawValue == "hot", "hotspot or extension attributes dropped");
+            Require(hotspot.Kind == ShimejiSourceKind.Hotspot && hotspot.Attribute("Behaviour").RawValue == "Touch"
+                && hotspot.RawAttribute("Unknown").RawValue == "hot", "hotspot or extension attributes dropped");
             ShimejiSourceElement constant = root.Children.Single(e => e.Kind == ShimejiSourceKind.Constant);
             Require(constant.Attribute("Name").RawValue == "limit" && constant.Attribute("Value").RawValue == "17",
                 "root constants missing");
             ShimejiSourceElement extension = root.Children.Single(e => e.Name == "Extension");
             Require(extension.Kind == ShimejiSourceKind.Unknown && extension.NamespaceName == "urn:extension"
-                && extension.Attribute("flag").NamespaceName == "urn:extension"
-                && extension.Attribute("flag").RawValue == "opaque" && extension.Text == "beforeafter"
+                && extension.RawAttribute("ext:flag").NamespaceName == "urn:extension"
+                && extension.RawAttribute("ext:flag").RawValue == "opaque" && extension.Text == "beforeafter"
                 && extension.Children.Single().Name == "Part", "unknown namespace/text subtree lost");
         }
 
@@ -127,19 +132,19 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 + "EmptyAction='${}' Literal='01' Escaped='#{1 &lt; 2 &amp;&amp; true}'/></ActionList></Mascot>";
             ShimejiSourceElement action = Named(ShimejiParser.ParseActionsXml(xml).Source.Actions.Root,
                 ShimejiSourceKind.Action, "Envelopes");
-            Require(action.Attribute("ActionValue").Cache == ShimejiSourceCache.Action
-                && action.Attribute("ActionValue").Expression == "mascot.anchor.x + 1", "action script envelope lost");
-            Require(action.Attribute("FrameValue").Cache == ShimejiSourceCache.Frame
-                && action.Attribute("FrameValue").Expression == "mascot.lookRight", "frame script envelope lost");
+            Require(action.RawAttribute("ActionValue").Cache == ShimejiSourceCache.Action
+                && action.RawAttribute("ActionValue").Expression == "mascot.anchor.x + 1", "action script envelope lost");
+            Require(action.RawAttribute("FrameValue").Cache == ShimejiSourceCache.Frame
+                && action.RawAttribute("FrameValue").Expression == "mascot.lookRight", "frame script envelope lost");
             foreach (string name in new[] { "Padded", "Embedded", "Trailing", "MissingBrace", "Literal" })
-                Require(action.Attribute(name).Cache == ShimejiSourceCache.Literal
-                    && action.Attribute(name).Expression == null, "literal classified as a script: " + name);
-            Require(action.Attribute("Padded").RawValue == " ${1}" && action.Attribute("Trailing").RawValue == "${1} "
-                && action.Attribute("Literal").RawValue == "01", "literal whitespace or numeric spelling rewritten");
-            Require(action.Attribute("EmptyAction").Cache == ShimejiSourceCache.Action
-                && action.Attribute("EmptyAction").Expression == "", "empty script envelope changed");
-            Require(action.Attribute("Escaped").RawValue == "#{1 < 2 && true}"
-                && action.Attribute("Escaped").Expression == "1 < 2 && true", "XML decoding changed script content");
+                Require(action.RawAttribute(name).Cache == ShimejiSourceCache.Literal
+                    && action.RawAttribute(name).Expression == null, "literal classified as a script: " + name);
+            Require(action.RawAttribute("Padded").RawValue == " ${1}" && action.RawAttribute("Trailing").RawValue == "${1} "
+                && action.RawAttribute("Literal").RawValue == "01", "literal whitespace or numeric spelling rewritten");
+            Require(action.RawAttribute("EmptyAction").Cache == ShimejiSourceCache.Action
+                && action.RawAttribute("EmptyAction").Expression == "", "empty script envelope changed");
+            Require(action.RawAttribute("Escaped").RawValue == "#{1 < 2 && true}"
+                && action.RawAttribute("Escaped").Expression == "1 < 2 && true", "XML decoding changed script content");
         }
 
         private static void BehaviorWrappers()
@@ -154,10 +159,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             Require(idle.Attribute("Action").RawValue == "Composite" && idle.Attribute("Frequency").RawValue == "0"
                 && idle.Attribute("Hidden").RawValue == "true" && idle.Attribute("Toggleable").RawValue == "true",
                 "behavior routing/menu/toggle parameters lost");
-            Require(idle.Attribute("CustomParameter").RawValue == "${mascot.anchor.x}", "behavior parameter binding lost");
+            Require(idle.RawAttribute("CustomParameter").RawValue == "${mascot.anchor.x}", "behavior parameter binding lost");
             Require(idle.Children.Select(e => e.Kind).SequenceEqual(new[] {
-                ShimejiSourceKind.NextBehaviorList, ShimejiSourceKind.NextBehaviorList, ShimejiSourceKind.NextBehavior }),
-                "next-list forms or order changed");
+                ShimejiSourceKind.NextBehaviorList, ShimejiSourceKind.NextBehaviorList, ShimejiSourceKind.Unknown }),
+                "next-list order changed or unread NextBehavior treated as a list");
+            Require(idle.Children[2].SchemaKey == null && idle.Children[2].QualifiedName == "NextBehavior",
+                "unread NextBehavior declaration was recognised by source schema");
             Require(idle.Children[0].Attribute("Add").RawValue == "true" && idle.Children[1].Attribute("Add") == null
                 && idle.Children[2].Attribute("Add").RawValue == "false", "next-list Add presence/value merged");
             Require(idle.Children[1].Children.Single().Kind == ShimejiSourceKind.Condition
@@ -172,7 +179,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
 
         private static void Aliases()
         {
-            const string actions = "<Mascot><動作リスト><動作 名前='移動' Name='collision' 種類='静止' 枠='地面'>"
+            const string actions = "<Mascot><動作リスト><動作 Name='collision' 名前='移動' 種類='静止' 枠='地面'>"
                 + "<アニメーション><ポーズ 画像='/j.png' 基準座標='1,2' 長さ='3'/></アニメーション>"
                 + "</動作></動作リスト></Mascot>";
             const string behaviors = "<Mascot><BehaviourList><Behaviour Name='Move' Frequency='0'>"
@@ -185,17 +192,17 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             Require(action.SourceElementPath == "/Mascot[1]/動作リスト[1]/動作[1]",
                 "raw source path rewrote an ancestor or element name");
             ShimejiSourceAttribute[] names = action.Attributes.Where(a => a.Name == "Name").ToArray();
-            Require(names.Length == 2 && names[0].SourceName == "名前" && names[0].RawValue == "移動"
-                && names[1].SourceName == "Name" && names[1].RawValue == "collision"
+            Require(names.Length == 2 && names[0].SourceName == "Name" && names[0].RawValue == "collision" && names[0].SchemaKey == null
+                && names[1].SourceName == "名前" && names[1].RawValue == "移動" && names[1].SchemaKey == "Name"
                 && names[0].SourceKey != names[1].SourceKey, "canonical attribute collision overwritten");
-            Require(object.ReferenceEquals(action.Attribute("Name"), names[0]), "first canonical attribute query changed");
+            Require(object.ReferenceEquals(action.Attribute("Name"), names[1]), "source schema resolution used first alias");
             Require(action.Attribute("Type").RawValue == "静止" && action.Attribute("BorderType").RawValue == "地面",
                 "source enum value rewritten");
             ShimejiSourceElement british = source.Behaviors.Root.Children.Single().Children.Single();
-            Require(british.Kind == ShimejiSourceKind.Behavior && british.SourceName == "Behaviour"
-                && british.Children.Single().Kind == ShimejiSourceKind.NextBehavior
-                && british.Children.Single().Children.Single().Kind == ShimejiSourceKind.BehaviorReference,
-                "British element aliases incomplete");
+            Require(british.Kind == ShimejiSourceKind.Unknown && british.SourceName == "Behaviour" && british.SchemaKey == null
+                && british.Children.Single().Kind == ShimejiSourceKind.Unknown
+                && british.Children.Single().Children.Single().Kind == ShimejiSourceKind.Unknown,
+                "British element names that source ignores were recognised");
         }
 
         private static void RawSourcePaths()
@@ -212,6 +219,183 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 "/Mascot[1]/ActionList[1]/Action[3]" }), "canonical element path identity changed");
             Require(actions.All(e => e.SourceKey == "actions.xml#" + e.ElementPath),
                 "canonical source key identity changed");
+        }
+
+        private static void SchemaResolution()
+        {
+            const string english = "<Mascot><ActionList><Action Name='Fall' Type='Embedded' Class='org.fixture.Fall' "
+                + "TargetX='1' TargetY='2' VelocityParam='3' InitialVX='4' InitialVY='5' RegistanceX='0.2' RegistanceY='0.3' "
+                + "LookRight='true' IeOffsetX='6' IeOffsetY='7' BornX='8' BornY='9' BornBehavior='Sit' OffsetX='10' OffsetY='11' "
+                + "BornBehaviour='ignored' TransformBehaviour='ignored' TargetBehaviour='ignored'/></ActionList></Mascot>";
+            const string japanese = "<Mascot><動作リスト><動作 名前='Fall' 種類='組み込み' クラス='org.fixture.Fall' "
+                + "目的地X='1' 目的地Y='2' 速度='3' 初速X='4' 初速Y='5' 空気抵抗X='0.2' 空気抵抗Y='0.3' "
+                + "右向き='true' IEの端X='6' IEの端Y='7' 生まれる場所X='8' 生まれる場所Y='9' 生まれた時の行動='Sit' 端X='10' 端Y='11' "
+                + "ImageRight='/right.png' Sound='/sound.wav' Volume='0.4' Hidden='true' Toggleable='true' BornMascot='Child' "
+                + "TransformBehavior='Changed' TransformMascot='Next' Affordance='offer' TargetBehavior='Target'>"
+                + "<アニメーション><ポーズ 画像='/left.png' 基準座標='8,16' 移動速度='0,0' 長さ='1'/>"
+                + "<Hotspot Shape='Rectangle' Origin='0,0' Size='1,1' 行動='Touch'/></アニメーション></動作></動作リスト></Mascot>";
+            ShimejiSourceDocument en = ShimejiParser.ParseActionsXml(english).Source.Actions;
+            ShimejiSourceDocument ja = ShimejiParser.ParseActionsXml(japanese).Source.Actions;
+            Require(en.Schema == ShimejiSourceSchema.Base && ja.Schema == ShimejiSourceSchema.Japanese,
+                "document did not select one source schema");
+            ShimejiSourceElement enAction = en.Root.Children.Single().Children.Single();
+            ShimejiSourceElement jaAction = ja.Root.Children.Single().Children.Single();
+            foreach (string key in new[] { "TargetX", "TargetY", "VelocityParam", "InitialVX", "InitialVY", "ResistanceX",
+                "ResistanceY", "LookRight", "IeOffsetX", "IeOffsetY", "BornX", "BornY", "BornBehaviour", "OffsetX", "OffsetY" })
+                Require(enAction.Attribute(key) != null && jaAction.Attribute(key) != null
+                    && enAction.Attribute(key).RawValue == jaAction.Attribute(key).RawValue, "ja/base schema parameter differs: " + key);
+            Require(jaAction.Attribute("ResistanceX").Name == "RegistanceX" && jaAction.Attribute("ResistanceY").Name == "RegistanceY",
+                "Japanese resistance canonical name differs from the base read name");
+            foreach (string key in new[] { "ImageRight", "Sound", "Volume", "Hidden", "Toggleable", "BornMascot",
+                "TransformBehaviour", "TransformMascot", "Affordance", "TargetBehaviour" })
+                Require(jaAction.Attribute(key) != null && jaAction.Attribute(key).SchemaKey == key,
+                    "Japanese schema did not fall back to base key: " + key);
+            Require(jaAction.Children.Single().Children[1].Kind == ShimejiSourceKind.Hotspot
+                && jaAction.Children.Single().Children[1].Attribute("Behaviour").RawValue == "Touch",
+                "Japanese fallback element or translated hotspot parameter missing");
+            foreach (string rawName in new[] { "BornBehaviour", "TransformBehaviour", "TargetBehaviour" })
+                Require(enAction.RawAttribute(rawName).SchemaKey == null, "unread British parameter recognised: " + rawName);
+
+            ShimejiSourceDocument nested = ShimejiParser.ParseActionsXml(
+                "<Mascot><Wrapper><動作リスト><動作 名前='Ignored' 種類='静止'/></動作リスト></Wrapper></Mascot>").Source.Actions;
+            Require(nested.Schema == ShimejiSourceSchema.Base && nested.Root.Children[0].Children[0].Children[0].Kind == ShimejiSourceKind.Unknown,
+                "a nested Japanese list selected the document schema");
+            ShimejiSourceElement mixed = ShimejiParser.ParseActionsXml(
+                "<Mascot><ActionList><動作 名前='Ignored' 種類='静止'/></ActionList></Mascot>").Source.Actions.Root.Children[0].Children[0];
+            Require(mixed.Kind == ShimejiSourceKind.Unknown && mixed.SchemaKey == null && mixed.Attribute("Name") == null,
+                "English schema consumed Japanese names");
+        }
+
+        private static void QualifiedNamesAndDepth()
+        {
+            const string xml = "<Mascot xmlns='urn:default' xmlns:a='urn:shared' xmlns:b='urn:shared'>"
+                + "<a:動作リスト/><ActionList><a:Action Name='IgnoredA'/><b:Action Name='IgnoredB'/>"
+                + "<Action a:Name='ignored' Name='Read' Type='Stay'/></ActionList>"
+                + "<a:Extension>before<a:Part>inner</a:Part><![CDATA[after]]></a:Extension></Mascot>";
+            ShimejiSourceDocument source = ShimejiParser.ParseActionsXml(xml).Source.Actions;
+            Require(source.Schema == ShimejiSourceSchema.Base, "qualified Japanese list selected Japanese schema");
+            ShimejiSourceElement list = source.Root.Children[1];
+            Require(list.Children[0].Kind == ShimejiSourceKind.Unknown && list.Children[0].QualifiedName == "a:Action"
+                && list.Children[1].Kind == ShimejiSourceKind.Unknown && list.Children[1].QualifiedName == "b:Action"
+                && list.Children[0].Prefix == "a" && list.Children[1].Prefix == "b", "original qualified names or prefixes lost");
+            Require(list.Children[2].Kind == ShimejiSourceKind.Action && list.Children[2].NamespaceName == "urn:default"
+                && list.Children[2].Attribute("Name").RawValue == "Read"
+                && list.Children[2].RawAttribute("a:Name").SchemaKey == null, "qualified attribute consumed as an unqualified key");
+            Require(source.Root.RawAttribute("xmlns").IsNamespaceDeclaration
+                && source.Root.RawAttribute("xmlns:a").IsNamespaceDeclaration
+                && source.Root.RawAttribute("xmlns:a").Prefix == "xmlns", "namespace declarations not identified");
+            Require(source.Root.Children[2].Text == "beforeafter" && source.Root.Children[2].Children[0].Text == "inner",
+                "ancestor Text copied descendant text");
+            string atLimit = string.Concat(Enumerable.Repeat("<N>", ShimejiParser.MaximumSourceDepth))
+                + string.Concat(Enumerable.Repeat("</N>", ShimejiParser.MaximumSourceDepth));
+            Require(ShimejiParser.ParseActionsXml(atLimit).Source.Actions.Root.DescendantsAndSelf().Count()
+                == ShimejiParser.MaximumSourceDepth, "depth boundary refused a valid document");
+            bool refused = false;
+            try { ShimejiParser.ParseActionsXml("<N>" + atLimit + "</N>"); }
+            catch (InvalidDataException error) { refused = error.Message.StartsWith("SOURCE_DEPTH_LIMIT:", StringComparison.Ordinal); }
+            Require(refused, "source depth limit did not refuse its first invalid depth");
+            string atCharacterLimit = "<N>" + new string('x', ShimejiParser.MaximumSourceCharacters - 7) + "</N>";
+            Require(ShimejiParser.ParseActionsXml(atCharacterLimit).Source.Actions.Root.Text.Length
+                == ShimejiParser.MaximumSourceCharacters - 7, "character boundary refused a valid document");
+            bool charactersRefused = false;
+            try { ShimejiParser.ParseActionsXml("<N>" + new string('x', ShimejiParser.MaximumSourceCharacters - 6) + "</N>"); }
+            catch (XmlException) { charactersRefused = true; }
+            Require(charactersRefused, "source character limit did not refuse its first invalid length");
+        }
+
+        private static void MaterializationBudget()
+        {
+            // Small inputs exercise the production preflight with a tighter limit. The conservative units
+            // include ten ordinal digits per segment, three node keys and fixed record overhead.
+            Require(ShimejiParser.ParseActionsXml("<N/>", null, "actions.xml", 86).Source.Actions.Root.SourceElementPath == "/N[1]",
+                "materialization node boundary refused a valid document");
+            MaterializationRefused("<N/>", 85, "actions.xml", "node boundary");
+            MaterializationRefused("<N/>", 86, "long-actions-file.xml", "filename prefix");
+            string seven = "<N>" + string.Concat(Enumerable.Repeat("<L/>", 7)) + "</N>";
+            Require(ShimejiParser.ParseActionsXml(seven, null, "actions.xml", 1024).Source.Actions.Root.Children.Count == 7,
+                "materialization budget refused its fan-out control");
+            MaterializationRefused("<N>" + string.Concat(Enumerable.Repeat("<L/>", 8)) + "</N>", 1024, "actions.xml", "cumulative fan-out");
+            MaterializationRefused("<N><N>" + string.Concat(Enumerable.Repeat("<L/>", 6)) + "</N></N>",
+                1024, "actions.xml", "depth-times-count");
+            const string attributes = "<N a='1' b='2' c='3'/>";
+            Require(ShimejiParser.ParseActionsXml(attributes, null, "actions.xml", 257).Source.Actions.Root.Attributes.Count == 3,
+                "materialization attribute boundary refused a valid document");
+            MaterializationRefused(attributes, 256, "actions.xml", "attribute key boundary");
+        }
+
+        private static void MaterializationRefused(string xml, int limit, string fileName, string witness)
+        {
+            bool refused = false;
+            try { ShimejiParser.ParseActionsXml(xml, null, fileName, limit); }
+            catch (InvalidDataException error)
+            { refused = error.Message.StartsWith("SOURCE_MATERIALIZATION_LIMIT:", StringComparison.Ordinal); }
+            Require(refused, "materialization limit did not refuse " + witness);
+        }
+
+        private static void SourcePackContext()
+        {
+            ShimejiSourceConfig memory = ShimejiParser.ParseConfXml(ActionsXml, BehaviorsXml, "Set",
+                "img/Set/conf/one.xml", "img/Set/conf/two.xml").Source;
+            Require(memory.Actions.ImageSet == "Set" && memory.Actions.PackRelativePath == "img/Set/conf/one.xml"
+                && memory.Actions.FileName == "one.xml" && memory.Behaviors.PackRelativePath == "img/Set/conf/two.xml",
+                "in-memory source context missing");
+            bool escaped = false;
+            try { ShimejiParser.ParseActionsXml(ActionsXml, "Set", "../outside.xml"); }
+            catch (ArgumentException) { escaped = true; }
+            Require(escaped, "pack-relative source path accepted traversal");
+
+            string tempRoot = Path.GetFullPath(Path.GetTempPath());
+            string directory = Path.Combine(tempRoot, "source-ir-pack-" + Guid.NewGuid().ToString("N"));
+            Require(string.Equals(Path.GetDirectoryName(Path.GetFullPath(directory)), tempRoot.TrimEnd(Path.DirectorySeparatorChar),
+                StringComparison.OrdinalIgnoreCase), "pack fixture escaped task temp root");
+            string[] directories = { "conf", "conf/Set", "img", "img/Set", "img/Set/conf" };
+            var files = new List<string>();
+            Directory.CreateDirectory(directory);
+            foreach (string relative in directories) Directory.CreateDirectory(Path.Combine(directory, relative));
+            Action<string, string> write = (relative, text) => {
+                string path = Path.Combine(directory, relative);
+                File.WriteAllText(path, text, new UTF8Encoding(false));
+                files.Add(path);
+            };
+            try
+            {
+                const string actions = "<Mascot><ActionList><Action Name='Stand' Type='Stay'/></ActionList></Mascot>";
+                const string behaviors = "<Mascot><BehaviorList><Behavior Name='Stand' Frequency='1'/></BehaviorList></Mascot>";
+                write("conf/actions.xml", actions);
+                write("conf/動作.xml", actions);
+                write("conf/behaviors.xml", behaviors);
+                write("conf/行動.xml", behaviors);
+                write("conf/behaviours.xml", behaviors);
+                ShimejiSourceConfig root = ShimejiParser.ParseSourcePack(directory, "Set");
+                Require(root.Actions.PackRelativePath == "conf/動作.xml" && root.Behaviors.PackRelativePath == "conf/行動.xml",
+                    "source root-conf filename priority differs");
+                Require(ShimejiParser.ParseConfDirectory(Path.Combine(directory, "conf"), directory, "Set")
+                    .Source.Actions.PackRelativePath == "conf/actions.xml", "legacy filename priority changed");
+                write("conf/Set/actions.xml", actions);
+                write("conf/Set/動作.xml", actions);
+                write("conf/Set/behavior.xml", behaviors);
+                write("conf/Set/behaviours.xml", behaviors);
+                ShimejiSourceConfig perSet = ShimejiParser.ParseSourcePack(directory, "Set");
+                Require(perSet.Actions.PackRelativePath == "conf/Set/actions.xml"
+                    && perSet.Behaviors.PackRelativePath == "conf/Set/behavior.xml", "source per-set filename priority differs");
+                write("img/Set/conf/one.xml", actions);
+                write("img/Set/conf/two.xml", behaviors);
+                write("img/Set/conf/info.xml", "<Mascot><Constant Name='extra' Value='9'/></Mascot>");
+                ShimejiSourceConfig local = ShimejiParser.ParseSourcePack(directory, "Set");
+                Require(local.Actions.PackRelativePath == "img/Set/conf/one.xml"
+                    && local.Behaviors.PackRelativePath == "img/Set/conf/two.xml"
+                    && local.Information.PackRelativePath == "img/Set/conf/info.xml" && local.Information.ImageSet == "Set",
+                    "source image-local override or info context missing");
+                Require(local.Information.Root.Children.Single().Kind == ShimejiSourceKind.Constant
+                    && local.Information.Root.Line > 0, "source information document did not retain configuration/line info");
+            }
+            finally
+            {
+                foreach (string file in files) File.Delete(file);
+                foreach (string relative in directories.Reverse()) Directory.Delete(Path.Combine(directory, relative), false);
+                Directory.Delete(directory, false);
+            }
+            Require(!Directory.Exists(directory), "temporary source pack remains");
         }
 
         private static void ImmutableSnapshot()

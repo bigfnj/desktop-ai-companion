@@ -64,9 +64,11 @@
     <Compile Include="Emit\IconBuilder.cs" />
     <Compile Include="Emit\ResidueReport.cs" />
     <Compile Include="Emit\PetEmitter.cs" />
+    <Compile Include="Emit\TickPackEmitter.cs" />
     <Compile Include="Shimeji\ClassifierSelfTest.cs" />
     <Compile Include="Shimeji\CompositorSelfTest.cs" />
     <Compile Include="Shimeji\EmitterSelfTest.cs" />
+    <Compile Include="Shimeji\TickPackEmitterSelfTest.cs" />
     <Compile Include="Shimeji\BundledConfSelfTest.cs" />
     <Compile Include="Shimeji\BundleSelfTest.cs" />
     <Compile Include="Shimeji\VocabSelfTest.cs" />

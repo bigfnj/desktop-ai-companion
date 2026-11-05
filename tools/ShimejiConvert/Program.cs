@@ -33,8 +33,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                     if (args.Length != 2) return Usage();
                     return Classify(args[1]);
                 case "selftest":
-                    if (args.Length != 1) return Usage();
-                    return SelfTest();
+                    if (args.Length == 1) return SelfTest();
+                    if (args.Length == 2) return FocusedSelfTest(args[1]);
+                    return Usage();
                 case "composite":
                     if (args.Length != 4) return Usage();
                     return Composite(args[1], args[2], args[3]);
@@ -47,6 +48,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                 case "convertroot":
                     if (args.Length != 2 && args.Length != 3) return Usage();
                     return ConvertRoot(args[1], args.Length == 3 ? args[2] : null);
+                case "paritypack":
+                    if (args.Length != 3 && args.Length != 4) return Usage();
+                    return ParityPack(args[1], args[2], args.Length == 4 ? args[3] : null);
                 case "rebalance":
                     if (args.Length != 2) return Usage();
                     return Rebalance(args[1]);
@@ -88,7 +92,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             Console.Error.WriteLine("  classify <ConfDir> Parse a Shimeji conf dir (actions.xml + behaviors.xml) and print the");
             Console.Error.WriteLine("                     Group 1/2/3 fidelity census: what converts cleanly, what degrades,");
             Console.Error.WriteLine("                     and what is dropped as residue.");
-            Console.Error.WriteLine("  selftest           Run the engine self-tests (classifier + compositor; synthetic fixtures).");
+            Console.Error.WriteLine("  selftest [source-ir|tick-emitter]");
+            Console.Error.WriteLine("                     Run all engine self-tests or one focused synthetic group.");
+            Console.Error.WriteLine("  paritypack <PackDir> <OutDir> [MainMember]");
+            Console.Error.WriteLine("                     Test tooling: lower the supported literal tick subset and write each member");
+            Console.Error.WriteLine("                     plus its source parity map. Refuse unsupported constructs and existing outputs.");
+            Console.Error.WriteLine("                     A cross-member pack requires its main image set explicitly.");
             Console.Error.WriteLine("  composite <ConfDir> <ImgDir> <out.png>");
             Console.Error.WriteLine("                     DEV: composite a real skin's sprites into one magenta-KEYED sheet and");
             Console.Error.WriteLine("                     write it, for eyeballing. The keyed variant: edges come out jagged here");
@@ -374,6 +383,21 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             return 0;
         }
 
+        private static int FocusedSelfTest(string group)
+        {
+            string detail;
+            bool ok;
+            if (group == "source-ir") ok = SourceIrSelfTest.Run(out detail);
+            else if (group == "tick-emitter") ok = TickPackEmitterSelfTest.Run(out detail);
+            else if (group.StartsWith("tick-emitter/", StringComparison.Ordinal))
+                ok = TickPackEmitterSelfTest.Run(out detail, group.Substring("tick-emitter/".Length));
+            else return Usage();
+            Console.WriteLine(detail);
+            Console.WriteLine(EngineSelfTest.CountPrefix + "1");
+            Console.WriteLine(ok ? "SELFTEST PASS" : "SELFTEST FAIL");
+            return ok ? 0 : 1;
+        }
+
         private static int SelfTest()
         {
             string detail;
@@ -411,6 +435,21 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                 sheet.FrameIndexByKey.Count, sheet.PngBytes.Length, sheet.ProjectedXmlBytes));
             Console.WriteLine("wrote " + outPng);
             return 0;
+        }
+
+        private static int ParityPack(string packDirectory, string outDirectory, string mainMember)
+        {
+            try
+            {
+                IReadOnlyList<string> outputs = TickPackEmitter.ConvertPack(packDirectory, outDirectory, mainMember);
+                foreach (string output in outputs) Console.WriteLine("EMITTED " + output);
+                return 0;
+            }
+            catch (Exception exception)
+            {
+                Console.Error.WriteLine("Tick pack refused: " + exception.Message);
+                return 2;
+            }
         }
 
         // DEV/batch: detect the skin(s) under a root dir (as Pet Studio's import does) and convert the first,
