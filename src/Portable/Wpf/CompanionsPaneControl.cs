@@ -396,9 +396,61 @@ namespace DesktopAICompanion.Wpf
             // Null on a single-monitor machine, where the control would offer one choice and change nothing.
             FrameworkElement monitorRow = BuildMonitorRow(addId, row.DisplayName ?? row.Id);
             if (monitorRow != null) sp.Children.Add(monitorRow);
+            // Null for a classic companion: only a tick-clock one has switches, and only for what it uses.
+            FrameworkElement switches = BuildTickSwitchRows(addId, row.DisplayName ?? row.Id, GetStats(addId).TickRows);
+            if (switches != null) sp.Children.Add(switches);
 
             card.Child = sp;
             return card;
+        }
+
+        /// <summary>
+        /// A tick-clock companion's own switches (grimoire/06 section 2): one checkbox per thing its type uses
+        /// (<see cref="Shimeji.TickSettingRows.For"/>), stored per type id and read by its companions at each decision,
+        /// so a change reaches the ones on screen without a restart. Each box follows the STORE, not the click, as the
+        /// card's other controls do (F363). Null when there are no rows, so a classic companion's card is unchanged.
+        /// </summary>
+        internal FrameworkElement BuildTickSwitchRows(string addId, string displayName, IList<Shimeji.TickSettingRow> rows)
+        {
+            if (rows == null || rows.Count == 0 || string.IsNullOrEmpty(addId)) return null;
+            var panel = new StackPanel { Margin = new Thickness(0, 4, 0, 0) };
+            foreach (Shimeji.TickSettingRow row in rows)
+            {
+                Shimeji.TickSettingRow r = row;
+                var box = new CheckBox
+                {
+                    Content = new TextBlock { Text = r.Label, FontSize = 10, TextWrapping = TextWrapping.Wrap },
+                    IsChecked = Shimeji.TickTypeSwitches.IsOn(Shimeji.LocalDataSwitchStore.Instance, addId, r),
+                    ToolTip = r.Tooltip,
+                    Margin = new Thickness(0, 1, 0, 0),
+                    Tag = r.Key,
+                };
+                System.Windows.Automation.AutomationProperties.SetName(box, r.Label + " for " + displayName);
+                // True while a failed write puts the box back on the stored value, so that change is not taken for a
+                // new choice and written again.
+                bool syncing = false;
+                RoutedEventHandler changed = delegate
+                {
+                    if (syncing) return;
+                    bool wanted = box.IsChecked == true;
+                    try { if (Program.MyData != null) Program.MyData.SetCompanionSwitch(addId, r.Key, wanted); } catch { }
+                    bool stored = Shimeji.TickTypeSwitches.IsOn(Shimeji.LocalDataSwitchStore.Instance, addId, r);
+                    if (stored != wanted)
+                    {
+                        _status.Text = "Couldn't save " + r.Label + " for " + displayName + "; it is unchanged.";
+                        syncing = true;
+                        try { box.IsChecked = stored; }
+                        finally { syncing = false; }
+                        return;
+                    }
+                    _status.Text = displayName + ": " + r.Label + (wanted ? " on." : " off.") +
+                                   " Companions on screen follow it from their next move.";
+                };
+                box.Checked += changed;
+                box.Unchecked += changed;
+                panel.Children.Add(box);
+            }
+            return panel;
         }
 
         // The stats line ("N animations · M sounds") plus an inline per-pet sound on/off toggle for pets that
@@ -1029,7 +1081,8 @@ namespace DesktopAICompanion.Wpf
         // Modules pane (F337).
 
         // Animation + sound counts read from the pet's XML, cached per id (the sheep XMLs are large).
-        private sealed class CompanionStats { public int Animations; public int Sounds; }
+        // TickRows: a tick-clock companion's own switches (TickPaneRows), decided from the same XML; empty for a classic one.
+        private sealed class CompanionStats { public int Animations; public int Sounds; public List<Shimeji.TickSettingRow> TickRows = new List<Shimeji.TickSettingRow>(); }
         private static readonly Dictionary<string, CompanionStats> _statsCache = new Dictionary<string, CompanionStats>(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>
@@ -1081,6 +1134,7 @@ namespace DesktopAICompanion.Wpf
                 {
                     s.Animations = System.Text.RegularExpressions.Regex.Matches(xml, "<animation\\s").Count;
                     s.Sounds = System.Text.RegularExpressions.Regex.Matches(xml, "<sound\\b").Count;
+                    s.TickRows = Shimeji.TickPaneRows.ForPetXml(xml);
                 }
             }
             catch { }

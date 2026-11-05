@@ -68,6 +68,13 @@ run.
 - **`<toggles>`.** One entry per `Toggleable` source behaviour. The user can turn each on or off per type, as the source
   does: it keys every per-mascot setting by the mascot's current image set (`Main.java:1382-1389`, and
   `DisabledBehaviours.<imageSet>` from `:1420`), so a transformed companion takes the target type's settings.
+  - A toggle's `default` (on when absent) is what its behaviours are until the user chooses; the source has no such
+    attribute, and every Toggleable behaviour starts enabled there.
+  - In the app, the Pets pane shows a tick companion's switches on its card: one per header toggle, plus Breeding and
+    Transients when something the type runs breeds (BornTransient, as each reference passes it, decides which one
+    governs a birth), Transformation when it transforms, and "Let it move windows" (section 8) when it runs a window
+    action. A classic companion's card has none. A change applies to the companions on screen at their next decision.
+  - The source's per-instance overrides are not reproduced: a choice applies to every companion of the type.
 
 ---
 
@@ -409,7 +416,11 @@ divergence):
 - never act on a window the user is moving or resizing;
 - a moved or thrown window stays fully inside its monitor's work area and never crosses monitors;
 - every move is asynchronous, so a hung application cannot stall the companion;
-- each session keeps a record of the windows it moved, and "Put windows back" restores them.
+- each session keeps a record of the windows it moved, and "Put windows back" restores them. The tray item appears
+  only while that record holds a window, and says how many went back.
+
+The toggle is "Let it move windows" on the companion's card in the Pets pane, offered only to a type that runs a window
+action.
 
 **When the toggle is OFF,** the action's animation plays and no window moves (`policy:window-off-plays`). The source ends
 the action instead. Which window is "active" follows the source's environment rule; it is to be confirmed by the parity

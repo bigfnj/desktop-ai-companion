@@ -139,6 +139,11 @@ namespace DesktopAICompanion
                 Run("Tick windows walk: the first eligible window in z-order; a maximised one ends the walk", TestTickWindowsWalkOrder);
                 Run("Tick windows safety: each refused kind of window is refused", TestTickWindowsSafety);
                 Run("Tick windows safety clamp: a moved or thrown window stays inside its work area", TestTickWindowsClamp);
+                Run("Tick settings store: a per-type choice survives a restart, a merge and a save that could not read the file", TestTickSettingsPersist);
+                Run("Tick settings defaults: lifecycle on, window actions off, a toggle its header default, anything else off", TestTickSettingsDefaults);
+                Run("Tick settings toggles: a turned-off toggle keeps its behaviour from being chosen or entered", TestTickSettingsToggleOff);
+                Run("Tick settings transform: a transformed companion reads its new type's switches", TestTickSettingsTransform);
+                Run("Tick settings rows: the pane offers only what the type uses", TestTickSettingsRows);
             }
             finally
             {

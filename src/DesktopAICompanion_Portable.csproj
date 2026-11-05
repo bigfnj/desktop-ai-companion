@@ -176,6 +176,8 @@
     <Compile Include="dotNet\Shimeji\ParityRun.cs" />
     <Compile Include="dotNet\Shimeji\TickHost.cs" />
     <Compile Include="dotNet\Shimeji\TickStaging.cs" />
+    <Compile Include="dotNet\Shimeji\TickTypeSettings.cs" />
+    <Compile Include="dotNet\Shimeji\TickSettingsHost.cs" />
     <Compile Include="dotNet\Shimeji\TickFeatures.cs" />
     <Compile Include="dotNet\Shimeji\ShimejiWindowSelfTest.cs" />
     <Compile Include="dotNet\AudioOutputSelfTest.cs" />
@@ -200,6 +202,7 @@
     <Compile Include="dotNet\CompanionThumbnails.cs" />
     <Compile Include="dotNet\RuntimeHardeningSelfTest.cs" />
     <Compile Include="dotNet\WpfOptionsSelfTest.cs" />
+    <Compile Include="dotNet\WpfOptionsSelfTest.TickSwitches.cs" />
     <Compile Include="dotNet\Plugins\ModuleHost.cs" />
     <Compile Include="dotNet\Plugins\ModuleHostRequirement.cs" />
     <Compile Include="dotNet\Plugins\ModuleUpdateScan.cs" />

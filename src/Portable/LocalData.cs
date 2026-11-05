@@ -184,6 +184,49 @@ namespace DesktopAICompanion
                 });
         }
 
+        /// <summary>
+        /// The user's choice for one per-type switch of a tick companion (Breeding, Transients, Transformation,
+        /// WindowActions, or "toggle:&lt;id&gt;" for a header toggle), or null while the type follows the switch's
+        /// default. Read on every decision the companion makes, so a change applies to live companions without a
+        /// restart (Shimeji.TickTypeSwitches decides the default).
+        /// </summary>
+        public bool? GetCompanionSwitch(string id, string key)
+        {
+            if (string.IsNullOrEmpty(id) || string.IsNullOrEmpty(key)) return null;
+            lock (_sync) return FindCompanionSwitchNoLock(id, key);
+        }
+
+        private bool? FindCompanionSwitchNoLock(string id, string key)
+        {
+            if (_settings.CompanionSwitches == null) return null;
+            foreach (CompanionSwitchEntry e in _settings.CompanionSwitches)
+                if (e != null && string.Equals(e.Key, key, StringComparison.Ordinal) &&
+                    string.Equals(e.Id, id, StringComparison.OrdinalIgnoreCase))
+                    return e.On;
+            return null;
+        }
+
+        /// <summary>Record the user's choice for one switch of a companion type; null forgets it, so the default
+        /// applies again. False when the id or key is unusable or the durable write failed.</summary>
+        public bool SetCompanionSwitch(string id, string key, bool? on)
+        {
+            string typeId = (id ?? "").Trim();
+            if (typeId.Length == 0 || typeId.Length > AppSettingsDocument.MaximumPetIdLength) return false;
+            if (!AppSettingsDocument.IsAcceptableSwitchKey(key)) return false;
+            return Update(
+                delegate { return FindCompanionSwitchNoLock(typeId, key) != on; },
+                delegate
+                {
+                    if (_settings.CompanionSwitches == null) _settings.CompanionSwitches = new List<CompanionSwitchEntry>();
+                    _settings.CompanionSwitches.RemoveAll(delegate (CompanionSwitchEntry e)
+                    {
+                        return e == null || (string.Equals(e.Key, key, StringComparison.Ordinal) &&
+                                             string.Equals(e.Id, typeId, StringComparison.OrdinalIgnoreCase));
+                    });
+                    if (on.HasValue) _settings.CompanionSwitches.Add(new CompanionSwitchEntry { Id = typeId, Key = key, On = on.Value });
+                });
+        }
+
         // GetPetSizeLevel(string) and the GetPetSizeLevelNoLock behind it were here. The public wrapper went on
         // 2026-09-27 with a note that the NoLock form "is used by the size-override paths in this file"; it was
         // not. Those paths need the whole entry (Percent first, then the legacy Level) and read it through

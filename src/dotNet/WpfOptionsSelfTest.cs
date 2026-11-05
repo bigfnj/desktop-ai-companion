@@ -16,7 +16,7 @@ namespace DesktopAICompanion
     /// write-only: a blank secret box is omitted on collect). Runs on the process's STA main thread (WPF
     /// control construction requires STA); creates a WPF Application if none exists so theme resources resolve.
     /// </summary>
-    internal static class WpfOptionsSelfTest
+    internal static partial class WpfOptionsSelfTest
     {
         public static bool Run()
         {
@@ -1699,6 +1699,8 @@ namespace DesktopAICompanion
                 ok &= AbiSignInGrant(sb);
                 // ---- lane fix/modules-signin-right ----
                 ok &= ModulesUninstallColumn(sb);
+                // ---- lane feature/shimeji-host-settings ----
+                ok &= TickSwitchRows(sb);
             }
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message); }
 

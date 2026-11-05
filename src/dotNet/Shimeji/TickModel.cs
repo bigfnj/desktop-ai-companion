@@ -125,10 +125,21 @@ namespace DesktopAICompanion.Shimeji
         public int Frequency;
         public bool Hidden;
         public string Toggle;
+        /// <summary>The header toggle's `default` (on when the document does not say): what the behaviour is while the
+        /// user has not chosen. Compiled from the header, so a lookup made with another type's settings still has it.</summary>
+        public bool ToggleDefault = true;
         public bool Add = true;
         public Dictionary<string, TickParamDef> Binds = new Dictionary<string, TickParamDef>(StringComparer.Ordinal);
         public List<TickEdgeDef> Next = new List<TickEdgeDef>();
         public string RefKey { get; set; }   // parity map: the Behavior or BehaviorReference element
+    }
+
+    /// <summary>A header toggle (`&lt;toggles&gt;&lt;toggle id label default&gt;`): a behaviour switch the user sees.</summary>
+    internal sealed class TickToggleDef
+    {
+        public string Id;
+        public string Label;
+        public bool Default = true;
     }
 
     /// <summary>
@@ -146,6 +157,10 @@ namespace DesktopAICompanion.Shimeji
         public readonly Dictionary<string, TickBehaviourDef> RootByName = new Dictionary<string, TickBehaviourDef>(StringComparer.Ordinal);
         public readonly Dictionary<int, TickBehaviourDef> BehavioursById = new Dictionary<int, TickBehaviourDef>();
         public readonly Dictionary<string, ScriptValue> Constants = new Dictionary<string, ScriptValue>(StringComparer.Ordinal);
+
+        /// <summary>The header's toggles in document order (grimoire/06 section 2): one per behaviour the user may turn
+        /// off for this type.</summary>
+        public readonly List<TickToggleDef> Toggles = new List<TickToggleDef>();
 
         /// <summary>The size this type is drawn at (1 = the sheet's own pixels); the source's global Scaling setting,
         /// which the host keeps per type.</summary>
@@ -223,6 +238,10 @@ namespace DesktopAICompanion.Shimeji
                 foreach (XmlData.ConstantNode c in root.Header.Constants.Constant)
                     if (c != null && c.Name != null && !type.Constants.ContainsKey(c.Name))
                         type.Constants[c.Name] = ParseLiteral(c.Value);
+            if (root.Header != null && root.Header.Toggles != null && root.Header.Toggles.Toggle != null)
+                foreach (XmlData.ToggleNode t in root.Header.Toggles.Toggle)
+                    if (t != null && !string.IsNullOrEmpty(t.Id))
+                        type.Toggles.Add(new TickToggleDef { Id = t.Id, Label = string.IsNullOrEmpty(t.Label) ? t.Id : t.Label, Default = t.Default });
 
             XmlData.AnimationNode routeNode = null;
             foreach (XmlData.AnimationNode a in root.Animations.Animation)
@@ -237,6 +256,9 @@ namespace DesktopAICompanion.Shimeji
                 else if (a.Behaviour != null)
                 {
                     TickBehaviourDef b = CompileBehaviour(a);
+                    if (!string.IsNullOrEmpty(b.Toggle))
+                        foreach (TickToggleDef t in type.Toggles)
+                            if (t.Id == b.Toggle) { b.ToggleDefault = t.Default; break; }
                     type.BehavioursById[b.NodeId] = b;
                 }
                 else if (a.Route != null) routeNode = a;

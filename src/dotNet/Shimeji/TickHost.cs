@@ -98,17 +98,27 @@ namespace DesktopAICompanion.Shimeji
     }
 
     /// <summary>
-    /// The host's per-type settings for tick companions. Sounds and Multiscreen are the app's existing settings; the
-    /// lifecycle switches default on. Window actions are opt-in per type and off (the owner's decision) until the Pets
-    /// pane offers them: WindowActions is that opt-in, and Throwing, the source's own switch, keeps the source's default
-    /// of on (Main.java:662), so with WindowActions off a window action plays its animation and moves nothing
-    /// (policy:window-off-plays) instead of ending at once.
+    /// The host's per-type settings for tick companions. Sounds and Multiscreen are the app's existing settings.
+    /// Breeding, Transients, Transformation, WindowActions and the type's header toggles are the user's choices in the
+    /// Pets pane, stored per type id and read afresh at each decision (<see cref="TickTypeSwitches"/>): the lifecycle
+    /// switches default on, WindowActions off (the owner's decision), a toggle its own default. Throwing, the source's
+    /// own switch, keeps the source's default of on (Main.java:662), so with WindowActions off a window action plays its
+    /// animation and moves nothing (policy:window-off-plays) instead of ending at once.
     /// </summary>
     internal sealed class HostTickSettings : ITickSettings
     {
         private readonly Func<string, string> _typeIdOf;
+        private readonly ITickSwitchStore _switches;
 
-        public HostTickSettings(Func<string, string> typeIdOf) { _typeIdOf = typeIdOf; }
+        /// <param name="typeIdOf">A type's name to the id its settings are stored under.</param>
+        /// <param name="switches">Where the user's choices are kept; the app's settings when null.</param>
+        public HostTickSettings(Func<string, string> typeIdOf, ITickSwitchStore switches = null)
+        {
+            _typeIdOf = typeIdOf;
+            _switches = switches ?? LocalDataSwitchStore.Instance;
+        }
+
+        private string TypeIdOf(string imageSet) { return imageSet == null ? null : _typeIdOf(imageSet); }
 
         public bool Get(string setting, string imageSet)
         {
@@ -119,17 +129,16 @@ namespace DesktopAICompanion.Shimeji
                 case "Sounds":
                     return data != null && data.GetPetSoundsEnabled() && (imageSet == null || data.IsPetSoundEnabled(_typeIdOf(imageSet)));
                 case "Throwing": return true;
-                case "Breeding":
-                case "Transients":
-                case "Transformation": return true;
-                case TickWindowFamily.Setting: return false;
-                // A setting this list does not name is OFF: a misspelt or new switch must not default a behaviour on
-                // (window actions would have, before WindowActions had its own case).
-                default: return false;
+                // The user's per-type switches. Any setting neither list names is OFF: a misspelt or new switch must
+                // not default a behaviour on (window actions would have, before WindowActions had its own case).
+                default: return TickTypeSwitches.Get(_switches, TypeIdOf(imageSet), setting);
             }
         }
 
-        public bool IsBehaviourEnabled(TickBehaviourDef behaviour, string imageSet) { return true; }
+        public bool IsBehaviourEnabled(TickBehaviourDef behaviour, string imageSet)
+        {
+            return TickTypeSwitches.IsBehaviourEnabled(_switches, TypeIdOf(imageSet), behaviour);
+        }
     }
 
     /// <summary>A tick companion type as the host draws it: the compiled type and the classic sprite store that holds
@@ -180,6 +189,7 @@ namespace DesktopAICompanion.Shimeji
             _closeForm = closeForm;
             _log = log ?? delegate { };
             _environment = new Win32TickEnvironment();
+            WindowRecord = _environment.Interactive;
             _world = new TickWorld(_environment, new HostTickRandom(), new HostTickSettings(TypeIdOf), this);
             _world.Start();
             _timer = new Timer { Interval = TickMilliseconds };
@@ -370,8 +380,15 @@ namespace DesktopAICompanion.Shimeji
             _log("tick companion " + mascot.Sid + " (" + mascot.Type.Name + ") minimised the interactive window");
         }
 
-        /// <summary>"Put windows back" (the tray item's action): see <see cref="Win32TickEnvironment.PutWindowsBack"/>.</summary>
-        public int PutWindowsBack() { return _environment.PutWindowsBack(); }
+        /// <summary>The session's record of windows acted on, which "Put windows back" goes through: the real desktop's
+        /// interactive window, or a self-test's fake.</summary>
+        public ITickWindowRecord WindowRecord { get; set; }
+
+        /// <summary>How many windows companions moved or minimised this session and not yet put back.</summary>
+        public int WindowsToPutBack { get { return WindowRecord != null ? WindowRecord.RecordedCount : 0; } }
+
+        /// <summary>"Put windows back" (the tray item's action): see <see cref="Win32InteractiveWindow.PutWindowsBack"/>.</summary>
+        public int PutWindowsBack() { return WindowRecord != null ? WindowRecord.PutWindowsBack() : 0; }
 
         public void Dispose()
         {
@@ -392,7 +409,7 @@ namespace DesktopAICompanion.Shimeji
     /// GetWindowRect with its invisible resize borders; a move or minimise acts on the window found at the start of the
     /// step, checked again, rather than walking the windows a second time; this app's own windows are passed over.
     /// </summary>
-    internal sealed class Win32InteractiveWindow
+    internal sealed class Win32InteractiveWindow : ITickWindowRecord
     {
         private const uint SWP_NOSIZE = 0x0001, SWP_NOZORDER = 0x0004, SWP_NOACTIVATE = 0x0010, SWP_ASYNCWINDOWPOS = 0x4000;
         private const uint MoveFlags = SWP_ASYNCWINDOWPOS | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE;

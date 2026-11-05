@@ -7434,11 +7434,25 @@ joined once their families merged; packs joins when installs resolve members. Wi
 still exercised: the validator takes the class answer as a predicate, and the self-test supplies one that says a class
 does not run, beside a witness that the same companion validates on the build's own answer.
 
-**Windows run with the switch off.** 'windows' is supported, and every window class constructs, but the per-type
-window switch stays OFF until the Pets pane offers it, so a converted companion's window actions play their animation
-and move nothing (`policy:window-off-plays`). The app's tick settings name every switch the engine reads; any other
-setting answers OFF, because the earlier default of on would have turned window actions on had their switch not been
-listed. An engine fault that is not the source's CantBeAlive (a null where the source would have died too) ends that one
+**Windows run with the switch off until the user turns it on.** 'windows' is supported, and every window class
+constructs, but the per-type window switch defaults OFF (the owner's decision), so a converted companion's window
+actions play their animation and move nothing (`policy:window-off-plays`) until the user ticks "Let it move windows" on
+that companion's card. The app's tick settings name every switch the engine reads; any other setting answers OFF,
+because the earlier default of on would have turned window actions on had their switch not been listed.
+
+**Per-type switches (lane feature/shimeji-host-settings).** Breeding, Transients, Transformation, WindowActions and one
+switch per header toggle are stored in the settings document's `companionSwitches`, one entry per choice the user made,
+keyed by companion type id as the source keys them by image set; an absent entry is the default (the lifecycle three
+on, window actions off, a toggle its header `default`), which the runtime knows and the document does not.
+`HostTickSettings` reads them through `TickTypeSwitches` at every decision, with no cache, so a change in the Pets pane
+reaches live companions at their next move, and a transformed companion reads its new type's choices because every read
+names the companion's current type. The pane offers a row only for what the compiled type runs: a breed only when
+something runs it, with BornTransient as each reference passes it deciding Breeding or Transients (a script offers
+both), Transform, a window-family class (asked of the family, not listed), and the header toggles; a classic companion's
+card has none. Throwing, the source's own window switch, stays on and is not a user row. The source's per-instance
+overrides are not reproduced. "Put windows back" is a tray item shown only while the session's record holds a window a
+companion moved or minimised; it goes through `ITickWindowRecord`, which the real interactive window implements and the
+window self-test replaces with a fake, so no self-test touches a real window. An engine fault that is not the source's CantBeAlive (a null where the source would have died too) ends that one
 companion with a report, and the step goes on; before, it escaped the step and, in the app, the tick timer.
 
 **Accepting tick companions made the validator's holes reachable, so they were closed first.** The converter lane's
