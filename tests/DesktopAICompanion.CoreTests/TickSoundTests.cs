@@ -25,7 +25,8 @@ namespace DesktopAICompanion
         }
 
         /// <summary>Sing: "la" for 3 ticks, then a silent pose for 2. Soft: "la" at -6 dB. Low: "lo". Lab: "lab", whose name
-        /// starts with "la". Hush: a Mute of "la", then Rest. HushAll: a Mute with no Sound, then Rest.</summary>
+        /// starts with "la", declared FIRST so the declaration order is not the sorted order. Hush: a Mute of "la", then
+        /// Rest. HushAll: a Mute with no Sound, then Rest.</summary>
         private static TickType TSoundType(string name)
         {
             return TickType.Compile(name, TickDoc(
@@ -36,10 +37,10 @@ namespace DesktopAICompanion
                 TBeh(13, "Lab", "Lab", 0, null),
                 TBeh(14, "Hush", "Hush", 0, null),
                 TBeh(15, "HushAll", "HushAll", 0, null),
+                TAct(39, "Lab", "Stay", null, new[] { TParam("Duration", "50") }, TSound(0, 5, "lab")),
                 TAct(30, "Sing", "Stay", null, new[] { TParam("Duration", "50") }, TSound(0, 3, "la"), TPose(1, 2)),
                 TAct(31, "Soft", "Stay", null, new[] { TParam("Duration", "50") }, TSound(0, 5, "la", -6)),
                 TAct(32, "Low", "Stay", null, new[] { TParam("Duration", "50") }, TSound(0, 5, "lo")),
-                TAct(33, "Lab", "Stay", null, new[] { TParam("Duration", "50") }, TSound(0, 5, "lab")),
                 TAct(34, "Rest", "Stay", null, new[] { TParam("Duration", "50") }, TPose(2, 1)),
                 TSequence(35, "Hush", "MuteLa", "Rest"),
                 TInstant(36, "MuteLa", "Mute", TParam("Sound", "la")),
@@ -149,8 +150,8 @@ namespace DesktopAICompanion
             TickWorld w = TSoundWorld(log, clips, null, alpha, beta);
             w.CreateAtStart("m1", alpha, new TickPoint(640, 680), false, "Hush");   // the Mute applies at initialisation
             AssertEqual("stop Alpha/la@0|stop Alpha/lab@0", string.Join("|", clips.Calls),
-                "A named Mute did not stop exactly the initiator's RUNNING clips whose names start with the Sound, at any volume: "
-                + string.Join("|", clips.Calls));
+                "A named Mute did not stop exactly the initiator's RUNNING clips whose names start with the Sound, at any volume, "
+                + "in sorted order (lab is declared first): " + string.Join("|", clips.Calls));
             AssertTrue(clips.Running.Contains("Beta/la@0") && clips.Running.Contains("Alpha/lo@0"),
                 "A named Mute stopped another type's clip of that name, or a clip whose name does not start with it.");
             AssertEqual("m1 mute la|m1 sound la stop|m1 sound lab stop",

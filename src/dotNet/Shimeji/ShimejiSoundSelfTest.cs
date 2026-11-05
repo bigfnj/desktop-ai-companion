@@ -128,6 +128,14 @@ namespace DesktopAICompanion.Shimeji
                 check(a.Disposing && audio.Stops.Count == stops && audio.Playing.Contains(owner),
                     "sound: a companion leaving does not stop the clip it was playing");
 
+                // "la" at 0 dB is another clip than "la" at -6 dB, which is still playing: it starts, at its own gain.
+                plays = audio.Plays.Count;
+                host.Spawn("Alpha", new TickPoint(x + 300, floor), false, "Loud");
+                host.Step();
+                string loud = HostTickClips.OwnerOf(new TickClip("Alpha", "la", 0f));
+                check(audio.Plays.Count == plays + 1 && audio.Plays[plays] == loud + " 1.000" && audio.Playing.Contains(owner),
+                    "sound: the same sound at another volume is its own clip (" + string.Join("; ", audio.Plays) + ")");
+
                 var trace = new StringWriter();
                 var writer = new ParityTraceWriter(trace, new Dictionary<string, ParityMap>()) { Tick = 7 };
                 writer.Sound(a, "la", "start");
@@ -221,7 +229,7 @@ namespace DesktopAICompanion.Shimeji
             }
         }
 
-        // ---- the synthetic type: Sing (one pose naming "la" at -6 dB), Hush (a Mute of "la", then Rest)
+        // ---- the synthetic type: Sing (one pose naming "la" at -6 dB), Loud ("la" at 0 dB), Hush (a Mute of "la", then Rest)
 
         private static XmlData.RootNode Document()
         {
@@ -250,7 +258,11 @@ namespace DesktopAICompanion.Shimeji
             };
             XmlData.AnimationNode route = node(1, "route");
             route.Route = new XmlData.RouteNode();
-            route.Sequence.Next = new[] { new XmlData.NextNode { Value = 10, Probability = 1 }, new XmlData.NextNode { Value = 11, Probability = 0 } };
+            route.Sequence.Next = new[]
+            {
+                new XmlData.NextNode { Value = 10, Probability = 1 }, new XmlData.NextNode { Value = 11, Probability = 0 },
+                new XmlData.NextNode { Value = 12, Probability = 0 },
+            };
             XmlData.AnimationNode hush = node(22, "Hush");
             hush.Act = new XmlData.ActNode
             {
@@ -275,8 +287,9 @@ namespace DesktopAICompanion.Shimeji
                 {
                     Animation = new[]
                     {
-                        route, beh(10, "Sing", 1), beh(11, "Hush", 0),
+                        route, beh(10, "Sing", 1), beh(11, "Hush", 0), beh(12, "Loud", 0),
                         stay(20, "Sing", new XmlData.PoseNode { Frame = 0, Ticks = 1, Sound = "la", Volume = -6, VolumeSpecified = true }),
+                        stay(24, "Loud", new XmlData.PoseNode { Frame = 0, Ticks = 1, Sound = "la" }),
                         stay(21, "Rest", new XmlData.PoseNode { Frame = 1, Ticks = 1 }),
                         hush, mute,
                     },
