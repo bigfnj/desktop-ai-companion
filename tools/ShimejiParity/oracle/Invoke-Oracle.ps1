@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('Preflight', 'Fetch', 'Build', 'Compare', 'Probe', 'Check', 'Draft', 'Bridge', 'Failures', 'Shared', 'SelfTest', 'Mutate', 'V1')]
+    [ValidateSet('Preflight', 'Fetch', 'Build', 'Compare', 'Probe', 'Check', 'Draft', 'Bridge', 'Failures', 'Shared', 'SelfTest', 'Mutate', 'V1', 'V1Failures')]
     [string]$Action,
     # V1 only: a comma-separated list of scenario id substrings to run; all S-*.json under SharedRoot otherwise.
     [string]$Only,

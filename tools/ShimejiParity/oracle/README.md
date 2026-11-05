@@ -130,7 +130,16 @@ Each scenario gets one status: `complete`, or a distinct failure (`truncated`, `
 trace-check class). A requested scenario without a result fails the action (`V1_SCENARIO_SKIPPED`). The first
 complete scenario is run again with observation off, and its final tick, draw and event totals must equal the traced
 run's (CONTRACT section 5). Draws from a script `Math.random` are refused (`V1_RNG_SCRIPT_SITE_UNATTRIBUTED`) until
-the contract's script site names are attributed. Traces and launch records stay in the private evidence folder.
+the contract's script site names are attributed. A runner refusal (for example an embedded class whose scan, interact
+or sound events have no seam yet) ends the run `aborted` and names itself; an exception from the source itself ends it
+`error`. Traces and launch records stay in the private evidence folder.
+
+`V1Failures` reuses the latest `V1` evidence on private copies: a header without its build witness, a trace without
+its footer, a tampered copy of the private patch, a draft record missing a field and a run missing a scenario must
+each fail by name, and a real trace judged against itself relabelled as a host trace must be `exact` until it is
+changed, then fail as `entity-mismatch` (companions out of manager order), `state-mismatch` on `pose` (another image,
+same position) and on `actionAge`, `extra-event`, `missing-event`, `event-mismatch` (another draw site) and
+`rng-draw-count` (an extra draw).
 
 ## Failure witnesses
 

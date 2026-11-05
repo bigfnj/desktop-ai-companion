@@ -1152,6 +1152,11 @@ def v1_run(args, compare, scenario_path, root, classpath, runner, build, observe
             stream.write(json.dumps({"type": "footer", "ticks": doc["ticks"], "status": "timeout",
                                      "draws": 0, "states": 0, "events": 0}) + "\n")
     status, detail = v1_trace_status(compare, trace)
+    if status in ("aborted", "error"):
+        # The runner's own refusal names itself; otherwise the first exception line is the source's.
+        stderr = [line.strip() for line in record["stderr"].splitlines() if line.strip()]
+        refusal = [line for line in stderr if line.startswith("V1_REFUSAL ")]
+        detail = refusal[-1] if refusal else (stderr[0] if stderr else detail)
     return {"scenario": doc["id"], "status": status, "detail": detail[:400], "trace": str(trace),
             "trace_sha256": sha(trace.read_bytes()) if trace.is_file() else None, "exit_code": record["exit_code"],
             "timed_out": record["timed_out"], "observe": observe}
@@ -1206,9 +1211,113 @@ def v1(args):
     return result
 
 
+def v1_failures(args):
+    """Failure witnesses on REAL v1 evidence, each on a private copy: the producer's run checks and the comparer's
+    behaviour rules must each fail with exactly their named class. The latest V1 run supplies the traces."""
+    import copy
+    compare = comparer()
+    latest = json.loads((args.output_root / "v1-latest.json").read_text(encoding="utf-8"))
+    complete = {row["scenario"]: row for row in latest["results"] if row["status"] == "complete"}
+    base_id = "S-slice-breed-01" if "S-slice-breed-01" in complete else sorted(complete)[0]
+    base = [json.loads(line) for line in Path(complete[base_id]["trace"]).read_text(encoding="utf-8").splitlines() if line.strip()]
+    root = args.output_root / ("v1-failures-" + uuid.uuid4().hex[:8])
+    root.mkdir(parents=True)
+    results = []
+
+    def save(lines, name):
+        path = root / name
+        path.write_text("\n".join(json.dumps(line) for line in lines) + "\n", encoding="utf-8")
+        return path
+
+    def fired(case, expected, actual, field=None, wanted_field=None):
+        if actual != expected or field != wanted_field:
+            raise Refusal("V1_FAILURE_WITNESS_DID_NOT_FIRE " + case + ": " + str(actual) + " " + str(field))
+        results.append({"case": case, "expected": expected, "field": field, "status": "fired"})
+
+    def refused(case, expected, call):
+        try:
+            call()
+        except Refusal as failure:
+            fired(case, expected, str(failure).split(" ")[0])
+        else:
+            fired(case, expected, "accepted")
+
+    # The producer's checks.
+    lines = copy.deepcopy(base)
+    lines[0].pop("build")
+    fired("missing-build-witness", "build-witness-missing", v1_trace_status(compare, save(lines, "no-build.jsonl"))[0])
+    fired("truncated-trace", "truncated", v1_trace_status(compare, save(copy.deepcopy(base)[:-1], "truncated.jsonl"))[0])
+    state = json.loads((args.cache_root / "latest-draft.json").read_text(encoding="utf-8"))
+    tampered = root / "tampered.patch"
+    tampered.write_bytes(Path(state["patch"]).read_bytes() + b"\n")
+    refused("tampered-patch", "V1_PATCH_TAMPERED",
+            lambda: validate_v1_build(dict(state, patch=str(tampered)), (HERE / "edit-spec.json").read_bytes(), HERE / "draft"))
+    refused("missing-draft-record-field", "V1_BUILD_WITNESS_MISSING",
+            lambda: validate_v1_build({k: v for k, v in state.items() if k != "patch_sha256"}, (HERE / "edit-spec.json").read_bytes(), HERE / "draft"))
+    refused("skipped-scenario", "V1_SCENARIO_SKIPPED",
+            lambda: require_v1_results([row["scenario"] for row in latest["results"]], latest["results"][1:]))
+
+    # The comparer's behaviour rules, on the real trace against itself relabelled as a host trace.
+    host = copy.deepcopy(base)
+    host[0] = dict(host[0], runtime="host", build={"commit": "v1-failure-witness", "exeSha256": "0" * 64,
+                                                   "engineSha256": "1" * 64, "converterSha256": "2" * 64})
+
+    def judge(case, expected, mutate, wanted_field=None):
+        mutated = copy.deepcopy(host)
+        mutate(mutated)
+        compare._refoot(mutated)
+        report = compare.compare(copy.deepcopy(base), mutated)
+        first = (report.get("findings") or [{}])[0]
+        actual = report["verdict"] if expected == "exact" else report.get("class")
+        fired(case, expected, actual, first.get("field") if wanted_field else None, wanted_field)
+
+    states = [row for row in host if row.get("type") == "state"]
+    two = next(tick for tick in sorted({row["tick"] for row in states}) if sum(row["tick"] == tick for row in states) >= 2)
+
+    def swap(lines):
+        i, j = [k for k, row in enumerate(lines) if row.get("type") == "state" and row["tick"] == two][:2]
+        lines[i], lines[j] = lines[j], lines[i]
+
+    def first_state(lines, test):
+        return next(row for row in lines if row.get("type") == "state" and test(row))
+
+    def insert_event(lines, record):
+        at = next(k for k, row in enumerate(lines) if row.get("type") == "state" and row["tick"] == record["tick"])
+        lines.insert(at, record)
+
+    def drop_first(lines, kind):
+        lines.remove(next(row for row in lines if row.get("kind") == kind))
+
+    def draw_site(lines):
+        next(row for row in lines if row.get("kind") == "rng-draw")["site"] = "builtin:regist-facing"
+
+    def extra_draw(lines):
+        count = sum(1 for row in lines if row.get("kind") == "rng-draw")
+        last = max(row["tick"] for row in states)
+        insert_event(lines, {"type": "event", "tick": last, "sid": states[0]["sid"], "kind": "rng-draw",
+                             "site": "builtin:behavior-select", "occurrence": count + 1, "value": 0.5, "purpose": "witness"})
+
+    judge("WITNESS real trace against itself", "exact", lambda lines: None)
+    judge("wrong entity: two companions out of manager order", "entity-mismatch", swap)
+    judge("wrong image, same position", "state-mismatch",
+          lambda lines: first_state(lines, lambda row: row["pose"] is not None)["pose"].update(image="img/Witness/other.png"), "pose")
+    judge("wrong action age", "state-mismatch",
+          lambda lines: first_state(lines, lambda row: row["actionAge"] is not None).update(actionAge=first_state(lines, lambda row: row["actionAge"] is not None)["actionAge"] + 1), "actionAge")
+    judge("extra event", "extra-event",
+          lambda lines: insert_event(lines, {"type": "event", "tick": two, "sid": states[0]["sid"], "kind": "error", "message": "witness"}))
+    judge("missing event", "missing-event", lambda lines: drop_first(lines, "birth-request"))
+    judge("wrong RNG use: another site", "event-mismatch", draw_site)
+    judge("wrong RNG use: an extra draw", "rng-draw-count", extra_draw)
+    result = {"status": "pass", "base": base_id, "base_trace_sha256": complete[base_id]["trace_sha256"],
+              "witnesses": results, "evidence": str(root)}
+    write_json(root / "results.json", result)
+    write_json(args.output_root / "v1-failures-latest.json", result)
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=("preflight", "fetch", "build", "compare", "probe", "check", "draft", "bridge", "failures", "shared", "selftest", "mutate", "v1"))
+    parser.add_argument("action", choices=("preflight", "fetch", "build", "compare", "probe", "check", "draft", "bridge", "failures", "shared", "selftest", "mutate", "v1", "v1failures"))
     parser.add_argument("--only")
     parser.add_argument("--cache-root", type=Path, required=True)
     parser.add_argument("--output-root", type=Path, required=True)
@@ -1252,6 +1361,8 @@ def main():
         result = shared(args)
     elif args.action == "v1":
         result = v1(args)
+    elif args.action == "v1failures":
+        result = v1_failures(args)
     else:
         result = probe(args)
     print(json.dumps(result, ensure_ascii=False, indent=2))

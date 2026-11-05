@@ -78,6 +78,10 @@ import org.w3c.dom.Node;
  */
 public final class V1ScenarioRunner implements DraftParityHooks.Controller {
     private static final String SCHEMA = "shimeji-parity-scenario/1";
+    /** Embedded classes whose CONTRACT section 3 events (scan-target, interact, sound, mute) are not observed yet. */
+    private static final Set<String> UNOBSERVED = new LinkedHashSet<String>(java.util.Arrays.asList(
+        "ScanMove", "ScanInteract", "ScanJump", "Interact", "Mute", "Broadcast", "BroadcastMove", "BroadcastJump",
+        "BroadcastStay", "ComplexMove", "ComplexJump"));
 
     private final Map<String, Object> scenario;
     private final boolean observing;
@@ -535,6 +539,10 @@ public final class V1ScenarioRunner implements DraftParityHooks.Controller {
             else actionOrigin.put(variables, subject);
             actionDeclaration.put(variables, subject);
         } else if (hook.equals("action-enter")) {
+            if (UNOBSERVED.contains(subject.getClass().getSimpleName())) {
+                // Their scan-target, interact and sound events have no seam yet: refuse rather than trace a gap.
+                throw new IllegalStateException("V1_UNOBSERVED_ACTION " + subject.getClass().getSimpleName());
+            }
             entered.put(subject, ++enterSequence);
         } else if (hook.equals("behavior")) {
             behaviourEntered((Mascot)subject, detail);
@@ -551,6 +559,9 @@ public final class V1ScenarioRunner implements DraftParityHooks.Controller {
                 emit(record);
             }
         } else if (hook.equals("pose")) {
+            if (read(detail, "sound") != null && Main.getInstance().getMascotBooleanSetting("Sounds", (Mascot)subject)) {
+                throw new IllegalStateException("V1_UNOBSERVED_SOUND");
+            }
             appliedPose.put((Mascot)subject, (Pose)detail);
         } else if (hook.equals("birth-request")) {
             birthRequested((Mascot)subject, (Mascot)detail);
@@ -975,7 +986,15 @@ public final class V1ScenarioRunner implements DraftParityHooks.Controller {
             exit = 0;
         } catch (Throwable failure) {
             failure.printStackTrace(System.err);
-            if (failure instanceof java.lang.reflect.InvocationTargetException && failure.getCause() != null) failure.getCause().printStackTrace(System.err);
+            // A refusal of this runner (V1_...) aborts the run; anything else, the source's own exceptions included, is
+            // an error. The two stay apart in the footer so neither is read as the other.
+            for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+                if (cause.getMessage() != null && cause.getMessage().startsWith("V1_")) {
+                    status = "aborted";
+                    System.err.println("V1_REFUSAL " + cause.getMessage());
+                    break;
+                }
+            }
         }
         try {
             if (writer != null && runner != null) {
