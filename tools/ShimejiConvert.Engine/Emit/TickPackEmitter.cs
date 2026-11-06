@@ -1369,8 +1369,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                         continue;
                     }
                     SafeEntry(full);
-                    if (File.Exists(full) || last) { path = full; break; }
+                    // Review N6 (r4): the source's exists() is true for a directory too, so it takes one (AnimationBuilder.java:
+                    // 151-153) and then cannot load it, which refuses the image set.
+                    if (File.Exists(full) || Directory.Exists(full) || last) { path = full; break; }
                 }
+                if (Directory.Exists(path))
+                    Fail(pose, "TICK_SOUND_DIRECTORY: Sound '" + soundText + "' names a directory, which the source takes and then cannot load, so it refuses this image set");
                 string chosen = Path.GetRelativePath(Path.GetFullPath(_pack), path).Replace('\\', '/');
                 if (!File.Exists(path))
                     Fail(pose, "TICK_SOUND_MISSING: Sound '" + soundText + "' names no clip in sound/, sound/<image set>/ or img/<image set>/sound/, so the source refuses this image set");
@@ -1409,7 +1413,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 string text = Value(pose, "Volume");
                 if (text == null) return 0;
                 float volume;
-                if (!float.TryParse(text.Trim(), NumberStyles.Float, Invariant, out volume) || float.IsNaN(volume) || float.IsInfinity(volume))
+                // Review N6 (r4): Float.parseFloat trims as Java's String.trim does, only chars up to U+0020; a no-break
+                // space stays and makes the text unreadable, where .NET's Trim would strip it.
+                string trimmed = text.Trim(Enumerable.Range(0, 0x21).Select(c => (char)c).ToArray());
+                if (!float.TryParse(trimmed, NumberStyles.Float, Invariant, out volume) || float.IsNaN(volume) || float.IsInfinity(volume))
                     Fail(pose, "TICK_SOUND_VOLUME: Volume '" + text + "' is not a number the source reads");
                 if (volume < -80f || volume > 6.0206f)
                     Fail(pose, "TICK_SOUND_VOLUME: Volume '" + text + "' dB is outside the gain range the source can set (-80 to 6.02)");

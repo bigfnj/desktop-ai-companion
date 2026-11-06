@@ -2135,6 +2135,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { File = "sound/cut.wav", Bytes = truncated, Sound = "/cut.wav", Volume = (string)null, Expected = "TICK_SOUND_WAV: clip '/cut.wav' is truncated" },
                 new { File = "sound/ok.wav", Bytes = good, Sound = "/ok.wav", Volume = "7", Expected = "TICK_SOUND_VOLUME: Volume '7'" },
                 new { File = "sound/ok.wav", Bytes = good, Sound = "/ok.wav", Volume = "loud", Expected = "TICK_SOUND_VOLUME: Volume 'loud'" },
+                // Review N6 (r4): Java's trim keeps a no-break space, so Float.parseFloat refuses the text.
+                new { File = "sound/ok.wav", Bytes = good, Sound = "/ok.wav", Volume = "\u00A0-6", Expected = "TICK_SOUND_VOLUME: Volume '\u00A0-6' is not a number" },
                 new { File = (string)null, Bytes = good, Sound = "../../../../ok.wav", Volume = (string)null, Expected = "TICK_SOUND_PATH: Sound '../../../../ok.wav' leaves the pack" },
                 new { File = (string)null, Bytes = good, Sound = new string('s', 65), Volume = (string)null, Expected = "TICK_SOUND_ID_LIMIT" },
                 // Over the host's per-clip limit for a declared-format clip in bytes, yet under 60 s (48 kHz 16-bit stereo).
@@ -2167,6 +2169,23 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     Refusal(fixture, c.Expected);
                     Require(!Directory.Exists(fixture.Output), "sound refusal left output: " + c.Expected);
                 }
+            // Review N6 (r4): a Sound naming a directory under sound/ is the one the source takes, and cannot load, even
+            // with a file of that name under img/<set>/sound/; a Volume trimmed of tabs is read, as Java's trim strips them.
+            using (var fixture = new Fixture())
+            {
+                fixture.Write("sound/d.wav/keep.txt", "");
+                WriteBytes(fixture, "img/A/sound/d.wav", good);
+                fixture.Actions(SoundActions("d.wav", null, null));
+                Refusal(fixture, "TICK_SOUND_DIRECTORY: Sound 'd.wav' names a directory");
+            }
+            using (var fixture = new Fixture())
+            {
+                WriteBytes(fixture, "sound/ok.wav", good);
+                fixture.Actions(SoundActions("/ok.wav", "\t-6 ", null));
+                XDocument document = fixture.Convert();
+                Require((string)NamedNode(document, "Stand").Element(Ns + "act").Descendants(Ns + "pose").First().Attribute("volume") == "-6",
+                    "a Volume with the whitespace Java's trim strips was not read");
+            }
             // Review item 10 (r4): the clip is named even when the host's validator would refuse the document first for
             // something else: here a variant of 513 poses, past the schema's 512, which the emitter does not count.
             using (var fixture = new Fixture())
