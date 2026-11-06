@@ -212,4 +212,23 @@
            Text="src/dotNet/Animations.cs now resolves the SYNC animation by fallback; PetGraph.FallbackResolvedNames lists fall and drag only and PetGraphSelfTest pins 'Sync' as an orphan. Change all three deliberately." />
   </Target>
 
+  <!-- Decision 70: TickPackEmitter restates the host's clip decode cap and mixer format, as AudioOutput.cs is not
+       compiled here or in Pet Studio. Fail the build when either side stops reading them, so the two cannot drift. -->
+  <Target Name="AssertClipDecodeCap" BeforeTargets="CoreCompile">
+    <PropertyGroup>
+      <_AudioOutputCsPath>$(MSBuildThisFileDirectory)..\..\src\dotNet\AudioOutput.cs</_AudioOutputCsPath>
+      <_TickEmitterCsPath>$(MSBuildThisFileDirectory)Emit\TickPackEmitter.cs</_TickEmitterCsPath>
+    </PropertyGroup>
+    <Error Condition="!Exists('$(_AudioOutputCsPath)') or !Exists('$(_TickEmitterCsPath)')"
+           Text="Cannot verify the clip decode cap: AudioOutput.cs or TickPackEmitter.cs is missing." />
+    <PropertyGroup>
+      <_AudioOutputCsText>$([System.IO.File]::ReadAllText('$(_AudioOutputCsPath)'))</_AudioOutputCsText>
+      <_TickEmitterCsText>$([System.IO.File]::ReadAllText('$(_TickEmitterCsPath)'))</_TickEmitterCsText>
+    </PropertyGroup>
+    <Error Condition="!$(_AudioOutputCsText.Contains('internal const int MaximumClipDecodedSamples = 60 * 44100 * 2;')) or !$(_TickEmitterCsText.Contains('internal const int MaximumClipDecodedSamples = 60 * 44100 * 2;'))"
+           Text="AudioOutput.MaximumClipDecodedSamples and TickPackEmitter.MaximumClipDecodedSamples no longer both read 60 * 44100 * 2. The converter refuses clips by the host's cap; change both deliberately." />
+    <Error Condition="!$(_AudioOutputCsText.Contains('WaveFormat.CreateIeeeFloatWaveFormat(44100, 2)')) or !$(_TickEmitterCsText.Contains('internal const int MixerSampleRate = 44100;')) or !$(_TickEmitterCsText.Contains('internal const int MixerChannels = 2;'))"
+           Text="AudioOutput's mixer format is no longer 44.1 kHz stereo, or TickPackEmitter no longer restates it. The decode-length check reads it; change both deliberately." />
+  </Target>
+
 </Project>

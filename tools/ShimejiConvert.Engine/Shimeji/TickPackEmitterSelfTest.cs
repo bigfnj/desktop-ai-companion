@@ -1918,6 +1918,27 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         }
 
         /// <summary>A synthetic 16-bit PCM mono RIFF/WAVE clip of <paramref name="samples"/> frames at 22.05 kHz.</summary>
+        /// <summary>A PCM RIFF/WAVE clip of <paramref name="data"/> sample bytes in the given shape, the samples a ramp.</summary>
+        private static byte[] RawWave(int rate, short channels, short bits, int data)
+        {
+            short align = (short)(channels * bits / 8);
+            var b = new byte[44 + data];
+            Encoding.ASCII.GetBytes("RIFF").CopyTo(b, 0);
+            BitConverter.GetBytes(36 + data).CopyTo(b, 4);
+            Encoding.ASCII.GetBytes("WAVEfmt ").CopyTo(b, 8);
+            BitConverter.GetBytes(16).CopyTo(b, 16);
+            BitConverter.GetBytes((short)1).CopyTo(b, 20);
+            BitConverter.GetBytes(channels).CopyTo(b, 22);
+            BitConverter.GetBytes(rate).CopyTo(b, 24);
+            BitConverter.GetBytes(rate * align).CopyTo(b, 28);
+            BitConverter.GetBytes(align).CopyTo(b, 32);
+            BitConverter.GetBytes(bits).CopyTo(b, 34);
+            Encoding.ASCII.GetBytes("data").CopyTo(b, 36);
+            BitConverter.GetBytes(data).CopyTo(b, 40);
+            for (int i = 0; i < data; i++) b[44 + i] = (byte)(96 + i % 64);
+            return b;
+        }
+
         private static byte[] Wave(int samples, int seed)
         {
             var data = new byte[samples * 2];
@@ -2016,8 +2037,13 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { File = "sound/ok.wav", Bytes = good, Sound = "/ok.wav", Volume = "loud", Expected = "TICK_SOUND_VOLUME: Volume 'loud'" },
                 new { File = (string)null, Bytes = good, Sound = "../../../../ok.wav", Volume = (string)null, Expected = "TICK_SOUND_PATH: Sound '../../../../ok.wav' leaves the pack" },
                 new { File = (string)null, Bytes = good, Sound = new string('s', 65), Volume = (string)null, Expected = "TICK_SOUND_ID_LIMIT" },
-                new { File = "sound/big.wav", Bytes = Wave(DesktopAICompanion.CompanionXmlValidator.MaximumAudioBytesPerSound / 2 + 16, 5),
+                // Over the host's per-clip limit for a declared-format clip in bytes, yet under 60 s (48 kHz 16-bit stereo).
+                new { File = "sound/big.wav", Bytes = RawWave(48000, 2, 16, DesktopAICompanion.CompanionXmlValidator.MaximumDeclaredAudioBytesPerSound + 64),
                     Sound = "/big.wav", Volume = (string)null, Expected = "TICK_SOUND_CLIP_LIMIT: the host refuses clip '/big.wav'" },
+                // Decision 70: 61 s of 8 kHz 8-bit mono is 488 kB, well inside the byte limits, and decodes past the
+                // host's 60 s at its mixer format.
+                new { File = "sound/long.wav", Bytes = RawWave(8000, 1, 8, 61 * 8000), Sound = "/long.wav", Volume = (string)null,
+                    Expected = "TICK_SOUND_DECODE_LIMIT: clip '/long.wav' decodes to 61.0 s, past the 60 s the host decodes" },
             };
             foreach (var c in cases)
                 using (var fixture = new Fixture())

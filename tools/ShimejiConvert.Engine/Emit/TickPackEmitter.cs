@@ -208,6 +208,17 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         /// and 256", CompanionXmlValidator), which it states inline rather than as a constant.</summary>
         private const int MaxTilesPerAxis = 256;
 
+        /// <summary>
+        /// Decision 70: the host decodes a clip only up to <c>AudioOutput.MaximumClipDecodedSamples</c>, 60 s at its mixer
+        /// format (44.1 kHz stereo float, <c>AudioOutput.MixFormat</c>); a longer clip validates and then stays silent.
+        /// src/dotNet/AudioOutput.cs is compiled neither here nor in Pet Studio, so these are the host's figures restated,
+        /// and the engine's build fails when AudioOutput.cs or this file stops reading them (ShimejiConvert.Engine.csproj,
+        /// target AssertClipDecodeCap): bound, not copied.
+        /// </summary>
+        internal const int MaximumClipDecodedSamples = 60 * 44100 * 2;
+        internal const int MixerSampleRate = 44100;
+        internal const int MixerChannels = 2;
+
         /// <summary>The behaviour-naming parameters the host classes read (Interact and the scan classes' Behavior and
         /// TargetBehavior, the Breed family's BornBehavior, Transform's TransformBehavior).</summary>
         private static readonly string[] BehaviourParameters = { "Behavior", "TargetBehavior", "BornBehavior", "TransformBehavior" };
@@ -1359,6 +1370,15 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 {
                     if (!DesktopAICompanion.WavFormat.IsDecodableWave(bytes, out reason))
                         Fail(pose, "TICK_SOUND_WAV: clip '" + soundText + "' " + reason + ", which the host's WAV rule refuses; no header repair is made");
+                    // Decision 70: what the clip decodes to at the mixer format, from the layout the host's one parse
+                    // proved (its frames, resampled to the mixer rate, times the mixer channels).
+                    DesktopAICompanion.WavFormat.WaveLayout layout;
+                    DesktopAICompanion.WavFormat.TryParse(bytes, out layout, out reason);
+                    long frames = layout.DataLength / Math.Max(1, layout.BlockAlign);
+                    long decoded = (long)Math.Ceiling(frames * (double)MixerSampleRate / layout.SampleRate) * MixerChannels;
+                    if (decoded > MaximumClipDecodedSamples)
+                        Fail(pose, "TICK_SOUND_DECODE_LIMIT: clip '" + soundText + "' decodes to " + (frames / (double)layout.SampleRate).ToString("0.0", Invariant)
+                            + " s, past the " + (MaximumClipDecodedSamples / MixerChannels / MixerSampleRate) + " s the host decodes; it would stay silent");
                 }
                 else if (DesktopAICompanion.Mp3Format.LooksLikeMp3(bytes, out reason))
                     Fail(pose, "TICK_SOUND_MP3: clip '" + soundText + "' holds MP3 audio, which the source's javax.sound cannot open, so the source refuses this image set");
@@ -1399,7 +1419,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 if (clips.Count == 0) return;
                 SoundClip largest = clips.OrderByDescending(c => c.Bytes.Length).First();
                 long total = clips.Sum(c => (long)c.Bytes.Length);
-                if (largest.Bytes.Length <= DesktopAICompanion.CompanionXmlValidator.MaximumAudioBytesPerSound
+                if (largest.Bytes.Length <= DesktopAICompanion.CompanionXmlValidator.MaximumDeclaredAudioBytesPerSound
                     && total <= DesktopAICompanion.CompanionXmlValidator.MaximumAudioBytesTotal) return;
                 XmlData.RootNode ignored;
                 string error;
