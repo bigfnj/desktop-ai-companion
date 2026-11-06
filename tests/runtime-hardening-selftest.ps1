@@ -5397,20 +5397,25 @@ Assert-True ($shrStop -cmatch '\.StopModuleOwned\(owner\)' -and $shrStop -cnotma
 # so it runs on a pool thread like the single-skin conversion pinned near the top of this file. Thread placement is
 # dispatcher ordering no headless self-test can force, so the SHAPE is asserted on comment-stripped source: the member
 # listing and PackImport.ConvertGuarded (the one route to ShimejiEngine.ConvertPack) are each called inside an awaited
-# Task.Run in ImportPackAsync, ConvertGuarded once in the window, and the window never calls ConvertPack itself.
+# Task.Run in ImportPackAsync, ConvertGuarded once there and once in RecoverPackClicked (decision 64: the author's
+# "Import with recovery", the only call that selects recovery), each inside an awaited Task.Run, and the window never
+# calls ConvertPack itself.
 $spImportCode = Remove-LineComments (Get-Content -LiteralPath (
     Join-Path $repoRoot 'modules\PetStudio\PackImport.cs') -Raw)
 $spPackBody = Get-MethodBody $petStudioWindowCode 'private async Task ImportPackAsync(string root, DetectedSkin main)' `
     @("`n        private ", "`n        internal ")
-Assert-True ($spPackBody.Length -gt 0 -and $spImportCode.Length -gt 0) 'studio-packs: ImportPackAsync and PackImport.cs could be sliced out for inspection'
+$spRecoverBody = Get-MethodBody $petStudioWindowCode 'private async void RecoverPackClicked()' `
+    @("`n        private ", "`n        internal ")
+Assert-True ($spPackBody.Length -gt 0 -and $spRecoverBody.Length -gt 0 -and $spImportCode.Length -gt 0) 'studio-packs: ImportPackAsync, RecoverPackClicked and PackImport.cs could be sliced out for inspection'
 Assert-True ([regex]::Matches($spImportCode, 'ShimejiEngine\.ConvertPack\(').Count -eq 1) (
     'studio-packs: WITNESS the ConvertPack pattern finds the one call, in PackImport.cs')
 Assert-True (
     ([regex]::Matches($petStudioWindowCode, 'ShimejiEngine\.ConvertPack\(').Count -eq 0) -and
-    ([regex]::Matches($petStudioWindowCode, 'PackImport\.ConvertGuarded\(').Count -eq 1) -and
+    ([regex]::Matches($petStudioWindowCode, 'PackImport\.ConvertGuarded\(').Count -eq 2) -and
+    ($spRecoverBody -cmatch '(?s)await Task\.Run\(delegate\s*\{[^}]*PackImport\.ConvertGuarded\(packRoot, recovering, PackImport\.ConvertWithEngine, out r\);') -and
     ($spPackBody -cmatch '(?s)await Task\.Run\(delegate\s*\{[^}]*PackImport\.ConvertGuarded\(packRoot, options, PackImport\.ConvertWithEngine, out r\);') -and
     ($spPackBody -cmatch 'await Task\.Run\(delegate \{ return PackImport\.ListMemberKeys\(packRoot\); \}\)')
-) 'studio-packs: the pack is listed and converted on a pool thread: ConvertGuarded is called once in the window, inside the awaited Task.Run, and the window never calls ConvertPack itself'
+) 'studio-packs: the pack is listed and converted on a pool thread: ConvertGuarded is called twice in the window (the import, and the author''s Import with recovery), each inside an awaited Task.Run, and the window never calls ConvertPack itself'
 
 # ---- lane feature/host-pack-abi ----
 # A WHOLE-PACK PREVIEW (ICompanionPackPreview, host 1.10.0). Its namespace, its staging and its "a closed preview's birth

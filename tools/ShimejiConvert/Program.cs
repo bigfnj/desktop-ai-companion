@@ -49,8 +49,14 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                     if (args.Length != 2 && args.Length != 3) return Usage();
                     return ConvertRoot(args[1], args.Length == 3 ? args[2] : null);
                 case "paritypack":
-                    if (args.Length != 3 && args.Length != 4) return Usage();
-                    return ParityPack(args[1], args[2], args.Length == 4 ? args[3] : null);
+                {
+                    // Decision 64: recovery of a next entry naming no root behaviour only on the explicit flag, which
+                    // may stand anywhere after the verb; the positional arguments are as before.
+                    string[] rest = args.Skip(1).Where(a => a != "--recover-missing-next").ToArray();
+                    bool recover = rest.Length != args.Length - 1;
+                    if (args.Count(a => a == "--recover-missing-next") > 1 || (rest.Length != 2 && rest.Length != 3)) return Usage();
+                    return ParityPack(rest[0], rest[1], rest.Length == 3 ? rest[2] : null, recover);
+                }
                 case "rebalance":
                     if (args.Length != 2) return Usage();
                     return Rebalance(args[1]);
@@ -94,10 +100,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             Console.Error.WriteLine("                     and what is dropped as residue.");
             Console.Error.WriteLine("  selftest [source-ir|tick-emitter|pack-conversion]");
             Console.Error.WriteLine("                     Run all engine self-tests or one focused synthetic group.");
-            Console.Error.WriteLine("  paritypack <PackDir> <OutDir> [MainMember]");
+            Console.Error.WriteLine("  paritypack <PackDir> <OutDir> [MainMember] [--recover-missing-next]");
             Console.Error.WriteLine("                     Test tooling: lower the supported literal tick subset and write each member");
             Console.Error.WriteLine("                     plus its source parity map. Refuse unsupported constructs and existing outputs.");
             Console.Error.WriteLine("                     A cross-member pack requires its main image set explicitly.");
+            Console.Error.WriteLine("                     --recover-missing-next drops a next entry naming no root behaviour, with a");
+            Console.Error.WriteLine("                     WARNING line (policy:next-missing-dropped); without it such an entry refuses.");
             Console.Error.WriteLine("  composite <ConfDir> <ImgDir> <out.png>");
             Console.Error.WriteLine("                     DEV: composite a real skin's sprites into one magenta-KEYED sheet and");
             Console.Error.WriteLine("                     write it, for eyeballing. The keyed variant: edges come out jagged here");
@@ -440,12 +448,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             return 0;
         }
 
-        private static int ParityPack(string packDirectory, string outDirectory, string mainMember)
+        private static int ParityPack(string packDirectory, string outDirectory, string mainMember, bool recoverMissingNext)
         {
             try
             {
                 IReadOnlyList<string> warnings;
-                IReadOnlyList<string> outputs = TickPackEmitter.ConvertPack(packDirectory, outDirectory, mainMember, out warnings);
+                IReadOnlyList<string> outputs = TickPackEmitter.ConvertPack(packDirectory, outDirectory, mainMember, out warnings, recoverMissingNext);
                 // A correction the lowering made on purpose (a dropped next entry, decision 55) is reported, never
                 // silent: it is a policy divergence from the source (review D55-A).
                 foreach (string warning in warnings) Console.Error.WriteLine("WARNING " + warning);

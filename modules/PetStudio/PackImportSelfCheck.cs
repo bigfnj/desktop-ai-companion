@@ -33,6 +33,62 @@ namespace DesktopAICompanion.PetStudioModule
             CheckGuard(probe);
             CheckIds(probe);
             CheckWithSyntheticPack(probe);
+            CheckRecovery(probe);
+        }
+
+        // ---- decision 64: strict by default; "Import with recovery" is the author's choice, shown before Install ----
+
+        private static void CheckRecovery(SelfTestProbe probe)
+        {
+            string scratch = Path.Combine(Path.GetTempPath(), "dp-petstudio-recovery-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                foreach (bool scripted in new[] { false, true })
+                {
+                    string packRoot = Path.Combine(scratch, scripted ? "Scripted Pack" : "Dangling Pack");
+                    WriteMember(packRoot, "Alpha", null);
+                    string behaviours = Path.Combine(packRoot, "img", "Alpha", "conf", "behaviors.xml");
+                    XDocument document = XDocument.Load(behaviours);
+                    var entry = new XElement("BehaviorReference", new XAttribute("Name", "Ghost"), new XAttribute("Action", "Stand"), new XAttribute("Frequency", 1));
+                    if (scripted) entry.Add(new XAttribute("Condition", "${mascot.lookRight}"));
+                    document.Root.Element("BehaviorList").Elements("Behavior").First().Add(new XElement("NextBehaviorList", new XAttribute("Add", "true"), entry));
+                    File.WriteAllText(behaviours, document.ToString());
+                    string refusal;
+                    PackConversionOptions options = PackImport.SelectPackOptions(PackImport.DefaultChoices(PackImport.ListMemberKeys(packRoot), "Alpha"),
+                        "Alpha", null, null, out refusal);
+                    PackConversionResult strict = options == null ? null : PackImport.ConvertGuarded(packRoot, options, PackImport.ConvertWithEngine, out refusal);
+                    if (scripted)
+                    {
+                        probe.Check("WITNESS a next entry under a scripted condition refuses, and recovery is not offered for it: " + (strict == null ? refusal : strict.Error),
+                            strict != null && !strict.Accepted && strict.Errors.Any(e => e.Contains("TICK_NEXT_MISSING_SCRIPTED"))
+                            && !PackImport.OffersRecovery(strict, options) && PackImport.RecoveryNote(strict, options) == null);
+                        continue;
+                    }
+                    probe.Check("WITNESS Studio imports strictly: its pack options select no recovery, and a next entry naming no behaviour refuses the pack by name: "
+                        + (strict == null ? refusal : strict.Error),
+                        options != null && !options.RecoverMissingNext && strict != null && !strict.Accepted
+                        && strict.Errors.Any(e => e.Contains("TICK_NEXT_MISSING: image set 'Alpha', behaviour 'Main': the next entry 'Ghost'")));
+                    string note = PackImport.RecoveryNote(strict, options);
+                    probe.Check("the strict refusal installs nothing and offers '" + PackImport.RecoveryAction + "', saying why: " + note,
+                        strict != null && !PackImport.CanInstall(strict, true) && PackImport.OffersRecovery(strict, options)
+                        && note != null && note.Contains(PackImport.RecoveryAction));
+                    PackConversionOptions recovering = PackImport.WithRecovery(options);
+                    probe.Check("choosing recovery converts with a copy: the strict options are unchanged",
+                        !ReferenceEquals(recovering, options) && recovering.RecoverMissingNext && !options.RecoverMissingNext
+                        && recovering.MainMember == options.MainMember && recovering.Members.Count == options.Members.Count);
+                    PackConversionResult recovered = PackImport.ConvertGuarded(packRoot, recovering, PackImport.ConvertWithEngine, out refusal);
+                    string summary = recovered == null ? refusal : PackImport.Summary(recovered, "Dangling Pack") + "\n" + PackImport.RecoveryNote(recovered, recovering);
+                    probe.Check("WITNESS with recovery chosen, the pack report lists the dropped entry once, before Install: " + summary,
+                        recovered != null && recovered.Accepted && PackImport.CanInstall(recovered, true) && !PackImport.OffersRecovery(recovered, recovering)
+                        && summary.Split('\n').Count(l => l.StartsWith("\u26A0 Image set 'Alpha': Behaviour 'Main': the next entry 'Ghost' names no root behaviour and was dropped", StringComparison.Ordinal)) == 1
+                        && summary.Contains("policy:next-missing-dropped"));
+                }
+            }
+            catch (Exception ex) { probe.Check("the recovery checks ran without an exception: " + ex.GetType().Name + ": " + ex.Message, false); }
+            finally
+            {
+                try { if (Directory.Exists(scratch)) Directory.Delete(scratch, true); } catch { }
+            }
         }
 
         // ---- options: main required, roles defaulted, source-hidden kept, startup only when chosen ----

@@ -15,6 +15,11 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
         public IDictionary<string, PackMemberOptions> Members { get; set; }
         public PackStartupOptions Startup { get; set; }
         public bool IncludeParityMaps { get; set; }
+        /// <summary>Decision 64: recover a next entry that names no root behaviour by dropping it, with a warning in
+        /// Warnings and in its member's residue (policy:next-missing-dropped, a divergence, never exact). False, the
+        /// default, refuses such an entry with TICK_NEXT_MISSING. Only an explicit choice sets it; this call reads it once,
+        /// into its own snapshot. An entry under a scripted condition is refused either way.</summary>
+        public bool RecoverMissingNext { get; set; }
     }
 
     public sealed class PackMemberOptions
@@ -105,7 +110,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
         {
             public string MainMember;
             public readonly Dictionary<string, MemberSnapshot> Members = new Dictionary<string, MemberSnapshot>(StringComparer.Ordinal);
-            public bool IncludeParityMaps, HasStartup;
+            public bool IncludeParityMaps, HasStartup, RecoverMissingNext;
             public string StartupMember, StartupBehaviour;
         }
 
@@ -135,7 +140,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                 snapshot = Snapshot(options, errors);
                 if (errors.Count == 0)
                 {
-                    List<TickPackEmitter.PreparedMember> prepared = TickPackEmitter.PrepareMembers(extractedPackRoot, true);
+                    List<TickPackEmitter.PreparedMember> prepared = TickPackEmitter.PrepareMembers(extractedPackRoot, true, snapshot.RecoverMissingNext);
                     var keys = new HashSet<string>(prepared.Select(member => member.Name), StringComparer.Ordinal);
                     if (!keys.Contains(snapshot.MainMember))
                         errors.Add("TICK_PACK_MAIN_UNKNOWN: the requested main image set is not in this pack: " + snapshot.MainMember);
@@ -237,6 +242,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             }
             snapshot.MainMember = options.MainMember;
             snapshot.IncludeParityMaps = options.IncludeParityMaps;
+            snapshot.RecoverMissingNext = options.RecoverMissingNext;
             if (string.IsNullOrEmpty(snapshot.MainMember))
                 errors.Add("TICK_PACK_MAIN_REQUIRED: provide the exact main image-set name.");
             else if (!ShimejiFormatValidator.IsMemberKey(snapshot.MainMember))

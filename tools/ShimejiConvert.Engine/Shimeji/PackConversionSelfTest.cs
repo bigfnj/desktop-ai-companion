@@ -45,6 +45,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "startup-schema-mapping", Run = (Action)StartupSchemaMapping },
                 new { Name = "startup-unmapped-name", Run = (Action)StartupUnmappedName },
                 new { Name = "startup-ambiguous-name", Run = (Action)StartupAmbiguousName },
+                new { Name = "missing-next-recovery-option", Run = (Action)MissingNextRecoveryOption },
             };
             if (onlyCase != null && !cases.Any(c => c.Name == onlyCase))
             { detail = "pack-conversion unknown case: " + onlyCase; return false; }
@@ -475,11 +476,15 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                             A("Action", "Stand"), A("Frequency", 1))));
                     fixture.Member(key, Actions(), behaviours);
                 }
-                PackConversionResult result = Accepted(fixture, Options());
+                // Decision 64: the drop is a policy divergence the caller selects; this witness selects it.
+                PackConversionOptions recovering = Options();
+                recovering.RecoverMissingNext = true;
+                PackConversionResult result = Accepted(fixture, recovering);
                 CheckPreparedWarnings(result);
 
                 // Preparation succeeded, but a later copy fault must preserve its diagnostics.
                 PackConversionOptions options = Options();
+                options.RecoverMissingNext = true;
                 string before = fixture.Inventory(), error;
                 PackConversionResult refused = PackConverter.Convert(fixture.PackRoot, options,
                     root => { throw new InvalidDataException("Injected copy refusal after source preparation."); }, ShimejiEngine.Serialize, out error);
@@ -488,6 +493,54 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 CheckPreparedWarnings(refused);
                 Require(before == fixture.Inventory(), "refused warning conversion changed source files");
             }
+        }
+
+        /// <summary>Decision 64: RecoverMissingNext is the caller's choice for one call. Omitted or false refuses a next
+        /// entry that names no root behaviour, by name (TICK_NEXT_MISSING: image set, behaviour, entry); true drops it with
+        /// one warning in the result and one in the member's residue. Calls do not leak into each other, the caller's
+        /// options are not changed, and an entry under a scripted condition (its own or an enclosing one) refuses under
+        /// both settings.</summary>
+        private static void MissingNextRecoveryOption()
+        {
+            using (var fixture = new Fixture())
+            {
+                XDocument behaviours = Behaviours();
+                behaviours.Root.Element("BehaviorList").Elements("Behavior").First().Add(
+                    E("NextBehaviorList", A("Add", true), E("BehaviorReference", A("Name", "Ghost"), A("Action", "Stand"), A("Frequency", 1))));
+                fixture.Member("Alpha", Actions(), behaviours);
+                const string Strict = "TICK_NEXT_MISSING: image set 'Alpha', behaviour 'Main': the next entry 'Ghost'";
+                PackConversionOptions omitted = Options();
+                Require(!omitted.RecoverMissingNext, "RecoverMissingNext does not default to false");
+                Refused(fixture, omitted, Strict);
+                PackConversionOptions strict = Options();
+                strict.RecoverMissingNext = false;
+                Refused(fixture, strict, Strict);
+                PackConversionOptions recovering = Options();
+                recovering.RecoverMissingNext = true;
+                PackConversionResult recovered = Accepted(fixture, recovering);
+                string dropped = "Image set 'Alpha': Behaviour 'Main': the next entry 'Ghost' names no root behaviour and was dropped";
+                Require(recovered.Warnings.Count(w => w.StartsWith(dropped, StringComparison.Ordinal)) == 1
+                    && Member(recovered, "Alpha").Residue.Notes.Count(w => w.StartsWith(dropped, StringComparison.Ordinal)) == 1,
+                    "a recovered conversion did not report its dropped entry exactly once in the result and once in the residue");
+                // Independent calls: strict after recovery refuses, recovery after strict accepts; options unchanged.
+                Refused(fixture, strict, Strict);
+                Require(Accepted(fixture, recovering).Accepted && recovering.RecoverMissingNext && !strict.RecoverMissingNext && !omitted.RecoverMissingNext,
+                    "a conversion changed its caller's RecoverMissingNext, or one call's choice reached another");
+            }
+            foreach (bool recover in new[] { false, true })
+                foreach (bool enclosing in new[] { false, true })
+                    using (var fixture = new Fixture())
+                    {
+                        XElement entry = E("BehaviorReference", A("Name", "Ghost"), A("Action", "Stand"), A("Frequency", 1));
+                        if (!enclosing) entry.Add(A("Condition", "${mascot.lookRight}"));
+                        XDocument behaviours = Behaviours();
+                        behaviours.Root.Element("BehaviorList").Elements("Behavior").First().Add(E("NextBehaviorList", A("Add", true),
+                            enclosing ? E("Condition", A("Condition", "${mascot.lookRight}"), entry) : entry));
+                        fixture.Member("Alpha", Actions(), behaviours);
+                        PackConversionOptions options = Options();
+                        options.RecoverMissingNext = recover;
+                        Refused(fixture, options, "TICK_NEXT_MISSING_SCRIPTED");
+                    }
         }
 
         private static void CheckPreparedWarnings(PackConversionResult result)

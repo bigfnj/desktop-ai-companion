@@ -90,6 +90,10 @@ namespace DesktopAICompanion.PetStudioModule
         private readonly ListBox _packMembers = new ListBox { MaxHeight = 150, Margin = new Thickness(0, 4, 0, 0) };
         private readonly Button _installPackButton = new Button { Content = "Install pack", Padding = new Thickness(10, 3, 10, 3), IsEnabled = false };
         private readonly Button _previewPackButton = new Button { Content = "Preview pack", Padding = new Thickness(10, 3, 10, 3), IsEnabled = false, Margin = new Thickness(6, 0, 0, 0) };
+        // Decision 64: offered only after a strict refusal recovery can lift (PackImport.OffersRecovery); the only path
+        // that converts with RecoverMissingNext. _packRoot is the folder the report's pack was converted from.
+        private readonly Button _recoverPackButton = new Button { Content = PackImport.RecoveryAction, Padding = new Thickness(10, 3, 10, 3), Margin = new Thickness(6, 0, 0, 0), Visibility = Visibility.Collapsed };
+        private string _packRoot;
         private const string PreviewPackTip =
             "Previews the whole pack on your desktop: the main member arrives as the pack starts it (an egg hatches), and " +
             "its transforms and births reach the pack's other members, inside the preview only. Nothing is installed.";
@@ -381,8 +385,12 @@ namespace DesktopAICompanion.PetStudioModule
             ToolTipService.SetShowOnDisabled(_previewPackButton, true);
             _installPackButton.ToolTip = "Installs every member of the pack. Offered only when the converter accepted the whole pack.";
             ToolTipService.SetShowOnDisabled(_installPackButton, true);
+            _recoverPackButton.Click += delegate { RecoverPackClicked(); };
+            _recoverPackButton.ToolTip = "Converts the pack again, dropping each next entry that names a behaviour the pack does not define. "
+                + "Every dropped entry is listed in this report before you install.";
             packActions.Children.Add(_installPackButton);
             packActions.Children.Add(_previewPackButton);
+            packActions.Children.Add(_recoverPackButton);
             _packMembers.SelectionChanged += delegate { OnPackMemberPicked(); };
             var packPanel = new StackPanel();
             packPanel.Children.Add(_packSummary);
@@ -1359,7 +1367,47 @@ namespace DesktopAICompanion.PetStudioModule
                 SetStatus("The pack was not converted: " + refusal);
                 return;
             }
+            _packRoot = packRoot;
             LoadPackReport(result, options, PackImport.PackTitle(packRoot, root, _importTitle));
+        }
+
+        /// <summary>
+        /// "Import with recovery" (decision 64): the author's explicit choice after a strict refusal, and the only path
+        /// that sets RecoverMissingNext. Converts the same folder again with a copy of the strict options, and shows the
+        /// result in the same report, where each dropped entry is listed before Install. Holds <c>_importing</c>, as an
+        /// import does, so the extracted folder is not deleted under it.
+        /// </summary>
+        private async void RecoverPackClicked()
+        {
+            if (_importing) { SetStatus(StillConverting); return; }
+            if (_pack == null || _packRoot == null || !PackImport.OffersRecovery(_pack, _packOptions)) return;
+            PackConversionOptions recovering = PackImport.WithRecovery(_packOptions);
+            string packRoot = _packRoot, title = _packTitle;
+            _importing = true;
+            try
+            {
+                SetStatus("Converting the pack again, with recovery\u2026");
+                string refusal = null;
+                PackConversionResult result = await Task.Run(delegate
+                {
+                    string r;
+                    PackConversionResult converted = PackImport.ConvertGuarded(packRoot, recovering, PackImport.ConvertWithEngine, out r);
+                    refusal = r;
+                    return converted;
+                });
+                if (_closed) return;
+                if (result == null)
+                {
+                    SetStatus("The pack was not converted: " + refusal);
+                    return;
+                }
+                _packRoot = packRoot;
+                LoadPackReport(result, recovering, title);
+                SetStatus(result.Accepted
+                    ? "Converted with recovery: the dropped entries are listed in the pack report. Nothing is installed until Install pack."
+                    : "Converted with recovery, and still not accepted: see the pack report.");
+            }
+            finally { _importing = false; }
         }
 
         /// <summary>
@@ -1508,7 +1556,9 @@ namespace DesktopAICompanion.PetStudioModule
             _packTitle = title;
             _openedPath = null;                         // Save prompts for a path, as after a single import
             _path.Text = "Imported pack: " + title;
-            _packSummary.Text = PackImport.Summary(result, title);
+            string recoveryNote = PackImport.RecoveryNote(result, options);
+            _packSummary.Text = PackImport.Summary(result, title) + (recoveryNote == null ? "" : "\n" + recoveryNote);
+            _recoverPackButton.Visibility = PackImport.OffersRecovery(result, options) ? Visibility.Visible : Visibility.Collapsed;
             // The document that was open is not this pack's. Until this, a pack whose main member was refused, or that
             // had no members at all, left it in the editor under "Imported pack: X", Save still offered (review item 4).
             // Selecting the main member below fills the editor again when it was prepared.
@@ -1600,6 +1650,8 @@ namespace DesktopAICompanion.PetStudioModule
             if (_packSection != null) _packSection.Visibility = Visibility.Collapsed;
             _installPackButton.IsEnabled = false;
             _previewPackButton.IsEnabled = false;
+            _recoverPackButton.Visibility = Visibility.Collapsed;
+            _packRoot = null;
             _installButton.ToolTip = null;
             _editor.IsReadOnly = false;
         }

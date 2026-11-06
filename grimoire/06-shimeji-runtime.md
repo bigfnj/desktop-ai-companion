@@ -317,9 +317,10 @@ layer selects what follows (4.3). An action node's `<sequence>` is empty, and th
   dereferences the missing root builder (`Configuration.java:210-211`), and the exception ends the tick thread,
   stopping every companion (`Mascot.java:545-554`, `Manager.java:88-108`). The format has no node for that, so the
   validator refuses one. The converter's handling is a POLICY DIVERGENCE, never an exact lowering
-  (`policy:next-missing-dropped`, ShimejiConvert `ACTIONS.md`): it drops such an entry with a warning, which removes
-  its selection, its run and its weight from every draw over the list, and it refuses one whose own or enclosing
-  condition is a script.
+  (`policy:next-missing-dropped`, ShimejiConvert `ACTIONS.md`), and an opt-in one (decision 64): by default it refuses
+  such an entry by name, and only when the caller selects recovery does it drop the entry with a warning, which removes
+  its selection, its run and its weight from every draw over the list. One whose own or enclosing condition is a script
+  refuses either way.
 
 ### 4.3 Route node, `<route>`: the root behaviour list
 

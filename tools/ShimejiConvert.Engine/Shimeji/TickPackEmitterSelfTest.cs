@@ -1602,21 +1602,61 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 }
         }
 
-        // Decision 55: a next entry naming no root behaviour is dropped with a warning (the source would stop its tick
-        // thread when its behaviour ends); a list it empties lowers as the source runs an empty list, its Add kept; one
-        // whose condition is a script, which the source evaluates at every selection, stays refused.
+        // Decisions 55 and 64: a next entry naming no root behaviour refuses by default (TICK_NEXT_MISSING, naming the
+        // image set, the behaviour and the entry); only a call that selects recovery drops it, with a warning, a policy
+        // divergence (the source stops every companion when that entry's behaviour ends). A list recovery empties lowers
+        // as the source runs an empty list, its Add kept. An entry under a scripted condition, its own or an enclosing
+        // one, refuses under both settings. The choice belongs to the call: omitted is false, and calls do not leak.
+        private static XDocument DanglingBehaviours()
+        {
+            XDocument behaviours = BuildBehaviors();
+            behaviours.Descendants("NextBehaviorList").First().Add(S("BehaviorReference", A("Name", "Ghost"), A("Action", "Stand"), A("Frequency", 4)));
+            behaviours.Root.Element("BehaviorList").Add(S("Behavior", A("Name", "Lone"), A("Action", "Stand"), A("Frequency", 0),
+                S("NextBehaviorList", A("Add", "false"), S("BehaviorReference", A("Name", "Ghost"), A("Frequency", 1)))),
+                S("Behavior", A("Name", "Keep"), A("Action", "Stand"), A("Frequency", 0),
+                    S("NextBehaviorList", A("Add", "true"), S("Condition", A("Condition", "true"), S("BehaviorReference", A("Name", "Ghost"), A("Frequency", 1))))));
+            return behaviours;
+        }
+
+        /// <summary>One conversion into its own output under the fixture, removed afterwards: the warnings, or the
+        /// refusal. <paramref name="recover"/> null omits the argument.</summary>
+        private static IReadOnlyList<string> ConvertInto(Fixture fixture, string name, bool? recover, string[] members, out string refusal)
+        {
+            string output = Path.Combine(fixture.Root, name);
+            IReadOnlyList<string> warnings = null;
+            refusal = null;
+            try
+            {
+                // A pack of several members names its main one (the fixture's members breed into each other).
+                string main = members.Length > 1 ? members[0] : null;
+                if (recover == null) TickPackEmitter.ConvertPack(fixture.Pack, output, main, out warnings);
+                else TickPackEmitter.ConvertPack(fixture.Pack, output, main, out warnings, recover.Value);
+            }
+            catch (InvalidDataException error) { refusal = error.Message; }
+            finally
+            {
+                foreach (string member in members)
+                {
+                    foreach (string file in new[] { "animations.xml", "parity-map.json" })
+                        if (File.Exists(Path.Combine(output, member, file))) File.Delete(Path.Combine(output, member, file));
+                    if (Directory.Exists(Path.Combine(output, member))) Directory.Delete(Path.Combine(output, member), false);
+                }
+                if (Directory.Exists(output)) Directory.Delete(output, false);
+            }
+            return warnings;
+        }
+
         private static void NextMissingDropped()
         {
             using (var fixture = new Fixture())
             {
-                XDocument behaviours = BuildBehaviors();
-                behaviours.Descendants("NextBehaviorList").First().Add(S("BehaviorReference", A("Name", "Ghost"), A("Action", "Stand"), A("Frequency", 4)));
-                behaviours.Root.Element("BehaviorList").Add(S("Behavior", A("Name", "Lone"), A("Action", "Stand"), A("Frequency", 0),
-                    S("NextBehaviorList", A("Add", "false"), S("BehaviorReference", A("Name", "Ghost"), A("Frequency", 1)))),
-                    S("Behavior", A("Name", "Keep"), A("Action", "Stand"), A("Frequency", 0),
-                        S("NextBehaviorList", A("Add", "true"), S("Condition", A("Condition", "true"), S("BehaviorReference", A("Name", "Ghost"), A("Frequency", 1))))));
-                fixture.Behaviors(behaviours);
-                XDocument document = fixture.Convert();
+                fixture.Behaviors(DanglingBehaviours());
+                // Strict, the argument omitted: refused by name, nothing written.
+                Refusal(fixture, "TICK_NEXT_MISSING: image set 'A', behaviour 'Main': the next entry 'Ghost' names no root behaviour");
+                Require(!Directory.Exists(fixture.Output), "a strict refusal left output");
+                // Recovery selected for this call: the entries are dropped.
+                TickPackEmitter.ConvertPack(fixture.Pack, fixture.Output, null, true);
+                XDocument document = XDocument.Load(fixture.XmlPath);
                 Validate(document, "dropped next entry member");
                 Require(RootBehavior(document, "Main").Element(Ns + "sequence").Elements(Ns + "next").Count() == 2,
                     "the next entry naming no root behaviour was not dropped from Main's list");
@@ -1625,45 +1665,73 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     && !keep.Element(Ns + "sequence").Elements(Ns + "next").Any() && (string)keep.Element(Ns + "behaviour").Attribute("add") == "true",
                     "an emptied next list lost its Add");
                 Require(!Nodes(document).Any(n => (string)n.Element(Ns + "behaviour")?.Attribute("name") == "Ghost"), "a dropped entry left a node");
-                string[] warnings = TickPackEmitter.PrepareMembers(fixture.Pack, true).Single().Warnings.ToArray();
+                string[] warnings = TickPackEmitter.PrepareMembers(fixture.Pack, true, true).Single().Warnings.ToArray();
                 Require(warnings.Length == 3 && warnings.All(w => w.IndexOf("the next entry 'Ghost' names no root behaviour and was dropped", StringComparison.Ordinal) >= 0)
                     && warnings.Any(w => w.StartsWith("Behaviour 'Lone'", StringComparison.Ordinal)),
                     "no warning names each dropped entry and its behaviour: " + string.Join(" | ", warnings));
-                // Review D55-A: the pack API a caller writes with reports them too, each under its image set.
-                IReadOnlyList<string> reported;
-                string warned = Path.Combine(fixture.Root, "warned");
-                try { TickPackEmitter.ConvertPack(fixture.Pack, warned, null, out reported); }
-                finally
-                {
-                    foreach (string file in new[] { "animations.xml", "parity-map.json" })
-                        if (File.Exists(Path.Combine(warned, "A", file))) File.Delete(Path.Combine(warned, "A", file));
-                    if (Directory.Exists(Path.Combine(warned, "A"))) Directory.Delete(Path.Combine(warned, "A"), false);
-                    if (Directory.Exists(warned)) Directory.Delete(warned, false);
-                }
-                Require(reported.Count == 3 && reported.All(w => w.StartsWith("Image set 'A': Behaviour '", StringComparison.Ordinal)
+                string unselected = TickPackEmitter.PrepareMembers(fixture.Pack, true).Single().Error ?? "";
+                Require(unselected.IndexOf("TICK_NEXT_MISSING: image set 'A'", StringComparison.Ordinal) >= 0,
+                    "preparation without the choice did not refuse: " + unselected);
+                // Review D55-A: the pack API a caller writes with reports them too, each under its image set, once.
+                string refusal;
+                IReadOnlyList<string> reported = ConvertInto(fixture, "warned", true, new[] { "A" }, out refusal);
+                Require(refusal == null && reported.Count == 3 && reported.All(w => w.StartsWith("Image set 'A': Behaviour '", StringComparison.Ordinal)
                     && w.IndexOf("the next entry 'Ghost' names no root behaviour and was dropped", StringComparison.Ordinal) >= 0),
-                    "the pack conversion reports no dropped entry: " + string.Join(" | ", reported));
+                    "the pack conversion reports no dropped entry: " + (refusal ?? string.Join(" | ", reported)));
+                // Explicit false refuses; and the calls are independent of each other.
+                ConvertInto(fixture, "explicit-false", false, new[] { "A" }, out refusal);
+                Require(refusal != null && refusal.IndexOf("TICK_NEXT_MISSING: image set 'A'", StringComparison.Ordinal) >= 0,
+                    "an explicit false did not refuse: " + refusal);
+                ConvertInto(fixture, "recovered-again", true, new[] { "A" }, out refusal);
+                Require(refusal == null, "a recovered call after a strict one refused: " + refusal);
+                ConvertInto(fixture, "omitted-again", null, new[] { "A" }, out refusal);
+                Require(refusal != null && refusal.IndexOf("TICK_NEXT_MISSING: image set 'A'", StringComparison.Ordinal) >= 0,
+                    "a recovered call leaked its choice into a later call that omitted it");
             }
+            // Two members: each dropped entry is reported exactly once, under its own image set.
             using (var fixture = new Fixture())
             {
-                XDocument behaviours = BuildBehaviors();
-                behaviours.Descendants("NextBehaviorList").First().Add(S("BehaviorReference", A("Name", "Ghost"), A("Action", "Stand"),
-                    A("Frequency", 4), A("Condition", "${Math.random() < 0.5}")));
-                fixture.Behaviors(behaviours);
-                Refusal(fixture, "TICK_NEXT_MISSING_SCRIPTED");
+                XDocument alpha = BuildBehaviors();
+                alpha.Descendants("NextBehaviorList").First().Add(S("BehaviorReference", A("Name", "Ghost"), A("Action", "Stand"), A("Frequency", 4)));
+                fixture.Behaviors(alpha);
+                fixture.Member("B");
+                XDocument beta = BuildBehaviors();
+                beta.Descendants("NextBehaviorList").First().Add(S("BehaviorReference", A("Name", "Phantom"), A("Action", "Stand"), A("Frequency", 4)));
+                fixture.Write("conf/B/actions.xml", BuildActions().ToString());
+                fixture.Write("conf/B/behaviors.xml", beta.ToString());
+                string refusal;
+                IReadOnlyList<string> reported = ConvertInto(fixture, "two", true, new[] { "A", "B" }, out refusal);
+                Require(refusal == null && reported.Count == 2
+                    && reported.Count(w => w.StartsWith("Image set 'A': Behaviour 'Main': the next entry 'Ghost'", StringComparison.Ordinal)) == 1
+                    && reported.Count(w => w.StartsWith("Image set 'B': Behaviour 'Main': the next entry 'Phantom'", StringComparison.Ordinal)) == 1,
+                    "two members' dropped entries were not each reported once: " + (refusal ?? string.Join(" | ", reported)));
             }
-            // Review D55-C: a dangling entry under an enclosing scripted Condition stays refused too; the source
-            // evaluates that wrapper at every selection as it would the entry's own.
-            using (var fixture = new Fixture())
+            // Scripted conditions, own and enclosing, refuse under both settings.
+            foreach (bool recover in new[] { false, true })
             {
-                XDocument behaviours = BuildBehaviors();
-                behaviours.Descendants("NextBehaviorList").First().Add(S("Condition", A("Condition", "${mascot.lookRight}"),
-                    S("BehaviorReference", A("Name", "Ghost"), A("Action", "Stand"), A("Frequency", 4))));
-                fixture.Behaviors(behaviours);
-                bool refused = false;
-                try { TickPackEmitter.ConvertPack(fixture.Pack, fixture.Output); }
-                catch (InvalidDataException error) { refused = error.Message.IndexOf("TICK_NEXT_MISSING_SCRIPTED", StringComparison.Ordinal) >= 0; }
-                Require(refused, "a dangling entry under a scripted enclosing Condition was dropped, not refused");
+                using (var fixture = new Fixture())
+                {
+                    XDocument behaviours = BuildBehaviors();
+                    behaviours.Descendants("NextBehaviorList").First().Add(S("BehaviorReference", A("Name", "Ghost"), A("Action", "Stand"),
+                        A("Frequency", 4), A("Condition", "${Math.random() < 0.5}")));
+                    fixture.Behaviors(behaviours);
+                    string refusal;
+                    ConvertInto(fixture, "own", recover, new[] { "A" }, out refusal);
+                    Require(refusal != null && refusal.IndexOf("TICK_NEXT_MISSING_SCRIPTED", StringComparison.Ordinal) >= 0,
+                        "an entry whose own condition is a script was not refused as scripted (recovery " + recover + "): " + refusal);
+                }
+                // Review D55-C: a dangling entry under an enclosing scripted Condition stays refused too.
+                using (var fixture = new Fixture())
+                {
+                    XDocument behaviours = BuildBehaviors();
+                    behaviours.Descendants("NextBehaviorList").First().Add(S("Condition", A("Condition", "${mascot.lookRight}"),
+                        S("BehaviorReference", A("Name", "Ghost"), A("Action", "Stand"), A("Frequency", 4))));
+                    fixture.Behaviors(behaviours);
+                    string refusal;
+                    ConvertInto(fixture, "enclosing", recover, new[] { "A" }, out refusal);
+                    Require(refusal != null && refusal.IndexOf("TICK_NEXT_MISSING_SCRIPTED", StringComparison.Ordinal) >= 0,
+                        "a dangling entry under a scripted enclosing Condition was dropped, not refused (recovery " + recover + "): " + refusal);
+                }
             }
         }
 

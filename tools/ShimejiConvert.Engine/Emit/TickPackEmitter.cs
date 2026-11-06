@@ -47,17 +47,21 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         private static readonly Func<string, bool> SelectionScope = name => false;
 
         /// <summary>Convert every immediate img/member directory. Returns the emitted animations.xml paths.
-        /// The output is separate from the source pack; every member also gets a parity-map.json.</summary>
-        public static IReadOnlyList<string> ConvertPack(string packRoot, string outDir, string mainMember = null)
+        /// The output is separate from the source pack; every member also gets a parity-map.json.
+        /// <paramref name="recoverMissingNext"/> is decision 64's call-scoped choice, false unless the caller selects it:
+        /// false refuses a next entry that names no root behaviour (TICK_NEXT_MISSING); true drops it with a warning
+        /// (policy:next-missing-dropped, never exact).</summary>
+        public static IReadOnlyList<string> ConvertPack(string packRoot, string outDir, string mainMember = null, bool recoverMissingNext = false)
         {
             IReadOnlyList<string> warnings;
-            return ConvertPack(packRoot, outDir, mainMember, out warnings);
+            return ConvertPack(packRoot, outDir, mainMember, out warnings, recoverMissingNext);
         }
 
         /// <summary>As above; <paramref name="warnings"/> receives what the lowering corrected on purpose
         /// (PreparedMember.Warnings, a dropped next entry among them), each prefixed with its image set, for the caller
         /// to report (review D55-A: such a correction is a policy divergence, never silent).</summary>
-        public static IReadOnlyList<string> ConvertPack(string packRoot, string outDir, string mainMember, out IReadOnlyList<string> warnings)
+        public static IReadOnlyList<string> ConvertPack(string packRoot, string outDir, string mainMember, out IReadOnlyList<string> warnings,
+            bool recoverMissingNext = false)
         {
             packRoot = Path.GetFullPath(packRoot ?? throw new ArgumentNullException("packRoot"));
             outDir = Path.GetFullPath(outDir ?? throw new ArgumentNullException("outDir"));
@@ -66,7 +70,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             SafeEntry(outDir);
             if (Directory.Exists(outDir) || File.Exists(outDir))
                 throw new InvalidDataException("TICK_OUTPUT_EXISTS: choose a new output directory.");
-            List<PreparedMember> prepared = PrepareMembers(packRoot, false);
+            List<PreparedMember> prepared = PrepareMembers(packRoot, false, recoverMissingNext);
             if (mainMember != null && !prepared.Any(m => m.Name == mainMember))
                 throw new InvalidDataException("TICK_PACK_MAIN_UNKNOWN: the requested main image set is not in this pack.");
             if (prepared.Any(m => m.CrossMember) || mainMember != null || prepared.Any(m => HiddenInSourceChooser(m.Name)))
@@ -109,7 +113,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             return paths.AsReadOnly();
         }
 
-        internal static List<PreparedMember> PrepareMembers(string packRoot, bool captureRefusals)
+        /// <summary>Every member prepared, or refused when <paramref name="captureRefusals"/> holds. <paramref
+        /// name="recoverMissingNext"/> is the caller's decision-64 choice, passed to each member and kept nowhere else.</summary>
+        internal static List<PreparedMember> PrepareMembers(string packRoot, bool captureRefusals, bool recoverMissingNext = false)
         {
             packRoot = Path.GetFullPath(packRoot ?? throw new ArgumentNullException("packRoot"));
             SafeEntry(packRoot);
@@ -142,7 +148,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 {
                     SafeEntry(memberPath);
                     ShimejiSourceConfig source = ShimejiParser.ParseSourcePack(packRoot, member);
-                    prepared.Add(new MemberBuilder(packRoot, member, source, mixedRuntime).Build());
+                    prepared.Add(new MemberBuilder(packRoot, member, source, mixedRuntime) { RecoverMissingNext = recoverMissingNext }.Build());
                 }
                 catch (Exception failure) when (failure is InvalidDataException || failure is IOException
                     || failure is UnauthorizedAccessException || failure is System.Xml.XmlException
@@ -265,6 +271,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             private readonly List<SoundClip> _clipOrder = new List<SoundClip>();
             // Corrections the caller is told about (PreparedMember.Warnings).
             private readonly List<string> _warnings = new List<string>();
+            // Decision 64: whether this call selected recovery of a next entry naming no root behaviour (EmitNextEntries).
+            internal bool RecoverMissingNext;
             // Header toggles, one per Toggleable behaviour name, in first-seen order.
             private readonly List<string> _toggles = new List<string>();
             // Source behaviour name -> the host's engine name, for a member whose RuntimeSchema is Japanese
@@ -971,6 +979,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                             if (scriptedCondition || (own != null && own.Cache != ShimejiSourceCache.Literal))
                                 Fail(entry, "next reference needs a root behaviour named '" + name
                                     + "' (TICK_NEXT_MISSING_SCRIPTED: its condition is a script the source evaluates at every selection)");
+                            // Decision 64: the drop below is a policy divergence the caller must select; by default the
+                            // entry refuses, by name.
+                            if (!RecoverMissingNext)
+                                Fail(entry, "TICK_NEXT_MISSING: image set '" + _member + "', behaviour '" + owner + "': the next entry '" + name
+                                    + "' names no root behaviour, and the source stops every companion when its behaviour ends; "
+                                    + "converting with recovery drops it (policy:next-missing-dropped)");
                             Int(entry, "Frequency", null);
                             SelectionCondition(entry);
                             _warnings.Add("Behaviour '" + owner + "': the next entry '" + name + "' names no root behaviour and was dropped;"

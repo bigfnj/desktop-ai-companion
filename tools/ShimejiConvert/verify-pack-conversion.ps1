@@ -144,10 +144,10 @@ $mutations = @(
     [pscustomobject]@{ Name='partial-source-identity'; Witness='member-refusal-no-write'
         Old='if (ready.Count == prepared.Count) identity = previewIdentity;'; New='identity = previewIdentity;' },
     [pscustomobject]@{ Name='capture-member-refusals'; Witness='member-refusal-no-write'
-        Old='TickPackEmitter.PrepareMembers(extractedPackRoot, true)'; New='TickPackEmitter.PrepareMembers(extractedPackRoot, false)' },
+        Old='TickPackEmitter.PrepareMembers(extractedPackRoot, true, snapshot.RecoverMissingNext)'; New='TickPackEmitter.PrepareMembers(extractedPackRoot, false, snapshot.RecoverMissingNext)' },
     [pscustomobject]@{ Name='api-no-source-writes'; Witness='member-refusal-no-write'
-        Old='List<TickPackEmitter.PreparedMember> prepared = TickPackEmitter.PrepareMembers(extractedPackRoot, true);'
-        New='List<TickPackEmitter.PreparedMember> prepared = TickPackEmitter.PrepareMembers(extractedPackRoot, true); File.AppendAllText(Path.Combine(extractedPackRoot, "img", "Alpha", "conf", "actions.xml"), Environment.NewLine);' },
+        Old='List<TickPackEmitter.PreparedMember> prepared = TickPackEmitter.PrepareMembers(extractedPackRoot, true, snapshot.RecoverMissingNext);'
+        New='List<TickPackEmitter.PreparedMember> prepared = TickPackEmitter.PrepareMembers(extractedPackRoot, true, snapshot.RecoverMissingNext); File.AppendAllText(Path.Combine(extractedPackRoot, "img", "Alpha", "conf", "actions.xml"), Environment.NewLine);' },
     [pscustomobject]@{ Name='deep-copy-guard'; Witness='deep-copy-fault-refusal'
         Old='if (!string.Equals(canonical, copiedXml, StringComparison.Ordinal))'; New='if (canonical.Length < 0)' },
     [pscustomobject]@{ Name='fixed-point-guard'; Witness='fixed-point-fault-refusal'

@@ -562,6 +562,49 @@ namespace DesktopAICompanion.PetStudioModule
             return row;
         }
 
+        /// <summary>The action the pack report offers after a strict refusal that recovery can lift (decision 64).</summary>
+        internal const string RecoveryAction = "Import with recovery";
+
+        /// <summary>
+        /// Decision 64: whether the report offers <see cref="RecoveryAction"/>. Studio converts every pack strictly first
+        /// (<see cref="SelectPackOptions"/> never selects recovery); only a refusal that names a next entry with no root
+        /// behaviour (TICK_NEXT_MISSING) can be lifted, and only the author's click on the action asks for it. A refusal
+        /// for a scripted one (TICK_NEXT_MISSING_SCRIPTED) is not lifted by recovery, so on its own it offers nothing. Pure.
+        /// </summary>
+        internal static bool OffersRecovery(PackConversionResult result, PackConversionOptions options)
+        {
+            if (result == null || result.Accepted || options == null || options.RecoverMissingNext) return false;
+            return result.Errors.Any(e => e.IndexOf("TICK_NEXT_MISSING:", StringComparison.Ordinal) >= 0);
+        }
+
+        /// <summary>The options of <paramref name="options"/> with recovery selected, as a copy: the strict options the
+        /// author chose stay as they were. Called only from the author's click on <see cref="RecoveryAction"/>.</summary>
+        internal static PackConversionOptions WithRecovery(PackConversionOptions options)
+        {
+            return new PackConversionOptions
+            {
+                MainMember = options.MainMember,
+                Members = options.Members == null ? null : new Dictionary<string, PackMemberOptions>(options.Members, StringComparer.Ordinal),
+                Startup = options.Startup,
+                IncludeParityMaps = options.IncludeParityMaps,
+                RecoverMissingNext = true,
+            };
+        }
+
+        /// <summary>The line the pack report adds about recovery: what the action does, when it is offered; that the
+        /// dropped entries are listed above, when the author chose it; otherwise nothing. Pure.</summary>
+        internal static string RecoveryNote(PackConversionResult result, PackConversionOptions options)
+        {
+            if (OffersRecovery(result, options))
+                return "This pack's next lists name behaviours it does not define; the original program stops every companion "
+                    + "when one of those entries ends. \u201C" + RecoveryAction + "\u201D converts it again without those entries, "
+                    + "and lists each one here before you install.";
+            if (result != null && options != null && options.RecoverMissingNext)
+                return "Converted with recovery: every dropped next entry is listed above (policy:next-missing-dropped, a "
+                    + "difference from the original program). Install pack installs the pack without them.";
+            return null;
+        }
+
         /// <summary>The pack report's summary: the verdict, the pack id when there is one, then the converter's errors and
         /// warnings, each on its own line. Pure.</summary>
         internal static string Summary(PackConversionResult result, string title)
