@@ -20070,6 +20070,23 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--shimeji-window-selftest", "dp-shimeji-window-selftest.txt",
      "parity trace: an empty source name stays empty and an unmapped node keeps its name"),
+    # The provenance backstop (Codex's decision-67 review): the writer records an unattributable name, and the run's
+    # ending (ParityRun.Finish) turns that into status error. The assignment is replaced by an empty block, since
+    # deleting the line alone leaves Unattributed without a return on one path, which would not compile.
+    ("parity-lowerings host: an unattributable behaviour name records no provenance fault",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b"                ProvenanceFault = \"tick \" + _tick + \" \" + mascot.Sid + \": the behaviour event's \" + field + \" '\" + name + \"' has no node to name it by\";\n",
+     b"                { }\n",
+     HOST_CSPROJ, EXE,
+     "--shimeji-window-selftest", "dp-shimeji-window-selftest.txt",
+     "parity trace: an unattributable behaviour name is recorded as a provenance fault"),
+    ("parity-lowerings host: a provenance fault leaves the run's status complete",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b"            if (writer.ProvenanceFault != null)\n            {\n                status = \"error\";\n",
+     b"            if (writer.ProvenanceFault != null)\n            {\n",
+     HOST_CSPROJ, EXE,
+     "--shimeji-window-selftest", "dp-shimeji-window-selftest.txt",
+     "parity trace: a provenance fault ends the run in error, naming the field"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

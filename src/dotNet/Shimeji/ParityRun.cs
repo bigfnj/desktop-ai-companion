@@ -822,14 +822,23 @@ namespace DesktopAICompanion.Shimeji
                     status = "error";
                     log.WriteLine("run failed: " + e);
                 }
-                if (writer.ProvenanceFault != null)
-                {
-                    status = "error";
-                    log.WriteLine("parity trace: " + writer.ProvenanceFault);
-                }
-                writer.Footer(ticks, status);
-                return status == "complete" ? 0 : 1;
+                return Finish(writer, ticks, status, log);
             }
+        }
+
+        /// <summary>The end of every run: a name the writer could not tie to a node (its ProvenanceFault, decision 67)
+        /// turns the status to error and is logged, then the footer is written and the exit code returned. Run's only
+        /// ending; internal so ShimejiWindowSelfTest drives these same lines with a writer it has fed an unattributable
+        /// behaviour event, since no converted pack reaches one.</summary>
+        internal static int Finish(ParityTraceWriter writer, int ticks, string status, TextWriter log)
+        {
+            if (writer.ProvenanceFault != null)
+            {
+                status = "error";
+                log.WriteLine("parity trace: " + writer.ProvenanceFault);
+            }
+            writer.Footer(ticks, status);
+            return status == "complete" ? 0 : 1;
         }
 
         private static int CompareUtf8(string a, string b)
