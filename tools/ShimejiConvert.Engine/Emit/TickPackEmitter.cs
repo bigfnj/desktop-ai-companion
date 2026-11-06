@@ -473,7 +473,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     frames = frameMap, actions = _actionMap, children = _childMap, behaviours = _behaviourMap },
                     new JsonSerializerOptions { WriteIndented = true });
                 string xml = document.ToString();
-                CheckAudioLimits(xml, clips);
+                CheckAudioLimits(clips);
                 if (png.Length > DesktopAICompanion.CompanionXmlValidator.MaximumImageBytes
                     || Encoding.UTF8.GetByteCount(xml) > DesktopAICompanion.CompanionXmlValidator.MaximumXmlBytes)
                     throw new InvalidDataException("Tick member exceeds the host's image or XML byte limit: " + _member);
@@ -1417,28 +1417,24 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             }
 
             /// <summary>
-            /// The host's audio limits, by name. The per-clip and per-document limits are the validator's to set, and a
-            /// host may raise them (declared-format clips are to get a larger one), so they are not copied here: when a
-            /// clip or the document total is over the values compiled in today (CompanionXmlValidator's
-            /// MaximumAudioBytesPerSound and MaximumAudioBytesTotal, a floor the host only raises), the emitted document is
-            /// put to the host's own validator, and only its refusal on size refuses here, naming the clip or the total.
-            /// Any other validation answer is left to the pack API, which validates every member.
+            /// The host's audio limits, by name (review item 10, r4). Each clip is compared with the limit the host's own
+            /// CompanionXmlValidator.MaximumAudioBytesFor gives a sound that declares a format, as every clip written here
+            /// declares "wav" (MaximumDeclaredAudioBytesPerSound; an undeclared sound would get MaximumAudioBytesPerSound),
+            /// and the clips together with MaximumAudioBytesTotal: bound constants, so a host that raises a limit is
+            /// followed with no converter change. The comparison is direct, so the refusal names the clip or the total
+            /// whatever else the validator would report first; through the validator's first error, a member whose
+            /// document failed earlier on something else reached the pack API with an unnamed size refusal.
             /// </summary>
-            private void CheckAudioLimits(string xml, List<SoundClip> clips)
+            private void CheckAudioLimits(List<SoundClip> clips)
             {
                 if (clips.Count == 0) return;
                 SoundClip largest = clips.OrderByDescending(c => c.Bytes.Length).First();
                 long total = clips.Sum(c => (long)c.Bytes.Length);
-                if (largest.Bytes.Length <= DesktopAICompanion.CompanionXmlValidator.MaximumDeclaredAudioBytesPerSound
-                    && total <= DesktopAICompanion.CompanionXmlValidator.MaximumAudioBytesTotal) return;
-                XmlData.RootNode ignored;
-                string error;
-                if (DesktopAICompanion.CompanionXmlValidator.TryParseWithFeatures(xml, DesktopAICompanion.CompanionFormatFeatures.All, out ignored, out error))
-                    return;
-                if (error != null && error.IndexOf("sound exceeds its", StringComparison.Ordinal) >= 0)
+                int perClip = DesktopAICompanion.CompanionXmlValidator.MaximumAudioBytesFor(new XmlData.SoundNode { Format = "wav" });
+                if (largest.Bytes.Length > perClip)
                     throw new InvalidDataException("TICK_SOUND_CLIP_LIMIT: the host refuses clip '" + largest.Id + "' (" + largest.Bytes.Length
-                        + " bytes) as larger than its per-clip limit: " + _member);
-                if (error != null && error.IndexOf("Pet audio exceeds the total size limit", StringComparison.Ordinal) >= 0)
+                        + " bytes) as larger than its per-clip limit of " + perClip + " bytes: " + _member);
+                if (total > DesktopAICompanion.CompanionXmlValidator.MaximumAudioBytesTotal)
                     throw new InvalidDataException("TICK_SOUND_DOCUMENT_LIMIT: the host refuses the member's " + clips.Count + " clips (" + total
                         + " bytes) as more audio than one document may hold: " + _member);
             }

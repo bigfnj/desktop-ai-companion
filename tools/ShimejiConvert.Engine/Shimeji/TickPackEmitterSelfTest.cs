@@ -2067,6 +2067,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 // Over the host's per-clip limit for a declared-format clip in bytes, yet under 60 s (48 kHz 16-bit stereo).
                 new { File = "sound/big.wav", Bytes = RawWave(48000, 2, 16, DesktopAICompanion.CompanionXmlValidator.MaximumDeclaredAudioBytesPerSound + 64),
                     Sound = "/big.wav", Volume = (string)null, Expected = "TICK_SOUND_CLIP_LIMIT: the host refuses clip '/big.wav'" },
+                // Three clips each inside the per-clip limit (2.75 MiB of 48 kHz 16-bit stereo, 15 s) and together past the
+                // host's per-document total of 8 MiB, while the document stays inside its 12 MiB XML limit.
+                new { File = "sound/a.wav", Bytes = RawWave(48000, 2, 16, 2883584), Sound = "/a.wav", Volume = (string)null,
+                    Expected = "TICK_SOUND_DOCUMENT_LIMIT: the host refuses the member's 3 clips" },
                 // Decision 70: 61 s of 8 kHz 8-bit mono is 488 kB, well inside the byte limits, and decodes past the
                 // host's 60 s at its mixer format.
                 new { File = "sound/long.wav", Bytes = RawWave(8000, 1, 8, 61 * 8000), Sound = "/long.wav", Volume = (string)null,
@@ -2076,10 +2080,31 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 using (var fixture = new Fixture())
                 {
                     if (c.File != null) WriteBytes(fixture, c.File, c.Bytes);
-                    fixture.Actions(SoundActions(c.Sound, c.Volume, null));
+                    XDocument actions = SoundActions(c.Sound, c.Volume, null);
+                    if (c.File == "sound/a.wav")
+                    {
+                        // The total case: two more clips of the same size, each on its own pose of the same animation.
+                        WriteBytes(fixture, "sound/b.wav", c.Bytes);
+                        WriteBytes(fixture, "sound/c.wav", c.Bytes);
+                        XElement[] poses = actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Stand").Descendants("Pose").ToArray();
+                        poses[1].SetAttributeValue("Sound", "/b.wav");
+                        poses[2].SetAttributeValue("Sound", "/c.wav");
+                    }
+                    fixture.Actions(actions);
                     Refusal(fixture, c.Expected);
                     Require(!Directory.Exists(fixture.Output), "sound refusal left output: " + c.Expected);
                 }
+            // Review item 10 (r4): the clip is named even when the host's validator would refuse the document first for
+            // something else: here a variant of 513 poses, past the schema's 512, which the emitter does not count.
+            using (var fixture = new Fixture())
+            {
+                WriteBytes(fixture, "sound/big.wav", RawWave(48000, 2, 16, DesktopAICompanion.CompanionXmlValidator.MaximumDeclaredAudioBytesPerSound + 64));
+                XDocument actions = SoundActions("/big.wav", null, null);
+                actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Stand").Element("Animation")
+                    .Add(Enumerable.Range(0, 513).Select(i => Pose("/p.png", 1)));
+                fixture.Actions(actions);
+                Refusal(fixture, "TICK_SOUND_CLIP_LIMIT: the host refuses clip '/big.wav'");
+            }
         }
 
         // H3: a configuration file spelt otherwise on disk ("Actions.xml", "CONF") is named as the pack spells it in the
