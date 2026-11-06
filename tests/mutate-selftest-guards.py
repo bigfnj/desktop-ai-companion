@@ -19624,6 +19624,22 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--audio-selftest", "dp-audio-selftest.txt",
      "pet sound: a classic pet sound past the decode cap is silent and reported once"),
+    # Review N2: the tick size lowering never goes below 1:1.
+    ("host-limits: N2 the size lowering goes below 1:1",
+     os.path.join(REPO, "src", "dotNet", "Xml.cs"),
+     b'            return factor <= fits ? factor : Math.Max(1.0, fits);\n',
+     b'            return factor <= fits ? factor : fits;\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     "large frames: a size the budget would put below 1:1 stages at exactly 1:1"),
+    # Review N3: a lowered size is said once at staging.
+    ("host-limits: N3 a lowered size is not said",
+     os.path.join(REPO, "src", "dotNet", "StartUp.cs"),
+     b'                    if (stagedXml.SizeLoweredForBudgetFrom > 0)\n',
+     b'                    if (stagedXml.SizeLoweredForBudgetFrom > 99)\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     "large frames: a lowered size is said once at staging, naming the companion and both sizes"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

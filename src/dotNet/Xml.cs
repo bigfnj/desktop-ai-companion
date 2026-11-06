@@ -91,6 +91,11 @@ namespace DesktopAICompanion
         /// <summary>Effective FRACTIONAL render + movement factor (the size slider; may be below 1).</summary>
         public double ScaleFactorD { get { return scaleFactorD; } }
 
+        /// <summary>The size the user asked for when a tick companion's frames were staged smaller to fit the generated-pixel
+        /// budget (<see cref="TickFactorWithinBudget"/>); 0 when they were not. The host says so once at staging
+        /// (StartUp.TryStageRuntime), since nothing else would tell the user why the companion is smaller than asked.</summary>
+        internal double SizeLoweredForBudgetFrom { get; private set; }
+
         /// <summary>True when this pet opts into per-pixel alpha rendering (&lt;transparency&gt;Alpha).</summary>
         public bool UsesAlpha { get { return usesAlpha; } }
 
@@ -252,6 +257,7 @@ namespace DesktopAICompanion
                 int stagedHeight;
                 double stagedFactor;
                 bool stagedUsesAlpha;
+                double stagedLoweredFrom;
                 ReadImages(
                     parsed,
                     sheetBytes,
@@ -261,7 +267,8 @@ namespace DesktopAICompanion
                     out stagedWidth,
                     out stagedHeight,
                     out stagedFactor,
-                    out stagedUsesAlpha);
+                    out stagedUsesAlpha,
+                    out stagedLoweredFrom);
 
                 parsed.Header.Petname =
                     UnicodeTextProgress.TruncateAtCodePointBoundary(
@@ -280,6 +287,7 @@ namespace DesktopAICompanion
                 spriteWidth = stagedWidth;
                 spriteHeight = stagedHeight;
                 scaleFactorD = stagedFactor;
+                SizeLoweredForBudgetFrom = stagedLoweredFrom;
                 iScale = ScalePolicy.LevelForExpression(stagedFactor);
                 // In the commit block with everything else (F317): it was written inside ReadImages, before
                 // any of the steps that can throw, so a failed re-read on a live instance kept the old frames
@@ -557,8 +565,10 @@ namespace DesktopAICompanion
             out int stagedWidth,
             out int stagedHeight,
             out double stagedFactor,
-            out bool stagedUsesAlpha)
+            out bool stagedUsesAlpha,
+            out double stagedLoweredFrom)
         {
+            stagedLoweredFrom = 0;
             // The validator's bytes (F318): it decoded and proved both, so this method no longer runs its
             // own base64 pass over the sheet. A local, not the field (F317): the field is assigned in the
             // caller's commit block, after every step here that can throw.
@@ -589,7 +599,12 @@ namespace DesktopAICompanion
                         sourceHeight,
                         frameLimit);
                     if (tick && stagedFactor > 1.0)
-                        stagedFactor = TickFactorWithinBudget(stagedFactor, root.Image.TilesX, root.Image.TilesY, sourceWidth, sourceHeight);
+                    {
+                        double fitted = TickFactorWithinBudget(stagedFactor, root.Image.TilesX, root.Image.TilesY, sourceWidth, sourceHeight);
+                        // Kept so the host can say so once at staging (SizeLoweredForBudgetFrom): the size the user asked for.
+                        if (fitted < stagedFactor) stagedLoweredFrom = scaleFactorD;
+                        stagedFactor = fitted;
+                    }
                     stagedWidth = Math.Max(1, (int)Math.Round(sourceWidth * stagedFactor));
                     stagedHeight = Math.Max(1, (int)Math.Round(sourceHeight * stagedFactor));
                     if (stagedWidth > frameLimit || stagedHeight > frameLimit)

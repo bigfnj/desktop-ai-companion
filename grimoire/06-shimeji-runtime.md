@@ -377,7 +377,8 @@ To be confirmed by the parity lane against `UserBehavior` before freeze.
 
 The sheet caps are the same in both modes (4096 px a side, 16 Mi pixels), and they bound the memory. A tick frame is
 staged at the user's size up to the frame side, and as far as the staged frames stay within those 16 Mi pixels (a large
-sheet at a large size is staged at the largest size that fits, never below 1:1). A host older than the tick frame side
+sheet at a large size is staged at the largest size that fits, never below 1:1, and the app's diagnostic log says so
+once at staging, naming the companion and both sizes). A host older than the tick frame side
 refuses such a companion at validation: "sprite image contains a frame larger than the runtime supports".
 
 ### 4.5 One step of one companion

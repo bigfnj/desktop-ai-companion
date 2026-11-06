@@ -7773,7 +7773,9 @@ which is a clean refusal though not by name; a token would have made the convert
 safety. Raising the cap alone would have let a tick companion's frames grow with the user's size past what the 256 cap
 used to stop, and a large sheet at a large size would then refuse to load where it loaded before (100 frames of 128 px
 at 400% are 26 Mi pixels), so on the tick path the size is lowered as far as the frames need to fit the generated-pixel
-budget, never below 1:1 (`TickFactorWithinBudget`).
+budget, never below 1:1 (`TickFactorWithinBudget`). The host's staging says so once in the diagnostic log, naming the
+companion, the size asked for and the size used (`StartUp.TickSizeNoticeSink`; the stand-in review's N3), since
+nothing else tells the user why the companion is smaller than the size pane says.
 
 **A clip that declares a `format` may be 4 MiB; an undeclared one, classic or tick MP3, stays at 2 MiB.** The 8 MiB
 document total and the 12 MiB XML limit are unchanged. Only a declared clip, because the attribute needs feature `wav`
