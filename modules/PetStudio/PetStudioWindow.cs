@@ -1402,10 +1402,10 @@ namespace DesktopAICompanion.PetStudioModule
                     return;
                 }
                 _packRoot = packRoot;
+                // The status is LoadPackReport's. Every pack-mode status, the main member's analysis verdict included,
+                // starts with PackStatusPrefix, which says the pack was converted with recovery and how many next entries
+                // that dropped; a status written here was overwritten by that verdict about two seconds later (Round 8).
                 LoadPackReport(result, recovering, title);
-                SetStatus(result.Accepted
-                    ? "Converted with recovery: the dropped entries are listed in the pack report. Nothing is installed until Install pack."
-                    : "Converted with recovery, and still not accepted: see the pack report.");
             }
             finally { _importing = false; }
         }
@@ -1588,13 +1588,11 @@ namespace DesktopAICompanion.PetStudioModule
             _packMembers.SelectedIndex = select >= 0 ? select : 0;
         }
 
-        /// <summary>"Pack 'X' accepted. " or "Pack 'X' not accepted: first error. ", ahead of whatever a member pick says.</summary>
+        /// <summary>"Pack 'X' accepted. " or "Pack 'X' not accepted: first error. ", plus the recovery it was converted
+        /// with, ahead of whatever a member pick or its analysis says (<see cref="PackImport.StatusPrefix"/>).</summary>
         private string PackStatusPrefix()
         {
-            if (_pack == null) return "";
-            return _pack.Accepted
-                ? "Pack '" + _packTitle + "' accepted. "
-                : "Pack '" + _packTitle + "' not accepted" + (string.IsNullOrWhiteSpace(_pack.Error) ? "" : ": " + _pack.Error.Trim().TrimEnd('.')) + ". ";
+            return PackImport.StatusPrefix(_pack, _packOptions, _packTitle);
         }
 
         /// <summary>A member row was clicked: a prepared member opens in the editor, read-only, and is analyzed as any

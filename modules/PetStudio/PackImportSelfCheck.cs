@@ -46,13 +46,18 @@ namespace DesktopAICompanion.PetStudioModule
                 foreach (bool scripted in new[] { false, true })
                 {
                     string packRoot = Path.Combine(scratch, scripted ? "Scripted Pack" : "Dangling Pack");
-                    WriteMember(packRoot, "Alpha", null);
-                    string behaviours = Path.Combine(packRoot, "img", "Alpha", "conf", "behaviors.xml");
-                    XDocument document = XDocument.Load(behaviours);
-                    var entry = new XElement("BehaviorReference", new XAttribute("Name", "Ghost"), new XAttribute("Action", "Stand"), new XAttribute("Frequency", 1));
-                    if (scripted) entry.Add(new XAttribute("Condition", "${mascot.lookRight}"));
-                    document.Root.Element("BehaviorList").Elements("Behavior").First().Add(new XElement("NextBehaviorList", new XAttribute("Add", "true"), entry));
-                    File.WriteAllText(behaviours, document.ToString());
+                    // Round 8: the plain pack has a second member with its own dangling entry, so the status's count is
+                    // the pack's, not one member's, and the strict refusal prepares no member at all.
+                    foreach (string key in scripted ? new[] { "Alpha" } : new[] { "Alpha", "Beta" })
+                    {
+                        WriteMember(packRoot, key, null);
+                        string behaviours = Path.Combine(packRoot, "img", key, "conf", "behaviors.xml");
+                        XDocument document = XDocument.Load(behaviours);
+                        var entry = new XElement("BehaviorReference", new XAttribute("Name", "Ghost"), new XAttribute("Action", "Stand"), new XAttribute("Frequency", 1));
+                        if (scripted) entry.Add(new XAttribute("Condition", "${mascot.lookRight}"));
+                        document.Root.Element("BehaviorList").Elements("Behavior").First().Add(new XElement("NextBehaviorList", new XAttribute("Add", "true"), entry));
+                        File.WriteAllText(behaviours, document.ToString());
+                    }
                     string refusal;
                     PackConversionOptions options = PackImport.SelectPackOptions(PackImport.DefaultChoices(PackImport.ListMemberKeys(packRoot), "Alpha"),
                         "Alpha", null, null, out refusal);
@@ -68,6 +73,14 @@ namespace DesktopAICompanion.PetStudioModule
                         + (strict == null ? refusal : strict.Error),
                         options != null && !options.RecoverMissingNext && strict != null && !strict.Accepted
                         && strict.Errors.Any(e => e.Contains("TICK_NEXT_MISSING: image set 'Alpha', behaviour 'Main': the next entry 'Ghost'")));
+                    string strictSummary = strict == null ? refusal : PackImport.Summary(strict, "Dangling Pack");
+                    probe.Check("a refused pack with no member prepared does not offer to open one: " + strictSummary,
+                        strictSummary.StartsWith("\u2717 Pack 'Dangling Pack': not accepted (0 of 2 member(s) prepared), so it cannot be installed.", StringComparison.Ordinal)
+                        && strictSummary.IndexOf("can still be opened", StringComparison.Ordinal) < 0);
+                    string strictStatus = PackImport.StatusPrefix(strict, options, "Dangling Pack");
+                    probe.Check("WITNESS a strict pack's status says nothing about recovery: " + strictStatus,
+                        strictStatus.StartsWith("Pack 'Dangling Pack' not accepted: ", StringComparison.Ordinal)
+                        && strictStatus.IndexOf("Converted with recovery", StringComparison.Ordinal) < 0);
                     string note = PackImport.RecoveryNote(strict, options);
                     probe.Check("the strict refusal installs nothing and offers '" + PackImport.RecoveryAction + "', saying why: " + note,
                         strict != null && !PackImport.CanInstall(strict, true) && PackImport.OffersRecovery(strict, options)
@@ -82,6 +95,16 @@ namespace DesktopAICompanion.PetStudioModule
                         recovered != null && recovered.Accepted && PackImport.CanInstall(recovered, true) && !PackImport.OffersRecovery(recovered, recovering)
                         && summary.Split('\n').Count(l => l.StartsWith("\u26A0 Image set 'Alpha': Behaviour 'Main': the next entry 'Ghost' names no root behaviour and was dropped", StringComparison.Ordinal)) == 1
                         && summary.Contains("policy:next-missing-dropped"));
+                    // Round 8: the status the analysis verdict follows keeps saying so, with the pack's count.
+                    string recoveredStatus = recovered == null ? refusal : PackImport.StatusPrefix(recovered, recovering, "Dangling Pack");
+                    probe.Check("the pack status keeps saying it was converted with recovery, and how many entries were dropped: " + recoveredStatus,
+                        recoveredStatus == "Pack 'Dangling Pack' accepted. Converted with recovery: 2 dropped next entry(s), each listed in the pack report. "
+                        && PackImport.DroppedByRecovery(recovered) == 2);
+                    probe.Check("WITNESS each recovered member's row counts its dropped entry (PD-1): "
+                        + (recovered == null ? refusal : string.Join(" | ", recovered.Members.Select(m => PackImport.MemberRow(m, recovering)))),
+                        recovered != null && recovered.Members.Count == 2 && recovered.Members.All(m =>
+                            m.Residue.Dropped.Count(i => i.Detail.Contains(PackImport.RecoveryPolicy)) == 1
+                            && PackImport.MemberRow(m, recovering).IndexOf("   0 not converted", StringComparison.Ordinal) < 0));
                 }
             }
             catch (Exception ex) { probe.Check("the recovery checks ran without an exception: " + ex.GetType().Name + ": " + ex.Message, false); }
@@ -322,6 +345,8 @@ namespace DesktopAICompanion.PetStudioModule
                 CheckPreviewAndReplace(probe, accepted);
                 CheckRetryAndReimport(probe, accepted, packRoot, rows);
 
+                probe.Check("WITNESS a refused pack with a prepared member still says one can be opened",
+                    PackImport.Summary(notAccepted, "Synthetic Pack").IndexOf("A prepared member can still be opened below.", StringComparison.Ordinal) >= 0);
                 probe.Check("WITNESS the pack report names the verdict and every member: " + PackImport.MemberRow(eggResult, options),
                     PackImport.Summary(accepted, "Synthetic Pack").StartsWith("✓ Pack 'Synthetic Pack': accepted, 3 member(s).", StringComparison.Ordinal)
                     && PackImport.Summary(notAccepted, "Synthetic Pack").StartsWith("✗ Pack 'Synthetic Pack': not accepted", StringComparison.Ordinal)

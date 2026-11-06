@@ -605,8 +605,37 @@ namespace DesktopAICompanion.PetStudioModule
             return null;
         }
 
+        /// <summary>The policy tag the converter puts on each next entry recovery dropped (PD-1: one Dropped residue item
+        /// per entry, in its member's residue).</summary>
+        internal const string RecoveryPolicy = "policy:next-missing-dropped";
+
+        /// <summary>How many next entries recovery dropped across the pack: the members' Dropped residue items that carry
+        /// <see cref="RecoveryPolicy"/>. Pure.</summary>
+        internal static int DroppedByRecovery(PackConversionResult result)
+        {
+            if (result == null) return 0;
+            return result.Members.Sum(m => m.Residue == null ? 0
+                : m.Residue.Dropped.Count(i => i.Detail != null && i.Detail.IndexOf(RecoveryPolicy, StringComparison.Ordinal) >= 0));
+        }
+
+        /// <summary>
+        /// The start of every status line while a pack is shown: "Pack 'X' accepted. " or "Pack 'X' not accepted: first
+        /// error. ", then, when the author chose recovery, that it was converted with recovery and how many next entries
+        /// that dropped. The main member's analysis writes its verdict after this prefix, so the recovery stays said
+        /// (Round 8: a status written once by the recovery click was overwritten by that verdict two seconds later). Pure.
+        /// </summary>
+        internal static string StatusPrefix(PackConversionResult result, PackConversionOptions options, string title)
+        {
+            if (result == null) return "";
+            string verdict = result.Accepted
+                ? "Pack '" + title + "' accepted. "
+                : "Pack '" + title + "' not accepted" + (string.IsNullOrWhiteSpace(result.Error) ? "" : ": " + result.Error.Trim().TrimEnd('.')) + ". ";
+            if (options == null || !options.RecoverMissingNext) return verdict;
+            return verdict + "Converted with recovery: " + DroppedByRecovery(result) + " dropped next entry(s), each listed in the pack report. ";
+        }
+
         /// <summary>The pack report's summary: the verdict, the pack id when there is one, then the converter's errors and
-        /// warnings, each on its own line. Pure.</summary>
+        /// warnings, each on its own line. Only a pack with a prepared member says one can be opened. Pure.</summary>
         internal static string Summary(PackConversionResult result, string title)
         {
             if (result == null) return "";
@@ -615,7 +644,7 @@ namespace DesktopAICompanion.PetStudioModule
             lines.Add(result.Accepted
                 ? "✓ Pack '" + title + "': accepted, " + result.Members.Count + " member(s). Install pack installs every one."
                 : "✗ Pack '" + title + "': not accepted (" + prepared + " of " + result.Members.Count +
-                  " member(s) prepared), so it cannot be installed. A prepared member can still be opened below.");
+                  " member(s) prepared), so it cannot be installed." + (prepared > 0 ? " A prepared member can still be opened below." : ""));
             if (!string.IsNullOrEmpty(result.PackId)) lines.Add("Pack id: " + result.PackId);
             foreach (string e in result.Errors) lines.Add("✗ " + e);
             foreach (string w in result.Warnings) lines.Add("⚠ " + w);
