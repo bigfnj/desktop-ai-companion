@@ -307,6 +307,23 @@ namespace DesktopAICompanion
                 + (longDecoded == null ? failure : longDecoded.Length + " samples") + ")",
                 shortMp3 != null && shortMp3.Length > 0 && longDecoded == null
                 && failure.IndexOf("decodes to more than the 60 s a clip may play", StringComparison.Ordinal) >= 0);
+
+            // A classic pet's sound takes Play's path, not PlayClip's: capped the same, and reported once the same (review N1).
+            using (var output = new AudioOutput())
+            {
+                var lines = new System.Collections.Generic.List<string>();
+                output.ClipFailureSink = lines.Add;
+                float[] first = output.PetSoundSamplesForTest(longMp3);
+                float[] second = output.PetSoundSamplesForTest(longMp3);
+                ok &= Check(sb, "pet sound: a classic pet sound past the decode cap is silent and reported once (" + lines.Count + " line(s)"
+                    + (lines.Count > 0 ? ": " + lines[0] : "") + ")",
+                    (first == null || first.Length == 0) && second != null && second.Length == 0 && lines.Count == 1
+                    && lines[0].IndexOf("pet sound (MP3) would not decode and stays silent: InvalidDataException: it decodes to more than the 60 s",
+                        StringComparison.Ordinal) >= 0);
+                float[] fine = output.PetSoundSamplesForTest(mp3);
+                ok &= Check(sb, "pet sound: WITNESS a short classic pet sound through the same output decodes and reports nothing",
+                    fine != null && fine.Length > 0 && lines.Count == 1);
+            }
             return ok;
         }
 

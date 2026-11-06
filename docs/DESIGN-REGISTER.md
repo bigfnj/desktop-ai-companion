@@ -7754,8 +7754,11 @@ recorded above is gone with it: the parse hands the decoder the plain tag.
 **Every pet sound and clip decodes to at most 60 seconds at the mixer format** (`MaximumClipDecodedSamples`, about 21 MB
 of floats), MP3 and WAV alike, through one function (`ReadClip`), so the cap cannot be on one format and missing from the
 other. The validator bounds bytes, not what they become: an 8 kbps MP3 decodes to about 353 times its bytes. Measured
-before choosing it: the 276 sounds of the 55 shipped pet documents are all MP3 and the longest plays 4.18 s. A clip past
-the cap is refused at decode, logged once and silent, and the companion runs on. The same figure as the module cap
+before choosing it: the 276 sounds of the 55 shipped pet documents are all MP3 and the longest plays 4.18 s. A sound or
+clip past the cap is refused at decode, logged once through `ClipFailureSink` and silent, and the companion runs on; a
+classic pet's sound (`Play`, `PetSoundSamples`) as much as a tick companion's clip (`PlayClip`, `ClipSamples`). The
+classic path dropped the reason until the branch's stand-in review (N1), so a classic sound over 60 s, which played
+before the cap, went silent with nothing logged. The cap stays on that path: it is the decode-bomb guard. The same figure as the module cap
 (`MaximumModuleDecodedSamples`). The decode still runs on the UI thread under the audio lock: BACKLOG
 N-shimeji-host-limits-01, with its measured times.
 

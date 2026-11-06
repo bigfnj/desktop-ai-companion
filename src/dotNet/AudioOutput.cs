@@ -160,20 +160,33 @@ namespace DesktopAICompanion
             lock (_sync)
             {
                 if (_disposed || !EnsureStarted()) return;
-                float[] samples = CachedDecode(mp3);
+                float[] samples = PetSoundSamples(mp3);
                 if (samples == null || samples.Length == 0) return;
                 AddInput(samples, Math.Max(0, Math.Min(20, loop)), (float)Math.Max(0.0, Math.Min(1.0, volume)), EngineOwner);
             }
         }
 
-        /// <summary>The decoded samples of a pet MP3, decoded once while its bytes live. Caller holds _sync.</summary>
-        private float[] CachedDecode(byte[] mp3)
+        /// <summary>
+        /// A classic pet sound's samples, decoded once while its bytes live, its first failure reported once through
+        /// <see cref="ClipFailureSink"/> exactly as a companion clip's is. Since the decode cap a classic sound past 60 s is
+        /// refused, and this overload used to drop the reason, so such a sound went silent with nothing in the log (the
+        /// stand-in review of feature/shimeji-host-limits, N1). The cap stays: it is the decode-bomb guard. Caller holds _sync.
+        /// </summary>
+        private float[] PetSoundSamples(byte[] mp3)
         {
             string failure;
-            return CachedDecode(mp3, false, out failure);
+            float[] samples = CachedDecode(mp3, false, out failure);
+            if (failure != null) ClipFailureSink("pet sound (MP3) would not decode and stays silent: " + failure);
+            return samples;
         }
 
-        /// <summary>As above for a clip of either format. <paramref name="failure"/> is set only by the decode that
+        /// <summary>Self-tests: <see cref="Play"/>'s decode and report without a device, under the lock every caller takes.</summary>
+        internal float[] PetSoundSamplesForTest(byte[] mp3)
+        {
+            lock (_sync) return PetSoundSamples(mp3);
+        }
+
+        /// <summary>A sound or clip of either format, decoded once. <paramref name="failure"/> is set only by the decode that
         /// FAILED, which happens once per byte array: the failure is cached like a success, so the clip is not decoded
         /// again and its caller reports it once. Caller holds _sync.</summary>
         private float[] CachedDecode(byte[] audio, bool wav, out string failure)
@@ -237,8 +250,8 @@ namespace DesktopAICompanion
             return samples;
         }
 
-        /// <summary>Where a clip that will not decode is reported, once (see <see cref="CachedDecode(byte[], bool, out string)"/>):
-        /// the diagnostic log; a self-test records the lines instead.</summary>
+        /// <summary>Where a companion clip or a classic pet sound that will not decode is reported, once (see
+        /// <see cref="CachedDecode(byte[], bool, out string)"/>): the diagnostic log; a self-test records the lines instead.</summary>
         internal Action<string> ClipFailureSink = delegate (string line)
         {
             try { DiagnosticLog.Write(LogCategory.Audio, "warning", null, line); }

@@ -19616,6 +19616,14 @@ CASES = (
      b'                // the feature pre-check is gone\n',
      HOST_CSPROJ, EXE,
      SECURITY, None, "host limits: a host that does not run 'wav' refuses a clip past every size limit by the feature's name"),
+    # Review N1: a classic pet sound's decode failure (the 60 s cap included) is reported once, as a clip's is.
+    ("host-limits: N1 a classic pet sound's failure is not reported",
+     os.path.join(REPO, "src", "dotNet", "AudioOutput.cs"),
+     b'            if (failure != null) ClipFailureSink("pet sound (MP3) would not decode and stays silent: " + failure);\n',
+     b'            if (failure != null && mp3 == null) ClipFailureSink("pet sound (MP3) would not decode and stays silent: " + failure);\n',
+     HOST_CSPROJ, EXE,
+     "--audio-selftest", "dp-audio-selftest.txt",
+     "pet sound: a classic pet sound past the decode cap is silent and reported once"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

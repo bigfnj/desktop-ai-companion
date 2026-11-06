@@ -171,7 +171,8 @@ run.
   image set at load (`SoundLoader.java:21-24`, `AnimationBuilder.java:161-165`, `Main.java:478-484`). A clip this
   validator accepts that the host's decoder then cannot decode plays silently: the app logs it once and the
   companion keeps running. So does a clip, WAV or MP3, that would decode to more than 60 seconds at the mixer's
-  44.1 kHz stereo (`AudioOutput.MaximumClipDecodedSamples`).
+  44.1 kHz stereo (`AudioOutput.MaximumClipDecodedSamples`), and so does a classic companion's sound past the same
+  cap: it is silent and logged once, the same way.
 - **Playing a clip** (`Mascot.java:612-625`, `Sounds.java`, `SoundLoader.java`):
   - A clip is one sound at one volume. Every companion whose applied pose names the same clip of a type at the same
     volume shares it: one clip, one playing state. The same sound at another volume is another clip.
