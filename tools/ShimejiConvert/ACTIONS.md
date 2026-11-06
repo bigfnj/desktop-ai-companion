@@ -152,6 +152,17 @@ Every visible pose carries its image size and effective anchor. Explicit right-f
 size and frame; their pixels are not mirrored. The image-pair cache retains the first loaded anchor for repeated
 left/right path pairs, including pairs in unused actions. The parity map records that effective anchor so it
 agrees with every pose using the frame; the source IR retains each pose's authored value.
+A pose of Duration 0 is left out of its variant: the source never makes it the current pose (Animation.getPoseAt,
+Animation.java:54-67) and it adds nothing to the animation's length (:70-78). Its image, anchor and clip are still
+checked as the source loads them. Known trace limitation: leaving it out shifts the index of every later pose of that
+variant, so a traced pose index no longer equals the source's (a v1.1 pose-map item; the image and anchor traced are
+unaffected). An Animation whose every pose has Duration 0 (decisions 68, review N2): in an Animate or an Interact
+action, whose hasNext is false at once (Animate.java:38-42, Interact.java:34-36), the action ends before its first
+step, written as one variant that never holds (`when="false"`, one image-less pose), which the host's Animate also
+ends on at once. Under a Sequence or Select, in an instant class, or after an unconditional Animation, the source
+never plays it, and it is left out. Only a class that steps the animation (Stay, Move and the others) can play it,
+and there the source divides by the length 0 and stops every companion, so it refuses (TICK_POSE_ZERO_LENGTH); in an
+Animate or Interact where a condition can select it (TICK_POSE_ZERO_LENGTH_SELECTABLE), it refuses too.
 Distinct source image paths keep separate frame identities. Pixel copying preserves alpha and ignores sprite DPI;
 images are not resized. A member-local ImageRight must start with a separator. Right-only poses are refused
 because they can depend on an earlier cache entry. Java hexadecimal floating literals are refused until the

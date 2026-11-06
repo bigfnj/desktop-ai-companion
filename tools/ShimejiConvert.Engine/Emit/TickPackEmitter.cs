@@ -619,6 +619,15 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 // the guard and the variants as the schema orders them.
                 var conditions = new List<XElement>();
                 int childIndex = 0, animationIndex = 0, position = 0;
+                // Decision 68 and review N2: what an Animation whose every pose has Duration 0 does in this action. The
+                // source never plays one under Sequence or Select or in an instant class (ActionBuilder.java:107-113,
+                // 133-136), nor one after an unconditional Animation (ActionBase.getAnimation takes the first effective,
+                // ActionBase.java:192-201). In an Animate or Interact action, hasNext is false at once (Animate.java:38-42,
+                // Interact.java:34-36), so the action ends before its first step. Only a class that steps the animation
+                // (Stay, Move and the others) reaches getPoseAt's division by the length 0 (Animation.java:54-56).
+                string zeroLength = composite || (type == "Embedded" && InstantClasses.Contains(cls)) ? "unplayed"
+                    : type == "Animate" || (type == "Embedded" && cls == "Interact") ? "ends" : "steps";
+                bool shadowed = false, endsAtOnce = false;
                 foreach (ShimejiSourceElement child in source.Children)
                 {
                     position++;
@@ -627,8 +636,16 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                         // Composite animations do not run, but the source still loads their images.
                         _scope = scope;
                         _readerAction = source;
-                        XElement variant = EmitVariant(child, ++animationIndex, composite ? null : conditions);
-                        if (!composite) variants.Add(variant);
+                        XElement variant = EmitVariant(child, ++animationIndex, composite ? null : conditions, zeroLength == "steps" && !shadowed);
+                        if (variant == null && zeroLength == "ends" && !shadowed)
+                        {
+                            if (animationIndex != 1 || !Unconditional(child))
+                                Fail(child, "TICK_POSE_ZERO_LENGTH_SELECTABLE: every pose of this Animation has Duration 0, and it is chosen only "
+                                    + "while its own or an earlier Animation's condition says so; ending the action then has no form here");
+                            endsAtOnce = true;
+                        }
+                        if (variant != null && !composite && !endsAtOnce) variants.Add(variant);
+                        if (Unconditional(child)) shadowed = true;
                     }
                     else if (composite && (child.Kind == ShimejiSourceKind.ActionReference || child.Kind == ShimejiSourceKind.Action))
                     {
@@ -682,6 +699,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 }
                 else
                 {
+                    // Decision 68: the action ends before its first step. The host's Animate and Interact end there too
+                    // when no variant holds (TickAnimate.HasNext: no variant, not in time), as its behaviour's Init then
+                    // hands to the next behaviour; the one variant never holds and its image-less pose is never shown.
+                    if (endsAtOnce)
+                        variants = E("variants", E("variant", new XAttribute("when", "false"),
+                            E("pose", new XAttribute("frame", -1), new XAttribute("ticks", 1), new XAttribute("dx", 0), new XAttribute("dy", 0))));
                     if (!variants.Elements().Any()) Fail(source, "posed action has no Animation");
                     act.Add(variants);
                 }
@@ -735,7 +758,18 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 return result;
             }
 
-            private XElement EmitVariant(ShimejiSourceElement source, int index, List<XElement> conditions)
+            /// <summary>An Animation with no Condition, or a literal true one: once it is in an action's list, the source's
+            /// getAnimation never reaches a later one.</summary>
+            private static bool Unconditional(ShimejiSourceElement animation)
+            {
+                ShimejiSourceAttribute condition = animation.Attribute("Condition");
+                return condition == null || (condition.Cache == ShimejiSourceCache.Literal && condition.RawValue.Trim() == "true");
+            }
+
+            /// <summary>One source Animation as a variant, or null for one whose every pose has Duration 0 where
+            /// <paramref name="refuseZeroLength"/> is false (decision 68: the caller knows the source never plays it, or
+            /// that it ends the action); where it is true, such an Animation refuses (TICK_POSE_ZERO_LENGTH).</summary>
+            private XElement EmitVariant(ShimejiSourceElement source, int index, List<XElement> conditions, bool refuseZeroLength)
             {
                 Check(source, "Condition", "IsTurn");
                 var variant = E("variant");
@@ -835,7 +869,11 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 }
                 // Every pose 0 long: the animation's length is 0, and getPoseAt's `time %= getDuration()` divides by it.
                 if (!variant.Elements().Any() && anyPose)
-                    Fail(source, "TICK_POSE_ZERO_LENGTH: every pose of this Animation has Duration 0, and the source divides by its length 0");
+                {
+                    if (refuseZeroLength)
+                        Fail(source, "TICK_POSE_ZERO_LENGTH: every pose of this Animation has Duration 0, and the source divides by its length 0");
+                    return null;
+                }
                 if (!variant.Elements().Any()) Fail(source, "Animation has no poses");
                 if (hotspots.Count > 64) Fail(source, "TICK_HOTSPOT_LIMIT: an Animation has at most 64 hotspots in this format");
                 if (hotspots.Count > 0)
@@ -1055,8 +1093,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 string path = Path.GetFullPath(Path.Combine(_pack, "img", _member, relative.Replace('/', Path.DirectorySeparatorChar)));
                 if (!Inside(Path.Combine(_pack, "img", _member), path)) Fail(source, "sprite leaves its image set");
                 SafeEntry(path);
-                using (var imageInput = File.OpenRead(path))
-                using (var bitmap = new Bitmap(imageInput))
+                using (var neverShownInput = File.OpenRead(path))
+                using (var bitmap = new Bitmap(neverShownInput))
                     if (bitmap.Width > SpriteSheetBuilder.MaxSheetDimension || bitmap.Height > SpriteSheetBuilder.MaxSheetDimension)
                         Fail(source, "sprite exceeds image dimension limit");
             }

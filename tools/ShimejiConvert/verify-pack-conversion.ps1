@@ -135,7 +135,7 @@ $mutations = @(
     [pscustomobject]@{ Name='main-required'; Witness='missing-main-refusal'
         Old='if (string.IsNullOrEmpty(snapshot.MainMember))'; New='if (snapshot.MainMember == "__mutation__")' },
     [pscustomobject]@{ Name='unknown-options'; Witness='unknown-option-refusal'
-        Old='if (!keys.Contains(key)) errors.Add("TICK_PACK_OPTIONS_UNKNOWN:'
+        Old='if (!keys.Contains(key) && !skipped.Contains(key)) errors.Add("TICK_PACK_OPTIONS_UNKNOWN:'
         New='if (key == "__mutation__") errors.Add("TICK_PACK_OPTIONS_UNKNOWN:' },
     [pscustomobject]@{ Name='whole-pack-validation'; Witness='startup-member-refusal'
         Old='errors.AddRange(pack.Errors);'; New='errors.AddRange(new string[0]);' },

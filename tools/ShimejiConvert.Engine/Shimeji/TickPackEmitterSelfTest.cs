@@ -1782,6 +1782,40 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 fixture.Actions(actions);
                 Refusal(fixture, "pose duration must be 1 to 100000");
             }
+            // Decision 68 and review N2: the refusal above (a Move steps its animation) stays only where a stepping class
+            // can play the all-zero Animation. An Animate or an Interact ends at once: one variant that never holds. Under
+            // a Sequence, in an instant class (Look) or after an unconditional Animation, the source never plays it.
+            using (var fixture = new Fixture())
+            {
+                XDocument actions = BuildActions();
+                XElement list = actions.Root.Element("ActionList");
+                list.Add(S("Action", A("Name", "Wave"), A("Type", "Animate"), S("Animation", Pose("/p.png", 0), Pose("/q.png", 0))),
+                    S("Action", A("Name", "Hug"), A("Type", "Embedded"), A("Class", "com.group_finity.mascot.action.Interact"), A("Behavior", "Idle"),
+                        S("Animation", Pose("/p.png", 0))),
+                    S("Action", A("Name", "Rest"), A("Type", "Stay"), S("Animation", Pose("/p.png", 3)), S("Animation", Pose("/q.png", 0))),
+                    S("Action", A("Name", "Chain"), A("Type", "Sequence"), S("Animation", Pose("/q.png", 0)), S("ActionReference", A("Name", "Stand"))),
+                    S("Action", A("Name", "Glance"), A("Type", "Embedded"), A("Class", "com.group_finity.mascot.action.Look"), S("Animation", Pose("/p.png", 0))));
+                fixture.Actions(actions);
+                XDocument document = fixture.Convert();
+                Validate(document, "all-zero animations the source never steps");
+                foreach (string ends in new[] { "Wave", "Hug" })
+                {
+                    XElement[] variants = NamedNode(document, ends).Element(Ns + "act").Element(Ns + "variants").Elements(Ns + "variant").ToArray();
+                    Require(variants.Length == 1 && (string)variants[0].Attribute("when") == "false"
+                        && variants[0].Elements(Ns + "pose").Count() == 1 && (string)variants[0].Element(Ns + "pose").Attribute("frame") == "-1",
+                        "an all-zero Animation in an Animate or Interact did not lower to an action that ends at once: " + ends);
+                }
+                Require(NamedNode(document, "Rest").Element(Ns + "act").Element(Ns + "variants").Elements(Ns + "variant").Count() == 1,
+                    "an all-zero Animation after an unconditional one was not left out");
+            }
+            using (var fixture = new Fixture())
+            {
+                XDocument actions = BuildActions();
+                actions.Root.Element("ActionList").Add(S("Action", A("Name", "Wave"), A("Type", "Animate"),
+                    S("Animation", A("Condition", "${mascot.lookRight}"), Pose("/p.png", 0)), S("Animation", Pose("/q.png", 2))));
+                fixture.Actions(actions);
+                Refusal(fixture, "TICK_POSE_ZERO_LENGTH_SELECTABLE");
+            }
         }
 
         // Decision 69: an image set with no configuration anywhere the source looks (its own conf/<set>/ or
