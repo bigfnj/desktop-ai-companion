@@ -1883,15 +1883,17 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             }
         }
 
-        // Round 4: the near-square sheet grid is this lowering's choice. A member it does not fit takes as many columns
-        // as fit and the rows that needs: 257 distinct 256x8 frames need 17 columns (4352 pixels) near-square and go
-        // 16 by 17; 290 distinct 8x256 frames need 17 rows (4352 pixels) and go 256 by 2, the validator's 256 columns
-        // at most. Every sprite is generated here.
+        // Round 4 and review N3: the near-square sheet grid is this lowering's choice. A member it does not fit takes,
+        // of the grids that satisfy every host limit, the one with the fewest cells, then the fewest columns: 257
+        // distinct 256x8 frames (17 columns near-square, 4352 pixels) go 2 by 129; 290 distinct 8x256 frames (17 rows,
+        // 4352 pixels) go 29 by 10; 1000 distinct 17x129 frames (32 rows, 4128 pixels) go 40 by 25, where the old
+        // widest-first fallback took 240 by 5, 1200 tiles, past the host's 1024. Every sprite is generated here.
         private static void SheetLayout()
         {
             var cases = new[] {
-                new { Count = 257, Width = 256, Height = 8, TilesX = 16, TilesY = 17 },
-                new { Count = 290, Width = 8, Height = 256, TilesX = 256, TilesY = 2 },
+                new { Count = 257, Width = 256, Height = 8, TilesX = 2, TilesY = 129 },
+                new { Count = 290, Width = 8, Height = 256, TilesX = 29, TilesY = 10 },
+                new { Count = 1000, Width = 17, Height = 129, TilesX = 40, TilesY = 25 },
             };
             foreach (var c in cases)
                 using (var fixture = new Fixture())
@@ -1904,8 +1906,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                         SavePng(Path.Combine(fixture.Pack, "img", "A", name), i % 2 == 1, c.Width, height: c.Height);
                         poses.Add(Pose("/" + name, 1));
                     }
-                    fixture.Actions(new XDocument(S("Mascot", S("ActionList", S("Action", A("Name", "Stand"), A("Type", "Stay"),
-                        S("Animation", poses))))));
+                    // At most 250 poses an animation (the schema's 512 per variant), each animation its own action.
+                    var actions = new List<XElement>();
+                    for (int start = 0; start < poses.Count; start += 250)
+                        actions.Add(S("Action", A("Name", "Stand" + (start == 0 ? "" : start.ToString())), A("Type", "Stay"),
+                            S("Animation", poses.Skip(start).Take(250))));
+                    fixture.Actions(new XDocument(S("Mascot", S("ActionList", actions))));
                     fixture.Behaviors(new XDocument(S("Mascot", S("BehaviorList", S("Behavior", A("Name", "Main"),
                         A("Action", "Stand"), A("Frequency", 1))))));
                     XDocument document = fixture.Convert();
@@ -1914,10 +1920,30 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     Require(grid == c.TilesX + " by " + c.TilesY, "a member the near-square grid does not fit was laid out " + grid
                         + ", not " + c.TilesX + " by " + c.TilesY);
                     Validate(document, "re-laid sheet member " + grid);
+                    if (c.Count != 257) continue;
+                    // Review N3: MaxTilesPerAxis restates an inline validator literal, so the validator is asked: one tile
+                    // more on an axis is refused by exactly that bound.
+                    image.Element(Ns + "tilesx").Value = (TickPackEmitter.MaxTilesPerAxis + 1).ToString();
+                    XmlData.RootNode ignored;
+                    string error;
+                    bool accepted = DesktopAICompanion.CompanionXmlValidator.TryParseWithFeatures(document.ToString(),
+                        DesktopAICompanion.CompanionFormatFeatures.All, out ignored, out error);
+                    Require(!accepted && error != null && error.Contains("between 1 and " + TickPackEmitter.MaxTilesPerAxis + "."),
+                        "the validator's tile-axis bound is not MaxTilesPerAxis (" + TickPackEmitter.MaxTilesPerAxis + "): " + error);
                 }
+            // Review item 2: what the file API writes, the host accepts. A variant of 513 poses is past the schema's 512,
+            // which the emitter does not count, so the host's validator refuses it, and nothing is written.
+            using (var fixture = new Fixture())
+            {
+                XDocument many = BuildActions();
+                many.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Stand").Element("Animation")
+                    .ReplaceNodes(Enumerable.Range(0, 513).Select(i => Pose("/p.png", 1)));
+                fixture.Actions(many);
+                Refusal(fixture, "TICK_OUTPUT_INVALID: image set 'A': the host's validator refuses the emitted document");
+                Require(!Directory.Exists(fixture.Output), "a document the host refuses was written");
+            }
         }
 
-        /// <summary>A synthetic 16-bit PCM mono RIFF/WAVE clip of <paramref name="samples"/> frames at 22.05 kHz.</summary>
         /// <summary>A PCM RIFF/WAVE clip of <paramref name="data"/> sample bytes in the given shape, the samples a ramp.</summary>
         private static byte[] RawWave(int rate, short channels, short bits, int data)
         {
@@ -1939,6 +1965,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             return b;
         }
 
+        /// <summary>A synthetic 16-bit PCM mono RIFF/WAVE clip of <paramref name="samples"/> frames at 22.05 kHz.</summary>
         private static byte[] Wave(int samples, int seed)
         {
             var data = new byte[samples * 2];

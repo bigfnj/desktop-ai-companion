@@ -128,7 +128,8 @@ classes, and constants. A next reference without a root definition is NOT lowere
 that selects it, for that call (PackConversionOptions.RecoverMissingNext, paritypack --recover-missing-next, or Pet
 Studio's "Import with recovery" after a strict refusal), gets the entry dropped with a warning, an opt-in POLICY
 DIVERGENCE recorded below (`policy:next-missing-dropped`). One whose condition, its own or an enclosing Condition's,
-is a script refuses either way (TICK_NEXT_MISSING_SCRIPTED). An information document (info.xml) is
+is a script refuses either way (TICK_NEXT_MISSING_SCRIPTED). A member refused during preparation keeps none of the
+warnings it gathered before its refusal (review Q2); it is reported as refused, with that refusal. An information document (info.xml) is
 accepted when it holds only <Information> (chooser and credits metadata, which no mascot reads); a Constant, an
 ActionList or a BehaviourList in it is refused.
 Bindings across differing document schemas are refused until target-schema resolution is implemented.
@@ -146,8 +147,13 @@ Recorded divergences from the source (each a correction of a source defect, neve
 Composite activation cycles, depth above 32 and expansion above 4096 actions are refused before output is written.
 
 Sheet cells use the maximum source image width and height, with each image copied at its cell's top-left. The
-cells form a near-square grid; when that grid is wider or taller than the host's 4096-pixel sheet, the sheet takes as
-many columns as fit (at most the validator's 256) and the rows that needs, and only a member no grid fits is refused.
+cells form a near-square grid. When that grid breaks one of the host's sheet limits (4096 pixels a side, 256 tiles an
+axis, 1024 tiles), the sheet takes, of the grids that satisfy all of them, the one with the fewest cells, then the
+fewest columns; a member that no grid fits refuses by name (TICK_SHEET_NO_GRID). Every member the file-writing API and
+paritypack write has first passed the host's validator (TICK_OUTPUT_INVALID otherwise).
+A configuration file is named as the pack spells it on disk; two directory entries that differ only in case refuse by
+name (SOURCE_PATH_AMBIGUOUS). That refusal can be stricter than the source on a case-sensitive file system; it refuses
+0 corpus packs, so a finer rule is DECLINED-MEASURED.
 Every visible pose carries its image size and effective anchor. Explicit right-facing images carry their own
 size and frame; their pixels are not mirrored. The image-pair cache retains the first loaded anchor for repeated
 left/right path pairs, including pairs in unused actions. The parity map records that effective anchor so it

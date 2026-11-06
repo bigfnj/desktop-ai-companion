@@ -99,6 +99,16 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     member.Xml = document.ToString();
                 }
             }
+            // Review item 2 (r4): what this API writes is what the host accepts. Each member goes through the host's
+            // validator, every format feature enabled, before anything is written, and one it refuses refuses the pack by
+            // name, as the pack API (PackConversion) already refuses it.
+            foreach (PreparedMember member in prepared)
+            {
+                XmlData.RootNode validated;
+                string invalid;
+                if (!DesktopAICompanion.CompanionXmlValidator.TryParseWithFeatures(member.Xml, DesktopAICompanion.CompanionFormatFeatures.All, out validated, out invalid))
+                    throw new InvalidDataException("TICK_OUTPUT_INVALID: image set '" + member.Name + "': the host's validator refuses the emitted document: " + invalid);
+            }
             // Prepare every member before writing, so an unsupported input does not leave half a pack.
             var paths = new List<string>();
             foreach (PreparedMember member in prepared)
@@ -206,7 +216,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
 
         /// <summary>The validator's limit on the sheet's tile count along each axis ("Sprite tile counts must be between 1
         /// and 256", CompanionXmlValidator), which it states inline rather than as a constant.</summary>
-        private const int MaxTilesPerAxis = 256;
+        internal const int MaxTilesPerAxis = 256;
 
         /// <summary>
         /// Decision 70: the host decodes a clip only up to <c>AudioOutput.MaximumClipDecodedSamples</c>, 60 s at its mixer
@@ -1475,6 +1485,16 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 return combined;
             }
 
+            /// <summary>Whether a grid satisfies every limit the host's validator puts on a sheet: each side within
+            /// SpriteSheetBuilder.MaxSheetDimension, each axis within MaxTilesPerAxis tiles, and at most
+            /// SpriteSheetBuilder.MaxTiles tiles in all (CompanionXmlValidator's tile checks).</summary>
+            private static bool SheetFits(int tilesX, int tilesY, int width, int height)
+            {
+                return tilesX >= 1 && tilesY >= 1 && tilesX <= MaxTilesPerAxis && tilesY <= MaxTilesPerAxis
+                    && (long)tilesX * tilesY <= SpriteSheetBuilder.MaxTiles
+                    && (long)tilesX * width <= SpriteSheetBuilder.MaxSheetDimension && (long)tilesY * height <= SpriteSheetBuilder.MaxSheetDimension;
+            }
+
             private byte[] Composite(out int anchorX, out int anchorY, out int tilesX, out int tilesY)
             {
                 if (_frames.Count == 0) throw new InvalidDataException("Tick member needs at least one visible pose: " + _member);
@@ -1490,13 +1510,23 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 // columns of 19 rows fit), the sheet takes as many columns as fit, within the validator's 256 per axis
                 // (CompanionXmlValidator's tile counts), and the rows that needs; only a member no grid fits refuses. A
                 // member the near-square grid fits keeps it, so its sheet is unchanged.
-                if (tilesX * width > SpriteSheetBuilder.MaxSheetDimension || tilesY * height > SpriteSheetBuilder.MaxSheetDimension)
+                if (!SheetFits(tilesX, tilesY, width, height))
                 {
-                    tilesX = Math.Max(1, Math.Min(Math.Min(_frames.Count, MaxTilesPerAxis), SpriteSheetBuilder.MaxSheetDimension / width));
-                    tilesY = (_frames.Count + tilesX - 1) / tilesX;
+                    // Review N3: of the grids that satisfy every host limit (SheetFits), the one with the fewest cells, then
+                    // the fewest columns. A widest-first choice could pass the sides and break the tile count: 1000 cells of
+                    // 17 x 129 went 240 x 5, 1200 tiles, where 40 x 25 fits.
+                    int bestX = 0, bestY = 0;
+                    for (int x = 1; x <= Math.Min(_frames.Count, MaxTilesPerAxis); x++)
+                    {
+                        int y = (_frames.Count + x - 1) / x;
+                        if (SheetFits(x, y, width, height) && (bestX == 0 || (long)x * y < (long)bestX * bestY)) { bestX = x; bestY = y; }
+                    }
+                    if (bestX == 0)
+                        throw new InvalidDataException("TICK_SHEET_NO_GRID: no grid of " + _frames.Count + " cells of " + width + " x " + height
+                            + " fits the host's sheet (4096 px a side, 256 tiles an axis, 1024 tiles).");
+                    tilesX = bestX;
+                    tilesY = bestY;
                 }
-                if (tilesX * width > SpriteSheetBuilder.MaxSheetDimension || tilesY * height > SpriteSheetBuilder.MaxSheetDimension)
-                    throw new InvalidDataException("Tick sheet exceeds the sheet dimension limit.");
                 using (var sheet = new Bitmap(tilesX * width, tilesY * height, PixelFormat.Format32bppArgb))
                 {
                     BitmapData destination = sheet.LockBits(new Rectangle(0, 0, sheet.Width, sheet.Height),
