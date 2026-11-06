@@ -124,6 +124,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 paths.Add(xml);
             }
             warnings = found.SelectMany(member => member.Warnings.Select(warning => "Image set '" + member.Name + "': " + warning))
+                .Concat(found.SelectMany(member => member.Dropped.Select(item => "Image set '" + member.Name + "': " + PreparedMember.DroppedWarning(item))))
                 .ToList().AsReadOnly();
             return paths.AsReadOnly();
         }
@@ -248,9 +249,20 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             public bool Skipped;
             // Root names as the emitter actually writes them, including this member's schema mapping.
             public IReadOnlyDictionary<string, string> BehaviourNames = new Dictionary<string, string>(StringComparer.Ordinal);
-            /// <summary>What this lowering corrected on purpose and the caller should be told (a dropped next entry).
-            /// The pack API's warnings are PackConversion's to collect; this list is where they come from.</summary>
+            /// <summary>What this lowering corrected on purpose and the caller should be told, other than a dropped next
+            /// entry (see <see cref="Dropped"/>). The pack API's warnings are PackConversion's to collect.</summary>
             public List<string> Warnings = new List<string>();
+            /// <summary>PD-1: one item per next entry that recovery dropped (decision 64, policy:next-missing-dropped): the
+            /// behaviour as its Name, the entry's name and source key in its Detail. Never merged: two entries that share
+            /// a behaviour, a name or a text are two items. The pack API files each under the member's Residue.Dropped,
+            /// with one pack warning (<see cref="DroppedWarning"/>).</summary>
+            public List<ResidueItem> Dropped = new List<ResidueItem>();
+
+            /// <summary>The pack warning for one dropped entry, without its image-set prefix.</summary>
+            internal static string DroppedWarning(ResidueItem item)
+            {
+                return "Behaviour '" + item.Name + "': " + item.Detail;
+            }
         }
         private sealed class RootBehaviour
         {
@@ -311,6 +323,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             private readonly List<SoundClip> _clipOrder = new List<SoundClip>();
             // Corrections the caller is told about (PreparedMember.Warnings).
             private readonly List<string> _warnings = new List<string>();
+            // PD-1: the next entries recovery dropped, one item each (PreparedMember.Dropped).
+            private readonly List<ResidueItem> _dropped = new List<ResidueItem>();
             // Decision 64: whether this call selected recovery of a next entry naming no root behaviour (EmitNextEntries).
             internal bool RecoverMissingNext;
             // Header toggles, one per Toggleable behaviour name, in first-seen order.
@@ -480,7 +494,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 bool crossMember = _nodes.SelectMany(n => n.Descendants()).Any(n =>
                     (n.Name == Ns + "param" || n.Name == Ns + "bind") &&
                     IsMemberParameter((string)n.Attribute("name")));
-                return new PreparedMember { Name = _member, Xml = xml, Map = map + "\n", CrossMember = crossMember, Warnings = _warnings,
+                return new PreparedMember { Name = _member, Xml = xml, Map = map + "\n", CrossMember = crossMember, Warnings = _warnings, Dropped = _dropped,
                     SourceIdentity = SourceIdentity(), BehaviourNames = _rootOrder.ToDictionary(name => name, BehaviourName, StringComparer.Ordinal) };
             }
 
@@ -1065,8 +1079,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                                     + "converting with recovery drops it (policy:next-missing-dropped)");
                             Int(entry, "Frequency", null);
                             SelectionCondition(entry);
-                            _warnings.Add("Behaviour '" + owner + "': the next entry '" + name + "' names no root behaviour and was dropped;"
-                                + " the source stops its tick thread when that entry's behaviour ends.");
+                            _dropped.Add(new ResidueItem { Name = owner, Detail = "the next entry '" + name + "' names no root behaviour and was dropped;"
+                                + " the source stops its tick thread when that entry's behaviour ends (policy:next-missing-dropped; entry "
+                                + entry.SourceKey + ")" });
                             continue;
                         }
                         int id = _next++;

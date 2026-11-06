@@ -187,6 +187,14 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                             warnings.Add(diagnostic);
                             report.Residue.Notes.Add(diagnostic);
                         }
+                        // PD-1: each next entry recovery dropped is something this member lost, so it is filed under its
+                        // residue's Dropped (one item each, counted in Total) with exactly one member-prefixed pack warning,
+                        // and not among the format-wide notes.
+                        foreach (ResidueItem dropped in member.Dropped)
+                        {
+                            report.Residue.Dropped.Add(dropped);
+                            warnings.Add("Image set '" + member.Name + "': " + TickPackEmitter.PreparedMember.DroppedWarning(dropped));
+                        }
                         if (report.Error != null) errors.Add("Image set '" + member.Name + "': " + report.Error);
                         else
                         {

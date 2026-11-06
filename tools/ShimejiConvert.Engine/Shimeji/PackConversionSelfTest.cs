@@ -47,6 +47,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "startup-ambiguous-name", Run = (Action)StartupAmbiguousName },
                 new { Name = "missing-next-recovery-option", Run = (Action)MissingNextRecoveryOption },
                 new { Name = "skipped-member-api-controls", Run = (Action)SkippedMemberApiControls },
+                new { Name = "recovered-drop-residue", Run = (Action)RecoveredDropResidue },
             };
             if (onlyCase != null && !cases.Any(c => c.Name == onlyCase))
             { detail = "pack-conversion unknown case: " + onlyCase; return false; }
@@ -521,7 +522,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 PackConversionResult recovered = Accepted(fixture, recovering);
                 string dropped = "Image set 'Alpha': Behaviour 'Main': the next entry 'Ghost' names no root behaviour and was dropped";
                 Require(recovered.Warnings.Count(w => w.StartsWith(dropped, StringComparison.Ordinal)) == 1
-                    && Member(recovered, "Alpha").Residue.Notes.Count(w => w.StartsWith(dropped, StringComparison.Ordinal)) == 1,
+                    && Member(recovered, "Alpha").Residue.Dropped.Count(i => i.Name == "Main" && i.Detail.Contains("'Ghost'")) == 1,
                     "a recovered conversion did not report its dropped entry exactly once in the result and once in the residue");
                 // Independent calls: strict after recovery refuses, recovery after strict accepts; options unchanged.
                 Refused(fixture, strict, Strict);
@@ -544,6 +545,67 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     }
         }
 
+        /// <summary>
+        /// PD-1: a next entry recovery drops is something the member lost. It is one item in the member's Residue.Dropped,
+        /// raising Total by one, with exactly one member-prefixed pack warning; it is in residue.txt under "Dropped
+        /// entirely" and not under "Format limits". Two entries are two items even when they share a behaviour and a
+        /// name. A clean member, and a sibling, are untouched.
+        /// </summary>
+        private static void RecoveredDropResidue()
+        {
+            Func<string[], XDocument> dangling = names =>
+            {
+                XDocument behaviours = Behaviours();
+                XElement list = E("NextBehaviorList", A("Add", true));
+                foreach (string n in names) list.Add(E("BehaviorReference", A("Name", n), A("Action", "Stand"), A("Frequency", 1)));
+                if (names.Length > 0) behaviours.Root.Element("BehaviorList").Elements("Behavior").First().Add(list);
+                return behaviours;
+            };
+            Func<string[], PackConversionResult> convert = names =>
+            {
+                using (var fixture = new Fixture())
+                {
+                    fixture.Member("Alpha", Actions(), dangling(names));
+                    fixture.Member("Beta", Actions(), Behaviours());
+                    PackConversionOptions options = Options();
+                    options.RecoverMissingNext = true;
+                    return Accepted(fixture, options);
+                }
+            };
+            Func<PackConversionResult, string, int> drops = (result, key) =>
+                result.Warnings.Count(w => w.StartsWith("Image set '" + key + "': Behaviour 'Main': the next entry", StringComparison.Ordinal)
+                    && w.Contains("was dropped"));
+            Func<PackMemberConversionResult, string, string> section = (member, header) =>
+            {
+                string text = member.Residue.ToText(member.SourceKey).Replace("\r\n", "\n");
+                int at = text.IndexOf(header, StringComparison.Ordinal);
+                if (at < 0) return "";
+                int end = text.IndexOf("\n\n", at, StringComparison.Ordinal);
+                return end < 0 ? text.Substring(at) : text.Substring(at, end - at);
+            };
+            PackConversionResult clean = convert(new string[0]);
+            int alphaBase = Member(clean, "Alpha").Residue.Total, betaBase = Member(clean, "Beta").Residue.Total;
+            Require(drops(clean, "Alpha") == 0 && drops(clean, "Beta") == 0 && !Member(clean, "Alpha").Residue.Dropped.Any(i => i.Detail.Contains("policy:next-missing-dropped")),
+                "a clean member reported a dropped next entry");
+            foreach (string[] names in new[] { new[] { "Ghost" }, new[] { "Ghost", "Ghost" }, new[] { "Ghost", "Phantom" } })
+            {
+                PackConversionResult result = convert(names);
+                PackMemberConversionResult alpha = Member(result, "Alpha"), beta = Member(result, "Beta");
+                Require(alpha.Residue.Total == alphaBase + names.Length && alpha.Residue.Dropped.Count(i => i.Name == "Main"
+                        && i.Detail.Contains("policy:next-missing-dropped")) == names.Length,
+                    "the recovered entries did not each raise the member's residue Total by one: " + names.Length + " entries, Total "
+                        + alphaBase + " -> " + alpha.Residue.Total);
+                Require(drops(result, "Alpha") == names.Length, "the pack warnings for " + names.Length + " dropped entries number " + drops(result, "Alpha"));
+                Require(beta.Residue.Total == betaBase && drops(result, "Beta") == 0 && !beta.Residue.Dropped.Any(i => i.Detail.Contains("policy:next-missing-dropped")),
+                    "a sibling member picked up another member's dropped entry");
+                string droppedSection = section(alpha, "Dropped entirely (");
+                Require(names.All(n => droppedSection.Contains("next entry '" + n + "'"))
+                    && droppedSection.Split('\n').Count(l => l.Contains("policy:next-missing-dropped")) == names.Length
+                    && !section(alpha, "Format limits").Contains("next entry"),
+                    "residue.txt does not list each dropped entry under Dropped entirely, or lists one under Format limits");
+            }
+        }
+
         private static void CheckPreparedWarnings(PackConversionResult result)
         {
             foreach (string key in new[] { "Alpha", "Beta" })
@@ -551,9 +613,13 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 string prefix = "Image set '" + key + "': Behaviour 'Main': the next entry 'Missing-" + key + "'";
                 Require(result.Warnings.Count(w => w.StartsWith(prefix, StringComparison.Ordinal) && w.Contains("was dropped")) == 1,
                     "prepared-member warning missing, duplicated or missing its member identity: " + key);
-                Require(Member(result, key).Residue.Notes.Count(w => w.StartsWith(prefix, StringComparison.Ordinal)) == 1,
+                // PD-1: the drop is the member's dropped residue, once, and no longer a note.
+                Require(Member(result, key).Residue.Dropped.Count(i => ("Image set '" + key + "': Behaviour '" + i.Name + "': " + i.Detail)
+                        .StartsWith(prefix, StringComparison.Ordinal)) == 1
+                    && !Member(result, key).Residue.Notes.Any(w => w.Contains("Missing-" + key)),
                     "member residue lost its prepared warning: " + key);
-                Require(!Member(result, key).Residue.Notes.Any(w => w.Contains("Missing-" + (key == "Alpha" ? "Beta" : "Alpha"))),
+                Require(!Member(result, key).Residue.Notes.Any(w => w.Contains("Missing-" + (key == "Alpha" ? "Beta" : "Alpha")))
+                    && !Member(result, key).Residue.Dropped.Any(i => i.Detail.Contains("Missing-" + (key == "Alpha" ? "Beta" : "Alpha"))),
                     "prepared-member warning leaked into a sibling's residue: " + key);
             }
         }

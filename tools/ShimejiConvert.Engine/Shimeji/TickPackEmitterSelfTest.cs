@@ -1701,10 +1701,13 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     && !keep.Element(Ns + "sequence").Elements(Ns + "next").Any() && (string)keep.Element(Ns + "behaviour").Attribute("add") == "true",
                     "an emptied next list lost its Add");
                 Require(!Nodes(document).Any(n => (string)n.Element(Ns + "behaviour")?.Attribute("name") == "Ghost"), "a dropped entry left a node");
-                string[] warnings = TickPackEmitter.PrepareMembers(fixture.Pack, true, true).Single().Warnings.ToArray();
-                Require(warnings.Length == 3 && warnings.All(w => w.IndexOf("the next entry 'Ghost' names no root behaviour and was dropped", StringComparison.Ordinal) >= 0)
-                    && warnings.Any(w => w.StartsWith("Behaviour 'Lone'", StringComparison.Ordinal)),
-                    "no warning names each dropped entry and its behaviour: " + string.Join(" | ", warnings));
+                // PD-1: one structured item per dropped entry, its behaviour as the name, and no plain warning for it.
+                TickPackEmitter.PreparedMember recovered = TickPackEmitter.PrepareMembers(fixture.Pack, true, true).Single();
+                ResidueItem[] droppedItems = recovered.Dropped.ToArray();
+                Require(droppedItems.Length == 3 && droppedItems.All(i => i.Detail.IndexOf("the next entry 'Ghost' names no root behaviour and was dropped", StringComparison.Ordinal) >= 0
+                        && i.Detail.Contains("policy:next-missing-dropped") && i.Detail.Contains("behaviors.xml#/"))
+                    && droppedItems.Any(i => i.Name == "Lone") && droppedItems.Select(i => i.Detail).Distinct().Count() == 3 && recovered.Warnings.Count == 0,
+                    "no residue item names each dropped entry and its behaviour: " + string.Join(" | ", droppedItems.Select(i => i.Name + ": " + i.Detail)));
                 string unselected = TickPackEmitter.PrepareMembers(fixture.Pack, true).Single().Error ?? "";
                 Require(unselected.IndexOf("TICK_NEXT_MISSING: image set 'A'", StringComparison.Ordinal) >= 0,
                     "preparation without the choice did not refuse: " + unselected);
