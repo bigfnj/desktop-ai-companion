@@ -162,8 +162,8 @@ namespace DesktopAICompanion.Shimeji
             Clips = TickStaging.ClipsOf(sprites);
         }
 
-        /// <summary>The type's named clips' bytes by name (<see cref="TickStaging.ClipsOf"/>); a self-test sets its own.</summary>
-        public System.Collections.Generic.IReadOnlyDictionary<string, byte[]> Clips { get; set; }
+        /// <summary>The type's named clips' audio by name (<see cref="TickStaging.ClipsOf"/>); a self-test sets its own.</summary>
+        public System.Collections.Generic.IReadOnlyDictionary<string, TickClipAudio> Clips { get; set; }
     }
 
     /// <summary>

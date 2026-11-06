@@ -193,9 +193,11 @@
     <Compile Include="dotNet\Shimeji\TickAudio.cs" />
     <Compile Include="dotNet\Shimeji\ShimejiSoundSelfTest.cs" />
     <Compile Include="dotNet\Shimeji\ShimejiWindowSelfTest.Packs.cs" />
+    <Compile Include="dotNet\Shimeji\ShimejiWindowSelfTest.Limits.cs" />
     <Compile Include="dotNet\AudioOutputSelfTest.cs" />
     <Compile Include="dotNet\SecuritySelfTest.cs" />
     <Compile Include="dotNet\SecuritySelfTest.ShimejiGate.cs" />
+    <Compile Include="dotNet\SecuritySelfTest.HostLimits.cs" />
     <Compile Include="dotNet\FormCompanion.cs">
       <SubType>Form</SubType>
     </Compile>

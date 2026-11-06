@@ -49,32 +49,50 @@ namespace DesktopAICompanion.Shimeji
         }
 
         /// <summary>
-        /// A staged tick companion's named clips, by name: the bytes the validator decoded and proved MP3 in the second
-        /// parse above (TryReadXml blanks every Sound.Base64 in the Xml's own graph, so this is where they survive). The
-        /// source loads every clip with its configuration (AnimationBuilder.java:147-166); so does this. Null for a
-        /// classic companion.
+        /// A staged tick companion's named clips, by name: the bytes the validator decoded and proved to be their declared
+        /// format in the second parse above (TryReadXml blanks every Sound.Base64 in the Xml's own graph, so this is where
+        /// they survive). The source loads every clip with its configuration (AnimationBuilder.java:147-166); so does
+        /// this. Null for a classic companion.
         /// </summary>
-        public static IReadOnlyDictionary<string, byte[]> ClipsOf(Xml xml)
+        public static IReadOnlyDictionary<string, TickClipAudio> ClipsOf(Xml xml)
         {
-            Dictionary<string, byte[]> clips;
+            Dictionary<string, TickClipAudio> clips;
             return xml != null && Clips.TryGetValue(xml, out clips) ? clips : null;
         }
 
-        private static readonly ConditionalWeakTable<Xml, Dictionary<string, byte[]>> Clips =
-            new ConditionalWeakTable<Xml, Dictionary<string, byte[]>>();
+        private static readonly ConditionalWeakTable<Xml, Dictionary<string, TickClipAudio>> Clips =
+            new ConditionalWeakTable<Xml, Dictionary<string, TickClipAudio>>();
 
-        /// <summary>Each named sound's decoded bytes, matched to the document's sounds by position (the validator hands
-        /// them back in document order).</summary>
-        private static Dictionary<string, byte[]> ClipsByName(XmlData.RootNode root, byte[][] sounds)
+        /// <summary>Each named sound's decoded bytes and declared format, matched to the document's sounds by position (the
+        /// validator hands them back in document order).</summary>
+        private static Dictionary<string, TickClipAudio> ClipsByName(XmlData.RootNode root, byte[][] sounds)
         {
-            var clips = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+            var clips = new Dictionary<string, TickClipAudio>(StringComparer.Ordinal);
             if (root.Sounds == null || root.Sounds.Sound == null || sounds == null) return clips;
             for (int i = 0; i < root.Sounds.Sound.Length && i < sounds.Length; i++)
             {
                 XmlData.SoundNode node = root.Sounds.Sound[i];
-                if (node != null && node.SoundId != null && sounds[i] != null) clips[node.SoundId] = sounds[i];
+                if (node != null && node.SoundId != null && sounds[i] != null)
+                    clips[node.SoundId] = new TickClipAudio(sounds[i], WavFormat.IsDeclaredWav(node));
             }
             return clips;
+        }
+    }
+
+    /// <summary>
+    /// One named clip's audio as staged: the bytes, and whether the document declared them WAV (otherwise MP3). The
+    /// format travels with the bytes to the decoder, which never sniffs it: the validator already proved the bytes are
+    /// what the document says (grimoire/06 section 3).
+    /// </summary>
+    internal sealed class TickClipAudio
+    {
+        public readonly byte[] Bytes;
+        public readonly bool Wav;
+
+        public TickClipAudio(byte[] bytes, bool wav)
+        {
+            Bytes = bytes;
+            Wav = wav;
         }
     }
 }

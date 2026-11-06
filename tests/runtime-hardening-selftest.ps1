@@ -5484,6 +5484,20 @@ Assert-True ($hpaLoad -cmatch 'ToolTipService\.SetShowOnDisabled\(_installButton
 Assert-True ($hpaClear -cmatch 'SetEditorText\(""\);' -and $hpaClear -cmatch '_openedPath = null;' -and $hpaClear -cmatch '_saveButton\.IsEnabled = false;') (
     'host-pack-abi: an empty pack document has no text, no file it came from and nothing to save')
 
+# ---- lane feature/shimeji-host-wav ----
+# A TICK CLIP'S DECLARED FORMAT REACHES THE DECODER. The validator proves a clip's bytes are the format its document
+# declares, staging carries the declaration with the bytes (TickClipAudio), and --shimeji-window-selftest and
+# --audio-selftest grade the two sides of AppTickAudio. AppTickAudio.Play itself needs the app's live audio output, which
+# no headless self-test opens, so its body must hand the declared format through to PlayClip, never a constant; the
+# WITNESS shows the pattern tells the two apart.
+$hwAudio = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\Shimeji\TickAudio.cs') -Raw)
+$hwPlay = Get-MethodBody $hwAudio 'public bool Play(string owner, byte[] audio, bool wav, double gain)' @("`n        public ", "`n        internal ", "`n        private ")
+Assert-True ($hwPlay.Length -gt 0) 'shimeji-host-wav: AppTickAudio.Play was located'
+Assert-True ('output.PlayClip(owner, audio, wav, volume)' -cmatch '\.PlayClip\(owner, audio, wav, volume\)' -and
+    'output.PlayClip(owner, audio, false, volume)' -cnotmatch '\.PlayClip\(owner, audio, wav, volume\)' -and
+    $hwPlay -cmatch '\.PlayClip\(owner, audio, wav, volume\)' -and $hwPlay -cnotmatch '\.PlayClip\(owner, audio, (true|false),') (
+    'shimeji-host-wav: a tick clip reaches the audio output with the format its document declared (WITNESS: a constant format does not match)')
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever

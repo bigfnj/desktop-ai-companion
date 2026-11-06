@@ -24,13 +24,15 @@ namespace DesktopAICompanion.Shimeji
         {
             public readonly List<string> Plays = new List<string>();
             public readonly List<byte[]> Bytes = new List<byte[]>();
+            public readonly List<bool> Wav = new List<bool>();
             public readonly List<string> Stops = new List<string>();
             public readonly HashSet<string> Playing = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            public bool Play(string owner, byte[] mp3, double gain)
+            public bool Play(string owner, byte[] audio, bool wav, double gain)
             {
                 Plays.Add(owner + " " + gain.ToString("0.000", CultureInfo.InvariantCulture));
-                Bytes.Add(mp3);
+                Bytes.Add(audio);
+                Wav.Add(wav);
                 Playing.Add(owner);
                 return true;
             }
@@ -68,10 +70,13 @@ namespace DesktopAICompanion.Shimeji
                 var sprites = new Xml(frames, 64, 64);
                 TickType type = TickType.Compile("Alpha", Document());
                 type.ApplyScale(1.0, sprites.spriteWidth, sprites.spriteHeight);
-                byte[] la = { 1, 2, 3 }, lo = { 4, 5, 6 };
+                byte[] la = { 1, 2, 3 }, lo = { 4, 5, 6 }, wa = AudioOutputSelfTest.SyntheticWave(1, 16, 1, 22050, 441, false);
                 var hostType = new TickHostType(TypeId, type, sprites)
                 {
-                    Clips = new Dictionary<string, byte[]>(StringComparer.Ordinal) { { "la", la }, { "lo", lo } },
+                    Clips = new Dictionary<string, TickClipAudio>(StringComparer.Ordinal)
+                    {
+                        { "la", new TickClipAudio(la, false) }, { "lo", new TickClipAudio(lo, false) }, { "wa", new TickClipAudio(wa, true) },
+                    },
                 };
                 var audio = new RecordingAudio();
                 host = new TickHost(t =>
@@ -92,7 +97,7 @@ namespace DesktopAICompanion.Shimeji
                 string owner = HostTickClips.OwnerOf(new TickClip("Alpha", "la", -6f));
 
                 host.Step();   // both companions apply "la" at -6 dB
-                check(audio.Plays.Count == 1 && audio.Plays[0] == owner + " 0.501" && ReferenceEquals(audio.Bytes[0], la),
+                check(audio.Plays.Count == 1 && audio.Plays[0] == owner + " 0.501" && ReferenceEquals(audio.Bytes[0], la) && !audio.Wav[0],
                     "sound: a pose's clip plays once for the two companions naming it, with the type's bytes at the pose's gain ("
                     + string.Join("; ", audio.Plays) + ")");
                 host.Step();
@@ -135,6 +140,21 @@ namespace DesktopAICompanion.Shimeji
                 string loud = HostTickClips.OwnerOf(new TickClip("Alpha", "la", 0f));
                 check(audio.Plays.Count == plays + 1 && audio.Plays[plays] == loud + " 1.000" && audio.Playing.Contains(owner),
                     "sound: the same sound at another volume is its own clip (" + string.Join("; ", audio.Plays) + ")");
+
+                // A WAV clip (feature 'wav') takes the same path as an MP3 one: two companions whose pose names "wa" start
+                // it once, with the type's bytes and their declared format, and a step while it plays does not restart it.
+                host.Spawn("Alpha", new TickPoint(x - 300, floor), false, "Chant");
+                host.Spawn("Alpha", new TickPoint(x - 200, floor), false, "Chant");
+                host.Step();
+                string chant = HostTickClips.OwnerOf(new TickClip("Alpha", "wa", 0f));
+                Predicate<string> isChant = p => p.StartsWith(chant + " ", StringComparison.Ordinal);
+                int first = audio.Plays.FindIndex(isChant);
+                check(audio.Plays.FindAll(isChant).Count == 1 && first >= 0 && ReferenceEquals(audio.Bytes[first], wa) && audio.Wav[first],
+                    "sound: a pose's WAV clip starts once for the two companions naming it, with its bytes declared WAV ("
+                    + string.Join("; ", audio.Plays) + ")");
+                host.Step();
+                check(audio.Plays.FindAll(isChant).Count == 1 && audio.Playing.Contains(chant),
+                    "sound: a WAV clip still playing is not started again by either companion");
 
                 var trace = new StringWriter();
                 var writer = new ParityTraceWriter(trace, new Dictionary<string, ParityMap>()) { Tick = 7 };
@@ -210,22 +230,34 @@ namespace DesktopAICompanion.Shimeji
             }
             XmlData.RootNode r = SecuritySelfTest.TickFixture(classic);
             byte[] mp3 = SecuritySelfTest.ValidMp3Fixture();
-            r.Sounds = new XmlData.SoundsNode { Sound = new[] { new XmlData.SoundNode { SoundId = "la", Base64 = Convert.ToBase64String(mp3) } } };
+            byte[] wav = AudioOutputSelfTest.SyntheticWave(1, 16, 2, 44100, 441, false);
+            r.Header.Features += " " + CompanionFormatFeatures.Wav;
+            r.Sounds = new XmlData.SoundsNode
+            {
+                Sound = new[]
+                {
+                    new XmlData.SoundNode { SoundId = "la", Base64 = Convert.ToBase64String(mp3) },
+                    new XmlData.SoundNode { SoundId = "wa", Format = "wav", Base64 = Convert.ToBase64String(wav) },
+                },
+            };
             XmlData.PoseNode pose = r.Animations.Animation[2].Act.Variants.Variant[0].Pose[0];
             pose.Sound = "la";
             pose.Volume = -6;
             pose.VolumeSpecified = true;
+            r.Animations.Animation[2].Act.Variants.Variant[0].Pose[1].Sound = "wa";
             Xml xml;
             Animations animations;
             bool staged = StartUp.TryStageRuntime(SecuritySelfTest.Serialize(r), 1.0, out xml, out animations, out error);
             try
             {
-                IReadOnlyDictionary<string, byte[]> clips = staged ? TickStaging.ClipsOf(xml) : null;
-                byte[] la;
-                check(clips != null && clips.TryGetValue("la", out la) && la.SequenceEqual(mp3)
+                IReadOnlyDictionary<string, TickClipAudio> clips = staged ? TickStaging.ClipsOf(xml) : null;
+                TickClipAudio la, wa;
+                check(clips != null && clips.TryGetValue("la", out la) && la.Bytes.SequenceEqual(mp3) && !la.Wav
                       && string.IsNullOrEmpty(xml.AnimationXML.Sounds.Sound[0].Base64),
                     "sound staging: a named clip is kept by name, decoded, though the staged document's base64 is blanked"
                     + (staged ? "" : " (" + error + ")"));
+                check(clips != null && clips.TryGetValue("wa", out wa) && wa.Bytes.SequenceEqual(wav) && wa.Wav,
+                    "sound staging: a clip declared format=\"wav\" is staged with its bytes and its declared format");
                 check(staged && ReferenceEquals(new TickHostType(TypeId, TickStaging.Of(xml), xml).Clips, clips),
                     "sound staging: the host's type takes its staged clips");
                 check(staged && TickStaging.Of(xml).Actions["Stand"].Variants[0].Poses[0].Volume == -6f,
@@ -238,7 +270,8 @@ namespace DesktopAICompanion.Shimeji
             }
         }
 
-        // ---- the synthetic type: Sing (one pose naming "la" at -6 dB), Loud ("la" at 0 dB), Hush (a Mute of "la", then Rest)
+        // ---- the synthetic type: Sing (one pose naming "la" at -6 dB), Loud ("la" at 0 dB), Hush (a Mute of "la", then Rest),
+        // Chant (a pose naming "wa", a WAV clip)
 
         private static XmlData.RootNode Document()
         {
@@ -270,7 +303,7 @@ namespace DesktopAICompanion.Shimeji
             route.Sequence.Next = new[]
             {
                 new XmlData.NextNode { Value = 10, Probability = 1 }, new XmlData.NextNode { Value = 11, Probability = 0 },
-                new XmlData.NextNode { Value = 12, Probability = 0 },
+                new XmlData.NextNode { Value = 12, Probability = 0 }, new XmlData.NextNode { Value = 13, Probability = 0 },
             };
             XmlData.AnimationNode hush = node(22, "Hush");
             hush.Act = new XmlData.ActNode
@@ -296,9 +329,10 @@ namespace DesktopAICompanion.Shimeji
                 {
                     Animation = new[]
                     {
-                        route, beh(10, "Sing", 1), beh(11, "Hush", 0), beh(12, "Loud", 0),
+                        route, beh(10, "Sing", 1), beh(11, "Hush", 0), beh(12, "Loud", 0), beh(13, "Chant", 0),
                         stay(20, "Sing", new XmlData.PoseNode { Frame = 0, Ticks = 1, Sound = "la", Volume = -6, VolumeSpecified = true }),
                         stay(24, "Loud", new XmlData.PoseNode { Frame = 0, Ticks = 1, Sound = "la" }),
+                        stay(25, "Chant", new XmlData.PoseNode { Frame = 1, Ticks = 1, Sound = "wa" }),
                         stay(21, "Rest", new XmlData.PoseNode { Frame = 1, Ticks = 1 }),
                         hush, mute,
                     },

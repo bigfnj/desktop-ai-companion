@@ -398,6 +398,26 @@ namespace DesktopAICompanion
             catch { }
         }
 
+        /// <summary>Where a tick companion staged smaller than asked is said, once per staging (the stand-in review of
+        /// feature/shimeji-host-limits, N3): the diagnostic log; a self-test records the lines instead.</summary>
+        internal static Action<string> TickSizeNoticeSink = delegate (string line)
+        {
+            try { DiagnosticLog.Write(LogCategory.Companions, "info", null, line); }
+            catch { }
+        };
+
+        /// <summary>The line for a tick companion whose frames were staged below the user's size to fit the frame pixel
+        /// budget (Xml.SizeLoweredForBudgetFrom): its name, the size asked for and the size used, as the size pane's
+        /// percentages.</summary>
+        internal static string TickSizeLoweredLine(Xml staged)
+        {
+            System.Globalization.CultureInfo inv = System.Globalization.CultureInfo.InvariantCulture;
+            string name = staged.AnimationXML == null || staged.AnimationXML.Header == null ? "" : staged.AnimationXML.Header.Petname;
+            return "tick companion '" + name + "' is drawn at " + Math.Round(staged.ScaleFactorD * 100.0).ToString(inv)
+                + "%, not the " + Math.Round(staged.SizeLoweredForBudgetFrom * 100.0).ToString(inv)
+                + "% asked for: its frames at that size would pass the runtime's frame pixel budget";
+        }
+
         internal static bool TryStageRuntime(
             string source,
             double scaleFactor,
@@ -421,6 +441,8 @@ namespace DesktopAICompanion
                     // beside the Xml, where AddSheepCore finds it and hands the companion to the tick host.
                     if (!Shimeji.TickStaging.TryStage(stagedXml, out error))
                         throw new InvalidDataException(error);
+                    if (stagedXml.SizeLoweredForBudgetFrom > 0)
+                        TickSizeNoticeSink(TickSizeLoweredLine(stagedXml));
                     return true;
                 }
                 stagedXml.LoadAnimations(stagedAnimations);

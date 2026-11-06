@@ -91,6 +91,11 @@ namespace DesktopAICompanion
         /// <summary>Effective FRACTIONAL render + movement factor (the size slider; may be below 1).</summary>
         public double ScaleFactorD { get { return scaleFactorD; } }
 
+        /// <summary>The size the user asked for when a tick companion's frames were staged smaller to fit the generated-pixel
+        /// budget (<see cref="TickFactorWithinBudget"/>); 0 when they were not. The host says so once at staging
+        /// (StartUp.TryStageRuntime), since nothing else would tell the user why the companion is smaller than asked.</summary>
+        internal double SizeLoweredForBudgetFrom { get; private set; }
+
         /// <summary>True when this pet opts into per-pixel alpha rendering (&lt;transparency&gt;Alpha).</summary>
         public bool UsesAlpha { get { return usesAlpha; } }
 
@@ -252,6 +257,7 @@ namespace DesktopAICompanion
                 int stagedHeight;
                 double stagedFactor;
                 bool stagedUsesAlpha;
+                double stagedLoweredFrom;
                 ReadImages(
                     parsed,
                     sheetBytes,
@@ -261,7 +267,8 @@ namespace DesktopAICompanion
                     out stagedWidth,
                     out stagedHeight,
                     out stagedFactor,
-                    out stagedUsesAlpha);
+                    out stagedUsesAlpha,
+                    out stagedLoweredFrom);
 
                 parsed.Header.Petname =
                     UnicodeTextProgress.TruncateAtCodePointBoundary(
@@ -280,6 +287,7 @@ namespace DesktopAICompanion
                 spriteWidth = stagedWidth;
                 spriteHeight = stagedHeight;
                 scaleFactorD = stagedFactor;
+                SizeLoweredForBudgetFrom = stagedLoweredFrom;
                 iScale = ScalePolicy.LevelForExpression(stagedFactor);
                 // In the commit block with everything else (F317): it was written inside ReadImages, before
                 // any of the steps that can throw, so a failed re-read on a live instance kept the old frames
@@ -557,8 +565,10 @@ namespace DesktopAICompanion
             out int stagedWidth,
             out int stagedHeight,
             out double stagedFactor,
-            out bool stagedUsesAlpha)
+            out bool stagedUsesAlpha,
+            out double stagedLoweredFrom)
         {
+            stagedLoweredFrom = 0;
             // The validator's bytes (F318): it decoded and proved both, so this method no longer runs its
             // own base64 pass over the sheet. A local, not the field (F317): the field is assigned in the
             // caller's commit block, after every step here that can throw.
@@ -579,15 +589,26 @@ namespace DesktopAICompanion
                 {
                     int sourceWidth = decoded.Width / root.Image.TilesX;
                     int sourceHeight = decoded.Height / root.Image.TilesY;
+                    // The validator's own cap for this document's clock (256 classic, 768 tick), never a copied number:
+                    // a tick frame the validator admitted must not be shrunk or refused here.
+                    bool tick = ShimejiFormatValidator.IsTickMode(root);
+                    int frameLimit = CompanionXmlValidator.MaximumFrameDimensionFor(tick);
                     stagedFactor = ScalePolicy.FitFactorForFrameD(
                         scaleFactorD,
                         sourceWidth,
                         sourceHeight,
-                        256);
+                        frameLimit);
+                    if (tick && stagedFactor > 1.0)
+                    {
+                        double fitted = TickFactorWithinBudget(stagedFactor, root.Image.TilesX, root.Image.TilesY, sourceWidth, sourceHeight);
+                        // Kept so the host can say so once at staging (SizeLoweredForBudgetFrom): the size the user asked for.
+                        if (fitted < stagedFactor) stagedLoweredFrom = scaleFactorD;
+                        stagedFactor = fitted;
+                    }
                     stagedWidth = Math.Max(1, (int)Math.Round(sourceWidth * stagedFactor));
                     stagedHeight = Math.Max(1, (int)Math.Round(sourceHeight * stagedFactor));
-                    if (stagedWidth > 256 || stagedHeight > 256)
-                        throw new InvalidDataException("A sprite frame exceeds the 256-pixel runtime limit.");
+                    if (stagedWidth > frameLimit || stagedHeight > frameLimit)
+                        throw new InvalidDataException("A sprite frame exceeds the " + frameLimit + "-pixel runtime limit.");
 
                     ValidateSpriteBudget(
                         root.Image.TilesX,
@@ -651,6 +672,22 @@ namespace DesktopAICompanion
                 case "window-bottom": return TNextAnimation.TOnly.WINDOW_BOTTOM;
                 default: return TNextAnimation.TOnly.NONE;
             }
+        }
+
+        /// <summary>
+        /// A tick companion's size above 1:1, lowered as far as the frames need to stay inside the generated-pixel budget
+        /// (<see cref="ValidateSpriteBudget"/>). Under the classic 256 px cap the frame cap itself held a tick companion's
+        /// growth; at 768 a sheet of many frames at a large size would pass the budget and refuse to load at a size it
+        /// loaded at before (100 frames of 128 px at 400% are 26 Mi pixels). So it grows as far as fits instead, never
+        /// below 1:1: at 1:1 the frames ARE the sheet, which the validator holds to the same 16 Mi pixels. One pixel of
+        /// rounding a side is allowed for (Math.Round below adds at most half a pixel, and the factor is above 1). A classic
+        /// companion is unchanged: its 256 px cap is what it has always had.
+        /// </summary>
+        private static double TickFactorWithinBudget(double factor, int tilesX, int tilesY, int sourceWidth, int sourceHeight)
+        {
+            double cells = (double)tilesX * tilesY * (sourceWidth + 1.0) * (sourceHeight + 1.0);
+            double fits = Math.Sqrt(MaximumGeneratedPixels / cells);
+            return factor <= fits ? factor : Math.Max(1.0, fits);
         }
 
         private static void ValidateSpriteBudget(

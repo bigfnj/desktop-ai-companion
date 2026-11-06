@@ -35,6 +35,7 @@ schema validation.
 | `windows` | window actions (they also need the user's per-type opt-in) |
 | `hotspots` | `<hotspots>` |
 | `variables` | per-instance variables (`mascot.variables`) and `<constants>` |
+| `wav` | a named clip's `format` attribute, so its bytes may be a RIFF/WAVE (section 3) |
 
 A token becomes "known" only in the host build whose runtime implements it, so no build accepts a companion it cannot
 run.
@@ -146,9 +147,32 @@ run.
   - The pose for a given action age is chosen by age modulo the summed durations (`Animation.java:54-78`).
 - **`<sound id="...">`.** A new optional attribute, so poses can name clips. `animationid` stays for classic use. In a
   tick-clock companion every sound is a named clip (an id of 1 to 64 characters, unique, no `animationid`), and its
-  audio passes the same size limits and MP3 check as a classic sound. A named clip carries no `<loop>` and no
+  audio passes the same size limits as a classic sound (2 MiB a clip, 8 MiB a document), except that a clip that
+  declares a `format` (below) may be 4 MiB: WAV is uncompressed, and the attribute needs feature `wav`, so a host
+  older than that refuses such a clip by the feature's name before any size is measured. A named clip carries no `<loop>` and no
   `<probability>` (both 0, the serializer's own values): a clip plays once per start, as the source's does, so either
   would be ignored, and the validator refuses one rather than accept a setting that does nothing.
+- **`<sound format="...">`.** A named clip's audio format, DECLARED, never sniffed: absent or `mp3` is MP3 (the
+  structural check every sound has had: an ID3 tag or an MPEG frame sync), `wav` a RIFF/WAVE. The attribute, whatever
+  its value, needs feature `wav`, so a host that predates it refuses the companion by that name before the schema;
+  since every feature needs `tick`, a classic `<sound animationid>` stays MP3 (the classic engine admits and decodes
+  MP3 only, `Animations.AddSound` and `AudioOutput.Decode`, and the converter's WAV clips are all pose clips). The
+  validator proves the bytes ARE the declared format and refuses, naming the clip, MP3 bytes declared
+  `wav` and WAV bytes declared MP3. A `wav` clip must be:
+  - a RIFF/WAVE whose RIFF size equals the clip's length (not truncated, nothing after the form), every chunk inside
+    it; an odd-sized chunk is followed by a pad byte, which the LAST chunk may omit; chunks after `data` are allowed;
+  - with a `fmt ` chunk of PCM (8, 16, 24 or 32 bits) or IEEE float (32 or 64 bits), plain or `WAVE_FORMAT_EXTENSIBLE`
+    with that standard subformat; ADPCM, mu-law, A-law and every other tag are refused, by tag;
+  - mono or stereo, 8000 to 192000 Hz, with a block align of channels x bits / 8;
+  - with a non-empty `data` chunk of whole frames.
+  The walk takes the FIRST `fmt ` and the FIRST `data` chunk and skips an odd chunk's pad byte whatever its value; the
+  host decodes exactly those, never re-reading the RIFF, so what plays is what was checked.
+  The source loads clips through javax.sound (WAV, AU, AIFF; not MP3), and a clip it cannot open refuses the whole
+  image set at load (`SoundLoader.java:21-24`, `AnimationBuilder.java:161-165`, `Main.java:478-484`). A clip this
+  validator accepts that the host's decoder then cannot decode plays silently: the app logs it once and the
+  companion keeps running. So does a clip, WAV or MP3, that would decode to more than 60 seconds at the mixer's
+  44.1 kHz stereo (`AudioOutput.MaximumClipDecodedSamples`), and so does a classic companion's sound past the same
+  cap: it is silent and logged once, the same way.
 - **Playing a clip** (`Mascot.java:612-625`, `Sounds.java`, `SoundLoader.java`):
   - A clip is one sound at one volume. Every companion whose applied pose names the same clip of a type at the same
     volume shares it: one clip, one playing state. The same sound at another volume is another clip.
@@ -349,6 +373,13 @@ To be confirmed by the parity lane against `UserBehavior` before freeze.
 | variants per action | — | 32 | the corpus maximum is 15 |
 | children per composite | — | 64 | the corpus maximum is 20 |
 | expression length | 256 | 4096 characters | |
+| frame side | 256 px | 768 px | a classic pet's converter downsamples its frames; a tick member's geometry is the source's own pixels, and real images reach 650 x 320 |
+
+The sheet caps are the same in both modes (4096 px a side, 16 Mi pixels), and they bound the memory. A tick frame is
+staged at the user's size up to the frame side, and as far as the staged frames stay within those 16 Mi pixels (a large
+sheet at a large size is staged at the largest size that fits, never below 1:1, and the app's diagnostic log says so
+once at staging, naming the companion and both sizes). A host older than the tick frame side
+refuses such a companion at validation: "sprite image contains a frame larger than the runtime supports".
 
 ### 4.5 One step of one companion
 

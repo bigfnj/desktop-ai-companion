@@ -245,6 +245,7 @@
                   </xsd:all>
                   <xsd:attribute name="animationid" type="xsd:int"/>
                   <xsd:attribute name="id" type="xsd:string"/>
+                  <xsd:attribute name="format" type="soundFormat"/>
                 </xsd:complexType>
               </xsd:element>
             </xsd:sequence>
@@ -255,6 +256,14 @@
     </xsd:complexType>
   </xsd:element>
   
+  <!-- A sound's declared audio format (grimoire/06 section 3). Absent is mp3, the only format before feature 'wav'. -->
+  <xsd:simpleType name="soundFormat">
+    <xsd:restriction base="xsd:string">
+      <xsd:enumeration value="mp3" />
+      <xsd:enumeration value="wav" />
+    </xsd:restriction>
+  </xsd:simpleType>
+
   <xsd:simpleType name="borderType">
     <xsd:restriction base="xsd:string">
       <xsd:enumeration value="none" />

@@ -75,6 +75,19 @@ namespace DesktopAICompanion.PetStudioModule
                         false, out classicError)
                     : null;
                 ok &= Check(sb, "WITNESS the debugger still builds a classic companion's chain (" + classicError + ")", classicBuilt != null);
+
+                // Feature 'wav' (the WAV lane's stand-in review, F2): a tick companion whose pose names a WAV clip opens in
+                // Studio like any other. The clip is generated here; Studio plays nothing.
+                XmlData.RootNode wav = TickCompanion(classic);
+                wav.Header.Features += " " + CompanionFormatFeatures.Wav;
+                wav.Sounds = new XmlData.SoundsNode
+                {
+                    Sound = new[] { new XmlData.SoundNode { SoundId = "tone", Format = "wav", Base64 = Convert.ToBase64String(SyntheticWave()) } },
+                };
+                wav.Animations.Animation[4].Act.Variants.Variant[0].Pose[0].Sound = "tone";
+                PetReport wavReport = PetAnalyzer.Analyze(ShimejiEngine.Serialize(wav));
+                ok &= Check(sb, "Studio accepts a tick-clock companion with a WAV clip (feature 'wav')"
+                                + (wavReport.IsValid ? "" : " (" + wavReport.Error + ")"), wavReport.IsValid);
             }
             catch (Exception ex)
             {
@@ -122,6 +135,31 @@ namespace DesktopAICompanion.PetStudioModule
             r.Childs = new XmlData.ChildsNode { Child = new XmlData.ChildNode[0] };
             r.Sounds = null;
             return r;
+        }
+
+        /// <summary>A 0.1 s 16-bit mono PCM clip at 8 kHz (a sawtooth), as a RIFF/WAVE written here.</summary>
+        private static byte[] SyntheticWave()
+        {
+            const int rate = 8000, frames = 800;
+            using (var ms = new System.IO.MemoryStream())
+            using (var w = new System.IO.BinaryWriter(ms))
+            {
+                w.Write(new[] { 'R', 'I', 'F', 'F' });
+                w.Write(36 + frames * 2);
+                w.Write(new[] { 'W', 'A', 'V', 'E', 'f', 'm', 't', ' ' });
+                w.Write(16);
+                w.Write((short)1);
+                w.Write((short)1);
+                w.Write(rate);
+                w.Write(rate * 2);
+                w.Write((short)2);
+                w.Write((short)16);
+                w.Write(new[] { 'd', 'a', 't', 'a' });
+                w.Write(frames * 2);
+                for (int i = 0; i < frames; i++) w.Write((short)((i % 40) * 800 - 16000));
+                w.Flush();
+                return ms.ToArray();
+            }
         }
 
         private static XmlData.AnimationNode Node(int id, string name, Action<XmlData.AnimationNode> kind, params XmlData.NextNode[] next)

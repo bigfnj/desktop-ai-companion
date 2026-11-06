@@ -3962,6 +3962,16 @@ CASES = (
         b"            _openedPath = null;\n            _saveButton.IsEnabled = true;\n            _map.Children.Clear();\n",
         "host-pack-abi: an empty pack document has no text, no file it came from and nothing to save",
     ),
+    # ---- lane feature/shimeji-host-wav ----
+    # AppTickAudio.Play hands the clip's declared format (WAV or MP3) to AudioOutput.PlayClip; no headless self-test
+    # opens the live output it plays through, so the argument is pinned here.
+    (
+        "shimeji-host-wav: host: every tick clip goes to the output as MP3",
+        os.path.join(REPO, "src", "dotNet", "Shimeji", "TickAudio.cs"),
+        b"output.PlayClip(owner, audio, wav, volume)",
+        b"output.PlayClip(owner, audio, false, volume)",
+        "shimeji-host-wav: a tick clip reaches the audio output with the format its document declared",
+    ),
 )
 
 

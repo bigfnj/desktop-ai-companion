@@ -25,6 +25,8 @@ namespace DesktopAICompanion
             supported.Add(Hotspots);
             supported.Add(Variables);
             supported.Add(Packs);
+            // 'wav' runs: a WAV clip decodes and plays through the same clip path as an MP3 one (AudioOutput.PlayClip).
+            supported.Add(Wav);
         }
 
         static partial void CheckRuntimeClass(string embeddedClass, ref bool runs)

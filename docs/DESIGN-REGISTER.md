@@ -7704,6 +7704,88 @@ member the earlier install had and the pack no longer has is left installed and 
 user's call. The same path makes a retry after a partial install, and a re-import that changed a role, replace rather
 than duplicate.
 
+#### feature/shimeji-host-wav
+
+A tick companion's named clip may be WAV: `<sound format="wav">`, feature `wav` (grimoire/06 section 3).
+
+**The format is declared, never sniffed, and checked against the bytes.** The validator runs the check the declaration
+names and refuses the other way round by name (MP3 bytes declared `wav`, WAV bytes declared MP3); the bytes are looked
+at again only to word that refusal. The staging carries the declaration with the bytes (`TickClipAudio`), and the
+decoder reads it, so the validator and the runtime ask one function (`WavFormat.IsDeclaredWav`) what the document said.
+
+**Any `format` attribute needs the token, `mp3` included.** An older host's schema has no such attribute, so only the
+token gets that host a refusal by name before the schema. Since every token needs `tick`, a classic `<sound
+animationid>` stays MP3: the classic engine admits and decodes MP3 only, and the converter's WAV clips are all pose clips.
+
+**Transcoding WAV to MP3 in the converter was refused** (lossy, and the Windows MP3 encoder is absent on N editions); the
+host decodes PCM and IEEE float through NAudio with no OS codec. ADPCM, mu-law and A-law would need ACM codecs and are
+refused by tag: none of the corpus's 1168 WAVE clips uses them (all 8- or 16-bit PCM). NAudio's sample converters do
+not take a `WAVE_FORMAT_EXTENSIBLE` header (measured: "Unsupported source encoding"), so `AudioOutput.DecodeClip` reads
+an extensible clip's samples under the plain header its subformat means.
+
+**The structure is no stricter than real clips.** Chunks after `data`, an 18-byte fmt chunk and an odd-sized last chunk
+with no pad byte pass (238, 25 and 10 corpus clips). A RIFF size that disagrees with the clip, a block align that
+contradicts the channels and bits, or a ragged data chunk are refused, though the source plays the one corpus clip of
+each of the first two kinds: the bytes are in doubt, and a converter can rewrite either header field without touching a
+sample.
+
+**The size limits are unchanged** (2 MiB a clip, 8 MiB a document, 12 MiB of XML). 466 of the 493 corpus members whose
+clips resolve fit them as WAV; raising the per-clip limit to 4 MiB would add 18. A decoded clip costs twice its bytes for
+16-bit stereo at 44.1 kHz and at most 44 times them (8-bit mono at 8 kHz, the lowest rate allowed), so a raise is a
+memory decision for the coordinator, not this lane.
+
+**A parity run writes no sound event for WAV either.** ParityRun has no clip output until CONTRACT defines a clip clock
+(ParityRun.cs, `Sound`), so a WAV clip's start is asserted in --shimeji-window-selftest through a recording sink.
+
+#### feature/shimeji-host-limits
+
+The WAV lane's stand-in review (F1-F3), then the tick frame cap and the declared clip's size limit.
+
+**One parse of a WAV clip, for the validator and the decoder.** `WavFormat.TryParse` returns what it proved (the plain
+tag, an extensible clip's subformat; channels, rate, bits, block align; the data chunk's offset and length), and
+`AudioOutput.DecodeClip` plays exactly that slice under exactly that format through `RawSourceWaveStream`. Before, the
+decoder handed the bytes to NAudio's `WaveFileReader`, which keeps the LAST fmt and data chunks and skips a pad byte only
+when it is zero, where the validator keeps the FIRST and skips any pad: a second fmt at 1 Hz, or one hidden behind a
+non-zero pad byte, was validated under one format and decoded under the other (568 bytes to 44.1 M samples). Refusing
+duplicate chunks and non-zero pads instead was rejected: that list follows one reader's internals and would have to keep
+following them, and one parse keeps the accepted set the WAV lane measured. The extensible workaround the WAV lane
+recorded above is gone with it: the parse hands the decoder the plain tag.
+
+**Every pet sound and clip decodes to at most 60 seconds at the mixer format** (`MaximumClipDecodedSamples`, about 21 MB
+of floats), MP3 and WAV alike, through one function (`ReadClip`), so the cap cannot be on one format and missing from the
+other. The validator bounds bytes, not what they become: an 8 kbps MP3 decodes to about 353 times its bytes. Measured
+before choosing it: the 276 sounds of the 55 shipped pet documents are all MP3 and the longest plays 4.18 s. A sound or
+clip past the cap is refused at decode, logged once through `ClipFailureSink` and silent, and the companion runs on; a
+classic pet's sound (`Play`, `PetSoundSamples`) as much as a tick companion's clip (`PlayClip`, `ClipSamples`). The
+classic path dropped the reason until the branch's stand-in review (N1), so a classic sound over 60 s, which played
+before the cap, went silent with nothing logged. The cap stays on that path: it is the decode-bomb guard. The same figure as the module cap
+(`MaximumModuleDecodedSamples`). The decode still runs on the UI thread under the audio lock: BACKLOG
+N-shimeji-host-limits-01, with its measured times.
+
+**A tick-clock companion's frame side is 768 px; a classic one's stays 256.** A classic pet's converter downsamples its
+frames to fit, but a tick member's poses, anchors, hotspots and moves are the source's own pixels and the converter
+never rescales them, so a real 650 x 320 image could not load at all. `CompanionXmlValidator.MaximumFrameDimensionFor`
+is the one reading, for the validator and the loader's staging (`Xml.ReadImages`); the converter's tick check binds
+`SpriteSheetBuilder.MaxTickCell` to the same constant. The sheet caps (4096 px a side, 16 Mi pixels) are unchanged and
+still bound the memory; the icon keeps 256 (an ICO entry is at most that). No feature token: an older host refuses such
+a companion at validation ("sprite image contains a frame larger than the runtime supports"), before anything is staged,
+which is a clean refusal though not by name; a token would have made the converter emit one more word for no gain in
+safety. Raising the cap alone would have let a tick companion's frames grow with the user's size past what the 256 cap
+used to stop, and a large sheet at a large size would then refuse to load where it loaded before (100 frames of 128 px
+at 400% are 26 Mi pixels), so on the tick path the size is lowered as far as the frames need to fit the generated-pixel
+budget, never below 1:1 (`TickFactorWithinBudget`). The host's staging says so once in the diagnostic log, naming the
+companion, the size asked for and the size used (`StartUp.TickSizeNoticeSink`; the stand-in review's N3), since
+nothing else tells the user why the companion is smaller than the size pane says.
+
+**A clip that declares a `format` may be 4 MiB; an undeclared one, classic or tick MP3, stays at 2 MiB.** The 8 MiB
+document total and the 12 MiB XML limit are unchanged. Only a declared clip, because the attribute needs feature `wav`
+(`WavFormat.DeclaresFormat` is the one reading of "declares", for the requirement and the limit), whose gate runs before
+any clip is measured, so an older host refuses it by the feature's name rather than with a size error that reads as a
+broken file. `format="mp3"` counts as declared, the attribute being what needs the token; the converter never writes
+it. Decoded worst case at the mixer format: a 4 MiB WAV at most about 176 MiB (8-bit mono at the 8 kHz floor, 44.1 times
+its bytes) before the decode cap, which stops every clip at 60 s (about 21 MB); a document's decoded total is bounded
+as it was, since its bytes are. The WAV lane's "size limits are unchanged" above is superseded by this.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of
