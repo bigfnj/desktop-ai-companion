@@ -26,7 +26,19 @@ namespace DesktopAICompanion.PetStudioModule
         {
             Id = "petstudio",
             Name = "Companion Studio",
-            Version = "1.3.0",   // 1.3.0: imports a Shimeji pack (several image sets) as one companion for the
+            Version = "1.4.0",   // 1.4.0: converts far more Shimeji packs: Japanese-vocabulary documents, anonymous nested and
+                                 //        instant embedded actions, hotspots and affordance offers, Toggleable behaviours, custom
+                                 //        variables, ${} and #{} expressions, and the attributes and children the original program
+                                 //        ignores. Pose sounds become named WAV clips (feature 'wav'), each checked by name against
+                                 //        the host's clip size and 60 s decode limits; a host older than 1.11.0 refuses such a
+                                 //        companion by that feature's name, and nothing here calls a new host member, so
+                                 //        MinHostVersion stays 1.10.0. A pack whose next list names a behaviour it does not define is
+                                 //        refused with "Import with recovery" offered: it converts again without those entries, lists
+                                 //        each in the pack report before Install, counts it in its member's "not converted", and the
+                                 //        pack status keeps saying it was converted with recovery. An image set the original program
+                                 //        would not load is skipped with a warning; a pack whose main or startup member is skipped is
+                                 //        refused.
+                                 // 1.3.0: imports a Shimeji pack (several image sets) as one companion for the
                                  //        Shimeji runtime. The skin picker's "Import all as a pack (Shimeji
                                  //        runtime)" takes the highlighted skin as the main member; the author sets
                                  //        each member's role (main, egg, form, helper) and whether it is hidden,
