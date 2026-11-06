@@ -57,7 +57,7 @@ namespace DesktopAICompanion
             CheckWavClips(classic, ref failures, output);
             CheckHostLimits(classic, ref failures, output);
 
-            string unknown =Serialize(With(TickFixture(classic), r => r.Header.Features += " teleport"));
+            string unknown = Serialize(With(TickFixture(classic), r => r.Header.Features += " teleport"));
             Check(!CompanionXmlValidator.TryParseWithFeatures(unknown, AllExtensionFeatures, out parsed, out error)
                   && Contains(error, "needs a newer Desktop AI Companion (feature 'teleport')"),
                 "extension gate: an unknown feature asks for a newer app, by name (" + error + ")", ref failures, output);

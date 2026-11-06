@@ -177,10 +177,11 @@ namespace DesktopAICompanion
         /// format (which needs feature 'wav', checked before any sound is decoded), else <see cref="MaximumAudioBytesPerSound"/>,
         /// a classic sound's and an undeclared (MP3) named clip's alike. A clip declared format="mp3" counts as declared: the
         /// attribute, whatever its value, is what needs the token. Decoded memory, at the mixer's 44.1 kHz stereo float
-        /// (AudioOutput, 352,800 bytes a second, decoded once per clip and held while its bytes are): a WAV clip costs at most
-        /// 44.1 times its bytes (8-bit mono at the 8 kHz floor), so a 4 MiB clip at most about 176 MiB; an MP3 at 8 kbps
-        /// costs about 353 times its bytes. A document's clips together stay within 8 MiB of audio, so its decoded worst
-        /// case is the one it had before the raise; the raise moves only what ONE clip may cost.</summary>
+        /// (AudioOutput, 352,800 bytes a second, decoded once per clip and held while its bytes are): the decode cap,
+        /// AudioOutput.MaximumClipDecodedSamples, refuses any sound or clip past 60 s at decode, so ONE clip holds at most
+        /// about 21 MB, whatever its format or bytes. Without the cap a WAV clip would cost up to 44.1 times its bytes (8-bit
+        /// mono at the 8 kHz floor), about 176 MiB at 4 MiB, and an MP3 at 8 kbps about 353 times. A document's clips
+        /// together stay within 8 MiB of audio as before; the raise moves only what one clip may be before the cap.</summary>
         internal static int MaximumAudioBytesFor(XmlData.SoundNode sound)
         {
             return WavFormat.DeclaresFormat(sound) ? MaximumDeclaredAudioBytesPerSound : MaximumAudioBytesPerSound;
