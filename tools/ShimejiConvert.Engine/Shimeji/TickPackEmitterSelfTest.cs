@@ -1602,6 +1602,40 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     }
                     Require(refused, "a NaN TargetX on " + holder + ", a class with no cited int reader, was not refused as TICK_NAN_READER");
                 }
+            // Review N4 (r4): the behaviour document's scripts are in the name set too. A behaviour binding reads the
+            // lowered TargetX by name (its extra attributes join the action's map, BehaviorBuilder.java:72-78).
+            using (var fixture = new Fixture())
+            {
+                XDocument actions = BuildActions();
+                actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Walk")
+                    .SetAttributeValue("TargetX", "${mascot.lookRight ? 10 : 500 - Math.random*100}");
+                fixture.Actions(actions);
+                XDocument behaviours = BuildBehaviors();
+                behaviours.Root.Element("BehaviorList").Add(S("Behavior", A("Name", "Chase"), A("Action", "Walk"), A("Frequency", 0),
+                    A("TargetY", "${TargetX}")));
+                fixture.Behaviors(behaviours);
+                bool refused = false;
+                try { TickPackEmitter.ConvertPack(fixture.Pack, fixture.Output); }
+                catch (InvalidDataException error)
+                {
+                    refused = error.Message.IndexOf("TICK_NAN_READER TargetX: a script of this member names 'TargetX'", StringComparison.Ordinal) >= 0;
+                }
+                Require(refused, "a NaN-lowered TargetX that a behaviour-document script reads by name was lowered");
+            }
+            // Review N4 (r4): and a custom variable that only a behaviour-document script names is carried.
+            using (var fixture = new Fixture())
+            {
+                XDocument actions = BuildActions();
+                actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Walk").SetAttributeValue("Gap", "4");
+                fixture.Actions(actions);
+                XDocument behaviours = BuildBehaviors();
+                behaviours.Root.Element("BehaviorList").Add(S("Behavior", A("Name", "Chase"), A("Action", "Walk"), A("Frequency", 0),
+                    A("TargetX", "${Gap * 2}")));
+                fixture.Behaviors(behaviours);
+                XDocument document = fixture.Convert();
+                Require(Bound(NamedNode(document, "Walk").Element(Ns + "act"), "param", "Gap") == "4",
+                    "a custom variable named only by a behaviour-document script was not carried");
+            }
         }
 
         // Decisions 55 and 64: a next entry naming no root behaviour refuses by default (TICK_NEXT_MISSING, naming the
@@ -1782,6 +1816,45 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Walk").Element("Animation").Add(Pose("/p.png", -1));
                 fixture.Actions(actions);
                 Refusal(fixture, "pose duration must be 1 to 100000");
+            }
+            // Review M2 (r4): a 0-long pose's Sound is still resolved and checked as the source loads it. A missing clip
+            // refuses; a present one is checked and written nowhere (no <sound>, no 'wav').
+            using (var fixture = new Fixture())
+            {
+                XDocument actions = BuildActions();
+                XElement silent = Pose("/p.png", 0);
+                silent.SetAttributeValue("Sound", "/gone.wav");
+                actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Walk").Element("Animation").Add(silent);
+                fixture.Actions(actions);
+                Refusal(fixture, "TICK_SOUND_MISSING: Sound '/gone.wav'");
+            }
+            using (var fixture = new Fixture())
+            {
+                WriteBytes(fixture, "sound/kept.wav", Wave(100, 3));
+                XDocument actions = BuildActions();
+                XElement silent = Pose("/p.png", 0);
+                silent.SetAttributeValue("Sound", "/kept.wav");
+                actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Walk").Element("Animation").Add(silent);
+                fixture.Actions(actions);
+                XDocument document = fixture.Convert();
+                Require(!document.Descendants(Ns + "sound").Any() && !Features(document).Contains("wav"),
+                    "a clip only a never-played pose names was written");
+            }
+            // Review M4 (r4): a 0-long pose still loads its image, so it claims the image pair's first-loaded anchor; a
+            // later shown pose of the same image carries that anchor, as the source's pair cache gives it.
+            using (var fixture = new Fixture())
+            {
+                XDocument actions = BuildActions();
+                XElement first = Pose("/p.png", 0);
+                first.SetAttributeValue("ImageAnchor", "7,9");
+                XElement shown = Pose("/p.png", 2);
+                shown.SetAttributeValue("ImageAnchor", "1,1");
+                actions.Root.Element("ActionList").AddFirst(S("Action", A("Name", "Early"), A("Type", "Stay"), S("Animation", first, shown)));
+                fixture.Actions(actions);
+                XDocument document = fixture.Convert();
+                XElement pose = NamedNode(document, "Early").Element(Ns + "act").Element(Ns + "variants").Element(Ns + "variant").Element(Ns + "pose");
+                Require((string)pose.Attribute("ax") == "7" && (string)pose.Attribute("ay") == "9",
+                    "a never-shown pose did not claim its image's first-loaded anchor: " + (string)pose.Attribute("ax") + "," + (string)pose.Attribute("ay"));
             }
             // Decision 68 and review N2: the refusal above (a Move steps its animation) stays only where a stepping class
             // can play the all-zero Animation. An Animate or an Interact ends at once: one variant that never holds. Under
