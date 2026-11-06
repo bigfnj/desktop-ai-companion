@@ -1960,6 +1960,50 @@ Each module's `Version` line carries its changelog for the campaign, in the file
 self-tests, invariants or projects is repeated here: the gate asserts those against the documents that
 state them.
 
+## 🚢 Released: v1.11.0 and Companion Studio 1.4.0 (2026-11-06)
+
+The third release of the Shimeji runtime campaign. Host 1.11.0 is a MINOR with no ABI change. Tick companions accept
+WAV clips (`<sound format="wav">`, feature `wav`: PCM of 8 to 32 bits and float, while ADPCM, mu-law and A-law are
+refused by name), every clip's decode is capped at 60 seconds, frames may be up to 768 px a side and a clip that
+declares its format up to 4 MiB, and a companion staged smaller than its author asked says so once in the log. The
+parity trace now writes the original program's behaviour names where conversion renamed one, and a parity run whose
+trace could not attribute a name ends in error instead of reporting complete.
+
+Companion Studio 1.4.0 (MinHostVersion still 1.10.0, since it calls no newer host member) carries the converter work
+that 1.3.0 held back. It lowers Japanese-vocabulary documents, anonymous nested and instant embedded actions,
+hotspots and affordance offers, Toggleable behaviours, custom variables and `${}`/`#{}` expressions, ignores the
+attributes and children the original program never reads, and turns pose sounds into named WAV clips checked by name
+against the host's size and decode limits. On the private test corpus the share of packs it accepts went from 0 of
+381 to 341 (857 of 918 image sets). A pack whose next list names a behaviour it does not define is refused, with
+"Import with recovery" offered: it converts again without those entries, lists each one in the pack report before
+Install, counts it in its member's "not converted" and keeps saying in the status that the pack was converted with
+recovery. The original program would stop every companion when such an entry ended, so dropping it is a recorded
+divergence. An image set the original program would not load is skipped with a warning, and a pack whose main or
+startup member is skipped is refused. A host older than 1.11.0 refuses a WAV companion by the feature's name.
+
+Verified before the tag: the full gate on the candidate (9fa2a60) passed apart from the expected publish line for
+petstudio; the lane regression (CoreTests 149 groups, security, the Shimeji window self-test, source invariants under powershell.exe, Studio and converter builds and selftest, the three slices replayed
+against the real runtime's traces with no differing row); the ten source-name scenarios exact against the real
+Shimeji-EE runtime; the 60 synthetic parity scenarios identical to the previous baseline apart from an empty
+`sourceNames` field in the parity maps; the private corpus unchanged at every pack and image set; Companion Studio's
+two self-tests. Real-app checks on test copies (their own data root, no real input): Studio's pack import, strict
+refusal and recovery path, 102 of 102 checks; a 700 px tick companion with a WAV clip walking at full size; a pack
+companion arriving as its egg and hatching in place. The release workflow published v1.11.0, unsigned, and
+Companion Studio 1.4.0 was published after it. Light tier by the owner's decision.
+
+What review and the real app found that the self-tests had not: Codex reviewed the recovery and skipped-image-set
+designs and the pack API changes behind them, with its own tests and mutants. The real-app check found that a
+recovered member's row read "0 not converted", that the analysis overwrote the recovery status about two seconds after
+it appeared, and that a pack with no member prepared still offered to open one; all three were fixed before the merge
+and checked again in the real app.
+
+Known and pre-existing (1.10.0 has it too): when Windows moves the app's audio stream to another output endpoint
+right after it starts (per-app output routing does this), DirectSound stops the buffer without an error and the app
+then stays silent for two minutes before it tries again. It is first in the backlog.
+
+Still open: the owner's install of 1.11.0 on the development machine; the manual SMOKETEST.md walk; the 40 corpus
+packs the converter still refuses; the full tier; the code audit and backlog burn-down.
+
 ## 🚢 Released: v1.10.0 and Companion Studio 1.3.0 (2026-11-05)
 
 The second release of the Shimeji runtime campaign. Host 1.10.0 is a MINOR with two additive ABI members:
