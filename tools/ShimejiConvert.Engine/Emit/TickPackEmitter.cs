@@ -734,6 +734,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 // grimoire/06 sections 3 and 4.1: a variant's <hotspots> follow its poses (the schema's order), whatever
                 // order the source interleaves Pose and Hotspot children in.
                 var hotspots = new List<XElement>();
+                bool anyPose = false;
                 foreach (ShimejiSourceElement child in source.Children)
                 {
                     if (child.Kind == ShimejiSourceKind.Hotspot)
@@ -746,9 +747,30 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     int dx, dy;
                     Pair(Required(child, "Velocity"), child, out dx, out dy);
                     int ticks = Int(child, "Duration", null);
-                    if (ticks < 1 || ticks > 100000) Fail(child, "pose duration must be 1 to 100000");
+                    anyPose = true;
+                    // A pose of Duration 0 is never the current pose: Animation.getPoseAt subtracts each pose's duration
+                    // from the time and returns the first that takes it below zero (Animation.java:54-67), which 0 never
+                    // does, so its image is never shown, its velocity never applied and its Sound never played, and it
+                    // adds nothing to the animation's length (:70-78). Its image, anchor and clip still load with the
+                    // configuration, so they are checked as any pose's are, and the pose is left out.
+                    bool neverCurrent = ticks == 0;
+                    if (!neverCurrent && (ticks < 1 || ticks > 100000)) Fail(child, "pose duration must be 1 to 100000");
                     string image = Value(child, "Image");
                     string right = Value(child, "ImageRight");
+                    if (neverCurrent)
+                    {
+                        if (image != null)
+                        {
+                            int ignoredX, ignoredY;
+                            Pair(Required(child, "ImageAnchor"), child, out ignoredX, out ignoredY);
+                            CheckSprite(image, child);
+                            if (right != null) CheckSprite(right, child);
+                        }
+                        else if (right != null) Fail(child, "TICK_RIGHT_ONLY_UNSUPPORTED: a right-only pose can depend on an earlier image-pair cache entry");
+                        string neverPlayed = Value(child, "Sound");
+                        if (neverPlayed != null) { Clip(neverPlayed, child); PoseVolume(child); }
+                        continue;
+                    }
                     var pose = E("pose", new XAttribute("frame", -1), new XAttribute("ticks", ticks), new XAttribute("dx", dx), new XAttribute("dy", dy));
                     if (image != null)
                     {
@@ -784,6 +806,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     }
                     variant.Add(pose);
                 }
+                // Every pose 0 long: the animation's length is 0, and getPoseAt's `time %= getDuration()` divides by it.
+                if (!variant.Elements().Any() && anyPose)
+                    Fail(source, "TICK_POSE_ZERO_LENGTH: every pose of this Animation has Duration 0, and the source divides by its length 0");
                 if (!variant.Elements().Any()) Fail(source, "Animation has no poses");
                 if (hotspots.Count > 64) Fail(source, "TICK_HOTSPOT_LIMIT: an Animation has at most 64 hotspots in this format");
                 if (hotspots.Count > 0)
@@ -986,6 +1011,21 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 }
                 _frameIds.Add(key, index);
                 return index;
+            }
+
+            /// <summary>A sprite the source loads but never shows (a pose of Duration 0): checked as AddFrame checks one
+            /// (inside the image set, PNG, readable, within the dimension limit), and given no frame.</summary>
+            private void CheckSprite(string image, ShimejiSourceElement source)
+            {
+                string relative = SpriteRelative(image, source);
+                if (!relative.EndsWith(".png", StringComparison.OrdinalIgnoreCase)) Fail(source, "only PNG sprites are supported");
+                string path = Path.GetFullPath(Path.Combine(_pack, "img", _member, relative.Replace('/', Path.DirectorySeparatorChar)));
+                if (!Inside(Path.Combine(_pack, "img", _member), path)) Fail(source, "sprite leaves its image set");
+                SafeEntry(path);
+                using (var imageInput = File.OpenRead(path))
+                using (var bitmap = new Bitmap(imageInput))
+                    if (bitmap.Width > SpriteSheetBuilder.MaxSheetDimension || bitmap.Height > SpriteSheetBuilder.MaxSheetDimension)
+                        Fail(source, "sprite exceeds image dimension limit");
             }
 
             private static string SpriteRelative(string image, ShimejiSourceElement source)
