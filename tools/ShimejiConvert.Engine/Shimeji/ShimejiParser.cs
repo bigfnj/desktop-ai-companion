@@ -240,6 +240,17 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             return matches.Count == 1 ? matches[0] : probe;
         }
 
+        /// <summary>
+        /// Decision 69: whether the source finds any configuration for <paramref name="imageSet"/>: an action or a behaviour
+        /// file, its own (conf/&lt;set&gt;/, img/&lt;set&gt;/conf/) or the pack's shared default under conf/, looked up as
+        /// <see cref="SourceConfigFile"/> looks (Main.java:323-366). With neither, the source's load fails and it drops the set
+        /// and loads the others (Main.java:367, :478-484, :289-294).
+        /// </summary>
+        public static bool HasSourceConfiguration(string packRoot, string imageSet)
+        {
+            return File.Exists(SourceConfigFile(packRoot, imageSet, false)) || File.Exists(SourceConfigFile(packRoot, imageSet, true));
+        }
+
         private static string SourceConfigFile(string packRoot, string imageSet, bool behaviors)
         {
             string defaultName = behaviors ? "behaviors.xml" : "actions.xml";

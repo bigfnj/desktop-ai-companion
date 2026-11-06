@@ -81,6 +81,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "sound-refusal", Run = (Action)SoundRefusal },
                 new { Name = "configuration-spelling", Run = (Action)ConfigurationSpelling },
                 new { Name = "sheet-layout", Run = (Action)SheetLayout },
+                new { Name = "conf-less-member-skipped", Run = (Action)ConfLessMemberSkipped },
                 new { Name = "zero-duration-poses", Run = (Action)ZeroDurationPoses },
                 new { Name = "information-lowering", Run = (Action)InformationLowering },
                 new { Name = "own-set-binding-reset", Run = (Action)OwnSetBindingReset },
@@ -1780,6 +1781,70 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Walk").Element("Animation").Add(Pose("/p.png", -1));
                 fixture.Actions(actions);
                 Refusal(fixture, "pose duration must be 1 to 100000");
+            }
+        }
+
+        // Decision 69: an image set with no configuration anywhere the source looks (its own conf/<set>/ or
+        // img/<set>/conf/, or a shared conf/ default) is one the source drops while it loads the rest (Main.java:289-294,
+        // :478-484). It is skipped with a warning; the pack refuses only when it is the main or the startup member, and
+        // a Breed naming it finds no member. A set the shared default configures is NOT skipped.
+        private static void ConfLessMemberSkipped()
+        {
+            using (var fixture = new Fixture())
+            {
+                // A's configuration moves to conf/A/, so the pack has no shared default; B has sprites and nothing else.
+                fixture.Write("conf/A/actions.xml", File.ReadAllText(Path.Combine(fixture.Pack, "conf", "actions.xml")));
+                fixture.Write("conf/A/behaviors.xml", File.ReadAllText(Path.Combine(fixture.Pack, "conf", "behaviors.xml")));
+                File.Delete(Path.Combine(fixture.Pack, "conf", "actions.xml"));
+                File.Delete(Path.Combine(fixture.Pack, "conf", "behaviors.xml"));
+                fixture.Member("B");
+                Require(!ShimejiParser.HasSourceConfiguration(fixture.Pack, "B") && ShimejiParser.HasSourceConfiguration(fixture.Pack, "A"),
+                    "the source's configuration lookup was not reproduced for a set with none");
+                IReadOnlyList<string> warnings;
+                IReadOnlyList<string> paths = TickPackEmitter.ConvertPack(fixture.Pack, fixture.Output, "A", out warnings);
+                Require(paths.Count == 1 && paths[0] == fixture.XmlPath
+                    && warnings.Count(w => w.StartsWith("Image set 'B': TICK_MEMBER_SKIPPED", StringComparison.Ordinal)) == 1,
+                    "a set with no configuration was not skipped with one warning: " + paths.Count + " | " + string.Join(" | ", warnings));
+                string refusal = null;
+                try { TickPackEmitter.ConvertPack(fixture.Pack, Path.Combine(fixture.Root, "main-b"), "B"); }
+                catch (InvalidDataException failure) { refusal = failure.Message; }
+                Require(refusal != null && refusal.StartsWith("TICK_PACK_MAIN_SKIPPED", StringComparison.Ordinal),
+                    "a skipped set accepted as the main member: " + refusal);
+                // The pack API: options may name the skipped set; it cannot be the main or the startup member.
+                var members = new Dictionary<string, PackMemberOptions>(StringComparer.Ordinal)
+                    { { "A", new PackMemberOptions { Role = "main", Hidden = false } }, { "B", new PackMemberOptions { Role = "form", Hidden = false } } };
+                string error;
+                PackConversionResult accepted = ShimejiEngine.ConvertPack(fixture.Pack, new PackConversionOptions { MainMember = "A", Members = members }, out error);
+                Require(accepted != null && accepted.Accepted && accepted.Members.Count == 1 && accepted.Members[0].SourceKey == "A"
+                    && accepted.Warnings.Count(w => w.StartsWith("Image set 'B': TICK_MEMBER_SKIPPED", StringComparison.Ordinal)) == 1,
+                    "the pack API refused, or did not skip with one warning, a pack whose options name its skipped set: " + error);
+                var asMain = new Dictionary<string, PackMemberOptions>(StringComparer.Ordinal)
+                    { { "B", new PackMemberOptions { Role = "main", Hidden = false } }, { "A", new PackMemberOptions { Role = "form", Hidden = false } } };
+                PackConversionResult mainRefused = ShimejiEngine.ConvertPack(fixture.Pack, new PackConversionOptions { MainMember = "B", Members = asMain }, out error);
+                Require(mainRefused != null && !mainRefused.Accepted && mainRefused.Errors.Any(e => e.StartsWith("TICK_PACK_MAIN_SKIPPED", StringComparison.Ordinal)),
+                    "the pack API accepted a skipped main member: " + error);
+                PackConversionResult startupRefused = ShimejiEngine.ConvertPack(fixture.Pack, new PackConversionOptions { MainMember = "A", Members = members,
+                    Startup = new PackStartupOptions { Member = "B", Behaviour = "Main" } }, out error);
+                Require(startupRefused != null && !startupRefused.Accepted && startupRefused.Errors.Any(e => e.StartsWith("TICK_PACK_STARTUP_SKIPPED", StringComparison.Ordinal)),
+                    "the pack API accepted a skipped startup member: " + error);
+                // A Breed naming the skipped set finds no member: the pack's missing-member rule (a warning), not a refusal.
+                XDocument breeding = BuildActions();
+                breeding.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Born").SetAttributeValue("BornMascot", "B");
+                fixture.Write("conf/A/actions.xml", breeding.ToString());
+                PackConversionResult breedsSkipped = ShimejiEngine.ConvertPack(fixture.Pack, new PackConversionOptions { MainMember = "A", Members = members }, out error);
+                Require(breedsSkipped != null && breedsSkipped.Accepted
+                    && breedsSkipped.Warnings.Any(w => !w.Contains("TICK_MEMBER_SKIPPED") && w.Contains("'B'")),
+                    "a Breed naming a skipped set was not treated as naming a missing member: " + (error ?? string.Join(" | ", breedsSkipped.Warnings)));
+            }
+            // Control: with the shared conf/ default, the source configures B from it, so B is a member.
+            using (var fixture = new Fixture())
+            {
+                fixture.Member("B");
+                Require(ShimejiParser.HasSourceConfiguration(fixture.Pack, "B"), "the shared conf/ default was not found for a set without its own");
+                IReadOnlyList<string> warnings;
+                IReadOnlyList<string> paths = TickPackEmitter.ConvertPack(fixture.Pack, fixture.Output, "A", out warnings);
+                Require(paths.Count == 2 && !warnings.Any(w => w.Contains("TICK_MEMBER_SKIPPED")),
+                    "a set the shared conf/ default configures was skipped");
             }
         }
 

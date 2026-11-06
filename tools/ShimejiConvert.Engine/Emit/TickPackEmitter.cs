@@ -70,7 +70,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             SafeEntry(outDir);
             if (Directory.Exists(outDir) || File.Exists(outDir))
                 throw new InvalidDataException("TICK_OUTPUT_EXISTS: choose a new output directory.");
-            List<PreparedMember> prepared = PrepareMembers(packRoot, false, recoverMissingNext);
+            List<PreparedMember> found = PrepareMembers(packRoot, false, recoverMissingNext);
+            if (mainMember != null && found.Any(m => m.Skipped && m.Name == mainMember))
+                throw new InvalidDataException("TICK_PACK_MAIN_SKIPPED: the main image set '" + mainMember
+                    + "' has no configuration the source loads, so it is skipped.");
+            List<PreparedMember> prepared = found.Where(m => !m.Skipped).ToList();
+            if (prepared.Count == 0) throw new InvalidDataException("TICK_PACK_EMPTY: no image set of this pack has a configuration the source loads.");
             if (mainMember != null && !prepared.Any(m => m.Name == mainMember))
                 throw new InvalidDataException("TICK_PACK_MAIN_UNKNOWN: the requested main image set is not in this pack.");
             if (prepared.Any(m => m.CrossMember) || mainMember != null || prepared.Any(m => HiddenInSourceChooser(m.Name)))
@@ -108,7 +113,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 File.WriteAllText(map, member.Map, new UTF8Encoding(false));
                 paths.Add(xml);
             }
-            warnings = prepared.SelectMany(member => member.Warnings.Select(warning => "Image set '" + member.Name + "': " + warning))
+            warnings = found.SelectMany(member => member.Warnings.Select(warning => "Image set '" + member.Name + "': " + warning))
                 .ToList().AsReadOnly();
             return paths.AsReadOnly();
         }
@@ -130,6 +135,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             var runtimeSchemas = new HashSet<ShimejiSourceSchema>();
             foreach (string memberPath in members)
             {
+                if (!ShimejiParser.HasSourceConfiguration(packRoot, Path.GetFileName(memberPath))) continue;
                 try
                 {
                     SafeEntry(memberPath);
@@ -144,6 +150,16 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             foreach (string memberPath in members)
             {
                 string member = Path.GetFileName(memberPath);
+                // Decision 69, a source-compatible mapping: the source drops an image set whose configuration it cannot
+                // find and loads the rest (Main.java:289-294, :478-484), so such a set is skipped, with a warning.
+                if (!ShimejiParser.HasSourceConfiguration(packRoot, member))
+                {
+                    prepared.Add(new PreparedMember { Name = member, Skipped = true, Warnings = new List<string> {
+                        "TICK_MEMBER_SKIPPED: no configuration of its own where the source looks (conf/<set>/, img/<set>/conf/) and no "
+                        + "shared conf/ default, so the source does not load this image set; it is skipped, and a Breed or "
+                        + "Transform naming it finds no member" } });
+                    continue;
+                }
                 try
                 {
                     SafeEntry(memberPath);
@@ -206,6 +222,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         {
             public string Name, Xml, Map, SourceIdentity, Error;
             public bool CrossMember;
+            /// <summary>Decision 69: an img folder the source does not load, as it has no configuration anywhere the source
+            /// looks; it carries only its warning, and no caller converts it.</summary>
+            public bool Skipped;
             // Root names as the emitter actually writes them, including this member's schema mapping.
             public IReadOnlyDictionary<string, string> BehaviourNames = new Dictionary<string, string>(StringComparer.Ordinal);
             /// <summary>What this lowering corrected on purpose and the caller should be told (a dropped next entry).

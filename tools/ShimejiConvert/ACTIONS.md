@@ -132,6 +132,10 @@ is a script refuses either way (TICK_NEXT_MISSING_SCRIPTED). An information docu
 accepted when it holds only <Information> (chooser and credits metadata, which no mascot reads); a Constant, an
 ActionList or a BehaviourList in it is refused.
 Bindings across differing document schemas are refused until target-schema resolution is implemented.
+An image set with no configuration anywhere the source looks (its own conf/<set>/ or img/<set>/conf/, or the pack's
+shared conf/ default) is skipped with a warning (TICK_MEMBER_SKIPPED), as the source drops such a set and loads the
+others (decision 69, a source-compatible mapping); the pack refuses only if it is the main or the startup member
+(TICK_PACK_MAIN_SKIPPED, TICK_PACK_STARTUP_SKIPPED), and a Breed or Transform naming it names a missing member.
 
 Recorded divergences from the source (each a correction of a source defect, never a reproduction of it):
 

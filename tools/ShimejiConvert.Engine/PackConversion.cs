@@ -141,11 +141,21 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                 if (errors.Count == 0)
                 {
                     List<TickPackEmitter.PreparedMember> prepared = TickPackEmitter.PrepareMembers(extractedPackRoot, true, snapshot.RecoverMissingNext);
+                    // Decision 69: an image set the source does not load is skipped with its warning; options may still
+                    // name it (the folder is in the pack), but it cannot be the main or the startup member.
+                    var skipped = new HashSet<string>(prepared.Where(member => member.Skipped).Select(member => member.Name), StringComparer.Ordinal);
+                    foreach (TickPackEmitter.PreparedMember member in prepared.Where(member => member.Skipped))
+                        foreach (string warning in member.Warnings) warnings.Add("Image set '" + member.Name + "': " + warning);
+                    prepared = prepared.Where(member => !member.Skipped).ToList();
+                    if (skipped.Contains(snapshot.MainMember ?? ""))
+                        errors.Add("TICK_PACK_MAIN_SKIPPED: the main image set has no configuration the source loads: " + snapshot.MainMember);
+                    if (snapshot.HasStartup && skipped.Contains(snapshot.StartupMember ?? ""))
+                        errors.Add("TICK_PACK_STARTUP_SKIPPED: the startup image set has no configuration the source loads: " + snapshot.StartupMember);
                     var keys = new HashSet<string>(prepared.Select(member => member.Name), StringComparer.Ordinal);
-                    if (!keys.Contains(snapshot.MainMember))
+                    if (!keys.Contains(snapshot.MainMember) && !skipped.Contains(snapshot.MainMember ?? ""))
                         errors.Add("TICK_PACK_MAIN_UNKNOWN: the requested main image set is not in this pack: " + snapshot.MainMember);
                     foreach (string key in snapshot.Members.Keys.OrderBy(key => key, StringComparer.Ordinal))
-                        if (!keys.Contains(key)) errors.Add("TICK_PACK_OPTIONS_UNKNOWN: member metadata names an image set that is not in this pack: " + key);
+                        if (!keys.Contains(key) && !skipped.Contains(key)) errors.Add("TICK_PACK_OPTIONS_UNKNOWN: member metadata names an image set that is not in this pack: " + key);
 
                     List<TickPackEmitter.PreparedMember> ready = prepared.Where(member => member.Error == null).ToList();
                     if (snapshot.HasStartup)
