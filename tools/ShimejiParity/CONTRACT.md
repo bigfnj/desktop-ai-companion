@@ -310,6 +310,8 @@ when asked to (a test artefact, never shipped and never read outside parity mode
 - every action node and every edge that carries parameter bindings: the refKey of the declaration or reference it
   was lowered from;
 - every script site: its `script:<refKey>#<attribute>#<k>` name.
+- (v1.1) Every behaviour and action node whose emitted name differs from its source-observable name: that source name, keyed by the existing member-qualified node or activation identity. Preserve an absent Name as JSON null and an explicitly empty Name as the empty string. A present null or empty value is distinct from a missing map entry.
 
-The map is what lets the host write `pose.image`, `poseAnchor`, `refKey`, `actionStack` and `rng-draw.site` in the
-oracle's terms. A host trace written without one is unjudgeable (`missing-field`).
+The map is what lets the host write `pose.image`, `poseAnchor`, `refKey`, `actionStack`, `rng-draw.site` and (v1.1)
+state `behavior` and `action` and every name-bearing event payload whose name conversion changed in the oracle's
+terms. A host trace written without one is unjudgeable (`missing-field`).

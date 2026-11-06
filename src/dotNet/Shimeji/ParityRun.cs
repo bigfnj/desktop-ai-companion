@@ -23,6 +23,10 @@ namespace DesktopAICompanion.Shimeji
         public readonly Dictionary<int, string> Actions = new Dictionary<int, string>();
         public readonly Dictionary<string, string> Children = new Dictionary<string, string>(StringComparer.Ordinal);
         public readonly Dictionary<int, string> Behaviours = new Dictionary<int, string>();
+        /// <summary>CONTRACT v1.1 section 9 (decision 67, optional <c>"sourceNames": { "&lt;node id&gt;": name or null }</c>):
+        /// the source's name of each behaviour or action node whose emitted name differs from it. A null value is a source
+        /// element with no Name, "" an empty one; a node with no entry kept its name. Missing is never read as null.</summary>
+        public readonly Dictionary<int, string> SourceNames = new Dictionary<int, string>();
 
         public static ParityMap Parse(string json)
         {
@@ -44,6 +48,13 @@ namespace DesktopAICompanion.Shimeji
                     foreach (JsonProperty p in e.EnumerateObject()) map.Children[p.Name] = p.Value.GetString();
                 if (root.TryGetProperty("behaviours", out e))
                     foreach (JsonProperty p in e.EnumerateObject()) map.Behaviours[int.Parse(p.Name, CultureInfo.InvariantCulture)] = p.Value.GetString();
+                if (root.TryGetProperty("sourceNames", out e))
+                    foreach (JsonProperty p in e.EnumerateObject())
+                    {
+                        if (p.Value.ValueKind != JsonValueKind.Null && p.Value.ValueKind != JsonValueKind.String)
+                            throw new InvalidDataException("parity map sourceNames entry " + p.Name + " is neither a name nor null");
+                        map.SourceNames[int.Parse(p.Name, CultureInfo.InvariantCulture)] = p.Value.ValueKind == JsonValueKind.Null ? null : p.Value.GetString();
+                    }
                 return map;
             }
         }
@@ -67,6 +78,10 @@ namespace DesktopAICompanion.Shimeji
                     throw new InvalidDataException("parity map has no refKey for behaviour node " + b.NodeId + " '" + b.Name + "'");
                 b.RefKey = key;
             }
+            // A source name for a node this type does not have is a converter fault, refused like a missing refKey.
+            foreach (int node in SourceNames.Keys)
+                if (!type.ActionsById.ContainsKey(node) && !type.BehavioursById.ContainsKey(node))
+                    throw new InvalidDataException("parity map has a source name for node " + node + ", which is no action or behaviour of " + type.Name);
             CheckGeometry(type);
         }
 
@@ -409,7 +424,7 @@ namespace DesktopAICompanion.Shimeji
             _lastAnchor[m.Sid] = m.Anchor;
             var w = new JsonLine();
             w.Str("type", "state").Num("tick", _tick).Str("sid", m.Sid).Str("imageSet", m.Type.Name)
-                .Str("behavior", beh == null ? null : beh.Name).Str("action", leaf == null ? null : leaf.Name)
+                .Str("behavior", BehaviourName(beh)).Str("action", leaf == null ? null : NodeName(beh.Type, leaf.Def.NodeId, leaf.Name))
                 .Str("actionClass", leaf == null ? null : (leaf.Def.Type == "Embedded" ? leaf.Def.Class : leaf.Def.Type))
                 .StrList("actionStack", stack).Str("refKey", stack.Count > 0 ? stack[stack.Count - 1] : null)
                 .Num("actionAge", leaf == null ? (double?)null : leaf.Time);
@@ -463,15 +478,66 @@ namespace DesktopAICompanion.Shimeji
             return new JsonLine().Str("type", "event").Num("tick", _tick).Str("sid", m.Sid).Str("kind", kind);
         }
 
+        // CONTRACT v1.1 section 9 (decision 67): a behaviour or action is written by the name its source node has, read
+        // from the map of the member that node belongs to, and only where conversion renamed it; a node the map does
+        // not list keeps its emitted name, which is then the source's. A null entry stays null (never the synthetic
+        // name) and "" stays "". Every lookup reads stored state: nothing is evaluated and no event is added to learn a
+        // name. A name whose node cannot be identified is not guessed: the run is marked failed (ProvenanceFault).
+        private readonly Dictionary<TickMascot, TickBehaviour> _entered = new Dictionary<TickMascot, TickBehaviour>();
+
+        /// <summary>The first name this writer could not tie to a node, or null; ParityRun ends such a run in error.</summary>
+        public string ProvenanceFault { get; private set; }
+
+        private string NodeName(TickType owner, int nodeId, string emitted)
+        {
+            ParityMap map;
+            string name;
+            if (owner != null && _maps.TryGetValue(owner.Name, out map) && map.SourceNames.TryGetValue(nodeId, out name)) return name;
+            return emitted;
+        }
+
+        /// <summary>A behaviour's source name, from the configuration it was built from (after a Transform the old
+        /// behaviour still belongs to the old member).</summary>
+        private string BehaviourName(TickBehaviour behaviour)
+        {
+            return behaviour == null ? null : NodeName(behaviour.Type, behaviour.Def.NodeId, behaviour.Name);
+        }
+
+        /// <summary>A behaviour name REQUESTED of a member (a Transform's, a hotspot's): the root node it names there,
+        /// whether or not the request then succeeds; a name that member has no root behaviour for was never renamed,
+        /// so it stays as requested. Never the current or fallback behaviour's name.</summary>
+        private string RequestedName(TickType member, string requested)
+        {
+            TickBehaviourDef def;
+            if (requested == null || member == null || !member.RootByName.TryGetValue(requested, out def)) return requested;
+            return NodeName(member, def.NodeId, requested);
+        }
+
+        private string Unattributed(TickMascot mascot, string field, string name)
+        {
+            if (ProvenanceFault == null)
+                ProvenanceFault = "tick " + _tick + " " + mascot.Sid + ": the behaviour event's " + field + " '" + name + "' has no node to name it by";
+            return name;
+        }
+
         public void BehaviourEntered(TickMascot mascot, string from, string to, string cause)
         {
-            _out.WriteLine(Event(mascot, "behavior").Str("from", from).Str("to", to).Str("cause", cause).End());
+            // Mascot.setBehavior is the only place a behaviour changes (TickMascot.SetBehaviour), and it reports here
+            // after the change: "to" is the companion's behaviour now, "from" the one this writer saw it enter last.
+            TickBehaviour previous, current = mascot.Behaviour;
+            _entered.TryGetValue(mascot, out previous);
+            string fromName = from == null ? null
+                : previous != null && previous.Name == from ? BehaviourName(previous) : Unattributed(mascot, "from", from);
+            string toName = to == null ? null
+                : current != null && current.Name == to ? BehaviourName(current) : Unattributed(mascot, "to", to);
+            _entered[mascot] = current;
+            _out.WriteLine(Event(mascot, "behavior").Str("from", fromName).Str("to", toName).Str("cause", cause).End());
         }
 
         public void BirthRequested(TickMascot parent, TickMascot child, int ordinal, int attempt)
         {
             _out.WriteLine(Event(parent, "birth-request").Str("child", child.Sid).Str("imageSet", child.Type.Name)
-                .Str("behavior", child.Behaviour == null ? null : child.Behaviour.Name)
+                .Str("behavior", BehaviourName(child.Behaviour))
                 .Raw("anchor", "[" + child.Anchor.X + "," + child.Anchor.Y + "]").Bool("lookRight", child.LookRight)
                 .Num("ordinal", ordinal).Num("attempt", attempt).End());
         }
@@ -488,7 +554,10 @@ namespace DesktopAICompanion.Shimeji
 
         public void Transformed(TickMascot mascot, string fromImageSet, string toImageSet, string behaviour)
         {
-            _out.WriteLine(Event(mascot, "transform").Str("fromImageSet", fromImageSet).Str("toImageSet", toImageSet).Str("behavior", behaviour).End());
+            // The requested TransformBehavior names a behaviour of the member transformed into, which is the companion's
+            // type by now; a failed request (blank, unknown) keeps its requested name.
+            _out.WriteLine(Event(mascot, "transform").Str("fromImageSet", fromImageSet).Str("toImageSet", toImageSet)
+                .Str("behavior", RequestedName(mascot.Type, behaviour)).End());
         }
 
         public void DisposeRequested(TickMascot mascot, string reason)
@@ -553,7 +622,9 @@ namespace DesktopAICompanion.Shimeji
 
         public void Hotspot(TickMascot mascot, string op, string behaviour)
         {
-            _out.WriteLine(Event(mascot, "hotspot").Str("op", op).Str("behavior", behaviour).End());
+            // A hotspot's behaviour is looked up in the configuration of the behaviour that holds the hotspot.
+            _out.WriteLine(Event(mascot, "hotspot").Str("op", op)
+                .Str("behavior", RequestedName(mascot.Behaviour == null ? mascot.Type : mascot.Behaviour.Type, behaviour)).End());
         }
 
         /// <summary>A rectangle as the scenario writes a window's: [left, top, right, bottom].</summary>
@@ -750,6 +821,11 @@ namespace DesktopAICompanion.Shimeji
                 {
                     status = "error";
                     log.WriteLine("run failed: " + e);
+                }
+                if (writer.ProvenanceFault != null)
+                {
+                    status = "error";
+                    log.WriteLine("parity trace: " + writer.ProvenanceFault);
                 }
                 writer.Footer(ticks, status);
                 return status == "complete" ? 0 : 1;

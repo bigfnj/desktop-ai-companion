@@ -256,6 +256,11 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             private readonly Dictionary<string, string> _actionMap = new Dictionary<string, string>(StringComparer.Ordinal);
             private readonly Dictionary<string, string> _behaviourMap = new Dictionary<string, string>(StringComparer.Ordinal);
             private readonly Dictionary<string, string> _childMap = new Dictionary<string, string>(StringComparer.Ordinal);
+            // CONTRACT v1.1 section 9 (decision 67): node id -> the source's name, for every behaviour or action node whose
+            // emitted name is not it (an engine behaviour renamed for the host, an anonymous nested action named after its
+            // place). A null value is a Name the source element does not have, "" an empty one; a node absent here kept
+            // its source name. The parity trace writes these names; the runtime never reads them.
+            private readonly Dictionary<string, string> _sourceNames = new Dictionary<string, string>(StringComparer.Ordinal);
             private int _next = 2;
             // The feature tokens the validator demands for what this member USES (grimoire/06 sections 1 and 10).
             private bool _lifecycle, _social, _windows, _hotspots, _expressions, _variables;
@@ -422,7 +427,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     frameMap.Add(new { frame = i, image = frame.Image, anchor = new[] { frame.X, frame.Y }, size = new[] { frame.Width, frame.Height } });
                 }
                 string map = JsonSerializer.Serialize(new { schema = "shimeji-parity-map/1", imageSet = _member,
-                    frames = frameMap, actions = _actionMap, children = _childMap, behaviours = _behaviourMap },
+                    frames = frameMap, actions = _actionMap, children = _childMap, behaviours = _behaviourMap, sourceNames = _sourceNames },
                     new JsonSerializerOptions { WriteIndented = true });
                 string xml = document.ToString();
                 CheckAudioLimits(xml, clips);
@@ -507,7 +512,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
 
             private int EmitAction(ShimejiSourceElement source, bool nested, string anonymousName = null)
             {
-                string type = ActionType(source), name;
+                string type = ActionType(source), name, sourceName = null;
+                bool anonymous = false;
                 if (nested)
                 {
                     // A nested Action is built from its own element where it stands (ActionBuilder.java:68-70); the
@@ -516,7 +522,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     // place, "<parent>/<position among the parent's children>", which no reference can name; a
                     // collision with any other action's name still refuses, as a duplicate nested name does.
                     name = Value(source, "Name");
-                    if (string.IsNullOrEmpty(name)) name = anonymousName;
+                    // The source's own name for the trace: null when the element has no Name, "" when it is empty.
+                    if (string.IsNullOrEmpty(name)) { sourceName = name; anonymous = true; name = anonymousName; }
                     if (name == null) Fail(source, "missing Name");
                     if (_actions.ContainsKey(name)) Fail(source, "a nested action needs a unique name for this first lowering: '" + name + "'");
                     _actions.Add(name, source);
@@ -586,7 +593,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 XElement node = Node(id, name, act);
                 _nodes.Add(node);
                 _actionMap.Add(Key(id), Ref(_source.Actions, source));
-                bool composite = type == "Sequence" || type == "Select";
+                if (anonymous) _sourceNames.Add(Key(id), sourceName);
+                bool composite =type == "Sequence" || type == "Select";
                 XElement variants = E("variants"), children = E("children", new XAttribute("mode", type == "Select" ? "select" : "sequence"));
                 // Parameters a scripted Animation Condition is lowered to; they join the act's own parameters, ahead of
                 // the guard and the variants as the schema orders them.
@@ -934,6 +942,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 XElement node = Node(id, "beh:" + BehaviourName(name), behaviour);
                 _nodes.Add(node);
                 _behaviourMap.Add(Key(id), Ref(_source.Behaviors, source));
+                if (BehaviourName(name) != name) _sourceNames.Add(Key(id), name);
                 // Continuations are subsequently looked up through the ROOT behaviour by name by the host.
                 if (rootDefinition)
                     foreach (ShimejiSourceElement list in source.Children)

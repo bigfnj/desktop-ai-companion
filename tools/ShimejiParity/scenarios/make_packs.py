@@ -1094,6 +1094,44 @@ def pack_lower_spelling(root):
     stand_walk_documents(root / "img" / "Alpha" / "conf", "Actions.xml", "Behaviors.xml")
 
 
+def japanese_alpha(root, extra_actions=(), extra_behaviours=(), start=None):
+    """17.1's Japanese member Alpha, with optional extra actions and behaviours (start: a behaviour listed first)."""
+    sprites(root, "Alpha", 5)
+    conf = root / "img" / "Alpha" / "conf"
+    actions = list(extra_actions) + [
+        ja_action("Stand", "静止", [ja_pose("shime1.png", ticks=5), ja_pose("shime2.png", ticks=5)], 長さ=20),
+        ja_action("Walk", "移動", [ja_pose("shime3.png", dx=-2), ja_pose("shime1.png", dx=-2)], 目的地X=600),
+        ja_action("Drop", "組み込み", [ja_pose("shime4.png", ticks=250)], cls="Fall", border=None),
+        ja_action("Hold", "組み込み", [ja_pose("shime5.png", ticks=250)], cls="Dragged", border=None),
+        ja_action("Toss", "組み込み", [ja_pose("shime4.png", ticks=250)], cls="Fall", border=None)]
+    behaviours = list(extra_behaviours) + [
+        ja_behaviour("Stand", 1, nxt=[("Walk", 1)]), ja_behaviour("Walk", 0, nxt=[("Stand", 1)]),
+        ja_behaviour("落下する", 0, "Drop"), ja_behaviour("ドラッグされる", 0, "Hold"), ja_behaviour("投げられる", 0, "Toss")]
+    write_text(conf / "actions.xml", mascot_document("  <動作リスト>\n" + "\n".join(actions) + "\n  </動作リスト>"))
+    write_text(conf / "behaviors.xml", mascot_document("  <行動リスト>\n" + "\n".join(behaviours) + "\n  </行動リスト>"))
+
+
+# 17.9 CONTRACT v1.1 source names (decision 67): an English member whose own Fall keeps its name, beside the Japanese
+# member whose engine Fall the converter renames. Both fall from the air; only the Japanese one's name is mapped back.
+def pack_lower_japanese_mixed(root):
+    japanese_alpha(root)
+    member(root, "Beta", [posed("Stand", "Stay", [img("shime1.png", ticks=5), img("shime2.png", ticks=5)], Duration=30)],
+           [beh("Stand", 1)])
+
+
+# 17.10 A requested behaviour name the converter renamed: Alpha's Transform asks for its own engine Fall by the
+# Japanese name, so the transform event and the behaviour it enters both carry the source's name.
+def pack_lower_japanese_transform(root):
+    morph = ('    <動作 名前="Morph" 種類="組み込み" クラス="com.group_finity.mascot.action.Transform" '
+             'TransformMascot="Alpha" TransformBehavior="落下する">\n      <アニメーション>'
+             + ja_pose("shime2.png", ticks=3) + ja_pose("shime3.png", ticks=3) + "</アニメーション>\n    </動作>")
+    japanese_alpha(root, [morph], [ja_behaviour("Morph", 0)])
+
+
+PACKS.update({
+    "lower-japanese-mixed": pack_lower_japanese_mixed, "lower-japanese-transform": pack_lower_japanese_transform,
+})
+
 PACKS.update({
     "lower-japanese": pack_lower_japanese, "lower-info": pack_lower_info, "lower-nested": pack_lower_nested,
     "lower-vars": pack_lower_vars, "lower-instant": pack_lower_instant, "lower-nan": pack_lower_nan,
@@ -1137,6 +1175,18 @@ SCENARIOS += [
              "the stand-walk slice with its documents spelt Actions.xml and Behaviors.xml: every refKey names the file as "
              "the pack spells it",
              "lower-spelling", 160, [mascot("m1", "Alpha", "Stand", 800)], tape(0.5, 0.5, 0.5, 0.5)),
+    scenario("S-lower-japanese-02",
+             "source names beside an unchanged one: m1 (the Japanese Alpha) and m2 (the English Beta) both start 80 px above "
+             "the floor and lose the ground; m1 enters 落下する and m2 enters its own Fall, whose name conversion never "
+             "changed; both land and stand; m3 (Alpha) stands and walks on the floor",
+             "lower-japanese-mixed", 80,
+             [mascot("m1", "Alpha", "Stand", 300, y=600), mascot("m2", "Beta", "Stand", 900, y=600),
+              mascot("m3", "Alpha", "Stand", 700)],
+             tape(*([0.5] * 8))),
+    scenario("S-lower-japanese-03",
+             "a requested name the converter renamed: Alpha's Transform (6 ticks, in the air) names its own 落下する, so the "
+             "transform event requests 落下する and Alpha enters it, falls 80 px to the floor and stands",
+             "lower-japanese-transform", 60, [mascot("m1", "Alpha", "Morph", 640, y=600)], tape(0.5, 0.5, 0.5, 0.5)),
 ]
 
 

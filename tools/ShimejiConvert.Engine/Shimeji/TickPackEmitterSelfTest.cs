@@ -91,6 +91,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "ignored-reference-lists", Run = (Action)IgnoredReferenceLists },
                 new { Name = "cross-member-pack-metadata", Run = (Action)CrossMemberPackMetadata },
                 new { Name = "pack-source-identity", Run = (Action)PackSourceIdentity },
+                new { Name = "source-names-map", Run = (Action)SourceNamesMap },
             };
             if (onlyCase != null && !cases.Any(c => c.Name == onlyCase))
             {
@@ -2069,6 +2070,49 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         /// schema_ja, the literal BorderType written mapped both as the act's border and as its parameter (the host
         /// reads the parameter first), and a reference binding of BorderType mapped too. Replaces action-schema-refusal,
         /// which refused every Japanese action document outright; its successor refusal is japanese-schema-refusal.</summary>
+        /// <summary>CONTRACT v1.1 section 9 (decision 67): the parity map names the source's name of every node whose
+        /// emitted name differs. A nameless nested action maps to null and an empty-named one to "" (never the synthetic
+        /// place name), a renamed engine behaviour to its Japanese name, and a node that kept its name has no entry.</summary>
+        private static void SourceNamesMap()
+        {
+            Func<string, Dictionary<string, JsonElement>> sourceNames = path =>
+            {
+                using (JsonDocument map = JsonDocument.Parse(File.ReadAllText(path)))
+                    return map.RootElement.GetProperty("sourceNames").EnumerateObject().ToDictionary(p => p.Name, p => p.Value.Clone());
+            };
+            using (var fixture = new Fixture())
+            {
+                XDocument actions = BuildActions();
+                actions.Root.Element("ActionList").Add(S("Action", A("Name", "Chain"), A("Type", "Sequence"),
+                    S("Action", A("Type", "Stay"), A("Duration", 2), S("Animation", Pose("/p.png", 1))),
+                    S("Action", A("Name", ""), A("Type", "Stay"), A("Duration", 2), S("Animation", Pose("/q.png", 1))),
+                    S("Action", A("Name", "Named"), A("Type", "Stay"), S("Animation", Pose("/q.png", 1)))));
+                fixture.Actions(actions);
+                XDocument document = fixture.Convert();
+                Func<string, string> id = name => NamedNode(document, name).Attribute("id").Value;
+                Dictionary<string, JsonElement> names = sourceNames(fixture.MapPath);
+                JsonElement nameless, empty;
+                Require(names.TryGetValue(id("Chain/1"), out nameless) && nameless.ValueKind == JsonValueKind.Null,
+                    "source-names: a nameless nested action is not mapped to null");
+                Require(names.TryGetValue(id("Chain/2"), out empty) && empty.ValueKind == JsonValueKind.String && empty.GetString() == "",
+                    "source-names: an empty-named nested action is not mapped to the empty string");
+                Require(!names.ContainsKey(id("Named")) && !names.ContainsKey(id("Chain")),
+                    "source-names: a node that kept its name has an entry");
+            }
+            using (var fixture = new Fixture())
+            {
+                fixture.Actions(JapaneseEngineActions(A("生まれた時の行動", "落下する")));
+                fixture.Behaviors(JapaneseEngineBehaviours());
+                XDocument document = fixture.Convert();
+                Dictionary<string, JsonElement> names = sourceNames(fixture.MapPath);
+                JsonElement fall;
+                Require(names.TryGetValue(RootBehavior(document, "Fall").Attribute("id").Value, out fall) && fall.GetString() == "落下する",
+                    "source-names: a renamed engine behaviour is not mapped to its source name");
+                Require(!names.ContainsKey(RootBehavior(document, "Main").Attribute("id").Value),
+                    "source-names: an unrenamed behaviour has an entry");
+            }
+        }
+
         private static void JapaneseSchemaValues()
         {
             using (var fixture = new Fixture())

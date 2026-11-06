@@ -669,6 +669,25 @@ namespace DesktopAICompanion.Shimeji
                 check(events.Contains("\"kind\":\"drag\",\"op\":\"start\"") && events.Contains("\"kind\":\"hotspot\",\"op\":\"press\",\"behavior\":\"Petted\"")
                       && events.Contains("\"kind\":\"hotspot\",\"op\":\"release\",\"behavior\":null"),
                     "parity trace: drag and hotspot events are written as the contract names them (" + events.Replace(Environment.NewLine, " ").Trim() + ")");
+
+                // CONTRACT v1.1 section 9 (decision 67): behavior and action come from the map's source names where it
+                // has them; a null entry is written null (never the emitted name), "" stays "", no entry keeps the name.
+                TickBehaviour held = one.Behaviour;
+                TickAction heldLeaf = held.Action.Leaf;
+                Func<Action<ParityMap>, string> named = fill =>
+                {
+                    var map = new ParityMap();
+                    fill(map);
+                    var sw = new StringWriter();
+                    new ParityTraceWriter(sw, new Dictionary<string, ParityMap> { { held.Type.Name, map } }).States(host.World);
+                    return sw.ToString();
+                };
+                string sourced = named(map => { map.SourceNames[held.Def.NodeId] = "SourceBehaviour"; map.SourceNames[heldLeaf.Def.NodeId] = null; });
+                string emptied = named(map => map.SourceNames[heldLeaf.Def.NodeId] = "");
+                check(sourced.Contains("\"behavior\":\"SourceBehaviour\"") && sourced.Contains("\"action\":null"),
+                    "parity trace: a mapped source name is written, and a null one stays null (" + sourced.Trim() + ")");
+                check(emptied.Contains("\"behavior\":" + JsonLine.Quote(held.Name)) && emptied.Contains("\"action\":\"\""),
+                    "parity trace: an empty source name stays empty and an unmapped node keeps its name (" + emptied.Trim() + ")");
             }
             catch (Exception e)
             {
