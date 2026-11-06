@@ -81,6 +81,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "sound-refusal", Run = (Action)SoundRefusal },
                 new { Name = "configuration-spelling", Run = (Action)ConfigurationSpelling },
                 new { Name = "sheet-layout", Run = (Action)SheetLayout },
+                new { Name = "zero-duration-poses", Run = (Action)ZeroDurationPoses },
                 new { Name = "information-lowering", Run = (Action)InformationLowering },
                 new { Name = "own-set-binding-reset", Run = (Action)OwnSetBindingReset },
                 new { Name = "japanese-schema-values", Run = (Action)JapaneseSchemaValues },
@@ -1528,16 +1529,17 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 fixture.Actions(actions);
                 XDocument document = fixture.Convert();
                 Validate(document, "NaN-lowered member");
-                XElement hop = NamedNode(document, "Hop").Element(Ns + "act");
-                Require(Scripted(hop, "param", "TargetX", "action") == "mascot.lookRight ? 5 : 0",
-                    "a getter call inside a NaN part did not lower as its property form does: " + Scripted(hop, "param", "TargetX", "action"));
-                Require(Scripted(hop, "param", "TargetY", "action") == "0", "NaN in Math.max's second argument did not reach the result");
+                // The stock ternary first: its mutation case names this assertion.
                 XElement child = NamedNode(document, "Roam").Element(Ns + "act").Element(Ns + "children").Element(Ns + "child");
                 Require(Scripted(child, "bind", "TargetX", "action") == "mascot.lookRight ? mascot.environment.workArea.left+Math.random()*100 : 0",
                     "the stock ternary's NaN branch was not written as the int reader's 0: " + Scripted(child, "bind", "TargetX", "action"));
                 Require(Scripted(child, "bind", "TargetY", "frame") == "0", "a whole-NaN Move TargetY was not written as 0");
                 Require(Scripted(NamedNode(document, "Leap").Element(Ns + "act"), "param", "TargetX", "action") == "0",
                     "a whole-NaN Jump TargetX was not written as 0");
+                XElement hop = NamedNode(document, "Hop").Element(Ns + "act");
+                Require(Scripted(hop, "param", "TargetX", "action") == "mascot.lookRight ? 5 : 0",
+                    "a getter call inside a NaN part did not lower as its property form does: " + Scripted(hop, "param", "TargetX", "action"));
+                Require(Scripted(hop, "param", "TargetY", "action") == "0", "NaN in Math.max's second argument did not reach the result");
             }
         }
 
@@ -1662,6 +1664,54 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 try { TickPackEmitter.ConvertPack(fixture.Pack, fixture.Output); }
                 catch (InvalidDataException error) { refused = error.Message.IndexOf("TICK_NEXT_MISSING_SCRIPTED", StringComparison.Ordinal) >= 0; }
                 Require(refused, "a dangling entry under a scripted enclosing Condition was dropped, not refused");
+            }
+        }
+
+        // Round 4: a pose of Duration 0 is never the source's current pose, so it is left out; its image is still loaded
+        // (a missing one refuses as the source's load does), and an Animation whose every pose is 0 long refuses.
+        private static void ZeroDurationPoses()
+        {
+            using (var fixture = new Fixture())
+            {
+                fixture.Write("img/A/z.png", "");
+                SavePng(Path.Combine(fixture.Pack, "img", "A", "z.png"), true, 5, height: 5);
+                XDocument actions = BuildActions();
+                actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Walk").Element("Animation")
+                    .Add(Pose("/z.png", 0), Pose("/p.png", 3));
+                fixture.Actions(actions);
+                XDocument document = fixture.Convert();
+                Validate(document, "zero-duration pose member");
+                string ticks = string.Join(",", NamedNode(document, "Walk").Descendants(Ns + "pose").Select(p => (string)p.Attribute("ticks")));
+                Require(ticks == "2,3", "a pose of Duration 0 was not left out: ticks " + ticks);
+                int tiles = int.Parse(document.Root.Element(Ns + "image").Element(Ns + "tilesx").Value)
+                    * int.Parse(document.Root.Element(Ns + "image").Element(Ns + "tilesy").Value);
+                Require(tiles < 4, "a never-shown pose's image was given a sheet cell");
+            }
+            using (var fixture = new Fixture())
+            {
+                XDocument actions = BuildActions();
+                actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Walk").Element("Animation").Add(Pose("/gone.png", 0));
+                fixture.Actions(actions);
+                // A missing sprite refuses as any pose's does: the file read fails, which the pack API reports as a refusal.
+                bool refused = false;
+                try { TickPackEmitter.ConvertPack(fixture.Pack, fixture.Output); }
+                catch (FileNotFoundException error) { refused = error.Message.IndexOf("gone.png", StringComparison.Ordinal) >= 0; }
+                Require(refused, "a never-shown pose's missing image was not refused as the source's load refuses it");
+            }
+            using (var fixture = new Fixture())
+            {
+                XDocument actions = BuildActions();
+                XElement walk = actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Walk");
+                walk.Element("Animation").ReplaceNodes(Pose("/p.png", 0), Pose("/q.png", 0));
+                fixture.Actions(actions);
+                Refusal(fixture, "TICK_POSE_ZERO_LENGTH");
+            }
+            using (var fixture = new Fixture())
+            {
+                XDocument actions = BuildActions();
+                actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Walk").Element("Animation").Add(Pose("/p.png", -1));
+                fixture.Actions(actions);
+                Refusal(fixture, "pose duration must be 1 to 100000");
             }
         }
 
