@@ -46,6 +46,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "startup-unmapped-name", Run = (Action)StartupUnmappedName },
                 new { Name = "startup-ambiguous-name", Run = (Action)StartupAmbiguousName },
                 new { Name = "missing-next-recovery-option", Run = (Action)MissingNextRecoveryOption },
+                new { Name = "skipped-member-api-controls", Run = (Action)SkippedMemberApiControls },
             };
             if (onlyCase != null && !cases.Any(c => c.Name == onlyCase))
             { detail = "pack-conversion unknown case: " + onlyCase; return false; }
@@ -620,6 +621,96 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 "an unambiguous source name was refused");
             Require(PackConverter.ResolveStartupBehaviour(target, "Third", out error) == "Third" && error == null,
                 "an unambiguous emitted name was refused");
+        }
+
+        // Decision 69: written by Codex in its decision 64/69 re-check (Codex-SkippedApiCases.cs.txt); renamed and
+        // registered here, otherwise as written.
+        private static void SkippedMemberApiControls()
+        {
+            using (var fixture = new Fixture())
+            {
+                fixture.Member("Alpha", Actions(), Behaviours());
+                fixture.Member("Beta", Actions(), Behaviours());
+                fixture.Member("Gamma", Actions(), Behaviours());
+                CodexRemoveConfiguration(fixture, "Beta");
+                CodexRemoveConfiguration(fixture, "Gamma");
+                PackConversionOptions options = Options();
+                var betaOptions = new PackMemberOptions { Role = "helper", Hidden = true };
+                options.Members = new Dictionary<string, PackMemberOptions> { { "Beta", betaOptions } };
+                PackConversionResult accepted = Accepted(fixture, options);
+                Require(accepted.Members.Count == 1 && accepted.Members[0].SourceKey == "Alpha" && accepted.PackId != null,
+                    "skipped folders leaked a usable member or lost the loaded pack identity");
+                CodexSkippedWarning(accepted, "Beta");
+                CodexSkippedWarning(accepted, "Gamma");
+                Require(options.Members.Count == 1 && ReferenceEquals(options.Members["Beta"], betaOptions)
+                    && betaOptions.Role == "helper" && betaOptions.Hidden == true && !options.RecoverMissingNext,
+                    "skip handling changed caller metadata or recovery choice");
+
+                PackConversionOptions main = new PackConversionOptions { MainMember = "Beta" };
+                PackConversionResult mainResult = Refused(fixture, main, "TICK_PACK_MAIN_SKIPPED");
+                Require(!mainResult.Errors.Any(e => e.Contains("TICK_PACK_MAIN_UNKNOWN")), "skipped main was also reported unknown");
+                CodexSkippedWarning(mainResult, "Beta");
+                PackConversionOptions startup = Options();
+                startup.Startup = new PackStartupOptions { Member = "Beta", Behaviour = "Main" };
+                PackConversionResult startupResult = Refused(fixture, startup, "TICK_PACK_STARTUP_SKIPPED");
+                CodexSkippedWarning(startupResult, "Beta");
+                Require(startup.Startup.Member == "Beta" && startup.Startup.Behaviour == "Main", "skipped startup changed caller options");
+
+                PackConversionOptions unknown = Options();
+                unknown.Members = new Dictionary<string, PackMemberOptions> { { "NeverPresent", new PackMemberOptions() } };
+                Refused(fixture, unknown, "TICK_PACK_OPTIONS_UNKNOWN");
+                unknown.Members = new Dictionary<string, PackMemberOptions> { { "beta", new PackMemberOptions() } };
+                Refused(fixture, unknown, "TICK_PACK_OPTIONS_UNKNOWN");
+                Refused(fixture, new PackConversionOptions { MainMember = "NeverPresent" }, "TICK_PACK_MAIN_UNKNOWN");
+            }
+            using (var fixture = new Fixture())
+            {
+                fixture.Member("Alpha", Actions(), Behaviours());
+                CodexRemoveConfiguration(fixture, "Alpha");
+                PackConversionResult result = Refused(fixture, Options(), "TICK_PACK_MAIN_SKIPPED");
+                Require(result.PackId == null && result.Members.Count == 0, "an all-skipped pack exposed a usable identity or member");
+                CodexSkippedWarning(result, "Alpha");
+            }
+            using (var fixture = new Fixture())
+            {
+                fixture.Member("Alpha", Actions(), Behaviours());
+                fixture.Member("Beta", Actions(), Behaviours());
+                CodexRemoveConfiguration(fixture, "Beta");
+                XDocument bad = Actions();
+                bad.Root.Element("ActionList").Elements("Action").First().SetAttributeValue("Type", "CodexUnsupportedType");
+                fixture.Member("Gamma", bad, Behaviours());
+                PackConversionResult result = Refused(fixture, Options(), "Gamma");
+                Require(Member(result, "Gamma").Disposition == PackMemberDisposition.Refused && result.PackId == null,
+                    "a malformed configured sibling was silently skipped or assigned a complete pack identity");
+                CodexSkippedWarning(result, "Beta");
+            }
+            using (var fixture = new Fixture())
+            {
+                fixture.Member("Alpha", Actions("Beta"), Behaviours());
+                fixture.Member("Beta", Actions(), Behaviours());
+                CodexRemoveConfiguration(fixture, "Beta");
+                PackConversionResult result = Accepted(fixture, Options());
+                CodexSkippedWarning(result, "Beta");
+                Require(result.Members.All(m => m.SourceKey != "Beta")
+                    && result.Warnings.Any(w => w.Contains("Beta") && !w.Contains("TICK_MEMBER_SKIPPED")),
+                    "a loaded member's reference to a skipped sibling lost the missing-member diagnostic or gained a placeholder");
+            }
+        }
+
+        private static void CodexSkippedWarning(PackConversionResult result, string key)
+        {
+            Require(result.Warnings.Count(w => w.StartsWith("Image set '" + key + "':", StringComparison.Ordinal)
+                && w.Contains("TICK_MEMBER_SKIPPED")) == 1, "skipped warning lost or duplicated: " + key);
+        }
+
+        private static void CodexRemoveConfiguration(Fixture fixture, string key)
+        {
+            string conf = Path.GetFullPath(Path.Combine(fixture.PackRoot, "img", key, "conf"));
+            Require(conf.StartsWith(Path.GetFullPath(fixture.PackRoot) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase),
+                "synthetic configuration removal escaped its fixture");
+            File.Delete(Path.Combine(conf, "actions.xml"));
+            File.Delete(Path.Combine(conf, "behaviors.xml"));
+            Directory.Delete(conf, false);
         }
 
         private static XElement E(string name, params object[] content) { return new XElement(name, content); }
