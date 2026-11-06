@@ -186,6 +186,7 @@ namespace DesktopAICompanion.Shimeji
                 CheckParityHiddenTrace(check, log);
                 CheckParitySettings(check);
                 CheckArrivalSpawn(check, log);
+                CheckLargeFrames(check, log);
             }
             catch (Exception e)
             {

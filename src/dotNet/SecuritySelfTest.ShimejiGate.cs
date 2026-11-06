@@ -55,8 +55,9 @@ namespace DesktopAICompanion
 
             CheckClassGate(classic, ref failures, output);
             CheckWavClips(classic, ref failures, output);
+            CheckHostLimits(classic, ref failures, output);
 
-            string unknown =Serialize(With(TickFixture(classic), r => r.Header.Features += " teleport"));
+            string unknown = Serialize(With(TickFixture(classic), r => r.Header.Features += " teleport"));
             Check(!CompanionXmlValidator.TryParseWithFeatures(unknown, AllExtensionFeatures, out parsed, out error)
                   && Contains(error, "needs a newer Desktop AI Companion (feature 'teleport')"),
                 "extension gate: an unknown feature asks for a newer app, by name (" + error + ")", ref failures, output);
@@ -558,6 +559,7 @@ namespace DesktopAICompanion
             adpcm[20] = 0x02;   // format tag 1 -> 2
             ExpectWavRefused(WavClipFixture(classic, adpcm, "wav", true), "uses WAVE format 0x0002 (MS ADPCM), which this app does not decode",
                 "a WAVE format the host does not decode is refused", ref failures, output);
+            CheckWavShapeRefusals(classic, wav, ref failures, output);
             // A classic sound stays MP3: the format needs 'wav', which needs 'tick', and WAV bytes there are refused as such.
             int animation = classic.Animations.Animation[0].Id;
             XmlData.RootNode classicFormat = With(Clone(classic), r => r.Sounds = new XmlData.SoundsNode
@@ -570,6 +572,51 @@ namespace DesktopAICompanion
             Check(!CompanionXmlValidator.TryParseWithFeatures(Serialize(classicWav), WavExtensionFeatures, out parsed, out error)
                   && Contains(error, "a classic sound is MP3"),
                 "wav clips: a classic sound holding WAV audio is refused as such (" + error + ")", ref failures, output);
+        }
+
+        /// <summary>
+        /// The WAVE shape rules no check graded until the WAV lane's stand-in review (F3): the sample-rate floor and ceiling,
+        /// each on both sides of its bound (the floor is also the decoded-size bound, and with it mutated to 1 Hz a single
+        /// plain fmt reached the 88,200-samples-a-frame decode), the channel count, a block align that contradicts the
+        /// channels and bits, an extensible clip whose subformat is not the standard one, and a data chunk of part frames.
+        /// </summary>
+        private static void CheckWavShapeRefusals(XmlData.RootNode classic, byte[] wav, ref int failures, TextWriter output)
+        {
+            XmlData.RootNode parsed;
+            string error;
+            foreach (int rate in new[] { WavFormat.MinimumSampleRate, WavFormat.MaximumSampleRate })
+                Check(CompanionXmlValidator.TryParseWithFeatures(Serialize(WavClipFixture(classic,
+                        AudioOutputSelfTest.SyntheticWave(1, 16, 1, rate, 64, false), "wav", true)), WavExtensionFeatures, out parsed, out error),
+                    "wav clips: WITNESS a clip at a bound of the sample rates validates (" + rate + " Hz)" + FormatError(error), ref failures, output);
+            ExpectWavRefused(WavClipFixture(classic, AudioOutputSelfTest.SyntheticWave(1, 16, 1, WavFormat.MinimumSampleRate - 1, 64, false), "wav", true),
+                "has a sample rate of 7999 Hz, outside 8000 to 192000", "a sample rate below the floor is refused", ref failures, output);
+            ExpectWavRefused(WavClipFixture(classic, AudioOutputSelfTest.SyntheticWave(1, 16, 1, WavFormat.MaximumSampleRate + 1, 64, false), "wav", true),
+                "has a sample rate of 192001 Hz, outside 8000 to 192000", "a sample rate above the ceiling is refused", ref failures, output);
+            ExpectWavRefused(WavClipFixture(classic, AudioOutputSelfTest.SyntheticWave(1, 16, 3, 22050, 64, false), "wav", true),
+                "has 3 channels; a clip is mono or stereo", "a clip of three channels is refused", ref failures, output);
+            byte[] misaligned = (byte[])wav.Clone();
+            misaligned[32] = 3;   // block align 2 -> 3 for 16-bit mono
+            ExpectWavRefused(WavClipFixture(classic, misaligned, "wav", true),
+                "has a block align of 3, which 1 channel(s) of 16 bits contradict", "a block align that contradicts the channels and bits is refused",
+                ref failures, output);
+            byte[] subformat = AudioOutputSelfTest.SyntheticWave(1, 16, 1, 22050, 64, true);
+            subformat[20 + 26 + 5] ^= 0x01;   // one byte of the KSDATAFORMAT_SUBTYPE tail
+            ExpectWavRefused(WavClipFixture(classic, subformat, "wav", true),
+                "uses an extensible subformat this app does not decode", "an extensible clip with a non-standard subformat is refused",
+                ref failures, output);
+            // The data chunk one byte short of its last frame: an odd last chunk with no pad byte, which is allowed, so the
+            // only thing wrong is the part frame.
+            byte[] ragged = new byte[wav.Length - 1];
+            Array.Copy(wav, ragged, ragged.Length);
+            WriteUInt32(ragged, 4, (uint)(ragged.Length - 8));
+            WriteUInt32(ragged, 40, (uint)(ragged.Length - 44));
+            ExpectWavRefused(WavClipFixture(classic, ragged, "wav", true),
+                "has a data chunk that is not a whole number of frames", "a data chunk of part frames is refused", ref failures, output);
+        }
+
+        private static void WriteUInt32(byte[] b, int at, uint value)
+        {
+            b[at] = (byte)value; b[at + 1] = (byte)(value >> 8); b[at + 2] = (byte)(value >> 16); b[at + 3] = (byte)(value >> 24);
         }
 
         private static XmlData.RootNode WavClipFixture(XmlData.RootNode classic, byte[] audio, string format, bool declareToken)

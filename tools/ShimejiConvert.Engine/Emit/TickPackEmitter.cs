@@ -1459,8 +1459,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             {
                 if (_frames.Count == 0) throw new InvalidDataException("Tick member needs at least one visible pose: " + _member);
                 int width = _frames.Max(frame => frame.Width), height = _frames.Max(frame => frame.Height);
-                if (width < 1 || height < 1 || width > SpriteSheetBuilder.MaxCell || height > SpriteSheetBuilder.MaxCell)
-                    throw new InvalidDataException("Tick sheet requires cells outside 1.." + SpriteSheetBuilder.MaxCell + "; this lowering never rescales source geometry.");
+                // The host's TICK cap (768), not the classic one: the host validator grades this sheet as a tick companion's.
+                if (width < 1 || height < 1 || width > SpriteSheetBuilder.MaxTickCell || height > SpriteSheetBuilder.MaxTickCell)
+                    throw new InvalidDataException("Tick sheet requires cells outside 1.." + SpriteSheetBuilder.MaxTickCell + "; this lowering never rescales source geometry.");
                 anchorX = _frames[0].X; anchorY = _frames[0].Y;
                 tilesX = (int)Math.Ceiling(Math.Sqrt(_frames.Count));
                 tilesY = (_frames.Count + tilesX - 1) / tilesX;

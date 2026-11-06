@@ -38,6 +38,33 @@
     },
     "src/com/group_finity/mascot/action/Regist.java": {
       "sha256": "e962e0be6fb8cbc62e77c5e2aad116eeb3212623310bcce46c21a3829c674424"
+    },
+    "src/com/group_finity/mascot/config/BehaviorBuilder.java": {
+      "sha256": "433821ab313872db702ee1a9757750240e1cda6d446a1020903754a52fb66452"
+    },
+    "src/com/group_finity/mascot/config/ActionBuilder.java": {
+      "sha256": "3ff74024415f213281424f2d00d85eccd195cd7a110b60846887d10cf2eb35ac"
+    },
+    "src/com/group_finity/mascot/config/ActionRef.java": {
+      "sha256": "e74e56d802321663232c26ab049128dc6485cff67ec065edaae3a398bacacfc6"
+    },
+    "src/com/group_finity/mascot/action/ScanMove.java": {
+      "sha256": "4752451e36e88a35eab725c84f7eac94a451b75a48212ae1daf8ff25a71f20af"
+    },
+    "src/com/group_finity/mascot/action/ScanInteract.java": {
+      "sha256": "8d19fa2336253a848b4def28e54877d74a3c7b766500c214685b51798951aed7"
+    },
+    "src/com/group_finity/mascot/action/ScanJump.java": {
+      "sha256": "27f6725194f36e0205cf7f8ad8e895d6e860296aa9724f23fb8e52624d2da2a8"
+    },
+    "src/com/group_finity/mascot/action/ComplexMove.java": {
+      "sha256": "d9e4fd31dbe28ca2520b2602d158b0d8f0477367bb32db275a2b3b0fac65f5b5"
+    },
+    "src/com/group_finity/mascot/action/ComplexJump.java": {
+      "sha256": "b8405be0b928e355f1e9b07449f119accf538a64aebcd403baeeeb8c8d25da49"
+    },
+    "src/com/group_finity/mascot/action/Interact.java": {
+      "sha256": "79ebb3813fccf832e97f905b0318942a3159dda032d5fd857306df0523e3a8d7"
     }
   },
   "javaRandomCounts": {
@@ -122,7 +149,168 @@
       "lineSha256": "5f3e7f22711c126e093eaca391470f6154e636d32fa7f29397b2ce58d22dce40",
       "op": "insert-before",
       "code": [
-        "if (com.group_finity.mascot.parity.DraftParityHooks.enabled()) com.group_finity.mascot.parity.DraftParityHooks.fail(message);"
+        "if (com.group_finity.mascot.parity.DraftParityHooks.enabled()) { com.group_finity.mascot.parity.DraftParityHooks.fail(message); return; }"
+      ]
+    },
+    {
+      "file": "src/com/group_finity/mascot/config/BehaviorBuilder.java",
+      "line": 50,
+      "lineSha256": "444c19aca5d8843e134a437c5d7f8292fe11ded0ece090ced18937371dba13c7",
+      "op": "insert-after",
+      "code": [
+        "com.group_finity.mascot.parity.DraftParityHooks.observe(\"behavior-builder\", this, behaviorNode);"
+      ]
+    },
+    {
+      "file": "src/com/group_finity/mascot/config/BehaviorBuilder.java",
+      "line": 134,
+      "lineSha256": "203995ddcf2a7acf4fba3952364644dab8b8977f37dca4000fd67a00d4783004",
+      "op": "insert-before",
+      "code": [
+        "com.group_finity.mascot.parity.DraftParityHooks.observe(\"behavior-build\", this, null);"
+      ]
+    },
+    {
+      "file": "src/com/group_finity/mascot/config/ActionBuilder.java",
+      "line": 47,
+      "lineSha256": "1505312c04913427f2ee498ff0745c23a21d27fe4671b66cacd4b0928c3259d1",
+      "op": "insert-after",
+      "code": [
+        "com.group_finity.mascot.parity.DraftParityHooks.observe(\"action-builder\", this, actionNode);"
+      ]
+    },
+    {
+      "file": "src/com/group_finity/mascot/config/ActionBuilder.java",
+      "line": 93,
+      "lineSha256": "691699ad340d305c729e90ebdd7e7474b1e749072f935560d98e01d51f24a958",
+      "op": "insert-after",
+      "code": [
+        "com.group_finity.mascot.parity.DraftParityHooks.observe(\"action-variables\", this, variables);"
+      ]
+    },
+    {
+      "file": "src/com/group_finity/mascot/config/ActionRef.java",
+      "line": 29,
+      "lineSha256": "444c19aca5d8843e134a437c5d7f8292fe11ded0ece090ced18937371dba13c7",
+      "op": "insert-after",
+      "code": [
+        "com.group_finity.mascot.parity.DraftParityHooks.observe(\"action-ref\", this, refNode);"
+      ]
+    },
+    {
+      "file": "src/com/group_finity/mascot/config/ActionRef.java",
+      "line": 65,
+      "lineSha256": "43c43036e1fd747a2e8f6b20619c605433846d5006af7e844101810ffdb52b65",
+      "op": "wrap-line",
+      "before": [
+        "com.group_finity.mascot.parity.DraftParityHooks.observe(\"ref-enter\", this, null);",
+        "try {"
+      ],
+      "after": [
+        "} finally { com.group_finity.mascot.parity.DraftParityHooks.observe(\"ref-exit\", this, null); }"
+      ]
+    },
+    {
+      "file": "src/com/group_finity/mascot/behavior/UserBehavior.java",
+      "line": 55,
+      "lineSha256": "b7cf6d71d43b4a0f3798b93765563b7b2014783945ed527854f7e90fd9de912c",
+      "op": "insert-after",
+      "code": [
+        "com.group_finity.mascot.parity.DraftParityHooks.observe(\"user-behavior\", this, null);"
+      ]
+    },
+    {
+      "file": "src/com/group_finity/mascot/Main.java",
+      "line": 367,
+      "lineSha256": "5b82a4f223fa6374f52ba7330f695f92ee72c895fbd382620eaec112fecd415f",
+      "op": "insert-after",
+      "code": [
+        "com.group_finity.mascot.parity.DraftParityHooks.observe(\"document\", actions, actionsPath);"
+      ]
+    },
+    {
+      "file": "src/com/group_finity/mascot/Main.java",
+      "line": 416,
+      "lineSha256": "bbaa9f0a54f1c059a80458083a7824019a2a719ec4ce15ff0e95630ba4ada0e5",
+      "op": "insert-after",
+      "code": [
+        "com.group_finity.mascot.parity.DraftParityHooks.observe(\"document\", behaviors, behaviorsPath);"
+      ]
+    },
+    {
+      "file": "src/com/group_finity/mascot/Main.java",
+      "line": 435,
+      "lineSha256": "2685e68c53eefa332c3b8ad04de1a14cd4c9c51ca067086625cd0094a99030f7",
+      "op": "insert-after",
+      "code": [
+        "com.group_finity.mascot.parity.DraftParityHooks.observe(\"document\", information, infoPath);"
+      ]
+    },
+    {
+      "file": "src/com/group_finity/mascot/Manager.java",
+      "line": 358,
+      "lineSha256": "042a5667c14b05c154ac0bb5d2a6aa2be2f1c2a14a3fb79ff043b662651f7294",
+      "op": "insert-before",
+      "code": [
+        "com.group_finity.mascot.parity.DraftParityHooks.observe(\"scan-affordance\", affordance, null);"
+      ]
+    },
+    {
+      "file": "src/com/group_finity/mascot/action/ScanMove.java",
+      "line": 58,
+      "lineSha256": "789980e99e91fb455a7a88cde835354980c19a351c5a492be38ab17ba96c0afd",
+      "op": "wrap-assigned-value",
+      "call": "com.group_finity.mascot.parity.DraftParityHooks.scanned",
+      "arguments": ["this"]
+    },
+    {
+      "file": "src/com/group_finity/mascot/action/ScanInteract.java",
+      "line": 88,
+      "lineSha256": "789980e99e91fb455a7a88cde835354980c19a351c5a492be38ab17ba96c0afd",
+      "op": "wrap-assigned-value",
+      "call": "com.group_finity.mascot.parity.DraftParityHooks.scanned",
+      "arguments": ["this"]
+    },
+    {
+      "file": "src/com/group_finity/mascot/action/ScanJump.java",
+      "line": 67,
+      "lineSha256": "789980e99e91fb455a7a88cde835354980c19a351c5a492be38ab17ba96c0afd",
+      "op": "wrap-assigned-value",
+      "call": "com.group_finity.mascot.parity.DraftParityHooks.scanned",
+      "arguments": ["this"]
+    },
+    {
+      "file": "src/com/group_finity/mascot/action/ComplexMove.java",
+      "line": 90,
+      "lineSha256": "84ce8e0f7d82c494bed094ae39558bc9ab644f99911543d8a3d84f2feb826d8e",
+      "op": "wrap-assigned-value",
+      "call": "com.group_finity.mascot.parity.DraftParityHooks.scanned",
+      "arguments": ["this"]
+    },
+    {
+      "file": "src/com/group_finity/mascot/action/ComplexJump.java",
+      "line": 99,
+      "lineSha256": "84ce8e0f7d82c494bed094ae39558bc9ab644f99911543d8a3d84f2feb826d8e",
+      "op": "wrap-assigned-value",
+      "call": "com.group_finity.mascot.parity.DraftParityHooks.scanned",
+      "arguments": ["this"]
+    },
+    {
+      "file": "src/com/group_finity/mascot/action/Interact.java",
+      "line": 42,
+      "lineSha256": "a91100b1dad37be42ac7dc58fef94efb34a03ddf5adc0a06333d505e99257f1b",
+      "op": "insert-before",
+      "code": [
+        "com.group_finity.mascot.parity.DraftParityHooks.observe(\"interact\", this, null);"
+      ]
+    },
+    {
+      "file": "src/com/group_finity/mascot/config/Configuration.java",
+      "line": 264,
+      "lineSha256": "bbb22bd48a4da4b98f7af074e4cde46d4039df74687b84cbd09dec5b03ff4229",
+      "op": "insert-before",
+      "code": [
+        "com.group_finity.mascot.parity.DraftParityHooks.observe(\"build-by-name\", name, mascot);"
       ]
     },
     {

@@ -16696,10 +16696,12 @@ CASES = (
      b'            _mascots.Add(m); m.InManager = true;\n            return m;',
      CORETESTS_CSPROJ, CORETESTS_DLL,
      CORETESTS, None, 'Tick engine Breed queues and names lineage'),
+    # Re-pointed by feature/shimeji-host-limits (BACKLOG N-shimeji-host-wav-01): ApplyPose takes the type that owns the
+    # pose since ace78fc (PoseType = owner ?? Type), so keeping the first type is that statement never replacing it.
     ('shimeji-host: the image keeps the first type it was set from',
      os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
-     b'            PoseType = Type;\n',
-     b'            PoseType = PoseType ?? Type;\n',
+     b'            PoseType = owner ?? Type;\n',
+     b'            PoseType = PoseType ?? owner ?? Type;\n',
      CORETESTS_CSPROJ, CORETESTS_DLL,
      CORETESTS, None, 'Tick engine Transform in place'),
     # The instant family (Look, Offset, Mute, BringToFront) and SelfDestruct.
@@ -18301,10 +18303,38 @@ CASES = (
      b'return behaviour.ToggleDefault || store == null;',
      CORETESTS_CSPROJ, CORETESTS_DLL,
      CORETESTS, None, 'Tick settings toggles: a turned-off toggle keeps its behaviour from being chosen or entered'),
+    # Re-pointed by feature/shimeji-host-limits (BACKLOG N-shimeji-host-wav-01): since the arrival and the caught Transform
+    # failure (3cfcafb, 08e5736) the type switch and the behaviour's entry are apart, a try between them. The property is
+    # their ORDER, so the mutant moves the switch past the entry: the behaviour is built and entered under the old type.
     ("shimeji-settings: Transform enters its behaviour under the old type's settings",
      os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
-     b'            mascot.Type = target;\n            Observer.Transformed(mascot, from, target.Name, behaviour);\n            mascot.SetBehaviour(BuildBehaviourByName(target, behaviour, mascot), "forced");\n',
-     b'            TickBehaviour entered = BuildBehaviourByName(target, behaviour, mascot);\n            mascot.Type = target;\n            Observer.Transformed(mascot, from, target.Name, behaviour);\n            mascot.SetBehaviour(entered, "forced");\n',
+     b'            mascot.Type = target;\n'
+     b'            // A startup behaviour still to come belonged to the type that arrived; the Transform has chosen what this\n'
+     b'            // companion does now, and the old name looked up on the new type could end it (policy:startup-after-arrival).\n'
+     b'            mascot.ArrivalBehaviour = null;\n'
+     b'            Observer.Transformed(mascot, from, target.Name, behaviour);\n'
+     b'            // Transform.java:51-65 sets the image set first and catches a behaviour that cannot be built or entered (a\n'
+     b'            // blank or unknown TransformBehavior): it reports the failure and the companion carries on, as the new type,\n'
+     b"            // in the behaviour it was in. Letting it escape ended the companion at the step's catch-all instead.\n"
+     b'            try\n'
+     b'            {\n'
+     b'                mascot.SetBehaviour(BuildBehaviourByName(target, behaviour, mascot), "forced");\n'
+     b'            }\n'
+     b'            catch (TickCantBeAliveException e)\n'
+     b'            {\n'
+     b'                ReportFault(mascot, "Transform into " + target.Name + ": " + e.Message);\n'
+     b'            }\n',
+     b'            mascot.ArrivalBehaviour = null;\n'
+     b'            Observer.Transformed(mascot, from, target.Name, behaviour);\n'
+     b'            try\n'
+     b'            {\n'
+     b'                mascot.SetBehaviour(BuildBehaviourByName(target, behaviour, mascot), "forced");\n'
+     b'            }\n'
+     b'            catch (TickCantBeAliveException e)\n'
+     b'            {\n'
+     b'                ReportFault(mascot, "Transform into " + target.Name + ": " + e.Message);\n'
+     b'            }\n'
+     b'            mascot.Type = target;\n',
      CORETESTS_CSPROJ, CORETESTS_DLL,
      CORETESTS, None, "Tick settings transform: a transformed companion reads its new type's switches"),
     ('shimeji-settings: the rows offer no window switch for a window class',
@@ -20025,10 +20055,12 @@ CASES = (
     # validator's checks are graded by --security-selftest's "wav clips:" block, the decode by --audio-selftest's
     # "wav clip:" lines, staging and the clip path by --shimeji-window-selftest. Named "host-wav:" so one
     # --only=host-wav: run covers the lane.
+    # Re-pointed by feature/shimeji-host-limits: "declares a format" is one function now (WavFormat.DeclaresFormat), which
+    # the declared clip's size limit reads too.
     ("host-wav: a format attribute needs no feature",
      os.path.join(REPO, "src", "dotNet", "ShimejiFormatValidator.cs"),
-     b'Require(declared, CompanionFormatFeatures.Wav, s != null && s.Format != null,',
-     b'Require(declared, CompanionFormatFeatures.Wav, s != null && s.Format != null && s.SoundId == null,',
+     b'Require(declared, CompanionFormatFeatures.Wav, WavFormat.DeclaresFormat(s),',
+     b'Require(declared, CompanionFormatFeatures.Wav, WavFormat.DeclaresFormat(s) && s.SoundId == null,',
      HOST_CSPROJ, EXE,
      SECURITY, None, "wav clips: a WAV clip without feature 'wav' declared is refused"),
     ("host-wav: the validator ignores the declared format",
@@ -20095,10 +20127,12 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--audio-selftest", "dp-audio-selftest.txt",
      "wav clip: PCM 16-bit passes the validator and decodes to the mixer format"),
+    # Re-pointed by feature/shimeji-host-limits (review F1): the decoder no longer reads a header of its own; the one parse
+    # (WavFormat.TryParse) hands it the subformat's plain tag, so an extensible clip read under its own tag is that.
     ("host-wav: an extensible WAV is read under its own header",
-     os.path.join(REPO, "src", "dotNet", "AudioOutput.cs"),
-     b'if (f.Encoding != WaveFormatEncoding.Extensible || extra == null || f.ExtraSize < 22)',
-     b'if (f.Encoding != WaveFormatEncoding.Extensible || extra != null || f.ExtraSize < 22)',
+     os.path.join(REPO, "src", "dotNet", "CompanionXmlValidator.cs"),
+     b'                tag = ReadUInt16(b, f + 24);\n',
+     b'                tag = ReadUInt16(b, f);\n',
      HOST_CSPROJ, EXE,
      "--audio-selftest", "dp-audio-selftest.txt",
      "wav clip: PCM 16-bit extensible passes the validator and decodes to the mixer format"),
@@ -20116,6 +20150,154 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--audio-selftest", "dp-audio-selftest.txt",
      "wav clip: one that will not decode at runtime is silent and reported once"),
+    # ---- lane feature/shimeji-host-limits ----
+    # The WAV lane's stand-in review (F1-F3), then the tick frame cap and the declared clip's size limit. Named
+    # "host-limits:" so one --only=host-limits: run covers the lane.
+    # F1: one parse. The decoder plays the fmt and data WavFormat.TryParse found; restoring NAudio's own RIFF reader
+    # brings back the second parse (it keeps the LAST fmt), and the 1 Hz duplicate decodes past the cap.
+    ("host-limits: F1 the decoder parses the RIFF again",
+     os.path.join(REPO, "src", "dotNet", "AudioOutput.cs"),
+     b'            using (var data = new MemoryStream(audio, layout.DataOffset, layout.DataLength, false))\n'
+     b'            using (var raw = new RawSourceWaveStream(data, format))\n',
+     b'            using (var data = new MemoryStream(audio, false))\n'
+     b'            using (var raw = new WaveFileReader(data))\n',
+     HOST_CSPROJ, EXE,
+     "--audio-selftest", "dp-audio-selftest.txt",
+     "wav clip: a second fmt chunk at 1 Hz is refused or plays exactly what the validator read"),
+    ("host-limits: F1 a clip's decode is not capped",
+     os.path.join(REPO, "src", "dotNet", "AudioOutput.cs"),
+     b'            float[] samples = ReadAll(ToMixFormat(source), MaximumClipDecodedSamples);\n',
+     b'            float[] samples = ReadAll(ToMixFormat(source), int.MaxValue);\n',
+     HOST_CSPROJ, EXE,
+     "--audio-selftest", "dp-audio-selftest.txt",
+     "wav clip: one frame past the decode cap is refused at decode"),
+    # F2: Companion Studio runs 'wav'.
+    ("host-limits: F2 Studio does not run 'wav'",
+     os.path.join(REPO, "modules", "PetStudio", "StudioFeatures.cs"),
+     b'            supported.Add(Wav);\n',
+     b'            // wav not registered\n',
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "Studio accepts a tick-clock companion with a WAV clip"),
+    # F3: the WAVE shape rules, each refused by its own check.
+    ("host-limits: F3 the sample-rate floor is 1 Hz",
+     os.path.join(REPO, "src", "dotNet", "CompanionXmlValidator.cs"),
+     b'            if (rate < MinimumSampleRate || rate > MaximumSampleRate)\n',
+     b'            if (rate < 1 || rate > MaximumSampleRate)\n',
+     HOST_CSPROJ, EXE,
+     SECURITY, None, "wav clips: a sample rate below the floor is refused"),
+    ("host-limits: F3 the sample-rate ceiling is doubled",
+     os.path.join(REPO, "src", "dotNet", "CompanionXmlValidator.cs"),
+     b'            if (rate < MinimumSampleRate || rate > MaximumSampleRate)\n',
+     b'            if (rate < MinimumSampleRate || rate > MaximumSampleRate * 2)\n',
+     HOST_CSPROJ, EXE,
+     SECURITY, None, "wav clips: a sample rate above the ceiling is refused"),
+    ("host-limits: F3 a clip may have up to eight channels",
+     os.path.join(REPO, "src", "dotNet", "CompanionXmlValidator.cs"),
+     b'            if (channels < 1 || channels > 2)\n',
+     b'            if (channels < 1 || channels > 8)\n',
+     HOST_CSPROJ, EXE,
+     SECURITY, None, "wav clips: a clip of three channels is refused"),
+    ("host-limits: F3 the block align is not checked",
+     os.path.join(REPO, "src", "dotNet", "CompanionXmlValidator.cs"),
+     b'            if (blockAlign != channels * bits / 8)\n',
+     b'            if (blockAlign != channels * bits / 8 && blockAlign == 0)\n',
+     HOST_CSPROJ, EXE,
+     SECURITY, None, "wav clips: a block align that contradicts the channels and bits is refused"),
+    ("host-limits: F3 any extensible subformat passes",
+     os.path.join(REPO, "src", "dotNet", "CompanionXmlValidator.cs"),
+     b'                    if (b[f + 26 + i] != SubtypeGuidTail[i])\n',
+     b'                    if (b[f + 26 + i] != SubtypeGuidTail[i] && i < 0)\n',
+     HOST_CSPROJ, EXE,
+     SECURITY, None, "wav clips: an extensible clip with a non-standard subformat is refused"),
+    ("host-limits: F3 a data chunk of part frames passes",
+     os.path.join(REPO, "src", "dotNet", "CompanionXmlValidator.cs"),
+     b'            if (dataSize == 0 || dataSize % blockAlign != 0)\n',
+     b'            if (dataSize == 0)\n',
+     HOST_CSPROJ, EXE,
+     SECURITY, None, "wav clips: a data chunk of part frames is refused"),
+    # The tick frame cap (768 a side, classic 256): the validator, the loader's staging and the converter each read it.
+    ("host-limits: the validator reads the classic frame cap for a tick companion",
+     os.path.join(REPO, "src", "dotNet", "CompanionXmlValidator.cs"),
+     b'            int maximumFrameDimension = MaximumFrameDimensionFor(tick);\n',
+     b'            int maximumFrameDimension = MaximumFrameDimensionFor(false);\n',
+     HOST_CSPROJ, EXE,
+     SECURITY, None, "host limits: a tick companion's 650 x 320 frame validates"),
+    ("host-limits: a classic companion gets the tick frame cap",
+     os.path.join(REPO, "src", "dotNet", "CompanionXmlValidator.cs"),
+     b'            return tick ? ShimejiFormatValidator.TickMaximumFrameDimension : MaximumSpriteFrameDimension;\n',
+     b'            return ShimejiFormatValidator.TickMaximumFrameDimension;\n',
+     HOST_CSPROJ, EXE,
+     SECURITY, None, "host limits: a classic companion with a 300 px frame is refused"),
+    ("host-limits: the frame check ignores the cap it was given",
+     os.path.join(REPO, "src", "dotNet", "CompanionXmlValidator.cs"),
+     b'            if ((width / tilesX) > maximumFrameDimension ||\n',
+     b'            if ((width / tilesX) > maximumFrameDimension + 1 ||\n',
+     HOST_CSPROJ, EXE,
+     SECURITY, None, "host limits: a tick frame one pixel past the tick cap is refused"),
+    ("host-limits: the loader stages a tick frame under the classic cap",
+     os.path.join(REPO, "src", "dotNet", "Xml.cs"),
+     b'                    int frameLimit = CompanionXmlValidator.MaximumFrameDimensionFor(tick);\n',
+     b'                    int frameLimit = CompanionXmlValidator.MaximumFrameDimensionFor(false);\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     "large frames: a 650 x 320 tick frame stages at its own size"),
+    ("host-limits: a tick companion's size is not held to the frame budget",
+     os.path.join(REPO, "src", "dotNet", "Xml.cs"),
+     b'                    if (tick && stagedFactor > 1.0)\n',
+     b'                    if (tick && stagedFactor > 99.0)\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     "large frames: a tick companion whose frames would pass the budget at the user's size stages at the largest size that fits"),
+    ("host-limits: the converter holds a tick member to the classic cell cap",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
+     b'if (width < 1 || height < 1 || width > SpriteSheetBuilder.MaxTickCell || height > SpriteSheetBuilder.MaxTickCell)',
+     b'if (width < 1 || height < 1 || width > SpriteSheetBuilder.MaxCell || height > SpriteSheetBuilder.MaxTickCell)',
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "TickPackEmitterSelfTest/tick-cell-cap"),
+    # The declared clip's size limit (4 MiB, undeclared 2 MiB), reached only through feature 'wav', whose gate runs first.
+    ("host-limits: a declared clip keeps the undeclared limit",
+     os.path.join(REPO, "src", "dotNet", "CompanionXmlValidator.cs"),
+     b'            return WavFormat.DeclaresFormat(sound) ? MaximumDeclaredAudioBytesPerSound : MaximumAudioBytesPerSound;\n',
+     b'            return MaximumAudioBytesPerSound;\n',
+     HOST_CSPROJ, EXE,
+     SECURITY, None, "host limits: WITNESS a clip declaring a format validates at exactly the declared limit"),
+    ("host-limits: every clip gets the declared limit",
+     os.path.join(REPO, "src", "dotNet", "CompanionXmlValidator.cs"),
+     b'            return WavFormat.DeclaresFormat(sound) ? MaximumDeclaredAudioBytesPerSound : MaximumAudioBytesPerSound;\n',
+     b'            return MaximumDeclaredAudioBytesPerSound;\n',
+     HOST_CSPROJ, EXE,
+     SECURITY, None, "host limits: an undeclared clip one byte past 2 MiB is refused"),
+    ("host-limits: the feature gate does not run before the size checks",
+     os.path.join(REPO, "src", "dotNet", "CompanionXmlValidator.cs"),
+     b'                ShimejiFormatValidator.PreCheckFeatures(xml, supportedFeatures);\n',
+     b'                // the feature pre-check is gone\n',
+     HOST_CSPROJ, EXE,
+     SECURITY, None, "host limits: a host that does not run 'wav' refuses a clip past every size limit by the feature's name"),
+    # Review N1: a classic pet sound's decode failure (the 60 s cap included) is reported once, as a clip's is.
+    ("host-limits: N1 a classic pet sound's failure is not reported",
+     os.path.join(REPO, "src", "dotNet", "AudioOutput.cs"),
+     b'            if (failure != null) ClipFailureSink("pet sound (MP3) would not decode and stays silent: " + failure);\n',
+     b'            if (failure != null && mp3 == null) ClipFailureSink("pet sound (MP3) would not decode and stays silent: " + failure);\n',
+     HOST_CSPROJ, EXE,
+     "--audio-selftest", "dp-audio-selftest.txt",
+     "pet sound: a classic pet sound past the decode cap is silent and reported once"),
+    # Review N2: the tick size lowering never goes below 1:1.
+    ("host-limits: N2 the size lowering goes below 1:1",
+     os.path.join(REPO, "src", "dotNet", "Xml.cs"),
+     b'            return factor <= fits ? factor : Math.Max(1.0, fits);\n',
+     b'            return factor <= fits ? factor : fits;\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     "large frames: a size the budget would put below 1:1 stages at exactly 1:1"),
+    # Review N3: a lowered size is said once at staging.
+    ("host-limits: N3 a lowered size is not said",
+     os.path.join(REPO, "src", "dotNet", "StartUp.cs"),
+     b'                    if (stagedXml.SizeLoweredForBudgetFrom > 0)\n',
+     b'                    if (stagedXml.SizeLoweredForBudgetFrom > 99)\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     "large frames: a lowered size is said once at staging, naming the companion and both sizes"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

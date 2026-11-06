@@ -50,6 +50,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
     public static class SpriteSheetBuilder
     {
         public const int MaxCell = DesktopAICompanion.CompanionXmlValidator.MaximumSpriteFrameDimension;   // bound, not copied (F458)
+        // A tick-clock member's cell cap, bound the same way (feature/shimeji-host-limits). TickPackEmitter reads it, and
+        // never this builder's downscale: a tick member's geometry is the source's own pixels.
+        public const int MaxTickCell = DesktopAICompanion.ShimejiFormatValidator.TickMaximumFrameDimension;
         // BOUND, not copied. This was a third literal 1024 tied to SpriteFrameStore.MaximumFrames by a
         // comment alone; the build-time assertion in ShimejiConvert.Engine.csproj reads only Xml.cs, so the
         // shim and this cap could each drift with nothing noticing (F462). CompanionXmlValidator.MaximumSpriteTiles

@@ -89,6 +89,13 @@ namespace DesktopAICompanion
     {
         public const int TickMaximumAnimations = 2048;
         public const int TickMaximumTransitions = 1024;
+        /// <summary>The largest frame side a tick-clock companion's sheet may have (grimoire/06 section 4.4); a classic
+        /// companion keeps <see cref="CompanionXmlValidator.MaximumSpriteFrameDimension"/>. A classic pet's converter
+        /// downsamples its frames to fit, but a tick companion's poses, anchors, hotspots and moves are the source's own
+        /// pixels and the converter never rescales them, so a real skin's 650 x 320 image could not load at all under the
+        /// classic cap. The sheet caps (4096 px a side, 16 Mi pixels) still bound the memory either way; read it through
+        /// <see cref="CompanionXmlValidator.MaximumFrameDimensionFor"/>.</summary>
+        public const int TickMaximumFrameDimension = 768;
         public const int MaximumPoseTicks = 100000;
         /// <summary>How far a pose's anchor may lie from its image's top-left, in either direction (grimoire/06 section 3).
         /// An anchor may sit outside its image (a hanging pose); this bounds how far.</summary>
@@ -263,7 +270,7 @@ namespace DesktopAICompanion
                     // ANY format attribute, "mp3" included: a host older than the token has no such attribute in its
                     // schema, so only the token gets it a refusal by name. Since every token needs 'tick', a classic
                     // companion's sounds stay MP3 (grimoire/06 section 3).
-                    Require(declared, CompanionFormatFeatures.Wav, s != null && s.Format != null,
+                    Require(declared, CompanionFormatFeatures.Wav, WavFormat.DeclaresFormat(s),
                         "sound " + (s == null ? "" : s.SoundId != null ? "'" + s.SoundId + "'" : "for animation " + s.Id) + " format");
                 }
             if (declared.Count > 0 && !declared.Contains(CompanionFormatFeatures.Tick))
