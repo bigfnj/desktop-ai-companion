@@ -9,6 +9,7 @@ Two runtimes run the same scenario and each writes a trace; the comparer decides
 
 This file is the contract both sides implement. A change to it bumps the schema version on every artefact it
 touches. Field names are exact and case-sensitive.
+Exception: the labelled v1.1 optional sourceNames map addition retains shimeji-parity-map/1; existing required fields and the trace/scenario schemas are unchanged.
 
 ## 1. Scenario (`scenario.json`, schema `shimeji-parity-scenario/1`)
 
