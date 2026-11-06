@@ -910,6 +910,286 @@ SCENARIOS += [
 ]
 
 
+# ---------------------------------------------------------------------------------------------------------------------
+# 17. Converter lowerings (lane feature/shimeji-parity-lowerings): one directed scenario per construct the converter
+# newly lowers, each run on the oracle and on the host. Every pack is written fresh here; the Japanese names and values
+# are the source schema's element, attribute and value names (the converter's verified fact tables), not anyone's conf.
+# ---------------------------------------------------------------------------------------------------------------------
+
+def write_text(path, text):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8", newline="\n")
+
+
+def mascot_document(body):
+    return f'<?xml version="1.0" encoding="UTF-8"?>\n<Mascot xmlns="{NS}">\n' + body + "\n</Mascot>\n"
+
+
+def stand_walk_documents(conf, actions_name="actions.xml", behaviours_name="behaviors.xml", poses=None):
+    """The stand-walk slice's two documents, under the given file names, optionally with other Stand poses."""
+    stand = poses or [pose("shime1.png", ticks=5), pose("shime2.png", ticks=5)]
+    actions = ([action("Stand", "Stay", stand, Duration=20),
+                action("Walk", "Move", [pose("shime3.png", dx=-2, ticks=4), pose("shime1.png", dx=-2, ticks=4)], TargetX=600)]
+               + lifecycle_actions("shime"))
+    behaviours = ([beh("Stand", 1, nxt=[("Walk", 1)], add="false"), beh("Walk", 0, hidden=True, nxt=[("Stand", 1)], add="false")]
+                  + lifecycle_behaviours())
+    write_text(conf / actions_name, mascot_document("  <ActionList>\n" + "\n".join(actions) + "\n  </ActionList>"))
+    write_text(conf / behaviours_name, mascot_document("  <BehaviorList>\n" + "\n".join(behaviours) + "\n  </BehaviorList>"))
+
+
+# 17.1 Japanese vocabulary: element, attribute and value names in the source's Japanese schema, and the engine's own
+# behaviours under their Japanese names, which the source enters through the configuration's schema.
+def ja_pose(image, dx=0, ticks=4):
+    return f'<ポーズ 画像="/{image}" 基準座標="{ANCHOR[0]},{ANCHOR[1]}" 移動速度="{dx},0" 長さ="{ticks}"/>'
+
+
+def ja_action(name, typ, poses, cls=None, border="地面", **attrs):
+    a = {"名前": name, "種類": typ}
+    if cls:
+        a["クラス"] = "com.group_finity.mascot.action." + cls
+    if border:
+        a["枠"] = border
+    a.update(attrs)
+    return f"    <動作{_attrs(a)}>\n      <アニメーション>" + "".join(poses) + "</アニメーション>\n    </動作>"
+
+
+def ja_behaviour(name, frequency, action_name=None, nxt=None):
+    a = {"名前": name, "頻度": frequency}
+    if action_name:
+        a["動作"] = action_name
+    if nxt is None:
+        return f"    <行動{_attrs(a)}/>"
+    refs = "".join(f'<行動参照 名前="{n}" 頻度="{f}"/>' for n, f in nxt)
+    return f'    <行動{_attrs(a)}>\n      <次の行動リスト 追加="false">{refs}</次の行動リスト>\n    </行動>'
+
+
+def pack_lower_japanese(root):
+    sprites(root, "Alpha", 5)
+    conf = root / "img" / "Alpha" / "conf"
+    actions = [ja_action("Stand", "静止", [ja_pose("shime1.png", ticks=5), ja_pose("shime2.png", ticks=5)], 長さ=20),
+               ja_action("Walk", "移動", [ja_pose("shime3.png", dx=-2), ja_pose("shime1.png", dx=-2)], 目的地X=600),
+               ja_action("Drop", "組み込み", [ja_pose("shime4.png", ticks=250)], cls="Fall", border=None),
+               ja_action("Hold", "組み込み", [ja_pose("shime5.png", ticks=250)], cls="Dragged", border=None),
+               ja_action("Toss", "組み込み", [ja_pose("shime4.png", ticks=250)], cls="Fall", border=None)]
+    behaviours = [ja_behaviour("Stand", 1, nxt=[("Walk", 1)]), ja_behaviour("Walk", 0, nxt=[("Stand", 1)]),
+                  ja_behaviour("落下する", 0, "Drop"), ja_behaviour("ドラッグされる", 0, "Hold"), ja_behaviour("投げられる", 0, "Toss")]
+    write_text(conf / "actions.xml", mascot_document("  <動作リスト>\n" + "\n".join(actions) + "\n  </動作リスト>"))
+    write_text(conf / "behaviors.xml", mascot_document("  <行動リスト>\n" + "\n".join(behaviours) + "\n  </行動リスト>"))
+
+
+# 17.2 An information document holding only <Information>: the source loads it as one more configuration document and
+# nothing at run time reads it.
+def pack_lower_info(root):
+    sprites(root, "Alpha", 5)
+    conf = root / "img" / "Alpha" / "conf"
+    stand_walk_documents(conf)
+    write_text(conf / "info.xml", mascot_document(
+        '  <Information>\n    <Name>Synthetic Alpha</Name>\n    <Artist Name="nobody" URL="https://example.invalid/"/>\n'
+        "  </Information>"))
+
+
+# 17.3 Anonymous nested actions: a Sequence holding a nameless Stay, a reference, an empty-named Move and a nameless
+# Select around a nameless Stay. Each is built where it stands (never looked up by name).
+def nested(typ, body, **attrs):
+    a = {"Type": typ}
+    a.update(attrs)
+    return f"<Action{_attrs(a)}>" + "".join(body) + "</Action>"
+
+
+def pack_lower_nested(root):
+    member(root, "Alpha",
+           [posed("Walk", "Move", WALK, TargetX=10),
+            act("Patrol", "Sequence",
+                [nested("Stay", [anim([img("shime6.png", ticks=3)])], BorderType="Floor", Duration=6),
+                 aref("Walk", TargetX=600),
+                 nested("Move", [anim([img("shime1.png", dx=-2, ticks=2), img("shime2.png", dx=-2, ticks=2)])], Name="",
+                        BorderType="Floor", TargetX=640),
+                 nested("Select", [nested("Stay", [anim([img("shime3.png", ticks=2)])], BorderType="Floor", Duration=4)])],
+                border=None),
+            posed("Stand", "Stay", [img("shime1.png", ticks=5)], Duration=200)],
+           then("Stand", "Patrol") + [beh("Stand", 1)])
+
+
+# 17.4 Custom variables: an attribute the schema does not name is a variable of the source's action map. A root
+# behaviour's Step read by its action, an action's Speed read by its own Duration, a reference's Gap read by its own
+# TargetX. The companion starts in the root Stride (a next-list entry is built from its own element, which would not
+# carry Step), and every behaviour is named as its action, since an entry's action defaults to its own name.
+def pack_lower_vars(root):
+    member(root, "Alpha",
+           [posed("Walk", "Move", WALK, TargetX=10),
+            posed("Pace", "Stay", [img("shime6.png", ticks=3)], Duration="${Speed*4}", Speed=3),
+            act("Chase", "Sequence", [aref("Walk", TargetX="${mascot.anchor.x - Gap}", Gap=40)], border=None),
+            posed("Stride", "Move", [img("shime2.png", dx=-2, ticks=2), img("shime3.png", dx=-2, ticks=2)],
+                  TargetX="${mascot.anchor.x + Step}"),
+            posed("Stand", "Stay", [img("shime1.png", ticks=5)], Duration=200)],
+           [beh("Stride", 1, nxt=[("Pace", 1)], add="false", Step=30),
+            beh("Pace", 0, hidden=True, nxt=[("Chase", 1)], add="false"),
+            beh("Chase", 0, hidden=True, nxt=[("Stand", 1)], add="false"),
+            beh("Stand", 0, hidden=True)])
+
+
+# 17.5 Instant embedded actions written with no Animation, as the stock configuration writes them: Look, Offset and
+# BringToFront inside a Sequence (Mute is left out: the oracle refuses it until mute events have a seam).
+def bare(name, cls, **attrs):
+    a = {"Name": name, "Type": "Embedded", "Class": "com.group_finity.mascot.action." + cls}
+    a.update(attrs)
+    return f"    <Action{_attrs(a)}/>"
+
+
+def pack_lower_instant(root):
+    member(root, "Alpha",
+           [posed("Wait", "Stay", [img("shime6.png", ticks=3)], Duration=6),
+            bare("Face", "Look", LookRight="true"), bare("Nudge", "Offset", X=12, Y=0), bare("Raise", "BringToFront"),
+            posed("Walk", "Move", WALK, TargetX=720),
+            act("Hop", "Sequence", [aref("Wait"), aref("Face"), aref("Nudge"), aref("Raise"), aref("Walk")], border=None),
+            posed("Stand", "Stay", [img("shime1.png", ticks=5)], Duration=200)],
+           then("Stand", "Hop") + [beh("Stand", 1)])
+
+
+# 17.6 Math.random named without a call (NaN in the source), in the stock template's shape: a reference's TargetX whose
+# facing-left branch is NaN, which Move reads as intValue() 0.
+NAN_TARGET = ("${mascot.lookRight ? mascot.environment.workArea.left+Math.random()*100 : "
+              "mascot.environment.workArea.right-Math.random*100}")
+
+
+def pack_lower_nan(root):
+    member(root, "Alpha",
+           [posed("Walk", "Move", WALK, TargetX=10),
+            act("Roam", "Sequence", [aref("Walk", TargetX=NAN_TARGET)], border=None),
+            posed("Stand", "Stay", [img("shime1.png", ticks=5)], Duration=200)],
+           then("Stand", "Roam") + [beh("Stand", 1)])
+
+
+# 17.7 Pose Sound and Volume, lowered to WAV clips: one clip at the pack's sound/, one under img/<set>/sound/.
+def wave_bytes(period, frames):
+    """A deterministic 8 kHz mono 16-bit PCM square wave (generated, nobody's recording)."""
+    import io
+    import struct
+    import wave
+    data = b"".join(struct.pack("<h", 6000 if (i // period) % 2 == 0 else -6000) for i in range(frames))
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(8000)
+        w.writeframes(data)
+    return buffer.getvalue()
+
+
+def pack_lower_sound(root):
+    sprites(root, "Alpha", 5)
+    (root / "sound").mkdir(parents=True, exist_ok=True)
+    (root / "sound" / "tone.wav").write_bytes(wave_bytes(10, 800))
+    (root / "img" / "Alpha" / "sound").mkdir(parents=True, exist_ok=True)
+    (root / "img" / "Alpha" / "sound" / "beep.wav").write_bytes(wave_bytes(4, 400))
+    sounding = [pose("shime1.png", ticks=5).replace("/>", ' Sound="/tone.wav" Volume="-6.5"/>'),
+                pose("shime2.png", ticks=5).replace("/>", ' Sound="beep.wav"/>')]
+    stand_walk_documents(root / "img" / "Alpha" / "conf", poses=sounding)
+
+
+# 17.8 Configuration files spelt as the pack spells them (Actions.xml, Behaviors.xml), which the source's lower-case
+# probe also opens on Windows.
+def pack_lower_spelling(root):
+    sprites(root, "Alpha", 5)
+    stand_walk_documents(root / "img" / "Alpha" / "conf", "Actions.xml", "Behaviors.xml")
+
+
+def japanese_alpha(root, extra_actions=(), extra_behaviours=(), start=None):
+    """17.1's Japanese member Alpha, with optional extra actions and behaviours (start: a behaviour listed first)."""
+    sprites(root, "Alpha", 5)
+    conf = root / "img" / "Alpha" / "conf"
+    actions = list(extra_actions) + [
+        ja_action("Stand", "静止", [ja_pose("shime1.png", ticks=5), ja_pose("shime2.png", ticks=5)], 長さ=20),
+        ja_action("Walk", "移動", [ja_pose("shime3.png", dx=-2), ja_pose("shime1.png", dx=-2)], 目的地X=600),
+        ja_action("Drop", "組み込み", [ja_pose("shime4.png", ticks=250)], cls="Fall", border=None),
+        ja_action("Hold", "組み込み", [ja_pose("shime5.png", ticks=250)], cls="Dragged", border=None),
+        ja_action("Toss", "組み込み", [ja_pose("shime4.png", ticks=250)], cls="Fall", border=None)]
+    behaviours = list(extra_behaviours) + [
+        ja_behaviour("Stand", 1, nxt=[("Walk", 1)]), ja_behaviour("Walk", 0, nxt=[("Stand", 1)]),
+        ja_behaviour("落下する", 0, "Drop"), ja_behaviour("ドラッグされる", 0, "Hold"), ja_behaviour("投げられる", 0, "Toss")]
+    write_text(conf / "actions.xml", mascot_document("  <動作リスト>\n" + "\n".join(actions) + "\n  </動作リスト>"))
+    write_text(conf / "behaviors.xml", mascot_document("  <行動リスト>\n" + "\n".join(behaviours) + "\n  </行動リスト>"))
+
+
+# 17.9 CONTRACT v1.1 source names (decision 67): an English member whose own Fall keeps its name, beside the Japanese
+# member whose engine Fall the converter renames. Both fall from the air; only the Japanese one's name is mapped back.
+def pack_lower_japanese_mixed(root):
+    japanese_alpha(root)
+    member(root, "Beta", [posed("Stand", "Stay", [img("shime1.png", ticks=5), img("shime2.png", ticks=5)], Duration=30)],
+           [beh("Stand", 1)])
+
+
+# 17.10 A requested behaviour name the converter renamed: Alpha's Transform asks for its own engine Fall by the
+# Japanese name, so the transform event and the behaviour it enters both carry the source's name.
+def pack_lower_japanese_transform(root):
+    morph = ('    <動作 名前="Morph" 種類="組み込み" クラス="com.group_finity.mascot.action.Transform" '
+             'TransformMascot="Alpha" TransformBehavior="落下する">\n      <アニメーション>'
+             + ja_pose("shime2.png", ticks=3) + ja_pose("shime3.png", ticks=3) + "</アニメーション>\n    </動作>")
+    japanese_alpha(root, [morph], [ja_behaviour("Morph", 0)])
+
+
+PACKS.update({
+    "lower-japanese-mixed": pack_lower_japanese_mixed, "lower-japanese-transform": pack_lower_japanese_transform,
+})
+
+PACKS.update({
+    "lower-japanese": pack_lower_japanese, "lower-info": pack_lower_info, "lower-nested": pack_lower_nested,
+    "lower-vars": pack_lower_vars, "lower-instant": pack_lower_instant, "lower-nan": pack_lower_nan,
+    "lower-sound": pack_lower_sound, "lower-spelling": pack_lower_spelling,
+})
+
+SCENARIOS += [
+    scenario("S-lower-japanese-01",
+             "a Japanese-schema member: m1 stands (静止, 地面) 20 ticks, walks (移動) left from x 800 to 600 and stands "
+             "again; m2 starts in its Stand 80 px above the floor, loses the ground and enters the engine's 落下する "
+             "(an embedded Fall), lands on the floor and returns to Stand",
+             "lower-japanese", 120, [mascot("m1", "Alpha", "Stand", 800), mascot("m2", "Alpha", "Stand", 300, y=600)],
+             tape(0.5, 0.5, 0.5, 0.5, 0.5, 0.5)),
+    scenario("S-lower-info-01",
+             "the stand-walk slice with an information document beside its configuration: nothing at run time reads it, "
+             "so Alpha stands 20 ticks, walks left from x 800 to 600 and stands again, as in S-slice-stand-walk-01",
+             "lower-info", 160, [mascot("m1", "Alpha", "Stand", 800)], tape(0.5, 0.5, 0.5, 0.5)),
+    scenario("S-lower-nested-01",
+             "anonymous nested actions: Patrol plays a nameless 6-tick Stay, walks left to x 600 by reference, walks right "
+             "to x 640 in an empty-named Move, then a nameless Select's nameless 4-tick Stay, and hands back to Stand",
+             "lower-nested", 80, [mascot("m1", "Alpha", "Patrol", 640)], tape(0.5, 0.5)),
+    scenario("S-lower-vars-01",
+             "custom variables: the root Stride behaviour's Step (30) sets its action's target 30 px right, so Alpha walks "
+             "from x 640 to 670; Pace's Duration is its own Speed (3) times 4, 12 ticks; Chase's reference walks to its "
+             "anchor x minus the reference's Gap (40), from 670 to 630; then Stand",
+             "lower-vars", 80, [mascot("m1", "Alpha", "Stride", 640)], tape(0.5, 0.5, 0.5, 0.5)),
+    scenario("S-lower-instant-01",
+             "instant embedded actions without an Animation: Hop waits 6 ticks, Look turns Alpha right, Offset moves it 12 "
+             "px right (x 640 to 652), BringToFront changes nothing traced, and the walk goes right to x 720",
+             "lower-instant", 60, [mascot("m1", "Alpha", "Hop", 640)], tape(0.5, 0.5)),
+    scenario("S-lower-nan-left-01",
+             "Math.random named without a call, facing left: the reference's TargetX takes the NaN branch, which Move reads "
+             "as 0 and which draws nothing, so Alpha walks left from x 60 to 0, then stands (the facing-right branch draws "
+             "from a script, which v1 cannot attribute)",
+             "lower-nan", 50, [mascot("m1", "Alpha", "Roam", 60)], tape(0.5, 0.5)),
+    scenario("S-lower-sound-01",
+             "pose Sound and Volume as WAV clips, sounds off: the stand-walk slice whose Stand poses name a clip (one with a "
+             "Volume), so the timing and motion are S-slice-stand-walk-01's; v1 traces carry no audio",
+             "lower-sound", 160, [mascot("m1", "Alpha", "Stand", 800)], tape(0.5, 0.5, 0.5, 0.5)),
+    scenario("S-lower-spelling-01",
+             "the stand-walk slice with its documents spelt Actions.xml and Behaviors.xml: every refKey names the file as "
+             "the pack spells it",
+             "lower-spelling", 160, [mascot("m1", "Alpha", "Stand", 800)], tape(0.5, 0.5, 0.5, 0.5)),
+    scenario("S-lower-japanese-02",
+             "source names beside an unchanged one: m1 (the Japanese Alpha) and m2 (the English Beta) both start 80 px above "
+             "the floor and lose the ground; m1 enters 落下する and m2 enters its own Fall, whose name conversion never "
+             "changed; both land and stand; m3 (Alpha) stands and walks on the floor",
+             "lower-japanese-mixed", 80,
+             [mascot("m1", "Alpha", "Stand", 300, y=600), mascot("m2", "Beta", "Stand", 900, y=600),
+              mascot("m3", "Alpha", "Stand", 700)],
+             tape(*([0.5] * 8))),
+    scenario("S-lower-japanese-03",
+             "a requested name the converter renamed: Alpha's Transform (6 ticks, in the air) names its own 落下する, so the "
+             "transform event requests 落下する and Alpha enters it, falls 80 px to the floor and stands",
+             "lower-japanese-transform", 60, [mascot("m1", "Alpha", "Morph", 640, y=600)], tape(0.5, 0.5, 0.5, 0.5)),
+]
+
+
 def main(out):
     out = Path(out)
     for name, build in PACKS.items():

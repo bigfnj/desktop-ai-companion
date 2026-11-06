@@ -670,6 +670,51 @@ namespace DesktopAICompanion.Shimeji
                 check(events.Contains("\"kind\":\"drag\",\"op\":\"start\"") && events.Contains("\"kind\":\"hotspot\",\"op\":\"press\",\"behavior\":\"Petted\"")
                       && events.Contains("\"kind\":\"hotspot\",\"op\":\"release\",\"behavior\":null"),
                     "parity trace: drag and hotspot events are written as the contract names them (" + events.Replace(Environment.NewLine, " ").Trim() + ")");
+
+                // CONTRACT v1.1 section 9 (decision 67): behavior and action come from the map's source names where it
+                // has them; a null entry is written null (never the emitted name), "" stays "", no entry keeps the name.
+                TickBehaviour held = one.Behaviour;
+                TickAction heldLeaf = held.Action.Leaf;
+                Func<Action<ParityMap>, string> named = fill =>
+                {
+                    var map = new ParityMap();
+                    fill(map);
+                    var sw = new StringWriter();
+                    new ParityTraceWriter(sw, new Dictionary<string, ParityMap> { { held.Type.Name, map } }).States(host.World);
+                    return sw.ToString();
+                };
+                string sourced = named(map => { map.SourceNames[held.Def.NodeId] = "SourceBehaviour"; map.SourceNames[heldLeaf.Def.NodeId] = null; });
+                string emptied = named(map => map.SourceNames[heldLeaf.Def.NodeId] = "");
+                check(sourced.Contains("\"behavior\":\"SourceBehaviour\"") && sourced.Contains("\"action\":null"),
+                    "parity trace: a mapped source name is written, and a null one stays null (" + sourced.Trim() + ")");
+                check(emptied.Contains("\"behavior\":" + JsonLine.Quote(held.Name)) && emptied.Contains("\"action\":\"\""),
+                    "parity trace: an empty source name stays empty and an unmapped node keeps its name (" + emptied.Trim() + ")");
+
+                // The provenance backstop: a behaviour event whose "from" is not the behaviour the writer saw the companion
+                // enter is not named by guess; the writer records a fault and the run's ending (ParityRun.Finish, the
+                // lines Run ends with) turns it into status error, a non-zero exit and a log line naming the field.
+                // WITNESS first: an event matching the stored state leaves no fault and the run complete.
+                var cleanOut = new StringWriter();
+                var cleanLog = new StringWriter();
+                var cleanWriter = new ParityTraceWriter(cleanOut, new Dictionary<string, ParityMap>());
+                cleanWriter.BehaviourEntered(one, null, held.Name, "forced");
+                int cleanExit = ParityRun.Finish(cleanWriter, 7, "complete", cleanLog);
+                check(cleanWriter.ProvenanceFault == null && cleanExit == 0 && cleanOut.ToString().Contains("\"status\":\"complete\"")
+                      && cleanLog.ToString().Length == 0,
+                    "parity trace: WITNESS an attributable behaviour event leaves the run complete (exit " + cleanExit + ", "
+                    + cleanOut.ToString().Replace(Environment.NewLine, " ").Trim() + ")");
+                var faultOut = new StringWriter();
+                var faultLog = new StringWriter();
+                var faultWriter = new ParityTraceWriter(faultOut, new Dictionary<string, ParityMap>());
+                faultWriter.BehaviourEntered(one, "NoSuchBehaviour", held.Name, "forced");
+                check(faultWriter.ProvenanceFault != null && faultWriter.ProvenanceFault.Contains("from 'NoSuchBehaviour'"),
+                    "parity trace: an unattributable behaviour name is recorded as a provenance fault (" + faultWriter.ProvenanceFault + ")");
+                int faultExit = ParityRun.Finish(faultWriter, 7, "complete", faultLog);
+                string faultFooter = faultOut.ToString();
+                check(faultExit != 0 && faultFooter.Contains("\"type\":\"footer\",\"ticks\":7,\"status\":\"error\"")
+                      && faultLog.ToString().Contains("parity trace: ") && faultLog.ToString().Contains("from 'NoSuchBehaviour'"),
+                    "parity trace: a provenance fault ends the run in error, naming the field (exit " + faultExit + ", log "
+                    + faultLog.ToString().Trim() + ", " + faultFooter.Replace(Environment.NewLine, " ").Trim() + ")");
             }
             catch (Exception e)
             {
