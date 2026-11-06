@@ -594,7 +594,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 _nodes.Add(node);
                 _actionMap.Add(Key(id), Ref(_source.Actions, source));
                 if (anonymous) _sourceNames.Add(Key(id), sourceName);
-                bool composite =type == "Sequence" || type == "Select";
+                bool composite = type == "Sequence" || type == "Select";
                 XElement variants = E("variants"), children = E("children", new XAttribute("mode", type == "Select" ? "select" : "sequence"));
                 // Parameters a scripted Animation Condition is lowered to; they join the act's own parameters, ahead of
                 // the guard and the variants as the schema orders them.
