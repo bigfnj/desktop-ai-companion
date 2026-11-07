@@ -13,6 +13,9 @@ Two rules this harness exists to enforce, both learned the hard way in this repo
     is a no-op, and a no-op mutation always looks like a passing test.
 
 Usage:  %TOOLBOX_PYTHON% tests/mutate-diagnostics.py [--fast] [--only=<substring>]
+        %TOOLBOX_PYTHON% tests/mutate-diagnostics.py --check-patterns
+        --check-patterns counts every case's pattern against its file and stops: nothing is built,
+        mutated or created (N-audit-1106-344; tests/Invoke-OfflineScriptChecks.ps1 runs it).
         --fast skips the cases that need a rebuild (source-invariant cases only).
         --only selects cases by name, case-insensitively; a selection that matches nothing is a
         refusal (exit 2), not "0/0 fired" (RA-353): with no case there is no baseline either, so a
@@ -1380,7 +1383,8 @@ def run_wpf(expect_rebuild):
 
 
 def parse_arguments(argv):
-    """--fast and --only=<substring>, and nothing else (N-shimeji-tests-01). The loop this replaces read those two out
+    """--fast, --only=<substring> and --check-patterns, and nothing else (N-shimeji-tests-01; --check-patterns since
+    N-audit-1106-344, alone). The loop this replaces read the first two out
     of sys.argv and ignored every other argument, so a sibling harness's --shard or --check-patterns, or a mistyped
     --olny=, started the full mutating suite instead of being refused. Abbreviations are refused as well: a prefix
     argparse would complete today can come to mean another flag the day one is added."""
@@ -1389,13 +1393,43 @@ def parse_arguments(argv):
                         help="skip the cases that need a rebuild (source-invariant cases only)")
     parser.add_argument("--only", default="", metavar="SUBSTRING",
                         help="run only the cases whose name holds SUBSTRING, case-insensitively")
-    return parser.parse_args(argv)
+    parser.add_argument("--check-patterns", action="store_true",
+                        help="count every case's pattern against its file, build nothing, and stop")
+    args = parser.parse_args(argv)
+    if args.check_patterns and (args.fast or args.only):
+        parser.error("--check-patterns cannot combine with --fast or --only")
+    return args
+
+
+def check_patterns():
+    """Every case's pattern counted against its file, nothing built and nothing written (N-audit-1106-344), the
+    sibling's --check-patterns (mutate-agentflow.py). A case whose pattern matches nothing prints NO-OP in a full run
+    and is never reached by a --only run, so it can sit guarding nothing; this is about a second, so the offline
+    script checks run it for the gate and CI. The same line-ending choice as a mutation run (line_ending_variant).
+    Exit 1 on any case not matching exactly once."""
+    bad = 0
+    for name, rel, find, repl, _checker, _expect in CASES:
+        path = os.path.join(ROOT, rel)
+        if not os.path.isfile(path):
+            print("  MISSING FILE  %s (%s)" % (name, rel))
+            bad += 1
+            continue
+        source = read_bytes(path)
+        find_b, _ = line_ending_variant(source, find.encode("utf-8"), repl.encode("utf-8"))
+        count = source.count(find_b)
+        if count != 1:
+            print("  NO-OP (pattern matched %d times)  %s" % (count, name))
+            bad += 1
+    print("%d cases, %d not matching exactly once." % (len(CASES), bad))
+    return 1 if bad else 0
 
 
 def main():
     global RUN_TEMP, WPF_RESULT, CHILD_ENV
     # Parsed before anything is created, so a refused argument leaves nothing behind.
     args = parse_arguments(sys.argv[1:])
+    if args.check_patterns:
+        return check_patterns()
     # Short on purpose: a self-test's own temp paths sit below this, and one of them (the fortunes
     # VectorCache fallback probe) reaches MAX_PATH once TEMP itself is ~107 characters. Measured 2026-09-29.
     RUN_TEMP = os.path.join(os.environ.get("TEMP", "."), "dp-mdg-" + uuid.uuid4().hex[:12])

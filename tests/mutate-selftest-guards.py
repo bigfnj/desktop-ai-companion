@@ -21225,6 +21225,22 @@ CASES = (
      b'                           cwd=ROOT, capture_output=True, env=windows_powershell_env())\n',
      None, None,
      MUTATION_UNITTESTS, None, 'test_a_stalled_invariant_script_reads_broken'),
+    # N-audit-1106-347: on a degraded baseline the hardening harness counts the baseline's own doc-count line as a hit
+    # again, so its DOC DRIFT case reads FIRED whatever its mutation did.
+    ('bd-w3-tests-harness-1: a degraded baseline fires a case on its own failure line (N-audit-1106-347)',
+     os.path.join(REPO, "tests", "mutate-hardening-guards.py"),
+     b'               if expect in l and not l.strip().startswith("PASS:") and l.strip() not in baseline_failures]\n',
+     b'               if expect in l and not l.strip().startswith("PASS:")]\n',
+     None, None,
+     MUTATION_UNITTESTS, None, 'test_a_degraded_baseline_does_not_fire_a_case_on_its_own_failure_line'),
+    # N-audit-1106-344: the diagnostics harness's --check-patterns stops counting a case that does not match once.
+    ('bd-w3-tests-harness-1: the diagnostics pattern check passes a case that matches nothing (N-audit-1106-344)',
+     MUTATE_DIAGNOSTICS_PY,
+     b'            print("  NO-OP (pattern matched %d times)  %s" % (count, name))\n'
+     b'            bad += 1\n',
+     b'            print("  NO-OP (pattern matched %d times)  %s" % (count, name))\n',
+     None, None,
+     MUTATION_UNITTESTS, None, 'test_check_patterns_counts_every_case_and_runs_nothing'),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
