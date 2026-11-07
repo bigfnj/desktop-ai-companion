@@ -464,7 +464,7 @@ namespace DesktopAICompanion.Ai
                 string.IsNullOrWhiteSpace(dispositionIdOverride) ? _settings.Disposition : dispositionIdOverride);
             string userName = string.IsNullOrWhiteSpace(_settings.UserName) ? "" : _settings.UserName.Trim();
             // Allow the configured name but don't force it into every remark, and forbid reading a name
-            // off the screen — window titles and paths ("Administrator", "C:\\Users\\Admin", ...) were
+            // off the screen — window titles and paths ("Administrator", "C:\\Users\\<name>", ...) were
             // being picked up as the user's name.
             string user = userName.Length == 0
                 ? " You do not know your human's name, so never invent one or read a name, username or handle off the screen."
