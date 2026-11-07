@@ -22336,6 +22336,15 @@ CASES = (
      b'            print("  NO-OP (pattern matched %d times)  %s" % (count, name))\n',
      None, None,
      MUTATION_UNITTESTS, None, 'test_check_patterns_counts_every_case_and_runs_nothing'),
+    # ---- burndown/w4-host-1 ----
+    # Host code. Named "bd-w4-host-1:" so one --only=bd-w4-host-1: run covers the lane.
+    # N-audit-1106-220: the encoded pre-check measures the string's length again, line breaks included.
+    ('bd-w4-host-1: the encoded pre-check counts line breaks (N-audit-1106-220)',
+     os.path.join(REPO, "src", "dotNet", "CompanionXmlValidator.cs"),
+     b'            if (Base64CharactersPast(encoded, encodedLimit))\n',
+     b'            if (encoded.Length > encodedLimit)\n',
+     HOST_CSPROJ, EXE,
+     SECURITY, None, "host limits: a classic sound of exactly 2 MiB in line-wrapped base64 validates"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

@@ -937,7 +937,13 @@ namespace DesktopAICompanion
                 throw new InvalidDataException(location + " is empty.");
             int marker = value.IndexOf(";base64,", StringComparison.OrdinalIgnoreCase);
             string encoded = marker >= 0 ? value.Substring(marker + 8) : value;
-            if (encoded.Length > ((maximumBytes + 2L) / 3L * 4L) + 4096L)
+            // The pre-check counts the characters FromBase64String decodes, not the string's length (N-audit-1106-220).
+            // It skips space, tab, CR and LF, so base64 wrapped at 76 columns (MIME, and what Base64FormattingOptions.
+            // InsertLineBreaks writes) carries about 2.6% that decodes to nothing; measured by Length, a wrapped sound
+            // above about 1.95 MiB, inside its 2 MiB cap, was refused as "exceeds its encoded size limit". The slack
+            // stays as headroom; the decoded-length check below is the limit.
+            long encodedLimit = ((maximumBytes + 2L) / 3L * 4L) + 4096L;
+            if (Base64CharactersPast(encoded, encodedLimit))
                 throw new InvalidDataException(location + " exceeds its encoded size limit.");
             byte[] decoded;
             try { decoded = Convert.FromBase64String(encoded); }
@@ -945,6 +951,19 @@ namespace DesktopAICompanion
             if (decoded.Length > maximumBytes)
                 throw new InvalidDataException(location + " exceeds its decoded size limit.");
             return decoded;
+        }
+
+        /// <summary>Whether <paramref name="encoded"/> holds more than <paramref name="limit"/> characters other than the
+        /// four Convert.FromBase64String ignores (space, tab, CR, LF). Stops at the first one past the limit.</summary>
+        private static bool Base64CharactersPast(string encoded, long limit)
+        {
+            long counted = 0;
+            foreach (char c in encoded)
+            {
+                if (c == ' ' || c == '\t' || c == '\r' || c == '\n') continue;
+                if (++counted > limit) return true;
+            }
+            return false;
         }
 
         private static void ValidateImage(
