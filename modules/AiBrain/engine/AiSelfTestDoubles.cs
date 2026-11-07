@@ -664,4 +664,74 @@ namespace DesktopAICompanion.AiBrainModule
         public void Release(bool up) { _gate.TrySetResult(up); }
         public void Dispose() { }
     }
+
+    /// <summary>
+    /// Answers 200 with headers at once and a body whose first read fails the way a connection dropped mid-body does on
+    /// this runtime: HttpIOException (an IOException, not an HttpRequestException), thrown from the content stream's
+    /// ReadAsync, which is where AiEndpointPolicy.ReadResponseStringAsync meets it (BACKLOG N-audit-1106-012). Counts
+    /// the requests, so a check can say whether the brain retried.
+    /// </summary>
+    internal sealed class DroppedBodyHandler : HttpMessageHandler
+    {
+        private int _requests;
+        public int Requests { get { return Volatile.Read(ref _requests); } }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref _requests);
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(new DroppingReadStream()) });
+        }
+
+        private sealed class DroppingReadStream : Stream
+        {
+            public override bool CanRead { get { return true; } }
+            public override bool CanSeek { get { return false; } }
+            public override bool CanWrite { get { return false; } }
+            public override long Length { get { throw new NotSupportedException(); } }
+            public override long Position { get { throw new NotSupportedException(); } set { throw new NotSupportedException(); } }
+            public override void Flush() { }
+            public override int Read(byte[] buffer, int offset, int count) { throw Dropped(); }
+            public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+            {
+                return Task.FromException<int>(Dropped());
+            }
+            public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default(CancellationToken))
+            {
+                return new ValueTask<int>(Task.FromException<int>(Dropped()));
+            }
+            public override long Seek(long offset, SeekOrigin origin) { throw new NotSupportedException(); }
+            public override void SetLength(long value) { throw new NotSupportedException(); }
+            public override void Write(byte[] buffer, int offset, int count) { throw new NotSupportedException(); }
+
+            private static Exception Dropped()
+            {
+                return new HttpIOException(HttpRequestError.ResponseEnded, "The response ended prematurely (self-test).");
+            }
+        }
+    }
+
+    /// <summary>
+    /// A backend that lists a fixed catalogue and records nothing else: what a "Refresh ... models" press lists
+    /// through when the module's ListingBackendForDiagnostics seam hands it over (BACKLOG N-audit-1106-009). No chat.
+    /// </summary>
+    internal sealed class FixedListingBackend : ICompanionBrainBackend, IModelLister
+    {
+        private readonly IReadOnlyList<ModelListing> _models;
+        public FixedListingBackend(params string[] ids)
+        {
+            var models = new List<ModelListing>();
+            foreach (string id in ids) models.Add(new ModelListing(id, null));
+            _models = models;
+        }
+        public Task<IReadOnlyList<ModelListing>> ListModelsAsync(CancellationToken ct) { return Task.FromResult(_models); }
+        public Task<string> ChatAsync(string model, IList<ChatMessage> messages, bool jsonFormat, CancellationToken ct)
+        {
+            throw new InvalidOperationException("a listing double is never asked for a chat");
+        }
+        public Task<bool> IsAvailableAsync(CancellationToken ct) { return Task.FromResult(true); }
+        public Task<bool> EnsureServerAsync(CancellationToken ct) { return Task.FromResult(true); }
+        public Task WarmUpAsync(string model, CancellationToken ct) { return Task.CompletedTask; }
+        public Task UnloadAsync(string model, CancellationToken ct) { return Task.CompletedTask; }
+        public void Dispose() { }
+    }
 }
