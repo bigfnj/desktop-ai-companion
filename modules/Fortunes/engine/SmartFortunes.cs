@@ -1698,9 +1698,13 @@ namespace DesktopAICompanion.Ai
     }
 
     /// <summary>
-    /// Persistent text→embedding cache so the pool is embedded only once ever (survives restarts and
-    /// pack changes). Stored as a flat binary under the canonical application data root. Never
-    /// throws.
+    /// Persistent text→embedding cache so an unchanged pool is embedded once, not on every start: it
+    /// survives restarts, and a pack or selection change embeds only the lines new to the pool. It holds
+    /// the ACTIVE pool only. BeginActivePool drops every vector outside the pool it is given, and Save
+    /// writes what is left, so a line that leaves the selection and comes back is embedded again (the
+    /// pane says "Rebuilding after a selection change" while it does). A bounded store of recently
+    /// inactive vectors would turn that toggle into a cache hit; it is not built (N-audit-1106-213).
+    /// Stored as a flat binary under the canonical application data root. Never throws.
     /// </summary>
     internal sealed class VectorCache
     {
@@ -1721,6 +1725,10 @@ namespace DesktopAICompanion.Ai
         private readonly string _mutexName;
         private readonly string _assetFingerprint;
         private readonly int _maximumEntries;
+        // The file-size limit THIS instance reads and writes under: MaximumFileBytes for every cache the app
+        // builds, a smaller figure only for the adversarial self-test, which needs a well-formed file over the
+        // limit and could not write one of 256 MB (N-audit-1106-019).
+        private readonly long _maximumFileBytes;
         private readonly Action<string, string, string, bool> _replaceFile;
         private HashSet<string> _activeKeys;
         private bool _dirty;
@@ -1764,9 +1772,21 @@ namespace DesktopAICompanion.Ai
             string assetFingerprint,
             int maximumEntries,
             Action<string, string, string, bool> replaceFile)
+            : this(directory, assetFingerprint, maximumEntries, MaximumFileBytes, replaceFile)
+        {
+        }
+
+        internal VectorCache(
+            string directory,
+            string assetFingerprint,
+            int maximumEntries,
+            long maximumFileBytes,
+            Action<string, string, string, bool> replaceFile)
         {
             if (maximumEntries < 1 || maximumEntries > MaximumEntries)
                 throw new ArgumentOutOfRangeException("maximumEntries");
+            if (maximumFileBytes < HeaderBytes || maximumFileBytes > MaximumFileBytes)
+                throw new ArgumentOutOfRangeException("maximumFileBytes");
             _dir = string.IsNullOrEmpty(directory)
                 ? FortunePaths.VectorCacheDir
                 : directory;
@@ -1776,6 +1796,7 @@ namespace DesktopAICompanion.Ai
                 _file);
             _assetFingerprint = NormalizeFingerprint(assetFingerprint);
             _maximumEntries = maximumEntries;
+            _maximumFileBytes = maximumFileBytes;
             _replaceFile = replaceFile;
             Load(CancellationToken.None);
         }
@@ -2112,7 +2133,7 @@ namespace DesktopAICompanion.Ai
                     throw new InvalidDataException("Vector cache contains an invalid entry.");
                 maximumEncodedLength += 5L + StrictUtf8.GetByteCount(item.Key) +
                     ExpectedDimension * sizeof(float);
-                if (maximumEncodedLength > MaximumFileBytes)
+                if (maximumEncodedLength > _maximumFileBytes)
                     throw new InvalidDataException(
                         "Vector cache exceeds its file size limit.");
             }
@@ -2160,7 +2181,7 @@ namespace DesktopAICompanion.Ai
                     stream.Flush(true);
                 }
                 cancellationToken.ThrowIfCancellationRequested();
-                if (new FileInfo(temporary).Length > MaximumFileBytes)
+                if (new FileInfo(temporary).Length > _maximumFileBytes)
                     throw new InvalidDataException("Vector cache exceeds its file size limit.");
 
                 cancellationToken.ThrowIfCancellationRequested();
@@ -2181,7 +2202,12 @@ namespace DesktopAICompanion.Ai
             }
         }
 
-        private static bool TryReadCacheFile(
+        // Reads under THIS instance's limits. A file claiming more entries than this cache may hold is refused
+        // whole rather than loaded and cut short: every cache the app builds holds MaximumEntries, so nothing
+        // the app does changes, and a test cache with a small limit can then show the count guard refusing a
+        // file that is otherwise well formed, which a fixture of 100,001 real entries (154 MB) could not
+        // (N-audit-1106-019).
+        private bool TryReadCacheFile(
             string path,
             string expectedFingerprint,
             CancellationToken cancellationToken,
@@ -2199,14 +2225,14 @@ namespace DesktopAICompanion.Ai
                     path, FileMode.Open, FileAccess.Read, FileShare.Read))
                 {
                     long length = stream.Length;
-                    if (length < HeaderBytes || length > MaximumFileBytes)
+                    if (length < HeaderBytes || length > _maximumFileBytes)
                         return false;
                     using (var reader = new BinaryReader(stream, StrictUtf8))
                     {
                         if (reader.ReadInt32() != Magic) return false;
                         int count = reader.ReadInt32();
                         int dimension = reader.ReadInt32();
-                        if (count < 0 || count > MaximumEntries ||
+                        if (count < 0 || count > _maximumEntries ||
                             dimension != ExpectedDimension)
                             return false;
                         byte[] actual = reader.ReadBytes(FingerprintBytes);
@@ -2489,19 +2515,37 @@ namespace DesktopAICompanion.Ai
             {
                 Directory.CreateDirectory(directory);
                 string file = Path.Combine(directory, "cache.bin");
-                Action<string, Action<BinaryWriter>> invalidCase =
-                    delegate (string name, Action<BinaryWriter> write)
+                // EACH FIXTURE IS REFUSED BY THE GUARD IT NAMES AND BY NO OTHER (N-audit-1106-019). Four of them
+                // were header-only or all zeros, so the length-consistency check, the magic, or the key's control
+                // characters refused them first, and removing the dimension, entry-count, key-length or file-size
+                // guard left this suite green. Each fixture below is a well-formed file in every respect but its
+                // one fault, so taking that guard away loads it and the case says so. The entry-count and
+                // file-size faults are shown under a cache with smaller limits (the guards read the instance's
+                // limits), because a well-formed file over the real ones is 154 MB or 256 MB.
+                Action<BinaryWriter, string, float> writeEntry =
+                    delegate (BinaryWriter writer, string key, float value)
+                    {
+                        WriteBoundedString(writer, key);
+                        for (int i = 0; i < ExpectedDimension; i++) writer.Write(value);
+                    };
+                Action<string, int, long, Action<BinaryWriter>> invalidCaseUnder =
+                    delegate (string name, int maximumEntries, long maximumFileBytes, Action<BinaryWriter> write)
                     {
                         using (var stream = new FileStream(
                             file, FileMode.Create, FileAccess.Write, FileShare.None))
                         using (var writer = new BinaryWriter(stream, StrictUtf8))
                             write(writer);
-                        var cache = new VectorCache(directory, fingerprintA);
+                        var cache = new VectorCache(directory, fingerprintA, maximumEntries, maximumFileBytes, null);
                         if (cache.CountForDiagnostics != 0)
                         {
                             ok = false;
                             report.AppendLine("CACHE FAIL accepted " + name);
                         }
+                    };
+                Action<string, Action<BinaryWriter>> invalidCase =
+                    delegate (string name, Action<BinaryWriter> write)
+                    {
+                        invalidCaseUnder(name, MaximumEntries, MaximumFileBytes, write);
                     };
 
                 invalidCase("truncated", delegate (BinaryWriter writer)
@@ -2513,12 +2557,15 @@ namespace DesktopAICompanion.Ai
                     WriteBoundedString(writer, "truncated");
                     writer.Write(1.0f);
                 });
+                // The header says 383; the entry carries the 384 floats the reader takes, so the file is
+                // length-consistent and only the dimension guard can refuse it.
                 invalidCase("wrong-dimension", delegate (BinaryWriter writer)
                 {
                     writer.Write(Magic);
                     writer.Write(1);
                     writer.Write(ExpectedDimension - 1);
                     writer.Write(fingerprintBytes);
+                    writeEntry(writer, "wrong-dimension", 0.1f);
                 });
                 invalidCase("nonfinite", delegate (BinaryWriter writer)
                 {
@@ -2540,13 +2587,17 @@ namespace DesktopAICompanion.Ai
                     for (int i = 0; i < ExpectedDimension; i++) writer.Write(0.1f);
                     writer.Write((byte)0x42);
                 });
-                invalidCase("oversized-count", delegate (BinaryWriter writer)
+                // Four real entries under a cache that holds three: without the count guard the load takes
+                // three of them.
+                invalidCaseUnder("oversized-count", 3, MaximumFileBytes, delegate (BinaryWriter writer)
                 {
                     writer.Write(Magic);
-                    writer.Write(MaximumEntries + 1);
+                    writer.Write(4);
                     writer.Write(ExpectedDimension);
                     writer.Write(fingerprintBytes);
+                    for (int i = 0; i < 4; i++) writeEntry(writer, "count-" + i, 0.1f);
                 });
+                // A printable key one byte over the limit, so it is the length that is refused and not a NUL.
                 invalidCase("oversized-key", delegate (BinaryWriter writer)
                 {
                     writer.Write(Magic);
@@ -2554,17 +2605,64 @@ namespace DesktopAICompanion.Ai
                     writer.Write(ExpectedDimension);
                     writer.Write(fingerprintBytes);
                     Write7BitEncodedInt(writer, MaximumKeyBytes + 1);
-                    writer.Write(new byte[MaximumKeyBytes + 1]);
+                    writer.Write(StrictUtf8.GetBytes(new string('k', MaximumKeyBytes + 1)));
                     for (int i = 0; i < ExpectedDimension; i++) writer.Write(0.0f);
                 });
-
-                using (var oversized = new FileStream(
-                    file, FileMode.Create, FileAccess.Write, FileShare.None))
-                    oversized.SetLength(MaximumFileBytes + 1);
-                if (new VectorCache(directory, fingerprintA).CountForDiagnostics != 0)
+                // The over-long key meets two length guards on the read path, the length prefix before the bytes
+                // are allocated and IsValidKey after they are decoded, so the file above stays refused with
+                // either one gone. Each is asserted on its own here.
+                using (var prefixed = new MemoryStream())
+                {
+                    using (var prefixWriter = new BinaryWriter(prefixed, StrictUtf8, true))
+                    {
+                        Write7BitEncodedInt(prefixWriter, MaximumKeyBytes + 1);
+                        prefixWriter.Write(StrictUtf8.GetBytes(new string('k', MaximumKeyBytes + 1)));
+                    }
+                    prefixed.Position = 0;
+                    bool prefixRefused = false;
+                    try
+                    {
+                        using (var prefixReader = new BinaryReader(prefixed, StrictUtf8, true))
+                            ReadBoundedString(prefixReader);
+                    }
+                    catch (InvalidDataException) { prefixRefused = true; }
+                    if (!prefixRefused)
+                    {
+                        ok = false;
+                        report.AppendLine("CACHE FAIL read a key whose length prefix is over the limit");
+                    }
+                }
+                if (IsValidKey(new string('k', MaximumKeyBytes + 1)) || !IsValidKey(new string('k', MaximumKeyBytes)))
                 {
                     ok = false;
-                    report.AppendLine("CACHE FAIL accepted oversized file");
+                    report.AppendLine("CACHE FAIL key validation does not stop at " + MaximumKeyBytes + " bytes");
+                }
+                // Three real entries (4,673 bytes) under a 4,096-byte limit: without the size guard all three load.
+                invalidCaseUnder("oversized file", MaximumEntries, 4096, delegate (BinaryWriter writer)
+                {
+                    writer.Write(Magic);
+                    writer.Write(3);
+                    writer.Write(ExpectedDimension);
+                    writer.Write(fingerprintBytes);
+                    for (int i = 0; i < 3; i++) writeEntry(writer, "size-" + i, 0.1f);
+                });
+                // WITNESS: the same fixture shape within the limits loads (two entries, 3,136 bytes, under the
+                // three-entry cache and the 4,096-byte limit at once), so each refusal above is its one fault's
+                // and not the shape's.
+                using (var stream = new FileStream(
+                    file, FileMode.Create, FileAccess.Write, FileShare.None))
+                using (var writer = new BinaryWriter(stream, StrictUtf8))
+                {
+                    writer.Write(Magic);
+                    writer.Write(2);
+                    writer.Write(ExpectedDimension);
+                    writer.Write(fingerprintBytes);
+                    for (int i = 0; i < 2; i++) writeEntry(writer, "witness-" + i, 0.1f);
+                }
+                if (new VectorCache(directory, fingerprintA, 3, 4096, null).CountForDiagnostics != 2)
+                {
+                    ok = false;
+                    report.AppendLine("CACHE FAIL a well-formed file within the limits did not load");
                 }
 
                 TryDelete(file);

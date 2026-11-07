@@ -20872,6 +20872,86 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--audio-selftest", "dp-audio-selftest.txt",
      "a sound queued before the teardown does not play on through the output being left"),
+    # ---- burndown/w2-fortunes-1 ----
+    # The 2026-11-06 audit's Fortunes entries (fortunes 1.2.2), each the defect as it stood put back, graded by
+    # --module-selftest=fortunes. Named "bd-w2-fortunes-1: ..." so --only=bd-w2-fortunes-1: runs exactly these.
+
+    # N-audit-1106-018: the embedding session's intra-op pool is ORT's default again, every physical core.
+    ("bd-w2-fortunes-1: the embedding session's intra-op pool is the all-core default again (N-audit-1106-018)",
+     os.path.join(REPO, "modules", "Fortunes", "engine", "Embedder.cs"),
+     b"                options.IntraOpNumThreads = 1;\n",
+     b"",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "the embedding session runs on one intra-op thread with no inter-op pool"),
+
+    # N-audit-1106-019: each VectorCache read guard removed in turn. Every adversarial fixture used to be refused by
+    # a different guard than the one it names, so these four removals left vector_cache=PASS. The over-long key
+    # meets two length guards (the prefix and IsValidKey), each now asserted on its own, so each is one case.
+    ("bd-w2-fortunes-1: the vector-cache reader takes any header dimension (N-audit-1106-019)",
+     os.path.join(REPO, "modules", "Fortunes", "engine", "SmartFortunes.cs"),
+     b"                        if (count < 0 || count > _maximumEntries ||\n"
+     b"                            dimension != ExpectedDimension)\n",
+     b"                        if (count < 0 || count > _maximumEntries)\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "CACHE FAIL accepted wrong-dimension"),
+    ("bd-w2-fortunes-1: the vector-cache reader takes any entry count (N-audit-1106-019)",
+     os.path.join(REPO, "modules", "Fortunes", "engine", "SmartFortunes.cs"),
+     b"                        if (count < 0 || count > _maximumEntries ||\n",
+     b"                        if (count < 0 ||\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "CACHE FAIL accepted oversized-count"),
+    ("bd-w2-fortunes-1: the vector-cache reader takes a file of any size (N-audit-1106-019)",
+     os.path.join(REPO, "modules", "Fortunes", "engine", "SmartFortunes.cs"),
+     b"                    if (length < HeaderBytes || length > _maximumFileBytes)\n",
+     b"                    if (length < HeaderBytes)\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "CACHE FAIL accepted oversized file"),
+    ("bd-w2-fortunes-1: a key's length prefix is not bounded before its bytes are read (N-audit-1106-019)",
+     os.path.join(REPO, "modules", "Fortunes", "engine", "SmartFortunes.cs"),
+     b"            if (byteCount < 1 || byteCount > MaximumKeyBytes)\n",
+     b"            if (byteCount < 1)\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "CACHE FAIL read a key whose length prefix is over the limit"),
+    ("bd-w2-fortunes-1: key validation takes a key of any length (N-audit-1106-019)",
+     os.path.join(REPO, "modules", "Fortunes", "engine", "SmartFortunes.cs"),
+     b"                return StrictUtf8.GetByteCount(value) <= MaximumKeyBytes;\n",
+     b"                return StrictUtf8.GetByteCount(value) > 0;\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "CACHE FAIL key validation does not stop at"),
+
+    # N-audit-1106-211: the import validator decodes leniently. The old five-byte fixture was refused for having no
+    # valid row whatever the decoder did, so this survived; the full-length fixture is refused only by the decode.
+    ("bd-w2-fortunes-1: the import validator decodes a pack leniently (N-audit-1106-211)",
+     os.path.join(REPO, "modules", "Fortunes", "engine", "FortuneProvider.cs"),
+     b"                content = StrictUtf8.GetString(bytes);\n",
+     b"                content = new UTF8Encoding(false, false).GetString(bytes);\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "IMPORT FAIL a full-length line with one invalid UTF-8 byte was not refused as invalid UTF-8"),
+
+    # N-audit-1106-210: the probe's sub-report fold, each half of the fix put back. The report is not cleared before
+    # its sub-test (so an earlier run's lines are folded), or a missing report returns in silence as it did.
+    ("bd-w2-fortunes-1: a sub-report an earlier run left is not cleared (N-audit-1106-210)",
+     os.path.join(REPO, "modules", "Fortunes", "engine", "FortuneEngineProbe.cs"),
+     b"                System.IO.File.Delete(System.IO.Path.Combine(System.IO.Path.GetTempPath(), fileName));\n",
+     b"",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a sub-report an earlier run left is cleared, and one this run did not write is a FAIL"),
+    ("bd-w2-fortunes-1: a sub-report this run did not write is skipped in silence (N-audit-1106-210)",
+     os.path.join(REPO, "modules", "Fortunes", "engine", "FortuneEngineProbe.cs"),
+     b'                    sb.AppendLine("      FAIL: " + fileName + " was not written by this run, so its cases are not shown");\n'
+     b"                    return false;\n",
+     b"                    return true;\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a sub-report an earlier run left is cleared, and one this run did not write is a FAIL"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

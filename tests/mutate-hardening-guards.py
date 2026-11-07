@@ -4002,6 +4002,15 @@ CASES = (
         b"                    limits.BasicLimitInformation.LimitFlags = 0;\n",
         "remembrance-1: the whisper job ends its processes when its last handle closes",
     ),
+    # ---- burndown/w2-fortunes-1 ----
+    # N-audit-1106-018: the embedder builds its session on ORT's defaults again, the capped options made and dropped.
+    (
+        "bd-w2-fortunes-1: the embedding session is built without the capped options (N-audit-1106-018)",
+        os.path.join(REPO, "modules", "Fortunes", "engine", "Embedder.cs"),
+        b"                        session = new InferenceSession(_modelPath, options);\n",
+        b"                        session = new InferenceSession(_modelPath);\n",
+        "w2-fortunes-1: the embedder builds its session with the capped options",
+    ),
 )
 
 

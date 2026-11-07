@@ -129,7 +129,18 @@ namespace DesktopAICompanion.FortunesModule
         {
             Id = "fortunes",
             Name = "Fortunes",
-            Version = "1.2.1",   // 1.2.1: a pack import whose replace fails and whose backup cannot be put back is
+            Version = "1.2.2",   // 1.2.2: the smart index's embedding session runs on one intra-op thread with no
+                                 //        inter-op pool and no spinning, so a cold warm holds one core instead of
+                                 //        every core (N-audit-1106-018). The vector cache refuses a file that
+                                 //        claims more entries than the cache may hold instead of loading it cut
+                                 //        short, and each of its adversarial self-test fixtures is now refused by
+                                 //        the guard it names and no other (N-audit-1106-019). The importer
+                                 //        self-test's invalid UTF-8 fixture is a full-length line with one bad
+                                 //        byte, refused by its reason, so a lenient decode is seen
+                                 //        (N-audit-1106-211). The engine probe clears each sub-test's report
+                                 //        before the sub-test runs and fails on one that is then missing, so an
+                                 //        earlier run's report is never folded as this run's (N-audit-1106-210).
+                                 // 1.2.1: a pack import whose replace fails and whose backup cannot be put back is
                                  //        counted as a rollback failure, and the batch says its rollback could not be
                                  //        fully verified instead of "all earlier changes were rolled back"
                                  //        (N-modules-small-01). The importer self-test keeps its scratch folder after a
