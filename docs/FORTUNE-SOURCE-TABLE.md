@@ -3,12 +3,13 @@
 Generated from `packs/collections.json` and `catalog.json`. **159 sources across 7 collections.**
 
 The built-in corpus is only `fortunes` (Classic Fortunes) and `dadjokes`, 3,225 lines together. Every
-other source is a downloadable pack, so `origin` reads `pack` for all but those two. Regenerate this
-file after any change to the collections or the corpus; do not hand-edit it.
+other source is a downloadable pack, so `origin` reads `pack` for all but those two. `dadjokes` reads `both`
+because its pack holds the same 2,794 rows as the corpus, so it is counted once, not as corpus plus pack.
+Regenerate this file after any change to the collections or the corpus; do not hand-edit it.
 
 | collection | sources | fortunes |
 |---|---:|---:|
-| Jokes & Humour | 16 | 10,515 |
+| Jokes & Humour | 16 | 7,721 |
 | Fortunes & Wisdom | 30 | 8,525 |
 | Books, Art & Language | 19 | 5,589 |
 | Screen & Stage | 54 | 14,404 |
@@ -20,11 +21,11 @@ file after any change to the collections or the corpus; do not hand-edit it.
 
 Punchlines, puns, and the comedians who deal in one-liners.
 
-16 sources, ~10,515 fortunes.
+16 sources, ~7,721 fortunes.
 
 | source id | display name | fortunes | origin |
 |---|---|---:|---|
-| `dadjokes` | Dad Jokes | 5,588 | both |
+| `dadjokes` | Dad Jokes | 2,794 | both |
 | `cleanjokes` | Clean Jokes | 1,588 | pack |
 | `yo-mama` | Yo Mama Jokes | 978 | pack |
 | `chuckfacts` | Chuck Norris Facts | 436 | pack |
