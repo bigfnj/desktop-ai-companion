@@ -533,7 +533,8 @@ namespace DesktopAICompanion.Ai
         /// context with the SAME code a real turn does rather than a copy of it, which is the kind of
         /// duplication Companion Studio's parity self-test exists to stop.
         /// </summary>
-        private static string DescribeScreenContext(ScreenContext captureContext, string petZone)
+        // internal, not private: the module self-test pins the CLI card's privacy row to what this sends (N-audit-1106-010).
+        internal static string DescribeScreenContext(ScreenContext captureContext, string petZone)
         {
             // Context: the front window (5.1) and the window the pet is standing on (5.6).
             string win = captureContext != null ? captureContext.WindowTitle : "";
@@ -977,7 +978,25 @@ namespace DesktopAICompanion.Ai
                 // which local model a fallover will run, and warmed the local vision model for a text session
                 // (RA-087). Single-model backends ignore the role.
                 if (up && warmUp && _settings.WarmUpDesired)
-                    await _backend.WarmUpAsync(_useVision ? _visionModel : _textModel, _useVision, ct).ConfigureAwait(false);
+                {
+                    // The model the first remark will SEND, settled by the ask's own policy against the inventory
+                    // taken just above (BACKLOG N-audit-1106-125): this warmed the CONFIGURED id, so when the
+                    // backend no longer had it the substitute BUG-002 sends was never loaded and the first remark paid
+                    // the cold load "keep" exists to avoid, while Ollama was asked to load an id it does not have.
+                    // Nothing usable (a cloud primary whose id is gone, which never substitutes) warms nothing: that
+                    // ask ends on its advisory and sends no chat. Remembered like a turn's substitute, so the release
+                    // covers what this loaded (RA-065).
+                    string configured = _useVision ? _visionModel : _textModel;
+                    ModelChoice warm = AiModelPolicy.ChooseModel(
+                        configured, _available, _useVision, SubstituteMissingModel, BackendHostDescription);
+                    Log("warm-up resolve: " + warm.Reason + " configured=" + configured +
+                        " using=" + (warm.Model ?? "(none)") + " vision=" + _useVision);
+                    if (warm.Usable)
+                    {
+                        RememberSent(_useVision, warm.Model);
+                        await _backend.WarmUpAsync(warm.Model, _useVision, ct).ConfigureAwait(false);
+                    }
+                }
 
                 return up;
             }
@@ -1467,8 +1486,9 @@ namespace DesktopAICompanion.Ai
         private const int MinimumWindowCaptureHeight = 240;
 
         /// <summary>How many background applications are named to the model. Enough to set a scene, few
-        /// enough that a long tab list cannot dominate the prompt.</summary>
-        private const int MaximumOtherWindowsDescribed = 4;
+        /// enough that a long tab list cannot dominate the prompt. internal, not private: the CLI card's privacy row
+        /// states this number from here (AiBrainModule.CliSendsLine, N-audit-1106-010).</summary>
+        internal const int MaximumOtherWindowsDescribed = 4;
 
         /// <summary>
         /// The foreground window when it is a sensible subject, otherwise the monitor. Pure, so the

@@ -226,6 +226,14 @@ namespace DesktopAICompanion.Ai
             AiBackendHttpException http = ex as AiBackendHttpException;
             if (http != null) return http.IsTransient;
             if (ex is HttpRequestException) return true;     // transport-level (non-AiBackendHttpException)
+            // A connection dropped AFTER the response headers (BACKLOG N-audit-1106-012). Every request here is sent
+            // ResponseHeadersRead and its body read by ReadResponseStringAsync, so a reset mid-body surfaces from the
+            // stream's ReadAsync as HttpIOException (an IOException, not an HttpRequestException) or as a plain
+            // IOException around the socket's error. It was classed deterministic: the brain did not retry and the
+            // cloud-to-local fallover never ran for the commonest flaky-network failure. Not too wide: the size cap
+            // and the strict UTF-8 decode throw InvalidDataException and DecoderFallbackException, neither an
+            // IOException, and a CLI failure is CodingAgentCliException, so those stay one attempt.
+            if (ex is IOException) return true;
             return false;
         }
 

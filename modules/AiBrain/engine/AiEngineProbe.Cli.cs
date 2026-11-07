@@ -603,7 +603,8 @@ namespace DesktopAICompanion.AiBrainModule
                 string sends = shown["cliSendsClaude"];
                 ok &= Check(sb, "aibrain cli: Goes through it names the vendor, every remark path and the screenshot when vision is on",
                     sends.Contains("Anthropic") && sends.Contains("Ask") && sends.Contains("the hotkey") && sends.Contains("the tray row") &&
-                    sends.Contains("the random drops") && sends.Contains("a screenshot of the window (Use vision is on)") && sends.Contains("auditions"));
+                    sends.Contains("the random drops") && sends.Contains("a screenshot of the front window, or of the companion's whole monitor") &&
+                    sends.Contains("(Use vision is on)") && sends.Contains("auditions"));
                 // aibrain 1.5.1 (lane feature/cli-home-files): the Claude Code row ends by saying what a call leaves out of the
                 // user's own setup and that managed settings still apply; the Codex row never says it, since it is about
                 // Claude Code's files and switches (the WITNESS that the Codex row was read is the OpenAI check below).

@@ -4,11 +4,12 @@
        Builds to the runtime modules\aibrain\ folder so the loader picks it up. References ONLY the plugin
        ABI (Private=false => the host's single shared DesktopAICompanion.Contracts is used).
 
-       S4a-2 is the DORMANT scaffold: Init does nothing behavioral, so the base keeps owning the AI brain at
-       runtime (no double-ask / double-hotkey) until the flip (S4b) = zero regression. The engine (AiBrain +
-       backends + Dispositions + module settings) relocates here in S4a-3 and turns on
-       UseWindowsForms for the screen-capture path. The engine's JSON is System.Text.Json (in-box on net10),
-       so the module carries no third-party JSON package — it is Newtonsoft-free like the rest of the product. -->
+       The module owns the AI brain; the base keeps none. Init registers the drop and poke responders, two tray
+       rows (Enable AI, Ask about my screen) and the Options pane, then builds the brain and arms the Ask hotkey
+       (AiBrainModule.Init, ApplyState). The engine (AiBrain, the backends, Dispositions, the module settings)
+       lives in engine\ and turns on UseWindowsForms for the screen-capture path. The engine's JSON is
+       System.Text.Json (in-box on net10), so the module carries no third-party JSON package: it is
+       Newtonsoft-free like the rest of the product. -->
   <PropertyGroup>
     <!-- The 10.0.19041 flavour projects the Windows runtime APIs, which is what gives us Windows'
          BUILT-IN OCR (Windows.Media.Ocr) as a zero-install fallback when Tesseract isn't present.

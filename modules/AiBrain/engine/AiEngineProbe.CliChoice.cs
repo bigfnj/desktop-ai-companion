@@ -39,6 +39,8 @@ namespace DesktopAICompanion.AiBrainModule
             ok &= GuardedCheck(sb, "CheckCliFollowupsLane", CheckCliFollowupsLane);
             // Lane feature/host-abi-180 (AiEngineProbe.SharedSignIn.cs).
             ok &= GuardedCheck(sb, "CheckSharedSignInLane", CheckSharedSignInLane);
+            // Burn-down lane aibrain-1, the 2026-11-06 audit (AiEngineProbe.Audit1106.cs).
+            ok &= GuardedCheck(sb, "CheckAudit1106Lane", CheckAudit1106Lane);
             return ok;
         }
 
@@ -565,12 +567,12 @@ namespace DesktopAICompanion.AiBrainModule
                     shown["cliSendsCodex"],
                     shown["cliSendsCodex"].Contains("Use vision is on, but the Codex model chosen takes no images, so Ask, the hotkey, the tray row, " +
                                                     "the random drops and the poke reaction each send the text read off the screen (OCR) instead of a screenshot.") &&
-                    !shown["cliSendsCodex"].Contains("a screenshot of the window"));
+                    !shown["cliSendsCodex"].Contains("a screenshot of the front window"));
                 rig.Save("cliCodexModel", "Vision Second");
                 ok &= Check(sb, "WITNESS aibrain cli model: ...and says nothing of images for one that takes them: " + pane.Load()["cliNameCodex"],
                     pane.Load()["cliNameCodex"] == named + ", vision-second at low effort");
                 ok &= Check(sb, "WITNESS aibrain cli model: ...and Goes through it says a screenshot goes to one that takes them",
-                    pane.Load()["cliSendsCodex"].Contains("each send a screenshot of the window (Use vision is on)") &&
+                    pane.Load()["cliSendsCodex"].Contains("each send a screenshot of the front window, or of the companion's whole monitor") &&
                     !pane.Load()["cliSendsCodex"].Contains("takes no images"));
                 rig.Save("cliCodexModel", AiBrainModule.CodexAutomaticLabel, "useVision", "false");
                 // Re-pointed in round 3: one phrasing of the automatic pick in every row (the owner's plain-voice rule).

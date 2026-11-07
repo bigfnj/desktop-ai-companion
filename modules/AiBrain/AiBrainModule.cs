@@ -48,8 +48,13 @@ namespace DesktopAICompanion.AiBrainModule
         private volatile bool _remembranceBusyAtLastRead;
         private ICompanion _lastPet;                              // most-recently-seen pet (screen-context anchor)
         // Still load-bearing without the old idle timer: it keeps a hotkey ask and a drop that land within
-        // 30s of each other from becoming two answers in a row.
-        private DateTime _lastInteractionUtc = DateTime.MinValue;
+        // 30s of each other from becoming two answers in a row. Stamped when an ask STARTS (Ask) and again when its
+        // answer ARRIVES (RecordRemark, BACKLOG N-audit-1106-124): stamped at the start alone, a slow ask (a large
+        // vision model, a cold CLI) had used the 30 s up before it spoke, and a drop could add a second AI remark
+        // straight after it. Ticks behind Interlocked, because the answer's stamp is written on the pool thread the
+        // ask ends on and the drop reads it on the UI thread. On the module's clock (UtcNow), so the self-test can
+        // stand for a slow ask by moving it.
+        private long _lastInteractionTicks = DateTime.MinValue.Ticks;
 
         // Model-picker dropdowns: explicit-refresh-only caches (no TTL - populated by the "Refresh ...
         // models" actions, empty until the user clicks one) and the retained SettingField objects the pane's
@@ -169,7 +174,19 @@ namespace DesktopAICompanion.AiBrainModule
         {
             Id = "aibrain",
             Name = "AI Brain",
-            Version = "1.7.0",   // 1.7.0: one Claude Code sign-in, shared with Remembrance (host 1.8.0's
+            Version = "1.7.1",   // 1.7.1: from the 2026-11-06 audit (BACKLOG N-audit-1106-009..012, -122..-125).
+                                 //        Refresh local models and Refresh cloud models list against the provider,
+                                 //        base URL, key and local endpoint on screen, applied or not. A switch to the
+                                 //        custom provider keeps a base URL typed in the same Apply. A connection
+                                 //        dropped after the response headers is retried and falls over to the local
+                                 //        model like any other transport failure. The CLI card's Goes through row
+                                 //        names everything a remark sends (both window titles, other apps' names, the
+                                 //        window or the whole monitor). The Status card says the local fallback is off
+                                 //        when its endpoint is not on this computer. The hotkey and the tray row find
+                                 //        another companion seen on screen when the last one is gone. The drop's 30 s
+                                 //        guard also runs from when an answer arrives. The "keep" warm-up loads the
+                                 //        model the first remark will send, a substitute included.
+                                 // 1.7.0: one Claude Code sign-in, shared with Remembrance (host 1.8.0's
                                  //        IHostCredentials, BACKLOG N-cli-token-02, the owner's decision of
                                  //        2026-10-29). The host keeps the token once, behind a grant the user gives on
                                  //        the consent screen or at the start question
@@ -1195,6 +1212,7 @@ namespace DesktopAICompanion.AiBrainModule
             if (live)
             {
                 IHost host = _host;
+                ReanchorIfGone(host);   // N-audit-1106-123, as the hotkey's ask does
                 ICompanion pet = _lastPet;
                 if (host == null) return "✗ No host.";
                 if (pet == null || !host.IsCompanionAlive(pet))
@@ -1615,21 +1633,36 @@ namespace DesktopAICompanion.AiBrainModule
             return agent == CodingAgentKind.None ? null : NotUsedWhileRunningOn(CodingAgents.ChoiceLabel(agent));
         }
 
-        /// <summary>Refresh local models serves the local slot, which the cloud's fallback uses too: refused on a CLI only.</summary>
+        /// <summary>Refresh local models serves the local slot, which the cloud's fallback uses too: refused on a CLI only.
+        /// Lists against the local backend kind and endpoint ON SCREEN (BACKLOG N-audit-1106-009): it took this delegate
+        /// and read only the radio from it, listing the SAVED endpoint, so an endpoint typed and not applied yet listed
+        /// the old server's models. The detached PendingSettings copy every other pending-aware action uses (RA-055).</summary>
         private Task<string> RefreshLocalModelsPendingAsync(IReadOnlyDictionary<string, string> pending)
         {
             string refusal = CliRefusal(pending);
-            return refusal != null ? Task.FromResult(refusal) : RefreshLocalModelsAsync();
+            if (refusal != null) return Task.FromResult(refusal);
+            AiSettings saved = _settings;
+            if (saved == null) return Task.FromResult("✗ No settings.");
+            string error;
+            AiSettings s = PendingSettings(saved, pending, out error);
+            return s == null ? Task.FromResult("✗ " + error) : RefreshLocalModelsAsync(s);
         }
 
-        /// <summary>Refresh cloud models serves the cloud slot alone: refused unless the cloud is the engine on screen.</summary>
+        /// <summary>Refresh cloud models serves the cloud slot alone: refused unless the cloud is the engine on screen. Lists
+        /// against the provider, base URL and key ON SCREEN (N-audit-1106-009): on the saved ones, an unapplied provider
+        /// switch listed the old provider's catalogue, and a first-time cloud setup, with no provider saved yet, was told
+        /// to select the provider it had just selected.</summary>
         private Task<string> RefreshCloudModelsPendingAsync(IReadOnlyDictionary<string, string> pending)
         {
             string runsOn = RunsOnOnScreen(pending);
             if (!string.Equals(runsOn, RunsOnCloudId, StringComparison.Ordinal))
                 return Task.FromResult(NotUsedWhileRunningOn(
                     runsOn == RunsOnLocalId ? BrainRunsOnLocal : CodingAgents.ChoiceLabel(CodingAgents.FromId(runsOn))));
-            return RefreshCloudModelsAsync();
+            AiSettings saved = _settings;
+            if (saved == null) return Task.FromResult("✗ No settings.");
+            string error;
+            AiSettings s = PendingSettings(saved, pending, out error);
+            return s == null ? Task.FromResult("✗ " + error) : RefreshCloudModelsAsync(s);
         }
 
         /// <summary>Validate: one tiny call through the CLI on screen, on the model and effort on screen (1.5.0), off the UI
@@ -2085,11 +2118,19 @@ namespace DesktopAICompanion.AiBrainModule
         {
             string to = agent == CodingAgentKind.None ? "Anthropic (Claude Code) or OpenAI (Codex)" : CodingAgents.Vendor(agent);
             bool vision = s != null && s.UseVision;
-            return "Every remark goes to " + to + " through it, with your persona and the front window's title: " +
+            // Said from what a remark SENDS (BACKLOG N-audit-1106-010): AiBrain.DescribeScreenContext puts the front
+            // window's title, the title of the window the companion stands on and up to MaximumOtherWindowsDescribed other
+            // apps' names into every remark, and AiBrain.ChooseCaptureBounds shoots the companion's whole monitor when the
+            // front window is too small or not on it. The row named the persona and the front window's title alone, and
+            // "a screenshot of the window". The module self-test pins these words to those two functions.
+            return "Every remark goes to " + to + " through it, with your persona, the front window's title, the title of the window " +
+                   "the companion stands on and the names of up to " +
+                   AiBrain.MaximumOtherWindowsDescribed.ToString(CultureInfo.InvariantCulture) +
+                   " other apps open on the companion's monitor: " +
                    (vision && modelTakesNoImages
                        ? "Use vision is on, but the Codex model chosen takes no images, so Ask, the hotkey, the tray row, the random drops and the poke reaction each send the text read off the screen (OCR) instead of a screenshot."
                        : vision
-                       ? "Ask, the hotkey, the tray row and the random drops each send a screenshot of the window (Use vision is on), and the poke reaction the text read off the screen."
+                       ? "Ask, the hotkey, the tray row and the random drops each send a screenshot of the front window, or of the companion's whole monitor when that window is too small or not on it (Use vision is on), and the poke reaction the text read off the screen."
                        : "Ask, the hotkey, the tray row, the random drops and the poke reaction each send the text read off the screen (OCR); with Use vision on, a screenshot instead.") +
                    " The persona auditions go the same way." +
                    // aibrain 1.5.1 (lane feature/cli-home-files): what a Claude Code call leaves out of the user's own setup.
@@ -2130,6 +2171,10 @@ namespace DesktopAICompanion.AiBrainModule
                 _lastRemarkFailure = failure;
                 _lastRemarkModel = failure == null ? model : "";
             }
+            // An answer came back and is about to be spoken: the drop's 30 s "AI spoke very recently" guard runs from
+            // here as well as from the ask's start (N-audit-1106-124). A turn with no answer said nothing, so it moves
+            // nothing; its start already did.
+            if (failure == null) Interlocked.Exchange(ref _lastInteractionTicks, UtcNow().Ticks);
             NotifyPaneInfoChanged();
         }
 
@@ -2222,8 +2267,13 @@ namespace DesktopAICompanion.AiBrainModule
             if (!IsLocalSlot(s))
             {
                 string cloudModel = (s.UseVision ? s.CloudVisionModel : s.CloudTextModel) ?? "";
+                // The fallback as CreateBrain builds it (LocalFallbackWired, N-audit-1106-122): ticked with a local endpoint
+                // that is not on this computer, the brain is cloud-only, and the card says so and why.
+                string wiredLocal;
                 return "cloud " + (s.Provider ?? "") + (cloudModel.Length > 0 ? " " + cloudModel : "") +
-                       (s.UseLocalFallback ? ", local fallback on" : "");
+                       (!s.UseLocalFallback ? ""
+                           : LocalFallbackWired(s, out wiredLocal) ? ", local fallback on"
+                           : ", local fallback off (it needs a local endpoint on this computer)");
             }
             bool ollama = !string.Equals(s.LocalBackendKind, "openai-compat", StringComparison.OrdinalIgnoreCase);
             return "local " + (ollama ? "Ollama" : "OpenAI-compatible server") + (model.Length > 0 ? " " + model : "");
@@ -2421,6 +2471,9 @@ namespace DesktopAICompanion.AiBrainModule
             // clears the cloud primary and remembers which provider the dropdown names. "Cloud provider", and a pane that
             // hands over no radio at all (an older caller), let the dropdown choose, as it always did; its legacy
             // "(none)" still means local for such a caller, and under "Cloud provider" means the remembered provider.
+            // The cloud base URL as Load showed it (LoadPaneValues: s.OpenAiBaseUrl), read before a provider switch below
+            // replaces it, so a field the user EDITED can be told from the stale one a switch ignores (N-audit-1106-011).
+            string shownCloudEndpoint = (s.OpenAiBaseUrl ?? "").Trim();
             string runsOn = null;
             if (values.TryGetValue("brainRunsOn", out v)) runsOn = BrainRunsOnIdForLabel(v);   // null: no option, no change
             if (runsOn != null)
@@ -2462,9 +2515,18 @@ namespace DesktopAICompanion.AiBrainModule
                 s.SelectProviderEndpoint(RememberedCloudProvider(s), true);
                 cloudProviderChanged = true;
             }
-            if (!cloudProviderChanged && !string.IsNullOrEmpty(s.Provider) &&
-                values.TryGetValue("cloudEndpoint", out v) && !string.IsNullOrWhiteSpace(v))
-                s.UpdateSelectedProviderEndpoint(v.Trim());
+            // A switch to "custom" with a base URL typed in the same Apply keeps the typed URL (BACKLOG N-audit-1106-011).
+            // A switch otherwise ignores the field, which still shows the OLD provider's URL; for custom that loaded the
+            // remembered custom URL, empty the first time, so the typed one was dropped and a key typed beside it refused
+            // the whole Apply ("Select a provider and valid endpoint"). Honoured only when it differs from what Load
+            // showed: the field left as it was is the stale URL, and the remembered custom one still wins over it. A
+            // preset provider keeps its prefill on a switch, as the comment above says.
+            string typedCloudEndpoint = values.TryGetValue("cloudEndpoint", out v) && !string.IsNullOrWhiteSpace(v) ? v.Trim() : null;
+            bool typedOverSwitch = cloudProviderChanged && typedCloudEndpoint != null &&
+                string.Equals(s.Provider, "custom", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(typedCloudEndpoint, shownCloudEndpoint, StringComparison.Ordinal);
+            if ((!cloudProviderChanged || typedOverSwitch) && !string.IsNullOrEmpty(s.Provider) && typedCloudEndpoint != null)
+                s.UpdateSelectedProviderEndpoint(typedCloudEndpoint);
             // Cloud models are optional (empty = unset), so unlike the local models they may be cleared.
             if (values.TryGetValue("cloudTextModel", out v)) s.CloudTextModel = ResolveModelId((v ?? "").Trim());
             if (values.TryGetValue("cloudVisionModel", out v)) s.CloudVisionModel = ResolveModelId((v ?? "").Trim());
@@ -2767,9 +2829,14 @@ namespace DesktopAICompanion.AiBrainModule
         /// <summary>"Refresh local models" pane action: lists whatever the LOCAL slot's configured backend
         /// reports (Ollama's real capabilities, or the generic /v1 id-only list for openai-compat), caches
         /// it, and rebuilds the local text/vision dropdowns from it.</summary>
-        private async Task<string> RefreshLocalModelsAsync()
+        private Task<string> RefreshLocalModelsAsync()
         {
-            AiSettings s = _settings;
+            return RefreshLocalModelsAsync(_settings);
+        }
+
+        /// <param name="s">The settings listed against: the saved ones, or the pane's pending copy (N-audit-1106-009).</param>
+        private async Task<string> RefreshLocalModelsAsync(AiSettings s)
+        {
             if (s == null) return "✗ No settings.";
             string normalized, error;
             if (!AiEndpointPolicy.TryNormalize(s.Endpoint, out normalized, out error))
@@ -2779,7 +2846,8 @@ namespace DesktopAICompanion.AiBrainModule
             {
                 IReadOnlyList<ModelListing> models;
                 Exception listingFailure = null;
-                using (ICompanionBrainBackend backend = BuildLocalBackend(s, normalized, timeout))
+                Func<AiSettings, string, bool, ICompanionBrainBackend> seam = ListingBackendForDiagnostics;
+                using (ICompanionBrainBackend backend = seam != null ? seam(s, normalized, true) : BuildLocalBackend(s, normalized, timeout))
                 {
                     models = await ListBackendModelsAsync(backend, CancellationToken.None).ConfigureAwait(false)
                              ?? (IReadOnlyList<ModelListing>)new List<ModelListing>();
@@ -2804,9 +2872,14 @@ namespace DesktopAICompanion.AiBrainModule
 
         /// <summary>"Refresh cloud models" pane action: lists the configured cloud endpoint's models
         /// (generic /v1, id-only), caches it, and rebuilds the cloud text/vision dropdowns from it.</summary>
-        private async Task<string> RefreshCloudModelsAsync()
+        private Task<string> RefreshCloudModelsAsync()
         {
-            AiSettings s = _settings;
+            return RefreshCloudModelsAsync(_settings);
+        }
+
+        /// <param name="s">The settings listed against: the saved ones, or the pane's pending copy (N-audit-1106-009).</param>
+        private async Task<string> RefreshCloudModelsAsync(AiSettings s)
+        {
             if (s == null) return "✗ No settings.";
             if (string.IsNullOrEmpty(s.Provider)) return "✗ Select a cloud provider first.";
             string normalized, error;
@@ -2816,11 +2889,14 @@ namespace DesktopAICompanion.AiBrainModule
             try
             {
                 IReadOnlyList<ModelListing> models;
-                Exception listingFailure;
-                using (var backend = new OpenAiCompatBackend(normalized, s.ApiKey, timeout))
+                Exception listingFailure = null;
+                Func<AiSettings, string, bool, ICompanionBrainBackend> seam = ListingBackendForDiagnostics;
+                using (ICompanionBrainBackend backend = seam != null ? seam(s, normalized, false) : new OpenAiCompatBackend(normalized, s.ApiKey, timeout))
                 {
-                    models = await backend.ListModelsAsync(CancellationToken.None).ConfigureAwait(false);
-                    listingFailure = backend.LastListingFailure;   // RA-059
+                    models = await ListBackendModelsAsync(backend, CancellationToken.None).ConfigureAwait(false)
+                             ?? (IReadOnlyList<ModelListing>)new List<ModelListing>();
+                    IModelListingStatus status = backend as IModelListingStatus;
+                    if (status != null) listingFailure = status.LastListingFailure;   // RA-059
                 }
                 lock (_modelsLock)
                 {
@@ -2856,8 +2932,38 @@ namespace DesktopAICompanion.AiBrainModule
             ApplyState();
         }
 
-        private void OnPetSeen(ICompanion pet) { if (pet != null) _lastPet = pet; }
-        private void OnPetPoked(PokeInfo info) { if (info != null && info.Pet != null) _lastPet = info.Pet; }
+        private void OnPetSeen(ICompanion pet) { if (pet != null) { _lastPet = pet; NotePetSeen(pet); } }
+        private void OnPetPoked(PokeInfo info) { if (info != null && info.Pet != null) { _lastPet = info.Pet; NotePetSeen(info.Pet); } }
+
+        // Every companion seen (spawned, landed or poked), most recent last, bounded; UI thread only, like _lastPet. The
+        // hotkey, the tray row and the live audition anchor on _lastPet, and once that ONE companion was removed they
+        // refused "no companion" with others still on screen, until another spawned, landed or was poked (BACKLOG
+        // N-audit-1106-123). The host's ABI lists no companions (IsCompanionAlive is its one question), so the module
+        // keeps what it has seen; a companion that has done none of the three since this module loaded stays unknown.
+        private readonly List<ICompanion> _seenPets = new List<ICompanion>();
+        private const int SeenPetsKept = 32;
+
+        private void NotePetSeen(ICompanion pet)
+        {
+            _seenPets.Remove(pet);
+            _seenPets.Add(pet);
+            if (_seenPets.Count > SeenPetsKept) _seenPets.RemoveAt(0);
+        }
+
+        /// <summary>When the remembered companion has gone, the most recently seen one still on screen takes its place,
+        /// and the ones found gone are forgotten. Called where _lastPet is about to be read for an ask with no companion
+        /// of its own.</summary>
+        private void ReanchorIfGone(IHost host)
+        {
+            ICompanion last = _lastPet;
+            if (host == null || (last != null && host.IsCompanionAlive(last))) return;
+            for (int i = _seenPets.Count - 1; i >= 0; i--)
+            {
+                ICompanion candidate = _seenPets[i];
+                if (candidate != null && host.IsCompanionAlive(candidate)) { _lastPet = candidate; return; }
+                _seenPets.RemoveAt(i);
+            }
+        }
 
         /// <summary>
         /// Drop responder, and since 1.2.3 the ONLY schedule for unprompted commentary: the host's global
@@ -2872,7 +2978,7 @@ namespace DesktopAICompanion.AiBrainModule
             // gets a fortune rather than two model answers back to back. This is the one piece of the old
             // idle-loop suppression worth keeping, and declining is strictly better than going silent
             // because the responder chain falls through to Fortunes.
-            if ((DateTime.UtcNow - _lastInteractionUtc).TotalSeconds < 30) return false;
+            if ((UtcNow() - new DateTime(Interlocked.Read(ref _lastInteractionTicks), DateTimeKind.Utc)).TotalSeconds < 30) return false;
             // Don't load several GB of VRAM next to a game that already owns it. Declining is exactly right
             // here rather than going silent: the responder chain falls through to Fortunes, so the pet still
             // says something, it just says something free. Only on the local slot since 1.4.0: a CLI or a cloud
@@ -3159,6 +3265,8 @@ namespace DesktopAICompanion.AiBrainModule
             AiSessionManager session = _session;
             bool explicitPath = subject == null;
             if (host == null) return false;
+            // The hotkey's and the tray row's companion, before any line below reads _lastPet (N-audit-1106-123).
+            if (explicitPath) ReanchorIfGone(host);
             if (!session.Enabled) return Declined(host, explicitPath, "brain off");
             if (!host.SpeechEnabled) return Declined(host, explicitPath, "speech off");
             // One in-flight ask at a time, so at most one pending subject. Per-pet concurrency (two pets
@@ -3207,7 +3315,7 @@ namespace DesktopAICompanion.AiBrainModule
             if (CompanionStoodDown(host, pet))
                 return Declined(host, explicitPath, "companion stood down for a fullscreen window");
 
-            _lastInteractionUtc = DateTime.UtcNow;
+            Interlocked.Exchange(ref _lastInteractionTicks, UtcNow().Ticks);
             ScreenContext ctx;
             try { ctx = host.CaptureScreenContext(pet); } catch { ctx = null; }
             if (ctx == null) return Declined(host, explicitPath, "capture failed");
@@ -3425,6 +3533,14 @@ namespace DesktopAICompanion.AiBrainModule
         /// </summary>
         internal Func<AiSettings, AiBrain> BrainFactoryForDiagnostics;
 
+        /// <summary>
+        /// Test seam: the backend a "Refresh ... models" press lists through, handed the settings it lists against, the
+        /// normalized endpoint and whether it is the local slot (true) or the cloud's (false). Null in the shipped module,
+        /// which builds the real client from those same three. It exists so the self-test can see WHICH settings a press
+        /// listed against, the pending copy or the saved ones (BACKLOG N-audit-1106-009), with no server of any kind.
+        /// </summary>
+        internal Func<AiSettings, string, bool, ICompanionBrainBackend> ListingBackendForDiagnostics;
+
         /// <summary>How long the audition waits for its end-of-run eviction before handing the pane its text:
         /// RetireBrainAsync's own bound, for the same reason (RA-056).</summary>
         private static readonly TimeSpan AuditionUnloadBudget = TimeSpan.FromSeconds(2);
@@ -3547,10 +3663,8 @@ namespace DesktopAICompanion.AiBrainModule
             else
             {
                 ICompanionBrainBackend cloud = new OpenAiCompatBackend(normalized, s.ApiKey, timeout);
-                string localNormalized, localError;
-                if (s.UseLocalFallback &&
-                    AiEndpointPolicy.TryNormalize(s.Endpoint, out localNormalized, out localError) &&
-                    AiEndpointPolicy.IsLoopbackEndpoint(localNormalized))
+                string localNormalized;
+                if (LocalFallbackWired(s, out localNormalized))
                 {
                     ICompanionBrainBackend local = BuildLocalBackend(s, localNormalized, timeout, localKeepAliveSeconds);
                     backend = new FallbackBackend(cloud, local, s.CloudVisionModel, s.TextModel, s.VisionModel)
@@ -3579,6 +3693,22 @@ namespace DesktopAICompanion.AiBrainModule
             // about what is installed. Captures the backend the brain owns, not a fresh one.
             brain.ModelLister = delegate(CancellationToken ct) { return ListBackendModelsAsync(backend, ct); };
             return brain;
+        }
+
+        /// <summary>
+        /// Whether a cloud-primary brain is built with the local fallback (the composite above): the switch on AND the
+        /// local slot a valid LOOPBACK endpoint, the only local leg the cloud's consent does not already cover. ONE rule
+        /// for CreateBrain and the Status card (RunsOnPhrase), because the card said "local fallback on" whenever the
+        /// switch was ticked, and with Ollama on another machine the brain it described was cloud-only (BACKLOG
+        /// N-audit-1106-122). <paramref name="localNormalized"/> is the local endpoint the leg is built against when true.
+        /// </summary>
+        internal static bool LocalFallbackWired(AiSettings s, out string localNormalized)
+        {
+            localNormalized = null;
+            string localError;
+            return s != null && s.UseLocalFallback &&
+                   AiEndpointPolicy.TryNormalize(s.Endpoint, out localNormalized, out localError) &&
+                   AiEndpointPolicy.IsLoopbackEndpoint(localNormalized);
         }
 
         /// <summary>
