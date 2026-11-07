@@ -169,24 +169,17 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                             else errors.Add(startupError);
                         }
                     }
-                    // A subset identity is useful only inside refused-pack diagnostic previews. It must not be
-                    // exposed as the identity of the complete source pack.
-                    string previewIdentity = ready.Count == 0 ? null : TickPackEmitter.SourcePackId(ready);
-                    if (ready.Count == prepared.Count) identity = previewIdentity;
+                    // A successful diagnostic preview is still useful when a sibling fails preparation, but it
+                    // must not claim that the successful subset is the source pack. Such previews carry no pack header.
+                    if (ready.Count > 0 && ready.Count == prepared.Count) identity = TickPackEmitter.SourcePackId(ready);
                     foreach (TickPackEmitter.PreparedMember member in prepared)
                     {
                         PackMemberConversionResult report;
                         if (member.Error != null)
                             report = Refused(member.Name, member.Error);
                         else
-                            report = Prepare(member, previewIdentity, snapshot, copy, serialize);
+                            report = Prepare(member, identity, snapshot, copy, serialize);
                         members.Add(report);
-                        foreach (string warning in member.Warnings)
-                        {
-                            string diagnostic = "Image set '" + member.Name + "': " + warning;
-                            warnings.Add(diagnostic);
-                            report.Residue.Notes.Add(diagnostic);
-                        }
                         // PD-1: each next entry recovery dropped is something this member lost, so it is filed under its
                         // residue's Dropped (one item each, counted in Total) with exactly one member-prefixed pack warning,
                         // and not among the format-wide notes.
@@ -199,12 +192,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                         else
                         {
                             if (report.Graph.Unreachable.Count > 0)
-                                warnings.Add("Image set '" + member.Name + "' retains " + report.Graph.Unreachable.Count
-                                    + " source action or behaviour nodes that the reachability graph cannot enter.");
+                                report.Residue.MemberNotes.Add("Image set '" + member.Name + "' retains " + report.Graph.Unreachable.Count
+                                    + " source action or behaviour nodes outside the entry graph. They are preserved unchanged; this is informational.");
                             foreach (string warning in RuntimeEntryWarnings(report))
                             {
                                 warnings.Add(warning);
-                                report.Residue.Notes.Add(warning);
+                                report.Residue.MemberNotes.Add(warning);
                             }
                         }
                     }
@@ -213,7 +206,11 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                     foreach (PackMemberConversionResult member in members)
                         if (member.Disposition == PackMemberDisposition.Prepared)
                             packMembers.Add(new PackValidator.Member("Image set '" + member.SourceKey + "'", member.Root));
-                    if (packMembers.Count > 0)
+                    // A partial source preparation has no pack identity and no whole pack to validate. Its original
+                    // member refusal already explains why the caller cannot install or preview it as a pack. All
+                    // pack-wide errors and warnings, including transparency agreement, are deferred until preparation
+                    // succeeds for the whole source; running on header-free previews would add misleading metadata errors.
+                    if (packMembers.Count > 0 && identity != null)
                     {
                         PackValidator.Report pack = PackValidator.Validate(packMembers);
                         errors.AddRange(pack.Errors);
@@ -221,7 +218,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                         foreach (PackMemberConversionResult member in members)
                             foreach (string warning in pack.Warnings)
                                 if (warning.StartsWith("Image set '" + member.SourceKey + "' ", StringComparison.Ordinal))
-                                    member.Residue.Notes.Add(warning);
+                                    member.Residue.MemberNotes.Add(warning);
                     }
                     else if (errors.Count == 0) errors.Add("TICK_PACK_EMPTY: the source pack has no prepared image sets.");
                 }
@@ -272,7 +269,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                 {
                     if (!ShimejiFormatValidator.IsMemberKey(pair.Key))
                     {
-                        errors.Add("TICK_PACK_MEMBER_INVALID: member metadata has an invalid image-set key.");
+                        errors.Add("TICK_PACK_MEMBER_INVALID: member metadata has an invalid image-set key: '" + (pair.Key ?? "(null)") + "'.");
                         continue;
                     }
                     if (pair.Value == null)
@@ -329,11 +326,14 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                     features.Value += " " + CompanionFormatFeatures.Packs;
                 header.Elements(Ns + "pack").Remove();
                 header.Elements(Ns + "startup").Remove();
-                header.Add(new XElement(Ns + "pack", new XAttribute("id", identity), new XAttribute("member", member.Name),
-                    new XAttribute("role", role), new XAttribute("hidden", hidden)));
-                if (member.Name == options.MainMember && options.HasStartup)
-                    header.Add(new XElement(Ns + "startup", new XAttribute("member", options.StartupMember),
-                        new XAttribute("behaviour", options.StartupBehaviour)));
+                if (identity != null)
+                {
+                    header.Add(new XElement(Ns + "pack", new XAttribute("id", identity), new XAttribute("member", member.Name),
+                        new XAttribute("role", role), new XAttribute("hidden", hidden)));
+                    if (member.Name == options.MainMember && options.HasStartup)
+                        header.Add(new XElement(Ns + "startup", new XAttribute("member", options.StartupMember),
+                            new XAttribute("behaviour", options.StartupBehaviour)));
+                }
 
                 XmlData.RootNode parsed;
                 string validationError;
@@ -354,11 +354,13 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                     return Refused(member.Name, "the emitted XML is not a fixed point of parse -> serialize: "
                         + FirstDifference(copiedXml, roundTrip), residue, true);
                 GraphReport graph = ShimejiEngine.Analyze(reparsed);
-                if (sourceHidden)
-                    residue.Notes.Add(hidden ? "The source chooser hides this image set; it remains hidden in the converted pack."
+                if (identity == null)
+                    residue.MemberNotes.Add(sourceHidden
+                        ? "The source chooser hides this image set. This diagnostic preview carries no pack role or visibility metadata."
+                        : "This diagnostic preview carries no pack role or visibility metadata; caller choices apply only to a complete pack.");
+                else if (sourceHidden)
+                    residue.MemberNotes.Add(hidden ? "The source chooser hides this image set; it remains hidden in the converted pack."
                         : "The caller selected this source-hidden image set as visible in the converted pack.");
-                if (graph.Unreachable.Count > 0)
-                    residue.Notes.Add(graph.Unreachable.Count + " source action or behaviour nodes have no reachable graph entry; they remain in the document.");
                 if (options.IncludeParityMaps && string.IsNullOrEmpty(member.Map))
                     return Refused(member.Name, "A parity map was requested but none was prepared.", residue, true);
                 return new PackMemberConversionResult(member.Name, reparsed, copiedXml,
@@ -373,7 +375,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
         private static PackMemberConversionResult Refused(string key, string error, ResidueReport residue = null, bool valid = false)
         {
             if (residue == null) residue = new ResidueReport();
-            residue.Notes.Add("This image set was refused: " + error);
+            residue.MemberNotes.Add("This image set was refused: " + error);
             return new PackMemberConversionResult(key, null, null, null, residue, null, valid, false, error);
         }
 

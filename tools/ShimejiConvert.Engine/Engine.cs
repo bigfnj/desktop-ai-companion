@@ -1,7 +1,12 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Globalization;
+using System.Linq;
+using System.Reflection;
 using System.Text;
+using System.Xml;
+using System.Xml.Linq;
 using System.Xml.Serialization;
 using DesktopAICompanion.Tools.ShimejiConvert.Emit;
 using DesktopAICompanion.Tools.ShimejiConvert.Shimeji;
@@ -47,18 +52,52 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
         }
 
         /// <summary>
-        /// Serialize a parsed pet back out through its own DTOs and re-validate the result. This is the
-        /// emitter's foundation: the converter builds a RootNode and writes it the same way, so anything the
-        /// DTOs cannot express faithfully shows up here first, on known-good input.
+        /// Re-validate a serialization, compare it independently with the DTO, and require a stable second
+        /// serialization. Use the string overload to detect information already lost while parsing XML.
         /// </summary>
         public static bool RoundTrips(XmlData.RootNode root, out string error)
+        {
+            return RoundTripsCore(root, null, Serialize, out error);
+        }
+
+        /// <summary>Check the original document as well as the DTO, so information lost while parsing
+        /// cannot disappear before the fidelity comparison. Formatting and default scalar values are normalized.</summary>
+        public static bool RoundTrips(string originalXml, out string error)
+        {
+            XmlData.RootNode root;
+            if (!TryValidate(originalXml, out root, out error)) return false;
+            return RoundTripsCore(root, originalXml, Serialize, out error);
+        }
+
+        // A call-scoped serializer seam lets the self-test inject stable information loss and an unstable
+        // second serialization independently. Production callers always use Serialize above.
+        internal static bool RoundTripsCore(XmlData.RootNode root, string originalXml,
+            Func<XmlData.RootNode, string> serialize, out string error)
         {
             error = null;
             try
             {
-                string emitted = Serialize(root);
+                string emitted = serialize(root);
                 XmlData.RootNode reparsed;
                 if (!CompanionXmlValidator.TryParse(emitted, out reparsed, out error)) return false;
+                var rootAttribute = (XmlRootAttribute)Attribute.GetCustomAttribute(typeof(XmlData.RootNode), typeof(XmlRootAttribute));
+                string originalText = originalXml != null && originalXml.Length > 0 && originalXml[0] == (char)0xFEFF
+                    ? originalXml.Substring(1) : originalXml;
+                XElement original = originalText == null ? DtoElement(XName.Get("animations", rootAttribute.Namespace), root) : XElement.Parse(originalText, LoadOptions.PreserveWhitespace);
+                string difference = FirstSemanticDifference(original, XElement.Parse(emitted, LoadOptions.PreserveWhitespace), typeof(XmlData.RootNode), "/animations");
+                if (difference != null)
+                {
+                    error = "Round-trip semantic mismatch at " + difference + ".";
+                    return false;
+                }
+                string second = serialize(reparsed);
+                if (!string.Equals(emitted, second, StringComparison.Ordinal))
+                {
+                    int i = 0;
+                    while (i < emitted.Length && i < second.Length && emitted[i] == second[i]) i++;
+                    error = "Round-trip serialization is not stable at character " + i.ToString(CultureInfo.InvariantCulture) + ".";
+                    return false;
+                }
                 return true;
             }
             catch (Exception ex)
@@ -66,6 +105,170 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                 error = ex.Message;
                 return false;
             }
+        }
+
+        private static XElement DtoElement(XName name, object value)
+        {
+            var element = new XElement(name);
+            if (value == null) return element;
+            foreach (FieldInfo field in value.GetType().GetFields(BindingFlags.Public | BindingFlags.Instance))
+            {
+                if (field.IsDefined(typeof(XmlIgnoreAttribute), false)) continue;
+                FieldInfo specified = value.GetType().GetField(field.Name + "Specified");
+                if (specified != null && !(bool)specified.GetValue(value)) continue;
+                object member = field.GetValue(value);
+                if (member == null) continue;
+                var attribute = (XmlAttributeAttribute)Attribute.GetCustomAttribute(field, typeof(XmlAttributeAttribute));
+                var child = (XmlElementAttribute)Attribute.GetCustomAttribute(field, typeof(XmlElementAttribute));
+                if (attribute != null) element.Add(new XAttribute(attribute.AttributeName, ScalarText(member)));
+                else if (field.IsDefined(typeof(XmlTextAttribute), false)) element.Value = ScalarText(member);
+                else if (child != null)
+                {
+                    var array = member as Array;
+                    if (array != null)
+                    {
+                        foreach (object item in array) if (item != null) element.Add(DtoMember(name.Namespace + child.ElementName, item));
+                    }
+                    else element.Add(DtoMember(name.Namespace + child.ElementName, member));
+                }
+            }
+            return element;
+        }
+
+        private static XElement DtoMember(XName name, object value)
+        {
+            return IsScalar(value.GetType()) ? new XElement(name, ScalarText(value)) : DtoElement(name, value);
+        }
+
+        private static bool IsScalar(Type type) { return type.IsPrimitive || type == typeof(string) || type == typeof(decimal); }
+        private static string ScalarText(object value)
+        {
+            if (value is bool) return XmlConvert.ToString((bool)value);
+            if (value is double) return XmlConvert.ToString((double)value);
+            if (value is float) return XmlConvert.ToString((float)value);
+            return Convert.ToString(value, CultureInfo.InvariantCulture);
+        }
+
+        private static FieldInfo XmlField(Type type, string name, bool attribute)
+        {
+            if (type == null || IsScalar(type)) return null;
+            foreach (FieldInfo field in type.GetFields(BindingFlags.Public | BindingFlags.Instance))
+            {
+                if (attribute)
+                {
+                    var attr = (XmlAttributeAttribute)Attribute.GetCustomAttribute(field, typeof(XmlAttributeAttribute));
+                    if (attr != null && attr.AttributeName == name) return field;
+                }
+                else
+                {
+                    var child = (XmlElementAttribute)Attribute.GetCustomAttribute(field, typeof(XmlElementAttribute));
+                    if (child != null && child.ElementName == name) return field;
+                }
+            }
+            return null;
+        }
+
+        private static string NormalizeScalar(string text, Type type, string name)
+        {
+            if (type == typeof(int)) return XmlConvert.ToString(XmlConvert.ToInt32(text.Trim()));
+            if (type == typeof(double)) return XmlConvert.ToString(XmlConvert.ToDouble(text.Trim()));
+            if (type == typeof(bool)) return XmlConvert.ToString(XmlConvert.ToBoolean(text.Trim()));
+            if (name == "base64" || name == "png" || name == "icon")
+                return new string(text.Where(c => !char.IsWhiteSpace(c)).ToArray());
+            return text;
+        }
+
+        private static bool IsDefaultScalar(Type owner, FieldInfo field, string text)
+        {
+            if (field == null || !IsScalar(field.FieldType) || field.FieldType == typeof(string)
+                || owner.GetField(field.Name + "Specified") != null) return false;
+            object defaults = Activator.CreateInstance(owner);
+            return NormalizeScalar(text, field.FieldType, "") == ScalarText(field.GetValue(defaults));
+        }
+
+        private static SortedDictionary<string, string> SemanticMembers(XElement element, Type type)
+        {
+            var result = new SortedDictionary<string, string>(StringComparer.Ordinal);
+            foreach (XAttribute attr in element.Attributes())
+            {
+                if (attr.IsNamespaceDeclaration) continue;
+                if (IsSchemaHint(attr)) continue;
+                FieldInfo field = attr.Name.NamespaceName.Length == 0 ? XmlField(type, attr.Name.LocalName, true) : null;
+                if (!IsDefaultScalar(type, field, attr.Value))
+                    result["@" + attr.Name] = NormalizeScalar(attr.Value, field == null ? null : field.FieldType, attr.Name.LocalName);
+            }
+            if (!element.HasElements)
+            {
+                Type scalar = IsScalar(type ?? typeof(object)) ? type : null;
+                if (scalar == null && type != null)
+                {
+                    FieldInfo textField = type.GetFields().FirstOrDefault(f => f.IsDefined(typeof(XmlTextAttribute), false));
+                    if (textField != null) scalar = textField.FieldType;
+                }
+                if (scalar != null || !string.IsNullOrWhiteSpace(element.Value))
+                    result["#text"] = NormalizeScalar(element.Value, scalar, element.Name.LocalName);
+            }
+            return result;
+        }
+
+        private static bool IsSchemaHint(XAttribute attr)
+        {
+            XNamespace xsi = "http://www.w3.org/2001/XMLSchema-instance";
+            return attr.Name == xsi + "schemaLocation" || attr.Name == xsi + "noNamespaceSchemaLocation";
+        }
+
+        private static List<XElement> SemanticChildren(XElement element, Type type)
+        {
+            // A hint must not keep an otherwise omitted default scalar alive. These trees are private
+            // parsed comparison documents; remove only the two non-runtime XSI attributes before filtering.
+            foreach (XElement child in element.Elements())
+            {
+                foreach (XAttribute hint in child.Attributes().Where(IsSchemaHint).ToArray()) hint.Remove();
+                // The step XSD supplies these two values for an empty element, before DTO parsing.
+                // Restrict that normalization to the declared defaults; empty attributes and other
+                // numeric fields are data or validation errors, not permission to discard information.
+                if (type == typeof(XmlData.MovingNode) && child.Name.Namespace == element.Name.Namespace
+                    && !child.HasElements && string.IsNullOrWhiteSpace(child.Value))
+                {
+                    if (child.Name.LocalName == "offsety") child.Value = "0";
+                    else if (child.Name.LocalName == "opacity") child.Value = "1";
+                }
+            }
+            return element.Elements().Where(child =>
+            {
+                FieldInfo field = child.Name.Namespace == element.Name.Namespace ? XmlField(type, child.Name.LocalName, false) : null;
+                return child.HasElements || child.Attributes().Any(a => !a.IsNamespaceDeclaration)
+                    || !IsDefaultScalar(type, field, child.Value);
+            }).OrderBy(child => child.Name.ToString(), StringComparer.Ordinal).ToList();
+        }
+
+        internal static string FirstSemanticDifference(XElement first, XElement second, Type type, string path)
+        {
+            if (first.Name != second.Name) return path;
+            var a = SemanticMembers(first, type);
+            var b = SemanticMembers(second, type);
+            foreach (string key in a.Keys.Union(b.Keys).OrderBy(k => k, StringComparer.Ordinal))
+            {
+                string av, bv;
+                if (!a.TryGetValue(key, out av) || !b.TryGetValue(key, out bv) || av != bv)
+                    return key == "#text" ? path : path + "/" + key;
+            }
+            var ac = SemanticChildren(first, type);
+            var bc = SemanticChildren(second, type);
+            var counts = new Dictionary<string, int>();
+            for (int i = 0; i < Math.Max(ac.Count, bc.Count); i++)
+            {
+                XElement child = i < ac.Count ? ac[i] : bc[i];
+                string name = child.Name.Namespace == first.Name.Namespace ? child.Name.LocalName : child.Name.ToString();
+                int count; counts.TryGetValue(name, out count); counts[name] = ++count;
+                string childPath = path + "/" + name + "[" + count.ToString(CultureInfo.InvariantCulture) + "]";
+                if (i >= ac.Count || i >= bc.Count || ac[i].Name != bc[i].Name) return childPath;
+                FieldInfo field = XmlField(type, child.Name.LocalName, false);
+                Type childType = field == null ? null : (field.FieldType.IsArray ? field.FieldType.GetElementType() : field.FieldType);
+                string difference = FirstSemanticDifference(ac[i], bc[i], childType, childPath);
+                if (difference != null) return difference;
+            }
+            return null;
         }
 
         /// <summary>Serialize a pet DTO graph to an animations.xml string (the same serializer the validator
@@ -127,11 +330,19 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             SoundBaker baker = null;
             if (!bundled && HasSoundedPose(config))
             {
-                baker = BakerFactory(SoundSearchRoot(confDir, imgDir));
+                baker = BakerFactory(SoundSearchRoot(confDir, imgDir), ImageSetName(imgDir));
+                baker.FallbackDirectory = imgDir;
                 if (baker.TranscoderAvailable) loadSound = baker.Bake;
             }
 
             ConversionResult result = PetEmitter.Emit(config, sheet, SpriteSheetBuilder.FileLoader(imgDir), skinName, loadSound);
+            // A preflight refusal has no document to preview. Use the existing caller failure channel
+            // rather than letting the CLI write an empty file or Studio load an empty editor.
+            if (result != null && result.Root == null && !string.IsNullOrEmpty(result.Error))
+            {
+                error = result.Error;
+                return null;
+            }
             if (bundled && result != null && result.Residue != null)
                 result.Residue.Notes.Insert(0, "This skin shipped no behaviour config, so the bundled Shimeji base behaviour was used (Shimeji-EE, BSD-licensed -- see THIRD_PARTY_NOTICES).");
             // Said, not left to be inferred from a flat hub. A conf directory that holds an actions file but no
@@ -146,6 +357,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             // over the audio budget" would be the wrong diagnosis. Said only when the scan actually faulted.
             if (baker != null && baker.ScanFaulted && result != null && result.Residue != null)
                 result.Residue.Notes.Add("The skin folder could not be fully scanned for sound clips (a directory under it failed to enumerate), so a clip reported as missing may exist.");
+            if (baker != null && result != null && result.Residue != null)
+                foreach (string fallback in baker.FallbackResolutions)
+                    result.Residue.MemberNotes.Add("Sound filename-only fallback used: " + fallback + ".");
             return result;
         }
 
@@ -158,7 +372,18 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
         /// baker at all passed every gate. Process-global, restored by the test in a finally; the suites run
         /// sequentially (EngineSelfTest.RunAll), which is what makes that safe.
         /// </summary>
-        internal static Func<string, SoundBaker> BakerFactory = delegate(string root) { return new SoundBaker(root); };
+        internal static Func<string, string, SoundBaker> BakerFactory = delegate(string root, string imageSet) { return new SoundBaker(root, imageSet); };
+
+        internal static string ImageSetName(string imgDir)
+        {
+            var directory = new DirectoryInfo(imgDir);
+            if (string.Equals(directory.Name, "img", StringComparison.OrdinalIgnoreCase) && directory.Parent != null)
+            {
+                // A drive/share root has no image-set segment. Global sound and basename fallback still work.
+                return SoundBaker.NormalizeImageSet(directory.Parent.Name);
+            }
+            return SoundBaker.NormalizeImageSet(directory.Name);
+        }
 
         /// <summary>The animation names the host binds as runtime entry points (fall/drag/kill/sync), as
         /// <c>PetGraph.ReservedEntryPointNames</c> declares them. The graph is internal to this assembly and
@@ -177,11 +402,28 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             return PetEmitter.HasSoundedEmittableAction(config);
         }
 
-        // Where to look for a pose's Sound clip. Start at the directory that holds both the conf and the
-        // sprites, then climb a few levels to a dir that has a sound/ child: a multi-character pack keeps
-        // conf+sprites under img/<char>/ but its clips in a top-level sound/, above that common ancestor.
-        private static string SoundSearchRoot(string confDir, string imgDir)
+        // Canonical img/<set> and <set>/img layouts establish their install root, widened only to a shared
+        // config ancestor. Other layouts retain the bounded ancestor search for a sound/ directory.
+        internal static string SoundSearchRoot(string confDir, string imgDir)
         {
+            // The image-set directory is not the pack root even when it has its own sound/ child:
+            // global sound/ and sound/<set>/ take precedence over img/<set>/sound/.
+            try
+            {
+                var images = new DirectoryInfo(imgDir);
+                string imageRoot = null;
+                if (images.Parent != null && string.Equals(images.Parent.Name, "img", StringComparison.OrdinalIgnoreCase)
+                    && images.Parent.Parent != null) imageRoot = images.Parent.Parent.FullName;
+                if (images.Parent != null && string.Equals(images.Name, "img", StringComparison.OrdinalIgnoreCase))
+                    imageRoot = images.Parent.FullName;
+                if (imageRoot != null)
+                {
+                    // Sibling installs can share conf/ and sound/ above <set>/img. Preserve that wider
+                    // shared root while still stepping above img/<set>/conf when the config is local.
+                    return CommonAncestor(confDir, imageRoot) ?? imageRoot;
+                }
+            }
+            catch { }
             string start = CommonAncestor(confDir, imgDir);
             if (string.IsNullOrEmpty(start)) start = imgDir ?? confDir;
             try
@@ -213,7 +455,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                 int i = 0;
                 while (i < n && string.Equals(pa[i], pb[i], StringComparison.OrdinalIgnoreCase)) i++;
                 if (i == 0) return null;
-                return string.Join(Path.DirectorySeparatorChar.ToString(), pa, 0, i);
+                string ancestor = string.Join(Path.DirectorySeparatorChar.ToString(), pa, 0, i);
+                string pathRoot = Path.GetPathRoot(Path.GetFullPath(a));
+                return string.Equals(ancestor, pathRoot.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase)
+                    ? pathRoot : ancestor;
             }
             catch { return null; }
         }
@@ -239,6 +484,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
         private const int DefaultMaxSounds = 64;
 
         private readonly string _root;
+        private readonly string _imageSet;
         private readonly int _perSoundCap;
         private readonly int _totalCap;
         private readonly int _maxSounds;
@@ -249,8 +495,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
         private readonly Func<string, byte[]> _transcode;
         private readonly Dictionary<string, byte[]> _cache =
             new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
-        // Clip NAME -> resolved path (null when the skin does not contain it). Keyed on the name because
-        // that is what Resolve searches on, so two actions naming the same clip share one scan.
+        // (image set, relative clip path) -> resolved path, including misses. Equal basenames in another
+        // set or relative directory must not borrow the first resolution.
         private readonly Dictionary<string, string> _resolved =
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         // Files ffmpeg has already refused. Without this a clip that cannot be transcoded respawns ffmpeg,
@@ -268,6 +514,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
         private int _count;
         private int _scans;
         private bool _scanFaulted;
+        private readonly List<string> _fallbackResolutions = new List<string>();
+        internal IReadOnlyList<string> FallbackResolutions { get { return _fallbackResolutions; } }
+        internal string FallbackDirectory { get; set; }
 
         /// <summary>How many recursive scans of the skin root have actually been performed. Exposed so the
         /// self-test can assert that N references to one clip cost ONE scan; the count is the only
@@ -287,13 +536,17 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
         public SoundBaker(string searchRoot)
             : this(searchRoot, DefaultPerSoundBytes, DefaultTotalBytes, DefaultMaxSounds) { }
 
+        public SoundBaker(string searchRoot, string imageSet)
+            : this(searchRoot, DefaultPerSoundBytes, DefaultTotalBytes, DefaultMaxSounds, true, null, imageSet) { }
+
         public SoundBaker(string searchRoot, int perSoundCap, int totalCap, int maxSounds)
             : this(searchRoot, perSoundCap, totalCap, maxSounds, true, null) { }
 
         private SoundBaker(string searchRoot, int perSoundCap, int totalCap, int maxSounds,
-                           bool probeForFfmpeg, Func<string, byte[]> transcoder)
+                           bool probeForFfmpeg, Func<string, byte[]> transcoder, string imageSet = "")
         {
             _root = searchRoot;
+            _imageSet = imageSet ?? "";
             _perSoundCap = perSoundCap;
             _totalCap = totalCap;
             _maxSounds = maxSounds;
@@ -324,6 +577,11 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
         {
             if (transcoder == null) throw new ArgumentNullException("transcoder");
             return new SoundBaker(searchRoot, perSoundCap, totalCap, maxSounds, false, transcoder);
+        }
+
+        internal static SoundBaker WithTranscoder(string searchRoot, string imageSet, Func<string, byte[]> transcoder)
+        {
+            return new SoundBaker(searchRoot, DefaultPerSoundBytes, DefaultTotalBytes, DefaultMaxSounds, false, transcoder, imageSet);
         }
 
         public bool TranscoderAvailable { get { return _transcode != null; } }
@@ -365,30 +623,36 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             return mp3;
         }
 
-        // Find the clip by its file name, searched case-insensitively under the skin root. A pose Sound is
-        // authored relative to the skin ("/yell.wav", "sound/yell.wav"); matching the base name is robust to
-        // which subfolder (sound/, img/<char>/) a pack keeps it in.
-        /// <summary>Resolve once per clip name, negative results included.
-        ///
-        /// Resolve does a recursive EnumerateFiles over the whole skin root, and it used to run on EVERY
-        /// Bake call -- BEFORE the byte cache was consulted, so a clip shared by a dozen actions paid a
-        /// dozen full scans to rediscover the same file. Caching the NAME rather than the resolved path
-        /// is the point: the old cache was keyed on the result, which a repeat call could only reach by
-        /// doing the scan first.</summary>
+        /// <summary>Resolve once per image set and relative clip path, including misses. Canonical source
+        /// locations precede the legacy recursive filename search, whose successful use is reported.</summary>
         internal string ResolveCached(string clipPath)
         {
-            string name;
-            try { name = Path.GetFileName((clipPath ?? "").Replace('\\', '/').TrimStart('/')); }
-            catch { return null; }
-            if (string.IsNullOrEmpty(name)) return null;
+            return ResolveCached(clipPath, _imageSet);
+        }
+
+        internal string ResolveCached(string clipPath, string imageSet)
+        {
+            string relative = (clipPath ?? "").Replace('\\', '/').TrimStart('/');
+            if (relative.Length == 0) return null;
+            imageSet = imageSet ?? "";
+            imageSet = NormalizeImageSet(imageSet);
+            string key = imageSet + "\0" + relative;
             string hit;
-            if (_resolved.TryGetValue(name, out hit)) return hit;
-            string found = Resolve(clipPath);
-            _resolved[name] = found;
+            if (_resolved.TryGetValue(key, out hit)) return hit;
+            string found = Resolve(relative, imageSet);
+            _resolved[key] = found;
             return found;
         }
 
-        private string Resolve(string clipPath)
+        internal static string NormalizeImageSet(string imageSet)
+        {
+            if (string.IsNullOrEmpty(imageSet) || imageSet == "." || imageSet == ".."
+                || imageSet.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0
+                || imageSet.IndexOfAny(new[] { '/', '\\', ':' }) >= 0) return "";
+            return imageSet;
+        }
+
+        private string Resolve(string clipPath, string imageSet)
         {
             string name;
             try { name = Path.GetFileName(clipPath.Replace('\\', '/').TrimStart('/')); }
@@ -397,15 +661,22 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             try
             {
                 if (!Directory.Exists(_root)) return null;
-                _scans++;
+                string relative = clipPath.Replace('/', Path.DirectorySeparatorChar);
+                var sourceCandidates = new List<string> { Path.Combine(_root, "sound", relative) };
+                if (imageSet.Length > 0)
+                {
+                    sourceCandidates.Add(Path.Combine(_root, "sound", imageSet, relative));
+                    sourceCandidates.Add(Path.Combine(_root, "img", imageSet, "sound", relative));
+                }
+                string[] candidates = sourceCandidates.Select(ContainedSoundPath).Where(path => path != null).ToArray();
+                foreach (string candidate in candidates) if (File.Exists(candidate)) return candidate;
                 // EnumerationOptions, not the (path, pattern, SearchOption) overload. On .NET Core that
                 // overload maps to options with IgnoreInaccessible = false, so ONE subdirectory the user
                 // cannot list -- a locked vendor folder, a junction the account lacks rights to -- threw
                 // UnauthorizedAccessException out of the enumerator before or after the clip was reached,
                 // the bare catch swallowed it, and ResolveCached stored the null: every clip in the skin
-                // became a cached miss and the residue blamed "missing clips" (F438). SoundSearchRoot can
-                // climb up to four parents looking for a sound/ sibling, so the scanned root is often wider
-                // than the skin folder. AttributesToSkip is 0 to keep the legacy overload's reach over
+                // became a cached miss and the residue blamed "missing clips" (F438). The pack root may
+                // be wider than the skin folder. AttributesToSkip is 0 to keep the legacy overload's reach over
                 // hidden and system files; the case rule is the one the legacy overload had on Windows.
                 var options = new EnumerationOptions
                 {
@@ -414,11 +685,38 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                     AttributesToSkip = 0,
                     MatchCasing = MatchCasing.CaseInsensitive,
                 };
-                foreach (string path in Directory.EnumerateFiles(_root, name, options))
-                    return path;
+                // Prefer this image set's noncanonical clips before widening a legacy basename search
+                // to the pack. The canonical source candidates above keep their original precedence.
+                string local = string.IsNullOrEmpty(FallbackDirectory) ? null : ContainedSoundPath(FallbackDirectory);
+                string[] fallbackRoots = local != null && Directory.Exists(local) ? new[] { local, _root } : new[] { _root };
+                foreach (string fallbackRoot in fallbackRoots)
+                {
+                    _scans++;
+                    foreach (string path in Directory.EnumerateFiles(fallbackRoot, name, options))
+                    {
+                        _fallbackResolutions.Add(imageSet + "/" + clipPath + " -> " + Path.GetRelativePath(_root, path).Replace('\\', '/'));
+                        return path;
+                    }
+                }
             }
             catch { _scanFaulted = true; }
             return null;
+        }
+
+        // Normalize before probing the file system; a source parent path is valid when its resolved
+        // candidate remains inside the pack. Outside/invalid candidates may still use reported basename fallback.
+        internal string ContainedSoundPath(string candidate)
+        {
+            try
+            {
+                string prefix = Path.GetFullPath(_root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                    + Path.DirectorySeparatorChar;
+                string full = Path.GetFullPath(candidate);
+                return full.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) ? full : null;
+            }
+            catch (ArgumentException) { return null; }
+            catch (NotSupportedException) { return null; }
+            catch (PathTooLongException) { return null; }
         }
 
         private byte[] TranscodeWithFfmpeg(string inputFile)

@@ -15,7 +15,10 @@ locations, separate next-reference behaviours, frame image paths, effective cach
 retain declaration order and zero frequencies. The output directory must be new and outside the source pack.
 Cross-member output and source-hidden members require the caller to name the main image set. An explicit main
 also requests pack metadata when no member references another. Such output declares packs and gives every member
-one shared pack id derived from source configuration and consumed sprite bytes, rather than generated XML.
+one shared pack id derived from source configuration, consumed sprite bytes and the resolved paths and bytes
+of played sounds, rather than generated XML. Every played raw sound spelling contributes its exact resolved
+path to the identity manifest; unused composite-only spellings do not contribute merely because they share
+an embedded asset.
 Other members are forms, except the source chooser's hidden members (a leading dot, or unused ignoring case),
 which are hidden helpers. It omits own-set member defaults and keeps a binding when dropping it would expose a
 different inherited member. This prototype is for parity testing; it is not the Studio installation API.
@@ -37,15 +40,27 @@ Keep the extracted source unchanged during the call, which writes no files. Each
 `Root`, canonical `EmittedXml`, optional
 `ParityMapJson`, residue and graph diagnostics, `Valid`, `RoundTrips`, and its disposition. It checks the real
 document validator with the tick-format features enabled, deep-copy and serialization preservation, then the
-shared pack validator. The classic validator entry point keeps its existing feature gate. Missing member
+shared pack validator when every non-skipped source member prepared. The classic validator entry point keeps its existing feature gate. Missing member
 references produce warnings and retain the runtime's current-type fallback. Unreachable nodes remain in the
 document and graph report.
 
 The caller must require the whole result's `Accepted` before saving or installing any member. Successful
 members can remain as diagnostic previews when a sibling is refused; a refused member exposes no document,
-XML or parity map. If source preparation refuses any member, the result's `PackId` is null. Returned roots are
-independent mutable copies; `EmittedXml` records the validated result before any caller edits. The API is linked
-into Studio, but the import UI and its installation transaction are separate work.
+XML or parity map. If source preparation refuses any member, the result's `PackId` is null and successful diagnostic
+previews omit `header/pack` and `header/startup`, so no successful-subset identity appears inside their XML.
+The shared pack validator is deferred for those partial preparations. Its main-count, transparency,
+startup-target and unresolved/scripted member-reference diagnostics therefore appear only after all source
+members prepare; source refusals, per-document validation, skipped-member and runtime-entry facts remain.
+Partial preview residue states that pack role and visibility metadata are absent, including caller choices.
+Unreachable-node counts are informational member notes and are absent from pack Warnings, so Studio's pack
+summary does not give those facts the warning glyph. The partial identity and validator-skip evidence is
+`PackConversion.cs:174,213,329`; the earlier citation to line 153 pointed at a startup-skipped error instead.
+Member-specific pack diagnostics use `MemberNotes`, rendered under "Notes for this image set:"; format-wide notes
+retain their separate heading, and dropped recovery entries retain their loss count. Returned roots are
+independent mutable copies; `EmittedXml` records the validated result before any caller edits. Studio already
+has whole-pack import, install, replacement and preview consumers (`modules/PetStudio/PackImport.cs:33-38`
+and `PetStudioWindow.cs:1662-1680,1691-1696`). They require whole-pack acceptance; this revision changes no
+module source or installation transaction.
 
 | Source action | Converter stage | Supported | Evidence available |
 |---|---|---|---|
@@ -188,8 +203,20 @@ NaN. NaN anywhere else (a comparison, a condition, text, a call other than a NaN
 holding a draw, any other reader) is refused by name. A Behavior's children other than its
 NextBehaviorList elements (a NextBehavior among them) are ignored, as 1.0.23 never reads them, and so is any child
 of a behaviour list other than a Condition and a Behavior (root list) or BehaviorReference (next list).
-A pose's Sound becomes a named WAV clip, its id the Sound text and its bytes unchanged, resolved as the source does
-(sound/, sound/<set>/, img/<set>/sound/), with the pose's Volume in dB; the member declares 'wav'. A missing clip,
+A pose's Sound becomes a named WAV asset, its id separator-normalized and invariant-lowercase, and its bytes unchanged,
+resolved as the source does (sound/, sound/<set>/, img/<set>/sound/). Separator/case aliases share embedded bytes;
+Volume remains on each pose, and the host keeps separate playback state for distinct volumes. The member declares 'wav'.
+A literal Mute Sound uses the same canonical prefix, retaining a directory prefix's trailing separator, only
+when its ordinal source-prefix match agrees with the emitted canonical-prefix match for every played source
+Sound spelling. A difference refuses with TICK_SOUND_MUTE_MATCH. This protects case distinctions and leading
+separators, including a slash-only prefix; it applies to the Mute's own parameter, ActionReference binds and
+Behavior binds, after later clip declarations have also been collected. A computed Mute prefix retains its
+script and cache when all played clip ids already equal their raw source names; it refuses with
+TICK_SOUND_MUTE_SCRIPTED when any played id changed. A changed composite-only alias does not cause that
+refusal. A literal whose normalization would change a Sound value read by a member script still refuses with
+TICK_SOUND_MUTE_OBSERVED. Each distinct sound spelling resolves before canonical-asset reuse; repeated and
+trailing separators collapse for file lookup while case is retained. Thus a.wav and a.wav/ resolve in either
+declaration order. A missing clip,
 MP3 bytes, a WAVE the host's rule rejects, a Volume outside -80 to 6.02 dB and a clip or document over the host's
 audio limits are refused by name.
 It refuses unsupported attributes and
@@ -250,3 +277,26 @@ host's literal parser can preserve their meaning.
 Synthetic self-tests run through the emitter suite and `selftest pack-conversion`. Private slice traces and source archives remain
 outside the repository. Controlled oracle traces and class-specific branch scenarios are required before any
 row above changes to supported.
+
+## Converter verification and remaining limits
+
+The ordinary CLI selftest runs twelve engine suites plus the CLI round-trip/caller suite and reports
+SELFTEST-COUNT: 13. Focused selftest cli-roundtrip calls actual Verify on faithful input and on a schema-valid
+child/next probability 37 input, requiring the first to pass and the second to fail at the lost attribute.
+It also exercises actual ConvertVerb with a full drawable sheet and with an additional image-less pose:
+the first writes output; the preflight refusal writes neither XML nor residue. ConvertSkin maps a failed
+emitter preflight to null plus out error, so folder CLI and Studio callers take their existing failure path.
+Document-bearing diagnostic results retain their existing behavior.
+
+Classic blank reservation still happens after drawable sheet fitting. A full 16x16 grid of 256px cells fits
+4096x4096, but its required blank row would exceed the dimension cap. Reserving the blank before fitting
+could allow smaller cells. A full 1024-frame grid plus a distinct blank requires 1025 tiles and must still
+refuse. The tile-count refusal has a permanent check; dedicated dimension, pixel and post-encode XML-budget
+killing checks remain follow-ups. No fitting or budget fix is claimed here.
+
+Accepted normalized literal Mutes retain a trace spelling limitation. For source Sound="/Tone.wav" and
+Mute Sound="/To", both match sets contain the clip, so conversion accepts clip id tone.wav and prefix to.
+The host observer still reports that canonical prefix as mute.clip. The reserved map writer has no source
+spelling channel for Mute parameters or binds. A future observed-Mute seam needs the source spelling keyed
+by actual activation/binding identity and a directed paired trace. The current oracle's Mute/sound observation
+refusals prevent that paired comparison; this revision changes no map writer, schema, host observer or contract.

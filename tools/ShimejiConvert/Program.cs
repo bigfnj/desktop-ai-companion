@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Xml.Linq;
 using DesktopAICompanion.Tools.ShimejiConvert.Emit;
 using DesktopAICompanion.Tools.ShimejiConvert.Shimeji;
 
@@ -98,7 +99,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             Console.Error.WriteLine("  classify <ConfDir> Parse a Shimeji conf dir (actions.xml + behaviors.xml) and print the");
             Console.Error.WriteLine("                     Group 1/2/3 fidelity census: what converts cleanly, what degrades,");
             Console.Error.WriteLine("                     and what is dropped as residue.");
-            Console.Error.WriteLine("  selftest [source-ir|tick-emitter|pack-conversion]");
+            Console.Error.WriteLine("  selftest [source-ir|tick-emitter|pack-conversion|sound-resolve|classic-emitter|cli-roundtrip]");
             Console.Error.WriteLine("                     Run all engine self-tests or one focused synthetic group.");
             Console.Error.WriteLine("  paritypack <PackDir> <OutDir> [MainMember] [--recover-missing-next]");
             Console.Error.WriteLine("                     Test tooling: lower the supported literal tick subset and write each member");
@@ -264,7 +265,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                         report.Unreachable.Count.ToString().PadLeft(9);
 
                     string roundTripError;
-                    roundTrip = ShimejiEngine.RoundTrips(root, out roundTripError) ? "ok" : "FAIL";
+                    roundTrip = ShimejiEngine.RoundTrips(xml, out roundTripError) ? "ok" : "FAIL";
                     if (roundTrip == "FAIL")
                     {
                         roundTripFailures++;
@@ -396,8 +397,11 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             string detail;
             bool ok;
             if (group == "source-ir") ok = SourceIrSelfTest.Run(out detail);
+            else if (group == "sound-resolve") ok = SoundResolveSelfTest.Run(out detail);
+            else if (group == "classic-emitter") ok = EmitterSelfTest.Run(out detail);
             else if (group == "tick-emitter") ok = TickPackEmitterSelfTest.Run(out detail);
             else if (group == "pack-conversion") ok = PackConversionSelfTest.Run(out detail);
+            else if (group == "cli-roundtrip") ok = CliRoundTripSelfTest(out detail);
             else if (group.StartsWith("pack-conversion/", StringComparison.Ordinal))
                 ok = PackConversionSelfTest.Run(out detail, group.Substring("pack-conversion/".Length));
             else if (group.StartsWith("tick-emitter/", StringComparison.Ordinal))
@@ -415,11 +419,140 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             int ran;
             bool ok = EngineSelfTest.RunAll(out detail, out ran);
             Console.WriteLine(detail);
+            string cliDetail;
+            bool cliOk = CliRoundTripSelfTest(out cliDetail);
+            ran++;
+            Console.WriteLine(cliDetail);
+            if (!cliOk) ok = false;
             // The same sentinel tests/Invoke-SelfTests.ps1 prints, so a gate can assert how many suites ran and
             // not only the exit code: a deleted registration line then shows as a number (F452).
             Console.WriteLine(EngineSelfTest.CountPrefix + ran.ToString(System.Globalization.CultureInfo.InvariantCulture));
             Console.WriteLine(ok ? "SELFTEST PASS" : "SELFTEST FAIL");
             return ok ? 0 : 1;
+        }
+
+        // Run Verify itself: an engine-only test cannot catch a caller switching back to the DTO overload,
+        // after parse-time information has already gone. Both fixtures use one valid, entirely synthetic pet.
+        private static bool CliRoundTripSelfTest(out string detail)
+        {
+            var failures = new List<string>();
+            string directory = Path.Combine(Path.GetTempPath(), "dp-cli-roundtrip-" + Guid.NewGuid().ToString("N"));
+            TextWriter previousOut = Console.Out, previousError = Console.Error;
+            try
+            {
+                string petDirectory = Path.Combine(directory, "Synthetic");
+                Directory.CreateDirectory(petDirectory);
+                byte[] png, ico;
+                using (var bitmap = new System.Drawing.Bitmap(8, 8))
+                using (var stream = new MemoryStream())
+                {
+                    bitmap.SetPixel(0, 0, System.Drawing.Color.Coral);
+                    bitmap.Save(stream, System.Drawing.Imaging.ImageFormat.Png);
+                    png = stream.ToArray();
+                    ico = IconBuilder.BuildIco(bitmap);
+                }
+                var root = new XmlData.RootNode
+                {
+                    Header = new XmlData.HeaderNode { Author = "Synthetic", Title = "CLI fidelity", Petname = "Synthetic",
+                        Version = "1", Info = "Synthetic self-test", Application = "1", Icon = Convert.ToBase64String(ico) },
+                    Image = new XmlData.ImageNode { TilesX = 1, TilesY = 1, Png = Convert.ToBase64String(png), Transparency = "Alpha" },
+                    Spawns = new XmlData.SpawnsNode { Spawn = new[] { new XmlData.SpawnNode { Id = 1, Probability = 100,
+                        X = "0", Y = "0", Next = new XmlData.NextNode { Value = 1, Probability = 100 } } } },
+                    Animations = new XmlData.AnimationsNode { Animation = new[] { new XmlData.AnimationNode { Id = 1, Name = "fall",
+                        Start = new XmlData.MovingNode { X = "0", Y = "0", Interval = "100" },
+                        End = new XmlData.MovingNode { X = "0", Y = "0", Interval = "100" },
+                        Sequence = new XmlData.SequenceNode { Frame = new[] { 0 }, RepeatCount = "0",
+                            Next = new[] { new XmlData.NextNode { Value = 1, Probability = 100 } } } } } },
+                    Childs = new XmlData.ChildsNode { Child = new XmlData.ChildNode[0] },
+                    Sounds = new XmlData.SoundsNode { Sound = new XmlData.SoundNode[0] },
+                };
+                string path = Path.Combine(petDirectory, "animations.xml");
+                string original = ShimejiEngine.Serialize(root), error;
+                XmlData.RootNode parsed;
+                if (!ShimejiEngine.TryValidate(original, out parsed, out error))
+                    failures.Add("CLI_ROUNDTRIP_WITNESS: faithful synthetic pet is invalid: " + error);
+                else
+                {
+                    File.WriteAllText(path, original, new UTF8Encoding(false));
+                    using (var output = new StringWriter(CultureInfo.InvariantCulture))
+                    {
+                        Console.SetOut(output); Console.SetError(output);
+                        int exit = Verify(directory);
+                        if (exit != 0 || !output.ToString().Contains("round-trip failures 0"))
+                            failures.Add("CLI_ROUNDTRIP_WITNESS: Verify refused a faithful synthetic pet");
+                    }
+                    XElement lossy = XElement.Parse(original);
+                    XNamespace ns = lossy.Name.Namespace;
+                    lossy.Element(ns + "childs").Add(new XElement(ns + "child", new XAttribute("animationid", 1),
+                        new XElement(ns + "x", "0"), new XElement(ns + "y", "0"),
+                        new XElement(ns + "next", new XAttribute("probability", 37), 1)));
+                    if (!ShimejiEngine.TryValidate(lossy.ToString(), out parsed, out error))
+                        failures.Add("CLI_ROUNDTRIP_PARSE_WITNESS: child/next fixture is invalid: " + error);
+                    else
+                    {
+                        File.WriteAllText(path, lossy.ToString(), new UTF8Encoding(false));
+                        using (var output = new StringWriter(CultureInfo.InvariantCulture))
+                        {
+                            Console.SetOut(output); Console.SetError(output);
+                            int exit = Verify(directory);
+                            if (exit != 1 || !output.ToString().Contains("Round-trip semantic mismatch at /animations/childs[1]/child[1]/next[1]/@probability.")
+                                || !output.ToString().Contains("invalid 0   round-trip failures 1"))
+                                failures.Add("CLI_ROUNDTRIP_PARSE_LOSS: Verify failed to refuse parse-time child/next probability loss at its path");
+                        }
+                    }
+                }
+                CheckCliPreflight(directory, failures);
+            }
+            catch (Exception ex) { failures.Add("CLI_ROUNDTRIP_EXCEPTION: " + ex.GetType().Name + ": " + ex.Message); }
+            finally
+            {
+                Console.SetOut(previousOut); Console.SetError(previousError);
+                try { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+                catch (Exception ex) { failures.Add("CLI_ROUNDTRIP_CLEANUP: " + ex.Message); }
+            }
+            detail = failures.Count == 0
+                ? "cli-roundtrip self-test: PASS faithful Verify input accepted; parse-time child/next probability loss refused at its path"
+                : string.Join(Environment.NewLine, failures.Select(f => "FAIL " + f));
+            return failures.Count == 0;
+        }
+
+        private static void CheckCliPreflight(string parent, List<string> failures)
+        {
+            string conf = Path.Combine(parent, "full-sheet", "conf"), img = Path.Combine(parent, "full-sheet", "img");
+            Directory.CreateDirectory(conf); Directory.CreateDirectory(img);
+            var poses = new StringBuilder();
+            using (var bitmap = new System.Drawing.Bitmap(8, 8))
+            {
+                for (int i = 0; i < SpriteSheetBuilder.MaxTiles; i++)
+                {
+                    // Distinct pixels keep the compositor's real dedup pass from creating a spare slot.
+                    bitmap.SetPixel(0, 0, System.Drawing.Color.FromArgb(255, i / 256, i % 256, 17));
+                    string name = "frame-" + i.ToString(CultureInfo.InvariantCulture) + ".png";
+                    bitmap.Save(Path.Combine(img, name), System.Drawing.Imaging.ImageFormat.Png);
+                    poses.Append("<Pose Image='/" + name + "' ImageAnchor='4,8' Velocity='0,0' Duration='1'/>");
+                }
+            }
+            string prefix = "<Mascot xmlns='http://www.group-finity.com/Mascot'><ActionList><Action Name='Stand' Type='Stay' BorderType='Floor'><Animation>";
+            string suffix = "</Animation></Action></ActionList></Mascot>";
+            string path = Path.Combine(conf, "actions.xml"), outputPath = Path.Combine(parent, "preflight.xml");
+            File.WriteAllText(path, prefix + poses + suffix, new UTF8Encoding(false));
+            using (var output = new StringWriter(CultureInfo.InvariantCulture))
+            {
+                Console.SetOut(output); Console.SetError(output);
+                if (ConvertVerb(conf, img, "Synthetic", outputPath) != 0 || !File.Exists(outputPath))
+                    failures.Add("CLI_PREFLIGHT_WITNESS: a full sheet without an image-less pose was refused");
+            }
+            if (File.Exists(outputPath)) File.Delete(outputPath);
+            if (File.Exists(outputPath + ".residue.txt")) File.Delete(outputPath + ".residue.txt");
+            File.WriteAllText(path, prefix + poses + "<Pose ImageAnchor='4,8' Velocity='0,0' Duration='1'/>" + suffix, new UTF8Encoding(false));
+            using (var output = new StringWriter(CultureInfo.InvariantCulture))
+            {
+                Console.SetOut(output); Console.SetError(output);
+                int exit = ConvertVerb(conf, img, "Synthetic", outputPath);
+                if (exit != 1 || File.Exists(outputPath) || File.Exists(outputPath + ".residue.txt")
+                    || !output.ToString().Contains("Convert failed: An image-less pose needs one blank sprite tile, but the sheet is already at the host's size or tile limit."))
+                    failures.Add("CLI_PREFLIGHT_REFUSAL: emitter preflight failure wrote an empty document or lost its reason");
+            }
         }
 
         private static int Composite(string confDirectory, string imgDirectory, string outPng)

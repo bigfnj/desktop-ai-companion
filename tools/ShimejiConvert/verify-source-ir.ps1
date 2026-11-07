@@ -288,7 +288,7 @@ function Invoke-Positive([string]$Label) {
         }
     }
     if (@($lines | Where-Object { $_ -match '^FAIL(?:\s|:)' }).Count -ne 0 -or $lines -notcontains 'SELFTEST PASS' -or
-        $lines -notcontains 'SELFTEST-COUNT: 12' -or $lines -notcontains 'emitter self-test: classic checks executed') {
+        $lines -notcontains 'SELFTEST-COUNT: 13' -or $lines -notcontains 'emitter self-test: classic checks executed') {
         throw "source-ir: contradictory positive result for $Label"
     }
     return $result.Record
@@ -337,7 +337,7 @@ function Invoke-ClassicContinuation {
             if ($run.Record.ExitCode -ne 1 -or $run.Record.TimedOut -or $fails.Count -ne 1 -or
                 $fails[0] -notmatch '^FAIL TickPackEmitterSelfTest/graph-bindings-and-origins:' -or
                 $lines -notcontains $tickMarker -or $lines -notcontains 'SELFTEST FAIL' -or
-                $lines -notcontains 'SELFTEST-COUNT: 12') {
+                $lines -notcontains 'SELFTEST-COUNT: 13') {
                 throw ('CLASSIC_CONTINUATION_WITNESS: full-suite tick fault did not execute as expected: ' + $run.Record.Stdout)
             }
             $fired = $false
