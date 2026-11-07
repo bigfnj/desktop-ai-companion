@@ -21184,6 +21184,17 @@ CASES = (
      b'     None),\n',
      None, None,
      MUTATION_UNITTESTS, None, 'test_every_installer_variant_names_the_check_it_must_fail'),
+
+    # ---- burndown/w3-tests-harness-1 ----
+    # Mutation harnesses and their tooling. "bd-w3-tests-harness-1:" for one --only.
+    # N-audit-1106-395: the diagnostics harness starts the invariant script with no bound again, so a stalled
+    # powershell.exe hangs the run with the mutant in the source tree.
+    ('bd-w3-tests-harness-1: the diagnostics invariant run has no timeout (N-audit-1106-395)',
+     MUTATE_DIAGNOSTICS_PY,
+     b'                           cwd=ROOT, capture_output=True, timeout=GATE_TIMEOUT, env=windows_powershell_env())\n',
+     b'                           cwd=ROOT, capture_output=True, env=windows_powershell_env())\n',
+     None, None,
+     MUTATION_UNITTESTS, None, 'test_a_stalled_invariant_script_reads_broken'),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

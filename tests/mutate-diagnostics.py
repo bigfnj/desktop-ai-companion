@@ -1269,11 +1269,23 @@ def line_ending_variant(base, old, new):
     return old, new
 
 
+# The bound on one run of the invariant script, the sibling's (mutate-hardening-guards.py run_gate). An unmutated run
+# takes well under a minute; the bound exists for a mutant that stalls it.
+GATE_TIMEOUT = 900
+
+
 def run_gate():
-    """Source invariants only. Returns (ok, text)."""
-    p = run_text(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
-                        "-File", os.path.join(ROOT, "tests", "runtime-hardening-selftest.ps1")],
-                       cwd=ROOT, capture_output=True, env=windows_powershell_env())
+    """Source invariants only. Returns (ok, text); ok is None when the script did not exit in GATE_TIMEOUT.
+
+    BOUNDED (N-audit-1106-395). This was the one child in either harness with no timeout, so a stalled powershell.exe
+    hung the run with the mutant still in the source tree, instead of reading BROKEN and restoring it. A timeout is no
+    verdict either way, the way run_wpf reports a self-test that did not exit."""
+    try:
+        p = run_text(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                            "-File", os.path.join(ROOT, "tests", "runtime-hardening-selftest.ps1")],
+                           cwd=ROOT, capture_output=True, timeout=GATE_TIMEOUT, env=windows_powershell_env())
+    except subprocess.TimeoutExpired:
+        return None, "the invariant script did not exit in %ds" % GATE_TIMEOUT
     return p.returncode == 0, p.stdout + p.stderr
 
 

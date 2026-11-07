@@ -74,6 +74,28 @@ class DiagnosticsDriverTests(unittest.TestCase):
                          "diagnostics driver: a measured verdict is printed before a later case is interrupted")
         self.assertEqual(len(runs), 3, "the synthetic run reached the second case")
 
+    def test_a_stalled_invariant_script_reads_broken(self):
+        # N-audit-1106-395: run_gate was the one child with no timeout, so a stalled powershell.exe hung the run with the
+        # mutant in place. The fake stands in for the stall: given a bound, it reaches it; given none, it would wait for
+        # ever, which a test cannot, so it says so instead.
+        calls = []
+
+        def stalled(args, **kwargs):
+            calls.append(kwargs.get("timeout"))
+            if kwargs.get("timeout") is None:
+                raise RuntimeError("the invariant script was started with no bound and would have hung the run")
+            raise self.harness.subprocess.TimeoutExpired(args, kwargs["timeout"])
+
+        with patch.object(self.harness, "run_text", side_effect=stalled):
+            ok, text = self.harness.run_gate()
+        self.assertEqual(calls, [self.harness.GATE_TIMEOUT])
+        self.assertIsNone(ok, "diagnostics driver: a stalled invariant script is no verdict")
+        self.assertIn("did not exit in %ds" % self.harness.GATE_TIMEOUT, text)
+        # WITNESS: a script that exits is graded on its exit code, as before.
+        with patch.object(self.harness, "run_text",
+                          return_value=self.harness.subprocess.CompletedProcess([], 0, "PASS: x\n", "")):
+            self.assertEqual(self.harness.run_gate(), (True, "PASS: x\n"))
+
 
 if __name__ == "__main__":
     unittest.main()
