@@ -33,7 +33,11 @@ namespace DesktopAICompanion.BlinkingLed
         {
             Id = "blinkingled",
             Name = "Blinking LED",
-            Version = "1.0.8",   // 1.0.8: an Apply from the options pane writes only the boxes you changed there, so a
+            Version = "1.0.9",   // 1.0.9: no behaviour change. The engine's comment and the Readme no longer say no
+                                 //        application acts on Scroll Lock: Excel, for one, scrolls the sheet with
+                                 //        the arrow keys while the key is on, which is the lit phase of every
+                                 //        blink (N-audit-1106-130).
+                                 // 1.0.8: an Apply from the options pane writes only the boxes you changed there, so a
                                  //        tray choice made while the window is open is no longer put back by it
                                  //        (N-blinkingled-resume-03).
                                  // 1.0.7: a Caps Lock stop no longer switches the blinker off for good. With

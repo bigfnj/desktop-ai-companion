@@ -578,8 +578,10 @@ session closes. The figure appears in the panel from about 70 % used, or when th
 
 Blinks your keyboard's **Scroll Lock light** so the machine reads as active, at one of six speeds
 (Glacial through Hyper) switchable from the tray or the options pane. It works by pressing Scroll Lock,
-a key no application acts on, so nothing is ever typed anywhere; Windows still counts the event as
-activity, which is the point. **Caps Lock stops it**, and by default only until the companion next starts;
+which types nothing anywhere; Windows still counts the event as activity, which is the point. Most
+programs ignore Scroll Lock, but not all: the key is on while the light is lit, and Excel, for one, then
+scrolls the sheet with the arrow keys instead of moving the active cell. **Caps Lock stops it**, and by
+default only until the companion next starts;
 once Caps Lock is off, picking a speed in the tray starts it again at once. Untick **Resume on application
 restart** in its options to make the stop last through restarts, as it did before Blinking LED 1.0.7. Its tray
 entry says when Caps Lock stopped it, and with the box unticked it keeps saying so after a restart, until you
