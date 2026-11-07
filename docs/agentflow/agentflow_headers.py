@@ -346,10 +346,22 @@ def selftest():
     check("WITNESS it does not swallow a neighbour",
           not table.is_shell("allow this glob command")
           and table.describe("allow this glob command") == "a glob search")
-    # Longest match, the reason first-match-wins was wrong.
-    check("WITNESS two headers sharing a prefix get their own answers",
+    # The real table's two search headers, each named. They share "allow searching " but neither KEY is a
+    # prefix of the other, so this passes under first-match and last-match as well, and it is not the
+    # longest-match witness it was labelled as (N-audit-1106-118).
+    check("the real table's two search headers get their own answers",
           table.describe("allow searching in <value>?") == "a search"
           and table.describe("allow searching for this query?") == "a web search")
+    # Longest match, the reason first-match-wins was wrong, on a synthetic table where one key IS a prefix of
+    # another, in both orders: first-match fails the first order, last-match the second.
+    for order in ("short key first", "long key first"):
+        rows = [("allow ", "the short key"), ("allow searching ", "the long key")]
+        if order == "long key first":
+            rows.reverse()
+        nested = Table(rows, table.shell_prefix, table.shell_suffix)
+        check("WITNESS longest match: of two keys where one is a prefix of the other, the longer wins (%s)" % order,
+              nested.describe("allow searching the web?") == "the long key"
+              and nested.describe("allow reading a file?") == "the short key")
     check("an unknown header is not named", table.describe("grant everlasting access") is None)
 
     # A MISSING bundle is not a failure: not installed is an environment fact, and audit() says so

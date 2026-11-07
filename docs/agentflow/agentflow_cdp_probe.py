@@ -202,6 +202,15 @@ LOAD_BEARING = [
     # Every Codex card, since 1.12.0: the copy above walks them all and answers the shape the module does.
     "for (var ci = 0; ci < cards.length; ci++) {",
     "return JSON.stringify({ cards: all, blind: blind });",
+    # The CLAUDE read's own anchors (N-audit-1106-115). Every entry above is the Codex read's or shared, so a change
+    # to the module's Claude read left this probe replaying a stale copy of it with no DRIFT line: the failure the
+    # comment above says already happened once. Spelled as the module's C# verbatim string spells them (doubled
+    # quotes), which is what the source text holds.
+    '[class*=""permissionRequestContainer""]',
+    '[class*=""buttonContainer""]',
+    '[class*=""permissionRequestHeader""]',
+    '[class*=""permissionPath""]',
+    '[class*=""shortcutNum""]',
 ]
 
 
