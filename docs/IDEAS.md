@@ -44,10 +44,11 @@ Neither happens by leaving it here.
 17. 📌 **SUPERSEDED by the Remembrance module — all three phases shipped, one gap left.** The want was: click a tray
     item, record the mic **and** system/loopback audio, click again to stop, then transcribe and
     summarize. Checked at source 2026-09-17 rather than assumed, because this entry was wrong about
-    its own residuals once already:
+    its own residuals once already (line numbers and file names re-checked 2026-11-07):
     - **P1, trigger + capture.** `modules/Remembrance/AudioRecorder.cs` records both directions
-      (`WasapiLoopbackCapture` at `:52`, `WasapiCapture` at `:57`) with per-direction device pickers.
-      `RemembranceModule.cs:700` contributes the one-click tray entry, `Click = ToggleRecording`, whose
+      (`WasapiLoopbackCapture` and `WasapiCapture` in `DefaultCaptureFactory`, `:309-310`) with
+      per-direction device pickers. `BuildRecordTrayItem` (`RemembranceModule.cs:4270`) contributes
+      the one-click tray entry, `Click = ToggleRecording`, whose
       `DynamicText` reads "Start recording a meeting" and then "● Recording: … (click to stop)" — that
       is both the click-to-stop trigger and the recording-in-progress indicator this entry asked for.
       A hotkey exists as well, and `ModulePermissions` gained the honest flags: `Microphone` and
@@ -55,14 +56,19 @@ Neither happens by leaving it here.
     - **P2, transcription.** Local Whisper via `Transcriber.cs` + `WhisperInstaller.cs`. The download
       and the whisper-cli run are verified live on the dev box — see
       [`BLOCKED.md`](BLOCKED.md), which records that independently of this entry.
-    - **P3, summary.** `OllamaSummarizer.SummarizeAsync` at `:246`, writing the `.summary.txt` path
-      `CaptureStore.cs:48` builds. The map-reduce is verified live too.
+    - **P3, summary.** `OllamaSummarizer.SummarizeAsync` at `:566`, writing the summary path
+      `CaptureStore.cs:250` builds: `.summary.md` since remembrance 2.9.0 (e9fc0fd), where it was
+      `.summary.txt` before, and a summary written before keeps that name
+      (`CaptureStore.cs:282-286`). Since 2.1.0 and 2.2.0 the summary can also run through a
+      coding-agent CLI or a cloud provider (the last paragraph of this entry). The map-reduce is
+      verified live too.
 
     **ONE gap remains against the original wording**, deliberate in Remembrance and real only if the
-    goal is *listening* rather than transcribing: the output is **two WAV files downmixed to mono
-    16 kHz** (`.mic.wav` and `.system.wav`, tuned for Whisper — the `StereoToMonoSampleProvider` +
-    `WdlResamplingSampleProvider(…, 16000)` chain at `AudioRecorder.cs:128-132`), not one MP3 at
-    listenable quality. **Reduced scope if wanted: an output-format choice on Remembrance, not a new
+    goal is *listening* rather than transcribing: the output is **one WAV, both directions mixed to
+    mono 16 kHz 16-bit** for Whisper (`AudioRecorder.MixToWhisperWav`, `:560-604`; since 2.4.0 each
+    track is converted to that format as it arrives, `TrackConverter`, and the `.mic.wav` and
+    `.system.wav` scratch tracks are deleted once mixed, `:610-618`), not one MP3 at listenable
+    quality. **Reduced scope if wanted: an output-format choice on Remembrance, not a new
     module.** That is the whole idea; it is here rather than in the backlog because nobody has asked
     to listen to a capture yet.
 
@@ -109,11 +115,14 @@ Neither happens by leaving it here.
       do. blinkingLED was unlicensed and got MIT before bundling. LightHost is GPLv3 from JUCE, which
       is *not* ours to relicense — hence the refusal rather than a deferral.
 
-    **The cross-cutting finding this item produced is engineering debt rather than an idea, so it
-    stayed behind**: `ModulePermissions` cannot disclose synthetic input, and a SHIPPED module
-    under-discloses because of it. That item is in [`../BACKLOG.md`](../BACKLOG.md) under "Module SDK
-    follow-ups". The audio half of the same finding is already closed (`Microphone`, `SystemAudio`
-    and `AgentTranscripts` were added for Remembrance and AgentFlow).
+    **The cross-cutting finding this item produced was engineering debt rather than an idea, and it
+    is closed**: `ModulePermissions` could not disclose synthetic input, and a SHIPPED module
+    under-disclosed because of it. Host 1.1.5 added `InputSynthesis` (`PluginApi.cs:106`), and
+    Blinking LED and AgentFlow declare it (`BlinkingLedModule.cs:159`, `AgentFlowModule.cs:639`;
+    commits 601e944 and 21aaebf). The record is in [`BACKLOG-CLOSED.md`](BACKLOG-CLOSED.md), under
+    "`ModulePermissions` cannot disclose input MONITORING or process launch", closed 2026-09-30. The
+    audio half of the same finding closed earlier (`Microphone`, `SystemAudio` and
+    `AgentTranscripts` were added for Remembrance and AgentFlow).
 
     **Reusable port recipe (for any same-stack tray app), validated by the blinkingLED port:** keep
     the dependency-free engine, discard the WinForms shell
@@ -129,28 +138,38 @@ Neither happens by leaving it here.
     rule with speakers represented by name labels, initials, role cards and ownership tags; strict
     source fidelity, invent nothing not in the notes).
 
-    **Where it hooks, exactly.** The pipeline already ends record -> transcribe -> optional local
-    summary, and the module announces "Summary ready." at `RemembranceModule.cs:291` after
-    `WriteSummaryAsync` writes beside the transcript. A doodle step is a third artefact written to
-    the same place and a fourth announcement. Nothing about the recording or transcription half
+    **Where it hooks, exactly.** The pipeline already ends record -> transcribe -> optional
+    summary, and the module announces "Summary ready." once the summary is written beside the
+    transcript, by whichever engine wrote it (`RemembranceModule.cs:1282` after
+    `WriteCloudSummaryAsync`, `:1294` after `WriteCliSummaryAsync`, `:1305` after the local
+    `WriteSummaryAsync`; checked 2026-11-07). A doodle step is a third artefact written to the same
+    place and a fourth announcement. Nothing about the recording or transcription half
     needs to change, which is what makes this an idea rather than a rework.
 
     **The one piece that does not exist yet is image generation, and the choice of route is the
-    whole decision.** The prompt was written for ChatGPT, which is a cloud service. Remembrance's
-    entire design statement is that a meeting never leaves the box: a local Whisper, a loopback
-    Ollama, and the module's own comment saying so. Three routes, with what each actually costs:
+    whole decision.** The prompt was written for ChatGPT, which is a cloud service. When this idea
+    was filed, Remembrance's design statement was that a meeting never leaves the box: a local
+    Whisper, a loopback Ollama, and the module's own comment saying so. That is no longer the
+    module's property. Since 2.1.0 the summary can run through a coding-agent CLI, and since 2.2.0
+    on a cloud provider, each sending the transcript's text off the machine when the user picks it
+    under "Summary runs on" (the owner, 2026-10-06: the choice belongs to the end user). Choosing
+    the engine is the consent: no separate switch, and no new `ModulePermissions` bit, since the
+    module already declares `Network` (`RemembranceModule.cs:322`, `:345-346`, `:596-606`;
+    `DESIGN-REGISTER.md` `#### feature/remembrance-cloud`). Transcription stays local. Three
+    routes, with what each actually costs:
 
     - **Cloud image API.** Faithful to the prompt as written, and the only route that renders the
-      aesthetic well today. It also sends a MEETING TRANSCRIPT to a third party, which is the exact
-      thing the module promises not to do. That needs a new `ModulePermissions` bit, per-run consent
-      rather than a one-time toggle, and it fires the consent re-prompt for every existing user. Not
-      a small addition dressed as a setting.
-    - **Local diffusion (SDXL / FLUX in the media venv).** Keeps the promise, and shares the single
-      RTX 4090 with the owner's own work, so it inherits the ask-before-inference rule and has to say
-      how long it holds the card. The real risk is not VRAM though: a doodle-notes infographic is
-      mostly LETTERING, and legible hand-written section headers are the known weak point of
-      diffusion models. The prompt itself bans "tiny unreadable microtext", so the format's success
-      criterion is the thing the route is worst at. Worth one measured trial before any scoping.
+      aesthetic well today. It sends a MEETING TRANSCRIPT, or a summary of one, to a third party,
+      which the cloud and CLI summary engines already do on the user's choice. Whether a picture
+      of a meeting needs more consent than its summary is the owner's call; the summary engines'
+      precedent is that picking the engine is enough.
+    - **Local diffusion (SDXL / FLUX in the media venv).** Keeps everything on the box, and shares
+      the single RTX 4090 with the owner's own work, so it inherits the ask-before-inference rule
+      and has to say how long it holds the card. The real risk is not VRAM though: a doodle-notes
+      infographic is mostly LETTERING, and legible hand-written section headers are the known weak
+      point of diffusion models. The prompt itself bans "tiny unreadable microtext", so the format's
+      success criterion is the thing the route is worst at. Worth one measured trial before any
+      scoping.
     - **Deterministic render from a structured plan.** The local LLM emits a layout rather than a
       picture -- sections, ownership tags, arrows, and icons chosen from a fixed bundled set -- and
       the module draws it. Text is then real text and legible at any zoom, the no-people rule holds
@@ -290,8 +309,10 @@ fullscreen stand-down, window-follow), all of which teleport or re-home rather t
 
 **The shape that fits this code**, from the 2026-09-22 scoping that corrected two earlier wrong
 blockers: an adjacency function in `DesktopGeometry` beside `ChooseRelocationTarget` -- pure
-rectangle geometry, trivially testable -- then hand off at `FormCompanion.cs:1077` / `:1128` instead
-of turning at the border: set `DisplayIndex`, call `UpdateValues`, translate the position.
+rectangle geometry, trivially testable -- then hand off at the two screen-border checks in
+`FormCompanion`'s move step (`// left screen border!` and `// right screen border!`,
+`FormCompanion.cs:1307` / `:1359` on 2026-11-07) instead of turning at the border: set
+`DisplayIndex`, call `UpdateValues`, translate the position.
 
 Two things NOT in the way, both previously named as blockers and both refuted:
 
