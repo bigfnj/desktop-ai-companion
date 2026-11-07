@@ -3379,8 +3379,8 @@ CASES = (
     (
         "host-runtime: the fullscreen enumeration offers no extended style",
         os.path.join(REPO, "src", "dotNet", "FullscreenScan.cs"),
-        b"                    return decider.Offer(hWnd, Rectangle.FromLTRB(r.Left, r.Top, r.Right, r.Bottom), ExtendedStyle(hWnd));\n",
-        b"                    return decider.Offer(hWnd, Rectangle.FromLTRB(r.Left, r.Top, r.Right, r.Bottom));\n",
+        b"                    return decider.Offer(hWnd, Rectangle.FromLTRB(r.Left, r.Top, r.Right, r.Bottom), ExtendedStyle(hWnd), IsFramedMaximised(hWnd));\n",
+        b"                    return decider.Offer(hWnd, Rectangle.FromLTRB(r.Left, r.Top, r.Right, r.Bottom), 0, IsFramedMaximised(hWnd));\n",
         "host-runtime: the fullscreen enumeration offers each window",
     ),
     (
@@ -3971,6 +3971,17 @@ CASES = (
         b"output.PlayClip(owner, audio, wav, volume)",
         b"output.PlayClip(owner, audio, false, volume)",
         "shimeji-host-wav: a tick clip reaches the audio output with the format its document declared",
+    ),
+    # ---- burndown/host-1 ----
+    # N-audit-1106-023: the enumeration stops telling the decider which windows are maximized framed ones, so a
+    # maximized window on a monitor with no taskbar strip reads as fullscreen again (the decider's own rule is graded by
+    # --fullscreen-selftest; this is the wiring no headless self-test can see).
+    (
+        "bd-host-1: the fullscreen enumeration offers no maximized flag",
+        os.path.join(REPO, "src", "dotNet", "FullscreenScan.cs"),
+        b"                    return decider.Offer(hWnd, Rectangle.FromLTRB(r.Left, r.Top, r.Right, r.Bottom), ExtendedStyle(hWnd), IsFramedMaximised(hWnd));\n",
+        b"                    return decider.Offer(hWnd, Rectangle.FromLTRB(r.Left, r.Top, r.Right, r.Bottom), ExtendedStyle(hWnd), false);\n",
+        "host-runtime: the fullscreen enumeration offers each window",
     ),
 )
 

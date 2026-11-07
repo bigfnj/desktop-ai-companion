@@ -20481,6 +20481,14 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--shimeji-window-selftest", "dp-shimeji-window-selftest.txt",
      "the speech bubble anchors over each tick companion's window"),
+    # N-audit-1106-023: a maximized framed window decides its monitor by its overhanging rect again.
+    ("bd-host-1: a maximized framed window reads as fullscreen",
+     os.path.join(REPO, "src", "dotNet", "FullscreenScan.cs"),
+     b"if (!framedMaximised && DesktopGeometry.IsFullscreenOnMonitor(bounds, monitors[i]))",
+     b"if (DesktopGeometry.IsFullscreenOnMonitor(bounds, monitors[i]))",
+     HOST_CSPROJ, EXE,
+     "--fullscreen-selftest", "dp-fullscreen-selftest.txt",
+     "maximized-framed-no-taskbar-primary"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

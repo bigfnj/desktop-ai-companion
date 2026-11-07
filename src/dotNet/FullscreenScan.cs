@@ -44,7 +44,7 @@ namespace DesktopAICompanion
                     if (!IsWindowVisible(hWnd) || IsIconic(hWnd)) return true;
                     if (IsCloaked(hWnd) || IsShell(hWnd)) return true;
                     if (!GetWindowRect(hWnd, out RECT r)) return true;
-                    return decider.Offer(hWnd, Rectangle.FromLTRB(r.Left, r.Top, r.Right, r.Bottom), ExtendedStyle(hWnd));
+                    return decider.Offer(hWnd, Rectangle.FromLTRB(r.Left, r.Top, r.Right, r.Bottom), ExtendedStyle(hWnd), IsFramedMaximised(hWnd));
                 }, IntPtr.Zero);
             }
             catch
@@ -124,6 +124,17 @@ namespace DesktopAICompanion
             /// </summary>
             public bool Offer(IntPtr hWnd, Rectangle bounds, int extendedStyle)
             {
+                return Offer(hWnd, bounds, extendedStyle, false);
+            }
+
+            /// <summary>
+            /// Offer the next window in z-order with its GWL_EXSTYLE and whether it is a MAXIMIZED framed window
+            /// (DesktopWindows.IsFramedMaximised). Such a window decides the monitor whose centre it holds, as any real
+            /// window does, but decides it CLEAR (N-audit-1106-023): its rect overhangs the work area by the invisible
+            /// resize border, so on a monitor with no taskbar strip it covers the whole monitor without being fullscreen.
+            /// </summary>
+            public bool Offer(IntPtr hWnd, Rectangle bounds, int extendedStyle, bool framedMaximised)
+            {
                 if (remaining <= 0) return false;
                 if (petHandles != null && petHandles.Contains(hWnd)) return true;
                 if (IsClickThrough(extendedStyle)) return true;
@@ -135,7 +146,7 @@ namespace DesktopAICompanion
                     if (!bounds.Contains(DesktopGeometry.Center(monitors[i]))) continue;
                     decided[i] = true;
                     remaining--;
-                    if (DesktopGeometry.IsFullscreenOnMonitor(bounds, monitors[i]))
+                    if (!framedMaximised && DesktopGeometry.IsFullscreenOnMonitor(bounds, monitors[i]))
                         Blocked[i] = true;
                 }
                 return remaining > 0;
@@ -244,6 +255,26 @@ namespace DesktopAICompanion
                 var layeredFullscreen = new MonitorDecider(twoMonitors, null);
                 layeredFullscreen.Offer(topmostWindow, primary, layeredTopmostStyle);
                 ok = Expect(sb, "WITNESS layered-not-transparent-fullscreen-primary", true, layeredFullscreen.Blocked[1]) && ok;
+
+                // 8. A MAXIMIZED framed window on a monitor whose taskbar reserves no space (N-audit-1106-023). Its
+                //    GetWindowRect overhangs the monitor by the invisible resize border on every side, so it covers the
+                //    monitor; it is still an ordinary window, and decides its monitor CLEAR (the rain window below it
+                //    still blocks the other one). WITNESS: the same overhanging rect from a window that is not a framed
+                //    maximized one (a borderless game sized past the monitor) blocks; and the style rule takes a title bar
+                //    or a sizing border as framed, and a bare popup or a thin border alone as not.
+                var overhang = Rectangle.Inflate(primary, 8, 8);
+                var maximizedNoTaskbar = new MonitorDecider(twoMonitors, null);
+                maximizedNoTaskbar.Offer(maximized, overhang, 0, true);
+                maximizedNoTaskbar.Offer(rain, rainWindow);
+                ok = Expect(sb, "maximized-framed-no-taskbar-primary", false, maximizedNoTaskbar.Blocked[1]) && ok;
+                ok = Expect(sb, "WITNESS maximized-framed-no-taskbar-left-still-rain", true, maximizedNoTaskbar.Blocked[0]) && ok;
+                var borderlessOverhang = new MonitorDecider(twoMonitors, null);
+                borderlessOverhang.Offer(game, overhang, 0, false);
+                ok = Expect(sb, "WITNESS borderless-overhang-primary", true, borderlessOverhang.Blocked[1]) && ok;
+                ok = Expect(sb, "style-overlapped-window-is-framed", true, DesktopWindows.IsFramedStyle(0x00CF0000)) && ok;
+                ok = Expect(sb, "style-sizing-border-alone-is-framed", true, DesktopWindows.IsFramedStyle(0x00040000)) && ok;
+                ok = Expect(sb, "WITNESS style-popup-is-not-framed", false, DesktopWindows.IsFramedStyle(unchecked((int)0x80000000))) && ok;
+                ok = Expect(sb, "WITNESS style-thin-border-alone-is-not-framed", false, DesktopWindows.IsFramedStyle(0x00800000)) && ok;
 
                 // 7. The speaker and the random drop's subject prefer a companion in view (N-fullscreen-per-monitor-01),
                 //    through StartUp's pure rule, with described companions: "+view" marks one in view, and "cat" is the

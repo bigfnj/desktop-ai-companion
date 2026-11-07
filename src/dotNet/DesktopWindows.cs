@@ -112,6 +112,36 @@ namespace DesktopAICompanion
             return GetWindowLong(hWnd, GWL_EXSTYLE);
         }
 
+        [DllImport("user32.dll")]
+        private static extern bool IsZoomed(IntPtr hWnd);
+
+        private const int GWL_STYLE = -16;
+        private const int WS_CAPTION = 0x00C00000;      // WS_BORDER | WS_DLGFRAME: a title bar
+        private const int WS_THICKFRAME = 0x00040000;   // a sizing border
+
+        /// <summary>
+        /// Whether a window is an ordinary application window MAXIMIZED: zoomed, with a title bar or a sizing border.
+        /// For FullscreenScan (N-audit-1106-023), read here for the same reason as <see cref="ExtendedStyle"/>.
+        ///
+        /// Windows places a maximized framed window with its invisible resize border hanging past the work area, so its
+        /// GetWindowRect is LARGER than the work area. On a monitor whose taskbar reserves no space (a second monitor
+        /// without a taskbar, or an auto-hidden one) the work area is the whole monitor, and that rect then covers the
+        /// monitor and read as fullscreen: a maximized browser stood every companion there down. DWM frame bounds were
+        /// not the fix: they equal the monitor exactly in that case, which still reads as covering it. A borderless game
+        /// is the opposite shape (WS_POPUP, no caption, no sizing border, whether or not it is zoomed), so the frame bits
+        /// are what tell the two apart.
+        /// </summary>
+        internal static bool IsFramedMaximised(IntPtr hWnd)
+        {
+            return IsZoomed(hWnd) && IsFramedStyle(GetWindowLong(hWnd, GWL_STYLE));
+        }
+
+        /// <summary>The style half of <see cref="IsFramedMaximised"/>: the whole caption pair, or a sizing border.</summary>
+        internal static bool IsFramedStyle(int style)
+        {
+            return (style & WS_CAPTION) == WS_CAPTION || (style & WS_THICKFRAME) != 0;
+        }
+
         /// <summary>
         /// Every ordinary application window, frontmost first. <paramref name="petHandles"/> are
         /// excluded so a companion never reports itself as something the user is looking at, exactly as
