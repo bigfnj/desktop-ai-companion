@@ -48,8 +48,10 @@ if ($Zip -and -not $Release) {
 # -Zip DELEGATES to packaging\New-DeterministicPortableZip.ps1, which is `#requires -Version 7` for a
 # measured reason: System.IO.Compression's deflate differs between editions, so the same payload came
 # out 63,580 bytes under Windows PowerShell 5.1 and 64,271 under pwsh 7.6.5, with different SHA-256.
-# Those archives are committed, served off master and hashed in catalog.json, so producing one from
-# the wrong host churns a binary every user downloads.
+# The portable ZIP is a release asset: release.yml builds it under pwsh and publishes its SHA-256 in
+# SHA256SUMS.txt, so one produced under 5.1 holds the same files under a hash no release carries. (This
+# said the ZIP is committed and hashed in catalog.json, the MODULE zips' reason; it is neither,
+# N-audit-1106-262.)
 #
 # THIS file stays `#requires -Version 5`, because the ordinary build really does run under either and
 # that must keep working. So the version floor belongs here, on the -Zip path alone -- and it has to
@@ -59,8 +61,8 @@ if ($Zip -and -not $Release) {
 if ($Zip -and $PSVersionTable.PSVersion.Major -lt 7) {
     throw ("-Zip requires PowerShell 7 or later; this is $($PSVersionTable.PSEdition) " +
            "$($PSVersionTable.PSVersion). packaging\New-DeterministicPortableZip.ps1 is 7-only " +
-           'because deflate output differs by edition and these archives are committed and hashed ' +
-           'in catalog.json. Re-run the same command under pwsh.')
+           'because deflate output differs by edition, and the release builds this ZIP under pwsh and ' +
+           'publishes its SHA-256 in SHA256SUMS.txt. Re-run the same command under pwsh.')
 }
 
 $stagingPathSafety =

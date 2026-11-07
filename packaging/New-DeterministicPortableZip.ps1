@@ -5,16 +5,18 @@
 # (E14D9AAF64B4... vs E63670FE570A...). The deflate implementation differs; nothing in the entry
 # metadata does.
 #
-# That matters because these zips are COMMITTED, served off master, and hashed in catalog.json. A
-# hand re-zip under powershell.exe churns a binary every user downloads and forces a new catalog
-# hash for no functional change. Today's committed zips are consistent only because the automated
-# path runs through New-ModulePublish.ps1, which is already 7+.
+# That matters because this ZIP is a RELEASE ASSET: build.ps1 -Zip is its only caller, release.yml runs
+# that under pwsh, and the release publishes the ZIP's SHA-256 in SHA256SUMS.txt. Rebuilding a tag to
+# check a release ZIP against its source only works on the same footing; a ZIP made under powershell.exe
+# holds the same files under a different hash. (This paragraph used to say these zips are committed,
+# served off master and hashed in catalog.json. That is New-ModuleDistZip.ps1's reasoning, copied with
+# the measurement; the portable ZIP is in no commit and no catalog, N-audit-1106-262.)
 #
 # 7 is a FLOOR, not the whole promise. Measured 2026-09-29 (audit F213): the same seeded payload under
 # CompressionLevel.Optimal zips to different bytes under .NET 8, 9 and 10 -- pwsh 7.4, 7.5 and 7.6 --
-# so byte-identical output needs the same pwsh major.minor, not merely 7+. Correctness is unaffected
-# (the catalog hashes whatever blob is committed), and New-ModulePublish.ps1 records the publishing
-# PowerShell version in the commit body so a hash churn can be attributed to the runtime.
+# so byte-identical output needs the same pwsh major.minor, not merely 7+. Correctness is unaffected:
+# SHA256SUMS.txt hashes whatever ZIP the release built, so a different runtime changes the number, not
+# whether a download verifies against it.
 #requires -Version 7
 [CmdletBinding()]
 param(
