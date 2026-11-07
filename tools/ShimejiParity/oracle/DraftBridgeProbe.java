@@ -56,6 +56,15 @@ public final class DraftBridgeProbe {
         System.setProperty("shimeji.parity.enabled", "true");
         require(((Number)new Script("1+2", false).get(controlled)).intValue() == 3, "source-script-bridged");
         require(on.reads == off.reads, "no-extra-lazy-variable-evaluation");
+        // Query the exact JDK-8 Script/JSR-223 path, with a bound-variable positive control. A developer's newer
+        // Java runtime or a list of assumed Nashorn globals cannot decide which converter names are reserved.
+        require("number".equals(new Script("typeof unusedWitness", false).get(controlled)), "global-type-positive-control");
+        Map<String, Object> globalTypes = new LinkedHashMap<String, Object>();
+        for (String name : new String[] { "engine", "context", "arguments" }) {
+            Object type = new Script("typeof " + name, false).get(controlled);
+            require(type instanceof String, "global-type-" + name);
+            globalTypes.put(name, type);
+        }
         Script once = new Script("Math.random()", false);
         once.init();
         require(((Number)once.get(controlled)).doubleValue() == 0.25, "first-script-draw");
@@ -81,7 +90,12 @@ public final class DraftBridgeProbe {
         catch (IOException expected) { refused = expected.getMessage().equals("non-finite-trace-number"); }
         require(refused, "trace-non-finite-refused");
         require(buffer.toString().equals(valid), "trace-invalid-record-is-atomic");
-        System.out.println("{\"status\":\"pass\",\"scriptDraws\":" + controller.draws
-            + ",\"unusedReadsOff\":" + off.reads + ",\"unusedReadsOn\":" + on.reads + "}");
+        Map<String, Object> result = new LinkedHashMap<String, Object>();
+        result.put("status", "pass"); result.put("scriptDraws", controller.draws);
+        result.put("unusedReadsOff", off.reads); result.put("unusedReadsOn", on.reads);
+        result.put("globalTypes", globalTypes);
+        StringWriter report = new StringWriter();
+        new DraftTraceWriter(report).writeRecord(result);
+        System.out.print(report.toString());
     }
 }

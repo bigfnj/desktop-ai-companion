@@ -319,6 +319,14 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             // place). A null value is a Name the source element does not have, "" an empty one; a node absent here kept
             // its source name. The parity trace writes these names; the runtime never reads them.
             private readonly Dictionary<string, string> _sourceNames = new Dictionary<string, string>(StringComparer.Ordinal);
+            // N-shimeji-1106-13: a zero-duration source pose is omitted, but still consumes its source ordinal.
+            // Keep provenance on the emitted object until the final variants are known: omitted all-zero animations
+            // also shift variant indexes. Neither ordinal belongs in the product XML or changes its runtime.
+            private sealed class PoseOrigin
+            {
+                public string RefKey;
+                public int Index;
+            }
             private int _next = 2;
             // The feature tokens the validator demands for what this member USES (grimoire/06 sections 1 and 10).
             private bool _lifecycle, _social, _windows, _hotspots, _expressions, _variables;
@@ -488,8 +496,32 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     Frame frame = _frames[i];
                     frameMap.Add(new { frame = i, image = frame.Image, anchor = new[] { frame.X, frame.Y }, size = new[] { frame.Width, frame.Height } });
                 }
-                string map = JsonSerializer.Serialize(new { schema = "shimeji-parity-map/1", imageSet = _member,
-                    frames = frameMap, actions = _actionMap, children = _childMap, behaviours = _behaviourMap, sourceNames = _sourceNames },
+                var poseMap = new Dictionary<string, object>(StringComparer.Ordinal);
+                foreach (XElement node in _nodes)
+                {
+                    XElement action = node.Element(Ns + "act");
+                    XElement variants = action == null ? null : action.Element(Ns + "variants");
+                    if (variants == null) continue;
+                    int variantIndex = 0;
+                    foreach (XElement variant in variants.Elements(Ns + "variant"))
+                    {
+                        int poseIndex = 0;
+                        foreach (XElement pose in variant.Elements(Ns + "pose"))
+                        {
+                            PoseOrigin origin = pose.Annotation<PoseOrigin>();
+                            // A permanently false synthetic variant used for an action ending at once has no source
+                            // pose. It can never be applied and supplies no source-pose evidence (decision 68).
+                            if (origin != null)
+                                poseMap.Add((string)node.Attribute("id") + ":" + variantIndex.ToString(Invariant) + ":" + poseIndex.ToString(Invariant),
+                                    new { refKey = origin.RefKey, index = origin.Index });
+                            poseIndex++;
+                        }
+                        variantIndex++;
+                    }
+                }
+                string map = JsonSerializer.Serialize(new { schema = "shimeji-parity-map/2", imageSet = _member,
+                    frames = frameMap, actions = _actionMap, children = _childMap, behaviours = _behaviourMap, sourceNames = _sourceNames,
+                    poses = poseMap },
                     new JsonSerializerOptions { WriteIndented = true });
                 string xml = document.ToString();
                 CheckAudioLimits(clips);
@@ -839,6 +871,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 // order the source interleaves Pose and Hotspot children in.
                 var hotspots = new List<XElement>();
                 bool anyPose = false;
+                int sourcePoseIndex = 0;
                 foreach (ShimejiSourceElement child in source.Children)
                 {
                     if (child.Kind == ShimejiSourceKind.Hotspot)
@@ -847,6 +880,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                         continue;
                     }
                     if (child.Kind != ShimejiSourceKind.Pose) Fail(child, "only Pose and Hotspot are supported in an Animation");
+                    int sourceIndex = sourcePoseIndex++;
                     Check(child, "Image", "ImageRight", "ImageAnchor", "Velocity", "Duration", "Sound", "Volume");
                     int dx, dy;
                     Pair(Required(child, "Velocity"), child, out dx, out dy);
@@ -876,6 +910,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                         continue;
                     }
                     var pose = E("pose", new XAttribute("frame", -1), new XAttribute("ticks", ticks), new XAttribute("dx", dx), new XAttribute("dy", dy));
+                    pose.AddAnnotation(new PoseOrigin { RefKey = Ref(_source.Actions, child), Index = sourceIndex });
                     if (image != null)
                     {
                         int x, y;
@@ -1739,6 +1774,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         // unescape from B.2) and Nashorn's own (print, load, the Java access objects and package roots, the typed
         // arrays). An attribute of one of these names is not carried, so a script reading it refuses by name.
         private static readonly HashSet<string> ReservedNames = Set("mascot Math true false null "
+            // N-shimeji-1106-10: the pinned JDK 8 JSR-223 Script bridge exposes these as globals too
+            // (DraftBridgeProbe's typeof witness). Carrying a same-named custom variable would change its binding.
+            + "engine context arguments "
             + "NaN Infinity undefined eval parseInt parseFloat isNaN isFinite decodeURI decodeURIComponent encodeURI "
             + "encodeURIComponent escape unescape Object Function Array String Boolean Number Date RegExp JSON Error "
             + "EvalError RangeError ReferenceError SyntaxError TypeError URIError "

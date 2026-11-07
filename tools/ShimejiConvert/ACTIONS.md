@@ -110,7 +110,10 @@ An anonymous nested action becomes a node named after its place, `<parent>/<posi
 with another action's is refused. An attribute the schema does not name on an action, a reference or a
 behaviour is a variable of the source's action map: it is carried under its own name when it is a plain
 identifier the host does not read as a parameter of its own and some script of the member names it, and the
-scripts of that map see it; one nothing reads is refused, as before. A script's zero-argument JavaBean getter call
+scripts of that map see it; one nothing reads is refused, as before.
+The JDK 8 JSR-223 globals `engine`, `context` and `arguments` are reserved rather than carried as custom variables;
+the pinned-runtime `DraftBridgeProbe` records their `typeof` values.
+A script's zero-argument JavaBean getter call
 (`getScreen()`, `isLookRight()`) is written as the property it reads, which Nashorn evaluates with the same call.
 `Math.random` named without a call is NaN in the source, with no draw; where it is the value of a Move's or a Jump's
 TargetX or TargetY, or of a ternary branch that is that value, it is written as 0, the int those readers make of
@@ -160,9 +163,11 @@ left/right path pairs, including pairs in unused actions. The parity map records
 agrees with every pose using the frame; the source IR retains each pose's authored value.
 A pose of Duration 0 is left out of its variant: the source never makes it the current pose (Animation.getPoseAt,
 Animation.java:54-67) and it adds nothing to the animation's length (:70-78). Its image, anchor and clip are still
-checked as the source loads them. Known trace limitation: leaving it out shifts the index of every later pose of that
-variant, so a traced pose index no longer equals the source's (a v1.1 pose-map item; the image and anchor traced are
-unaffected). An Animation whose every pose has Duration 0 (decisions 68, review N2): in an Animate or an Interact
+checked as the source loads them. The converter's `shimeji-parity-map/2` records each retained pose's source index
+and exact Pose refKey in `poses`, keyed by emitted action node, variant and pose positions. A skipped pose still
+consumes its source index; omitted animations also preserve the final emitted variant positions. Image-less poses
+retain their origins, while permanently false synthetic poses supply no source entry. Host consumption and the
+shared contract revision await the host lane's integration. An Animation whose every pose has Duration 0 (decisions 68, review N2): in an Animate or an Interact
 action, whose hasNext is false at once (Animate.java:38-42, Interact.java:34-36), the action ends before its first
 step, written as one variant that never holds (`when="false"`, one image-less pose), which the host's Animate also
 ends on at once. Under a Sequence or Select, in an instant class, or after an unconditional Animation, the source
