@@ -51,6 +51,7 @@ namespace DesktopAICompanion.Shimeji
         {
             CheckHost(check, log);
             CheckRoute(check);
+            CheckAppComposition(check);
             CheckOutputOwners(check);
             CheckStagedClips(check);
         }
@@ -186,6 +187,41 @@ namespace DesktopAICompanion.Shimeji
             finally
             {
                 data.SetVolume(before);
+            }
+        }
+
+        /// <summary>The composition StartUp wires (AppTickAudio over AudioOutput.PlayClip, the fullscreen hold asked at every
+        /// play), end to end into an output started with no device (AudioOutput.StartSilentForTest): CheckRoute proves the
+        /// level rule in isolation; this proves the app's path applies it, and the hold, to a decoded clip.</summary>
+        private static void CheckAppComposition(Action<bool, string> check)
+        {
+            LocalData data = Program.MyData;
+            double before = data.GetVolume();
+            byte[] wav = AudioOutputSelfTest.SyntheticWave(1, 16, 2, 44100, 441, false);
+            string owner = HostTickClips.OwnerOf(new TickClip("Alpha", "wa", 0f));
+            using (var output = new AudioOutput())
+            {
+                try
+                {
+                    data.SetVolume(0.5);
+                    output.StartSilentForTest();
+                    bool held = true;
+                    var app = new AppTickAudio(() => output, () => held);
+                    bool playedHeld = app.Play(owner, wav, true, 1.0);
+                    check(!playedHeld && !output.IsPlaying(owner),
+                        "sound route: the app's clip path plays nothing into the output while sounds are held for a fullscreen window");
+                    held = false;
+                    bool played = app.Play(owner, wav, true, 0.5);
+                    double level = output.LiveVolumeForTest(owner);
+                    check(played && output.IsPlaying(owner) && Math.Abs(level - 0.25) < 1e-6,
+                        "sound route: WITNESS the app's clip path plays a clip into the output at the user's volume times the pose's gain (level "
+                        + level.ToString("0.000", CultureInfo.InvariantCulture) + ")");
+                    check(app.Stop(owner) && !output.IsPlaying(owner), "sound route: the app's clip path stops its clip in the output");
+                }
+                finally
+                {
+                    data.SetVolume(before);
+                }
             }
         }
 
