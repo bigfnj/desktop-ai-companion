@@ -22378,6 +22378,14 @@ CASES = (
      b"            List<string> gap = notOnFloor; unusedClassified.Clear();\n",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
      SHIMEJI, "classic-emitter", "classic Group2 residue: an action left out on purpose is not listed with its classifier reason"),
+    # N-audit-1106-152: the tick compositor copies a re-read sprite at whatever size it now has. The self-test's sheet is
+    # wider than the cell, so the unguarded copy stays inside the buffer and the run reports instead of crashing.
+    ("bd-w4-converter-1: the tick compositor copies a sprite that changed size since it was measured (N-audit-1106-152)",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
+     b"            if (source.Width != measuredWidth || source.Height != measuredHeight)\n",
+     b"            if (source == null)\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "tick-emitter/sprite-changed-refusal", "a sprite that grew between the measuring read and the compositing read"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

@@ -1701,7 +1701,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                         {
                             Frame frame = _frames[i];
                             int tile = i, columns = tilesX;
-                            ReadSprite(frame.Path, bitmap => CopyPixels(bitmap, destination, (tile % columns) * width, (tile / columns) * height));
+                            ReadSprite(frame.Path, bitmap => CopyPixels(bitmap, destination, (tile % columns) * width, (tile / columns) * height,
+                                frame.Width, frame.Height));
                         }
                     }
                     finally { sheet.UnlockBits(destination); }
@@ -1711,22 +1712,6 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                         return output.ToArray();
                     }
                 }
-            }
-
-            private static void CopyPixels(Bitmap source, BitmapData destination, int x, int y)
-            {
-                BitmapData pixels = source.LockBits(new Rectangle(0, 0, source.Width, source.Height),
-                    ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
-                try
-                {
-                    var row = new byte[checked(source.Width * 4)];
-                    for (int line = 0; line < source.Height; line++)
-                    {
-                        Marshal.Copy(IntPtr.Add(pixels.Scan0, checked(line * pixels.Stride)), row, 0, row.Length);
-                        Marshal.Copy(row, 0, IntPtr.Add(destination.Scan0, checked((y + line) * destination.Stride + x * 4)), row.Length);
-                    }
-                }
-                finally { source.UnlockBits(pixels); }
             }
 
             private string Ref(ShimejiSourceDocument document, ShimejiSourceElement source)
@@ -1972,6 +1957,29 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             path = Path.GetFullPath(path);
             return string.Equals(root, path, StringComparison.OrdinalIgnoreCase)
                 || path.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+        }
+        /// <summary>Copy <paramref name="source"/> into its cell at (x,y). The sheet's geometry came from AddFrame's
+        /// read of the file and this is a second read, so a sprite replaced in between (an editor saving, a sync
+        /// client) arrived at its new size and its rows went out through raw Marshal.Copy past its cell, or past the
+        /// sheet's buffer (N-audit-1106-152). A size other than the one measured is refused, smaller included: the
+        /// frame is no longer the one the graph was built from.</summary>
+        internal static void CopyPixels(Bitmap source, BitmapData destination, int x, int y, int measuredWidth, int measuredHeight)
+        {
+            if (source.Width != measuredWidth || source.Height != measuredHeight)
+                throw new InvalidDataException("TICK_SPRITE_CHANGED: a sprite measured " + measuredWidth + " x " + measuredHeight
+                    + " is " + source.Width + " x " + source.Height + " on its second read; it changed during the conversion, so convert again.");
+            BitmapData pixels = source.LockBits(new Rectangle(0, 0, source.Width, source.Height),
+                ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+            try
+            {
+                var row = new byte[checked(source.Width * 4)];
+                for (int line = 0; line < source.Height; line++)
+                {
+                    Marshal.Copy(IntPtr.Add(pixels.Scan0, checked(line * pixels.Stride)), row, 0, row.Length);
+                    Marshal.Copy(row, 0, IntPtr.Add(destination.Scan0, checked((y + line) * destination.Stride + x * 4)), row.Length);
+                }
+            }
+            finally { source.UnlockBits(pixels); }
         }
         private static void SafeEntry(string path)
         {

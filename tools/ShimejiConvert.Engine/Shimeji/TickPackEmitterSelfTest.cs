@@ -103,6 +103,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "cross-member-pack-metadata", Run = (Action)CrossMemberPackMetadata },
                 new { Name = "pack-source-identity", Run = (Action)PackSourceIdentity },
                 new { Name = "tick-cell-cap", Run = (Action)TickCellCap },
+                new { Name = "sprite-changed-refusal", Run = (Action)SpriteChangedRefusal },
                 new { Name = "source-names-map", Run = (Action)SourceNamesMap },
                 new { Name = "source-pose-map", Run = (Action)SourcePoseMap },
             };
@@ -2672,6 +2673,32 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
 
         /// <summary>A tick member's cell is its largest image at the source's own size up to the host's TICK cap (768, past
         /// the classic 256), graded by the host validator as a tick companion; one pixel past the cap is refused by name.</summary>
+        /// <summary>N-audit-1106-152: the compositor's second read of a sprite is held to the size the first read measured.
+        /// A 5 x 5 bitmap where 4 x 4 was measured went into its 4 x 4 cell through raw Marshal.Copy, past the cell (the
+        /// sheet here is 8 x 8, so even the unguarded copy stays inside its buffer); it is refused by name instead. WITNESS: the measured size copies, pixel for pixel.</summary>
+        private static void SpriteChangedRefusal()
+        {
+            using (var sheet = new Bitmap(8, 8, PixelFormat.Format32bppArgb))
+            using (var same = new Bitmap(4, 4, PixelFormat.Format32bppArgb))
+            using (var grown = new Bitmap(5, 5, PixelFormat.Format32bppArgb))
+            {
+                same.SetPixel(3, 3, Color.FromArgb(255, 10, 20, 30));
+                BitmapData destination = sheet.LockBits(new Rectangle(0, 0, 8, 8), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+                string refusal = null;
+                try
+                {
+                    try { TickPackEmitter.CopyPixels(grown, destination, 0, 0, 4, 4); }
+                    catch (InvalidDataException changed) { refusal = changed.Message; }
+                    TickPackEmitter.CopyPixels(same, destination, 0, 0, 4, 4);
+                }
+                finally { sheet.UnlockBits(destination); }
+                Require(refusal != null && refusal.Contains("TICK_SPRITE_CHANGED"),
+                    "a sprite that grew between the measuring read and the compositing read was copied at its new size");
+                Require(sheet.GetPixel(3, 3).ToArgb() == Color.FromArgb(255, 10, 20, 30).ToArgb(),
+                    "WITNESS: a sprite at its measured size did not copy into its cell");
+            }
+        }
+
         private static void TickCellCap()
         {
             using (var wide = new Fixture())
