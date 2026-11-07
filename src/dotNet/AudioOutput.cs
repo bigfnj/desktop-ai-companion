@@ -75,7 +75,7 @@ namespace DesktopAICompanion
         }
 
         private MixingSampleProvider _mixer;
-        private DirectSoundOut _output;
+        private IWavePlayer _output;
         private Guid _deviceId = Guid.Empty;   // Guid.Empty = the default playback device ("Primary Sound Driver")
         private float[] _testTone;
         private float[] _builtInChime;   // the notification default, synthesized on first use
@@ -96,6 +96,12 @@ namespace DesktopAICompanion
         /// </summary>
         private DateTime _retryAfterUtc = DateTime.MinValue;
         internal static readonly TimeSpan RetryInterval = TimeSpan.FromMinutes(2);
+        /// <summary>
+        /// When <see cref="OnPlaybackStopped"/> last let a stop with no error go without a latch (BUG-019): the next
+        /// sound reopens the output instead. One such reopen per <see cref="RetryInterval"/>; a second clean stop inside
+        /// it latches as an error does. <see cref="DateTime.MinValue"/> until the first.
+        /// </summary>
+        private DateTime _cleanStopReopenedUtc = DateTime.MinValue;
         /// <summary>The device the running output was opened on; null when nothing is running.</summary>
         private Guid? _runningDevice;
         /// <summary>How many times the output thread reported a stop we did not ask for.</summary>
@@ -111,6 +117,25 @@ namespace DesktopAICompanion
         /// <summary>Run <see cref="EnsureStarted"/> without queuing anything, so a self-test can prove where
         /// the NEXT sound would go without making the box beep.</summary>
         internal bool EnsureStartedForTest() { lock (_sync) return !_disposed && EnsureStarted(); }
+        /// <summary>As above, with the device the output runs on read under the SAME lock, so an asynchronous stop that
+        /// lands just after cannot make the answer disagree with where it started (N-audit-1106-020).</summary>
+        internal bool EnsureStartedForTest(out Guid? runningDevice)
+        {
+            lock (_sync)
+            {
+                bool started = !_disposed && EnsureStarted();
+                runningDevice = _runningDevice;
+                return started;
+            }
+        }
+
+        /// <summary>
+        /// Opens the output on a device: DirectSound, 100 ms of latency, the app's only player. A seam because the one
+        /// event that matters here, a stop the device reports by itself, cannot be produced on demand through a real
+        /// device: --audio-selftest swaps in a player that stops when it is told to, with or without an error, so the
+        /// clean stop of BUG-019 is driven through the same subscription a real one arrives on (N-shimeji-1106-02).
+        /// </summary>
+        internal Func<Guid, IWavePlayer> OpenOutput = delegate (Guid device) { return new DirectSoundOut(device, 100); };
 
         /// <summary>Playback devices as (device GUID string, friendly name); the first is the default.</summary>
         public static IReadOnlyList<KeyValuePair<string, string>> EnumerateDevices()
@@ -526,12 +551,12 @@ namespace DesktopAICompanion
         private bool TryStart(Guid device)
         {
             MixingSampleProvider mixer = null;
-            DirectSoundOut output = null;
+            IWavePlayer output = null;
             try
             {
                 mixer = new MixingSampleProvider(MixFormat) { ReadFully = true };   // keep running when idle
                 mixer.MixerInputEnded += OnMixerInputEnded;
-                output = new DirectSoundOut(device, 100);
+                output = OpenOutput(device);
                 output.Init(mixer.ToWaveProvider16());   // 16-bit PCM: universally accepted by DirectSound
                 // BEFORE Play(): the device is opened on the playback thread Play starts, and a failure
                 // there is reported through this event and nowhere else (see OnPlaybackStopped).
@@ -575,6 +600,19 @@ namespace DesktopAICompanion
         ///
         /// A stop WE asked for never reaches here: DisposeOutput unsubscribes before it calls Stop, and the
         /// sender check below is the belt for the window between nulling the field and unsubscribing.
+        ///
+        /// A stop with NO error is not a dead device (BUG-019). NAudio's DirectSoundOut reports one when the
+        /// secondary buffer is stopped from outside it, and per-app audio routing that moves the stream does exactly
+        /// that a fraction of a second after the output starts: DirectSound cannot follow a moved stream. This handler
+        /// used to read that as "the default died" and latch for <see cref="RetryInterval"/>, so the first sound after
+        /// launch started the output, the routing moved it, and every clip, pet sound and notification for the next two
+        /// minutes was dropped with nothing more in the log. Re-opening is what recovers: a default opened again is
+        /// resolved to wherever the routing now sends it, and stays there. So the first clean stop latches nothing and
+        /// the next sound reopens the same device. Only that first: a second clean stop within RetryInterval, or any
+        /// stop that carries an error, takes the old path, so a device that keeps stopping costs at most one extra open
+        /// per interval over the latch it had. Rejected: reopening from inside this callback. The next play is the
+        /// natural moment, as for the chosen device below; the clip that was playing is lost either way, because the
+        /// mixer goes with the output.
         /// </summary>
         private void OnPlaybackStopped(object sender, StoppedEventArgs e)
         {
@@ -584,28 +622,41 @@ namespace DesktopAICompanion
                 Guid failed = _runningDevice ?? _deviceId;
                 DisposeOutput();
                 _observedFailures++;
-                string why = e != null && e.Exception != null
-                    ? e.Exception.GetType().Name + ": " + e.Exception.Message
-                    : "the playback thread stopped without an error";
-                try
+                bool clean = e == null || e.Exception == null;
+                DateTime now = DateTime.UtcNow;
+                string why = clean
+                    ? "the playback thread stopped without an error"
+                    : e.Exception.GetType().Name + ": " + e.Exception.Message;
+                string next;
+                if (clean && now - _cleanStopReopenedUtc >= RetryInterval)
                 {
-                    DiagnosticLog.Write(LogCategory.Audio, "warning", null,
-                        "audio output stopped on device " +
-                        (failed == Guid.Empty ? "(default)" : failed.ToString()) + ": " + why);
+                    // Nothing latched: the next sound reopens the device that stopped (the default, or the chosen
+                    // device while it has not failed), which is where EnsureStarted goes anyway.
+                    _cleanStopReopenedUtc = now;
+                    next = "the next sound reopens it";
                 }
-                catch { }
-                if (failed != Guid.Empty && !_chosenDeviceFailed)
+                else if (failed != Guid.Empty && !_chosenDeviceFailed)
                 {
                     // The chosen device died: the next sound goes to the default. Not restarted from inside
                     // the callback; the next play is the natural moment, and it costs that one sound nothing
                     // but the fallback it would have had anyway.
                     _chosenDeviceFailed = true;
+                    next = "the next sound goes to the default device";
                 }
                 else
                 {
                     // The default itself (or the fallback onto it) died: nothing left to try right now.
                     MarkUnavailable();
+                    next = "sound stays off for " + RetryInterval.TotalMinutes + " minutes, then the next sound tries again";
                 }
+                try
+                {
+                    // What happens NEXT is in the line, so two minutes of silence are never a mystery in the log.
+                    DiagnosticLog.Write(LogCategory.Audio, "warning", null,
+                        "audio output stopped on device " +
+                        (failed == Guid.Empty ? "(default)" : failed.ToString()) + ": " + why + "; " + next);
+                }
+                catch { }
             }
         }
 
@@ -699,7 +750,7 @@ namespace DesktopAICompanion
 
         private void DisposeOutput()
         {
-            DirectSoundOut o = _output;
+            IWavePlayer o = _output;
             MixingSampleProvider m = _mixer;
             _output = null; _mixer = null; _started = false; _runningDevice = null;
             if (m != null) { try { m.MixerInputEnded -= OnMixerInputEnded; } catch { } }
@@ -710,9 +761,14 @@ namespace DesktopAICompanion
                 // Unsubscribed FIRST, so the stop we are about to ask for is not read as a failure.
                 try { o.PlaybackStopped -= OnPlaybackStopped; } catch { }
                 try { o.Stop(); } catch { }
-                // Dispose is Stop again under the hood, and NAudio's Stop aborts the playback thread when it
-                // cannot take its lock within 50 ms -- Thread.Abort, which throws PlatformNotSupportedException
-                // on .NET Core. Swallowed like the Stop above it; a torn-down output is torn down either way.
+                // Dispose is Stop again under the hood (then SuppressFinalize). In the pinned NAudio 3.0.0-preview.6,
+                // DirectSoundOut.Stop takes its lock with a 50 ms TryEnter and, on success, sets the state to Stopped,
+                // which is what ends the playback thread's loop. When the TryEnter is LOST it only nulls the
+                // notifyThread field: no abort, the state stays Playing, and that thread runs on until its own loop
+                // ends (N-audit-1106-219). The playback thread holds that lock for longer than an instant twice: while
+                // it opens the device (InitializeDirectSound) and while it stops the buffer (StopPlayback, on its way
+                // out). So a teardown that lands while a slow device is still opening, through both TryEnters (the
+                // Stop above and this one), leaves that thread reading the detached mixer. Swallowed like the Stop above.
                 try { o.Dispose(); } catch { }
             }
         }

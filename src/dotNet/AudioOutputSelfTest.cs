@@ -36,6 +36,7 @@ namespace DesktopAICompanion
                 ok &= RejectsRubbish(sb);
                 ok &= FadeEndsTheInput(sb);
                 ok &= OutputFailureIsObserved(sb);
+                ok &= CleanStopReopensTheOutput(sb);
                 ok &= NotificationSoundSettingRoundTrips(sb);
                 ok &= NotificationGatesInOrder(sb);
                 ok &= NotificationPicksAreValidatedAtPickTime(sb);
@@ -446,10 +447,16 @@ namespace DesktopAICompanion
                 ok &= Check(sb, "...and the chosen device is remembered as failed, so the next sound goes to the default",
                     output.ChosenDeviceFailed);
 
-                // Where the NEXT sound would go. Not played, so the dev box does not beep during the gate;
-                // on a runner with no device the default fails the same asynchronous way and that is fine
-                // too. What must not happen is re-opening the device that just died.
-                output.EnsureStartedForTest();
+                // Where the NEXT sound would go. Not played, so the dev box does not beep during the gate. The
+                // answer and the device are read under one lock: TryStart(Guid.Empty) returns true synchronously
+                // even on a runner with no device, whose default then fails the same asynchronous way, so only a
+                // read taken with the start is deterministic. The result used to be ignored, so a build that
+                // answered the chosen device's death by muting ALL sound passed this case (N-audit-1106-020).
+                Guid? nextDevice;
+                bool nextStarted = output.EnsureStartedForTest(out nextDevice);
+                ok &= Check(sb, "after the chosen device died, the next sound starts the output on the default device ("
+                    + (nextStarted ? (nextDevice.HasValue ? nextDevice.Value.ToString() : "no device") : "not started") + ")",
+                    nextStarted && nextDevice == Guid.Empty);
                 ok &= Check(sb, "the next sound does not re-open the device that just died",
                     output.RunningDevice != bogus);
 
@@ -460,6 +467,101 @@ namespace DesktopAICompanion
                     !output.ChosenDeviceFailed);
             }
             return ok;
+        }
+
+        /// <summary>
+        /// BUG-019 (N-shimeji-1106-01, N-shimeji-1106-02): a stop with NO error on the running output is reopened by the
+        /// next sound instead of muting everything for RetryInterval. Per-app audio routing that moves the stream stops a
+        /// DirectSound buffer that way a fraction of a second after it starts, and the case above cannot see it: it opens
+        /// the default only for an instant, and no real device stops cleanly on demand. So the output here is a stand-in
+        /// (<see cref="AudioOutput.OpenOutput"/>) that stops when told to, and the stop arrives through the same
+        /// PlaybackStopped subscription a real one does. The back-off is asserted beside it: a second clean stop soon
+        /// after, and a stop that carries an error, still latch.
+        /// </summary>
+        private static bool CleanStopReopensTheOutput(StringBuilder sb)
+        {
+            bool ok = true;
+            Guid? device;
+            using (var output = new AudioOutput())
+            {
+                var opened = new System.Collections.Generic.List<StoppableOutput>();
+                output.OpenOutput = delegate (Guid d) { var o = new StoppableOutput(); opened.Add(o); return o; };
+                bool started = output.EnsureStartedForTest(out device);
+                ok &= Check(sb, "WITNESS the stand-in output opens on the default device",
+                    started && device == Guid.Empty && opened.Count == 1 && opened[0].Playing);
+                if (!started || opened.Count != 1) return false;
+
+                opened[0].StopByItself(null);
+                ok &= Check(sb, "WITNESS a clean stop of the running default output is observed and tears it down",
+                    output.ObservedOutputFailures == 1 && !output.IsOutputRunning);
+                started = output.EnsureStartedForTest(out device);
+                ok &= Check(sb, "a clean stop of the default output is reopened by the next sound, not muted for "
+                    + AudioOutput.RetryInterval.TotalMinutes + " minutes (BUG-019)",
+                    started && device == Guid.Empty && opened.Count == 2);
+                if (opened.Count != 2) return false;
+
+                opened[1].StopByItself(null);
+                started = output.EnsureStartedForTest(out device);
+                ok &= Check(sb, "a second clean stop soon after still mutes for the retry interval",
+                    !started && opened.Count == 2);
+            }
+
+            using (var output = new AudioOutput())
+            {
+                var opened = new System.Collections.Generic.List<StoppableOutput>();
+                output.OpenOutput = delegate (Guid d) { var o = new StoppableOutput(); opened.Add(o); return o; };
+                output.EnsureStartedForTest(out device);
+                if (opened.Count != 1) return Check(sb, "the stand-in output opens for the error case", false);
+                opened[0].StopByItself(new InvalidOperationException("stand-in device failure"));
+                bool started = output.EnsureStartedForTest(out device);
+                ok &= Check(sb, "a stop of the default output that carries an error still mutes for the retry interval",
+                    !started && opened.Count == 1);
+            }
+
+            using (var output = new AudioOutput())
+            {
+                Guid chosen = Guid.NewGuid();
+                var opened = new System.Collections.Generic.List<StoppableOutput>();
+                output.OpenOutput = delegate (Guid d) { var o = new StoppableOutput(); opened.Add(o); return o; };
+                output.SetDevice(chosen.ToString());
+                output.EnsureStartedForTest(out device);
+                if (opened.Count != 1) return Check(sb, "the stand-in output opens on the chosen device", false);
+                opened[0].StopByItself(null);
+                bool started = output.EnsureStartedForTest(out device);
+                ok &= Check(sb, "a clean stop of the chosen device reopens the chosen device, not the default",
+                    started && device == chosen && !output.ChosenDeviceFailed);
+                if (opened.Count != 2) return false;
+                opened[1].StopByItself(null);
+                started = output.EnsureStartedForTest(out device);
+                ok &= Check(sb, "a second clean stop of the chosen device soon after moves the next sound to the default",
+                    started && device == Guid.Empty && output.ChosenDeviceFailed);
+            }
+            return ok;
+        }
+
+        /// <summary>An output that plays nowhere and stops only when told to, as a device does when it stops by itself.
+        /// A stop asked for through Stop or Dispose raises nothing, as AudioOutput unsubscribes before asking.</summary>
+        private sealed class StoppableOutput : IWavePlayer
+        {
+            private WaveFormat _format;
+            private PlaybackState _state = PlaybackState.Stopped;
+            public event EventHandler<StoppedEventArgs> PlaybackStopped;
+            public bool Playing { get { return _state == PlaybackState.Playing; } }
+            public PlaybackState PlaybackState { get { return _state; } }
+            public float Volume { get { return 1f; } set { } }
+            public WaveFormat OutputWaveFormat { get { return _format; } }
+            public void Init(IWaveProvider waveProvider) { _format = waveProvider != null ? waveProvider.WaveFormat : null; }
+            public void Play() { _state = PlaybackState.Playing; }
+            public void Pause() { _state = PlaybackState.Paused; }
+            public void Stop() { _state = PlaybackState.Stopped; }
+            public void Dispose() { Stop(); }
+            /// <summary>The stop the device reports on its own: no error for a stream moved away, an exception for a fault.</summary>
+            public void StopByItself(Exception error)
+            {
+                _state = PlaybackState.Stopped;
+                EventHandler<StoppedEventArgs> handler = PlaybackStopped;
+                if (handler != null) handler(this, new StoppedEventArgs(error));
+            }
         }
 
         private static bool RejectsRubbish(StringBuilder sb)

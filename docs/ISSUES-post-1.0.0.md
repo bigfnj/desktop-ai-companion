@@ -24,13 +24,13 @@ and `src/dotNet/`, from [`RELEASE-CHECKLIST.md`](RELEASE-CHECKLIST.md), from
 the next one is the number [`DESIGN-REGISTER.md`](DESIGN-REGISTER.md) names, which the gate holds to the highest
 heading below (BUG-009 to BUG-012 were filed on 2026-09-29 by the full audit, BUG-013 on 2026-10-02 from a report,
 BUG-014 on 2026-10-06 from an outage, BUG-017 on 2026-10-20 from a prompt left waiting, BUG-018 on 2026-10-21 from
-reading the code).
+reading the code, BUG-019 on 2026-11-06 from an A/B of a smoke's log line).
 
 | | |
 |---|---|
-| Bugs | BUG-001 to BUG-018. The gate counts the `BUG-nnn` headings below and holds the register's "next one filed" to the highest of them (`tests/runtime-hardening-selftest.ps1`, the next-bug block), so this row describes rather than counts |
-| Found | BUG-001 to BUG-003 on 2026-09-10 by the maintainer using the shipped build, BUG-004 by the release checklist's own leak soak; BUG-005 (2026-09-22), BUG-006 and BUG-007 (2026-09-23) by the maintainer using the shipped build; BUG-008 (2026-09-23) by `agentflow_classifier.py --audit`; BUG-009 to BUG-012 (2026-09-29) by the full code audit; BUG-013 (2026-10-02) by the owner using the module on a second machine; BUG-014 (2026-10-06) by the owner, as an outage of every installed app; BUG-015 (2026-10-07) by the owner on their other workstation; BUG-016 (2026-10-14) from the owner's log; BUG-017 (2026-10-20) by the owner, a prompt on screen that nothing pressed; BUG-018 (2026-10-21) by reading `PressBudget` while planning a feature |
-| All fixed by | BUG-001 to BUG-004: the v1.1.0 tag (2026-09-10; BUG-001 took host 1.1.1 → 1.1.3). BUG-005 to BUG-008: by 2026-09-23 (the emitter change plus the `reloop` migration; agentflow 1.4.2 to 1.4.4). BUG-009 to BUG-012: the 2026-09-29 campaign lanes, remembrance 1.0.17, blinkingled 1.0.6, aibrain 1.1.14 (a decision pinned by a test) and petstudio 1.1.18. BUG-013: remembrance 2.0.0. BUG-014: the catalog by 4d1e228, the host by feature/catalog-insight (in the first app release after it). BUG-015: aibrain 1.3.1 and remembrance 2.1.1. BUG-016: app 1.5.1. BUG-017: agentflow 1.9.1. BUG-018: agentflow 1.11.0 |
+| Bugs | BUG-001 to BUG-019. The gate counts the `BUG-nnn` headings below and holds the register's "next one filed" to the highest of them (`tests/runtime-hardening-selftest.ps1`, the next-bug block), so this row describes rather than counts |
+| Found | BUG-001 to BUG-003 on 2026-09-10 by the maintainer using the shipped build, BUG-004 by the release checklist's own leak soak; BUG-005 (2026-09-22), BUG-006 and BUG-007 (2026-09-23) by the maintainer using the shipped build; BUG-008 (2026-09-23) by `agentflow_classifier.py --audit`; BUG-009 to BUG-012 (2026-09-29) by the full code audit; BUG-013 (2026-10-02) by the owner using the module on a second machine; BUG-014 (2026-10-06) by the owner, as an outage of every installed app; BUG-015 (2026-10-07) by the owner on their other workstation; BUG-016 (2026-10-14) from the owner's log; BUG-017 (2026-10-20) by the owner, a prompt on screen that nothing pressed; BUG-018 (2026-10-21) by reading `PressBudget` while planning a feature; BUG-019 (2026-11-06) by an A/B of two builds after an integration smoke logged one audio stop per run |
+| All fixed by | BUG-001 to BUG-004: the v1.1.0 tag (2026-09-10; BUG-001 took host 1.1.1 → 1.1.3). BUG-005 to BUG-008: by 2026-09-23 (the emitter change plus the `reloop` migration; agentflow 1.4.2 to 1.4.4). BUG-009 to BUG-012: the 2026-09-29 campaign lanes, remembrance 1.0.17, blinkingled 1.0.6, aibrain 1.1.14 (a decision pinned by a test) and petstudio 1.1.18. BUG-013: remembrance 2.0.0. BUG-014: the catalog by 4d1e228, the host by feature/catalog-insight (in the first app release after it). BUG-015: aibrain 1.3.1 and remembrance 2.1.1. BUG-016: app 1.5.1. BUG-017: agentflow 1.9.1. BUG-018: agentflow 1.11.0. BUG-019: the host, lane burndown/audio-1 (in the first app release after 1.11.0) |
 
 ---
 
@@ -45,6 +45,62 @@ them below it, commit 40b0734).
 including the parts that turned out to be WRONG, because two of them were wrong in instructive ways: the
 suspected cause of BUG-003(a) was refuted by measurement, and BUG-001's mechanism was mis-attributed once
 before being traced properly. Each entry ends with what was actually changed and how it was verified.
+
+### BUG-019 — the first sound after launch could mute every sound for two minutes
+
+| | |
+|---|---|
+| Bugs | BUG-019 from v1.2.7 to v1.11.0, a stop of the audio output that carried no error was read as a dead default device: `AudioOutput.OnPlaybackStopped` latched the output unavailable for `RetryInterval` (two minutes), and every companion clip, pet sound and notification in that time was dropped with no further line in the log. Per-app audio routing that moves the stream right after it starts produces exactly that stop, on the first sound of every launch |
+| Found | 2026-11-06, by an A/B of v1.10.0 against the integration candidate after a smoke logged "audio output stopped on device (default): the playback thread stopped without an error" once in every run, under half a second after the first clip; filed as N-shimeji-1106-01, with the self-test gap as N-shimeji-1106-02 |
+| Fixed by | the host, lane burndown/audio-1: the first clean stop in each `RetryInterval` latches nothing and the next sound reopens the device that stopped; a stop with an error, or a second clean stop inside the interval, takes the old path |
+
+**The mechanism.** DirectSound cannot follow a stream that is moved to another endpoint: the moved secondary buffer
+just stops. NAudio's `DirectSoundOut` (the pinned 3.0.0-preview.6, read from its IL) registers an end event at
+`DSBPN_OFFSETSTOP`, which DirectSound signals when the buffer stops; the playback thread then leaves its loop with no
+exception and raises `PlaybackStopped` with a null `Exception`. The two other clean exits are ruled out for this app:
+`Feed` returns 0 only when the provider returns 0, and the app's mixer is `ReadFully`, so it never does; and NAudio's own
+`Stop` is called only from `DisposeOutput`, which unsubscribes first. `OnPlaybackStopped` had two answers, both written
+for a device that had died: the chosen device's stop sent the next sound to the default, and the default's stop latched
+the output for two minutes. A moved stream is neither. The device is fine, and a default opened again is resolved to
+wherever the routing now sends it.
+
+**The evidence.** The A/B ran each build three times on the same box with a companion whose walk plays one short MP3,
+watching the box's audio sessions every 100 ms. Both builds logged the line in 3 of 3 runs, 0.25 to 0.55 s after the
+output started; with a companion that plays no sound the output never started and no line appeared on either build.
+Watching every endpoint showed the app's session going inactive on the default endpoint and a session for the same
+process appearing on another endpoint at the same instant. With the executable renamed, so the routing rule keyed on its
+name no longer matched, the stream was never moved and played on for 13.7 s with no line. Held past the latch, the
+reopen two minutes later landed directly on the routed endpoint and played on with no second stop. Outside the app, the
+same mixer, converter and `DirectSoundOut` chain in a process whose streams are not moved was still playing after 4 s,
+with and without forced collections. The stop is the box's; the two minutes of silence were the app's.
+
+**Why no check saw it.** `--audio-selftest` opened DirectSound only on a GUID that does not exist (an error stop, the
+F245 case) and then the default for an instant, and every other case decodes with no device. Nothing raised a stop
+with no error on a running output, and no real device stops that way on demand.
+
+**The fix.** `OnPlaybackStopped` reopens on the first clean stop: it records the time, latches nothing and logs the
+line with "the next sound reopens it". A second clean stop within `RetryInterval` of that one, or any stop that carries
+an error, takes the old path (the chosen device falls back to the default, the default latches), so a device that keeps
+stopping costs at most one extra open per interval. The reopen happens at the next play, as the chosen device's
+fallback always has, not inside the callback; the clip that was playing is lost either way, because the mixer goes with
+the output. Every stop line now ends with what happens next, so a two-minute silence is named in the log. The output is
+opened through `AudioOutput.OpenOutput`, DirectSound in the app.
+
+**The guard.** `CleanStopReopensTheOutput` in `--audio-selftest` swaps a stand-in player into `OpenOutput` and stops it
+through the same `PlaybackStopped` subscription a real stop arrives on: the default's first clean stop is reopened by
+the next `EnsureStarted` on the default, a second clean stop soon after still latches, a stop with an error still
+latches, and the chosen device's first clean stop reopens the chosen device while its second moves the next sound to
+the default. MUTATION: in `tests/mutate-selftest-guards.py`, "bd-audio-1: BUG-019 a clean stop of the default output
+mutes all sound for the retry interval again" puts the shipped behaviour back and FIRED on "a clean stop of the default
+output is reopened by the next sound, not muted for 2 minutes (BUG-019)"; the other `bd-audio-1: BUG-019` cases each
+fired on their own label.
+
+**Not verified here:** the real app on a box whose routing moves the stream. That is the coordinator's check after
+integration: launch the integrated build, let a companion play its first sound, and read the Audio lines of the
+diagnostic log. The fix shows as exactly one "audio output stopped on device (default): the playback thread stopped
+without an error; the next sound reopens it" shortly after the first sound, and the companion's next clip audible on
+the routed endpoint. A defect still present shows as "sound stays off for 2 minutes" at the end of that line, or as a
+second stop line within two minutes of the first.
 
 ### BUG-018 — AgentFlow's repeat guard never held a stuck card while another panel had a prompt
 

@@ -7916,10 +7916,11 @@ diagnosis, the wrong turns, the fix, and how each was verified — are in
 [`ISSUES-post-1.0.0.md`](ISSUES-post-1.0.0.md). Bugs are numbered `BUG-00N` and the number is never
 reused, so a commit, a test or a code comment can cite one; `modules/AiBrain/`,
 `modules/PetStudio/`, `src/dotNet/`, `docs/RELEASE-CHECKLIST.md` and `handoff.md` all cite them
-today. **The next one filed is BUG-019**, and it is filed in [`../BACKLOG.md`](../BACKLOG.md).
+today. **The next one filed is BUG-020**, and it is filed in [`../BACKLOG.md`](../BACKLOG.md).
 
 | bug | | fixed |
 |---|---|---|
+| BUG-019 | a stop of the audio output with no error, which per-app audio routing that moves the stream produces right after the first sound, was read as a dead default device and muted every sound for two minutes | the host, lane burndown/audio-1 (the first app release after 1.11.0): the first clean stop in each retry interval latches nothing and the next sound reopens the device; an error, or a second clean stop inside the interval, latches as before |
 | BUG-018 | AgentFlow's repeat guard was one counter reset by any different card, so a stuck card in one VS Code panel beside a working prompt in another was pressed three ticks in every four for as long as it stood, and never stayed stood down | agentflow 1.11.0 (feature/agentflow-enhancements): the count is per panel and card, and a sweep drops one only when it read the panel and the card was gone |
 | BUG-017 | AgentFlow's auto-approve stood itself down on a run of edits to one file, every press having landed, because an Edit card shows only its path and the repeat guard told cards apart by their text | agentflow 1.9.1 (feature/agentflow-card-identity): the Claude reader tells cards apart by their element as well, and a card read before its buttons enable is not announced on that read |
 | BUG-016 | the default companion ran a copy of its file saved in settings.json and never the file itself, so an Update, a Companion Studio install or an upgrade never reached it, from 1.0.0 to 1.5.0 | app 1.5.1 (feature/stale-pet-xml): the launch resolves the default from its companion file, the copy declares its source, and a 1.5.0 copy replaced on its header name is first kept in a side file |
