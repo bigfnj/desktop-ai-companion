@@ -233,8 +233,9 @@ Animation.java:54-67) and it adds nothing to the animation's length (:70-78). It
 checked as the source loads them. The converter's `shimeji-parity-map/2` records each retained pose's source index
 and exact Pose refKey in `poses`, keyed by emitted action node, variant and pose positions. A skipped pose still
 consumes its source index; omitted animations also preserve the final emitted variant positions. Image-less poses
-retain their origins, while permanently false synthetic poses supply no source entry. Host consumption and the
-shared contract revision await the host lane's integration. An Animation whose every pose has Duration 0 (decisions 68, review N2): in an Animate or an Interact
+retain their origins, while permanently false synthetic poses supply no source entry. The host reads map/2 only,
+binds each emitted pose to its entry and traces that source index (src/dotNet/Shimeji/ParityRun.cs, ParityMap.BindPoses
+and ParityTraceWriter.State), under CONTRACT.md v1.1 section 9. An Animation whose every pose has Duration 0 (decisions 68, review N2): in an Animate or an Interact
 action, whose hasNext is false at once (Animate.java:38-42, Interact.java:34-36), the action ends before its first
 step, written as one variant that never holds (`when="false"`, one image-less pose), which the host's Animate also
 ends on at once. Under a Sequence or Select, in an instant class, or after an unconditional Animation, the source

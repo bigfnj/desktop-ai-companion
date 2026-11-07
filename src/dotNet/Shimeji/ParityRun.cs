@@ -9,15 +9,20 @@ using System.Text.Json;
 namespace DesktopAICompanion.Shimeji
 {
     /// <summary>
-    /// The converter's map from a converted pet back to the source pack (tools/ShimejiParity/CONTRACT.md section 9):
-    /// frame indexes to source image keys, nodes and child references to refKeys. A test artefact: the product never
-    /// reads one. Schema <c>shimeji-parity-map/1</c>:
-    /// <code>{ "schema", "imageSet", "frames": [{ "frame", "image" }], "actions": { "&lt;node id&gt;": refKey },
-    /// "children": { "&lt;node id&gt;:&lt;index&gt;": refKey }, "behaviours": { "&lt;node id&gt;": refKey } }</code>
+    /// The converter's map from a converted pet back to the source pack (tools/ShimejiParity/CONTRACT.md v1.1 section 9):
+    /// frame indexes to source image keys, nodes and child references to refKeys, and every emitted pose to the source
+    /// Pose it came from. A test artefact: the product never reads one. Schema <c>shimeji-parity-map/2</c>:
+    /// <code>{ "schema", "imageSet", "frames": [{ "frame", "image", "anchor", "size" }], "actions": { "&lt;node id&gt;": refKey },
+    /// "children": { "&lt;node id&gt;:&lt;index&gt;": refKey }, "behaviours": { "&lt;node id&gt;": refKey },
+    /// "sourceNames": { "&lt;node id&gt;": name or null }, "poses": { "&lt;node&gt;:&lt;variant&gt;:&lt;pose&gt;": { "refKey", "index" } } }</code>
+    /// Map/1 had no poses, so the trace's pose.index was the position in the EMITTED variant, which a Duration-0 source
+    /// pose the converter leaves out shifts for every later pose (N-shimeji-1106-13). A map/1 file is refused with a
+    /// regenerate message, never read: there is no source index in it to fall back to.
     /// </summary>
     internal sealed class ParityMap
     {
-        public const string Schema = "shimeji-parity-map/1";
+        public const string Schema = "shimeji-parity-map/2";
+        private const string RetiredSchema = "shimeji-parity-map/1";
         public string ImageSet;
         public readonly Dictionary<int, string> FrameImages = new Dictionary<int, string>();
         public readonly Dictionary<int, string> Actions = new Dictionary<int, string>();
@@ -28,13 +33,32 @@ namespace DesktopAICompanion.Shimeji
         /// element with no Name, "" an empty one; a node with no entry kept its name. Missing is never read as null.</summary>
         public readonly Dictionary<int, string> SourceNames = new Dictionary<int, string>();
 
+        /// <summary>The map's poses as written: <c>node:variant:pose</c> to the source Pose's refKey and zero-based index.</summary>
+        public readonly Dictionary<string, KeyValuePair<string, int>> Poses = new Dictionary<string, KeyValuePair<string, int>>(StringComparer.Ordinal);
+
+        /// <summary>Each emitted pose's source index, bound by <see cref="Apply"/> to the compiled pose OBJECT. Identity,
+        /// not equality, and kept here rather than on <see cref="TickPoseDef"/>, so the engine's model carries nothing a
+        /// parity run needs: the trace looks up the pose a companion last applied, whichever action applied it, and two
+        /// poses with equal fields in different variants are still two source poses.</summary>
+        private readonly Dictionary<TickPoseDef, int> _poseIndex = new Dictionary<TickPoseDef, int>(ReferenceEqualityComparer.Instance);
+
+        /// <summary>Parse and check a map/2 document. Every refusal is an <see cref="InvalidDataException"/> naming what is
+        /// wrong; the caller adds the file. A key is canonical decimal (no sign, space or leading zero, within Int32), as the
+        /// converter writes it, because int.Parse accepts "+2", " 2" and "02", which would each alias a real key; and a
+        /// repeated key is refused, because JsonDocument keeps every repeat and a dictionary filled from it keeps the last.</summary>
         public static ParityMap Parse(string json)
         {
             using (JsonDocument doc = JsonDocument.Parse(json))
             {
                 JsonElement root = doc.RootElement;
-                if (Str(root, "schema") != Schema) throw new InvalidDataException("parity map schema is not " + Schema);
+                if (root.ValueKind != JsonValueKind.Object) throw new InvalidDataException("parity map is not a JSON object");
+                Entries(root, null, "map");
+                string schema = Str(root, "schema");
+                if (schema == RetiredSchema)
+                    throw new InvalidDataException("the map is " + RetiredSchema + "; regenerate it with the current converter (map/2 required)");
+                if (schema != Schema) throw new InvalidDataException("parity map schema is not " + Schema);
                 var map = new ParityMap { ImageSet = Str(root, "imageSet") };
+                if (string.IsNullOrEmpty(map.ImageSet)) throw new InvalidDataException("parity map names no imageSet");
                 JsonElement e;
                 if (root.TryGetProperty("frames", out e))
                     foreach (JsonElement f in e.EnumerateArray())
@@ -42,29 +66,128 @@ namespace DesktopAICompanion.Shimeji
                         map.FrameImages[f.GetProperty("frame").GetInt32()] = Str(f, "image");
                         map.ReadGeometry(f);
                     }
-                if (root.TryGetProperty("actions", out e))
-                    foreach (JsonProperty p in e.EnumerateObject()) map.Actions[int.Parse(p.Name, CultureInfo.InvariantCulture)] = p.Value.GetString();
-                if (root.TryGetProperty("children", out e))
-                    foreach (JsonProperty p in e.EnumerateObject()) map.Children[p.Name] = p.Value.GetString();
-                if (root.TryGetProperty("behaviours", out e))
-                    foreach (JsonProperty p in e.EnumerateObject()) map.Behaviours[int.Parse(p.Name, CultureInfo.InvariantCulture)] = p.Value.GetString();
-                if (root.TryGetProperty("sourceNames", out e))
-                    foreach (JsonProperty p in e.EnumerateObject())
-                    {
-                        if (p.Value.ValueKind != JsonValueKind.Null && p.Value.ValueKind != JsonValueKind.String)
-                            throw new InvalidDataException("parity map sourceNames entry " + p.Name + " is neither a name nor null");
-                        map.SourceNames[int.Parse(p.Name, CultureInfo.InvariantCulture)] = p.Value.ValueKind == JsonValueKind.Null ? null : p.Value.GetString();
-                    }
+                foreach (JsonProperty p in Entries(root, "actions", "actions"))
+                    map.Actions[NodeKey("actions", p.Name)] = p.Value.GetString();
+                foreach (JsonProperty p in Entries(root, "children", "children"))
+                {
+                    string[] parts = p.Name.Split(':');
+                    int node, child;
+                    if (parts.Length != 2 || CanonicalFault(parts[0], out node) != null || CanonicalFault(parts[1], out child) != null)
+                        throw new InvalidDataException("parity map children key '" + p.Name + "' is not node:child in canonical decimal");
+                    map.Children[p.Name] = p.Value.GetString();
+                }
+                foreach (JsonProperty p in Entries(root, "behaviours", "behaviours"))
+                    map.Behaviours[NodeKey("behaviours", p.Name)] = p.Value.GetString();
+                foreach (JsonProperty p in Entries(root, "sourceNames", "sourceNames"))
+                {
+                    if (p.Value.ValueKind != JsonValueKind.Null && p.Value.ValueKind != JsonValueKind.String)
+                        throw new InvalidDataException("parity map sourceNames entry " + p.Name + " is neither a name nor null");
+                    map.SourceNames[NodeKey("sourceNames", p.Name)] = p.Value.ValueKind == JsonValueKind.Null ? null : p.Value.GetString();
+                }
+                if (!root.TryGetProperty("poses", out e)) throw new InvalidDataException("parity map has no poses (map/2 requires the object)");
+                if (e.ValueKind != JsonValueKind.Object) throw new InvalidDataException("parity map poses is not an object");
+                foreach (JsonProperty p in Entries(root, "poses", "poses")) map.ReadPose(p);
                 return map;
             }
         }
 
-        /// <summary>Give every node and child reference its refKey; a node the map does not name is a hole in the
-        /// converter's map, refused rather than traced with a made-up key.</summary>
+        /// <summary>One <c>poses</c> entry (CONTRACT v1.1 section 9): a canonical <c>node:variant:pose</c> key, and an
+        /// object holding exactly refKey (a non-empty <c>imageSet|file|path</c> whose last step is <c>Name[k]</c>) and index
+        /// (a canonical nonnegative integer token equal to k - 1). TryGetInt32 alone would take "-0"; the raw token is read.</summary>
+        private void ReadPose(JsonProperty p)
+        {
+            string key = p.Name;
+            string[] parts = key.Split(':');
+            if (parts.Length != 3) throw new InvalidDataException("parity map poses key '" + key + "' is not node:variant:pose");
+            foreach (string part in parts)
+            {
+                int ignored;
+                string fault = CanonicalFault(part, out ignored);
+                if (fault == OutOfRange) throw new InvalidDataException("parity map poses key '" + key + "' has a part outside Int32");
+                if (fault != null) throw new InvalidDataException("parity map poses key '" + key + "' is not node:variant:pose in canonical decimal");
+            }
+            JsonElement v = p.Value;
+            if (v.ValueKind != JsonValueKind.Object) throw new InvalidDataException("parity map poses entry '" + key + "' is not an object");
+            var names = new HashSet<string>(StringComparer.Ordinal);
+            foreach (JsonProperty f in v.EnumerateObject())
+            {
+                if (!names.Add(f.Name)) throw new InvalidDataException("parity map poses entry '" + key + "' repeats its property '" + f.Name + "'");
+                if (f.Name != "refKey" && f.Name != "index")
+                    throw new InvalidDataException("parity map poses entry '" + key + "' has the property '" + f.Name + "'; a pose mapping holds only refKey and index");
+            }
+            if (names.Count != 2) throw new InvalidDataException("parity map poses entry '" + key + "' lacks refKey or index");
+            JsonElement r = v.GetProperty("refKey"), i = v.GetProperty("index");
+            if (r.ValueKind != JsonValueKind.String || r.GetString().Length == 0)
+                throw new InvalidDataException("parity map poses entry '" + key + "' has a refKey that is not a non-empty string");
+            int index;
+            if (i.ValueKind != JsonValueKind.Number || CanonicalFault(i.GetRawText(), out index) != null)
+                throw new InvalidDataException("parity map poses entry '" + key + "' has index " + i.GetRawText() + ", not a canonical nonnegative Int32");
+            string refKey = r.GetString();
+            string[] refParts = refKey.Split('|');
+            if (refParts.Length != 3)
+                throw new InvalidDataException("parity map poses entry '" + key + "' has a refKey of " + refParts.Length + " parts, not imageSet|file|path");
+            if (refParts[0] != ImageSet)
+                throw new InvalidDataException("parity map poses entry '" + key + "' has a refKey in image set '" + refParts[0] + "', not '" + ImageSet + "'");
+            string step = refParts[2].Substring(refParts[2].LastIndexOf('/') + 1);
+            int open = step.IndexOf('['), k;
+            if (open <= 0 || step[step.Length - 1] != ']' || CanonicalFault(step.Substring(open + 1, step.Length - open - 2), out k) != null || k < 1)
+                throw new InvalidDataException("parity map poses entry '" + key + "' has a refKey whose last step '" + step + "' is not Name[k]");
+            if (index != k - 1)
+                throw new InvalidDataException("parity map poses entry '" + key + "' has index " + index + " where its refKey's step " + step + " gives " + (k - 1));
+            Poses.Add(key, new KeyValuePair<string, int>(refKey, index));
+        }
+
+        private const string OutOfRange = "outside Int32";
+
+        /// <summary>Null for a canonical nonnegative decimal within Int32 (ASCII digits, no sign or space, no leading zero
+        /// but "0" itself), else why not.</summary>
+        internal static string CanonicalFault(string s, out int value)
+        {
+            value = 0;
+            if (string.IsNullOrEmpty(s) || (s.Length > 1 && s[0] == '0')) return "not canonical";
+            long v = 0;
+            foreach (char c in s)
+            {
+                if (c < '0' || c > '9') return "not canonical";
+                if (v <= int.MaxValue) v = v * 10 + (c - '0');
+            }
+            if (v > int.MaxValue) return OutOfRange;
+            value = (int)v;
+            return null;
+        }
+
+        private static int NodeKey(string section, string key)
+        {
+            int node;
+            if (CanonicalFault(key, out node) != null)
+                throw new InvalidDataException("parity map " + section + " key '" + key + "' is not a node id in canonical decimal");
+            return node;
+        }
+
+        /// <summary>The properties of <paramref name="section"/> (the root itself when null), refusing a repeated key.</summary>
+        private static List<JsonProperty> Entries(JsonElement root, string section, string label)
+        {
+            var list = new List<JsonProperty>();
+            JsonElement e = root;
+            if (section != null && !root.TryGetProperty(section, out e)) return list;
+            if (e.ValueKind != JsonValueKind.Object) throw new InvalidDataException("parity map " + label + " is not an object");
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            foreach (JsonProperty p in e.EnumerateObject())
+            {
+                if (!seen.Add(p.Name)) throw new InvalidDataException("parity map repeats the " + label + " key '" + p.Name + "'");
+                list.Add(p);
+            }
+            return list;
+        }
+
+        /// <summary>Give every node and child reference its refKey and every emitted pose its source index; a node the map
+        /// does not name is a hole in the converter's map, refused rather than traced with a made-up key. Every node is
+        /// walked by id: <see cref="TickType.Actions"/> is keyed by name, so a node another of the same name shadows is
+        /// not in it, and its poses would go unchecked.</summary>
         public void Apply(TickType type)
         {
             string key;
-            foreach (TickActDef act in type.Actions.Values)
+            foreach (TickActDef act in type.ActionsById.Values)
             {
                 if (!Actions.TryGetValue(act.NodeId, out key))
                     throw new InvalidDataException("parity map has no refKey for action node " + act.NodeId + " '" + act.Name + "'");
@@ -82,7 +205,64 @@ namespace DesktopAICompanion.Shimeji
             foreach (int node in SourceNames.Keys)
                 if (!type.ActionsById.ContainsKey(node) && !type.BehavioursById.ContainsKey(node))
                     throw new InvalidDataException("parity map has a source name for node " + node + ", which is no action or behaviour of " + type.Name);
+            BindPoses(type);
             CheckGeometry(type);
+        }
+
+        /// <summary>
+        /// CONTRACT v1.1 section 9: every emitted pose has exactly one mapping, bound here by the pose object's identity,
+        /// including image-less poses, false-condition variants and variants of instant actions the host never plays. The
+        /// one exemption is decision 68's placeholder (<see cref="IsPlaceholder"/>), which the converter writes no mapping
+        /// for; a mapping supplied for that shape is bound like any other, since an authored variant can have it. A key no
+        /// emitted pose consumes (an unknown node, a composite node, a variant or pose out of range) is surplus, refused.
+        /// </summary>
+        private void BindPoses(TickType type)
+        {
+            var consumed = new HashSet<string>(StringComparer.Ordinal);
+            foreach (TickActDef act in type.ActionsById.Values)
+                for (int vi = 0; vi < act.Variants.Length; vi++)
+                {
+                    TickVariantDef variant = act.Variants[vi];
+                    for (int pi = 0; pi < variant.Poses.Length; pi++)
+                    {
+                        string key = act.NodeId.ToString(CultureInfo.InvariantCulture) + ":" + vi.ToString(CultureInfo.InvariantCulture)
+                            + ":" + pi.ToString(CultureInfo.InvariantCulture);
+                        KeyValuePair<string, int> source;
+                        if (Poses.TryGetValue(key, out source))
+                        {
+                            _poseIndex[variant.Poses[pi]] = source.Value;
+                            consumed.Add(key);
+                        }
+                        else if (!IsPlaceholder(act, variant, variant.Poses[pi]))
+                            throw new InvalidDataException("parity map has no source pose for " + key + " (action node " + act.NodeId + " '" + act.Name + "')");
+                    }
+                }
+            foreach (string key in Poses.Keys)
+                if (!consumed.Contains(key))
+                    throw new InvalidDataException("parity map poses key '" + key + "' names no emitted pose of " + type.Name + " (surplus)");
+        }
+
+        /// <summary>
+        /// Decision 68's placeholder, exactly: the sole variant of an Animate node or an Embedded Interact node, whose
+        /// emitted when is the literal text <c>false</c>, holding one pose of frame -1, 1 tick, no move. The converter writes
+        /// it for an action that ends before its first step and maps no source pose to it. A false condition alone is not
+        /// enough: TickAnimate and TickInteract never apply a variant whose when is false (TickRuntime.cs RunAnimate,
+        /// TickSocialFamily.cs TickInteract), but MoveWithTurn applies its LAST variant while turning without asking its
+        /// condition (TickMotionFamily.cs), so an unmapped false variant there could be shown with no source pose. The
+        /// test reads the attribute text (ScriptProgram.Source), never its value: "1 == 0" is false too, and is authored.
+        /// </summary>
+        internal static bool IsPlaceholder(TickActDef act, TickVariantDef variant, TickPoseDef pose)
+        {
+            return (act.Type == "Animate" || (act.Type == "Embedded" && act.Class == "Interact"))
+                && act.Variants.Length == 1 && variant.When != null && variant.When.Source == "false"
+                && variant.Poses.Length == 1 && pose.Frame == -1 && pose.Ticks == 1 && pose.Dx == 0 && pose.Dy == 0;
+        }
+
+        /// <summary>The source index bound to an applied pose, or false when this map binds no such pose object.</summary>
+        public bool TryGetPoseIndex(TickPoseDef pose, out int index)
+        {
+            index = -1;
+            return pose != null && _poseIndex.TryGetValue(pose, out index);
         }
 
         /// <summary>Each frame's authored anchor and size, when the map gives them (CONTRACT section 9).</summary>
@@ -103,7 +283,7 @@ namespace DesktopAICompanion.Shimeji
         /// frame carries the pose's anchor too (the source anchors both images of a pair at one ImageAnchor).</summary>
         private void CheckGeometry(TickType type)
         {
-            foreach (TickActDef act in type.Actions.Values)
+            foreach (TickActDef act in type.ActionsById.Values)
                 foreach (TickVariantDef v in act.Variants)
                     foreach (TickPoseDef p in v.Poses)
                     {
@@ -372,19 +552,61 @@ namespace DesktopAICompanion.Shimeji
     /// </summary>
     internal sealed class ParityTraceWriter : ITickObserver
     {
-        private readonly TextWriter _out;
+        private readonly TextWriter _trace;
+        private readonly EventSink _out;
+        private readonly bool _traceOff;
         private readonly Dictionary<string, ParityMap> _maps;
         private int _tick;
         private int _states, _events, _draws;
         private readonly Dictionary<string, TickPoint> _lastAnchor = new Dictionary<string, TickPoint>(StringComparer.Ordinal);
+        private readonly Dictionary<string, TickPoint> _velocity = new Dictionary<string, TickPoint>(StringComparer.Ordinal);
 
-        public ParityTraceWriter(TextWriter output, Dictionary<string, ParityMap> maps)
+        /// <param name="traceOff">CONTRACT v1.1 section 5's trace-off run: every event record is formed and folded into
+        /// <see cref="EventSequenceSha256"/> exactly as a traced run forms it, but no event or per-tick state line is
+        /// written; <see cref="FinalStates"/> writes the last tick's states once. Its pair with a traced run of the same
+        /// scenario proves that observing changes nothing (ShimejiWindowSelfTest's trace-on/off proof).</param>
+        public ParityTraceWriter(TextWriter output, Dictionary<string, ParityMap> maps, bool traceOff = false)
         {
-            _out = output;
+            _trace = output;
+            _traceOff = traceOff;
+            _out = new EventSink(traceOff ? null : output);
             _maps = maps;
         }
 
         public int Tick { set { _tick = value; } }
+
+        /// <summary>The draws and events formed so far, written or withheld.</summary>
+        public int Draws { get { return _draws; } }
+        public int Events { get { return _events; } }
+
+        /// <summary>CONTRACT v1.1 section 5: SHA-256 over every event record's UTF-8 line and one LF, in output order.</summary>
+        public string EventSequenceSha256 { get { return _out.Digest(); } }
+
+        /// <summary>Where every event line goes: folded into the event digest, then written unless the run is trace-off.
+        /// The digest is over the bytes a traced run writes (the writer's lines end in "\n", ParityRun sets NewLine).</summary>
+        private sealed class EventSink
+        {
+            private readonly TextWriter _output;
+            private readonly IncrementalHash _digest = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+
+            public EventSink(TextWriter output) { _output = output; }
+
+            public void WriteLine(string line)
+            {
+                _digest.AppendData(Encoding.UTF8.GetBytes(line + "\n"));
+                if (_output != null) _output.WriteLine(line);
+            }
+
+            /// <summary>The digest so far; GetCurrentHash leaves the running state as it was.</summary>
+            public string Digest() { return Hex(_digest.GetCurrentHash()); }
+        }
+
+        private static string Hex(byte[] hash)
+        {
+            var b = new StringBuilder(64);
+            foreach (byte x in hash) b.Append(x.ToString("x2", CultureInfo.InvariantCulture));
+            return b.ToString();
+        }
 
         public void Header(string scenarioId, string scenarioSha, string packSha, Dictionary<string, string> build, string rngJson, double dpiScale)
         {
@@ -402,26 +624,50 @@ namespace DesktopAICompanion.Shimeji
             }
             w.Raw("build", b.Append('}').ToString()).Raw("rng", rngJson).Num("tickMs", 40).Num("dpiScale", dpiScale)
                 .Str("runId", Guid.NewGuid().ToString()).Str("startedUtc", DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture));
-            _out.WriteLine(w.End());
+            _trace.WriteLine(w.End());
         }
 
+        /// <summary>This tick's state lines. A trace-off run forms none: it keeps only each companion's committed anchor
+        /// change, which is stored state, so its final lines carry the same velocity a traced run's would.</summary>
         public void States(TickWorld world)
         {
-            foreach (TickMascot m in world.Mascots) State(m, false);
-            foreach (TickMascot m in world.Pending) State(m, true);
+            if (_traceOff)
+            {
+                foreach (TickMascot m in world.Mascots) _velocity[m.Sid] = Velocity(m);
+                foreach (TickMascot m in world.Pending) _velocity[m.Sid] = Velocity(m);
+                return;
+            }
+            foreach (TickMascot m in world.Mascots) State(m, false, Velocity(m));
+            foreach (TickMascot m in world.Pending) State(m, true, Velocity(m));
         }
 
-        private void State(TickMascot m, bool pending)
+        /// <summary>A trace-off run's one set of state lines, the last tick's, written at its end; nothing for a traced run,
+        /// whose last tick's lines are already written.</summary>
+        public void FinalStates(TickWorld world)
         {
-            // The image belongs to the type whose pose set it, which after a Transform is still the old one.
-            ParityMap map;
-            _maps.TryGetValue((m.PoseType ?? m.Type).Name, out map);
-            TickBehaviour beh = m.Behaviour;
-            TickAction leaf = beh == null ? null : beh.Action.Leaf;
-            List<string> stack = beh == null ? new List<string>() : beh.ActionStack();
+            if (!_traceOff) return;
+            foreach (TickMascot m in world.Mascots) State(m, false, _velocity[m.Sid]);
+            foreach (TickMascot m in world.Pending) State(m, true, _velocity[m.Sid]);
+        }
+
+        private TickPoint Velocity(TickMascot m)
+        {
             TickPoint prev;
             TickPoint velocity = _lastAnchor.TryGetValue(m.Sid, out prev) ? new TickPoint(m.Anchor.X - prev.X, m.Anchor.Y - prev.Y) : new TickPoint(0, 0);
             _lastAnchor[m.Sid] = m.Anchor;
+            return velocity;
+        }
+
+        private void State(TickMascot m, bool pending, TickPoint velocity)
+        {
+            // The pose belongs to the member whose configuration defines it, the type that built the action applying it
+            // (TickAction.OwnerType, which composites hand their children), which after a Transform is still the old one.
+            TickType poseType = m.PoseType ?? m.Type;
+            ParityMap map;
+            _maps.TryGetValue(poseType.Name, out map);
+            TickBehaviour beh = m.Behaviour;
+            TickAction leaf = beh == null ? null : beh.Action.Leaf;
+            List<string> stack = beh == null ? new List<string>() : beh.ActionStack();
             var w = new JsonLine();
             w.Str("type", "state").Num("tick", _tick).Str("sid", m.Sid).Str("imageSet", m.Type.Name)
                 .Str("behavior", BehaviourName(beh)).Str("action", leaf == null ? null : NodeName(beh.Type, leaf.Def.NodeId, leaf.Name))
@@ -431,10 +677,21 @@ namespace DesktopAICompanion.Shimeji
             if (m.Pose == null) w.Raw("pose", "null").Raw("poseAnchor", "null");
             else
             {
-                int index = Array.IndexOf(m.PoseVariant.Poses, m.Pose);
+                // CONTRACT v1.1 section 9: index is the SOURCE pose's position, bound to the applied pose object by the
+                // member's map. No map, or no binding, is a provenance fault that ends the run in error, with index null:
+                // the position in the emitted variant is not the source's (a Duration-0 source pose is left out of it)
+                // and is never written in its place.
+                int index = -1;
+                bool bound = map != null && map.TryGetPoseIndex(m.Pose, out index);
+                if (!bound)
+                {
+                    if (ProvenanceFault == null)
+                        ProvenanceFault = "tick " + _tick + " " + m.Sid + ": applied pose has no source binding (member " + poseType.Name
+                            + (map == null ? ", which has no parity map)" : ")");
+                }
                 w.Raw("pose", "{\"image\":" + JsonLine.Quote(map == null ? null : map.ImageOf(m.Pose.Frame))
                     + ",\"imageRight\":" + JsonLine.Quote(map == null ? null : map.ImageOf(m.Pose.Right))
-                    + ",\"index\":" + index + "}");
+                    + ",\"index\":" + (bound ? index.ToString(CultureInfo.InvariantCulture) : "null") + "}");
                 // CONTRACT section 3: the effective anchor while the applied pose has an image, null while it has none.
                 TickPoint c = m.ImageCenter;
                 w.Raw("poseAnchor", m.HasImage ? "[" + c.X + "," + c.Y + "]" : "null");
@@ -451,7 +708,7 @@ namespace DesktopAICompanion.Shimeji
             w.Bool("lookRight", m.LookRight).Raw("velocity", "[" + velocity.X + "," + velocity.Y + "]")
                 .StrList("affordances", m.Affordances).Str("target", m.Target == null ? null : m.Target.Sid).Bool("dragging", m.Dragging)
                 .Bool("pending", pending).Bool("disposing", m.Disposing).Raw("vars", Vars(m));
-            _out.WriteLine(w.End());
+            _trace.WriteLine(w.End());
             _states++;
         }
 
@@ -635,8 +892,13 @@ namespace DesktopAICompanion.Shimeji
 
         public void Footer(int ticks, string status)
         {
-            _out.WriteLine(new JsonLine().Str("type", "footer").Num("ticks", ticks).Str("status", status)
-                .Num("draws", _draws).Num("states", _states).Num("events", _events).End());
+            // A trace-off footer counts the lines it holds (no draws or events) and carries what it withheld, as the
+            // oracle's observation run does (CONTRACT v1.1 sections 3 and 5); an ordinary host footer needs none of it.
+            JsonLine footer = new JsonLine().Str("type", "footer").Num("ticks", ticks).Str("status", status)
+                .Num("draws", _traceOff ? 0 : _draws).Num("states", _states).Num("events", _traceOff ? 0 : _events);
+            if (_traceOff)
+                footer.Num("unobservedDraws", _draws).Num("unobservedEvents", _events).Str("eventSequenceSha256", EventSequenceSha256);
+            _trace.WriteLine(footer.End());
         }
     }
 
@@ -734,9 +996,17 @@ namespace DesktopAICompanion.Shimeji
                 log.WriteLine(Flag + " runs only under an overridden test data root (" + AppPaths.DataRootOverrideEnvironmentVariable + ").");
                 return 2;
             }
+            // The build's identity: a missing one is refused rather than written as a placeholder, which the comparer's
+            // non-empty check would pass while it binds nothing (contract review item 13).
+            string commit = typeof(ParityRun).Assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false) is System.Reflection.AssemblyInformationalVersionAttribute[] v && v.Length > 0 ? v[0].InformationalVersion : null;
+            if (string.IsNullOrWhiteSpace(commit))
+            {
+                log.WriteLine(Flag + " refused: this build carries no informational version to write as build.commit.");
+                return 2;
+            }
             var build = new Dictionary<string, string>(StringComparer.Ordinal)
             {
-                { "commit", typeof(ParityRun).Assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false) is System.Reflection.AssemblyInformationalVersionAttribute[] v && v.Length > 0 ? v[0].InformationalVersion : "unknown" },
+                { "commit", commit },
                 { "exeSha256", ParityRun.Sha256(File.ReadAllBytes(Environment.ProcessPath)) },
                 { "engineSha256", ParityRun.Sha256(File.ReadAllBytes(typeof(TickWorld).Assembly.Location)) },
                 { "converterSha256", ParityRun.ConverterSha256(args[at + 4]) },
@@ -752,38 +1022,106 @@ namespace DesktopAICompanion.Shimeji
     /// </summary>
     internal static class ParityRun
     {
-        public static int Run(string scenarioPath, string petsDir, string tracePath, Dictionary<string, string> build, TextWriter log)
+        /// <summary>A left-button edge whose companion is not active at dispatch (CONTRACT v1.1 section 1): the scenario
+        /// is invalid, so the run stops there.</summary>
+        internal sealed class ScenarioInvalidException : Exception
+        {
+            public ScenarioInvalidException(string message) : base(message) { }
+        }
+
+        /// <summary>What a map, document or compile refusal can throw: each is the pet's fault, reported with its file
+        /// and exit 2, never an unhandled exception out of the command.</summary>
+        private static bool IsRefusal(Exception e)
+        {
+            return e is InvalidDataException || e is JsonException || e is FormatException || e is InvalidOperationException
+                || e is KeyNotFoundException || e is OverflowException;
+        }
+
+        /// <summary>
+        /// Every converted pet in <paramref name="petsDir"/>: its document validated and compiled, its map parsed, checked
+        /// and bound. Null, with the refusal logged, when any is refused. A folder with animations.xml and no
+        /// parity-map.json (or the reverse) is refused, not skipped: a member a Breed or Transform names that is absent
+        /// from the world falls back to the parent's type (TickPacks), inside a trace that would look valid.
+        /// </summary>
+        internal static List<KeyValuePair<TickType, ParityMap>> LoadPets(string petsDir, TextWriter log)
+        {
+            var loaded = new List<KeyValuePair<TickType, ParityMap>>();
+            foreach (string dir in Directory.GetDirectories(petsDir))
+            {
+                string xmlPath = Path.Combine(dir, "animations.xml"), mapPath = Path.Combine(dir, "parity-map.json");
+                bool hasXml = File.Exists(xmlPath), hasMap = File.Exists(mapPath);
+                if (!hasXml && !hasMap) continue;
+                if (!hasMap)
+                {
+                    log.WriteLine("refused " + dir + ": a converted pet with no parity-map.json beside its animations.xml");
+                    return null;
+                }
+                if (!hasXml)
+                {
+                    log.WriteLine("refused " + dir + ": a parity-map.json with no animations.xml beside it");
+                    return null;
+                }
+                XmlData.RootNode root;
+                string error;
+                if (!CompanionXmlValidator.TryParseWithFeatures(File.ReadAllText(xmlPath), CompanionFormatFeatures.All, out root, out error))
+                {
+                    log.WriteLine("refused " + xmlPath + ": " + error);
+                    return null;
+                }
+                string at = mapPath;
+                try
+                {
+                    ParityMap map = ParityMap.Parse(File.ReadAllText(mapPath));
+                    at = xmlPath;
+                    TickType type = TickType.Compile(map.ImageSet, root);
+                    at = mapPath;
+                    map.Apply(type);
+                    loaded.Add(new KeyValuePair<TickType, ParityMap>(type, map));
+                }
+                catch (Exception e) when (IsRefusal(e))
+                {
+                    log.WriteLine("refused " + at + ": " + e.Message);
+                    return null;
+                }
+            }
+            return loaded;
+        }
+
+        /// <param name="traceOff">CONTRACT v1.1 section 5: form every record and write only the final states and a footer
+        /// carrying the withheld totals and the event digest (<see cref="ParityTraceWriter"/>).</param>
+        public static int Run(string scenarioPath, string petsDir, string tracePath, Dictionary<string, string> build, TextWriter log, bool traceOff = false)
         {
             byte[] scenarioBytes = File.ReadAllBytes(scenarioPath);
             using (JsonDocument doc = JsonDocument.Parse(scenarioBytes))
-            using (var trace = new StreamWriter(tracePath, false, new UTF8Encoding(false)))
             {
-                JsonElement s = doc.RootElement;
-                trace.NewLine = "\n";
+                // Every map is parsed, compiled and applied before the trace file is opened, so a refused map leaves no
+                // trace behind, not even an empty one a later step could take for a run.
+                List<KeyValuePair<TickType, ParityMap>> pets = LoadPets(petsDir, log);
+                if (pets == null) return 2;
+                using (var trace = new StreamWriter(tracePath, false, new UTF8Encoding(false)))
+                {
+                    trace.NewLine = "\n";
+                    return Run(doc.RootElement, scenarioPath, scenarioBytes, pets, trace, build, log, traceOff);
+                }
+            }
+        }
+
+        private static int Run(JsonElement s, string scenarioPath, byte[] scenarioBytes, List<KeyValuePair<TickType, ParityMap>> pets,
+            TextWriter trace, Dictionary<string, string> build, TextWriter log, bool traceOff)
+        {
+            {
                 var maps = new Dictionary<string, ParityMap>(StringComparer.Ordinal);
                 var types = new List<TickType>();
-                foreach (string dir in Directory.GetDirectories(petsDir))
+                foreach (KeyValuePair<TickType, ParityMap> pet in pets)
                 {
-                    string xmlPath = Path.Combine(dir, "animations.xml"), mapPath = Path.Combine(dir, "parity-map.json");
-                    if (!File.Exists(xmlPath) || !File.Exists(mapPath)) continue;
-                    XmlData.RootNode root;
-                    string error;
-                    if (!CompanionXmlValidator.TryParseWithFeatures(File.ReadAllText(xmlPath), CompanionFormatFeatures.All, out root, out error))
-                    {
-                        log.WriteLine("refused " + xmlPath + ": " + error);
-                        return 2;
-                    }
-                    ParityMap map = ParityMap.Parse(File.ReadAllText(mapPath));
-                    TickType type = TickType.Compile(map.ImageSet, root);
-                    map.Apply(type);
-                    maps[type.Name] = map;
-                    types.Add(type);
+                    maps[pet.Key.Name] = pet.Value;
+                    types.Add(pet.Key);
                 }
 
                 var env = new ParityEnvironment(s);
                 var random = new ParityRandom(s.GetProperty("rng"));
                 var settings = new ParitySettings(s);
-                var writer = new ParityTraceWriter(trace, maps);
+                var writer = new ParityTraceWriter(trace, maps, traceOff);
                 string packDir = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(scenarioPath)), s.GetProperty("pack").GetString()));
                 writer.Header(s.GetProperty("id").GetString(), Sha256(scenarioBytes), PackSha256(packDir), build,
                     // Re-serialised compactly: the scenario's own text may be indented, and a trace is one object per line.
@@ -793,6 +1131,12 @@ namespace DesktopAICompanion.Shimeji
                 foreach (TickType t in types) world.AddType(t);
                 int ticks = s.GetProperty("ticks").GetInt32();
                 string status = "complete";
+                // CONTRACT v1.1 section 1: a left-button edge for a companion that is not active at dispatch is a scenario
+                // error (the oracle refuses it the same way). Only this run sets the hook: the product drops such an edge.
+                world.InactiveButtonTarget = input =>
+                {
+                    throw new ScenarioInvalidException("scenario-invalid: tick " + world.Step + ": left-button target " + input.Sid + " is not active");
+                };
                 try
                 {
                     writer.Tick = 0;
@@ -816,6 +1160,15 @@ namespace DesktopAICompanion.Shimeji
                         writer.States(world);
                         if (random.Exhausted != null) { status = "error"; log.WriteLine(random.Exhausted); break; }
                     }
+                    writer.FinalStates(world);
+                }
+                catch (ScenarioInvalidException e)
+                {
+                    // Nothing more is dispatched and the tick writes no state lines; the footer says aborted, and the exit
+                    // is a refusal's, since the scenario, not the runtime, is at fault.
+                    log.WriteLine(e.Message);
+                    Finish(writer, ticks, "aborted", log);
+                    return 2;
                 }
                 catch (Exception e)
                 {

@@ -64,12 +64,14 @@ namespace DesktopAICompanion.Shimeji
         /// <summary>A window action minimised the interactive window (CONTRACT event `window-minimize`).</summary>
         void WindowMinimized(TickMascot mascot);
 
-        /// <summary>A press that drags the companion (op "start", UserBehavior.mousePressed's drag branch) or a release
-        /// that throws a dragged one (op "end", mouseReleased) (CONTRACT event `drag`). Written before the behaviour
-        /// change the input causes.</summary>
+        /// <summary>A press that drags the companion (op "start", UserBehavior.mousePressed's drag branch, written once
+        /// Dragged is built, so a press whose Dragged cannot be built writes none) or a release that throws a dragged one
+        /// (op "end", mouseReleased, written before Thrown is built) (CONTRACT v1.1 event `drag`). Written before the
+        /// behaviour change the input causes.</summary>
         void Dragged(TickMascot mascot, string op);
 
-        /// <summary>A press a hotspot takes (op "press", with the hotspot's behaviour, or null for a hold-only one) or the
+        /// <summary>A press a hotspot takes (op "press", with the hotspot's behaviour name, never null: a hotspot with no
+        /// behaviour is not enabled, so it never takes the press, <see cref="TickWorld.IsBehaviourEnabledByName"/>) or the
         /// release of a held hotspot (op "release", behaviour null: the source's release only clears the hold) (CONTRACT
         /// event `hotspot`). Written before the behaviour change the input causes.</summary>
         void Hotspot(TickMascot mascot, string op, string behaviour);
@@ -242,6 +244,11 @@ namespace DesktopAICompanion.Shimeji
         public void SetVariable(string key, ScriptValue value) { _mascot.Variables[key] = value; }
         public int VariableCount { get { return _mascot.Variables.Count; } }
 
+        /// <summary>A script's Math.random. Its site name is the host's own (image set, attribute label, ordinal), not
+        /// CONTRACT v1.1 section 2's <c>script:&lt;refKey&gt;#&lt;attribute&gt;#&lt;k&gt;</c>: map/2 has no table from the
+        /// host's (node, attribute, ordinal) to the source site, and conversion merges and moves script expressions, so the
+        /// comparer judges a directed comparison with a script draw pending (section 9). When a map revision adds the
+        /// table, name the site through the member that owns the program, not _mascot.Type, which a Transform replaces.</summary>
         public double Random(int site)
         {
             int k = 1;
@@ -455,7 +462,7 @@ namespace DesktopAICompanion.Shimeji
         {
             if (variant == null) throw new TickCantBeAliveException("action '" + Name + "' has no variant whose condition holds");
             TickPoseDef pose = variant.PoseAt(Time);
-            Mascot.ApplyPose(pose, variant, OwnerType);
+            Mascot.ApplyPose(pose, OwnerType);
         }
 
         // ---- parameter reads: a guard attribute when the document gives one, else the parameter, else the default
@@ -1067,14 +1074,20 @@ namespace DesktopAICompanion.Shimeji
                 handled = true;
                 _mascot.CursorPosition = local;
                 _world.Observer.Hotspot(_mascot, "press", h.Behaviour);
-                if (h.Behaviour != null) _mascot.SetBehaviour(_world.BuildBehaviourByName(Type, h.Behaviour, _mascot), "forced");
+                // h.Behaviour is never null here: IsBehaviourEnabledByName refuses a null name, so such a hotspot
+                // never takes the press.
+                _mascot.SetBehaviour(_world.BuildBehaviourByName(Type, h.Behaviour, _mascot), "forced");
                 break;
             }
             if (!handled) handled = !Action.IsDraggable();
             if (!handled)
             {
+                // CONTRACT v1.1 section 3: drag/start once Dragged is built, then the behaviour change. A pack with no
+                // Dragged throws here (TickWorld.Press reports it and disposes the companion), and no drag began, so
+                // none is written; the drag event once came first and recorded a drag that never started.
+                TickBehaviour dragged = _world.BuildBehaviourByName(Type, "Dragged");
                 _world.Observer.Dragged(_mascot, "start");
-                _mascot.SetBehaviour(_world.BuildBehaviourByName(Type, "Dragged"), "forced");
+                _mascot.SetBehaviour(dragged, "forced");
             }
         }
 
@@ -1143,9 +1156,9 @@ namespace DesktopAICompanion.Shimeji
 
         /// <summary>The pose last applied, the facing it was applied with, and the type whose sheet it came from
         /// (Mascot.setImage). After a Transform the companion still shows the old type's image until the new type's
-        /// first pose, so the image is sized and named by <see cref="PoseType"/>, not <see cref="Type"/>.</summary>
+        /// first pose, so the image is sized and named by <see cref="PoseType"/>, not <see cref="Type"/>. A parity trace
+        /// names the pose's source position through PoseType's map, by the pose object (ParityMap.TryGetPoseIndex).</summary>
         public TickPoseDef Pose;
-        public TickVariantDef PoseVariant;
         public bool PoseRight;
         public TickType PoseType;
 
@@ -1212,12 +1225,11 @@ namespace DesktopAICompanion.Shimeji
 
         /// <summary>Pose.next: move by the pose velocity (mirrored when facing right), then take its image, from the sheet
         /// of the type whose action holds the pose (<paramref name="owner"/>; the companion's own type when not given).</summary>
-        public void ApplyPose(TickPoseDef pose, TickVariantDef variant, TickType owner = null)
+        public void ApplyPose(TickPoseDef pose, TickType owner = null)
         {
             if (pose == null) return;
             Anchor = new TickPoint(Anchor.X + (LookRight ? -pose.Dx : pose.Dx), Anchor.Y + pose.Dy);
             Pose = pose;
-            PoseVariant = variant;
             PoseRight = LookRight;
             PoseType = owner ?? Type;
             Sound = pose.Sound;
@@ -1428,6 +1440,15 @@ namespace DesktopAICompanion.Shimeji
 
         // ---- input (Mascot.mousePressed / mouseReleased / mouseDragged, delivered to one companion's window)
 
+        /// <summary>
+        /// Called with a press or release whose companion is not active at dispatch (pending, removed or unknown), before
+        /// it is dropped. Null in the product, which drops it silently: TickHost queues real window events, and a window
+        /// can close between the queue and the dispatch. A parity run sets it to refuse the scenario (CONTRACT v1.1
+        /// section 1: such a left-button edge is scenario-invalid, as the oracle classifies it). A pointer move to an
+        /// absent companion is never passed here; right-button entries never reach the engine.
+        /// </summary>
+        public Action<TickInput> InactiveButtonTarget { get; set; }
+
         private void DispatchInputs()
         {
             foreach (TickInput input in Environment.Inputs)
@@ -1435,6 +1456,7 @@ namespace DesktopAICompanion.Shimeji
                 TickMascot m = null;
                 foreach (TickMascot active in _mascots)
                     if (active.Sid == input.Sid) { m = active; break; }
+                if (m == null && input.Kind != TickInputKind.Move && InactiveButtonTarget != null) InactiveButtonTarget(input);
                 if (m == null) continue;   // a pending or removed companion has no window to receive it
                 TickPoint local = m.ToWindowLocal(input.Screen);
                 switch (input.Kind)

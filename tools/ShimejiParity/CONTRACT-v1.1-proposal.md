@@ -1,5 +1,9 @@
 # Shimeji parity contract, version 1.1 proposal
 
+**SUPERSEDED (2026-11-07):** integrated into `CONTRACT.md` as version 1.1, signed by Codex (proposal author) and
+Claude (host review) with the host review's eight edits applied there. This file is kept as the reviewed proposal
+text and is no longer normative; where it and `CONTRACT.md` differ, `CONTRACT.md` holds.
+
 Proposed replacement for CONTRACT.md. Codex approved this text on 2026-11-07; Claude host review/signature is pending.
 The frozen CONTRACT.md remains active until both reviewers approve and the host and converter halves integrate.
 

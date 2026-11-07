@@ -206,6 +206,7 @@ namespace DesktopAICompanion.Shimeji
                 CheckParityGeometry(check);
                 CheckParityHiddenTrace(check, log);
                 CheckParitySettings(check);
+                CheckParityMapV2(check, scratch, log);
                 CheckArrivalSpawn(check, log);
                 CheckLargeFrames(check, log);
                 CheckHostStep(check, log);
@@ -805,10 +806,13 @@ namespace DesktopAICompanion.Shimeji
 
         private static void CheckParityGeometry(Action<bool, string> check)
         {
+            // A complete map/2 (every emitted pose mapped), so each geometry refusal below is its own, never the schema's.
             Func<string, string, string> map = (frame0, frame1) =>
-                "{\"schema\":\"shimeji-parity-map/1\",\"imageSet\":\"Geo\",\"frames\":["
+                "{\"schema\":\"shimeji-parity-map/2\",\"imageSet\":\"Geo\",\"frames\":["
                 + "{\"frame\":0,\"image\":\"img/Geo/a.png\"," + frame0 + "},{\"frame\":1,\"image\":\"img/Geo/b.png\"," + frame1 + "}],"
-                + "\"actions\":{\"30\":\"Geo|a|1\",\"31\":\"Geo|a|2\"},\"behaviours\":{\"10\":\"Geo|b|1\",\"11\":\"Geo|b|2\"}}";
+                + "\"actions\":{\"30\":\"Geo|a|1\",\"31\":\"Geo|a|2\"},\"behaviours\":{\"10\":\"Geo|b|1\",\"11\":\"Geo|b|2\"},"
+                + "\"poses\":{\"30:0:0\":{\"refKey\":\"Geo|a|/Action[1]/Animation[1]/Pose[1]\",\"index\":0},"
+                + "\"31:0:0\":{\"refKey\":\"Geo|a|/Action[2]/Animation[1]/Pose[1]\",\"index\":0}}}";
             Func<string, string> apply = json =>
             {
                 try
