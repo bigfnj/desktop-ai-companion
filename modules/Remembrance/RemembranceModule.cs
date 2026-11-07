@@ -105,7 +105,10 @@ namespace DesktopAICompanion.RemembranceModule
                                  //        opens with "[Transcription pending]" is no longer taken for a stub, so a failed
                                  //        re-run leaves it as it was (N-cxr-w1-01). A whisper-cli whose job Windows
                                  //        refuses is stopped and the stub says why, where it ran on outside the job and
-                                 //        could outlive the app (N-cxr-w1-02).
+                                 //        could outlive the app (N-cxr-w1-02). "Run the follow-up on the latest
+                                 //        summary" picks only from the summaries Remembrance wrote, by the purge's own
+                                 //        shapes, where the newest summary in any folder under the storage location could
+                                 //        be sent to the CLI (N-audit-1106-039).
                                  // 2.10.0: one Claude Code sign-in, shared with AI Brain (host 1.8.0's
                                  //        IHostCredentials, BACKLOG N-cli-token-02, the owner's decision of
                                  //        2026-10-29), behind the ClaudeCodeSignIn grant, so MinHostVersion rises to
@@ -5184,6 +5187,8 @@ namespace DesktopAICompanion.RemembranceModule
             // Lane feature/remembrance-next (2.8.0): the summary's prompt, built in or the user's file, and the follow-up after
             // the summary (RemembranceModule.FollowUpSelfCheck.cs).
             SelfCheckRemembranceNext(check);
+            // Burn-down (N-audit-1106-039): the latest summary is one this module wrote.
+            SelfCheckLatestSummaryShapes(check);
             // Lane feature/host-abi-180: the shared Claude Code sign-in (RemembranceModule.SharedSignIn.cs).
             SelfCheckSharedSignIn(check);
 

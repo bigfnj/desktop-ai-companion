@@ -491,5 +491,65 @@ namespace DesktopAICompanion.RemembranceModule
                 try { System.IO.Directory.Delete(scratch, true); } catch { }
             }
         }
+
+        /// <summary>
+        /// "Run the follow-up on the latest summary" picks only from the summaries this module wrote (N-audit-1106-039): in
+        /// a scratch storage folder, ours by each layout's shape (flat in the root, per capture, by date) beside newer
+        /// summaries that are not: one in a folder Remembrance did not name (as "recording.summary.md" too, the name a
+        /// capture folder holds), one of another name in a day folder and in the root, and one stamped for another day.
+        /// </summary>
+        private static void SelfCheckLatestSummaryShapes(Action<string, bool> check)
+        {
+            string scratch = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "dp-remembrance-latest-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            DateTime t0 = DateTime.UtcNow.AddHours(-6);
+            Func<string, int, string> plant = delegate(string relative, int hoursAfter)
+            {
+                string path = System.IO.Path.Combine(scratch, relative);
+                System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path));
+                System.IO.File.WriteAllText(path, "a summary");
+                System.IO.File.SetLastWriteTimeUtc(path, t0.AddHours(hoursAfter));
+                return path;
+            };
+            try
+            {
+                string flat = plant("Standup - 2026-10-01 09-00-00.summary.txt", 0);
+                string perCapture = plant(System.IO.Path.Combine("2026-10-29 09-30 Standup", "recording.summary.md"), 1);
+                string byDate = plant(System.IO.Path.Combine("2026-10-30", "2026-10-30 10-00 Review.summary.md"), 2);
+                var foreign = new List<string>
+                {
+                    plant(System.IO.Path.Combine("Notes", "budget.summary.md"), 4),
+                    plant(System.IO.Path.Combine("Notes", "recording.summary.md"), 4),
+                    plant(System.IO.Path.Combine("2026-10-30", "my notes.summary.md"), 4),
+                    plant(System.IO.Path.Combine("2026-10-30", "2026-10-29 10-00 Elsewhere.summary.md"), 4),
+                    plant("diary.summary.md", 4),
+                };
+                List<string> ours = CaptureStore.ModuleSummaries(scratch);
+                check("latest summary: the walk takes the summaries Remembrance wrote, flat, per capture and by date (" +
+                      ours.Count.ToString(System.Globalization.CultureInfo.InvariantCulture) + " found)",
+                    ours.Count == 3 && ours.Contains(flat) && ours.Contains(perCapture) && ours.Contains(byDate));
+
+                var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                host.SettingsFor(Id).Set("storageLocation", scratch);
+                host.SettingsFor(Id).Set("summaryModelsCache", "alpha:1b");
+                var module = new RemembranceModule();
+                module.Init(host);
+                try
+                {
+                    string latest = module.LatestSummaryPath();
+                    check("latest summary: the follow-up never picks a newer summary Remembrance did not write (N-audit-1106-039): " +
+                          (latest == null ? "none" : latest.Substring(scratch.Length)),
+                        latest == byDate);
+                    check("WITNESS latest summary: each summary it must pass over is newer than the one it picks",
+                        foreign.TrueForAll(f => System.IO.File.GetLastWriteTimeUtc(f) > System.IO.File.GetLastWriteTimeUtc(byDate)));
+                }
+                finally { try { module.Shutdown(); } catch { } }
+            }
+            catch (Exception ex) { check("latest summary: the checks threw " + ex.GetType().Name + ": " + ex.Message, false); }
+            finally
+            {
+                try { System.IO.Directory.Delete(scratch, true); } catch { }
+            }
+        }
     }
 }

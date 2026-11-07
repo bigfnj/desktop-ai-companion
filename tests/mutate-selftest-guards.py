@@ -15945,9 +15945,11 @@ CASES = (
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "relative storage (saved): a move away from it applies and does not remember it for the purge"),
     ("followups2: remembrance: the follow-up looks for its newest summary in a location that is not a full path",
-     os.path.join(REPO, "modules", "Remembrance", "RemembranceModule.FollowUp.cs"),
-     b"                if (CaptureStore.IsFullFolder(root) && System.IO.Directory.Exists(root))\n",
-     b"                if (System.IO.Directory.Exists(root))\n",
+     # Re-pointed by burndown/w3-remembrance-1: the walk and its full-path guard moved to CaptureStore.ModuleSummaries
+     # (N-audit-1106-039).
+     os.path.join(REPO, "modules", "Remembrance", "CaptureStore.cs"),
+     b"                if (!IsFullFolder(root)) return found;\n",
+     b"",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "relative storage (saved): the follow-up does not look for its newest summary there"),
@@ -21214,6 +21216,28 @@ CASES = (
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "a whisper-cli whose job Windows refuses has ended by the time the run returns"),
+
+    # N-audit-1106-039: the latest-summary walk enters every subfolder of the storage root again and takes any summary.
+    ("bd-w3-remembrance-1: the latest-summary walk enters any subfolder again (N-audit-1106-039)",
+     os.path.join(REPO, "modules", "Remembrance", "CaptureStore.cs"),
+     b"                        AddSummaries(sub, stem => IsCaptureBaseName(stem) || IsTimeFirstBaseName(stem, day), found);\n"
+     b"                    }\n",
+     b"                        AddSummaries(sub, stem => IsCaptureBaseName(stem) || IsTimeFirstBaseName(stem, day), found);\n"
+     b"                    }\n"
+     b"                    else\n"
+     b"                        AddSummaries(sub, stem => true, found);\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "latest summary: the follow-up never picks a newer summary Remembrance did not write"),
+
+    # N-audit-1106-039: inside the folders it walks, a summary of any name counts.
+    ("bd-w3-remembrance-1: the latest-summary walk takes a summary of any name (N-audit-1106-039)",
+     os.path.join(REPO, "modules", "Remembrance", "CaptureStore.cs"),
+     b"                        if (lower.EndsWith(ending, StringComparison.Ordinal) && isOurs(lower.Substring(0, lower.Length - ending.Length)))\n",
+     b"                        if (lower.EndsWith(ending, StringComparison.Ordinal))\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "latest summary: the follow-up never picks a newer summary Remembrance did not write"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

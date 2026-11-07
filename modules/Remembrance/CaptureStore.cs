@@ -457,6 +457,63 @@ namespace DesktopAICompanion.RemembranceModule
             catch (Exception) { }
         }
 
+        /// <summary>
+        /// The summaries this module wrote under <paramref name="root"/>, either ending (N-audit-1106-039): each capture's
+        /// "&lt;base&gt;.summary.md" by the pre-2.0.0 flat names in the root, "recording.summary.md" in a folder named as a
+        /// capture, and each capture's in a day folder, one level deep, by the purge's own shapes and nothing wider. What
+        /// "Run the follow-up on the latest summary" picks from, and it sends the one it picks to a CLI vendor: it used to
+        /// take the newest "*.summary.md" in ANY subfolder, so with the storage location set to Documents a summary some
+        /// other program or the user kept there could go out. A summary "Summarize a transcript..." wrote somewhere else is
+        /// not here; the module remembers the last one it wrote this session. Read-only, and never throws.
+        /// </summary>
+        internal static List<string> ModuleSummaries(string root)
+        {
+            var found = new List<string>();
+            try
+            {
+                // Never a location that is not a full path (N-followups-02): listed against the current directory, it would
+                // hand a CLI the newest summary in whatever folder the app was started from.
+                if (!IsFullFolder(root)) return found;
+                if (!Directory.Exists(root)) return found;
+                AddSummaries(root, stem => IsCaptureBaseName(stem), found);
+                foreach (string sub in Directory.EnumerateDirectories(root))
+                {
+                    string name = Path.GetFileName(sub);
+                    // The two shapes cannot overlap (a day folder's name is the date alone, a capture's carries a time
+                    // too), and any other folder is not walked at all.
+                    if (IsCaptureFolderName(name))
+                        AddSummaries(sub, stem => stem == FolderPrefix, found);
+                    else if (IsDayFolderName(name))
+                    {
+                        DateTime? day = DayOf(name);
+                        AddSummaries(sub, stem => IsCaptureBaseName(stem) || IsTimeFirstBaseName(stem, day), found);
+                    }
+                }
+            }
+            catch (Exception) { }
+            return found;
+        }
+
+        /// <summary>One folder of <see cref="ModuleSummaries"/>: each summary whose lower-cased stem (the name before the
+        /// ending) <paramref name="isOurs"/> accepts.</summary>
+        private static void AddSummaries(string dir, Func<string, bool> isOurs, List<string> found)
+        {
+            foreach (string ending in SummarySuffixes)
+            {
+                try
+                {
+                    foreach (string file in Directory.EnumerateFiles(dir, "*" + ending, SearchOption.TopDirectoryOnly))
+                    {
+                        string lower = Path.GetFileName(file).ToLowerInvariant();
+                        // The pattern's extension can match a longer one ("x.summary.txt2"); the ending is checked whole.
+                        if (lower.EndsWith(ending, StringComparison.Ordinal) && isOurs(lower.Substring(0, lower.Length - ending.Length)))
+                            found.Add(file);
+                    }
+                }
+                catch (Exception) { }
+            }
+        }
+
         /// <summary>Remove an empty folder for the purge, and count what happened: removed, failed with its type, or
         /// kept because something is in it (which is not a failure).</summary>
         private static void RemoveEmptyFolder(string directory, DeletionReport report)

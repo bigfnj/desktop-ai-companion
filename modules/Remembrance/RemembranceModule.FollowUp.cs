@@ -216,8 +216,8 @@ namespace DesktopAICompanion.RemembranceModule
         }
 
         /// <summary>The newest summary there is: the one this session wrote last, or the newest ".summary.md" (or pre-2.9.0
-        /// ".summary.txt") in the storage
-        /// folder, its capture folders and its day folders, whichever was written later. Null when there is none.</summary>
+        /// ".summary.txt") this module wrote in the storage folder, its capture folders and its day folders
+        /// (CaptureStore.ModuleSummaries, N-audit-1106-039), whichever was written later. Null when there is none.</summary>
         private string LatestSummaryPath()
         {
             string best = null;
@@ -235,18 +235,11 @@ namespace DesktopAICompanion.RemembranceModule
             consider(_lastSummaryPath);
             try
             {
-                string root = StorageRoot();
-                // Never a location that is not a full path (N-followups-02): listed against the current directory, it
-                // would hand a CLI the newest summary in whatever folder the app was started from.
-                if (CaptureStore.IsFullFolder(root) && System.IO.Directory.Exists(root))
-                {
-                    foreach (string ending in CaptureStore.SummarySuffixes)
-                    {
-                        foreach (string f in System.IO.Directory.EnumerateFiles(root, "*" + ending)) consider(f);
-                        foreach (string sub in System.IO.Directory.EnumerateDirectories(root))
-                            foreach (string f in System.IO.Directory.EnumerateFiles(sub, "*" + ending)) consider(f);
-                    }
-                }
+                // Only the summaries this module wrote, by the purge's shapes (N-audit-1106-039): every subfolder of the
+                // root used to be walked, so a storage location set to Documents offered the newest summary of any program
+                // or any folder of the user's to the CLI. Never a location that is not a full path either (N-followups-02):
+                // ModuleSummaries refuses one.
+                foreach (string f in CaptureStore.ModuleSummaries(StorageRoot())) consider(f);
             }
             catch (Exception ex) { Log("follow-up: the storage folder could not be listed (" + ex.GetType().Name + ")"); }
             return best;
