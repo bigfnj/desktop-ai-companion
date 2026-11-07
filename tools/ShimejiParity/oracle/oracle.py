@@ -583,6 +583,7 @@ def self_test(args):
     burndown_self_test(args, labels)
     review_self_test(args, labels)
     synthetic_input_self_test(args, labels)
+    timeout_footer_self_test(args, labels)
     return {"status": "pass", "witnesses": labels, "network_requests": 0}
 
 
@@ -1137,6 +1138,78 @@ def synthetic_input_self_test(args, labels):
         labels.append("managed-synthetic-inputs-complete-building-partial-and-custom-consumer-controls")
 
 
+def timeout_footer_self_test(args, labels):
+    """Synthetic killed-child files exercise the real append path without launching a JVM."""
+    with tempfile.TemporaryDirectory(prefix="oracle-timeout-counts-", dir=args.temp_root) as folder:
+        root = Path(folder)
+        header = {"type": "header"}
+        body = [{"type": "state", "tick": 0, "sid": "m1"},
+                {"type": "event", "kind": "behavior", "tick": 1, "sid": "m1"},
+                {"type": "event", "kind": "rng-draw", "tick": 1, "sid": "m1", "occurrence": 1, "value": 0.5},
+                {"type": "event", "kind": "error", "tick": 1, "sid": "m1"},
+                {"type": "state", "tick": 1, "sid": "m1"}]
+        trace = root / "partial.jsonl"
+        prefix = ("\n".join(json.dumps(row) for row in [header] + body) + "\n").encode("utf-8")
+        trace.write_bytes(prefix)
+        v1_append_timeout_footer(trace, 3)
+        footer = json.loads(trace.read_text(encoding="utf-8").splitlines()[-1])
+        assert footer["states"] == 2, "V1_TIMEOUT_STATES_WITNESS"
+        assert footer["events"] == 3, "V1_TIMEOUT_EVENTS_WITNESS"
+        assert footer["draws"] == 1, "V1_TIMEOUT_DRAWS_WITNESS"
+        assert trace.read_bytes().startswith(prefix), "V1_TIMEOUT_PREFIX_WITNESS"
+        for payload in (b"", (json.dumps(header) + "\n").encode("utf-8")):
+            trace.write_bytes(payload)
+            assert v1_append_timeout_footer(trace, 3) == {"draws": 0, "states": 0, "events": 0}, "V1_TIMEOUT_ZERO_WITNESS"
+        trace.unlink()
+        assert v1_append_timeout_footer(trace, 3) == {"draws": 0, "states": 0, "events": 0}, "V1_TIMEOUT_ABSENT_WITNESS"
+        trace.write_bytes(prefix.rstrip(b"\n"))
+        v1_append_timeout_footer(trace, 3)
+        try:
+            separated = [json.loads(line) for line in trace.read_text(encoding="utf-8").splitlines()]
+        except json.JSONDecodeError as failure:
+            raise AssertionError("V1_TIMEOUT_SEPARATOR_WITNESS valid final record merged with footer") from failure
+        assert separated[-1]["type"] == "footer" and separated[-2] == body[-1], "V1_TIMEOUT_SEPARATOR_WITNESS"
+        for invalid in (b"{", b"\xff", b"[]\n", b'{"type":"unknown"}\n', b'{"type":"footer"}\n',
+                        (json.dumps(body[0]) + "\n").encode("utf-8"),
+                        (json.dumps(header) + "\n" + json.dumps(header) + "\n").encode("utf-8")):
+            trace.write_bytes(invalid)
+            expect_refusal(lambda: v1_append_timeout_footer(trace, 3), "V1_TIMEOUT_TRACE_INVALID", "V1_TIMEOUT_INVALID_WITNESS")
+            assert trace.read_bytes() == invalid, "V1_TIMEOUT_INVALID_PREFIX_WITNESS"
+
+        pack = root / "pack"
+        pack.mkdir()
+        (pack / "synthetic.txt").write_bytes(b"synthetic timeout input")
+        scenario = root / "S-timeout.json"
+        write_json(scenario, {"id": scenario.stem, "pack": "pack", "ticks": 3, "rng": {"kind": "tape", "values": [0.5]}, "dpiScale": 1})
+        stub = SimpleNamespace(validate_scenario=lambda *unused: None,
+                               pack_preflight=lambda *unused: [("synthetic.txt", pack / "synthetic.txt")],
+                               pack_sha256=lambda *unused: sha((pack / "synthetic.txt").read_bytes()),
+                               load_trace=lambda *unused: None, Unjudgeable=type("SyntheticUnjudgeable", (Exception,), {}))
+        captured = []
+        for timed_out in (True, False):
+            def synthetic_child(argv, *unused, **unused_keywords):
+                actual_header = json.loads(Path(argv[-3]).read_text(encoding="utf-8"))
+                rows = [actual_header] + body
+                if not timed_out:
+                    rows.append({"type": "footer", "ticks": 3, "status": "complete", "states": 2, "events": 3, "draws": 1})
+                payload = ("\n".join(json.dumps(row) for row in rows) + "\n").encode("utf-8")
+                Path(argv[-1]).write_bytes(payload)
+                captured.append(payload)
+                return {"timed_out": timed_out, "exit_code": None if timed_out else 0, "stdout": "", "stderr": ""}
+
+            copied = FunctionType(v1_run.__code__, dict(globals(), command=synthetic_child), "v1_run")
+            try:
+                row = copied(SimpleNamespace(jdk_root=root / "not-used-jdk"), stub, scenario, root / str(timed_out), "", root, {}, True)
+            except Exception as failure:
+                raise AssertionError("V1_TIMEOUT_CONTROL_WITNESS child result handling failed: " + type(failure).__name__ + ": " + str(failure)) from failure
+            physical = Path(row["trace"])
+            last = json.loads(physical.read_text(encoding="utf-8").splitlines()[-1])
+            assert (last["states"], last["events"], last["draws"]) == (2, 3, 1), "V1_TIMEOUT_ENTRY_WITNESS"
+            assert row["status"] == ("timeout" if timed_out else "complete"), "V1_TIMEOUT_CONTROL_WITNESS"
+            assert physical.read_bytes().startswith(captured[-1]), "V1_TIMEOUT_ENTRY_PREFIX_WITNESS"
+        labels.append("timeout-footer-counts-physical-prefix-states-events-draws-zero-malformed-and-entrypoint")
+
+
 def png(red, green, blue):
     def chunk(kind, payload):
         return struct.pack(">I", len(payload)) + kind + payload + struct.pack(">I", zlib.crc32(kind + payload) & 0xffffffff)
@@ -1402,6 +1475,17 @@ def mutate(args):
                                                       'def v1_scenarios(args):\n')], "SYNTHETIC_SELECTION_WIRING_WITNESS"),
         ("bd-codex-parity-2: run-input-wiring", [('    validate_shared_output(scenario_path.parent)\n    raw = ' + 'scenario_path.read_bytes()',
                                                 '    raw = scenario_path.read_bytes()')], "SYNTHETIC_RUN_WIRING_WITNESS")])
+    # ---- burndown/codex-parity2-final ----
+    legs.extend([
+        ("bd-codex-parity2-final: timeout-state-count", [('counts["states"] ' + '+= 1', 'counts["states"] += 0')], "V1_TIMEOUT_STATES_WITNESS"),
+        ("bd-codex-parity2-final: timeout-event-count", [('counts["events"] ' + '+= 1', 'counts["events"] += 0')], "V1_TIMEOUT_EVENTS_WITNESS"),
+        ("bd-codex-parity2-final: timeout-draw-count", [('counts["draws"] ' + '+= 1', 'counts["draws"] += 0')], "V1_TIMEOUT_DRAWS_WITNESS"),
+        ("bd-codex-parity2-final: timeout-entrypoint-zero-footer", [('        v1_append_timeout_footer(trace, ' + 'doc["ticks"])',
+            '        with trace.open("a", encoding="utf-8") as stream:\n            stream.write(json.dumps({"type": "footer", "ticks": doc["ticks"], "status": "timeout", "draws": 0, "states": 0, "events": 0}) + chr(10))')], "V1_TIMEOUT_ENTRY_WITNESS"),
+        ("bd-codex-parity2-final: timeout-record-separator", [('if prefix and not prefix.' + 'endswith(', 'if False and not prefix.endswith(')], "V1_TIMEOUT_SEPARATOR_WITNESS"),
+        ("bd-codex-parity2-final: timeout-invalid-json", [('raise Refusal("V1_TIMEOUT_TRACE_INVALID cannot count an incomplete ' + 'or malformed JSONL prefix") from failure', 'records = []')], "V1_TIMEOUT_INVALID_WITNESS"),
+        ("bd-codex-parity2-final: timeout-record-shape", [('if not isinstance(row, dict) or row.get("type") ' + 'not in ("header", "state", "event"):', 'if False:')], "V1_TIMEOUT_INVALID_WITNESS"),
+        ("bd-codex-parity2-final: timeout-header-order", [('if (index == 0 and kind != "header") or ' + '(index > 0 and kind == "header"):', 'if False:')], "V1_TIMEOUT_INVALID_WITNESS")])
     if args.only:
         legs = [leg for leg in legs if args.only in leg[0]]
         if not legs:
@@ -1781,6 +1865,34 @@ def validate_draft_resources(args, state):
     return validate_private_resources(state["source"], inventory)
 
 
+def v1_append_timeout_footer(trace, ticks):
+    """The killed child may have flushed a valid prefix; footer counts must describe those actual records."""
+    prefix = trace.read_bytes() if trace.is_file() else b""
+    try:
+        records = [json.loads(line) for line in prefix.decode("utf-8").splitlines() if line.strip()]
+    except (UnicodeError, json.JSONDecodeError) as failure:
+        raise Refusal("V1_TIMEOUT_TRACE_INVALID cannot count an incomplete or malformed JSONL prefix") from failure
+    counts = {"draws": 0, "states": 0, "events": 0}
+    for index, row in enumerate(records):
+        if not isinstance(row, dict) or row.get("type") not in ("header", "state", "event"):
+            raise Refusal("V1_TIMEOUT_TRACE_INVALID unexpected record or existing footer")
+        kind = row["type"]
+        if (index == 0 and kind != "header") or (index > 0 and kind == "header"):
+            raise Refusal("V1_TIMEOUT_TRACE_INVALID header is missing or repeated")
+        if kind == "state":
+            counts["states"] += 1
+        elif kind == "event":
+            counts["events"] += 1
+            if row.get("kind") == "rng-draw":
+                counts["draws"] += 1
+    # Do not rewrite, discard, or repair prefix records. An unterminated valid final record only needs its LF.
+    with trace.open("ab") as stream:
+        if prefix and not prefix.endswith(b"\n"):
+            stream.write(b"\n")
+        stream.write((json.dumps({"type": "footer", "ticks": ticks, "status": "timeout", **counts}) + "\n").encode("utf-8"))
+    return counts
+
+
 def v1_trace_status(compare, trace):
     """One distinct status per way a run can fail: the footer's own status, else the comparer's trace check."""
     lines = [line for line in trace.read_text(encoding="utf-8").splitlines() if line.strip()] if trace.is_file() else []
@@ -1916,10 +2028,7 @@ def v1_run(args, compare, scenario_path, root, classpath, runner, build, observe
     record = command(argv, workdir, timeout=V1_TIMEOUT)
     write_json(run / "launch.json", record)
     if record["timed_out"]:
-        # The killed JVM wrote no footer. This one names the timeout, so it is not mistaken for a truncated run.
-        with trace.open("a", encoding="utf-8") as stream:
-            stream.write(json.dumps({"type": "footer", "ticks": doc["ticks"], "status": "timeout",
-                                     "draws": 0, "states": 0, "events": 0}) + "\n")
+        v1_append_timeout_footer(trace, doc["ticks"])
     status, detail = v1_trace_status(compare, trace)
     if status in ("aborted", "error"):
         # The runner's own refusal names itself; otherwise the first exception line is the source's.
