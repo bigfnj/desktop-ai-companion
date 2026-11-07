@@ -4356,7 +4356,8 @@ namespace DesktopAICompanion
         /// Apply stays lit for the edits a rebuild carried, in the real window: after a ReloadPaneAfter action over an
         /// unsaved edit, and after a ReloadOnChange cascade. The view that asked for the rebuild re-raises the
         /// unsaved-edit signal after it, and the window's generation guard used to decline that, because by then the
-        /// view raising it is the replaced one. WITNESS a view the window has since moved past still cannot light it.
+        /// view raising it is the replaced one. WITNESS a view the window has since moved past still cannot light it,
+        /// and it cannot grey the Apply of the pane the user moved to either.
         /// </summary>
         private static bool RebuildKeepsApplyLit(StringBuilder sb)
         {
@@ -4388,6 +4389,21 @@ namespace DesktopAICompanion
             ok &= Check(sb, "pane-rebuild: WITNESS once the user has moved to another pane, no view left behind lights its Apply",
                 askedRow != null && builtRow != null && !ReferenceEquals(askedRow, builtRow) && moved &&
                 witness.Window.CurrentPaneTitle == "Elsewhere" && !witness.Window.IsDirty);
+
+            // ...nor greys it (N-fulltier-1107-01). The witness above cannot see a window that still remembers the
+            // rebuild after the nav switch: the left-behind view's signal then gets past the guard, but it asks the
+            // pane it was built for, which was released and answers "no edits", so Apply stays grey with or without
+            // the guard. With an unsaved edit on the pane the user moved to, the same signal greys THAT pane's Apply,
+            // and the edit can no longer be applied. Only the view that asked for the last rebuild can do this: the
+            // view it built is past both halves of the guard either way.
+            System.Windows.Controls.TextBox note = witness.TextRow(0);
+            if (note != null) note.Text = "edited where the user moved to";
+            bool lit = witness.Window.IsDirty;
+            if (askedRow != null) askedRow.Text = "typed into a view that is gone, again";
+            ok &= Check(sb, "pane-rebuild: a view left behind by a nav switch cannot grey the Apply of the pane the user moved to (" +
+                (lit ? "lit" : "never lit") + " before)",
+                note != null && !ReferenceEquals(note, askedRow) && !ReferenceEquals(note, builtRow) && lit &&
+                witness.Window.CurrentPaneTitle == "Elsewhere" && witness.Window.IsDirty);
             return ok;
         }
 

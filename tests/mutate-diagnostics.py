@@ -867,12 +867,14 @@ CASES = [
      "                _rebuiltFrom = gen;\n",
      "",
      "wpf", "Apply stays lit after a ReloadOnChange cascade"),
-    # The window never forgets which view's rebuild it ran, so a view left behind by a nav switch lights Apply on
-    # the pane the user moved to.
+    # The window never forgets which view's rebuild it ran, so a view left behind by a nav switch sets Apply on the
+    # pane the user moved to. A schema view asks its own released pane, which answers "no edits", so what the window
+    # shows is that pane's Apply GREYED over an unsaved edit: the "lights" witness survived the full tier at e20decd
+    # and the expected label is the check added for it (N-fulltier-1107-01).
     ("feature/pane-rebuild: a view left behind by a nav switch can light Apply", OPTIONSWINDOW,
      "            _rebuiltFrom = 0;\n",
      "",
-     "wpf", "no view left behind lights its Apply"),
+     "wpf", "a view left behind by a nav switch cannot grey the Apply of the pane the user moved to"),
     # The two re-raises the window now honours, each removed: neither had a case, and the window-level checks are
     # the first that can see them.
     ("feature/pane-rebuild: a ReloadPaneAfter action does not re-raise the edits it carried", OPTIONSWINDOW,
