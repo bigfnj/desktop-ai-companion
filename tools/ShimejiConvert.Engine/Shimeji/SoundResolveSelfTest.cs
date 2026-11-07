@@ -3,15 +3,17 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
+using System.Linq;
 using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text;
+using System.Xml.Linq;
 using DesktopAICompanion.Tools.ShimejiConvert.Emit;
 
 namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
 {
     /// <summary>
-    /// SoundBaker resolves each clip NAME once, misses included; remembers every refusal, the budget's as well
+    /// SoundBaker resolves each image set and relative clip path once, misses included; remembers every refusal, the budget's as well
     /// as the clip's; keeps scanning past a subdirectory it cannot list; and is not built, let alone probed
     /// for ffmpeg, when the skin names no clip.
     ///
@@ -66,11 +68,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 if (baker.Scans != 1)
                     failures.Add("12 repeats cost " + baker.Scans + " scans, expected 1 (the cache is not holding)");
 
-                // The same clip named with a different prefix is the same NAME, so it must not rescan:
-                // a pose may author "/yell.wav" while another writes "sound/yell.wav".
-                baker.ResolveCached("sound/yell.wav");
-                if (baker.Scans != 1)
-                    failures.Add("a differently-prefixed reference to the same clip rescanned");
+                if (baker.FallbackResolutions.Count != 1)
+                    failures.Add("SOUND_FALLBACK_REPORT: a filename-only match was not reported exactly once");
 
                 // A MISS must be remembered too, or an absent clip costs a full scan per reference --
                 // which is the more expensive case, since a miss walks the entire tree.
@@ -82,6 +81,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     failures.Add("8 repeats of a miss cost " + baker.Scans + " scans total, expected 2 (misses are not cached)");
                 if (baker.ScanFaulted)
                     failures.Add("a clean scan of an ordinary tree was reported as faulted");
+                CheckClassicSoundOrder(root, failures);
+                CheckDotSoundPaths(root, failures);
 
                 // ---- A SUBDIRECTORY THE USER CANNOT LIST MUST NOT HIDE THE CLIP ----
                 // The (path, pattern, SearchOption) overload enumerates with IgnoreInaccessible = false, so
@@ -197,6 +198,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 else if (!silent.Accepted)
                     failures.Add("the silent skin was not accepted, so the probe assertion below ran on a broken conversion: "
                         + silent.Error);
+                if (silent != null && silent.Accepted) CheckRoundTrips(silent.Root, failures);
                 if (SoundBaker.TranscoderProbes != probesBefore)
                     failures.Add("converting a skin with no Sound attribute probed for ffmpeg; the probe runs before "
                         + "anyone asks whether the skin has a clip");
@@ -234,10 +236,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 WritePng(Path.Combine(soundedImg, "n2.png"), Color.FromArgb(255, 190, 170, 100));
                 File.WriteAllBytes(Path.Combine(root, "sounded", "sound", "hi.wav"), new byte[] { 0x52, 0x49, 0x46, 0x46 });
                 var asked = new List<string>();
-                Func<string, SoundBaker> previousFactory = ShimejiEngine.BakerFactory;
-                ShimejiEngine.BakerFactory = delegate(string searchRoot)
+                Func<string, string, SoundBaker> previousFactory = ShimejiEngine.BakerFactory;
+                ShimejiEngine.BakerFactory = delegate(string searchRoot, string imageSet)
                 {
-                    return SoundBaker.WithTranscoder(searchRoot, 10000, 100000, 64, delegate(string file)
+                    return SoundBaker.WithTranscoder(searchRoot, imageSet, delegate(string file)
                     {
                         asked.Add(Path.GetFileName(file));
                         return FakeMp3(600);
@@ -303,19 +305,235 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             }
 
             var sb = new StringBuilder();
-            sb.AppendLine("sound-resolve self-test: one recursive scan per clip name, misses included; every refusal remembered; no ffmpeg probe");
+            sb.AppendLine("sound-resolve self-test: ordered image-set paths, reported filename fallback, cached misses, faithful round trips; no ffmpeg probe");
             foreach (string d in degraded) sb.AppendLine("  " + d);
             if (failures.Count == 0)
             {
                 sb.Append("  12 hits + 8 misses over 2 names cost 2 scans; a denied sibling directory hid nothing; "
                     + "an over-budget clip was transcoded once; a silent skin converted without a probe; a sounded skin "
-                    + "asked its baker once and embedded the clip; the ffmpeg override names a file or nothing");
+                    + "asked its baker once and embedded the clip; two sets kept their own ordered sound paths and reported "
+                    + "filename fallback; round trips checked semantic fidelity and a stable second serialization; "
+                    + "the ffmpeg override names a file or nothing");
                 detail = sb.ToString();
                 return true;
             }
             foreach (string f in failures) sb.AppendLine("  FAIL " + f);
             detail = sb.ToString();
             return false;
+        }
+
+        private static void CheckClassicSoundOrder(string parent, List<string> failures)
+        {
+            string root = Path.Combine(parent, "two-sets");
+            string[] clips = {
+                "sound/Alpha/hi.wav", "sound/Beta/hi.wav", "sound/Gamma/hi.wav", "img/Alpha/sound/hi.wav", "sound/priority.wav",
+                "sound/Alpha/priority.wav", "img/Alpha/sound/priority.wav", "img/Alpha/sound/image.wav",
+                "sound/Alpha/left/same.wav", "sound/Alpha/right/same.wav"
+            };
+            foreach (string clip in clips)
+            {
+                string file = Path.Combine(root, clip.Replace('/', Path.DirectorySeparatorChar));
+                Directory.CreateDirectory(Path.GetDirectoryName(file));
+                File.WriteAllBytes(file, new byte[] { 1 });
+            }
+            SoundBaker baker = SoundBaker.WithoutTranscoder(root);
+            if (baker.ResolveCached("/hi.wav", "Alpha") != Path.Combine(root, "sound", "Alpha", "hi.wav")
+                || baker.ResolveCached("/hi.wav", "Beta") != Path.Combine(root, "sound", "Beta", "hi.wav"))
+                failures.Add("SOUND_SET_BINDING: two image sets sharing a filename resolved to the wrong set");
+            if (baker.ResolveCached("/priority.wav", "Alpha") != Path.Combine(root, "sound", "priority.wav"))
+                failures.Add("SOUND_GLOBAL_FIRST: global sound must precede set and image-set sound");
+            if (baker.ResolveCached("/image.wav", "Alpha") != Path.Combine(root, "img", "Alpha", "sound", "image.wav"))
+                failures.Add("SOUND_IMAGE_PATH: img/<set>/sound was not resolved");
+            if (baker.ResolveCached("/left/same.wav", "Alpha") != Path.Combine(root, "sound", "Alpha", "left", "same.wav")
+                || baker.ResolveCached("/right/same.wav", "Alpha") != Path.Combine(root, "sound", "Alpha", "right", "same.wav"))
+                failures.Add("SOUND_RELATIVE_CACHE: equal basenames in distinct relative paths shared a cache entry");
+            if (baker.Scans != 0 || baker.FallbackResolutions.Count != 0)
+                failures.Add("SOUND_DIRECT_WITNESS: canonical paths used a filename-only scan");
+
+            // A display name is deliberately different from the sprite directory's set name. The factory
+            // observes the real ConvertSkin wiring and the transcoder receives each set's own clip.
+            string conf = Path.Combine(root, "conf");
+            Directory.CreateDirectory(conf);
+            File.WriteAllText(Path.Combine(conf, "actions.xml"), SoundedActionsXml, new UTF8Encoding(false));
+            Func<string, string, SoundBaker> previous = ShimejiEngine.BakerFactory;
+            try
+            {
+                foreach (string set in new[] { "Alpha", "Beta", "Gamma" })
+                {
+                    string img = set == "Gamma" ? Path.Combine(root, set, "img") : Path.Combine(root, "img", set);
+                    Directory.CreateDirectory(img);
+                    WritePng(Path.Combine(img, "n1.png"), Color.Coral);
+                    WritePng(Path.Combine(img, "n2.png"), Color.CadetBlue);
+                    string setConf = set == "Alpha" ? Path.Combine(img, "conf") : conf;
+                    Directory.CreateDirectory(setConf);
+                    File.WriteAllText(Path.Combine(setConf, "actions.xml"), SoundedActionsXml, new UTF8Encoding(false));
+                    string captured = null;
+                    ShimejiEngine.BakerFactory = delegate(string searchRoot, string imageSet)
+                    {
+                        return SoundBaker.WithTranscoder(searchRoot, imageSet, delegate(string file)
+                        {
+                            captured = file;
+                            return FakeMp3(600);
+                        });
+                    };
+                    string error;
+                    ConversionResult result = ShimejiEngine.ConvertSkin(setConf, img, "Renamed pet", out error);
+                    if (result == null || !result.Accepted || captured != Path.Combine(root, "sound", set, "hi.wav"))
+                        failures.Add("SOUND_CONVERSION_SET: " + set + " conversion did not bake its own clip: " + error);
+                }
+                // Remove only the canonical Alpha clip, forcing a legacy name-only match. Its use must
+                // reach the conversion residue, not merely an internal resolver counter.
+                File.Delete(Path.Combine(root, "sound", "Alpha", "hi.wav"));
+                File.Delete(Path.Combine(root, "img", "Alpha", "sound", "hi.wav"));
+                string fallbackError;
+                ConversionResult fallback = ShimejiEngine.ConvertSkin(conf, Path.Combine(root, "img", "Alpha"), "Alpha", out fallbackError);
+                if (fallback == null || fallback.Residue == null || !fallback.Residue.MemberNotes.Exists(n => n.StartsWith("Sound filename-only fallback used: ", StringComparison.Ordinal)))
+                    failures.Add("SOUND_FALLBACK_RESIDUE: legacy filename fallback was not reported by conversion");
+            }
+            finally { ShimejiEngine.BakerFactory = previous; }
+        }
+
+
+        private static void CheckDotSoundPaths(string parent, List<string> failures)
+        {
+            string pack = Path.Combine(parent, "dot-path-pack");
+            Directory.CreateDirectory(Path.Combine(pack, "sound"));
+            Directory.CreateDirectory(Path.Combine(pack, "legacy"));
+            File.WriteAllBytes(Path.Combine(pack, "tone.wav"), new byte[] { 1 });
+            File.WriteAllBytes(Path.Combine(pack, "legacy", "escape.wav"), new byte[] { 2 });
+            SoundBaker baker = SoundBaker.WithoutTranscoder(pack);
+            if (baker.ResolveCached("../tone.wav", "Alpha") != Path.Combine(pack, "tone.wav")
+                || baker.Scans != 0 || baker.FallbackResolutions.Count != 0)
+                failures.Add("SOUND_CONTAINED_DOT_PATH: a contained parent path did not use its canonical source candidate");
+            if (baker.ContainedSoundPath(Path.GetFullPath(Path.Combine(pack, "..", "never-probed.wav"))) != null)
+            { failures.Add("SOUND_CONTAINMENT_BOUNDARY: an outside candidate passed lexical containment"); return; }
+            string escaped = baker.ResolveCached("../../../../../escape.wav", "Alpha");
+            if (escaped != Path.Combine(pack, "legacy", "escape.wav") || baker.FallbackResolutions.Count != 1)
+                failures.Add("SOUND_OUTSIDE_SAFE_FALLBACK: outside candidates did not use a reported basename match inside the pack");
+            string drive = baker.ResolveCached("Q:/tone.wav", "Alpha");
+            if (drive != Path.Combine(pack, "tone.wav") || baker.FallbackResolutions.Count != 2)
+                failures.Add("SOUND_DRIVE_SAFE_FALLBACK: a drive-qualified candidate lost safe basename fallback");
+
+            string conf = Path.Combine(pack, "conf"), img = Path.Combine(pack, "img", "Alpha");
+            Directory.CreateDirectory(conf); Directory.CreateDirectory(img);
+            WritePng(Path.Combine(img, "n1.png"), Color.Coral);
+            WritePng(Path.Combine(img, "n2.png"), Color.CadetBlue);
+            File.WriteAllText(Path.Combine(conf, "actions.xml"),
+                SoundedActionsXml.Replace("Sound=\"/hi.wav\"", "Sound=\"../tone.wav\""), new UTF8Encoding(false));
+            Func<string, string, SoundBaker> previous = ShimejiEngine.BakerFactory;
+            string captured = null;
+            ShimejiEngine.BakerFactory = delegate(string root, string set)
+            {
+                return SoundBaker.WithTranscoder(root, set, delegate(string file) { captured = file; return FakeMp3(600); });
+            };
+            try
+            {
+                string error;
+                ConversionResult result = ShimejiEngine.ConvertSkin(conf, img, "Alpha", out error);
+                int embedded = result == null || result.Root.Sounds == null ? 0 : result.Root.Sounds.Sound.Length;
+                if (result == null || !result.Accepted || embedded != 1 || captured != Path.Combine(pack, "tone.wav"))
+                    failures.Add("SOUND_DOT_CONVERSION: classic conversion silently lost a valid contained parent-path clip");
+            }
+            finally { ShimejiEngine.BakerFactory = previous; }
+        }
+
+        private static void CheckRoundTrips(XmlData.RootNode root, List<string> failures)
+        {
+            string error;
+            if (!ShimejiEngine.RoundTrips(root, out error) || !ShimejiEngine.RoundTrips(ShimejiEngine.Serialize(root), out error))
+                failures.Add("ROUNDTRIP_WITNESS: a faithful synthetic pet failed: " + error);
+            if (!ShimejiEngine.RoundTrips(((char)0xFEFF).ToString() + ShimejiEngine.Serialize(root), out error))
+                failures.Add("ROUNDTRIP_BOM_WITNESS: a decoded UTF-8 BOM changed document semantics: " + error);
+            Func<XmlData.RootNode, string> lossy = delegate(XmlData.RootNode input)
+            {
+                XmlData.RootNode copy = XmlData.NodeCopy.Deep(input);
+                copy.Header.Title = "Information lost";
+                return ShimejiEngine.Serialize(copy);
+            };
+            if (ShimejiEngine.RoundTripsCore(root, null, lossy, out error)
+                || error == null || error.IndexOf("/header[1]/title[1]", StringComparison.Ordinal) < 0)
+                failures.Add("ROUNDTRIP_DTO_LOSS: a valid stable serialization changed the title without naming its first differing location");
+            string original = ShimejiEngine.Serialize(root);
+            XNamespace xsi = "http://www.w3.org/2001/XMLSchema-instance";
+            foreach (string hintName in new[] { "schemaLocation", "noNamespaceSchemaLocation" })
+            {
+                XElement hinted = XElement.Parse(original);
+                hinted.SetAttributeValue(xsi + hintName, hintName == "schemaLocation"
+                    ? hinted.Name.NamespaceName + " urn:synthetic:schema" : "urn:synthetic:schema");
+                if (!ShimejiEngine.RoundTrips(hinted.ToString(), out error))
+                    failures.Add("ROUNDTRIP_SCHEMA_HINTS: " + hintName + " changed runtime semantics: " + error);
+            }
+            // Equal local names in another namespace are data, and other XSI attributes are not hints.
+            foreach (XName meaningful in new[] { XName.Get("schemaLocation"),
+                XName.Get("schemaLocation", "urn:synthetic:metadata"), xsi + "type" })
+            {
+                XElement attributed = new XElement("animations", new XAttribute(meaningful, "meaningful"));
+                string difference = ShimejiEngine.FirstSemanticDifference(attributed, new XElement("animations"),
+                    typeof(XmlData.RootNode), "/animations");
+                if (difference != "/animations/@" + meaningful)
+                    failures.Add("ROUNDTRIP_SCHEMA_LOCATION_SEMANTIC: a meaningful attribute was ignored: " + meaningful);
+            }
+            string defaultHintDifference = ShimejiEngine.FirstSemanticDifference(
+                new XElement("sound", new XElement("loop", new XAttribute(xsi + "schemaLocation", "urn:synthetic:pet urn:synthetic:schema"), 0)),
+                new XElement("sound"), typeof(XmlData.SoundNode), "/sound");
+            if (defaultHintDifference != null)
+                failures.Add("ROUNDTRIP_SCHEMA_HINTS: a schema hint kept a default-valued scalar in the semantic comparison");
+            if (ShimejiEngine.RoundTripsCore(root, original, lossy, out error)
+                || error == null || error.IndexOf("/header[1]/title[1]", StringComparison.Ordinal) < 0)
+                failures.Add("ROUNDTRIP_XML_LOSS: original/output information loss was not detected");
+            Func<XmlData.RootNode, string> attributeLoss = delegate(XmlData.RootNode input)
+            {
+                XmlData.RootNode copy = XmlData.NodeCopy.Deep(input);
+                copy.Spawns.Spawn[0].Probability = input.Spawns.Spawn[0].Probability == 1 ? 2 : 1;
+                return ShimejiEngine.Serialize(copy);
+            };
+            if (ShimejiEngine.RoundTripsCore(root, original, attributeLoss, out error)
+                || error == null || error.IndexOf("/spawns[1]/spawn[1]/@probability", StringComparison.Ordinal) < 0)
+                failures.Add("ROUNDTRIP_ATTRIBUTE_LOSS: a changed attribute did not name its first differing location");
+
+            // This is genuine parse-time loss, not an injected serializer: the XSD permits probability
+            // on child/next, while ChildNode.Next is only an int and cannot retain the attribute.
+            var childInput = XElement.Parse(original);
+            XNamespace childNs = childInput.Name.Namespace;
+            int target = root.Animations.Animation[0].Id;
+            childInput.Element(childNs + "childs").Add(new XElement(childNs + "child",
+                new XAttribute("animationid", target), new XElement(childNs + "x", "0"),
+                new XElement(childNs + "y", "0"), new XElement(childNs + "next", new XAttribute("probability", 37), target)));
+            XmlData.RootNode parsedChild;
+            if (!ShimejiEngine.TryValidate(childInput.ToString(), out parsedChild, out error))
+                failures.Add("ROUNDTRIP_PARSE_LOSS_WITNESS: synthetic child input is invalid: " + error);
+            else if (ShimejiEngine.RoundTrips(childInput.ToString(), out error)
+                || error == null || error.IndexOf("/childs[1]/child[1]/next[1]/@probability", StringComparison.Ordinal) < 0)
+                failures.Add("ROUNDTRIP_PARSE_LOSS: the public document API silently lost child/next probability while parsing");
+            // The schema accepts next=0 but the graph validator requires positive animation IDs. Exercise
+            // normalization directly for that default-valued carrier, alongside the valid public witness above.
+            string carrierDifference = ShimejiEngine.FirstSemanticDifference(
+                XElement.Parse("<child><next probability='37'>0</next></child>"),
+                XElement.Parse("<child><next>0</next></child>"), typeof(XmlData.ChildNode), "/child");
+            if (carrierDifference != "/child/next[1]")
+                failures.Add("ROUNDTRIP_DEFAULT_CARRIER: normalization discarded attributes on a default-valued scalar");
+            int calls = 0;
+            Func<XmlData.RootNode, string> unstable = delegate(XmlData.RootNode input)
+            {
+                calls++;
+                return ShimejiEngine.Serialize(input) + (calls == 1 ? "" : "\n");
+            };
+            if (ShimejiEngine.RoundTripsCore(root, original, unstable, out error)
+                || error == null || !error.StartsWith("Round-trip serialization is not stable at character ", StringComparison.Ordinal))
+                failures.Add("ROUNDTRIP_FIXED_POINT: the second serialization changed without refusal");
+            // Attribute order and default numeric lexical forms carry no semantic difference.
+            var normalized = System.Xml.Linq.XElement.Parse(original);
+            XNamespace ns = normalized.Name.Namespace;
+            System.Xml.Linq.XElement moving = normalized.Descendants(ns + "start")
+                .FirstOrDefault(n => (string)n.Element(ns + "opacity") == "1" && (string)n.Element(ns + "offsety") == "0");
+            if (moving != null)
+            {
+                moving.Elements(ns + "offsety").Remove();
+                moving.Elements(ns + "opacity").Remove();
+            }
+            else failures.Add("ROUNDTRIP_NORMALIZATION_WITNESS: synthetic pet has no moving node");
+            if (!ShimejiEngine.RoundTrips(normalized.ToString(), out error))
+                failures.Add("ROUNDTRIP_NORMALIZATION_WITNESS: omitted moving defaults changed semantics: " + error);
         }
 
         /// <summary>Deny the current user the right to list <paramref name="dir"/>. False, with the reason,
