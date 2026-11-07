@@ -570,8 +570,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 || error == null || error.IndexOf("/spawns[1]/spawn[1]/@probability", StringComparison.Ordinal) < 0)
                 failures.Add("ROUNDTRIP_ATTRIBUTE_LOSS: a changed attribute did not name its first differing location");
 
-            // This is genuine parse-time loss, not an injected serializer: the XSD permits probability
-            // on child/next, while ChildNode.Next is only an int and cannot retain the attribute.
+            // The XSD permits probability on child/next, and since N-cxr-conv-01 the DTO keeps it: the public
+            // document API returns the attribute unchanged. While ChildNode.Next was a bare int this input
+            // failed the round trip at the attribute's path, a genuine parse-time loss.
             var childInput = XElement.Parse(original);
             XNamespace childNs = childInput.Name.Namespace;
             int target = root.Animations.Animation[0].Id;
@@ -580,16 +581,43 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new XElement(childNs + "y", "0"), new XElement(childNs + "next", new XAttribute("probability", 37), target)));
             XmlData.RootNode parsedChild;
             if (!ShimejiEngine.TryValidate(childInput.ToString(), out parsedChild, out error))
-                failures.Add("ROUNDTRIP_PARSE_LOSS_WITNESS: synthetic child input is invalid: " + error);
-            else if (ShimejiEngine.RoundTrips(childInput.ToString(), out error)
-                || error == null || error.IndexOf("/childs[1]/child[1]/next[1]/@probability", StringComparison.Ordinal) < 0)
-                failures.Add("ROUNDTRIP_PARSE_LOSS: the public document API silently lost child/next probability while parsing");
-            // The schema accepts next=0 but the graph validator requires positive animation IDs. Exercise
-            // normalization directly for that default-valued carrier, alongside the valid public witness above.
+                failures.Add("ROUNDTRIP_CHILD_NEXT_WITNESS: synthetic child input is invalid: " + error);
+            else
+            {
+                XmlData.ChildNode kept = parsedChild.Childs.Child[parsedChild.Childs.Child.Length - 1];
+                if (!ShimejiEngine.RoundTrips(childInput.ToString(), out error) || !kept.NextEdge.ProbabilitySpecified
+                    || kept.NextEdge.Probability != 37 || kept.Next != target)
+                    failures.Add("ROUNDTRIP_CHILD_NEXT: the public document API lost child/next probability: " + error);
+                // WITNESS: the comparison sees that attribute, so the pass above is the DTO keeping it and not
+                // the comparison skipping it. A serializer that drops it is refused at its path.
+                Func<XmlData.RootNode, string> dropChildProbability = delegate(XmlData.RootNode input)
+                {
+                    XmlData.RootNode copy = XmlData.NodeCopy.Deep(input);
+                    foreach (XmlData.ChildNode c in copy.Childs.Child) c.NextEdge.ProbabilitySpecified = false;
+                    return ShimejiEngine.Serialize(copy);
+                };
+                if (ShimejiEngine.RoundTripsCore(parsedChild, childInput.ToString(), dropChildProbability, out error)
+                    || error == null || error.IndexOf("/childs[1]/child[1]/next[1]/@probability", StringComparison.Ordinal) < 0)
+                    failures.Add("ROUNDTRIP_CHILD_NEXT_DETECTED: a serializer dropping child/next probability was not refused at its path");
+            }
+            // The string overload compares with the ORIGINAL text, so information a parse loses cannot hide
+            // behind a DTO that never held it. The DTO keeps every schema-valid field now, so the loss is
+            // injected through the parse seam.
+            ShimejiEngine.XmlParse losingParse = delegate(string xml, out XmlData.RootNode parsed, out string parseError)
+            {
+                if (!ShimejiEngine.TryValidate(xml, out parsed, out parseError)) return false;
+                parsed.Header.Title = "Information lost";
+                return true;
+            };
+            if (ShimejiEngine.RoundTripsXml(original, losingParse, out error)
+                || error == null || error.IndexOf("/header[1]/title[1]", StringComparison.Ordinal) < 0)
+                failures.Add("ROUNDTRIP_PARSE_LOSS: the public document API did not compare with the original text");
+            // An attribute keeps a default-valued scalar element alive in the comparison. sound/loop is such a
+            // scalar (an int whose default the comparison otherwise drops); child/next was one until N-cxr-conv-01.
             string carrierDifference = ShimejiEngine.FirstSemanticDifference(
-                XElement.Parse("<child><next probability='37'>0</next></child>"),
-                XElement.Parse("<child><next>0</next></child>"), typeof(XmlData.ChildNode), "/child");
-            if (carrierDifference != "/child/next[1]")
+                XElement.Parse("<sound><loop probability='37'>0</loop></sound>"),
+                XElement.Parse("<sound><loop>0</loop></sound>"), typeof(XmlData.SoundNode), "/sound");
+            if (carrierDifference != "/sound/loop[1]")
                 failures.Add("ROUNDTRIP_DEFAULT_CARRIER: normalization discarded attributes on a default-valued scalar");
             int calls = 0;
             Func<XmlData.RootNode, string> unstable = delegate(XmlData.RootNode input)

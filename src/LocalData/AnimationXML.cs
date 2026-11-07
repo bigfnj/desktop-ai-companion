@@ -291,10 +291,40 @@ namespace XmlData
         [XmlElement("y")]
         public string Y;
         /// <summary>
-        ///  The next animation used for this child.
+        ///  The child's next element as written: the animation id and the probability attribute the schema allows
+        ///  beside it. Kept whole because a bare int dropped a schema-valid probability on every load and save
+        ///  (Companion Studio, the converter), so the document came back different from the one the author wrote
+        ///  (N-cxr-conv-01). Refusing the attribute in the schema instead was rejected: a classic companion that
+        ///  carries it loaded before, and would then be refused for an attribute nothing reads.
         /// </summary>
         [XmlElement("next")]
-        public int Next;
+        public ChildNextNode NextEdge = new ChildNextNode();
+        /// <summary>
+        ///  The next animation used for this child: the id, which is all the runtime reads (a child has one next,
+        ///  so the probability decides nothing). A property over <see cref="NextEdge"/> so every reader of the old
+        ///  int field, Companion Studio's source-linked copy among them, compiles and behaves as before.
+        /// </summary>
+        [XmlIgnore]
+        public int Next
+        {
+            get { return NextEdge != null ? NextEdge.Value : 0; }
+            set
+            {
+                if (NextEdge == null) NextEdge = new ChildNextNode();
+                NextEdge.Value = value;
+            }
+        }
+    }
+
+    /// <summary>
+    ///  A child's next animation (<see cref="ChildNode.NextEdge"/>). Probability has a Specified twin so a classic
+    ///  child that never wrote one serialises exactly as before, with no probability="0" added.
+    /// </summary>
+    public class ChildNextNode
+    {
+        [XmlAttribute("probability")] public int Probability;
+        [XmlIgnore] public bool ProbabilitySpecified;
+        [XmlText] public int Value;
     }
 
     /// <summary>
