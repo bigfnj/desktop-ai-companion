@@ -1,32 +1,37 @@
 # Fortunes module — design + backlog
 
-## Core design (user directive, 2026-08-06): ship the engine, NOT the content
-The Fortunes module ships the **framework** to enable fortunes — both **dumb** (random pick) and **smart**
-(the ONNX/bge-small semantic picker) — plus the enable/import plumbing. It bundles **zero fortune content**.
-A fresh install of the module is **silent** until the user adds a pack.
+## Core design, as built
+The Fortunes module ships the **framework** for fortunes, both **dumb** (random pick) and **smart** (the
+ONNX/bge-small semantic picker), plus the enable/import/download plumbing, AND a small built-in corpus so a
+fresh install has something to say before the user adds a pack.
 
-- **No embedded corpus.** The base's ~486KB embedded `fortunes.txt` stops being embedded. It becomes the
-  canonical **importable / downloadable "starter pack"** — add via import now, served by the S7 catalog
-  later. No content is lost; restoring the classic set is one action, but it's a *choice*, not a default.
+- **The built-in corpus is embedded.** `Fortunes.csproj` embeds `src/Fortunes/fortunes.txt` (two sources,
+  Classic Fortunes and Dad Jokes: 3,225 rows, about 391 KB, since the corpus was shrunk to those two in
+  d71de2e), and `FortuneProvider.LoadStandardCorpus` loads it FIRST in every standard pool, ahead of the
+  bundled packs and the user's fortunes folder. The other sources it once carried are downloadable packs.
 - **The bge-small ONNX model is engine, not content.** "Smart" is a capability of the framework, so the
-  model + onnxruntime travel with the module as assets (exactly like NAudio did for the Sound module).
+  model + onnxruntime travel with the module as assets (`Embedder.AppDir` resolves beside `Fortunes.dll`).
 - **Packs live in the module's storage** (`host.GetStorage("fortunes")`): the user's imported/downloaded
-  fortune packs + the persistent vector/embedding cache. Empty by default.
-- **Self-tests carry a tiny built-in test fixture corpus** (a handful of lines, not user content) so the
-  engine stays verifiable without shipping real fortunes.
+  fortune packs + the persistent vector/embedding cache.
+- **The self-tests run over the embedded corpus and synthetic fixtures**, not the user's packs: the smart
+  suite over a sample of the built-in corpus (`SmartFortunes.DiagnosticPool`), the filter and importer
+  suites over entries they write themselves.
 
-## Relocation plan (the engine moves out of the base into here)
-Move `FortuneProvider` / `SmartFortunes` / `Embedder` / `FortuneFileImporter` + the `StartUp` fortune glue
-(`SayFortune`, the random-drop loop, land greeting, poke fortune, `RebuildSmartFortunes`,
-`SmartFortunesStatus`), rebinding base infrastructure to the ABI:
-- data dirs (`AppPaths.PrepareFortunesDirectory` / `PrepareVectorCacheDirectory`) → `host.GetStorage`
-- config (fortune fields in `AiSettings`) → the module's own `host.GetSettings` schema + one-time data migration
-- screen context (`ActiveWindow`) → `host.CaptureScreenContext`
-- ✅ ONNX model path (beside the exe) → beside the module dll (done: `Embedder.AppDir` resolves from
-  `Assembly.GetExecutingAssembly().Location`, so the model travels inside the module package)
-- bring the small safe-write helpers the engine needs into the module
+This section replaces the 2026-08-06 directive "bundle zero fortune content, silent until a pack is added",
+which was superseded when the module started embedding the corpus (N-audit-1106-209).
 
-## Later
-- Rich pack management / import UI arrives with the WPF shell (S5); for now packs are read from the module's
-  storage folder and settings come through the schema `OptionsPane`.
-- A "starter pack" one-click install once the S7 catalog exists.
+## Relocation (done)
+The engine moved out of the base into `engine/` here (`FortuneProvider`, `SmartFortunes`, `Embedder`,
+`FortuneFileImporter`) along with the speech glue (`FortunesModule.SpeakFortune`, the random-drop loop, land
+greeting, poke fortune, the smart-index rebuild and its status line), rebound to the ABI: storage through
+`host.GetStorage`, settings through the module's own `host.GetSettings` schema, screen context through
+`host.CaptureScreenContext`, the model beside the module dll. The base keeps only the pack-load bounds the
+catalog shares (`src/dotNet/Ai/FortunePackLoadPolicy.cs`) and the `--fortunes-engine-selftest` bridge that
+loads this module (`src/dotNet/Plugins/FortunesEngineSelfTest.cs`).
+
+## Later (both done)
+- Pack management arrived with the options pane: its installed-packs card imports pack files ("Import your
+  own…") and its "Available online" card downloads from the catalog ("Download selected"), both in
+  `FortunesModule.cs`.
+- The "starter pack" one-click install is moot: the built-in corpus above is embedded, and every other pack is
+  one tick and "Download selected" away.

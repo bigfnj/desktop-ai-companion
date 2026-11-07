@@ -1698,9 +1698,13 @@ namespace DesktopAICompanion.Ai
     }
 
     /// <summary>
-    /// Persistent text→embedding cache so the pool is embedded only once ever (survives restarts and
-    /// pack changes). Stored as a flat binary under the canonical application data root. Never
-    /// throws.
+    /// Persistent text→embedding cache so an unchanged pool is embedded once, not on every start: it
+    /// survives restarts, and a pack or selection change embeds only the lines new to the pool. It holds
+    /// the ACTIVE pool only. BeginActivePool drops every vector outside the pool it is given, and Save
+    /// writes what is left, so a line that leaves the selection and comes back is embedded again (the
+    /// pane says "Rebuilding after a selection change" while it does). A bounded store of recently
+    /// inactive vectors would turn that toggle into a cache hit; it is not built (N-audit-1106-213).
+    /// Stored as a flat binary under the canonical application data root. Never throws.
     /// </summary>
     internal sealed class VectorCache
     {

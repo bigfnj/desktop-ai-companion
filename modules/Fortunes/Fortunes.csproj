@@ -83,11 +83,12 @@
          Not "content" in the pack sense - it's the greeting framework (adapted from ai-platform's
          DeskPet welcome quips). -->
     <EmbeddedResource Include="welcome.json" />
-    <!-- The built-in fortune corpus (26 sources, ~10k lines) that FortuneProvider.EmbeddedCorpus() loads,
-         so a lean install has something to say before the user downloads a single pack. This is the half of
-         the S3 move that never landed: the base stopped embedding it and the module never started, leaving
-         EmbeddedCorpus() to fail into _embeddedError on every build since. Seven of its sources exist in no
-         pack file, so it is not duplicate content. -->
+    <!-- The built-in fortune corpus that FortuneProvider.EmbeddedCorpus() loads, so a lean install has
+         something to say before the user downloads a single pack: two sources, Classic Fortunes (431 rows)
+         and Dad Jokes (2,794), 3,225 rows in all, since the corpus was shrunk to those two (d71de2e); the
+         other sources it once carried are downloadable packs. Embedding it here was the half of the S3 move
+         that first never landed: the base stopped embedding it and the module never started, leaving
+         EmbeddedCorpus() to fail into _embeddedError until this item was added. -->
     <EmbeddedResource Include="..\..\src\Fortunes\fortunes.txt">
       <Link>fortunes.txt</Link>
       <LogicalName>fortunes.txt</LogicalName>
