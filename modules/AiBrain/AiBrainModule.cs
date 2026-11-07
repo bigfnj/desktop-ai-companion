@@ -139,6 +139,17 @@ namespace DesktopAICompanion.AiBrainModule
         /// <summary>The runner Init built or was handed, for the self-test.</summary>
         internal CodingAgentCli CliRunnerForDiagnostics { get { return _cli; } }
 
+        /// <summary>Test seam: the folder Init's OCR scratch sweep looks in (N-audit-1106-126), set before Init, so the
+        /// self-test plants its images in a folder of its own. Null in the shipped module, which sweeps %TEMP%, where
+        /// RunOcrAsync writes them. Same shape as CliForDiagnostics.</summary>
+        internal string OcrScratchDirectoryForDiagnostics;
+
+        // The sweep Init started, so the self-test can wait for it rather than sleep and hope.
+        private Task<int> _ocrScratchSweep;
+
+        /// <summary>The OCR scratch sweep Init started, for the self-test; null before Init.</summary>
+        internal Task<int> OcrScratchSweepForDiagnostics { get { return _ocrScratchSweep; } }
+
         // "Brain runs on", the owner's approved four (mockup AB2, 2026-10-06), and the conditions the cards that only one
         // engine reads carry, as CardEnabledWhen on each card's first field since lane feature/layout-aibrain (host 1.4.0;
         // EnabledWhen's syntax, several values with '|'). The host compares the option TEXT on screen, so these are labels;
@@ -174,7 +185,7 @@ namespace DesktopAICompanion.AiBrainModule
         {
             Id = "aibrain",
             Name = "AI Brain",
-            Version = "1.7.1",   // 1.7.1: from the 2026-11-06 audit (BACKLOG N-audit-1106-009..012, -122..-125).
+            Version = "1.7.1",   // 1.7.1: from the 2026-11-06 audit (BACKLOG N-audit-1106-009..012, -122..-126, -128, -129).
                                  //        Refresh local models and Refresh cloud models list against the provider,
                                  //        base URL, key and local endpoint on screen, applied or not. A switch to the
                                  //        custom provider keeps a base URL typed in the same Apply. A connection
@@ -185,7 +196,11 @@ namespace DesktopAICompanion.AiBrainModule
                                  //        when its endpoint is not on this computer. The hotkey and the tray row find
                                  //        another companion seen on screen when the last one is gone. The drop's 30 s
                                  //        guard also runs from when an answer arrives. The "keep" warm-up loads the
-                                 //        model the first remark will send, a substitute included.
+                                 //        model the first remark will send, a substitute included. Screen images a
+                                 //        timed-out Tesseract read left in %TEMP% are removed at each start, whatever
+                                 //        the brain runs on. On the cloud with the local fallback, a remark goes
+                                 //        straight to the local model while the cloud's last check got no answer. The
+                                 //        Ollama auto-start listens on the local endpoint's own address and port.
                                  // 1.7.0: one Claude Code sign-in, shared with Remembrance (host 1.8.0's
                                  //        IHostCredentials, BACKLOG N-cli-token-02, the owner's decision of
                                  //        2026-10-29). The host keeps the token once, behind a grant the user gives on
@@ -744,6 +759,15 @@ namespace DesktopAICompanion.AiBrainModule
                     try { host.Log(Info.Id, "settings: " + _settings.LoadWarning); } catch { }
             }
             catch { _settings = new AiSettings(); }
+
+            // Full-screen OCR images a timed-out Tesseract run could not delete (N-audit-1106-126). RunOcrAsync sweeps them
+            // before each Tesseract call, and only then, so once the brain read the screen another way (Windows OCR, a
+            // vision model, a CLI) they stayed in %TEMP% for good. Swept once per start as well, whatever the engine and
+            // whether the brain is on. On a pool thread: Init runs on the UI thread and %TEMP% can hold thousands of files.
+            // The sweep's own one-hour floor keeps another instance's image in flight. Rejected: a sweep in Shutdown, which
+            // a crash or a killed process never reaches, and whose hour floor would keep this session's last images anyway.
+            string ocrScratch = OcrScratchDirectoryForDiagnostics ?? Path.GetTempPath();
+            _ocrScratchSweep = Task.Run(delegate { return AiBrain.SweepStaleOcrScratch(ocrScratch); });
 
             // The coding-agent CLI runner over this module's own folder (lane feature/cli-backend). With no storage it
             // answers every call "no data folder" rather than running a CLI from anywhere else. Its log lines are outcome

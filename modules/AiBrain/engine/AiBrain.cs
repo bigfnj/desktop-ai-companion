@@ -464,7 +464,7 @@ namespace DesktopAICompanion.Ai
                 string.IsNullOrWhiteSpace(dispositionIdOverride) ? _settings.Disposition : dispositionIdOverride);
             string userName = string.IsNullOrWhiteSpace(_settings.UserName) ? "" : _settings.UserName.Trim();
             // Allow the configured name but don't force it into every remark, and forbid reading a name
-            // off the screen — window titles and paths ("Administrator", "C:\\Users\\Admin", ...) were
+            // off the screen — window titles and paths ("Administrator", "C:\\Users\\<name>", ...) were
             // being picked up as the user's name.
             string user = userName.Length == 0
                 ? " You do not know your human's name, so never invent one or read a name, username or handle off the screen."
@@ -1749,7 +1749,7 @@ namespace DesktopAICompanion.Ai
 
             Log("ocr engine: " + Path.GetFileName(exe) + " tesseract=present" +
                 " configured=" + (string.IsNullOrWhiteSpace(_tesseractPath) ? "no" : "yes"));
-            SweepStaleOcrScratch();
+            SweepStaleOcrScratch(Path.GetTempPath());
             string tmpPng = Path.Combine(Path.GetTempPath(), "pet_ocr_" + Guid.NewGuid().ToString("N") + ".png");
             try
             {
@@ -1850,23 +1850,35 @@ namespace DesktopAICompanion.Ai
         /// Sweeping on the NEXT call fixes that without making the OCR path slower or racier: by then the
         /// process is long gone. One hour, so a concurrently running instance's in-flight file is never
         /// taken out from under it. Best-effort throughout; a file still locked is simply left for later.
+        ///
+        /// The next Tesseract call was the only sweep until the 2026-11-06 audit (N-audit-1106-126): once the
+        /// brain reads the screen another way (Windows OCR, a vision model, a coding-agent CLI) no Tesseract
+        /// call comes, and the screenshots stayed in %TEMP% for good. AiBrainModule.Init now also runs this
+        /// once per start, whatever the engine. A directory parameter so the module self-test plants and
+        /// inspects its images in a folder of its own, never in the user's %TEMP%.
         /// </summary>
-        private static void SweepStaleOcrScratch()
+        /// <returns>How many images were removed.</returns>
+        internal static int SweepStaleOcrScratch(string directory)
         {
+            int removed = 0;
             try
             {
                 DateTime cutoff = DateTime.UtcNow - TimeSpan.FromHours(1);
-                foreach (string path in Directory.GetFiles(Path.GetTempPath(), "pet_ocr_*.png"))
+                foreach (string path in Directory.GetFiles(directory, "pet_ocr_*.png"))
                 {
                     try
                     {
                         if (File.GetLastWriteTimeUtc(path) > cutoff) continue;
                         File.Delete(path);
+                        removed++;
                     }
                     catch { }
                 }
             }
             catch { }
+            // A count, never a path: the folder is under the user's profile.
+            if (removed > 0) Log("ocr scratch: removed " + removed + " stale screen image(s)");
+            return removed;
         }
 
         /// <summary>

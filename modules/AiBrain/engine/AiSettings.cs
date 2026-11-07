@@ -139,9 +139,14 @@ namespace DesktopAICompanion.Ai
 
         /// <summary>
         /// Explicit consent for sending screen/OCR/window context to a non-loopback provider. AiBrainModule
-        /// enforces it before any cloud request, four times over: the audition, TestConnectionAsync, CreateBrain
-        /// and CanUse each refuse a non-loopback provider without it. (AiEndpointPolicy carries no consent
-        /// logic; this comment said it did, F094.) It does not gate a coding-agent CLI (1.3.0): choosing the CLI
+        /// enforces it before any request that carries a prompt, four times over: the audition, TestConnectionAsync,
+        /// CreateBrain and CanUse each refuse a non-loopback provider without it. Not before a request that carries
+        /// none (N-audit-1106-127; this said "before any cloud request"): "Refresh local models" and "Refresh cloud
+        /// models" list the endpoint on screen when pressed, the cloud one with the API key, and the pane's "In VRAM
+        /// right now" line asks the local endpoint what is resident (GET /api/ps) whenever the pane loads, all three
+        /// without it and with the brain off. A model listing and a residency read send no screen content.
+        /// (AiEndpointPolicy carries no consent logic; this comment said it did, F094.) It does not gate a
+        /// coding-agent CLI (1.3.0): choosing the CLI
         /// under "Brain runs on" is the consent, in the owner's words "if the feature is enabled, the user is well
         /// aware", and the CLI card says what goes through it (docs/DESIGN-REGISTER.md, feature/cli-backend).
         /// </summary>
@@ -169,8 +174,12 @@ namespace DesktopAICompanion.Ai
         // ---- AI brain master switch ----------------------------------------
 
         /// <summary>
-        /// Master switch for the optional screen-commentary LLM. OFF by default, so no selected
-        /// provider is contacted and only the local CPU smart-fortunes embedder runs. Toggle it from
+        /// Master switch for the optional screen-commentary LLM. OFF by default, so no brain is built
+        /// (AiBrainModule.ApplyState) and nothing reaches a provider on its own: no remark, no warm-up, no
+        /// auto-start, no probe. The pane still contacts the configured endpoints with it off
+        /// (N-audit-1106-127; this said "no selected provider is contacted"): the two Refresh buttons, Test
+        /// connection and the persona auditions when pressed, and the "In VRAM right now" line whenever the
+        /// pane loads (<see cref="CloudDataConsent"/> says which of them need the consent). Toggle it from
         /// the tray ("Enable AI" / "Disable AI") or the AI tab. Ollama additionally supports
         /// keep-alive model warm-up and unload; generic OpenAI-compatible providers do not.
         /// </summary>

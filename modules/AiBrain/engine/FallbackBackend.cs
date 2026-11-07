@@ -7,7 +7,8 @@ namespace DesktopAICompanion.Ai
 {
     /// <summary>
     /// A composite <see cref="ICompanionBrainBackend"/> that runs a PRIMARY backend (a cloud OpenAI-compatible
-    /// provider) and, on a retryable failure, fails over to a LOCAL backend (Ollama). Built by
+    /// provider) and, on a retryable failure, fails over to a LOCAL backend (Ollama); while the primary's own probe
+    /// last got no answer, a chat goes to the local backend without trying the primary (<see cref="PrimarySkipped"/>). Built by
     /// <c>AiBrainModule.CreateBrain</c> when a cloud provider is primary and "use local as fallback" is on;
     /// the composite is handed to the otherwise-unchanged <see cref="AiBrain"/>, which sees one backend.
     ///
@@ -57,26 +58,55 @@ namespace DesktopAICompanion.Ai
 
         public async Task<string> ChatAsync(string model, IList<ChatMessage> messages, bool jsonFormat, CancellationToken ct)
         {
-            try
+            if (!PrimarySkipped())
             {
-                Volatile.Write(ref _lastServedModel, model ?? "");
-                return await _primary.ChatAsync(model, messages, jsonFormat, ct).ConfigureAwait(false);
+                try
+                {
+                    Volatile.Write(ref _lastServedModel, model ?? "");
+                    return await _primary.ChatAsync(model, messages, jsonFormat, ct).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (AiEndpointPolicy.IsRetryable(ex, ct))
+                {
+                    ct.ThrowIfCancellationRequested();
+                    // Held back while Remembrance runs a local model or a fullscreen app runs (LocalFallbackHold): the
+                    // cloud's own failure is then the turn's, exactly as it would be with the fallback switched off.
+                    if (!LocalLegAllowed()) throw;
+                }
             }
-            catch (Exception ex) when (AiEndpointPolicy.IsRetryable(ex, ct))
+            // The path is decided by the REQUEST, not by the id: the brain attaches an image only on the vision
+            // path. Comparing the id against the primary's vision model sent every fallover to the local vision
+            // model once the user had chosen one multimodal cloud model for both slots, so an OCR text remark
+            // loaded local llava:13b (F104). Remembered, so UnloadAsync can release what actually ran.
+            string localModel = HasImage(messages) ? _localVisionModel : _localTextModel;
+            _lastLocalModel = localModel;
+            Volatile.Write(ref _lastServedModel, localModel);
+            return await _local.ChatAsync(localModel, messages, jsonFormat, ct).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Whether this chat goes straight to the local leg because the primary's own probe got no answer last time it was
+        /// asked (N-audit-1106-128). The brain probes before every remark (AiBrain.CheckBackendAvailableAsync) and this
+        /// composite answers "up" from whichever leg answers first (F105), so a cloud whose traffic is silently dropped
+        /// still had every remark sent to it, and each one waited out the connection attempt, or the chat deadline (the
+        /// user's timeout, 120 s by default), before the fallover ran, while <see cref="_primaryProbe"/> already said down.
+        /// Every probe still asks the primary, so the first one it answers puts the remarks back on it; before any probe
+        /// the primary is tried as before. Not while a stand-down holds the local leg back: the cloud is then tried and
+        /// its own failure is the turn's, as above. A redirect reads as down to the probe too (SendAndCheckAnsweredAsync
+        /// refuses one), so a base URL that redirects answers locally where each remark used to fail on the redirect; the
+        /// log line says the cloud was passed over. Rejected: racing both legs per remark, which would run the local model
+        /// for every remark the cloud answers.
+        /// </summary>
+        private bool PrimarySkipped()
+        {
+            if (_primaryProbe != PrimaryDown) return false;
+            Func<string> hold = LocalFallbackHold;
+            if (hold != null && hold() != null) return false;
+            Action<string> sink = AiBrain.LogSink;
+            if (sink != null)
             {
-                ct.ThrowIfCancellationRequested();
-                // Held back while Remembrance runs a local model or a fullscreen app runs (LocalFallbackHold): the cloud's
-                // own failure is then the turn's, exactly as it would be with the fallback switched off.
-                if (!LocalLegAllowed()) throw;
-                // The path is decided by the REQUEST, not by the id: the brain attaches an image only on the vision
-                // path. Comparing the id against the primary's vision model sent every fallover to the local vision
-                // model once the user had chosen one multimodal cloud model for both slots, so an OCR text remark
-                // loaded local llava:13b (F104). Remembered, so UnloadAsync can release what actually ran.
-                string localModel = HasImage(messages) ? _localVisionModel : _localTextModel;
-                _lastLocalModel = localModel;
-                Volatile.Write(ref _lastServedModel, localModel);
-                return await _local.ChatAsync(localModel, messages, jsonFormat, ct).ConfigureAwait(false);
+                try { sink("fallback: the cloud did not answer its last probe, so the local model answers"); } catch { }
             }
+            return true;
         }
 
         /// <summary>

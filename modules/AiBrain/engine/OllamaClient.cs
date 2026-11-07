@@ -295,15 +295,8 @@ namespace DesktopAICompanion.Ai
                 string executable = ResolveOllamaExe();
                 if (string.IsNullOrEmpty(executable)) return false;
                 cancellationToken.ThrowIfCancellationRequested();
-                ProcessStartInfo psi = new ProcessStartInfo
-                {
-                    FileName = executable,
-                    Arguments = "serve",
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    WindowStyle = ProcessWindowStyle.Hidden,
-                    WorkingDirectory = Path.GetDirectoryName(executable)
-                };
+                ProcessStartInfo psi = BuildServeStartInfo(
+                    executable, _endpoint, Environment.GetEnvironmentVariable("OLLAMA_HOST"));
                 cancellationToken.ThrowIfCancellationRequested();
                 using (Process started = Process.Start(psi))
                 {
@@ -319,6 +312,90 @@ namespace DesktopAICompanion.Ai
             {
                 return false;   // exe not found / can't launch
             }
+        }
+
+        /// <summary>
+        /// The auto-start's <c>ollama serve</c>, told where to listen: the configured endpoint's host and port, the one
+        /// place EnsureServerAsync then polls (N-audit-1106-129). It was launched with the companion's environment alone,
+        /// so the server listened on Ollama's own default (port 11434) or on whatever OLLAMA_HOST the user had set, and an
+        /// endpoint on another loopback port started a server the poll never reached: twenty seconds of polling, "not
+        /// reachable", and the server left running. A factory so the self-test can read the variable it sets, the way
+        /// AiBrain.BuildOcrStartInfo serves the Tesseract call.
+        /// </summary>
+        internal static ProcessStartInfo BuildServeStartInfo(string executable, string normalizedEndpoint, string inheritedHost)
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = executable,
+                Arguments = "serve",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WindowStyle = ProcessWindowStyle.Hidden,
+                WorkingDirectory = Path.GetDirectoryName(executable)
+            };
+            string host = ServeHostFor(normalizedEndpoint, inheritedHost);
+            if (host != null) psi.Environment["OLLAMA_HOST"] = host;
+            return psi;
+        }
+
+        /// <summary>
+        /// The OLLAMA_HOST the started server needs so it listens where this client looks, as host:port (an IPv6 host in
+        /// brackets, as Uri.Host gives it), or null to leave the variable as the companion inherited it. Null only when
+        /// the inherited value already listens on every interface on the endpoint's port ("0.0.0.0", "0.0.0.0:11500",
+        /// ":11500", "[::]:11500"): that is a user who exposed Ollama to the network on purpose, every loopback address
+        /// reaches it, and narrowing it to the endpoint's host would cut the other machines off until Ollama restarts.
+        /// Anything else is replaced, an inherited loopback value on another port included, since that is the mismatch
+        /// being fixed. An inherited value is read only as far as the forms Ollama documents (host, host:port, :port, a
+        /// scheme in front): one with a scheme and no port is not trusted to mean 11434, and is replaced.
+        /// </summary>
+        internal static string ServeHostFor(string normalizedEndpoint, string inheritedHost)
+        {
+            Uri uri;
+            if (!Uri.TryCreate(normalizedEndpoint, UriKind.Absolute, out uri)) return null;
+            if (InheritedListensEverywhereOn(inheritedHost, uri.Port)) return null;
+            return uri.Host + ":" + uri.Port.ToString(CultureInfo.InvariantCulture);
+        }
+
+        private static bool InheritedListensEverywhereOn(string inheritedHost, int port)
+        {
+            if (string.IsNullOrWhiteSpace(inheritedHost)) return false;
+            string value = inheritedHost.Trim();
+            bool hasScheme = false;
+            int scheme = value.IndexOf("://", StringComparison.Ordinal);
+            if (scheme >= 0)
+            {
+                hasScheme = true;
+                value = value.Substring(scheme + 3);
+            }
+            int slash = value.IndexOf('/');
+            if (slash >= 0) value = value.Substring(0, slash);
+            string host;
+            string portText = null;
+            if (value.StartsWith("[", StringComparison.Ordinal))
+            {
+                int close = value.IndexOf(']');
+                if (close < 0) return false;
+                host = value.Substring(1, close - 1);
+                string rest = value.Substring(close + 1);
+                if (rest.StartsWith(":", StringComparison.Ordinal)) portText = rest.Substring(1);
+                else if (rest.Length > 0) return false;
+            }
+            else
+            {
+                int colon = value.IndexOf(':');
+                if (colon >= 0 && colon != value.LastIndexOf(':')) return false;   // a bare IPv6 address: not a form Ollama documents
+                host = colon >= 0 ? value.Substring(0, colon) : value;
+                if (colon >= 0) portText = value.Substring(colon + 1);
+            }
+            int listens;
+            if (portText == null)
+            {
+                if (hasScheme) return false;
+                listens = 11434;   // Ollama's documented default port
+            }
+            else if (!int.TryParse(portText, NumberStyles.None, CultureInfo.InvariantCulture, out listens)) return false;
+            bool everywhere = host.Length == 0 || host == "0.0.0.0" || host == "::";
+            return everywhere && listens == port;
         }
 
         public async Task WarmUpAsync(string model, CancellationToken ct)
