@@ -70,6 +70,66 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     if (nudged == 0) failures.Add("a genuine magenta art pixel was not nudged off the key (254,0,255)");
                 }
 
+                // ---- TRANSPARENT ART IS KEYED, NOT LEFT TO THE BACKGROUND (N-audit-1106-156) ----
+                // The magenta count above is met by the sheet's own background clear, so it could not see the
+                // keying of a sprite's transparent pixels: SourceCopy writes the sprite's pixels over that clear,
+                // and an unkeyed transparent pixel lands as (0,0,0,0). A keyed sheet here holds a fully
+                // transparent frame and a faint one (alpha 100, below AlphaThreshold) beside an opaque one, and
+                // every pixel of the two below-threshold tiles must be exactly opaque magenta.
+                var keyOwned = new Dictionary<string, Bitmap>(StringComparer.Ordinal)
+                {
+                    { "solid", Solid(12, 16, Color.FromArgb(255, 0, 0, 255)) },
+                    { "clear", Transparent(12, 16) },
+                    { "faint", Solid(12, 16, Color.FromArgb(SpriteSheetBuilder.AlphaThreshold - 28, 0, 160, 0)) },
+                };
+                try
+                {
+                    var keyPoses = new List<ShimejiPose>
+                    {
+                        new ShimejiPose { Image = "solid", AnchorX = 6, AnchorY = 16 },
+                        new ShimejiPose { Image = "clear", AnchorX = 6, AnchorY = 16 },
+                        new ShimejiPose { Image = "faint", AnchorX = 6, AnchorY = 16 },
+                    };
+                    SpriteSheet keyed;
+                    string keyError;
+                    if (!SpriteSheetBuilder.Build(keyPoses, delegate(string name) { return new Bitmap(keyOwned[name]); }, false, out keyed, out keyError))
+                        failures.Add("keying fixture failed to build -- " + keyError);
+                    else
+                    {
+                        using (var ms = new MemoryStream(keyed.PngBytes))
+                        using (var decoded = new Bitmap(ms))
+                        {
+                            foreach (ShimejiPose p in keyPoses)
+                            {
+                                int tile;
+                                if (!keyed.FrameIndexByKey.TryGetValue(p.FrameKey, out tile))
+                                {
+                                    failures.Add("keying fixture: frame '" + p.Image + "' has no tile");
+                                    continue;
+                                }
+                                int x0 = (tile % keyed.TilesX) * keyed.CellWidth, y0 = (tile / keyed.TilesX) * keyed.CellHeight;
+                                int notKey = 0, opaqueBlue = 0;
+                                for (int y = y0; y < y0 + keyed.CellHeight; y++)
+                                    for (int x = x0; x < x0 + keyed.CellWidth; x++)
+                                    {
+                                        Color c = decoded.GetPixel(x, y);
+                                        if (c.A != 255 || c.R != 255 || c.G != 0 || c.B != 255) notKey++;
+                                        if (c.A == 255 && c.R == 0 && c.G == 0 && c.B == 255) opaqueBlue++;
+                                    }
+                                if (p.Image == "solid" && opaqueBlue == 0)
+                                    failures.Add("WITNESS: keying fixture: the opaque tile carries no opaque blue, so the tile geometry read is wrong");
+                                else if (p.Image != "solid" && notKey > 0)
+                                    failures.Add("keying: " + notKey + " pixel(s) of the " + p.Image + " tile are not exactly opaque magenta, "
+                                        + "so a below-threshold sprite pixel was not keyed");
+                            }
+                        }
+                    }
+                }
+                finally
+                {
+                    foreach (Bitmap b in keyOwned.Values) b.Dispose();
+                }
+
                 // Cells identical in CONTENT collapse to one tile, even under different image names.
                 // A skin can ship the same picture twice (an Android-Shimeji template does, and a reversed
                 // sequence re-lists poses it already has); deduping only by image NAME kept 559 wasted cells

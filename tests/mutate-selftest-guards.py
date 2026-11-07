@@ -22354,6 +22354,22 @@ CASES = (
      b"",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
      SHIMEJI, "sound-resolve", "ffmpeg on PATH resolved to"),
+    # N-audit-1106-156: the keyed compositor stops keying a below-threshold sprite pixel (it goes opaque instead); the
+    # sheet's magenta background clear used to hide this from the only magenta assertion.
+    ("bd-w4-converter-1: the keyed compositor leaves a transparent sprite pixel unkeyed (N-audit-1106-156)",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Shimeji", "SpriteSheetBuilder.cs"),
+     b"                        if (a < AlphaThreshold)\n",
+     b"                        if (a < AlphaThreshold && bmp == null)\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "keying: "),
+    # N-audit-1106-157: the emitter's room test stops charging a <sound> node's markup allowance; the near-cap case now
+    # leaves a third clip's payload in the room, so only the allowance refuses it.
+    ("bd-w4-converter-1: the sound room test drops the per-<sound> markup allowance (N-audit-1106-157)",
+     PET_EMITTER,
+     b"                            && audioBase64 + encodedLength + SoundMarkupAllowanceBytes <= xmlRoom;\n",
+     b"                            && audioBase64 + encodedLength <= xmlRoom;\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "classic-emitter", "a sheet with room for two clips embedded 3"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
