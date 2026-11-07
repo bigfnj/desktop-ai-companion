@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
@@ -2051,6 +2052,62 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 || !group2.Residue.Degraded.Exists(item => item.Name == "ConditionalFloor"))
                 failures.Add("classic Group2 floor: a simplified floor action was not emitted and selectable");
 
+            string unsupported = conditional
+                + "<Action Name='TurnAround' Type='Embedded' Class='com.group_finity.mascot.action.Turn' BorderType='Floor'>"
+                + "<Animation><Pose Image='/b.png' ImageAnchor='4,8' Velocity='0,0' Duration='2'/></Animation></Action>"
+                + "<Action Name='Unplaced' Type='Stay' BorderType='None' Condition='#{mascot.totalCount &gt; 1}'>"
+                + "<Animation><Pose Image='/b.png' ImageAnchor='4,8' Velocity='0,0' Duration='2'/></Animation></Action>"
+                + "<Action Name='ConditionalTwin' Type='Stay' Condition='#{mascot.totalCount &gt; 1}'>"
+                + "<Animation><Pose Image='/a.png' ImageAnchor='4,8' Velocity='0,0' Duration='2'/></Animation></Action>";
+            ConversionResult accounting = EmitClassicFixture(unsupported, null, true, out sheet);
+            if (!accounting.Accepted || FindAnimationNamed(accounting, "TurnAround") != null || FindAnimationNamed(accounting, "Unplaced") != null
+                || accounting.Residue.Degraded.Exists(item => item.Name == "TurnAround" || item.Name == "Unplaced")
+                || !accounting.Residue.Degraded.Exists(item => item.Name == "ConditionalFloor")
+                || !accounting.Residue.Degraded.Exists(item => item.Name == "ConditionalTwin")
+                || !accounting.Residue.Notes.Any(note => note.StartsWith("These animations are not attempted:", StringComparison.Ordinal)
+                    && note.Contains("TurnAround") && note.Contains("Unplaced")))
+                failures.Add("classic Group2 accounting: an unused class or border was called kept, or a used sibling was lost");
+
+            // A caller-provided sheet can lack a key even for an admitted action. Grade emitted use, not
+            // admission alone; the drawable Stand is the positive control keeping this fixture accepted.
+            EmitClassicFixture(ClassicStand, null, true, out sheet);
+            ShimejiConfig missingConfig = ShimejiParser.ParseConfXml("<Mascot><ActionList>" + conditional + "</ActionList></Mascot>", null);
+            ConversionResult missing = PetEmitter.Emit(missingConfig, sheet, name => Solid(8, 8, Color.Gray), "MissingGroup2Frame");
+            if (!missing.Accepted || FindAnimationNamed(missing, "Stand") == null || FindAnimationNamed(missing, "ConditionalFloor") != null
+                || missing.Residue.Degraded.Exists(item => item.Name == "ConditionalFloor")
+                || !missing.Residue.Notes.Any(note => note.StartsWith("These animations are not attempted:", StringComparison.Ordinal)
+                    && note.Contains("ConditionalFloor")))
+                failures.Add("classic Group2 missing frames: admission was reported as emitted use without a sheet key");
+
+            string targeted = ClassicStand
+                + "<Action Name='Walk' Type='Move'><Animation><Pose Image='/a.png' ImageAnchor='4,8' Velocity='-2,0' Duration='1'/></Animation></Action>"
+                + "<Action Name='CursorChase' Type='Move' Condition='#{mascot.environment.cursor.x &gt; 0}'>"
+                + "<Animation><Pose Image='/a.png' ImageAnchor='4,8' Velocity='-2,0' Duration='1'/></Animation></Action>"
+                + "<Action Name='WindowHop' Type='Embedded' Class='com.group_finity.mascot.action.Jump' TargetX='#{mascot.environment.activeIE.left}'>"
+                + "<Animation><Pose Image='/b.png' ImageAnchor='4,8' Velocity='0,0' Duration='1'/></Animation></Action>"
+                + "<Action Name='WindowLook' Type='Stay' Condition='#{mascot.environment.activeIE.visible &amp;&amp; mascot.environment.cursor.x &gt; 0}'>"
+                + "<Animation><Pose Image='/b.png' ImageAnchor='4,8' Velocity='0,0' Duration='1'/></Animation></Action>";
+            string targetedBehaviours = "<Mascot><BehaviorList><Behavior Name='Walk' Frequency='100'/><Behavior Name='CursorChase' Frequency='900'/>"
+                + "<Behavior Name='WindowHop' Frequency='900'/><Behavior Name='WindowLook' Frequency='900'/></BehaviorList></Mascot>";
+            ConversionResult targets = EmitClassicFixture(targeted, targetedBehaviours, true, out sheet);
+            XmlData.AnimationNode targetWalk = FindAnimationNamed(targets, "Walk");
+            XmlData.AnimationNode targetHub = FindAnimationById(targets, HubId(targets));
+            XmlData.NextNode targetWalkEdge = targetWalk == null || targetHub == null ? null : Array.Find(targetHub.Sequence.Next, n => n.Value == targetWalk.Id);
+            if (!targets.Accepted || targetWalkEdge == null || targetWalkEdge.Probability != PetEmitter.HubWeightFromFrequency(100)
+                || FindAnimationNamed(targets, "CursorChase") != null || FindAnimationNamed(targets, "WindowHop") != null || FindAnimationNamed(targets, "WindowLook") != null
+                || targets.Residue.Degraded.Exists(item => item.Name == "CursorChase" || item.Name == "WindowHop" || item.Name == "WindowLook")
+                || !targets.Residue.Notes.Any(note => note.StartsWith("These animations are not attempted:", StringComparison.Ordinal)
+                    && note.Contains("CursorChase") && note.Contains("WindowHop") && note.Contains("WindowLook")))
+                failures.Add("classic target contexts: window or moving-cursor actions entered the floor graph or its weights");
+
+            string noStand = "<Action Name='Vanish' Type='Stay'><Animation><Pose Velocity='0,0' Duration='50'/></Animation></Action>"
+                + "<Action Name='Idle' Type='Stay'><Animation><Pose Image='/a.png' ImageAnchor='4,8' Velocity='0,0' Duration='2'/></Animation></Action>";
+            ConversionResult visibleHub = EmitClassicFixture(noStand, null, true, out sheet);
+            XmlData.AnimationNode idleHub = FindAnimationNamed(visibleHub, "Idle"), vanish = FindAnimationNamed(visibleHub, "Vanish");
+            if (!visibleHub.Accepted || idleHub == null || vanish == null || HubId(visibleHub) != idleHub.Id
+                || !HubSequenceTargets(visibleHub).Contains(vanish.Id))
+                failures.Add("classic visible hub: an image-less first action hid the drawable idle fallback");
+
             string hidden = ClassicStand
                 + "<Action Name='Blink' Type='Animate'><Animation><Pose Image='/a.png' ImageAnchor='4,8' Velocity='0,0' Duration='1'/>"
                 + "<Pose Velocity='0,0' Duration='1'/><Pose Image='/b.png' ImageAnchor='4,8' Velocity='0,0' Duration='1'/></Animation></Action>"
@@ -2144,6 +2201,33 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     && HubSequenceTargets(weights).Contains(chain.Id);
             }
             if (!weightsKept) failures.Add("classic behaviour Action: explicit targets lost their frequency or set-piece entry");
+
+            var vocabularyModes = new[]
+            {
+                behaviours.Replace("Behavior", "Behaviour"),
+                behaviours.Replace("BehaviorList", "BehaviourList"),
+                behaviours.Replace("<Mascot>", "<Mascot xmlns:x='urn:classic-fixture'>").Replace("<Behavior", "<x:Behavior").Replace("</Behavior", "</x:Behavior")
+                    .Replace(" Name=", " x:Name=").Replace(" Action=", " x:Action=").Replace(" Frequency=", " x:Frequency="),
+            };
+            bool vocabularyKept = true;
+            foreach (string vocabulary in vocabularyModes)
+            {
+                ConversionResult tolerant = EmitClassicFixture(weighted, vocabulary, true, out sheet);
+                XmlData.AnimationNode tolerantWalk = FindAnimationNamed(tolerant, "Walk"), tolerantChain = FindAnimationNamed(tolerant, "Run_1_Walk");
+                XmlData.AnimationNode tolerantHub = FindAnimationById(tolerant, HubId(tolerant));
+                XmlData.NextNode tolerantEdge = tolerantWalk == null || tolerantHub == null ? null : Array.Find(tolerantHub.Sequence.Next, n => n.Value == tolerantWalk.Id);
+                if (!tolerant.Accepted || tolerantEdge == null || tolerantEdge.Probability != PetEmitter.HubWeightFromFrequency(900)
+                    || tolerantChain == null || !HubSequenceTargets(tolerant).Contains(tolerantChain.Id))
+                    vocabularyKept = false;
+            }
+            if (!vocabularyKept) failures.Add("classic behaviour vocabulary: canonical aliases lost Action targets, weights or a played chain");
+
+            ConversionResult legacy = EmitClassicFixture(weighted,
+                "<Mascot><LegacyWrapper><Behavior Name='Walk' Frequency='100'/></LegacyWrapper></Mascot>", true, out sheet);
+            XmlData.AnimationNode legacyWalk = FindAnimationNamed(legacy, "Walk"), legacyHub = FindAnimationById(legacy, HubId(legacy));
+            XmlData.NextNode legacyEdge = legacyWalk == null || legacyHub == null ? null : Array.Find(legacyHub.Sequence.Next, n => n.Value == legacyWalk.Id);
+            if (!legacy.Accepted || legacyEdge == null || legacyEdge.Probability != PetEmitter.HubWeightFromFrequency(100))
+                failures.Add("classic behaviour fallback: a present document with no usable projection lost legacy frequencies");
 
             string travel = ClassicStand
                 + "<Action Name='Tripping' Type='Animate'><Animation><Pose Image='/a.png' ImageAnchor='4,8' Velocity='-8,0' Duration='1'/></Animation></Action>"

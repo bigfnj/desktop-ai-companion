@@ -34,7 +34,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
     /// standing pose is the hub, and the hub can reach every spoke (which returns to it). This uses every
     /// sprite and produces a lively pet that walks / sits / falls / is draggable, but it does NOT reproduce
     /// Shimeji's conditional Markov behaviour selection -- that simplification is stated in the residue, not
-    /// hidden. Group2 actions are recorded as degraded, Group3 as dropped, and the four magic names
+    /// hidden. Group2 actions actually used are recorded as degraded, Group3 as dropped, and the four magic names
     /// (fall / drag / kill / sync) are emitted (kill/sync synthesised, as Shimeji has no equivalent).
     /// </summary>
     public static class PetEmitter
@@ -233,8 +233,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 ceilingSpokes.Clear();
             }
 
-            // A hub every spoke can return to. Prefer a standing pose.
+            // A hub every spoke can return to. Prefer a standing pose, then a drawable fallback: an
+            // image-less action keeps its time slot, but must not hide an otherwise visible skin at idle.
             Emitted hub = spokes.FirstOrDefault(e => e.Source != null && string.Equals(e.Source.Name, "Stand", StringComparison.OrdinalIgnoreCase))
+                          ?? spokes.FirstOrDefault(e => PosesOf(e).Any(p => p != null && !string.IsNullOrEmpty(p.Image)))
                           ?? spokes.FirstOrDefault();
             if (hub == null)
             {
@@ -592,7 +594,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         internal static bool IsWallAction(ShimejiAction a)
         {
             if (a == null) return false;
-            // Group1 OR Group2, unlike the floor region. Group2 means "the SELECTION CONDITION needs host
+            // Group1 OR Group2. Group2 means "the SELECTION CONDITION needs host
             // state we do not have" (ShimejiModel: a condition referencing cursor/anchor/activeIE), not "the
             // animation is unconvertible" -- and the wall region replaces Shimeji's conditional selection with
             // its own border-driven graph, so that condition was never going to be honoured either way. The
@@ -820,8 +822,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         /// ("sit and look at the mouse"). Admitted as Group1 OR Group2, and emitted with the
         /// <c>faceCursor</c> sequence action so it is actually aimed.
         ///
-        /// These were excluded outright before, because a cursor condition makes the whole action Group2 and
-        /// IsFloorAction demands Group1 -- so 18 gaze actions across 13 pets converted to nothing at all.
+        /// A cursor condition makes the whole action Group2. Floor admission keeps moving cursor actions
+        /// out; this stationary subset can use faceCursor rather than throwing away the pointer response.
         /// The wall region already makes the Group2 argument (a lost SELECTION condition is not an
         /// unconvertible animation), and here it is stronger: the condition is not being discarded, it is
         /// being IMPLEMENTED. "Face whichever way the pointer is" is exactly what faceCursor does.
@@ -837,6 +839,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             if (a.Animations.Count == 0 || a.Animations[0].Poses.Count == 0) return false;
             if (a.Class != null) return false;   // Embedded behaviour (Pinched is Dragged), handled elsewhere
             if (a.BorderType != null && !string.Equals(a.BorderType, "Floor", StringComparison.Ordinal)) return false;
+            if (Has(a.SubtreeBlob, "activeIE")) return false;   // a window target is not a floor gaze
             if (!Has(a.SubtreeBlob, "cursor")) return false;
             // EVERY variant, not just the first: the whole point of the cascade is that any of them can be the
             // one that plays, so one moving variant makes the action a chase however still the others are.
@@ -928,9 +931,11 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         /// </summary>
         internal static bool IsFloorAction(ShimejiAction a)
         {
-            // Group2 loses its state-dependent selection, not its drawable action. The wall and ceiling use
-            // the same rule; claiming these floor actions as "kept but simplified" while emitting none was false.
+            // Group2 may lose selection state while keeping frames. Window navigation and moving cursor
+            // chases need targets or steering, so they cannot become arbitrary hub choices or merged weights.
             if (a == null || (a.Group != FidelityGroup.Group1 && a.Group != FidelityGroup.Group2)) return false;
+            if (Has(a.SubtreeBlob, "activeIE")) return false;
+            if (Has(a.SubtreeBlob, "cursor") && !IsGazeAction(a)) return false;
             if (a.Animations.Count == 0 || a.Animations[0].Poses.Count == 0) return false;
             // Embedded actions used to be refused wholesale here, which silently contradicted the
             // classifier. ActionClassifier already grades Regist as Group1 "drag-resist animation; plays
@@ -2422,8 +2427,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             for (int i = 0; i < spokes.Count; i++) spokes[i].Weight = weights[i];
         }
 
-        // The hub picks its next action weighted by the source's behaviour frequency (ShimejiConfig
-        // .BehaviorFrequency; a behaviour's name is the action it runs), plus a small baseline so every spoke
+        // The hub picks its next action weighted by the source's behaviour frequency (Action= selects the
+        // action when present, otherwise Name), plus a small baseline so every spoke
         // stays reachable -- the acceptance check requires it -- even one the source only ever reaches as a
         // transition (Frequency 0 at root). The hub's OWN re-selection stays at the baseline: it is also every
         // spoke's return target, and folding the stand behaviour's often-high frequency back in here would just
@@ -2491,27 +2496,30 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             return result;
         }
 
-        // The legacy frequency projection is keyed by behaviour NAME. Action= may name another action,
-        // including a set-piece, so resolve the source declaration before either frequency walk. Configs
-        // created without a behaviours document (bundles and callers constructing one) keep the name fallback.
+        // Action= may name another action, including a set-piece. Read the canonical names used by the
+        // tolerant legacy parser, not source-schema Kind: British, mixed and prefixed confs can have Unknown
+        // kinds while their canonical names still identify the same behaviour and transition exclusions.
+        // Configs without a usable behaviours projection keep the legacy name-frequency fallback.
         private static Dictionary<string, int> BehaviourActionFrequencies(ShimejiConfig config)
         {
             if (config.Source == null || config.Source.Behaviors == null)
                 return config.BehaviorFrequency;
             var frequencies = new Dictionary<string, int>(StringComparer.Ordinal);
             CollectBehaviourActionFrequencies(config.Source.Behaviors.Root, frequencies);
-            return frequencies;
+            return frequencies.Count == 0 ? config.BehaviorFrequency : frequencies;
         }
 
         private static void CollectBehaviourActionFrequencies(ShimejiSourceElement node, Dictionary<string, int> frequencies)
         {
             foreach (ShimejiSourceElement child in node.Children)
             {
-                if (child.Kind == ShimejiSourceKind.Condition || child.Kind == ShimejiSourceKind.BehaviorList)
+                if (child.Name == "Condition" || child.Name == "BehaviorList")
                     CollectBehaviourActionFrequencies(child, frequencies);
-                else if (child.Kind == ShimejiSourceKind.Behavior)
+                else if (child.Name == "Behavior")
                 {
-                    ShimejiSourceAttribute name = child.Attribute("Name"), action = child.Attribute("Action"), frequency = child.Attribute("Frequency");
+                    ShimejiSourceAttribute name = child.Attributes.FirstOrDefault(a => a.Name == "Name"),
+                        action = child.Attributes.FirstOrDefault(a => a.Name == "Action"),
+                        frequency = child.Attributes.FirstOrDefault(a => a.Name == "Frequency");
                     int value, previous;
                     if (name == null || frequency == null || !int.TryParse(frequency.RawValue, out value) || value <= 0) continue;
                     string target = action == null ? name.RawValue : action.RawValue;
@@ -2863,8 +2871,13 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             // emit. Capybara's five BorderType="None" legs are the case: withheld as standalone spokes, then
             // emitted as chain steps, and the report claimed both at once until this filter existed.
             var emittedNames = new HashSet<string>(StringComparer.Ordinal);
+            var emittedActions = new HashSet<ShimejiAction>();
             foreach (Emitted e in emitted)
-                if (e.Source != null && e.Source.Name != null) emittedNames.Add(e.Source.Name);
+                if (e.Source != null)
+                {
+                    emittedActions.Add(e.Source);
+                    if (e.Source.Name != null) emittedNames.Add(e.Source.Name);
+                }
             var notOnFloor = new List<string>();
             foreach (ShimejiAction a in config.Actions)
             {
@@ -2880,6 +2893,13 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     bool leftOutWithRegion = (!wallRegionEmitted && IsWallAction(a))
                                              || (!ceilingRegionEmitted && IsCeilingAction(a));
                     if (leftOutWithRegion) continue;
+                    // Classification says what COULD survive, not what this graph actually uses. Unsupported
+                    // embedded classes, excluded contexts and absent frame keys were previously called kept
+                    // even when no animation carried them. A collapsed sibling counts only if it survived.
+                    Emitted merged;
+                    bool used = emittedActions.Contains(a) || (a.Name != null && (ExpandedSetPieces.Contains(a.Name)
+                        || (CollapsedInto.TryGetValue(a.Name, out merged) && emitted.Contains(merged))));
+                    if (!used) { notOnFloor.Add(a.Name); continue; }
                     // A gaze keeps its Group2 classification (the cursor condition IS host state), but the
                     // classifier's stock reason is now false for it: the horizontal half is implemented rather
                     // than pending, and saying otherwise sends a reader looking for a host change that already
@@ -2993,7 +3013,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             foreach (ShimejiAction a in config.Actions)
             {
                 string n = a.Name ?? "";
-                // Priority order, because the buckets genuinely overlap: a gaze is emitted AND recorded as
+                // Priority order, because the buckets genuinely overlap: a Group2 action is emitted AND recorded as
                 // degraded, so counting both lists would double it and the total would not balance.
                 if (emittedNames.Contains(n)) { nEmit++; }
                 else if (droppedNames.Contains(n)) { nDrop++; }
@@ -3038,7 +3058,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 + "animation, {10} refused by policy, {11} wall/ceiling animations left out because nothing "
                 + "could reach them. These sum to the total by construction. "
                 + "The pet carries {7} animations rather than {1} because {8} are synthesised by the converter "
-                + "with no source action behind them, and a gaze is counted here as emitted even though it is "
+                + "with no source action behind them, and an emitted Group2 action is counted here as emitted even though it is "
                 + "also listed as degraded.",
                 config.Actions.Count, nEmit, nDrop, nDeg, nNot, nAbsorbed, nComposite + nChained,
                 emitted.Count, synthesised, nCollapsed, nRefused, nLeftOut));
