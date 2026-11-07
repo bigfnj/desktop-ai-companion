@@ -22336,6 +22336,56 @@ CASES = (
      b'            print("  NO-OP (pattern matched %d times)  %s" % (count, name))\n',
      None, None,
      MUTATION_UNITTESTS, None, 'test_check_patterns_counts_every_case_and_runs_nothing'),
+
+    # ---- burndown/w4-remembrance-1 ----
+    # Remembrance, burn-down wave 4. "bd-w4-remembrance-1:" for one --only.
+    # N-cxr-w2-01: a new track warning no longer tells the open pane, so its Status row keeps the old text. The test
+    # stays (an empty block), since a flag set and never read is CS0219 under warnings-as-errors.
+    ("bd-w4-remembrance-1: a capture that ends mid-meeting leaves the open pane unrefreshed (N-cxr-w2-01)",
+     os.path.join(REPO, "modules", "Remembrance", "RemembranceModule.Watch.cs"),
+     b"            if (added) NotifyInfoChanged();\n",
+     b"            if (added) { }\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "the open pane is told its Status line changed"),
+
+    # N-cxr-w2-02: the count at Init walks the current storage folder alone again.
+    ("bd-w4-remembrance-1: the startup count skips the earlier storage folders (N-cxr-w2-02)",
+     os.path.join(REPO, "modules", "Remembrance", "RemembranceModule.Storage.cs"),
+     b"            List<string> earlier = UntranscribedEarlierRoots(root);\n",
+     b"            List<string> earlier = new List<string>();\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "the count at Init walks the earlier storage folders the purge walks"),
+
+    # N-cxr-w2-02: the recount after a purge pass walks the current storage folder alone again.
+    ("bd-w4-remembrance-1: the recount after a purge skips the earlier storage folders (N-cxr-w2-02)",
+     REMEMBRANCE_MODULE,
+     b"                ScanUntranscribed(root, earlier, untranscribedGeneration);\n",
+     b"                ScanUntranscribed(root, null, untranscribedGeneration);\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "the recount after a purge pass walks the earlier storage folders too"),
+
+    # N-cxr-w2-03: the purge stops waiting for the count in flight, so a slow startup count's warning is discarded and
+    # the audio deleted first.
+    ("bd-w4-remembrance-1: the first purge deletes before the startup count is up (N-cxr-w2-03)",
+     REMEMBRANCE_MODULE,
+     b"            Task countFirst = _untranscribedScan ?? Task.CompletedTask;\n",
+     b"            Task countFirst = Task.CompletedTask;\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "the first purge waits for the count still walking"),
+
+    # N-cxr-w2-03: a purge deferred behind a count still deletes after the module has shut down.
+    ("bd-w4-remembrance-1: a deferred purge deletes after Shutdown (N-cxr-w2-03)",
+     REMEMBRANCE_MODULE,
+     b"                // A module shut down while the count ran begins no deletion pass: the next start purges, after its own count.\n"
+     b"                if (_host == null) return;\n",
+     b"                // A module shut down while the count ran begins no deletion pass: the next start purges, after its own count.\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a purge whose count was still running when the module shut down deletes nothing"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

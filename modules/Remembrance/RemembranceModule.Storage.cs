@@ -938,25 +938,51 @@ namespace DesktopAICompanion.RemembranceModule
         private Task BeginUntranscribedScan()
         {
             string root = UntranscribedRoot();
+            List<string> earlier = UntranscribedEarlierRoots(root);
             int generation = NextUntranscribedGeneration();
-            Task scan = Task.Run(() => ScanUntranscribed(root, generation));
+            Task scan = Task.Run(() => ScanUntranscribed(root, earlier, generation));
             _untranscribedScan = scan;
             return scan;
         }
+
+        /// <summary>
+        /// THE PURGE'S OWN FOLDERS (N-cxr-w2-02): the remembered earlier storage folders the purge also walks, other than
+        /// <paramref name="current"/>, each a full path, read with the settings on the caller's thread. Init counted the
+        /// current folder alone while RunPurge deleted from these too, so a recording left untranscribed in a folder the
+        /// location pointed to before lost its audio at the first purge with no warning at all. The same set as
+        /// <see cref="EarlierRoots"/>, without its write-back of a cleaned list, which stays the purge's to make: a count
+        /// only reads.
+        /// </summary>
+        private List<string> UntranscribedEarlierRoots(string current)
+        {
+            return ParseRoots(_settings.Get(EarlierRootsKey, ""))
+                .Where(r => CaptureStore.IsFullFolder(r) && !SameFolder(r, current)).ToList();
+        }
+
+        /// <summary>The walk of one folder behind a delegate, so the self-test can hold a count back and see the purge wait
+        /// for it (N-cxr-w2-03). Defaults to the real walk.</summary>
+        internal static Func<string, List<DateTime>> UntranscribedAudioIn = CaptureStore.UntranscribedAudio;
 
         private int NextUntranscribedGeneration()
         {
             lock (_untranscribedLock) return ++_untranscribedGeneration;
         }
 
-        /// <summary>One count, on the calling (pool) thread. Logs a changed count once, by number only: a capture's name
-        /// carries the meeting's title.</summary>
-        private void ScanUntranscribed(string root, int generation)
+        /// <summary>One count, on the calling (pool) thread, over the current folder and the earlier ones the purge walks.
+        /// Logs a changed count once, by number only: a capture's name carries the meeting's title.</summary>
+        private void ScanUntranscribed(string root, List<string> earlier, int generation)
         {
             try
             {
-                List<DateTime> found = root == null ? new List<DateTime>() : CaptureStore.UntranscribedAudio(root);
-                string warning = UntranscribedWarning(found, DateTime.UtcNow);
+                List<DateTime> found = root == null ? new List<DateTime>() : UntranscribedAudioIn(root);
+                int inEarlier = 0;
+                foreach (string folder in earlier ?? new List<string>())
+                {
+                    List<DateTime> there = UntranscribedAudioIn(folder);
+                    inEarlier += there.Count;
+                    found.AddRange(there);
+                }
+                string warning = UntranscribedWarning(found, DateTime.UtcNow, inEarlier);
                 string before;
                 lock (_untranscribedLock)
                 {
@@ -983,19 +1009,154 @@ namespace DesktopAICompanion.RemembranceModule
             return "in " + Math.Max(1, (int)Math.Ceiling(left.TotalHours)).ToString(CultureInfo.InvariantCulture) + " h";
         }
 
-        /// <summary>The Status line's warning, or null when every recording has its transcript.</summary>
-        internal static string UntranscribedWarning(List<DateTime> audioWrittenUtc, DateTime nowUtc)
+        /// <summary>The Status line's warning, or null when every recording has its transcript. <paramref name="inEarlier"/>
+        /// of them are in storage folders used before (N-cxr-w2-02), which the warning says, since the user would otherwise
+        /// look for them in the folder the location names now and find nothing.</summary>
+        internal static string UntranscribedWarning(List<DateTime> audioWrittenUtc, DateTime nowUtc, int inEarlier = 0)
         {
             if (audioWrittenUtc == null || audioWrittenUtc.Count == 0) return null;
             int n = audioWrittenUtc.Count;
+            string where = "";
+            if (inEarlier > 0)
+                where = n == 1 ? " It is in a storage folder used before, which the purge still covers."
+                    : inEarlier >= n ? " All of them are in storage folders used before, which the purge still covers."
+                    : " " + inEarlier.ToString(CultureInfo.InvariantCulture) + " of them " + (inEarlier == 1 ? "is" : "are") +
+                      " in a storage folder used before, which the purge still covers.";
             return (n == 1 ? "1 recording has" : n.ToString(CultureInfo.InvariantCulture) + " recordings have") +
                    " audio and no transcript, and the " + RetentionHours() + "-hour purge deletes " +
                    (n == 1 ? "its" : "the oldest one's") + " audio " + PurgeDue(audioWrittenUtc, nowUtc) +
                    ". Use \"Transcribe a WAV file...\" on " + (n == 1 ? "it" : "each") +
-                   ", or move the .wav out of the storage folder to keep it.";
+                   ", or move the .wav out of the storage folder to keep it." + where;
         }
 
         internal Task UntranscribedScanForSelfTest { get { return _untranscribedScan; } }
         internal string UntranscribedWarningForSelfTest { get { return _untranscribedWarning; } }
+
+        /// <summary>
+        /// N-cxr-w2-02 and -03: the count of recordings with no transcript walks every folder the purge deletes from, and
+        /// the purge never deletes before that count has put its warning up. Scratch folders, the module's own Init and
+        /// RunPurge, the real purge; the walk is held back through <see cref="UntranscribedAudioIn"/>, and the delete is
+        /// watched through <see cref="StorePurge"/>.
+        /// </summary>
+        private static void SelfCheckUntranscribedFolders(Action<string, bool> check)
+        {
+            const string Title = "Quarterly Plover";
+            string scratch = Path.Combine(Path.GetTempPath(), "dp-remembrance-untranscribed-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            Func<string, List<DateTime>> savedWalk = UntranscribedAudioIn;
+            Func<string, string, DeletionReport> savedPurge = StorePurge;
+            try
+            {
+                // ---- an earlier folder's recording is counted, at Init and after a pass (N-cxr-w2-02) ----
+                // The current folder holds nothing; the one the location pointed to before holds a recording saved 60 hours
+                // ago with no transcript, 12 hours from the purge.
+                string current = Path.Combine(scratch, "now");
+                string before = Path.Combine(scratch, "before");
+                Directory.CreateDirectory(current);
+                string earlierWav = Path.Combine(before, "2026-08-20 09-30 " + Title, CaptureStore.FolderPrefix + ".wav");
+                PlantAged(new[] { earlierWav }, DateTime.UtcNow.AddHours(-60));
+                var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings s = host.SettingsFor(Id);
+                s.Set("storageLocation", current);
+                s.Set(EarlierRootsKey, before);
+                s.Set("summaryModelsCache", "alpha:1b");
+                s.Set("whisperExe", @"c:\seeded\whisper-cli.exe");
+                var module = new RemembranceModule();
+                module.Init(host);
+                try
+                {
+                    bool counted = module.UntranscribedScanForSelfTest.Wait(TimeSpan.FromSeconds(20));
+                    string atInit = module.UntranscribedWarningForSelfTest;
+                    check("untranscribed: the count at Init walks the earlier storage folders the purge walks, and says the recording is in one (N-cxr-w2-02): " +
+                          (atInit ?? "none"),
+                        counted && atInit != null && atInit.StartsWith("1 recording has audio and no transcript", StringComparison.Ordinal)
+                        && atInit.EndsWith(" It is in a storage folder used before, which the purge still covers.", StringComparison.Ordinal));
+                    check("WITNESS untranscribed: the current storage folder alone holds no such recording",
+                        CaptureStore.UntranscribedAudio(current).Count == 0 && CaptureStore.UntranscribedAudio(before).Count == 1);
+                    bool ran = module.PurgeForSelfTest().Wait(TimeSpan.FromSeconds(20));
+                    string afterPass = module.UntranscribedWarningForSelfTest;
+                    check("untranscribed: the recount after a purge pass walks the earlier storage folders too (N-cxr-w2-02): " + (afterPass ?? "none"),
+                        ran && File.Exists(earlierWav) && afterPass != null
+                        && afterPass.StartsWith("1 recording has audio and no transcript", StringComparison.Ordinal));
+                }
+                finally { module.Shutdown(); }
+
+                // ---- the first purge waits for the count still walking at its tick (N-cxr-w2-03) ----
+                // A recording 80 hours old with no transcript, which the pass deletes. The startup count is held until the
+                // test lets it go, the shape of a large folder or a slow share still being walked at the first tick.
+                string slowRoot = Path.Combine(scratch, "slow");
+                string dueWav = Path.Combine(slowRoot, "2026-08-21 10-00 " + Title, CaptureStore.FolderPrefix + ".wav");
+                PlantAged(new[] { dueWav }, DateTime.UtcNow.AddHours(-80));
+                var gate = new ManualResetEventSlim(false);
+                UntranscribedAudioIn = delegate(string root)
+                {
+                    if (root.StartsWith(scratch, StringComparison.OrdinalIgnoreCase)) gate.Wait(TimeSpan.FromSeconds(15));
+                    return CaptureStore.UntranscribedAudio(root);
+                };
+                RemembranceModule slow = null;
+                string warningAtDelete = null;
+                int deletes = 0;
+                var deleting = new ManualResetEventSlim(false);
+                StorePurge = delegate(string root, string layout)
+                {
+                    if (Interlocked.Increment(ref deletes) == 1) warningAtDelete = slow != null ? slow.UntranscribedWarningForSelfTest : null;
+                    deleting.Set();
+                    return savedPurge(root, layout);
+                };
+                var slowHost = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                slowHost.SettingsFor(Id).Set("storageLocation", slowRoot);
+                slowHost.SettingsFor(Id).Set("summaryModelsCache", "alpha:1b");
+                slowHost.SettingsFor(Id).Set("whisperExe", @"c:\seeded\whisper-cli.exe");
+                slow = new RemembranceModule();
+                slow.Init(slowHost);
+                try
+                {
+                    Task pass = slow.PurgeForSelfTest();
+                    bool deletedWhileCounting = deleting.Wait(TimeSpan.FromMilliseconds(400));
+                    gate.Set();
+                    bool ran = pass.Wait(TimeSpan.FromSeconds(30));
+                    List<string> logged = slowHost.LoggedLines.ToList();
+                    int foundAt = logged.FindIndex(l => l.Contains("found 1 recording(s) with audio and no transcript"));
+                    int purgedAt = logged.FindIndex(l => l.StartsWith(Id + ": purge: removed 1 recording audio file(s)", StringComparison.Ordinal));
+                    check("untranscribed: the first purge waits for the count still walking, and the warning is up before it deletes (N-cxr-w2-03): " +
+                          (deletedWhileCounting ? "it deleted while the count ran; " : "") + "warning at the delete: " + (warningAtDelete ?? "none"),
+                        ran && !deletedWhileCounting && warningAtDelete != null
+                        && warningAtDelete.StartsWith("1 recording has audio and no transcript", StringComparison.Ordinal));
+                    check("untranscribed: ...and the log names the count before the deletion (lines " +
+                          foundAt.ToString(CultureInfo.InvariantCulture) + " and " + purgedAt.ToString(CultureInfo.InvariantCulture) + ")",
+                        foundAt >= 0 && purgedAt > foundAt);
+                    check("WITNESS untranscribed: the pass did delete the overdue audio once the count was up", !File.Exists(dueWav));
+                }
+                finally { slow.Shutdown(); }
+
+                // ---- a module shut down while its count runs begins no deletion pass ----
+                string lateRoot = Path.Combine(scratch, "late");
+                string lateWav = Path.Combine(lateRoot, "2026-08-22 11-00 " + Title, CaptureStore.FolderPrefix + ".wav");
+                PlantAged(new[] { lateWav }, DateTime.UtcNow.AddHours(-80));
+                gate.Reset();
+                deleting.Reset();
+                Interlocked.Exchange(ref deletes, 0);
+                var lateHost = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                lateHost.SettingsFor(Id).Set("storageLocation", lateRoot);
+                lateHost.SettingsFor(Id).Set("summaryModelsCache", "alpha:1b");
+                lateHost.SettingsFor(Id).Set("whisperExe", @"c:\seeded\whisper-cli.exe");
+                var late = new RemembranceModule();
+                late.Init(lateHost);
+                Task latePass = late.PurgeForSelfTest();
+                late.Shutdown();
+                gate.Set();
+                bool lateRan = latePass.Wait(TimeSpan.FromSeconds(30));
+                check("untranscribed: a purge whose count was still running when the module shut down deletes nothing (" +
+                      Volatile.Read(ref deletes).ToString(CultureInfo.InvariantCulture) + " delete pass(es))",
+                    lateRan && Volatile.Read(ref deletes) == 0 && File.Exists(lateWav));
+            }
+            catch (Exception ex) { check("untranscribed folders: the checks threw " + ex.GetType().Name + ": " + ex.Message, false); }
+            finally
+            {
+                UntranscribedAudioIn = savedWalk;
+                StorePurge = savedPurge;
+                ClearReadOnly(scratch);
+                try { if (Directory.Exists(scratch)) Directory.Delete(scratch, true); } catch (Exception) { }
+            }
+        }
     }
 }

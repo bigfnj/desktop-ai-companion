@@ -117,6 +117,11 @@ namespace DesktopAICompanion.RemembranceModule
                                  //        press it (N-audit-1106-282). Self-test: the Network Protection read's key order
                                  //        is pinned on chosen values, the failed-save check claims only the settings
                                  //        file, and the log-leak check reads every line (N-audit-1106-283, -284, -285).
+                                 //        A capture that ends mid-meeting refreshes an Options pane already open, so
+                                 //        its Status line shows the warning (N-cxr-w2-01). The count of recordings with
+                                 //        no transcript walks the earlier storage folders the purge also deletes from,
+                                 //        and says when one is there (N-cxr-w2-02); the purge waits for the count in
+                                 //        flight, so its warning is up before anything is deleted (N-cxr-w2-03).
                                  // 2.10.0: one Claude Code sign-in, shared with AI Brain (host 1.8.0's
                                  //        IHostCredentials, BACKLOG N-cli-token-02, the owner's decision of
                                  //        2026-10-29), behind the ClaudeCodeSignIn grant, so MinHostVersion rises to
@@ -1710,9 +1715,20 @@ namespace DesktopAICompanion.RemembranceModule
             // The folders the storage location pointed to before, read here on the caller's thread with the root
             // (N-remembrance-delete-logging-06); each is purged by the same shapes, after the current root.
             List<string> earlier = EarlierRoots(root);
-            int untranscribedGeneration = NextUntranscribedGeneration();
-            return Task.Run(() =>
+            // THE COUNT IN FLIGHT FINISHES FIRST (N-cxr-w2-03). The pass took its count generation here, on the UI thread,
+            // and deleted at once: a startup count still walking a large or slow folder at the first tick (60 s) was then
+            // a generation behind, so its warning was thrown away, and the recount after the pass found the audio already
+            // gone. The recordings the warning exists for were deleted without it ever showing. Now the pass runs as a
+            // continuation of whatever count is in flight (Init's, or a manual transcription's), on the pool, so the UI
+            // thread never waits, and its own generation is taken only once that count has published. Rejected: waiting
+            // on the UI thread, which a folder on a slow share would freeze; and skipping the pass while a count runs,
+            // which lets one stuck walk postpone every purge for good.
+            Task countFirst = _untranscribedScan ?? Task.CompletedTask;
+            return countFirst.ContinueWith(delegate
             {
+                // A module shut down while the count ran begins no deletion pass: the next start purges, after its own count.
+                if (_host == null) return;
+                int untranscribedGeneration = NextUntranscribedGeneration();
                 try
                 {
                     // No storage folder (a blank location and no Documents, N-modules-fixes-02) holds nothing to purge;
@@ -1724,9 +1740,10 @@ namespace DesktopAICompanion.RemembranceModule
                 // By the exception's TYPE, never its Message, which can name the path it failed on (DeletionReport).
                 catch (Exception ex) { Log("purge failed: " + ex.GetType().Name); }
                 // What is left untranscribed after the pass, so the Status line's count and its hours stay current
-                // (N-audit-1106-038). After the purge, never instead of it: the count reads, it does not decide.
-                ScanUntranscribed(root, untranscribedGeneration);
-            });
+                // (N-audit-1106-038), over the same folders the pass walked (N-cxr-w2-02). After the purge, never instead
+                // of it: the count reads, it does not decide.
+                ScanUntranscribed(root, earlier, untranscribedGeneration);
+            }, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
         }
 
         /// <summary>The purge behind a delegate, so the self-test can make one throw and see the failure logged rather
@@ -2973,6 +2990,7 @@ namespace DesktopAICompanion.RemembranceModule
                     // remembrance.busy (2.0.0): up synchronously on this UI thread, cleared in the finally.
                     BusySpan busy = Busy(BusyTranscribing);
                     string scanRoot = UntranscribedRoot();   // read here, with the settings, on this UI thread
+                    List<string> scanEarlier = UntranscribedEarlierRoots(scanRoot);   // and the purge's other folders (N-cxr-w2-02)
                     Task.Run(() =>
                     {
                         try
@@ -2992,7 +3010,7 @@ namespace DesktopAICompanion.RemembranceModule
                                       (string.IsNullOrEmpty(reason) ? "" : " (" + reason + ")") + ": " + name,
                                 did ? "Transcript ready." : "Transcription failed.");
                             // The recording may have been one the Status line counted as untranscribed (N-audit-1106-038).
-                            ScanUntranscribed(scanRoot, NextUntranscribedGeneration());
+                            ScanUntranscribed(scanRoot, scanEarlier, NextUntranscribedGeneration());
                         }
                         catch (Exception ex) { try { _host.Log(Id, "manual transcribe failed: " + ex.Message); } catch { } }
                         finally { busy.Dispose(); }
@@ -5226,6 +5244,9 @@ namespace DesktopAICompanion.RemembranceModule
             // Lane feature/followups2 (N-followups-02): a storage location that is not a full path is refused at Apply and
             // never resolved.
             SelfCheckRelativeStorage(check);
+            // Burn-down wave 4 (N-cxr-w2-02, -03): the count of recordings with no transcript walks the purge's folders, and
+            // the first purge waits for it.
+            SelfCheckUntranscribedFolders(check);
             // Lane feature/cli-followups (2.7.0): the settings switch in the CLI card and the details read's landing
             // (RemembranceModule.CliFollowups.cs).
             SelfCheckCliFollowups(check);
