@@ -185,7 +185,12 @@ namespace DesktopAICompanion.AgentFlow
         {
             Id = "agentflow",
             Name = "AgentFlow",
-            Version = "1.12.3",  // 1.12.3: agent cards no longer take focus while you work elsewhere (the owner's
+            Version = "1.12.4",  // 1.12.4: "Just keep a log" now keeps only a log (N-audit-1106-006, -007). Log mode no
+                                 //        longer plays the notification sound or the animation for a waiting prompt, and
+                                 //        the session-limit watch no longer types pause messages into Claude Code panels
+                                 //        in Log mode; the pane already greyed all three there. It still reads the panels
+                                 //        for the Status card and the tray.
+                                 // 1.12.3: agent cards no longer take focus while you work elsewhere (the owner's
                                  //        report of 2026-11-02; built with Codex's audit and review rounds, and a live
                                  //        re-test after the first version missed a Codex approval card taking focus as
                                  //        it appeared). In auto-approve, a standing guard installed on every sweep keeps
@@ -826,10 +831,17 @@ namespace DesktopAICompanion.AgentFlow
             var result = new Delivery();
             IHost host = _host;
             if (host == null) return result;
-            bool wantsSpeech = NotifySpeakOn && AgentMode.Speaks(Mode);
+            // ALL THREE channels follow the mode (N-audit-1106-006), not speech alone. Log is "watch and write the audit
+            // line, never speak", and the pane greys the sound and animation boxes in Log because they are not live
+            // there -- yet only speech consulted the mode, so a user who had the chime or the animation on in Notify and
+            // moved to Log still got both for every blocked transcript prompt and every prompt read off the screen, with
+            // the boxes that could turn them off greyed out in front of them. In Log mode nothing is wanted here, so
+            // Apply and AnnounceScreenPrompt write their log line and nothing else, which is what Log promises.
+            bool speaksInMode = AgentMode.Speaks(Mode);
+            bool wantsSpeech = NotifySpeakOn && speaksInMode;
             bool canSpeak = host.SpeechEnabled && AnyCompanionCanSpeak();
-            bool wantsSound = NotifySoundOn;
-            bool wantsAnimation = Animate;
+            bool wantsSound = NotifySoundOn && speaksInMode;
+            bool wantsAnimation = Animate && speaksInMode;
             result.Wanted = wantsSpeech || wantsSound || wantsAnimation;
             result.Spoke = wantsSpeech && canSpeak;
             // SayAll, not Say: this is a message to the USER, not a companion reacting to
@@ -921,8 +933,13 @@ namespace DesktopAICompanion.AgentFlow
             // a settings access at the call site, and _settings is the host's bare Dictionary<string,string>
             // with no lock, written on the UI thread by SavePaneValues on every Apply.
             string argvPathNow = ArgvPath;
-            // The session-limit watch's two settings, snapshotted here for the same reason (1.6.0).
-            bool pauseAtLimit = PauseAtLimit;
+            // The session-limit watch's two settings, snapshotted here for the same reason (1.6.0). The switch is taken
+            // together with the mode (N-audit-1106-007): Log "never speaks, never presses", and the pane greys this box
+            // in Log, yet the watch's only gates were the answering port and the switch, so a user who had it on in
+            // Notify and moved to Log still had pause messages typed into their Claude Code panels, with the box that
+            // could stop it greyed out. Off the switch in effect, the step reads and reports for the Status card and
+            // the tray, and asks nobody and tells nobody.
+            bool pauseAtLimit = LimitMayType(PauseAtLimit, Mode);
             int pauseAtPercent = PauseAtPercent;
 
             // Reading and parsing transcripts is file IO plus JSON, so it never runs on the tick.
@@ -6870,6 +6887,10 @@ namespace DesktopAICompanion.AgentFlow
                     module4.Init(host4);
                     module4._settings.Set(SettingMode, AgentMode.Log);
                     module4._settings.Set(SettingNotifySpeak, "true");
+                    // N-audit-1106-006: the chime and the animation ticked as well, as a user who had them on in Notify
+                    // and moved to Log has them (the pane greys both boxes in Log, so they cannot be unticked there).
+                    module4._settings.Set(SettingNotifySound, "true");
+                    module4._settings.Set(SettingAnimate, "true");
                     module4._settings.Save();
                     host4.RaiseCompanionSpawned(new FakeCompanion());
                     module4.Apply(OneBlockedDetection());
@@ -6885,6 +6906,13 @@ namespace DesktopAICompanion.AgentFlow
                         CountLoggedContaining(host4.LoggedLines, "spoke about") == 0);
                     probe.Check("...it records that it signalled instead, so the notice is still traceable",
                         CountLoggedContaining(host4.LoggedLines, "signalled about") >= 1);
+                    // Only speech consulted the mode, so Log chimed and animated for every blocked prompt, the transcript
+                    // one above and one read off the screen here.
+                    module4.AnnounceScreenPrompt(new ScreenPrompt { Signature = "log|screen", Subject = "a Codex command" });
+                    probe.Check("(N-audit-1106-006) Log mode neither chimes nor animates, for a transcript prompt or one read off the screen, with both boxes ticked",
+                        host4.NotificationSoundsPlayed == 0 && host4.PlayedAnimations.Count == 0);
+                    probe.Check("WITNESS (N-audit-1106-006) ...and still writes the screen prompt's log line",
+                        CountLoggedContaining(host4.LoggedLines, "a prompt is waiting on screen for a Codex command") == 1);
                     module4.Shutdown();
                 }
 

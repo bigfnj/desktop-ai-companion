@@ -11,9 +11,9 @@ namespace DesktopAICompanion.AgentFlow
     /// The session-limit watch's half of the module (1.6.0): the two settings, the step the poll worker runs, what it
     /// reports on the UI thread, and the pane's card. The reading and the sending are in SessionLimit.cs.
     ///
-    /// OFF BY DEFAULT, like everything here that acts in another application on the user's behalf. It runs in Notify and
-    /// in auto-approve, never in Off, and only while VS Code's debugging port answers, because it reaches the panels the
-    /// same way the press does.
+    /// OFF BY DEFAULT, like everything here that acts in another application on the user's behalf. It types in Notify and
+    /// in auto-approve, never in Log or Off (Log only since N-audit-1106-007: see LimitMayType), and only while VS Code's
+    /// debugging port answers, because it reaches the panels the same way the press does.
     /// </summary>
     public sealed partial class AgentFlowModule
     {
@@ -41,6 +41,17 @@ namespace DesktopAICompanion.AgentFlow
         internal bool PauseAtLimit
         {
             get { return _settings != null && _settings.GetBool(SettingPauseAtLimit, false); }
+        }
+
+        /// <summary>
+        /// Whether the watch may ask a panel to pause: its switch on AND a mode that acts (N-audit-1106-007). The same
+        /// modes as the pane's WhileItStillSpeaks, which is what greys the switch, so a box shown greyed is never live.
+        /// One place for the tick's snapshot and the step's last look, so the two cannot disagree. Pure, for the
+        /// self-test.
+        /// </summary>
+        internal static bool LimitMayType(bool pauseAtLimit, string mode)
+        {
+            return pauseAtLimit && AgentMode.Speaks(mode);
         }
 
         internal int PauseAtPercent
@@ -133,8 +144,9 @@ namespace DesktopAICompanion.AgentFlow
                 foreach (PanelUsage panel in plan.SendTo)
                 {
                     // The last look before acting in another application, as the press takes one: a module being shut
-                    // down, or switched off, must not type into a panel on the way out.
-                    if (_shuttingDown || !PauseAtLimit) break;
+                    // down, or switched off, must not type into a panel on the way out. The mode is in it as well
+                    // (N-audit-1106-007): a user who moves to Log while a step is running gets nothing typed either.
+                    if (_shuttingDown || !LimitMayType(PauseAtLimit, Mode)) break;
                     string result = CdpApprover.SendPause(port, panel.TargetId, message, 1500, ConfirmAfterMs);
                     _limitWatch.Record(panel.TargetId, result, resetsAt);
                     if (result == "accepted") accepted++;
