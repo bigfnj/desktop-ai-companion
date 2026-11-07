@@ -735,10 +735,14 @@ tools concurrently and says `DEGRADED` when it does not have them. `--attribute`
 Codex roots by design rather than scoring them against Claude transcripts, which would be a
 mis-attribution path; Codex needs its own candidate index.
 
-`--audit` re-derives the option set from whatever agent bundle is installed and fails if the table
-cannot classify one of them. `--mutate` breaks the classifier five ways and proves the self-test
-catches each; a clean run with no mutation firing means the suite is blind, not that the code is
-good. Current state: 25/25 self-test, audit clean, 5/5 mutations fired.
+`--audit` re-derives the option set from whatever agent bundle is installed and fails (exit 1) if the
+table cannot classify one of them, or if a complete label matched only a prefix template such as
+`Yes, allow ` and so has no entry of its own. Since 2026-11-06 it says `audit DEGRADED` and exits 3
+when it compared nothing: no bundle installed, or an extracted set without the `Yes` and `No` every
+prompt carries. Before that both printed a pass. `--mutate` breaks the classifier and its audit in each
+way `mutate()` lists and proves the self-test catches each; a clean run with no mutation firing means
+the suite is blind, not that the code is good. Run it for the current counts rather than trusting a
+number written here.
 
 ### Two more defects, found after the module was built, by testing the SEAM
 
