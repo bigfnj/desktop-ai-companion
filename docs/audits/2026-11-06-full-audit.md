@@ -90,3 +90,10 @@ file.
   unread.
 - Verification re-traced code; it did not execute it, so a proposed killing mutation is a proposal, not a run.
 
+## Codex's independent read of the converter and parity code
+
+Codex read the converter and parity slices on its own, from a written brief, without seeing our findings first, then
+gave a verdict on each of ours there.
+
+- Its verdicts on 24 of our findings: 17 confirmed, 1 refuted, 6 uncertain. The one it refuted and the two it doubted where our verifier had confirmed went to a judge, who re-traced them (BACKLOG.md says the outcome in each entry).
+- Its own findings: 6. Each went to an adversarial verifier on our side: 6 confirmed. Filed: N-audit-1106-398, N-audit-1106-399, N-audit-1106-400, N-audit-1106-401, N-audit-1106-402, N-audit-1106-403.
