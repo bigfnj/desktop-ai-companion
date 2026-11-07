@@ -20464,6 +20464,30 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--shimeji-window-selftest", "dp-shimeji-window-selftest.txt",
      "parity trace: a provenance fault ends the run in error, naming the field"),
+
+    # ---- burndown/options-ui-1 ----
+    # The 2026-11-06 audit burn-down, host options UI. Named "bd-options-ui-1: ..." so one --only=bd-options-ui-1:
+    # run covers the lane.
+    # N-audit-1106-032: an unreadable settings.json replaced from the backup, or by the defaults, says nothing again.
+    ("bd-options-ui-1: a corrupt primary restored from the backup writes no recovery notice",
+     APPSETTINGS_STORE,
+     b'                    NoteRecovery(preserved, "restored them from the backup copy (" + _backupPath + ")");\n',
+     b"                    { }\n",
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "Recovery notice: a corrupt primary restored from the backup said nothing"),
+    ("bd-options-ui-1: a corrupt primary reset to the defaults writes no recovery notice",
+     APPSETTINGS_STORE,
+     b'                NoteRecovery(preserved, "started again from the default settings, because the backup copy could not be used either");\n',
+     b"                { }\n",
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "Recovery notice: a corrupt primary reset to DEFAULTS said nothing"),
+    # N-audit-1106-256: the future-schema advice names settings.json only again, so moving it aside changes nothing.
+    ("bd-options-ui-1: the future-schema advice names only the primary settings file",
+     APPSETTINGS_STORE,
+     b'                + _filePath + " and its backup " + _backupPath;\n',
+     b"                + _filePath;\n",
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "Future-schema advice: the warning does not name both settings files"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

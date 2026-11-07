@@ -1026,6 +1026,15 @@ namespace DesktopAICompanion
         public string BackupPath { get { return _backupPath; } }
         public string LastRecoveryFile { get; private set; }
         public string LastLoadWarning { get; private set; }
+        /// <summary>
+        /// What the last Load did about an UNREADABLE settings.json: where the rejected file was kept and what the
+        /// session runs on instead (the backup, an earlier version's settings, or the defaults); null when the primary
+        /// read cleanly or was missing. Separate from <see cref="LastLoadWarning"/> on purpose (N-audit-1106-032):
+        /// that one says storage is unavailable and changes may not be saved, which is false here, since the store
+        /// wrote the recovered document back and saves normally. Until this existed the path said nothing at all, and
+        /// a user whose settings had just been reset to defaults had no way to learn the file was kept.
+        /// </summary>
+        public string LastRecoveryNotice { get; private set; }
         public bool IsReadOnlyFallback { get { return _writesBlockedByLoadFailure; } }
 
         public AppSettingsStore(string filePath, IEnumerable<string> legacyFiles)
@@ -1072,6 +1081,7 @@ namespace DesktopAICompanion
             lock (ProcessLock)
             {
                 LastLoadWarning = null;
+                LastRecoveryNotice = null;
                 try
                 {
                     AppSettingsDocument loaded =
@@ -1131,12 +1141,15 @@ namespace DesktopAICompanion
             if (primaryResult == ReadResult.FutureSchema)
                 return AdoptFutureSchemaReadOnly(loaded);
 
-            if (primaryResult == ReadResult.Unreadable)
-                PreserveCorruptPrimary();
+            // Null unless settings.json was there and unreadable; then each way out below says which source replaced it.
+            bool primaryUnreadable = primaryResult == ReadResult.Unreadable;
+            string preserved = primaryUnreadable ? PreserveCorruptPrimary() : null;
 
             ReadResult backupResult = TryRead(_backupPath, out loaded, out changed);
             if (backupResult == ReadResult.Loaded)
             {
+                if (primaryUnreadable)
+                    NoteRecovery(preserved, "restored them from the backup copy (" + _backupPath + ")");
                 SaveDuringLoad(
                     loaded,
                     "Recovered settings could not be restored to the primary file.");
@@ -1144,10 +1157,16 @@ namespace DesktopAICompanion
                 return loaded;
             }
             if (backupResult == ReadResult.FutureSchema)
+            {
+                if (primaryUnreadable)
+                    NoteRecovery(preserved, "is reading the backup copy, which a newer version wrote");
                 return AdoptFutureSchemaReadOnly(loaded);
+            }
 
             if (LegacySettingsReader.TryRead(_legacyFiles, out loaded))
             {
+                if (primaryUnreadable)
+                    NoteRecovery(preserved, "imported the settings an earlier version left behind");
                 loaded.Normalize();
                 SaveDuringLoad(
                     loaded,
@@ -1156,6 +1175,8 @@ namespace DesktopAICompanion
                 return loaded;
             }
 
+            if (primaryUnreadable)
+                NoteRecovery(preserved, "started again from the default settings, because the backup copy could not be used either");
             loaded = AppSettingsDocument.CreateDefault();
             SaveDuringLoad(
                 loaded,
@@ -1171,6 +1192,12 @@ namespace DesktopAICompanion
         /// going back to this one then left the user changing settings, watching several controls report
         /// success (they discard SaveMerged's false), and finding everything reverted, with nothing anywhere
         /// saying why. One body for the two read paths (RA-303); it was pasted twice.
+        ///
+        /// The advice names BOTH files (N-audit-1106-256). It used to say "move the file aside" and name settings.json
+        /// only, but every save by the newer build rotates its previous document into settings.json.bak, so after its
+        /// second save the backup is newer-schema too: a user who moved settings.json aside came straight back here,
+        /// through the backup read in LoadCore, to the same read-only session and a warning naming a file that was no
+        /// longer there.
         /// </summary>
         private AppSettingsDocument AdoptFutureSchemaReadOnly(AppSettingsDocument loaded)
         {
@@ -1182,8 +1209,8 @@ namespace DesktopAICompanion
                 + AppSettingsDocument.CurrentSchemaVersion.ToString(CultureInfo.InvariantCulture)
                 + "). They are being READ but nothing will be SAVED this session, so that "
                 + "the newer file is not damaged. Install the newer version again, or move "
-                + "the file aside to start fresh: "
-                + _filePath;
+                + "both settings files aside to start fresh: "
+                + _filePath + " and its backup " + _backupPath;
             _baseline = Clone(loaded);
             return loaded;
         }
@@ -1507,8 +1534,23 @@ namespace DesktopAICompanion
             }
         }
 
-        private void PreserveCorruptPrimary()
+        /// <summary>The recovery notice for an unreadable settings.json (<see cref="LastRecoveryNotice"/>): what replaced
+        /// it, and where the rejected file was kept, or that it could not be kept.</summary>
+        private void NoteRecovery(string preserved, string outcome)
         {
+            LastRecoveryNotice =
+                "Your settings file could not be read, so DesktopAICompanion " + outcome + ". "
+                + (preserved != null
+                    ? "The unreadable file was kept as " + preserved + "."
+                    : "A copy of the unreadable file could not be kept.");
+        }
+
+        /// <summary>Copies the unreadable primary aside and removes it. Returns the copy's path whenever the copy was made
+        /// (even when the primary could not then be removed), so the notice never says a file that exists was lost; null
+        /// when no copy could be made (the primary is then left as it was).</summary>
+        private string PreserveCorruptPrimary()
+        {
+            string copied = null;
             try
             {
                 string directory = Path.GetDirectoryName(_filePath);
@@ -1518,6 +1560,7 @@ namespace DesktopAICompanion
                     "-" + Guid.NewGuid().ToString("N") + Path.GetExtension(_filePath);
                 string recovery = Path.Combine(directory, name);
                 File.Copy(_filePath, recovery, false);
+                copied = recovery;
                 File.Delete(_filePath);
                 LastRecoveryFile = recovery;
             }
@@ -1525,6 +1568,7 @@ namespace DesktopAICompanion
             {
                 // Keep the unreadable primary untouched if it cannot be preserved safely.
             }
+            return copied;
         }
 
         private static void AddUnique(ICollection<string> values, string candidate)
