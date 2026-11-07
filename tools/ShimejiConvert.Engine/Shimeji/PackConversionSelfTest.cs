@@ -257,15 +257,33 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 invalid.Root.Element("ActionList").Elements("Action").Single(a => (string)a.Attribute("Name") == "Stand")
                     .SetAttributeValue("Unknown", "1");   // an attribute the source schema does not name: always refused
                 fixture.Member("Bad", invalid, Behaviours());
-                PackConversionResult result = Refused(fixture, Options(true), "Bad");
+                fixture.Member(".Helper", Actions(), Behaviours());
+                PackConversionOptions options = Options(true);
+                options.Members = new Dictionary<string, PackMemberOptions> {
+                    { ".Helper", new PackMemberOptions { Role = "form", Hidden = false } }
+                };
+                PackConversionResult result = Refused(fixture, options, "Bad");
                 Require(result.PackId == null, "partial source pack advertised an installable subset identity");
-                Require(result.Members.Count == 2 && Member(result, "Bad").Disposition == PackMemberDisposition.Refused
+                Require(result.Members.Count == 3 && Member(result, "Bad").Disposition == PackMemberDisposition.Refused
                     && Member(result, "Alpha").Disposition == PackMemberDisposition.Prepared && Member(result, "Alpha").Root != null,
                     "one refused member erased successful diagnostic previews or disappeared from reports");
                 Require(Member(result, "Alpha").Root.Header.Pack == null && Pack(Document(Member(result, "Alpha"))) == null,
                     "partial source diagnostic preview advertised a subset pack identity inside its document");
                 Require(Member(result, "Bad").Residue != null && Member(result, "Bad").Residue.MemberNotes.Count > 0,
                     "refused member lost its residue diagnostic");
+                Require(result.Errors.Count == 1 && !result.Errors.Any(e => e.Contains("header/pack") || e.Contains("exactly one main member")),
+                    "partial source diagnostic preview acquired spurious pack-validator errors");
+                foreach (PackMemberConversionResult preview in result.Members.Where(m => m.Disposition == PackMemberDisposition.Prepared))
+                    Require(preview.Root.Header.Pack == null && preview.Residue.MemberNotes.Any(n => n.Contains("diagnostic preview carries no pack role or visibility metadata"))
+                        && !preview.Residue.MemberNotes.Any(n => n.Contains("remains hidden in the converted pack") || n.Contains("as visible in the converted pack")),
+                        "partial preview residue claimed pack role or visibility metadata");
+                Require(Member(result, ".Helper").Residue.MemberNotes.Any(n => n.Contains("source chooser hides")),
+                    "partial hidden preview lost its source visibility fact");
+                fixture.Member("Bad", Actions(), Behaviours());
+                PackConversionResult complete = Accepted(fixture, options);
+                Require((string)Pack(Document(Member(complete, ".Helper"))).Attribute("hidden") == "false"
+                    && Member(complete, ".Helper").Residue.MemberNotes.Any(n => n.Contains("as visible in the converted pack")),
+                    "complete pack lost explicit visibility metadata or its visibility note");
             }
         }
 
@@ -369,8 +387,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     "unused source action disappeared from the graph diagnostic");
                 Require(member.Residue.Dropped.Count == 0 && member.Residue.Degraded.Count == 0,
                     "unused source action was mislabeled as lost");
-                Require(result.Warnings.Any(w => w.Contains("source action or behaviour nodes") && w.Contains("this is informational"))
-                    && member.Residue.MemberNotes.Any(w => w.Contains("this is informational")),
+                Require(!result.Warnings.Any(w => w.Contains("source action or behaviour nodes")),
+                    "informational graph count became a pack warning");
+                Require(member.Residue.MemberNotes.Any(w => w.Contains("this is informational")),
                     "preserved unreachable source nodes were not described as informational");
             }
         }

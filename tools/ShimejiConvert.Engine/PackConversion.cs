@@ -192,7 +192,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                         else
                         {
                             if (report.Graph.Unreachable.Count > 0)
-                                warnings.Add("Image set '" + member.Name + "' retains " + report.Graph.Unreachable.Count
+                                report.Residue.MemberNotes.Add("Image set '" + member.Name + "' retains " + report.Graph.Unreachable.Count
                                     + " source action or behaviour nodes outside the entry graph. They are preserved unchanged; this is informational.");
                             foreach (string warning in RuntimeEntryWarnings(report))
                             {
@@ -207,7 +207,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                         if (member.Disposition == PackMemberDisposition.Prepared)
                             packMembers.Add(new PackValidator.Member("Image set '" + member.SourceKey + "'", member.Root));
                     // A partial source preparation has no pack identity and no whole pack to validate. Its original
-                    // member refusal already explains why the caller cannot install or preview it as a pack.
+                    // member refusal already explains why the caller cannot install or preview it as a pack. All
+                    // pack-wide errors and warnings, including transparency agreement, are deferred until preparation
+                    // succeeds for the whole source; running on header-free previews would add misleading metadata errors.
                     if (packMembers.Count > 0 && identity != null)
                     {
                         PackValidator.Report pack = PackValidator.Validate(packMembers);
@@ -352,11 +354,13 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                     return Refused(member.Name, "the emitted XML is not a fixed point of parse -> serialize: "
                         + FirstDifference(copiedXml, roundTrip), residue, true);
                 GraphReport graph = ShimejiEngine.Analyze(reparsed);
-                if (sourceHidden)
+                if (identity == null)
+                    residue.MemberNotes.Add(sourceHidden
+                        ? "The source chooser hides this image set. This diagnostic preview carries no pack role or visibility metadata."
+                        : "This diagnostic preview carries no pack role or visibility metadata; caller choices apply only to a complete pack.");
+                else if (sourceHidden)
                     residue.MemberNotes.Add(hidden ? "The source chooser hides this image set; it remains hidden in the converted pack."
                         : "The caller selected this source-hidden image set as visible in the converted pack.");
-                if (graph.Unreachable.Count > 0)
-                    residue.MemberNotes.Add(graph.Unreachable.Count + " source action or behaviour nodes are outside the entry graph. They are preserved unchanged; this is informational.");
                 if (options.IncludeParityMaps && string.IsNullOrEmpty(member.Map))
                     return Refused(member.Name, "A parity map was requested but none was prepared.", residue, true);
                 return new PackMemberConversionResult(member.Name, reparsed, copiedXml,
