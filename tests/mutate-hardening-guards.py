@@ -4043,6 +4043,21 @@ CASES = (
         b'      <Publish Dialog="VerifyReadyDlg" Control="Repair" Event="ReinstallMode" Value="amus" Order="4"\n',
         "w2-packaging-ci-1: the setup UI's Repair button publishes",
     ),
+    # N-audit-1106-263: the publish commit takes the whole index again, or commits on a re-run with nothing new.
+    (
+        "bd-w2-packaging-ci-1: the module publish commit drops its pathspec (N-audit-1106-263)",
+        os.path.join(REPO, "packaging", "New-ModulePublish.ps1"),
+        b"                          '-m', $publishBody, '--') + $publishPaths) 'git commit'\n",
+        b"                          '-m', $publishBody)) 'git commit'\n",
+        "w2-packaging-ci-1: the module publish commit names its two paths",
+    ),
+    (
+        "bd-w2-packaging-ci-1: the module publish commits with nothing staged (N-audit-1106-263)",
+        os.path.join(REPO, "packaging", "New-ModulePublish.ps1"),
+        b"        if ($publishStaged.Count -eq 0) {\n",
+        b"        if ($false) {\n",
+        "w2-packaging-ci-1: the module publish commits only when",
+    ),
 )
 
 

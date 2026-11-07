@@ -5567,6 +5567,24 @@ Assert-True ($w2pRepairPublish.Count -eq 1 -and $w2pRepairPublish[0].GetAttribut
     $w2pRepairPublish[0].GetAttribute('Order') -ceq '2' -and $w2pRepairPublish[0].GetAttribute('Condition') -ceq 'OutOfDiskSpace <> 1') (
     "w2-packaging-ci-1: the setup UI's Repair button publishes a force-copy ReinstallMode at Order 2 (found $($w2pRepairPublish.Count))")
 
+# THE MODULE PUBLISH COMMITS ITS OWN TWO PATHS, AND ONLY WHEN THEY CHANGED (N-audit-1106-263). A bare `git commit` took the
+# whole index into 'chore(modules): publish', and threw on a re-run that had nothing new to commit. No check may run
+# New-ModulePublish.ps1 (it writes modules-dist\ and catalog.json), so this is the source half, comment-stripped: the
+# staged-paths question comes first, the commit sits in the else of its empty answer (ORDER), the commit names
+# $publishPaths after `--`, and the old bare form is gone (WITNESS: the absence pattern matches that form).
+$w2pPublish = Remove-PsLineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'packaging\New-ModulePublish.ps1') -Raw)
+$w2pStagedAt = $w2pPublish.IndexOf("`$publishStaged = @(Invoke-Git (@('diff', '--cached', '--name-only', '--') + `$publishPaths)", [StringComparison]::Ordinal)
+$w2pSkipAt = $w2pPublish.IndexOf('if ($publishStaged.Count -eq 0) {', [StringComparison]::Ordinal)
+$w2pCommitAt = $w2pPublish.IndexOf("Invoke-Git (@('commit', '-q', '-m',", [StringComparison]::Ordinal)
+Assert-True ($w2pStagedAt -gt 0 -and $w2pSkipAt -gt $w2pStagedAt -and $w2pCommitAt -gt $w2pSkipAt -and
+    $w2pPublish.Substring($w2pSkipAt, $w2pCommitAt - $w2pSkipAt) -cmatch '\}\s*else \{\s*$') (
+    'w2-packaging-ci-1: the module publish commits only when its two paths have staged changes, asked first')
+$w2pCommitTail = "'-m', `$publishBody, '--') + `$publishPaths) 'git commit'"
+Assert-True ($w2pCommitAt -gt 0 -and $w2pPublish.Substring($w2pCommitAt) -cmatch ('\A[^\r\n]*\r?\n[ \t]*' + [regex]::Escape($w2pCommitTail))) (
+    'w2-packaging-ci-1: the module publish commit names its two paths after --, not the whole index')
+Assert-True (("Invoke-Git @('commit', '-q', '-m'" -cmatch "Invoke-Git @\('commit'") -and $w2pPublish -cnotmatch "Invoke-Git @\('commit'") (
+    'w2-packaging-ci-1: no bare whole-index commit is left in the module publish (WITNESS: the pattern matches that form)')
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever

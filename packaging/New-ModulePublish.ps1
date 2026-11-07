@@ -417,9 +417,23 @@ try {
         if ($publishBody -match '\{\d+\}') {
             throw "The publish commit body still carries a format placeholder, so the PowerShell version would not be recorded: $publishBody"
         }
-        Invoke-Git @('commit', '-q', '-m', ("chore(modules): publish {0} {1}" -f $moduleId, $version),
-                     '-m', $publishBody) 'git commit'
-        Write-Host '  committed.'
+        # THE TWO PATHS THIS SCRIPT WROTE, AND ONLY WHEN THEY CHANGED (N-audit-1106-263). A bare `git commit`
+        # commits the whole index, so anything the publisher had already staged landed inside
+        # 'chore(modules): publish <id> <ver>'; the pathspec after `--` commits these two and leaves every
+        # other staged path staged. And a re-run after step 5 failed rebuilds the same deterministic zip and
+        # manifest, so there was nothing new to commit and `git commit` exited 1 and threw 'git commit failed
+        # (exit 1)', stopping the re-run before the catalog it was re-run for. --name-only exits 0 either way,
+        # so the question goes through Invoke-Git without an exit-code special case.
+        $publishPaths = @($zipRelPath, 'modules-dist/modules.json')
+        $publishStaged = @(Invoke-Git (@('diff', '--cached', '--name-only', '--') + $publishPaths) 'git diff --cached')
+        if ($publishStaged.Count -eq 0) {
+            Write-Host '  nothing new to commit: the zip and modules.json already match HEAD.'
+        }
+        else {
+            Invoke-Git (@('commit', '-q', '-m', ("chore(modules): publish {0} {1}" -f $moduleId, $version),
+                          '-m', $publishBody, '--') + $publishPaths) 'git commit'
+            Write-Host '  committed.'
+        }
     }
 
     # Whether or not we committed, the catalog may only be generated from a committed, up-to-date blob.
