@@ -34,7 +34,10 @@ jobs:
   release:
     name: Build and publish the x64 release
     runs-on: windows-2025
-    timeout-minutes: 30
+    # Raised from 30 when the release started running the product's tests itself (the step before the assets are
+    # assembled, N-audit-1106-034). The job now does build.yml's test work on top of its own signing and
+    # publishing, and a job killed at its limit halfway through `gh release upload` leaves a partial release.
+    timeout-minutes: 45
 
     steps:
       - name: Resolve and validate the tag
@@ -196,6 +199,65 @@ jobs:
         # deliberate manual act: see packaging\New-NuGetPackages.ps1, which prints the command.
         shell: pwsh
         run: .\packaging\New-NuGetPackages.ps1 -OutputDirectory dist\nuget
+
+      # THE RELEASE TESTS WHAT IT PUBLISHES (N-audit-1106-034). Until this step a v* tag built, signed and published
+      # the ZIP, MSI and author packages without running one test or self-test, and nothing tied it to a green
+      # build.yml run for the tagged commit: a tag on a commit whose CI was red, still running, or never run (a
+      # commit pushed only as a tag) shipped anyway.
+      #
+      # Run HERE rather than gated on build.yml's verdict through the checks API. The release checklist (step 3)
+      # documents a release build.yml CANNOT pass: when a module's MinHostVersion waits on the version being cut,
+      # Test-ModulePublishFreshness.ps1 is red until that module is published, which is only allowed after this
+      # release ships. A gate on build.yml would refuse exactly that release and need an override that a tag push
+      # has no way to carry. The freshness check is the one build.yml step left out below, for that reason; every
+      # other check that judges the product rather than the repository's publish state is here.
+      #
+      # AFTER the ZIP and the MSI are built and the certificate is gone from the store, on purpose. The self-tests
+      # launch the built exe and write beside it, and the CoreTests build may touch the build tree; by now the
+      # shipped bytes are already in dist\, so nothing a test does can reach them, and no repository test code runs
+      # while the signing key is importable. A failure here stops the job before any asset is hashed or uploaded.
+      #
+      # The runners are the SAME scripts build.yml and tests\run-gate.ps1 call (Invoke-SelfTests.ps1 owns the flag
+      # list, the marker map and the skip detection), so no list is copied here. Collect, then throw once, the
+      # shape build.yml's product step uses, so one red runner does not hide the verdicts of the others.
+      - name: Test the build being released
+        shell: pwsh
+        run: |
+          $outputRoot = 'build\DesktopAICompanionPortable\bin\Release\x64'
+          $exe = Join-Path $outputRoot 'DesktopAICompanion.exe'
+          $failures = @()
+          dotnet build .\tests\DesktopAICompanion.CoreTests\DesktopAICompanion.CoreTests.csproj `
+            -c Release -p:Platform=x64 --nologo -v:minimal
+          if ($LASTEXITCODE -ne 0) { $failures += "CoreTests did not build (exit $LASTEXITCODE)" }
+          else {
+            & '.\tests\DesktopAICompanion.CoreTests\bin\Release\DesktopAICompanion.CoreTests.exe'
+            if ($LASTEXITCODE -ne 0) { $failures += "Core tests failed (exit $LASTEXITCODE)" }
+          }
+          $output = @()
+          $runnerAborted = $false
+          try { $output = @(& .\tests\Invoke-SelfTests.ps1 -ExecutablePath $exe -OutputRoot $outputRoot) }
+          catch {
+            $runnerAborted = $true
+            $failures += "Invoke-SelfTests.ps1 aborted midway: $($_.Exception.Message)"
+          }
+          $output | ForEach-Object { Write-Host $_ }
+          $failures += @($output | Where-Object { $_ -like 'SELFTEST-FAILURE:*' })
+          # A run that reports zero flags did no work, which build.yml and run-gate.ps1 both treat as a failure.
+          $countLine = @($output | Where-Object { $_ -like 'SELFTEST-COUNT:*' }) | Select-Object -First 1
+          $selfTestCount = if ($countLine) { [int](($countLine -split ':')[1].Trim()) } else { 0 }
+          if (-not $runnerAborted -and $selfTestCount -le 0) {
+            $failures += "Invoke-SelfTests.ps1 reported $selfTestCount flags, so it did no work"
+          }
+          foreach ($checkScript in @('tests\Test-ModuleSelfTests.ps1', 'tests\Invoke-OfflineScriptChecks.ps1',
+                                     'packaging\Test-AtomicPublish.ps1', 'packaging\Test-StagingPathSafety.ps1',
+                                     'tests\runtime-hardening-selftest.ps1')) {
+            try { & (Join-Path $PWD.Path $checkScript) }
+            catch { $failures += "${checkScript}: $($_.Exception.Message)" }
+          }
+          if ($failures.Count -gt 0) {
+            foreach ($failure in $failures) { Write-Host "FAIL: $failure" }
+            throw "$($failures.Count) failure(s) in the build being released; nothing was published."
+          }
 
       - name: Assemble release assets and checksums
         shell: pwsh

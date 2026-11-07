@@ -83,6 +83,12 @@
       REINSTALLMODE is only consulted when REINSTALL is set, so a first install and a major upgrade are
       unaffected.
 
+      THIS ROW ALONE DOES NOT REACH THE SETUP UI'S OWN REPAIR (N-audit-1106-035). It is only a default: the
+      stock VerifyReadyDlg Repair button publishes ReinstallMode=ecmus before Reinstall=All, and a published
+      property beats the Property table, so a repair chosen in setup ran under ecmus, the file-versioning
+      rules the a exists to override, while this row and Test-MsiSurface both said amus. The Publish under the UI element below restores the a for that path. A
+      repair started with explicit letters (msiexec /f followed by a mode) still uses the letters it was given.
+
       ARPNOMODIFY stays: there really is one feature, so "no independently selectable features" is honest.
     -->
     <Property Id="REINSTALLMODE" Value="amus" />
@@ -220,6 +226,24 @@
     <UI>
       <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="LaunchDesktopAICompanion"
                Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND REMOVE&lt;&gt;&quot;ALL&quot;" />
+
+      <!--
+        The setup UI's Repair button force-copies, like the REINSTALLMODE row above says (N-audit-1106-035).
+
+        The stock WixUI_Minimal VerifyReadyDlg Repair button publishes, in Ordering order, ReinstallMode=ecmus (1),
+        Reinstall=All (2) and EndDialog Return (3), read from a built MSI's ControlEvent table. This second
+        ReinstallMode row sits at 2: after the stock ecmus, so its amus is the value left standing, and before
+        the EndDialog that closes the dialog, so it does not depend on what MSI does with events ordered after a
+        closing one (the reset page above is the record of that going wrong). Sharing 2 with Reinstall=All is
+        harmless: the two set different properties, so their relative order changes nothing. Same condition as
+        the stock row, so an out-of-disk repair is untouched.
+
+        Rejected: a Type 51 SetProperty in the execute sequence, which would also overwrite the letters of an
+        explicit msiexec /f run. Test-MsiSurface reads the built table and fails if a WiX upgrade renumbers the
+        stock rows so that this one no longer lands between them.
+      -->
+      <Publish Dialog="VerifyReadyDlg" Control="Repair" Event="ReinstallMode" Value="amus" Order="2"
+               Condition="OutOfDiskSpace &lt;&gt; 1" />
 
       <!--
         Its own dialog rather than a checkbox grafted onto WelcomeEulaDlg. WelcomeEulaDlg's Install button

@@ -185,6 +185,23 @@ Assert-MsiTrue ($noRepair.Count -eq 0) 'repair is offered rather than greyed out
 $reinstallMode = Get-MsiRows "SELECT ``Value`` FROM ``Property`` WHERE ``Property`` = 'REINSTALLMODE'" 1
 Assert-MsiTrue ($reinstallMode.Count -eq 1 -and $reinstallMode[0][0] -like '*a*') (
     'a repair force-copies every file, not just missing or older ones')
+# ...and the Property row is only a DEFAULT (N-audit-1106-035). The stock VerifyReadyDlg Repair button publishes
+# ReinstallMode=ecmus, and a published value beats the table, so the assertion above passed while a repair chosen
+# in setup never force-copied anything. Judged the way MSI runs the button: the events before the first EndDialog,
+# in Ordering order, and the value left standing is the one at the highest Ordering among them. A tie at that
+# Ordering is a failure too, because MSI leaves the order of rows sharing an Ordering unspecified.
+$repairModes = Get-MsiRows "SELECT ``Argument``,``Ordering`` FROM ``ControlEvent`` WHERE ``Dialog_`` = 'VerifyReadyDlg' AND ``Control_`` = 'Repair' AND ``Event`` = 'ReinstallMode'" 2
+$repairCloses = Get-MsiRows "SELECT ``Ordering`` FROM ``ControlEvent`` WHERE ``Dialog_`` = 'VerifyReadyDlg' AND ``Control_`` = 'Repair' AND ``Event`` = 'EndDialog'" 1
+$repairCloseAt = [int]::MaxValue
+foreach ($closeRow in $repairCloses) { if ([int]$closeRow[0] -lt $repairCloseAt) { $repairCloseAt = [int]$closeRow[0] } }
+$repairModesBeforeClose = @($repairModes | Where-Object { [int]$_[1] -lt $repairCloseAt })
+$repairModeLastAt = -1
+foreach ($modeRow in $repairModesBeforeClose) { if ([int]$modeRow[1] -gt $repairModeLastAt) { $repairModeLastAt = [int]$modeRow[1] } }
+$repairModeStanding = @($repairModesBeforeClose | Where-Object { [int]$_[1] -eq $repairModeLastAt })
+$repairModeWords = ($repairModeStanding | ForEach-Object { $_[0] + '@' + $_[1] }) -join ', '
+Assert-MsiTrue ($repairCloses.Count -ge 1 -and $repairModeStanding.Count -ge 1 -and
+    @($repairModeStanding | Where-Object { $_[0] -notlike '*a*' }).Count -eq 0) (
+    "the setup UI's Repair button leaves a force-copy mode standing before it closes (standing: $repairModeWords)")
 
 # ---- the reset page must not look like a different application ---------------------------------------
 # PrepareDlg (sequence 49) shows while costing runs and is replaced by the next sequenced dialog. Every stock
