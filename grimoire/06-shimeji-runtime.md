@@ -545,9 +545,11 @@ divergence):
 The toggle is "Let it move windows" on the companion's card in the Pets pane, offered only to a type that runs a window
 action.
 
-**When the toggle is OFF,** the action's animation plays and no window moves (`policy:window-off-plays`). The source ends
-the action instead. Which window is "active" follows the source's environment rule; it is to be confirmed by the parity
-lane before freeze.
+**When the toggle is OFF,** the action's animation plays and no window moves or is minimized
+(`policy:window-off-plays`). The source has no such toggle: it plays the action and moves or minimizes the window. Only
+the source's own Throwing setting ends a window action at once; the host keeps that setting and pins it on, so in the
+app the action always plays. Which window is "active" follows the source's environment rule; it is to be confirmed by
+the parity lane before freeze.
 
 ---
 
