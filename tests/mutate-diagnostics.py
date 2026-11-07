@@ -1172,7 +1172,7 @@ CASES = [
     # The 2026-11-06 audit burn-down, host options UI. "bd-options-ui-1:" for one --only.
     # N-audit-1106-033: a pane not rebuilt after Apply keeps measuring edits against its pre-Apply Load again.
     ("bd-options-ui-1: a successful Save keeps the pre-Apply field baseline", OPTIONSWINDOW,
-     "                if (stored.ContainsKey(kv.Key)) stored[kv.Key] = kv.Value;\n",
+     "                if (rebased.ContainsKey(kv.Key)) rebased[kv.Key] = kv.Value;\n",
      "",
      "wpf", "options-ui rebase: a field changed back after Apply to its pre-Apply value lights Apply"),
     ("bd-options-ui-1: a successful Save keeps each deferred box's pre-Apply tick", OPTIONSWINDOW,

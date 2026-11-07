@@ -3180,17 +3180,18 @@ namespace DesktopAICompanion.Wpf
         /// </summary>
         private void RebaseOnSaved(Dictionary<string, string> written)
         {
-            var stored = new Dictionary<string, string>(StringComparer.Ordinal);
+            // "rebased", not "stored": the build's own `_stored = stored;` line is a mutation target and must stay unique.
+            var rebased = new Dictionary<string, string>(StringComparer.Ordinal);
             if (_stored != null)
-                foreach (KeyValuePair<string, string> kv in _stored) stored[kv.Key] = kv.Value;
+                foreach (KeyValuePair<string, string> kv in _stored) rebased[kv.Key] = kv.Value;
             var shown = new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (KeyValuePair<string, string> kv in written)
             {
                 if (_secretIds.Contains(kv.Key)) continue;
                 shown[kv.Key] = kv.Value;
-                if (stored.ContainsKey(kv.Key)) stored[kv.Key] = kv.Value;
+                if (rebased.ContainsKey(kv.Key)) rebased[kv.Key] = kv.Value;
             }
-            _stored = stored;
+            _stored = rebased;
             _shownAtBuild = shown;
             foreach (Action rebase in _rebaseDeferredBoxes) rebase();
         }
