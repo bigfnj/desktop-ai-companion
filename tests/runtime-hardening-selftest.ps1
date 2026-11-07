@@ -5787,6 +5787,47 @@ Assert-True ($w2MutationModules.Count -gt 0 -and $w2MutationUnlisted.Count -eq 0
     "w2-tests-scripts-1: run_mutation_capture_checks.py names every tests\test_mutation_*.py module ($($w2MutationModules.Count); WITNESS: an unlisted name is reported)" +
     $(if ($w2MutationUnlisted.Count) { ' -- not run: ' + ($w2MutationUnlisted -join ', ') } else { '' }))
 
+# ---- burndown/w3-host-1 ----
+# THE RESOURCE SOAK RUNS A TICK COMPANION EVERY CYCLE (N-shimeji-1106-04). The churn's pet step builds a CLASSIC form, so
+# tick companions, their windows and their clip decoding ran under no leak soak. The step itself is proved working by
+# --shimeji-window-selftest ("resource churn: the tick step ..."); the soak is not a gate step, so what is pinned here is
+# that the churn keeps calling it: ORDER inside RunCycle (the call, its failure thrown, its counter, all before the settled
+# sample), and the driver requiring the counter, which it then holds equal to the cycle count like every other step's.
+$w3ProgramCode = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\Program.cs') -Raw)
+$w3RunCycle = Get-MethodBody $w3ProgramCode 'private void RunCycle(int cycle)' @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($w3RunCycle.Length -gt 0) 'w3-host-1: RuntimeResourceChurn.RunCycle was located'
+$w3TickCall = $w3RunCycle.IndexOf('string tickFailure = Shimeji.ShimejiWindowSelfTest.RunResourceChurnTickCycle(tickAudio, cycle);', [StringComparison]::Ordinal)
+$w3TickThrow = $w3RunCycle.IndexOf('if (tickFailure != null)', [Math]::Max(0, $w3TickCall), [StringComparison]::Ordinal)
+$w3TickCount = $w3RunCycle.IndexOf('tickCompanionCycles++;', [Math]::Max(0, $w3TickThrow), [StringComparison]::Ordinal)
+$w3Settled = $w3RunCycle.IndexOf('SettleAndSample(out sg, out su, out sh);', [StringComparison]::Ordinal)
+$w3SoakDriver = Remove-PsLineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'tests\runtime-resource-soak.ps1') -Raw)
+Assert-True ($w3TickCall -ge 0 -and $w3TickThrow -gt $w3TickCall -and $w3TickCount -gt $w3TickThrow -and $w3Settled -gt $w3TickCount -and
+    $w3SoakDriver -cmatch "foreach \(\`$expected in @\([^)]*'tickCompanionCycles'\)\)") (
+    "w3-host-1: every churn cycle runs the tick-companion step, fails on its failure and counts it before the settled sample, and the soak driver requires its counter (call at $w3TickCall, count at $w3TickCount, settled at $w3Settled)")
+
+# THREE CLASSIC-ENGINE CONDITIONS a headless self-test cannot reach (they need a classic pet moving on a live desktop), each
+# asserted as its CONDITION or ARGUMENT with the old shape absent, and a WITNESS that the old shape is what the pattern
+# would have caught. N-audit-1106-226: a sequence action of 'Flip' loads (the validator compares ignoring case) and must
+# flip. N-audit-1106-227: a RISING pet never takes another companion's window ("Sheep") as a ceiling, while a falling one
+# still lands on it. N-audit-1106-224: a right-side window grip is pinned with the sprite's full width, not the form's,
+# which the colour-key clip narrows.
+$w3FormCode = Remove-LineComments $formPetSource
+$w3Rise = Get-MethodBody $w3FormCode 'private WindowTopHit RiseDetect(double y, SpriteInsets ins)' @("`n        private ", "`n        internal ", "`n        public ")
+$w3Fall = Get-MethodBody $w3FormCode 'private WindowTopHit FallDetect(double y)' @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($w3Rise.Length -gt 0 -and $w3Fall.Length -gt 0) 'w3-host-1: FormCompanion.RiseDetect and FallDetect were located'
+$w3OldFlip = '                    if(CurrentAnimation.Sequence.Action == "flip")'
+Assert-True ($w3FormCode -cmatch 'if \(string\.Equals\(CurrentAnimation\.Sequence\.Action, "flip", StringComparison\.OrdinalIgnoreCase\)\)' -and
+    $w3FormCode -cnotmatch 'Sequence\.Action == "flip"' -and $w3OldFlip -cmatch 'Sequence\.Action == "flip"') (
+    "w3-host-1: a classic pet's sequence action flips in any letter case, as the validator accepts it (WITNESS: the exact compare matches the absent pattern)")
+Assert-True ($w3Rise -cmatch 'if \(title == "Sheep"\) return true;' -and $w3Rise -cnotmatch 'if \(title == "Sheep"\) \{ \}' -and
+    $w3Fall -cmatch 'if \(title == "Sheep"\) \{ \}') (
+    'w3-host-1: a rising pet skips other companions'' windows as ceilings (WITNESS: a falling pet still exempts them, to land on another pet)')
+$w3OldGrip = '                    PositionX = GripPositionX(windowGrip, gripRect.Left, gripRect.Right, Width, ins.Left, ins.Right);'
+Assert-True ($w3FormCode -cmatch 'PositionX = GripPositionX\(windowGrip, gripRect\.Left, gripRect\.Right, Math\.Max\(1, pictureBox1\.Width\), ins\.Left, ins\.Right\);' -and
+    $w3FormCode -cnotmatch 'GripPositionX\(windowGrip, gripRect\.Left, gripRect\.Right, Width,' -and
+    $w3OldGrip -cmatch 'GripPositionX\(windowGrip, gripRect\.Left, gripRect\.Right, Width,') (
+    "w3-host-1: a side window grip is pinned with the sprite's full width, not the clipped form's (WITNESS: the form-width call matches the absent pattern)")
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever

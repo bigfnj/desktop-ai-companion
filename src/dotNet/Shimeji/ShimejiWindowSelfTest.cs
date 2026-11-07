@@ -210,6 +210,7 @@ namespace DesktopAICompanion.Shimeji
                 CheckArrivalSpawn(check, log);
                 CheckLargeFrames(check, log);
                 CheckHostStep(check, log);
+                CheckResourceChurnTickStep(check);
             }
             catch (Exception e)
             {

@@ -285,7 +285,7 @@ try {
             } |
             ForEach-Object { $_.Name }
     )
-    foreach ($expected in @('speechAndPetCycles', 'trayAndMenuCycles', 'questionCardCycles')) {
+    foreach ($expected in @('speechAndPetCycles', 'trayAndMenuCycles', 'questionCardCycles', 'tickCompanionCycles')) {
         if ($requiredCounters -notcontains $expected) {
             throw "The resource churn marker is missing the '$expected' counter; the harness no longer exercises that path."
         }

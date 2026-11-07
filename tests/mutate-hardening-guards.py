@@ -4206,6 +4206,40 @@ CASES = (
         b"",
         "w2-tests-scripts-1: run_mutation_capture_checks.py names every",
     ),
+    # ---- burndown/w3-host-1 ----
+    # N-shimeji-1106-04: the resource churn drops its tick-companion step again (the counter still counts, so the driver's
+    # equal-count rule alone would not notice).
+    (
+        "bd-w3-host-1: the resource churn no longer runs the tick-companion step",
+        PROGRAM,
+        b"            string tickFailure = Shimeji.ShimejiWindowSelfTest.RunResourceChurnTickCycle(tickAudio, cycle);\n",
+        b"            string tickFailure = null;\n",
+        "w3-host-1: every churn cycle runs the tick-companion step",
+    ),
+    # N-audit-1106-226: the classic engine flips only on the exact lowercase action again.
+    (
+        "bd-w3-host-1: a classic flip action is matched case-sensitively",
+        FORMPET,
+        b'                    if (string.Equals(CurrentAnimation.Sequence.Action, "flip", StringComparison.OrdinalIgnoreCase))\n',
+        b'                    if (CurrentAnimation.Sequence.Action == "flip")\n',
+        "w3-host-1: a classic pet's sequence action flips in any letter case",
+    ),
+    # N-audit-1106-227: a rising pet takes another companion's window as a ceiling again.
+    (
+        "bd-w3-host-1: a rising pet hangs from another companion",
+        FORMPET,
+        b'                if (title == "Sheep") return true;\n                if (!NativeMethods.GetTitleBarInfo(hWnd, ref titleBarInfo)) return true;\n',
+        b'                if (title == "Sheep") { }\n                else if (!NativeMethods.GetTitleBarInfo(hWnd, ref titleBarInfo)) return true;\n',
+        "w3-host-1: a rising pet skips other companions' windows as ceilings",
+    ),
+    # N-audit-1106-224: a side grip is pinned with the clipped form's width again.
+    (
+        "bd-w3-host-1: a side grip is pinned with the clipped form's width",
+        FORMPET,
+        b"gripRect.Left, gripRect.Right, Math.Max(1, pictureBox1.Width), ins.Left, ins.Right);\n",
+        b"gripRect.Left, gripRect.Right, Width, ins.Left, ins.Right);\n",
+        "w3-host-1: a side window grip is pinned with the sprite's full width",
+    ),
 )
 
 

@@ -1286,7 +1286,11 @@ namespace DesktopAICompanion
                     // The wall animations it grips with have vx=0 anyway; zeroing it here means a skin that
                     // wired a moving animation into the grip slides along the glass instead of off it.
                     x = 0;
-                    PositionX = GripPositionX(windowGrip, gripRect.Left, gripRect.Right, Width, ins.Left, ins.Right);
+                    // The sprite's FULL width (the picture box keeps it), never the form's: a colour-key pet near the
+                    // screen's right edge is clipped by narrowing the form (the clip branch of the move), so pinning with
+                    // Width pushed it right by its own clip every tick until it was a 1-pixel, invisible form
+                    // (N-audit-1106-224). The insets are of the full sprite too.
+                    PositionX = GripPositionX(windowGrip, gripRect.Left, gripRect.Right, Math.Max(1, pictureBox1.Width), ins.Left, ins.Right);
                     // Ride the window vertically too. Tracked as a DELTA rather than as a fixed offset from
                     // the window top, because the pet is climbing: its offset changes every tick by design,
                     // and only the part of the change the window caused should be added back.
@@ -1556,7 +1560,10 @@ namespace DesktopAICompanion
                 else
                 {
                     int iNextAni;
-                    if(CurrentAnimation.Sequence.Action == "flip")
+                    // In any letter case, as the validator accepts it (CompanionXmlValidator: OrdinalIgnoreCase) and as
+                    // faceCursor is tested on entry. An exact "flip" let action="Flip" load and never turn the pet
+                    // (N-audit-1106-226).
+                    if (string.Equals(CurrentAnimation.Sequence.Action, "flip", StringComparison.OrdinalIgnoreCase))
                     {
                         // Select the shared, lazily materialized mirrored view. Never mutate the
                         // Xml-owned originals because every root and child borrows the same frames.
@@ -1950,8 +1957,13 @@ namespace DesktopAICompanion
                 StringBuilder sTitle = new StringBuilder(128);
                 NativeMethods.GetWindowText(hWnd, sTitle, 128);
                 string title = sTitle.ToString();   // once, for the compare and the dictionary (F265)
-                if (title == "Sheep") { }
-                else if (!NativeMethods.GetTitleBarInfo(hWnd, ref titleBarInfo)) return true;
+                // ANOTHER COMPANION IS NEVER A CEILING (N-audit-1106-227). FallDetect lets a falling pet land on another
+                // pet, which is why it exempts "Sheep" from the title-bar test; copied here, the exemption let a jumping
+                // pet catch the underside of another companion's mostly transparent cell and hang from it in mid-air,
+                // carried along as that companion moved. Rejected: testing the other pet's visible insets instead, which
+                // would still hang one pet from another's sprite, a pose no skin draws for.
+                if (title == "Sheep") return true;
+                if (!NativeMethods.GetTitleBarInfo(hWnd, ref titleBarInfo)) return true;
                 else if ((titleBarInfo.rgstate[0] & 0x00008000) > 0) return true;   // invisible title bar
 
                 if (title.Length > 0) windows.Add(hWnd);

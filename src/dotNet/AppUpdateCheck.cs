@@ -150,8 +150,12 @@ namespace DesktopAICompanion
         /// Run the check if it is due, and record the outcome. Fire-and-forget from startup: every failure is
         /// swallowed, because "could not reach GitHub" is not something to interrupt a pet app over.
         ///
-        /// The stamp is written even when the answer is "nothing newer", so an offline machine backs off for the
-        /// whole <see cref="CheckInterval"/> (a week) instead of retrying on every launch.
+        /// The stamp is written for every ANSWER, "nothing newer" included, so a launch after one waits the whole
+        /// <see cref="CheckInterval"/> (a week). A FAILED fetch is not an answer and is not stamped: an offline
+        /// machine, or a catalog that could not be read, throws to the catch below and the next launch asks again
+        /// (N-audit-1106-217; this comment used to promise a week's back-off that the code never gave). Deliberately:
+        /// a failure stamped as the week's answer would hide a release for a week, which is why
+        /// RemoteCatalogClient.FetchAppVersionAsync refuses an unreadable catalog instead of answering "".
         /// </summary>
         internal static Task MaybeCheckAsync(LocalData data, string currentVersion, CancellationToken token)
         {
