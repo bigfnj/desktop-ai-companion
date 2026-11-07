@@ -1337,6 +1337,39 @@ namespace DesktopAICompanion.RemembranceModule
                     AudioRecorder.ScratchWriterFactory = savedFactory;
                 }
 
+                // ---- a capture that dies mid-meeting: on the Status line while recording, one warning per track ----
+                // (N-audit-1106-036) The fakes' threads end with an exception nobody asked for, as an unplugged headset's
+                // does; the tick must say so while the meeting is on, and a second death must not replace the first.
+                using (var devices = new RecorderSelfCheck.FakeDevices())
+                {
+                    var host = new QuestionsHost();
+                    now = WatchT0;
+                    RemembranceModule module = start(new FakeConsentStore(), host, Path.Combine(scratch, "unplugged"));
+                    module.StartRecordingForSelfTest();
+                    ui.Drain();
+                    Thread.Sleep(100);
+                    RecorderSelfCheck.FakeCapture mic = devices.Captures.LastOrDefault(f => !f.Loopback);
+                    RecorderSelfCheck.FakeCapture output = devices.Captures.LastOrDefault(f => f.Loopback);
+                    if (mic != null) { mic.StopException = new InvalidOperationException("simulated: unplugged"); mic.StopRecording(); }
+                    Thread.Sleep(200);
+                    now = WatchT0.AddSeconds(2);
+                    module.WatchTickForSelfTest();
+                    string oneGone = module.StatusLineForSelfTest();
+                    check("capture death in the module: a microphone that dies mid-meeting is on the Status line while it records (N-audit-1106-036)",
+                        module.IsRecordingForSelfTest && oneGone.Contains("⚠ The microphone capture stopped")
+                        && oneGone.Contains("(InvalidOperationException): nothing more is recorded from it")
+                        && host.LoggedLines.Count(l => l.Contains("the microphone capture stopped")) == 1);
+                    if (output != null) { output.StopException = new InvalidOperationException("simulated: unplugged"); output.StopRecording(); }
+                    Thread.Sleep(200);
+                    now = WatchT0.AddSeconds(4);
+                    module.WatchTickForSelfTest();
+                    string bothGone = module.StatusLineForSelfTest();
+                    check("capture death in the module: ...and a second death adds its own warning, the first kept (N-audit-1106-036)",
+                        bothGone.Contains("⚠ The microphone capture stopped") && bothGone.Contains("⚠ The system output capture stopped")
+                        && host.LoggedLines.Count(l => l.Contains("the system output capture stopped")) == 1);
+                    finish(module, host);
+                }
+
                 // ---- the Status line's OneDrive warning ----
                 {
                     var host = new QuestionsHost();

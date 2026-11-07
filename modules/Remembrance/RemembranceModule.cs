@@ -94,7 +94,10 @@ namespace DesktopAICompanion.RemembranceModule
                                  //        stub is on disk while it runs (N-audit-1106-041). A recording saved as the app
                                  //        closes gets that stub too, saying it was never transcribed (N-audit-1106-038).
                                  //        "Rename older recordings" moves an old capture's follow-up with the rest of it
-                                 //        (N-audit-1106-276).
+                                 //        (N-audit-1106-276). A capture that ends mid-meeting (a headset unplugged, a
+                                 //        Bluetooth drop) is on the Status line and in the log while the recording goes
+                                 //        on, one warning per track; it was logged only at the stop, and a second such
+                                 //        end overwrote the first (N-audit-1106-036).
                                  // 2.10.0: one Claude Code sign-in, shared with AI Brain (host 1.8.0's
                                  //        IHostCredentials, BACKLOG N-cli-token-02, the owner's decision of
                                  //        2026-10-29), behind the ClaudeCodeSignIn grant, so MinHostVersion rises to
@@ -853,8 +856,8 @@ namespace DesktopAICompanion.RemembranceModule
                 Log("the silent keep-alive stream beside the system output stopped before the recording did (" +
                     recorder.KeepAliveEndedEarly + "); from that point the system track may run short of the " +
                     "microphone, the way every version before 1.0.17 recorded");
-            if (recorder.CaptureFailure != null)
-                Log(recorder.CaptureFailure + "; its scratch track holds what arrived before that");
+            foreach (string captureFailure in recorder.CaptureFailures)
+                Log(captureFailure + "; its scratch track holds what arrived before that");
             // 2.4.0: a track that stopped saving and was not yet logged by the watch's tick, and a track that came out
             // more than 2 % short of the wall clock (packets lost somewhere; what follows the loss is early in the mix).
             NoteTrackFailures(recorder);

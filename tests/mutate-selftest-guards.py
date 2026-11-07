@@ -3360,13 +3360,15 @@ CASES = (
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "a silent render stream that stopped mid-capture is reported at Stop"),
 
+    # Re-pointed by burndown/w2-remembrance-1 (N-audit-1106-036): the failure is one entry per source in a list now.
     ("burn/remembrance: the capture's RecordingStopped drops its exception again (RA-150)",
      AUDIO_RECORDER,
      b"                try\n"
      b"                {\n"
      b"                    if (e != null && e.Exception != null)\n"
-     b"                        CaptureFailure = (s.Loopback ? \"the system output capture\" : \"the microphone capture\")\n"
-     b"                                         + \" stopped with an error: \" + e.Exception.Message;\n"
+     b"                        lock (_captureFailures)\n"
+     b"                            _captureFailures.Add((s.Loopback ? \"the system output capture\" : \"the microphone capture\")\n"
+     b"                                                 + \" stopped with an error: \" + e.Exception.Message);\n"
      b"                }\n"
      b"                catch { }\n",
      b"",
@@ -20842,6 +20844,47 @@ CASES = (
      b'            if (embedded && !runsClass(cls) && Array.IndexOf(EmbeddedClasses, cls) < 0)\n',
      HOST_CSPROJ, EXE,
      SECURITY, None, 'a class outside the list is refused by the list where every class is said to run'),
+    # ---- burndown/w2-remembrance-1 ----
+    # Wave 2's Remembrance entries of the 2026-11-06 audit, each the defect as it stood put back. Named
+    # "bd-w2-remembrance-1: ..." so --only=bd-w2-remembrance-1: runs exactly these.
+
+    # N-audit-1106-036: a capture that ends under a running recording records no live failure again, so the tick has
+    # nothing to put on the Status line until the Stop logs it.
+    ("bd-w2-remembrance-1: a capture that dies mid-recording is no live track failure (N-audit-1106-036)",
+     AUDIO_RECORDER,
+     b"                    if (!s.StopRequested)\n"
+     b"                        s.NoteCaptureEnded(e != null && e.Exception != null ? e.Exception.GetType().Name : null);\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a capture that dies mid-recording is a live track failure before any Stop"),
+
+    # N-audit-1106-036: readers see one capture failure, the newest, as the one overwritten string gave them.
+    ("bd-w2-remembrance-1: two capture deaths leave only the last one's line (N-audit-1106-036)",
+     AUDIO_RECORDER,
+     b"            get { lock (_captureFailures) return _captureFailures.ToArray(); }\n",
+     b"            get { lock (_captureFailures) return _captureFailures.Skip(Math.Max(0, _captureFailures.Count - 1)).ToArray(); }\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "two captures that die keep one entry each"),
+
+    # N-audit-1106-036: the Status line keeps the newest track warning alone again.
+    ("bd-w2-remembrance-1: the Status line keeps only the newest track warning (N-audit-1106-036)",
+     os.path.join(REPO, "modules", "Remembrance", "RemembranceModule.Watch.cs"),
+     b"_trackFailureLine = _trackFailureLine == null ? warning : ",
+     b"_trackFailureLine = true ? warning : ",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "...and a second death adds its own warning, the first kept"),
+
+    # N-audit-1106-036: a stop the recorder asked for is taken for a capture that ended.
+    ("bd-w2-remembrance-1: a clean stop is reported as a capture that ended (N-audit-1106-036)",
+     AUDIO_RECORDER,
+     b"            foreach (Source s in _sources) s.StopRequested = true;\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a clean stop records no track failure"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
