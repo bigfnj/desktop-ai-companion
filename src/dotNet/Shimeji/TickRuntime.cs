@@ -954,13 +954,39 @@ namespace DesktopAICompanion.Shimeji
             return stack;
         }
 
+        /// <summary>How many behaviours whose action could not even start may hand on, one inside the other, before the
+        /// companion is ended (<see cref="Init"/>).</summary>
+        public const int MaximumHandOffs = 256;
+
         /// <summary>UserBehavior.init: init the action; one that cannot even start hands straight to the next.</summary>
         public void Init(TickMascot mascot)
         {
             _mascot = mascot;
             Action.Init(mascot);
-            if (!Action.HasNext())
+            if (Action.HasNext()) return;
+            // Bounded where the source is not (a recorded divergence, as Seek bounds a looping Sequence): each hand-off is
+            // a call inside the last one, so a companion whose every candidate cannot start recursed until the UI thread's
+            // stack overflowed, which no catch can stop and which ended the whole app with every companion in it. The
+            // source dies the same way, of a StackOverflowError on its own thread. Past the bound this companion cannot be
+            // alive: TickCantBeAliveException ends it, reported, with 'error' (TickMascot.Tick, CreateAtStart), and the
+            // others step on. The count is the hand-offs nested NOW (taken and given back in a finally), so a hand-off
+            // that threw cannot leave a count behind for the next selection; one that started its action returned and
+            // gave its count back. 256 keeps the stack small (a hand-off nests two frames) and a draw that hands on 256
+            // times in a row out of reach of any pack in which something can start: at nine in ten candidates that
+            // cannot, 0.9^256 is about 2e-12. The rejected alternative, a small bound such as 16, would end a companion
+            // of such a pack at about one selection in five (0.9^16 = 0.19).
+            if (mascot.HandOffDepth >= MaximumHandOffs)
+                throw new TickCantBeAliveException("no behaviour could start: " + MaximumHandOffs
+                    + " behaviours in a row ended as soon as they were entered (the last was '" + Name + "')");
+            mascot.HandOffDepth++;
+            try
+            {
                 mascot.SetBehaviour(_world.BuildNextBehaviour(Type, mascot, Name), _world.LastSelectionCause);
+            }
+            finally
+            {
+                mascot.HandOffDepth--;
+            }
         }
 
         /// <summary>UserBehavior.next.</summary>
@@ -1124,6 +1150,9 @@ namespace DesktopAICompanion.Shimeji
 
         /// <summary>A start companion: queued by Manager.add like a birth, but activated with no birth event.</summary>
         public bool IsStartup;
+
+        /// <summary>Behaviours that could not start handing on, nested now (<see cref="TickBehaviour.Init"/> bounds it).</summary>
+        public int HandOffDepth;
 
         /// <summary>The clip the current pose asks for (Mascot.setSound), played by the window layer's apply.</summary>
         public string Sound;
