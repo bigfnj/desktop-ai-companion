@@ -14,6 +14,11 @@ LABEL_SCHEMA_VERSION="2"
 LABEL_TOPICS="|tech|science|work-money|love|family|faith|society|food|nature|arts|health-body|life|"
 LABEL_GENRES="|tv-quote|observation|joke|pun|quip|aphorism|wisdom|fact|insult|verse|dark|uplifting|"
 LABEL_LEVELS="|general|edgy|nsfw|"
+# Exact membership in one of the '|'-delimited lists above, for every awk program that checks a label.
+# The validators used index(list, "|" value "|"), a substring test, which also accepts a value that is
+# itself two adjacent members joined by '|' ("tech|science"): every validator passed it and it was written
+# into the corpus (N-audit-1106-138). A value holding the delimiter is refused before the lookup.
+LABEL_AWK_MEMBER='function label_member(list, value) { return value != "" && value !~ /[|]/ && index(list, "|" value "|") > 0 }'
 LABEL_LOCK_DIR="$LABEL_FORTUNE_DIR/.label-pipeline.lock"
 LABEL_LOCK_HELD=0
 LABEL_LOCK_TOKEN=""
@@ -122,10 +127,10 @@ label_validate_input() {
 label_validate_store() {
   local file="$1"
   [ -f "$file" ] || label_die "missing label store: $file"
-  awk -F'\t' -v topics="$LABEL_TOPICS" -v genres="$LABEL_GENRES" '
+  awk -F'\t' -v topics="$LABEL_TOPICS" -v genres="$LABEL_GENRES" "$LABEL_AWK_MEMBER"'
     NF != 3 || $1 == "" ||
-      index(topics, "|" $2 "|") == 0 ||
-      index(genres, "|" $3 "|") == 0 {
+      !label_member(topics, $2) ||
+      !label_member(genres, $3) {
         printf "invalid store row %d\n", FNR > "/dev/stderr"; bad=1
       }
     seen[$1]++ { printf "duplicate store text at row %d\n", FNR > "/dev/stderr"; bad=1 }
@@ -140,9 +145,12 @@ label_assert_exact_store_keys() {
   cut -f2 "$input" | LC_ALL=C sort > "$temp_dir/input.keys"
   cut -f1 "$store" | LC_ALL=C sort > "$temp_dir/store.keys"
   if ! cmp -s "$temp_dir/input.keys" "$temp_dir/store.keys"; then
-    comm -23 "$temp_dir/input.keys" "$temp_dir/store.keys" | sed -n '1,5p' |
+    # comm walks its inputs in ITS locale's order, so it runs under the C locale the keys were sorted in.
+    # Under the caller's (en_US.UTF-8 in a normal Git Bash) it mis-pairs "B..." and "a..." and reports
+    # texts present on both sides as missing (N-audit-1106-139). Every comm in the pipeline does the same.
+    LC_ALL=C comm -23 "$temp_dir/input.keys" "$temp_dir/store.keys" | sed -n '1,5p' |
       sed 's/^/missing: /' >&2
-    comm -13 "$temp_dir/input.keys" "$temp_dir/store.keys" | sed -n '1,5p' |
+    LC_ALL=C comm -13 "$temp_dir/input.keys" "$temp_dir/store.keys" | sed -n '1,5p' |
       sed 's/^/extra: /' >&2
     label_die "label store key set does not exactly match label input"
   fi
@@ -150,11 +158,11 @@ label_assert_exact_store_keys() {
 
 label_validate_six_column_file() {
   local file="$1"
-  awk -F'\t' -v topics="$LABEL_TOPICS" -v genres="$LABEL_GENRES" -v levels="$LABEL_LEVELS" '
+  awk -F'\t' -v topics="$LABEL_TOPICS" -v genres="$LABEL_GENRES" -v levels="$LABEL_LEVELS" "$LABEL_AWK_MEMBER"'
     NF != 6 || $1 == "" || $6 == "" ||
-      index(topics, "|" $2 "|") == 0 ||
-      index(genres, "|" $3 "|") == 0 ||
-      index(levels, "|" $4 "|") == 0 ||
+      !label_member(topics, $2) ||
+      !label_member(genres, $3) ||
+      !label_member(levels, $4) ||
       ($5 != "0" && $5 != "1") {
         printf "%s: invalid schema-v2 row %d\n", FILENAME, FNR > "/dev/stderr"; bad=1
       }

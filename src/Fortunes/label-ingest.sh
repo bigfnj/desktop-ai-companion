@@ -68,8 +68,8 @@ got="$(label_line_count "$BATCH")"
   label_die "count mismatch: expected $expected labels, got $got"
 
 normalized_labels="$temp_dir/labels.tsv"
-awk -v topics="$LABEL_TOPICS" -v genres="$LABEL_GENRES" '
-  NF != 2 || index(topics, "|" $1 "|") == 0 || index(genres, "|" $2 "|") == 0 {
+awk -v topics="$LABEL_TOPICS" -v genres="$LABEL_GENRES" "$LABEL_AWK_MEMBER"'
+  NF != 2 || !label_member(topics, $1) || !label_member(genres, $2) {
     printf "invalid label row %d\n", FNR > "/dev/stderr"; bad=1
   }
   NF == 2 { print $1 "\t" $2 }
@@ -85,10 +85,10 @@ awk 'length == 0 { printf "blank batch text at row %d\n", FNR > "/dev/stderr"; b
 cut -f2 "$LABEL_INPUT" | LC_ALL=C sort > "$temp_dir/input.keys"
 LC_ALL=C sort "$BT" > "$temp_dir/batch.keys"
 cut -f1 "$temp_dir/store.before" | LC_ALL=C sort > "$temp_dir/store.keys"
-if [ -n "$(comm -23 "$temp_dir/batch.keys" "$temp_dir/input.keys" | sed -n '1p')" ]; then
+if [ -n "$(LC_ALL=C comm -23 "$temp_dir/batch.keys" "$temp_dir/input.keys" | sed -n '1p')" ]; then
   label_die "batch contains a text outside label-input.tsv"
 fi
-if [ -n "$(comm -12 "$temp_dir/batch.keys" "$temp_dir/store.keys" | sed -n '1p')" ]; then
+if [ -n "$(LC_ALL=C comm -12 "$temp_dir/batch.keys" "$temp_dir/store.keys" | sed -n '1p')" ]; then
   label_die "batch attempts to relabel text already in the store"
 fi
 
@@ -101,7 +101,7 @@ paste "$BT" "$normalized_labels" >> "$store_next"
 label_validate_store "$store_next"
 
 cut -f1 "$store_next" | LC_ALL=C sort > "$temp_dir/new-store.keys"
-if [ -n "$(comm -23 "$temp_dir/new-store.keys" "$temp_dir/input.keys" | sed -n '1p')" ]; then
+if [ -n "$(LC_ALL=C comm -23 "$temp_dir/new-store.keys" "$temp_dir/input.keys" | sed -n '1p')" ]; then
   label_die "staged store contains a text outside label-input.tsv"
 fi
 

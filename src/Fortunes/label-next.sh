@@ -65,7 +65,7 @@ batch_tmp="$(mktemp "$BT.tmp.XXXXXX")"
 cut -f1 "$store_source" | LC_ALL=C sort > "$check_dir/store.keys"
 cut -f2 "$LABEL_INPUT" | LC_ALL=C sort > "$check_dir/input.keys"
 if [ -s "$check_dir/store.keys" ] &&
-   [ -n "$(comm -23 "$check_dir/store.keys" "$check_dir/input.keys" | sed -n '1p')" ]; then
+   [ -n "$(LC_ALL=C comm -23 "$check_dir/store.keys" "$check_dir/input.keys" | sed -n '1p')" ]; then
   label_die "store contains a text that is not in label-input.tsv"
 fi
 
