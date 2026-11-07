@@ -944,7 +944,9 @@ namespace DesktopAICompanion.Plugins
         {
             // Ledgered like FullscreenChanged, so a module whose Init throws after subscribing is not left subscribed; and its
             // module recorded, so the event reaches it only while that module is allowed the sign-in (RaiseCredentialChanged).
-            add { _credentialChanged += value; Ledger(delegate { _credentialChanged -= value; }); NoteCredentialHandlerOwner(value); }
+            // The rollback forgets the owner as the remove accessor does (N-audit-1106-232): it used to take the handler off the
+            // event only, so the owner map kept the failed module's delegate, and with it its collectible load context, alive.
+            add { _credentialChanged += value; Ledger(delegate { _credentialChanged -= value; ForgetCredentialHandlerOwner(value); }); NoteCredentialHandlerOwner(value); }
             remove { _credentialChanged -= value; ForgetCredentialHandlerOwner(value); }
         }
 
@@ -965,6 +967,13 @@ namespace DesktopAICompanion.Plugins
             string owner = _initialisingModuleId;
             if (handler == null || string.IsNullOrWhiteSpace(owner)) return;
             lock (_credentialHandlerOwners) _credentialHandlerOwners[handler] = owner.Trim();
+        }
+
+        /// <summary>How many CredentialChanged handlers have an owner recorded, for the rollback self-test: a rolled-back
+        /// Init must leave none of its own in the map (N-audit-1106-232).</summary>
+        internal int CredentialHandlerOwnerCount
+        {
+            get { lock (_credentialHandlerOwners) return _credentialHandlerOwners.Count; }
         }
 
         private void ForgetCredentialHandlerOwner(Action<HostCredentialId, long> handler)

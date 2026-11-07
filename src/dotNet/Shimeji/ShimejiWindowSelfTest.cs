@@ -74,6 +74,7 @@ namespace DesktopAICompanion.Shimeji
                     "tick settings: lifecycle switches on, window actions off, an unknown setting off");
                 CheckStoredSwitches(check, host, scratch);
                 CheckPutWindowsBack(check, host);
+                CheckOneMove(check, sprites, frames[0]);
 
                 Rectangle work = System.Windows.Forms.Screen.PrimaryScreen.WorkingArea;
                 int x = work.Left + work.Width / 2, floor = work.Bottom;
@@ -280,6 +281,39 @@ namespace DesktopAICompanion.Shimeji
                 int restored = Restores < 0 ? Count : Restores;
                 Count = 0;
                 return restored;
+            }
+        }
+
+        /// <summary>
+        /// A tick frame that changes the window's size AND place moves it once (N-shimeji-host-05): every move or resize
+        /// the window reports while RenderTick runs already carries the final rectangle. Four separate assignments (Width,
+        /// Height, Left, Top) each reported a rectangle of their own, at a mixed size or the old place, which a window
+        /// poll caught during an egg's hatch. The WITNESS is that the render was seen at all. Drawn at opacity 0.
+        /// </summary>
+        private static void CheckOneMove(Action<bool, string> check, Xml sprites, Bitmap frame)
+        {
+            using (var form = new FormCompanion(new Animations(sprites), sprites))
+            {
+                form.Show(32, 32);
+                Rectangle start = form.Bounds;
+                Rectangle work = System.Windows.Forms.Screen.PrimaryScreen.WorkingArea;
+                var target = new Rectangle(start.X == work.Left + 40 ? work.Left + 80 : work.Left + 40,
+                    start.Y == work.Top + 40 ? work.Top + 80 : work.Top + 40, 64, 64);
+                var seen = new List<Rectangle>();
+                EventHandler record = delegate { seen.Add(form.Bounds); };
+                form.Move += record;
+                form.Resize += record;
+                form.RenderTick(frame, target.X, target.Y, target.Width, target.Height, true, 0.0);
+                form.Move -= record;
+                form.Resize -= record;
+                var mixed = new List<string>();
+                foreach (Rectangle r in seen) if (r != target) mixed.Add(r.ToString());
+                check(seen.Count > 0 && form.Bounds == target,
+                    "one move: WITNESS a tick frame that resizes and moves its window is seen (" + seen.Count + " events, now " + form.Bounds + ")");
+                check(seen.Count > 0 && mixed.Count == 0,
+                    "one move: a tick frame that resizes and moves its window never shows it at a mixed size or its old place ("
+                    + (mixed.Count == 0 ? "none" : string.Join(", ", mixed.ToArray())) + "; from " + start + ")");
+                form.Close();
             }
         }
 

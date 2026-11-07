@@ -16017,7 +16017,8 @@ CASES = (
     ("audit-host: CredentialChanged's add is not ledgered",
      COMPANION_HOST,
      # Re-pointed by lane fix/final-host-1029: the add also records the handler's module (N-audit-runner-02).
-     b'            add { _credentialChanged += value; Ledger(delegate { _credentialChanged -= value; }); NoteCredentialHandlerOwner(value); }\n',
+     # Re-pointed by burndown/w4-host-1: the ledgered undo also forgets the owner (N-audit-1106-232).
+     b'            add { _credentialChanged += value; Ledger(delegate { _credentialChanged -= value; ForgetCredentialHandlerOwner(value); }); NoteCredentialHandlerOwner(value); }\n',
      b'            add { _credentialChanged += value; NoteCredentialHandlerOwner(value); }\n',
      HOST_CSPROJ, EXE,
      "--module-host-selftest", "dp-module-host-selftest.txt",
@@ -22456,6 +22457,44 @@ CASES = (
      FORTUNES_CSPROJ, FORTUNES_DLL,
      "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
      "a line the contextual picker spoke is not the next random draw"),
+    # ---- burndown/w4-host-1 ----
+    # Host code. Named "bd-w4-host-1:" so one --only=bd-w4-host-1: run covers the lane.
+    # N-audit-1106-220: the encoded pre-check measures the string's length again, line breaks included.
+    ('bd-w4-host-1: the encoded pre-check counts line breaks (N-audit-1106-220)',
+     os.path.join(REPO, "src", "dotNet", "CompanionXmlValidator.cs"),
+     b'            if (Base64CharactersPast(encoded, encodedLimit))\n',
+     b'            if (encoded.Length > encodedLimit)\n',
+     HOST_CSPROJ, EXE,
+     SECURITY, None, "host limits: a classic sound of exactly 2 MiB in line-wrapped base64 validates"),
+    # N-audit-1106-232: a rolled-back Init takes its CredentialChanged handler off the event but leaves its owner recorded.
+    ('bd-w4-host-1: a rolled-back Init leaves its CredentialChanged owner recorded (N-audit-1106-232)',
+     os.path.join(REPO, "src", "dotNet", "Plugins", "CompanionHost.cs"),
+     b'Ledger(delegate { _credentialChanged -= value; ForgetCredentialHandlerOwner(value); });',
+     b'Ledger(delegate { _credentialChanged -= value; });',
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "w4-host-1: rollback: ...and the failed module's CredentialChanged handler is forgotten"),
+    # N-audit-1106-231: the smoke's catches are gone because RegisterHotkey answers any exception from the listener
+    # with the no-op. This proves the corrected comment: a listener that throws (here a NullReferenceException, the
+    # case the old comment named) is a FAIL of the live-registration check, never a SKIP.
+    ('bd-w4-host-1: the hotkey listener throws a NullReferenceException (N-audit-1106-231)',
+     os.path.join(REPO, "src", "dotNet", "Ai", "HotkeyListener.cs"),
+     b'            CreateHandle(new CreateParams());\n',
+     b'            throw new NullReferenceException();\n',
+     HOST_CSPROJ, EXE,
+     "--aibrain-selftest", "dp-aibrain-selftest.txt",
+     "hotkey registrar registers a valid combo as a live registration, not the no-op"),
+    # N-shimeji-host-05: a tick frame resizes and moves its window in four steps again (Width, Height, Left, Top).
+    ('bd-w4-host-1: a tick frame moves its window in four steps (N-shimeji-host-05)',
+     os.path.join(REPO, "src", "dotNet", "FormCompanion.cs"),
+     b'            if (Width != width || Height != height || Left != left || Top != top)\n'
+     b'                SetBounds(left, top, width, height);\n',
+     b'            if (Width != width || Height != height) { Width = width; Height = height; }\n'
+     b'            Left = left;\n'
+     b'            Top = top;\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'one move: a tick frame that resizes and moves its window never shows it at a mixed size or its old place'),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

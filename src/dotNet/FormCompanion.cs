@@ -357,15 +357,13 @@ namespace DesktopAICompanion
                 if (Visible) Visible = false;
                 return;
             }
-            if (Width != width || Height != height)
-            {
-                Width = width;
-                Height = height;
-                pictureBox1.Width = width;
-                pictureBox1.Height = height;
-            }
-            Left = left;
-            Top = top;
+            // ONE move (N-shimeji-host-05). Width, Height, Left and Top were four SetWindowPos calls, so between them the
+            // window existed at a mixed size or at its old place: a 150 ms poll caught a 64x32 window while a 32 px egg
+            // hatched into a 64 px form. SetBounds sizes and places it in one call; the picture box follows inside it.
+            if (Width != width || Height != height || Left != left || Top != top)
+                SetBounds(left, top, width, height);
+            if (pictureBox1.Width != width || pictureBox1.Height != height)
+                pictureBox1.Size = new Size(width, height);
             // The speech bubble anchors at the classic engine's position and facing (GetSpeechAnchor), which nothing on
             // the tick path set: every tick companion's bubble sat near the screen origin, and the follow below re-pinned
             // it there each tick (N-audit-1106-022). The window's top-left IS the companion's position here (no OffsetY:

@@ -69,6 +69,26 @@ namespace DesktopAICompanion
             Check(!CompanionXmlValidator.TryParse(Serialize(classicSound), out parsed, out error) && Contains(error, "sound exceeds its decoded size limit"),
                 "host limits: a classic sound one byte past 2 MiB is refused (" + error + ")", ref failures, output);
 
+            // Line-wrapped base64 (N-audit-1106-220). The encoded pre-check measured the string's length, whitespace
+            // included, so a sound wrapped at 76 columns was refused as "exceeds its encoded size limit" above about
+            // 1.95 MiB, inside its 2 MiB cap. The witness keeps the case honest: the wrapped text is longer than the old
+            // pre-check allowed, so only a count that skips the line breaks lets it through.
+            string wrapped = Convert.ToBase64String(Id3OfLength(undeclared), Base64FormattingOptions.InsertLineBreaks);
+            long oldEncodedLimit = (undeclared + 2L) / 3L * 4L + 4096L;
+            Check(wrapped.Length > oldEncodedLimit,
+                "host limits: WITNESS a 2 MiB sound wrapped at 76 columns is longer than its unwrapped encoded limit (" + wrapped.Length + " > " + oldEncodedLimit + ")",
+                ref failures, output);
+            XmlData.RootNode wrappedSound = With(Clone(classic), r => r.Sounds = new XmlData.SoundsNode
+                { Sound = new[] { new XmlData.SoundNode { Id = animation, Probability = 10, Base64 = wrapped } } });
+            Check(CompanionXmlValidator.TryParse(Serialize(wrappedSound), out parsed, out error),
+                "host limits: a classic sound of exactly 2 MiB in line-wrapped base64 validates" + FormatError(error), ref failures, output);
+            XmlData.RootNode wrappedPast = With(Clone(classic), r => r.Sounds = new XmlData.SoundsNode
+                { Sound = new[] { new XmlData.SoundNode { Id = animation, Probability = 10,
+                    Base64 = Convert.ToBase64String(Id3OfLength(undeclared + 1), Base64FormattingOptions.InsertLineBreaks) } } });
+            Check(!CompanionXmlValidator.TryParse(Serialize(wrappedPast), out parsed, out error) && Contains(error, "sound exceeds its decoded size limit"),
+                "host limits: WITNESS a line-wrapped classic sound one byte past 2 MiB is still refused by its decoded size (" + error + ")",
+                ref failures, output);
+
             // The order: a clip past EVERY size limit, on a host that does not run 'wav', is refused by the feature's name;
             // and a format with the token undeclared is refused by name too, before any clip is measured.
             Check(!CompanionXmlValidator.TryParseWithFeatures(Serialize(WavClipFixture(classic, pastDeclared, "wav", true)), AllExtensionFeatures, out parsed, out error)
