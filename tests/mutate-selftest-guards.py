@@ -16397,7 +16397,9 @@ CASES = (
      b'            if (embedded && Array.IndexOf(EmbeddedClasses, cls) < 0)\n',
      b'            if (false && embedded && Array.IndexOf(EmbeddedClasses, cls) < 0)\n',
      HOST_CSPROJ, EXE,
-     SECURITY, None, 'an unknown embedded class is refused'),
+     # Re-pointed (N-shimeji-1106-05): 'an unknown embedded class is refused' is refused by the runtime probe too,
+     # with a message that names the class, so this case SURVIVED on it at e20decd.
+     SECURITY, None, 'a class outside the list is refused by the list where every class is said to run'),
     ('shimeji-format: the pose frame bound is off by one',
      os.path.join(REPO, "src", "dotNet", "ShimejiFormatValidator.cs"),
      b'                        if (p == null || p.Frame < -1 || p.Frame >= tileCount)\n',
@@ -20829,6 +20831,17 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--shimeji-window-selftest", "dp-shimeji-window-selftest.txt",
      "the tick clock stops at the step that removes the last companion"),
+
+    # ---- burndown/tests-harness-1 ----
+    # N-shimeji-1106-05. The list consulted only when the runtime probe already refuses: the shape a "simplification"
+    # that folds the list into the probe takes, and with a probe that answers true for every name (the converter's)
+    # the list then refuses nothing.
+    ('bd-tests-harness-1: the embedded class list is consulted only where the probe refuses',
+     os.path.join(REPO, "src", "dotNet", "ShimejiFormatValidator.cs"),
+     b'            if (embedded && Array.IndexOf(EmbeddedClasses, cls) < 0)\n',
+     b'            if (embedded && !runsClass(cls) && Array.IndexOf(EmbeddedClasses, cls) < 0)\n',
+     HOST_CSPROJ, EXE,
+     SECURITY, None, 'a class outside the list is refused by the list where every class is said to run'),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
@@ -21576,6 +21589,31 @@ def unhealthy(report, code):
     return "; ".join(problems) if problems else None
 
 
+def rebuild_restored(stale, keep):
+    """Rebuild, from their restored source, the projects an earlier case left holding a mutant (N-audit-1106-053).
+
+    `stale` maps a csproj to the artefact whose timestamp must ADVANCE when it is rebuilt clean, or to None when its
+    last mutant build never reached the artefact (it did not compile), so only the build's success is required. Every
+    entry but `keep` -- the next case's own project, which its own build recompiles from the restored file AND its new
+    mutant at once -- is rebuilt and removed. Without this, a case only rebuilt its own csproj, and every project an
+    earlier case had mutated stayed compiled from that mutant for the rest of the run: a shard runs its cases round
+    robin, so the case after a host case was usually a module case whose self-test loaded the mutant host, and could
+    score FIRED from the previous case's mutant while its own rebuild proof (its own artefact, advanced) held. The
+    rejected alternative, rebuilding after every case, recompiles a project the next case recompiles anyway whenever
+    two cases in a row share it, which is how every --only run and the unsharded order mostly run.
+    Returns None, or why the run cannot go on: a later verdict would be read against a mutant."""
+    for csproj in sorted(path for path in stale if path != keep):
+        artifact = stale.pop(csproj)
+        before = os.path.getmtime(artifact) if artifact is not None else None
+        ok, out = build(csproj)
+        if not ok:
+            return "the clean rebuild of %s failed: %s" % (os.path.basename(csproj), out[-300:].strip())
+        if artifact is not None and os.path.getmtime(artifact) <= before:
+            return "the clean rebuild of %s left %s as the mutant built it" % (
+                os.path.basename(csproj), os.path.basename(artifact))
+    return None
+
+
 def keep_report(index, name, report):
     """A non-FIRED case's WHOLE report under a per-case name (R-060, R-065).
 
@@ -21630,6 +21668,9 @@ def score(plan):
     leaked = None
     withheld = real_input_withheld(os.environ)
     rebuilt = True
+    # csproj -> artefact of every project a case built from its mutant, until rebuild_restored rebuilds it clean.
+    stale = {}
+    stopped = None
     try:
         for index, (name, path, old, new, csproj, artifact, flag, marker, expect) in zip(plan.indices, cases):
             if withheld and name in NEEDS_REAL_INPUT:
@@ -21642,6 +21683,13 @@ def score(plan):
             if base.count(old_v) != 1:
                 print("  %-52s NO-OP (pattern matched %d times)" % (name, base.count(old_v)))
                 continue
+            # Every project an earlier case left compiled from its mutant is rebuilt clean BEFORE this case writes its
+            # own (N-audit-1106-053), so what its flag loads holds this case's mutant and no other. A rebuild that fails
+            # or leaves its artefact unchanged stops the run: every verdict after it would be read against a mutant.
+            stopped = rebuild_restored(stale, csproj)
+            if stopped is not None:
+                print("  %-52s NOT RUN (%s)" % (name, stopped))
+                break
             # A case with no csproj (the TEMPLATE flag) is rebuilt by the script it runs, which scaffolds a
             # fresh module from the mutated template and asserts the DLL exists; there is no artefact here
             # whose timestamp could stand for that.
@@ -21659,12 +21707,16 @@ def score(plan):
                 if csproj is None:
                     report, code, leak = watched_selftest(flag, marker)
                 else:
+                    # Recorded BEFORE the build, so a build that fails or times out is still rebuilt clean later; an
+                    # artefact an earlier case of this project left holding its mutant keeps its demand to advance.
+                    stale.setdefault(csproj, None)
                     built, _ = build(csproj)
                     if not built:
                         verdict = "BROKEN (does not compile)"
                     elif os.path.getmtime(artifact) <= before:
                         verdict = "BROKEN (%s not rebuilt)" % os.path.basename(artifact)
                     else:
+                        stale[csproj] = artifact
                         report, code, leak = watched_selftest(flag, marker)
             finally:
                 write(path, base)
@@ -21738,11 +21790,13 @@ def score(plan):
     if leaked is not None:
         print("STOPPED after the case %r: the real Documents\\Remembrance changed while it ran (above), so no further case "
               "was run" % leaked)
+    if stopped is not None:
+        print("STOPPED: %s, so the case named above and every case after it was not run" % stopped)
     print("%d/%d fired." % (fired, len(cases) - not_run))
     if not_run:
         print("%d case(s) NOT RUN: they test the real Scroll Lock press, and %s=1 withholds real input (listed above)."
               % (not_run, NO_REAL_INPUT_VARIABLE))
-    return 0 if fired == len(cases) - not_run and rebuilt and leaked is None else 1
+    return 0 if fired == len(cases) - not_run and rebuilt and leaked is None and stopped is None else 1
 
 
 def main():
