@@ -21184,6 +21184,123 @@ CASES = (
      b'     None),\n',
      None, None,
      MUTATION_UNITTESTS, None, 'test_every_installer_variant_names_the_check_it_must_fail'),
+
+    # ---- burndown/codex-parity ----
+    # Each converter case names its focused CLI selftest in the marker slot. Existing SHIMEJI cases with None
+    # retain the aggregate suite. The engine DLL beside the CLI is the compiled artefact this process loads.
+    ("bd-codex-parity: pose mapping writes the emitted index instead of the source index",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
+     b"new { refKey = origin.RefKey, index = origin.Index }",
+     b"new { refKey = origin.RefKey, index = poseIndex }",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "tick-emitter/source-pose-map",
+     "source-pose-map: omitted poses keep their source ordinals and hotspots consume none"),
+    ("bd-codex-parity: pose mapping skips an emitted variant index after an omission",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
+     b"                        variantIndex++;",
+     b"                        variantIndex += 2;",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "tick-emitter/source-pose-map",
+     "source-pose-map: omitted animations retain final emitted variant positions"),
+    ("bd-codex-parity: pose provenance keeps the old map schema",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
+     b'schema = "shimeji-parity-map/2"',
+     b'schema = "shimeji-parity-map/1"',
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "tick-emitter/source-pose-map",
+     "source-pose-map: source pose provenance requires map schema 2"),
+    ("bd-codex-parity: globals permits a custom engine binding",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
+     b'+ "engine context arguments "',
+     b'+ "context arguments "',
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "tick-emitter/nashorn-globals",
+     "conversion accepted an input requiring refusal: TICK_EXPRESSION_UNSUPPORTED TargetX: unknown name 'engine'"),
+    ("bd-codex-parity: globals permits a custom context binding",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
+     b'+ "engine context arguments "',
+     b'+ "engine arguments "',
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "tick-emitter/nashorn-globals",
+     "conversion accepted an input requiring refusal: TICK_EXPRESSION_UNSUPPORTED TargetX: unknown name 'context'"),
+    ("bd-codex-parity: globals permits a custom arguments binding",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
+     b'+ "engine context arguments "',
+     b'+ "engine context "',
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "tick-emitter/nashorn-globals",
+     "conversion accepted an input requiring refusal: TICK_EXPRESSION_UNSUPPORTED TargetX: unknown name 'arguments'"),
+    # ---- burndown/parity-host-1 ----
+    # The host half of CONTRACT v1.1 (shimeji-parity-map/2, N-shimeji-1106-13) and its input rules. Each case puts one
+    # old or loosened rule back and must fail the check that pins it: the window self-test's parity map/2 checks for
+    # ParityRun.cs, CoreTests' input checks for TickRuntime.cs.
+    ("bd-parity-host-1: the trace writes the emitted pose index",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                bool bound = map != null && map.TryGetPoseIndex(m.Pose, out index);\n',
+     b'                bool bound = leaf != null && (index = Array.IndexOf(leaf.Def.Variants[0].Poses, m.Pose)) >= 0;\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity run: pose.index is the source position map/2 binds'),
+    ("bd-parity-host-1: a repeated map key is kept",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                if (!seen.Add(p.Name)) throw new InvalidDataException("parity map repeats the " + label + " key \'" + p.Name + "\'");\n',
+     b'                seen.Add(p.Name);\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity map/2: a repeated poses key is refused'),
+    ("bd-parity-host-1: a surplus pose key is accepted",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                if (!consumed.Contains(key))\n',
+     b'                if (!consumed.Contains(key) && key == null)\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity map/2: a pose key on a composite node is surplus, refused'),
+    ("bd-parity-host-1: any false-condition pose is exempt from mapping",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            return (act.Type == "Animate" || (act.Type == "Embedded" && act.Class == "Interact"))\n'
+     b'                && act.Variants.Length == 1 && variant.When != null && variant.When.Source == "false"\n'
+     b'                && variant.Poses.Length == 1 && pose.Frame == -1 && pose.Ticks == 1 && pose.Dx == 0 && pose.Dy == 0;\n',
+     b'            return variant.When != null && variant.When.Source == "false";\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity map/2: an unmapped false-condition last variant of a MoveWithTurn is refused'),
+    ("bd-parity-host-1: a map/1 file is read",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                if (schema == RetiredSchema)\n'
+     b'                    throw new InvalidDataException("the map is " + RetiredSchema + "; regenerate it with the current converter (map/2 required)");\n'
+     b'                if (schema != Schema) throw new InvalidDataException("parity map schema is not " + Schema);\n',
+     b'                if (schema != Schema && schema != RetiredSchema) throw new InvalidDataException("parity map schema is not " + Schema);\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity map/2: a map/1 file is refused with a regenerate message'),
+    ("bd-parity-host-1: a key with a leading zero is accepted",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            if (string.IsNullOrEmpty(s) || (s.Length > 1 && s[0] == \'0\')) return "not canonical";\n',
+     b'            if (string.IsNullOrEmpty(s)) return "not canonical";\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     "parity map/2: a pose key '031:0:0' is refused as noncanonical"),
+    ("bd-parity-host-1: the trace evaluates a lazy parameter while observing",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            TickAction leaf = beh == null ? null : beh.Action.Leaf;\n',
+     b'            TickAction leaf = beh == null ? null : beh.Action.Leaf;\n            if (leaf != null) leaf.IsDraggable();\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity trace-on/off proof: the final states, the draw and event totals and the event digest agree'),
+    ("bd-parity-host-1: drag start is reported before Dragged is built",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'                TickBehaviour dragged = _world.BuildBehaviourByName(Type, "Dragged");\n'
+     b'                _world.Observer.Dragged(_mascot, "start");\n',
+     b'                _world.Observer.Dragged(_mascot, "start");\n'
+     b'                TickBehaviour dragged = _world.BuildBehaviourByName(Type, "Dragged");\n',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, 'A press whose Dragged cannot be built reported a drag start'),
+    ("bd-parity-host-1: an edge for an inactive companion is dropped in a parity run too",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'                if (m == null && input.Kind != TickInputKind.Move && InactiveButtonTarget != null) InactiveButtonTarget(input);\n',
+     b'',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, 'The parity hook was not told of exactly the button edges'),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
@@ -21643,7 +21760,7 @@ def selftest(flag, marker):
     if flag == CORETESTS:
         return coretests()
     if flag == SHIMEJI:
-        return shimeji_selftest()
+        return shimeji_selftest(marker)
     if flag == SECURITY:
         return security()
     if flag == TEMPLATE:
@@ -21718,19 +21835,21 @@ def coretests():
     return "\n".join(lines) + "\n", proc.returncode
 
 
-def shimeji_selftest():
+def shimeji_selftest(group=None):
     """The converter's `selftest` verb (the gate's last step) in the marker vocabulary the ladder grades.
 
     EngineSelfTest.RunAll prints every sub-test's detail, a failing sub-test's failures as indented
     `FAIL <why>` lines, and then SELFTEST PASS or SELFTEST FAIL with exit 0 or 1. The indented FAIL
     lines already read as failure lines here (the ladder strips and looks for a FAIL prefix), so a
     case names its failure text as the expected fragment; the exit code becomes the column-0 RESULT=
-    line, which is the verb's real verdict.
+    line, which is the verb's real verdict. A SHIMEJI case may put a focused group/case name in its marker slot;
+    None retains the aggregate verb, so existing registrations keep their original coverage.
     """
     if not os.path.isfile(SHIMEJI_EXE):
         return None, "ShimejiConvert exe is missing: " + SHIMEJI_EXE
     try:
-        proc = run_text([SHIMEJI_EXE, "selftest"], capture_output=True, timeout=1800,
+        command = [SHIMEJI_EXE, "selftest"] + ([group] if group is not None else [])
+        proc = run_text(command, capture_output=True, timeout=1800,
                               env=CHILD_ENV)
     except subprocess.TimeoutExpired:
         return None, "ShimejiConvert selftest did not exit in 1800s"

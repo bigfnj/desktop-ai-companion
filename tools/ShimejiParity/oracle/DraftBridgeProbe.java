@@ -38,6 +38,12 @@ public final class DraftBridgeProbe {
         public Object get(VariableMap variables) { reads++; return 99; }
     }
 
+    private static final class Five extends Variable {
+        public void init() { }
+        public void initFrame() { }
+        public Object get(VariableMap variables) { return 5; }
+    }
+
     private static void require(boolean value, String label) {
         if (!value) throw new AssertionError("DraftBridgeProbe:" + label);
     }
@@ -56,6 +62,39 @@ public final class DraftBridgeProbe {
         System.setProperty("shimeji.parity.enabled", "true");
         require(((Number)new Script("1+2", false).get(controlled)).intValue() == 3, "source-script-bridged");
         require(on.reads == off.reads, "no-extra-lazy-variable-evaluation");
+        // Query the exact JDK-8 Script/JSR-223 path, with a bound-variable positive control. A developer's newer
+        // Java runtime or a list of assumed Nashorn globals cannot decide which converter names are reserved.
+        // Keep the earlier lazy-variable witness unused: the type probe has its own bound-variable control.
+        VariableMap globalProbe = new VariableMap();
+        globalProbe.put("typeWitness", new Unused());
+        require("number".equals(new Script("typeof typeWitness", false).get(globalProbe)), "global-type-positive-control");
+        Map<String, Object> globalTypes = new LinkedHashMap<String, Object>();
+        for (String name : new String[] { "engine", "context", "arguments" }) {
+            Object type = new Script("typeof " + name, false).get(globalProbe);
+            require("object".equals(type), "global-type-" + name);
+            globalTypes.put(name, type);
+        }
+        require("undefined".equals(new Script("typeof __draftBridgeMissingGlobalWitness", false).get(globalProbe)),
+            "global-type-missing-control");
+        // All three are objects when unbound. On this pinned runtime explicit bindings win for engine and context,
+        // while arguments stays a global object. Record the distinction instead of assuming one shadowing rule.
+        VariableMap shadowProbe = new VariableMap();
+        shadowProbe.put("typeWitness", new Five());
+        require(((Number)new Script("typeWitness", false).get(shadowProbe)).intValue() == 5,
+            "global-shadow-bound-control");
+        Map<String, Object> boundGlobalTypes = new LinkedHashMap<String, Object>();
+        Map<String, Object> boundCustomValueObserved = new LinkedHashMap<String, Object>();
+        for (String name : new String[] { "engine", "context", "arguments" }) {
+            shadowProbe.put(name, new Five());
+            Object type = new Script("typeof " + name, false).get(shadowProbe);
+            Object value = new Script(name, false).get(shadowProbe);
+            boolean argumentsGlobal = "arguments".equals(name);
+            require((argumentsGlobal ? "object" : "number").equals(type), "global-bound-type-" + name);
+            boolean customValue = value instanceof Number && ((Number)value).doubleValue() == 5.0;
+            require(customValue != argumentsGlobal, "global-bound-value-" + name);
+            boundGlobalTypes.put(name, type);
+            boundCustomValueObserved.put(name, customValue);
+        }
         Script once = new Script("Math.random()", false);
         once.init();
         require(((Number)once.get(controlled)).doubleValue() == 0.25, "first-script-draw");
@@ -81,7 +120,15 @@ public final class DraftBridgeProbe {
         catch (IOException expected) { refused = expected.getMessage().equals("non-finite-trace-number"); }
         require(refused, "trace-non-finite-refused");
         require(buffer.toString().equals(valid), "trace-invalid-record-is-atomic");
-        System.out.println("{\"status\":\"pass\",\"scriptDraws\":" + controller.draws
-            + ",\"unusedReadsOff\":" + off.reads + ",\"unusedReadsOn\":" + on.reads + "}");
+        require(off.reads == 0 && on.reads == 0, "unused-variable-read-counts");
+        Map<String, Object> result = new LinkedHashMap<String, Object>();
+        result.put("status", "pass"); result.put("scriptDraws", controller.draws);
+        result.put("unusedReadsOff", off.reads); result.put("unusedReadsOn", on.reads);
+        result.put("globalTypes", globalTypes);
+        result.put("boundGlobalTypes", boundGlobalTypes);
+        result.put("boundCustomValueObserved", boundCustomValueObserved);
+        StringWriter report = new StringWriter();
+        new DraftTraceWriter(report).writeRecord(result);
+        System.out.print(report.toString());
     }
 }

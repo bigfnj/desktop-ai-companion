@@ -103,6 +103,7 @@ namespace DesktopAICompanion
                 Run("Tick environment keeps a window that only touches the work area", TestTickWindowIntersects);
                 Run("Tick input press drags, release throws only a dragged companion", TestTickInputDrag);
                 Run("Tick input hotspots hold, re-enter and mirror", TestTickInputHotspot);
+                Run("Tick input to a companion not active at dispatch: dropped, or told to the parity hook", TestTickInputInactiveTarget);
                 Run("Tick motion Fall: velocity, resistance and gravity accumulate as the source's doubles", TestTickMotionFallArithmetic);
                 Run("Tick motion Fall: a floor in the 80 px sweep or a wall stops it and ends the fall", TestTickMotionFallStops);
                 Run("Tick motion Fall: a floor where two stacked screens meet is passed through", TestTickMotionFallSeparator);

@@ -23,7 +23,6 @@ import xml.etree.ElementTree as ET
 
 
 SOURCE_URL = "https://kilkakon.com/shimeji/shimejieesrc.zip"
-SOURCE_SHA256 = "cf9e72f74d93f45e9f70a4f69cb1e56ffaedd38af2c5e5413482944f78faccff"
 DISTRIBUTION_URL = "https://kilkakon.com/shimeji/shimejiee.zip"
 DISTRIBUTION_SHA256 = "fee19b4003d718fab7ddd3ac6955bd4c1228845f94f8a1f9d72da12571a2a3d6"
 DISTRIBUTION_JAR_SHA256 = "4e68d8dbe67ed79400056f9e52fb7d619c48d566e5a2104cc1f64c8c1276802c"
@@ -31,6 +30,8 @@ EXPECTED_CLASS_COUNT = 298
 MAX_EXPANDED_BYTES = 256 * 1024 * 1024
 SOURCE_ROOTS = ("src", "src_win", "src_generic", "src_virtual")
 HERE = Path(__file__).resolve().parent
+# The comparer and producer use one data-only pin, without importing each other's executable tooling.
+SOURCE_SHA256 = json.loads((HERE / "source-pin.json").read_text(encoding="utf-8"))["sourceZipSha256"]
 
 
 class Refusal(RuntimeError):
@@ -579,6 +580,8 @@ def self_test(args):
                    "class-comparison-refuses-difference-count-inventory", "inventory-only-refused", "extra-extracted-file-refused",
                    "isolation-values-and-paths-refused", "uncontrolled-shared-tape-refused"])
     v1_self_test(args, labels)
+    burndown_self_test(args, labels)
+    review_self_test(args, labels)
     return {"status": "pass", "witnesses": labels, "network_requests": 0}
 
 
@@ -658,23 +661,34 @@ def v1_self_test(args, labels):
         labels.append("v1-skipped-scenario-refused")
         state_line = {"type": "state", "tick": 2, "sid": "m1", "anchor": [1, 2], "velocity": [0, 0]}
         on = [{"type": "header", "scenario": {"id": "S-a"}}, state_line,
-              {"type": "footer", "ticks": 2, "status": "complete", "draws": 1, "events": 3}]
+              {"type": "footer", "ticks": 2, "status": "complete", "draws": 1, "events": 3,
+               "eventSequenceSha256": sha(b"")}]
         off = [on[0], dict(state_line, velocity=[5, 5]),
-               {"type": "footer", "ticks": 2, "status": "complete", "unobservedDraws": 1, "unobservedEvents": 3}]
+               {"type": "footer", "ticks": 2, "status": "complete", "unobservedDraws": 1, "unobservedEvents": 3,
+                "eventSequenceSha256": on[-1]["eventSequenceSha256"]}]
 
         def proof(on_rows, off_rows):
             for name, rows in (("on.jsonl", on_rows), ("off.jsonl", off_rows)):
                 (root / name).write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
             return lambda: v1_observation_proof(root / "on.jsonl", root / "off.jsonl")
         proof(on, off)()
+        for digest in (None, "invalid", sha(b"second\nfirst\nthird\n")):
+            expect_refusal(proof(on, [off[0], off[1], dict(off[2], eventSequenceSha256=digest)]),
+                           "V1_OBSERVATION_CHANGED_BEHAVIOUR event sequence", "V1_EVENT_SEQUENCE_WITNESS")
+        labels.append("v1-observation-event-order-digest-refuses-equal-count-reordering-and-missing-digests")
+        forged = [on[0], {"type": "event", "tick": 1, "sid": "m1", "kind": "drag", "op": "start"}, on[1], on[2]]
+        expect_refusal(proof(forged, off), "V1_OBSERVATION_CHANGED_BEHAVIOUR event sequence digest does not match",
+                       "V1_EVENT_TRACE_DIGEST_WITNESS")
+        labels.append("v1-event-digest-is-recomputed-from-observed-event-records")
         expect_refusal(proof(on, [off[0], dict(state_line, anchor=[1, 3]), off[2]]),
                        "V1_OBSERVATION_CHANGED_BEHAVIOUR final tick differs", "V1_OBSERVATION_WITNESS")
         expect_refusal(proof(on, [off[0], dict(off[2], status="error")]),
                        "V1_OBSERVATION_CHANGED_BEHAVIOUR a run did not complete", "V1_OBSERVATION_STATUS_WITNESS")
         # F4: every companion disposed before the last tick, equal on both sides: an empty final population passes.
         gone = [on[0], dict(state_line, tick=0), {"type": "event", "tick": 1, "sid": "m1", "kind": "dispose"}, on[2]]
+        gone[-1] = dict(gone[-1], eventSequenceSha256=sha((json.dumps(gone[2]) + "\n").encode("utf-8")))
         try:
-            proof(gone, [off[0], off[2]])()
+            proof(gone, [off[0], dict(off[2], eventSequenceSha256=gone[-1]["eventSequenceSha256"])])()
         except Refusal as failure:
             raise AssertionError("V1_EMPTY_FINAL_WITNESS equal empty final populations refused: " + str(failure))
         labels.append("v1-observation-proof-refuses-a-changed-final-tick-or-an-incomplete-run-accepts-all-disposed")
@@ -783,6 +797,261 @@ def v1_self_test(args, labels):
                                              ("conf/Actions.xml", source / "two" / "actions.xml")], Path(folder) / "merged"),
                        "CHECKSUM_REFUSAL v1-pack-copy-merged conf/actions.xml", "V1_PACK_COPY_MERGE_WITNESS")
     labels.append("v1-pack-copy-merged-entries-refused")
+
+
+def burndown_self_test(args, labels):
+    """Focused synthetic witnesses; no JDK, source archive, or network is used."""
+    with tempfile.TemporaryDirectory(prefix="oracle-burndown-", dir=args.temp_root) as folder:
+        root = Path(folder)
+        source = root / "private-source"
+        resources = {"lib/synthetic.jar": b"original library", "conf/synthetic.properties": b"setting=true"}
+        inventory = {name: sha(payload) for name, payload in resources.items()}
+        for name, payload in resources.items():
+            target = source / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(payload)
+        validate_private_resources(source, inventory)
+        for name in resources:
+            (source / name).write_bytes(b"changed resource")
+            expect_refusal(lambda: validate_private_resources(source, inventory), "V1_RESOURCE_CHANGED " + name,
+                           "V1_PRIVATE_RESOURCE_HASH_WITNESS")
+            (source / name).write_bytes(resources[name])
+        extra = source / "lib" / "extra.jar"
+        extra.write_bytes(b"extra library")
+        expect_refusal(lambda: validate_private_resources(source, inventory), "V1_RESOURCE_INVENTORY_REFUSAL",
+                       "V1_PRIVATE_RESOURCE_INVENTORY_WITNESS")
+        extra.unlink()
+        missing = source / "lib" / "synthetic.jar"
+        missing.unlink()
+        expect_refusal(lambda: validate_private_resources(source, inventory), "V1_RESOURCE_INVENTORY_REFUSAL",
+                       "V1_PRIVATE_RESOURCE_INVENTORY_WITNESS")
+        missing.write_bytes(resources["lib/synthetic.jar"])
+        validate_private_resources(source, inventory)
+        labels.append("v1-private-resource-library-conf-changes-extra-and-missing-refused")
+
+        def unreadable_walk(path, followlinks=False, onerror=None):
+            for row in os.walk(path, followlinks=followlinks):
+                yield row
+            if onerror is not None:
+                onerror(OSError("synthetic unreadable resource directory"))
+
+        scanned = FunctionType(validate_private_resources.__code__, dict(globals(), os=SimpleNamespace(walk=unreadable_walk)),
+                               "validate_private_resources")
+        expect_refusal(lambda: scanned(source, inventory), "V1_RESOURCE_SCAN_REFUSAL", "V1_RESOURCE_SCAN_WITNESS")
+        labels.append("v1-private-resource-incomplete-directory-scan-refused")
+
+        # Drive both consumers before a compiler can run. Helper-only tests miss a deleted entry-point call.
+        here = root / "tool"
+        here.mkdir()
+        for name in ("edit-spec.json", "oracle.py", V1_RUNNER):
+            (here / name).write_bytes(b"synthetic tooling witness")
+        fixture_args = SimpleNamespace(cache_root=root / "cache", output_root=root / "evidence",
+                                       shared_root=root / "shared", temp_root=args.temp_root)
+        write_json(fixture_args.cache_root / "latest-draft.json", {})
+        write_json(fixture_args.cache_root / "source-inventory.json", {"files": inventory})
+        resource_bridge = FunctionType(validate_draft_resources.__code__,
+                                       dict(globals(), check_source=lambda *unused: source), "validate_draft_resources")
+        assert resource_bridge(fixture_args, {"source": str(source)}) == inventory, "V1_RESOURCE_BRIDGE_POSITIVE_WITNESS"
+        missing.write_bytes(b"changed private library")
+        expect_refusal(lambda: resource_bridge(fixture_args, {"source": str(source)}), "V1_RESOURCE_CHANGED",
+                       "V1_RESOURCE_BRIDGE_WITNESS")
+        missing.write_bytes(resources["lib/synthetic.jar"])
+        labels.append("v1-archive-inventory-to-private-source-resource-wiring")
+
+        def reject_resources(*unused):
+            raise Refusal("V1_RESOURCE_CHANGED synthetic.jar")
+
+        def unexpected_compile(*unused, **unused_keywords):
+            raise AssertionError("V1_RESOURCE_WIRING_WITNESS compilation reached before resource validation")
+
+        wiring = dict(globals(), HERE=here, validate_v1_build=lambda *unused: {},
+                      validate_draft_resources=reject_resources, command=unexpected_compile)
+        for entry in (v1_prepare, bridge):
+            copied = FunctionType(entry.__code__, wiring, entry.__name__)
+            call = (lambda: copied(fixture_args, root)) if entry is v1_prepare else (lambda: copied(fixture_args))
+            expect_refusal(call, "V1_RESOURCE_CHANGED", "V1_RESOURCE_WIRING_WITNESS")
+        labels.append("v1-and-bridge-validate-private-resources-before-compilation")
+
+        runs = root / "shared-runs"
+        assert shared_run_directory(runs, "S-ok", "S-ok") == runs / "S-ok", "SHARED_ID_POSITIVE_WITNESS"
+        expect_refusal(lambda: shared_run_directory(runs, "S-other", "S-ok"), "SHARED_SCENARIO_ID_REFUSAL",
+                       "SHARED_ID_BINDING_WITNESS")
+        expect_refusal(lambda: shared_run_directory(runs, "invalid name", "invalid name"), "SHARED_SCENARIO_ID_REFUSAL",
+                       "SHARED_ID_FORMAT_WITNESS")
+        assert not runs.exists(), "SHARED_ID_NO_WRITE_WITNESS"
+        labels.append("shared-id-bound-to-filename-and-contained-before-output")
+
+        class SyntheticUnjudgeable(Exception):
+            pass
+
+        def refused_stage(*unused, **unused_keywords):
+            raise Refusal("SYNTHETIC_STAGE_FAILURE")
+
+        base = dict(globals(), HERE=here, check_source=lambda *unused: None,
+                    comparer=lambda: SimpleNamespace(Unjudgeable=SyntheticUnjudgeable),
+                    v1_prepare=lambda *unused: ({}, "", root, {}),
+                    v1_scenarios=lambda *unused: [root / (V1_PROOF_SCENARIO + ".json")],
+                    v1_run=lambda *unused, **kw: {"scenario": V1_PROOF_SCENARIO, "status": "complete", "trace": "fixture"},
+                    v1_proof_case=lambda *unused: (None, "synthetic unavailable"),
+                    v1_document_witnesses=lambda *unused: {"status": "pass"},
+                    validate_v1_build=lambda *unused: {}, validate_draft_resources=lambda *unused: {})
+        for name, expected_stage, overrides in (
+                ("positive", None, {}),
+                ("stale-build", "build-witness", {"v1_prepare": refused_stage}),
+                ("missing-scenario", "requested-scenario-results", {
+                    "v1_run": lambda *unused: {"scenario": "S-other", "status": "complete"}}),
+                ("proof-failure", "observation-proof", {"v1_proof_case": lambda *unused: (root / "proof.json", ""),
+                                                        "v1_observation_proof": refused_stage}),
+                ("stale-recheck", "build-witness-recheck", {"validate_v1_build": refused_stage}),
+                ("resource-recheck", "build-witness-recheck", {"validate_draft_resources": refused_stage})):
+            isolated = SimpleNamespace(**vars(fixture_args))
+            isolated.output_root = root / name
+            copied = FunctionType(v1.__code__, dict(base, **overrides), "v1")
+            witness = "V1_RESOURCE_RECHECK_WITNESS" if name == "resource-recheck" else "V1_FAILURE_RECORD_WITNESS"
+            try:
+                copied(isolated)
+            except Refusal:
+                assert expected_stage is not None, witness + " positive control refused"
+            else:
+                assert expected_stage is None, witness + " failure did not propagate"
+            latest = json.loads((isolated.output_root / "v1-latest.json").read_text(encoding="utf-8"))
+            recorded = json.loads((Path(latest["evidence"]) / "results.json").read_text(encoding="utf-8"))
+            assert latest == recorded, witness + " latest differs from run record"
+            if expected_stage is not None:
+                assert recorded.get("status") == "fail" and recorded.get("failed_check") == expected_stage, (
+                    witness + " wrong or missing failed check " + str(expected_stage))
+        labels.append("v1-failed-build-missing-scenario-proof-and-recheck-recorded-before-raising")
+
+
+def review_self_test(args, labels):
+    """Entry-point witnesses added after review; all inputs and child results are synthetic."""
+    with tempfile.TemporaryDirectory(prefix="oracle-review-", dir=args.temp_root) as folder:
+        root = Path(folder)
+        here = root / "tool"
+        here.mkdir()
+        (here / "edit-spec.json").write_text("{}", encoding="utf-8")
+        artifact = root / "synthetic.jar"
+        artifact.write_bytes(b"synthetic runtime")
+        state = {"artifact": str(artifact), "artifact_sha256": sha(artifact.read_bytes()), "source": str(root)}
+        fixture_args = SimpleNamespace(cache_root=root / "cache", output_root=root / "bridge",
+                                       shared_root=root / "shared-input", jdk_root=root / "jdk")
+        write_json(fixture_args.cache_root / "latest-draft.json", state)
+
+        good = {"status": "pass", "scriptDraws": 4, "unusedReadsOff": 0, "unusedReadsOn": 0,
+                "globalTypes": {name: "object" for name in ("engine", "context", "arguments")},
+                "boundGlobalTypes": {"engine": "number", "context": "number", "arguments": "object"},
+                "boundCustomValueObserved": {"engine": True, "context": True, "arguments": False}}
+        result = dict(good)
+
+        def synthetic_command(argv, *unused, **unused_keywords):
+            return {"exit_code": 0, "stdout": json.dumps(result)}
+
+        bridged = FunctionType(bridge.__code__, dict(globals(), HERE=here, command=synthetic_command,
+                               validate_v1_build=lambda *unused: state, validate_draft_resources=lambda *unused: None),
+                               "bridge")
+        assert bridged(fixture_args)["status"] == "pass", "BRIDGE_GLOBALS_POSITIVE_WITNESS"
+        for types in ({}, {"engine": "object", "context": "object", "arguments": "undefined"}):
+            result = dict(good, globalTypes=types)
+            expect_refusal(lambda: bridged(fixture_args), "BRIDGE_WITNESS_MISSING", "BRIDGE_GLOBALS_WITNESS")
+        labels.append("bridge-entry-point-refuses-missing-or-changed-pinned-global-types")
+        for changed in (dict(good, boundGlobalTypes=good["globalTypes"]),
+                        dict(good, boundCustomValueObserved={name: True for name in good["globalTypes"]})):
+            result = changed
+            expect_refusal(lambda: bridged(fixture_args), "BRIDGE_WITNESS_MISSING", "BRIDGE_BINDINGS_WITNESS")
+        labels.append("bridge-entry-point-refuses-changed-explicit-variable-binding-behaviour")
+
+        # Exercise shared(), not just its path helper. A bad id must fail before output creation or compilation.
+        names = ("S-slice-stand-walk-01", "S-slice-transform-01", "S-slice-breed-01")
+        (fixture_args.shared_root / "pack").mkdir(parents=True)
+        for name in names:
+            write_json(fixture_args.shared_root / (name + ".json"),
+                       {"id": name, "pack": "pack", "rng": {"kind": "none"}, "ticks": 1})
+        write_json(fixture_args.shared_root / (names[0] + ".json"),
+                   {"id": "S-other", "pack": "pack", "rng": {"kind": "none"}, "ticks": 1})
+        fixture_args.output_root = root / "shared-preflight"
+
+        def unexpected_command(*unused, **unused_keywords):
+            raise Refusal("SHARED_COMMAND_UNEXPECTED")
+
+        shared_globals = dict(globals(), HERE=here, check_source=lambda *unused: root,
+                              require_passing_comparison=lambda *unused: {}, command=unexpected_command)
+        copied_shared = FunctionType(shared.__code__, shared_globals, "shared")
+        expect_refusal(lambda: copied_shared(fixture_args), "SHARED_SCENARIO_ID_REFUSAL", "SHARED_PREFLIGHT_WITNESS")
+        assert not fixture_args.output_root.exists(), "SHARED_PREFLIGHT_WITNESS output created before id validation"
+        write_json(fixture_args.shared_root / (names[0] + ".json"),
+                   {"id": names[0], "pack": "pack", "rng": {"kind": "none"}, "ticks": 1})
+
+        # The first three calls preflight inputs; the fourth must guard the first run before mkdir/copy/launch.
+        calls = []
+
+        def guarded_run(root_path, scenario_id, stem):
+            calls.append((root_path, scenario_id, stem))
+            if len(calls) == 4:
+                raise Refusal("SHARED_RUN_DIRECTORY_CHECKED")
+            return shared_run_directory(root_path, scenario_id, stem)
+
+        shared_globals.update(shared_run_directory=guarded_run,
+                              runtime_inputs=lambda *unused: (state, "synthetic-classpath", {}),
+                              command=lambda *unused, **kw: {"exit_code": 0, "stdout": ""})
+        fixture_args.output_root = root / "shared-run-site"
+        copied_shared = FunctionType(shared.__code__, shared_globals, "shared")
+        expect_refusal(lambda: copied_shared(fixture_args), "SHARED_RUN_DIRECTORY_CHECKED", "SHARED_RUN_SITE_WITNESS")
+        assert len(calls) == 4, "SHARED_RUN_SITE_WITNESS wrong call count"
+        labels.append("shared-entry-point-preflight-and-run-directory-calls-are-required")
+
+        # A failed/running V1 record is not evidence. A healthy record must reach the build check instead.
+        fixture_args.output_root = root / "failure-records"
+
+        def reached_build(*unused):
+            raise Refusal("SYNTHETIC_CURRENT_BUILD_REACHED")
+
+        copied_failures = FunctionType(v1_failures.__code__, dict(globals(), HERE=here,
+                                      comparer=lambda: SimpleNamespace(), validate_v1_build=reached_build), "v1_failures")
+        complete = [{"scenario": "S-synthetic", "status": "complete", "trace": "not opened"}]
+        for status in ("fail", "running", "incomplete"):
+            write_json(fixture_args.output_root / "v1-latest.json",
+                       {"status": status, "failed_check": "build-witness-recheck", "results": complete})
+            expect_refusal(lambda: copied_failures(fixture_args), "V1_EVIDENCE_NOT_PASSED", "V1_FAILURE_STATUS_WITNESS")
+        write_json(fixture_args.output_root / "v1-latest.json", {"status": "pass", "results": []})
+        expect_refusal(lambda: copied_failures(fixture_args), "V1_EVIDENCE_NO_COMPLETE_SCENARIOS", "V1_FAILURE_EMPTY_WITNESS")
+        write_json(fixture_args.output_root / "v1-latest.json", {"status": "pass", "results": complete})
+        expect_refusal(lambda: copied_failures(fixture_args), "SYNTHETIC_CURRENT_BUILD_REACHED", "V1_FAILURE_POSITIVE_WITNESS")
+        labels.append("v1-failures-refuses-nonpassing-and-empty-evidence-before-judging")
+
+        # Exercise v1_run itself, including its recorded child stderr and physical footer. The driver refuses an
+        # inactive input target at dispatch; that is invalid scenario input, not a runtime disagreement. Other
+        # refusals and source errors must retain their existing statuses, and trace/1 still uses an aborted footer.
+        input_root = root / "inactive-input"
+        pack = input_root / "pack"
+        pack.mkdir(parents=True)
+        (pack / "synthetic.txt").write_bytes(b"synthetic input-classification witness")
+        scenario = input_root / "S-input-classification.json"
+        write_json(scenario, {"id": scenario.stem, "pack": "pack", "ticks": 1, "rng": {"kind": "none"}, "dpiScale": 1})
+        input_compare = SimpleNamespace(validate_scenario=lambda *unused: None,
+                                        pack_preflight=lambda path: [("synthetic.txt", pack / "synthetic.txt")],
+                                        pack_sha256=lambda *unused: sha((pack / "synthetic.txt").read_bytes()))
+        for index, (footer_status, stderr, expected) in enumerate((
+                ("aborted", "V1_REFUSAL V1_INPUT_TARGET_ABSENT m2", "scenario-invalid"),
+                ("aborted", "V1_REFUSAL V1_OTHER_DRIVER_REFUSAL m2", "aborted"),
+                ("aborted", "java.lang.IllegalStateException: V1_INPUT_TARGET_ABSENT m2", "aborted"),
+                ("aborted", "V1_REFUSAL V1_INPUT_TARGET_ABSENT_OTHER m2", "aborted"),
+                ("error", "V1_REFUSAL V1_INPUT_TARGET_ABSENT m2", "error"),
+                ("error", "java.lang.IllegalStateException: synthetic source error", "error"))):
+            def input_command(argv, *unused, **unused_keywords):
+                trace = Path(argv[-1])
+                header = json.loads(Path(argv[-3]).read_text(encoding="utf-8"))
+                trace.write_text(json.dumps(header) + "\n" + json.dumps({"type": "footer", "ticks": 1,
+                                 "status": footer_status, "states": 0, "events": 0, "draws": 0}) + "\n", encoding="utf-8")
+                return {"exit_code": 1, "timed_out": False, "stdout": "", "stderr": stderr}
+
+            copied_run = FunctionType(v1_run.__code__, dict(globals(), command=input_command), "v1_run")
+            row = copied_run(fixture_args, input_compare, scenario, input_root / str(index), "synthetic-classpath", root, {}, True)
+            assert row["status"] == expected, "V1_" + "INACTIVE_INPUT_WITNESS " + expected + " became " + row["status"]
+            physical = Path(row["trace"])
+            assert json.loads(physical.read_text(encoding="utf-8").splitlines()[-1])["status"] == footer_status, (
+                "V1_" + "INACTIVE_INPUT_WITNESS physical footer changed")
+            assert row["trace_sha256"] == sha(physical.read_bytes()), "V1_" + "INACTIVE_INPUT_WITNESS trace hash changed"
+        labels.append("v1-entry-point-classifies-only-inactive-input-targets-as-scenario-invalid")
 
 
 def png(red, green, blue):
@@ -998,35 +1267,87 @@ def mutate(args):
         ("v1-document-refusal", [('if row["status"] != "aborted" or not detail.startswith("V1_REFUSAL ' + 'V1_REFKEY_DOCUMENT_SPELLING " + path):', 'if False:')], "V1_DOCUMENT_REFUSAL_WITNESS"),
         ("v1-document-rename", [('return key if parts is None or parts[0] ' + 'not in names else', 'return key if True else')], "V1_DOCUMENT_RENAME_WITNESS"),
         ("v1-pack-copy-merged", [('for target, digest, relative ' + 'in written:', 'for target, digest, relative in []:')], "V1_PACK_COPY_MERGE_WITNESS")])
+    # ---- burndown/codex-parity ----
+    legs.extend([
+        ("bd-codex-parity: private-resource-hash", [('if sha(target.read_bytes()) ' + '!= digest:', 'if False:')], "V1_PRIVATE_RESOURCE_HASH_WITNESS"),
+        ("bd-codex-parity: private-resource-inventory", [('if actual ' + '!= set(expected):', 'if False:')], "V1_PRIVATE_RESOURCE_INVENTORY_WITNESS"),
+        ("bd-codex-parity: v1-resource-wiring", [('    validate_draft_resources(args, state)\n    source = ' + 'Path(state["source"])', '    source = Path(state["source"])')], "V1_RESOURCE_WIRING_WITNESS"),
+        ("bd-codex-parity: bridge-resource-wiring", [('    validate_draft_resources(args, state)\n    artifact = ' + 'Path(state["artifact"])', '    artifact = Path(state["artifact"])')], "V1_RESOURCE_WIRING_WITNESS"),
+        ("bd-codex-parity: shared-id-filename", [('if scenario_id ' + '!= expected_stem:', 'if False:')], "SHARED_ID_BINDING_WITNESS"),
+        ("bd-codex-parity: shared-id-leaf", [('return v1_run_directory(root, ' + 'scenario_id)[0]', 'return root / scenario_id')], "SHARED_ID_FORMAT_WITNESS"),
+        ("bd-codex-parity: failed-run-record", [('result.update(status="fail", failed_check=phase, error_type=type(failure).__name__, error=str(failure))\n        ' + 'record()', 'result.update(status="fail", failed_check=phase, error_type=type(failure).__name__, error=str(failure))\n        pass')], "V1_FAILURE_RECORD_WITNESS"),
+        ("bd-codex-parity: event-sequence-digest", [('if not isinstance(on_digest, str) or re.fullmatch(r"[0-9a-f]{64}", on_digest) is None ' + 'or on_digest != off_digest:', 'if False:')], "V1_EVENT_SEQUENCE_WITNESS")])
+    legs.append(("bd-codex-parity: resource-scan-errors", [(', onerror=' + 'resource_scan_failed', '')], "V1_RESOURCE_SCAN_WITNESS"))
+    legs.append(("bd-codex-parity: event-digest-trace-binding", [('if on_digest ' + '!= trace_event_digest(on_trace):', 'if False:')], "V1_EVENT_TRACE_DIGEST_WITNESS"))
+    legs.extend([
+        ("bd-codex-parity: resource-wrapper-wiring", [('return validate_private_resources(state["source"], ' + 'inventory)', 'return inventory')], "V1_RESOURCE_BRIDGE_WITNESS"),
+        ("bd-codex-parity: resource-post-run-wiring", [('        validate_draft_resources(args, state)\n        ' + 'passed = ', '        passed = ')], "V1_RESOURCE_RECHECK_WITNESS"),
+        ("bd-codex-parity: shared-preflight-wiring", [('        shared_run_directory(root / "rebuilt", doc.get("id"), ' + 'path.stem)\n', '')], "SHARED_PREFLIGHT_WITNESS"),
+        ("bd-codex-parity: shared-run-wiring", [('            run = shared_run_directory(root / runtime, doc["id"], ' + 'path.stem)', '            run = root / runtime / doc["id"]')], "SHARED_RUN_SITE_WITNESS"),
+        ("bd-codex-parity: v1-failure-evidence-status", [('if latest.get("status") ' + '!= "pass":', 'if False:')], "V1_FAILURE_STATUS_WITNESS"),
+        ("bd-codex-parity: v1-failure-evidence-empty", [('if not ' + 'complete:', 'if False:')], "V1_FAILURE_EMPTY_WITNESS"),
+        ("bd-codex-parity: bridge-global-values", [('            or result.get("globalTypes") ' + '!= expected_types\n', '')], "BRIDGE_GLOBALS_WITNESS"),
+        ("bd-codex-parity: bridge-result-wiring", [('    validate_bridge_witness(' + 'result)\n', '    pass\n')], "BRIDGE_GLOBALS_WITNESS")])
+    legs.append(("bd-codex-parity: bridge-bound-variable-values", [(
+        '            or result.get("boundGlobalTypes") != expected_bound_types\n            ' + 'or result.get("boundCustomValueObserved") != expected_bound_values\n', '')],
+        "BRIDGE_BINDINGS_WITNESS"))
+    legs.append(("bd-codex-parity: inactive-input-classification", [(
+        'if status == "aborted" and detail.startswith("V1_REFUSAL ' + 'V1_INPUT_TARGET_ABSENT "):', 'if False:')],
+        "V1_INACTIVE_INPUT_WITNESS"))
+    if args.only:
+        legs = [leg for leg in legs if args.only in leg[0]]
+        if not legs:
+            raise Refusal("MUTATION_SELECTION_EMPTY " + args.only)
     results = []
     with tempfile.TemporaryDirectory(prefix="oracle-mutations-", dir=os.environ["TEMP"]) as folder:
         root = Path(folder)
+        shutil.copyfile(HERE / "source-pin.json", root / "source-pin.json")
         for label, replacements, witness in legs:
             mutated = original
             for old, new in replacements:
                 if mutated.count(old) != 1:
                     raise Refusal("MUTATION_PATTERN_REFUSAL " + label)
                 mutated = mutated.replace(old, new)
-            script = root / (label + ".py")
+            script = root / (re.sub(r"[^A-Za-z0-9._-]", "_", label) + ".py")
             script.write_bytes(mutated.encode("utf-8"))
+            executed_sha256 = sha(script.read_bytes())
+            executed_mtime_ns = script.stat().st_mtime_ns
             record = command([sys.executable, "-I", "-B", "-X", "utf8", script, "selftest", "--cache-root", args.cache_root,
                               "--output-root", args.output_root, "--jdk-root", args.jdk_root,
                               "--data-root", args.data_root, "--temp-root", args.temp_root], root)
             if record["exit_code"] != 1 or record["stderr"].count(witness) != 1:
                 raise Refusal("MUTATION_DID_NOT_FIRE " + label)
-            results.append({"mutation": label, "status": "fired", "witness": witness, "exit_code": 1})
+            results.append({"mutation": label, "status": "fired", "witness": witness, "exit_code": 1,
+                            "executed_script": str(script), "source_sha256": executed_sha256,
+                            "source_mtime_ns": executed_mtime_ns, "pid": record["pid"], "process_exited": record["process_exited"]})
     if root.exists():
         raise Refusal("MUTATION_SCRATCH_REMAINS")
     if (HERE / "oracle.py").read_bytes() != original_bytes:
         raise Refusal("MUTATION_TRACKED_SOURCE_CHANGED")
     result = {"status": "pass", "mutations": results, "tracked_source_unchanged": True,
+              "baseline_source_sha256": sha(original_bytes), "source_pin_sha256": sha((HERE / "source-pin.json").read_bytes()),
               "removed_scratch": str(root), "scratch_exists": root.exists()}
     write_json(args.output_root / "mutation-results.json", result)
     return result
 
 
+def validate_bridge_witness(result):
+    # typeof always returns a string, including "undefined". Require the pinned values, not just that JS ran.
+    expected_types = {name: "object" for name in ("engine", "context", "arguments")}
+    expected_bound_types = {"engine": "number", "context": "number", "arguments": "object"}
+    expected_bound_values = {"engine": True, "context": True, "arguments": False}
+    if (result.get("status") != "pass" or result.get("scriptDraws") != 4
+            or result.get("globalTypes") != expected_types
+            or result.get("boundGlobalTypes") != expected_bound_types
+            or result.get("boundCustomValueObserved") != expected_bound_values
+            or result.get("unusedReadsOff") != 0 or result.get("unusedReadsOn") != 0):
+        raise Refusal("BRIDGE_WITNESS_MISSING")
+
+
 def bridge(args):
-    state = json.loads((args.cache_root / "latest-draft.json").read_text(encoding="utf-8"))
+    state = validate_v1_build(json.loads((args.cache_root / "latest-draft.json").read_text(encoding="utf-8")),
+                              (HERE / "edit-spec.json").read_bytes(), HERE / "draft")
+    validate_draft_resources(args, state)
     artifact = Path(state["artifact"])
     verify(artifact.read_bytes(), state["artifact_sha256"], "draft-runtime")
     root = args.output_root / ("bridge-" + uuid.uuid4().hex[:8])
@@ -1044,8 +1365,7 @@ def bridge(args):
     write_json(root / "launch.json", record)
     require_command(record, "BRIDGE_PROBE_FAILED " + str(root / "launch.json"))
     result = json.loads(record["stdout"].strip())
-    if result.get("status") != "pass" or result.get("scriptDraws") != 4:
-        raise Refusal("BRIDGE_WITNESS_MISSING")
+    validate_bridge_witness(result)
     result.update({"draft_artifact_sha256": state["artifact_sha256"], "evidence": str(root / "launch.json")})
     write_json(args.output_root / "bridge-latest.json", result)
     return result
@@ -1125,6 +1445,7 @@ def shared(args):
         path = args.shared_root / (name + ".json")
         doc = json.loads(path.read_text(encoding="utf-8"))
         validate_shared_rng(doc)
+        shared_run_directory(root / "rebuilt", doc.get("id"), path.stem)
         pack = member_target(args.shared_root, zipfile.ZipInfo(doc["pack"]))
         files = []
         for directory, dirs, names in os.walk(pack, followlinks=False):
@@ -1149,7 +1470,7 @@ def shared(args):
         write_json(root / runtime / "compile.json", compiler)
         require_command(compiler, "SHARED_COMPILE_FAILED " + str(root / runtime / "compile.json"))
         for path, doc, files in scenarios:
-            run = root / runtime / doc["id"]
+            run = shared_run_directory(root / runtime, doc["id"], path.stem)
             run.mkdir()
             for item, relative, digest in files:
                 target = run / relative
@@ -1237,6 +1558,50 @@ def validate_v1_build(state, edit_spec_bytes, helper_root):
     return state
 
 
+def validate_private_resources(source, inventory):
+    """Bind the draft's runtime resources to the already archive-verified source inventory.
+
+    The draft JAR's hash does not cover its external libraries or configuration. Record current hashes only after
+    checking the exact inventory, so a replaced dependency cannot become its own new provenance witness.
+    """
+    source = Path(source)
+    expected = {name: digest for name, digest in inventory.items() if name.startswith(("lib/", "conf/"))}
+    if not any(name.startswith("lib/") and name.endswith(".jar") for name in expected) or not any(
+            name.startswith("conf/") for name in expected):
+        raise Refusal("V1_RESOURCE_INVENTORY_REFUSAL missing library or configuration inventory")
+    actual = set()
+    def resource_scan_failed(failure):
+        raise Refusal("V1_RESOURCE_SCAN_REFUSAL " + str(failure)) from failure
+
+    for leaf in ("lib", "conf"):
+        directory = source / leaf
+        if not directory.is_dir() or directory.is_symlink() or getattr(directory.lstat(), "st_file_attributes", 0) & 0x400:
+            raise Refusal("V1_RESOURCE_INVENTORY_REFUSAL missing or linked " + leaf)
+        for folder, dirs, names in os.walk(directory, followlinks=False, onerror=resource_scan_failed):
+            for name in dirs + names:
+                item = Path(folder) / name
+                relative = item.relative_to(source).as_posix()
+                if item.is_symlink() or getattr(item.lstat(), "st_file_attributes", 0) & 0x400:
+                    raise Refusal("V1_RESOURCE_INVENTORY_REFUSAL linked " + relative)
+                if item.is_file():
+                    actual.add(relative)
+    if actual != set(expected):
+        raise Refusal("V1_RESOURCE_INVENTORY_REFUSAL private resource files differ from the pinned inventory")
+    for relative, digest in sorted(expected.items()):
+        target = source.joinpath(*PurePosixPath(relative).parts)
+        if sha(target.read_bytes()) != digest:
+            raise Refusal("V1_RESOURCE_CHANGED " + relative)
+    return expected
+
+
+def validate_draft_resources(args, state):
+    # check_source derives the inventory from the pinned archive and verifies the original extraction. The private
+    # patched tree is a different directory, and its lib/conf bytes must independently match that inventory.
+    check_source(args)
+    inventory = json.loads((args.cache_root / "source-inventory.json").read_text(encoding="utf-8"))["files"]
+    return validate_private_resources(state["source"], inventory)
+
+
 def v1_trace_status(compare, trace):
     """One distinct status per way a run can fail: the footer's own status, else the comparer's trace check."""
     lines = [line for line in trace.read_text(encoding="utf-8").splitlines() if line.strip()] if trace.is_file() else []
@@ -1277,6 +1642,7 @@ def v1_prepare(args, root):
     state = validate_v1_build(json.loads((args.cache_root / "latest-draft.json").read_text(encoding="utf-8"))
                               if (args.cache_root / "latest-draft.json").is_file() else {},
                               (HERE / "edit-spec.json").read_bytes(), HERE / "draft")
+    validate_draft_resources(args, state)
     source = Path(state["source"])
     libraries = sorted((source / "lib").glob("*.jar"))
     classpath = os.pathsep.join([state["artifact"]] + [str(path) for path in libraries] + [str(source / "conf")])
@@ -1317,6 +1683,17 @@ def v1_run_directory(root, scenario_id, observe=True):
         raise Refusal("V1_SCENARIO_ID_REFUSAL " + repr(scenario_id))
     run = v1_contained(root, root / (scenario_id + ("" if observe else "-off")))
     return run, v1_contained(root, run / "pack")
+
+
+def shared_run_directory(root, scenario_id, expected_stem):
+    # Shared accepts three specifically named scenario files. Bind the document's id before any derived output
+    # directory or pack copy, then apply the same leaf and physical-containment rules as the V1 producer.
+    if scenario_id != expected_stem:
+        raise Refusal("SHARED_SCENARIO_ID_REFUSAL id does not match the selected scenario filename")
+    try:
+        return v1_run_directory(root, scenario_id)[0]
+    except Refusal as failure:
+        raise Refusal("SHARED_SCENARIO_ID_REFUSAL " + str(failure)) from failure
 
 
 def v1_copy_pack(files, workdir):
@@ -1368,13 +1745,26 @@ def v1_run(args, compare, scenario_path, root, classpath, runner, build, observe
         stderr = [line.strip() for line in record["stderr"].splitlines() if line.strip()]
         refusal = [line for line in stderr if line.startswith("V1_REFUSAL ")]
         detail = refusal[-1] if refusal else (stderr[0] if stderr else detail)
+        # This one recognized driver refusal is invalid scenario input. Preserve the physical trace/1 aborted
+        # footer, and keep unrelated driver refusals and source errors distinct from input validation failures.
+        if status == "aborted" and detail.startswith("V1_REFUSAL V1_INPUT_TARGET_ABSENT "):
+            status = "scenario-invalid"
     return {"scenario": doc["id"], "status": status, "detail": detail[:400], "trace": str(trace),
             "trace_sha256": sha(trace.read_bytes()) if trace.is_file() else None, "exit_code": record["exit_code"],
             "timed_out": record["timed_out"], "observe": observe}
 
 
+def trace_event_digest(path):
+    """Hash the actual written event records, so two identically broken digest counters cannot prove each other."""
+    digest = hashlib.sha256()
+    for line in Path(path).read_bytes().splitlines():
+        if line.strip() and json.loads(line).get("type") == "event":
+            digest.update(line + b"\n")
+    return digest.hexdigest()
+
+
 def v1_observation_proof(on_trace, off_trace):
-    """CONTRACT section 5: the trace-off run's final tick equals the trace-on run's, as do its draw and event totals."""
+    """CONTRACT section 5: final states, draw/event totals and the ordered event digest survive observation."""
     def load(path):
         return [json.loads(line) for line in Path(path).read_text(encoding="utf-8").splitlines() if line.strip()]
     on, off = load(on_trace), load(off_trace)
@@ -1392,6 +1782,11 @@ def v1_observation_proof(on_trace, off_trace):
         raise Refusal("V1_OBSERVATION_CHANGED_BEHAVIOUR final tick differs")
     if (on[-1]["draws"], on[-1]["events"]) != (off[-1].get("unobservedDraws"), off[-1].get("unobservedEvents")):
         raise Refusal("V1_OBSERVATION_CHANGED_BEHAVIOUR draw or event totals differ")
+    on_digest, off_digest = on[-1].get("eventSequenceSha256"), off[-1].get("eventSequenceSha256")
+    if not isinstance(on_digest, str) or re.fullmatch(r"[0-9a-f]{64}", on_digest) is None or on_digest != off_digest:
+        raise Refusal("V1_OBSERVATION_CHANGED_BEHAVIOUR event sequence differs or has no valid digest")
+    if on_digest != trace_event_digest(on_trace):
+        raise Refusal("V1_OBSERVATION_CHANGED_BEHAVIOUR event sequence digest does not match the traced records")
     return {"scenario": on[0]["scenario"]["id"], "final_states": len(final_on), "draws": on[-1]["draws"]}
 
 
@@ -1613,43 +2008,72 @@ def v1_document_witnesses(args, compare, root, classpath, runner, build, rows=()
 
 
 def v1(args):
-    if args.shared_root is None:
-        raise Refusal("V1_NO_SCENARIOS pass --shared-root naming generated synthetic scenarios")
-    check_source(args)
-    compare = comparer()
     root = args.output_root / ("v1-" + uuid.uuid4().hex[:8])
     root.mkdir(parents=True)
-    state, classpath, runner, build = v1_prepare(args, root)
-    requested = [path.stem for path in v1_scenarios(args)]
     rows = []
-    for path in v1_scenarios(args):
-        try:
-            rows.append(v1_run(args, compare, path, root, classpath, runner, build))
-        except compare.Unjudgeable as failure:
-            rows.append({"scenario": path.stem, "status": failure.cls, "detail": str(failure)[:400], "trace": None})
-    require_v1_results(requested, rows)
-    proof_path, reason = v1_proof_case(args.shared_root)
-    proof = {"status": "unavailable", "scenario": V1_PROOF_SCENARIO, "reason": reason}
-    if proof_path is not None:
-        traced = next((row for row in rows if row["scenario"] == V1_PROOF_SCENARIO), None)
-        if traced is None:
-            traced = v1_run(args, compare, proof_path, root, classpath, runner, build)
-        if traced["status"] != "complete":
-            proof["reason"] = "the traced run is " + traced["status"]
-        else:
-            off = v1_run(args, compare, proof_path, root, classpath, runner, build, observe=False)
-            proof = dict(v1_observation_proof(traced["trace"], off["trace"]), status="pass")
-    documents = v1_document_witnesses(args, compare, root, classpath, runner, build, rows)
-    validate_v1_build(state, (HERE / "edit-spec.json").read_bytes(), HERE / "draft")
-    passed = all(row["status"] == "complete" for row in rows) and documents["status"] == "pass" and proof["status"] == "pass"
-    result = {"status": "pass" if passed else "incomplete",
-              "schema": "shimeji-parity-trace/1", "build": build, "results": rows, "observation_proof": proof,
-              "document_witnesses": documents,
-              "counts": {status: sum(1 for row in rows if row["status"] == status) for status in sorted({row["status"] for row in rows})},
+    result = {"status": "running", "schema": "shimeji-parity-trace/1", "results": rows,
               "tool_sha256": sha((HERE / "oracle.py").read_bytes()), "runner_sha256": sha((HERE / V1_RUNNER).read_bytes()),
               "evidence": str(root)}
-    write_json(root / "results.json", result)
-    write_json(args.output_root / "v1-latest.json", result)
+
+    def record():
+        result["counts"] = {status: sum(1 for row in rows if row["status"] == status)
+                            for status in sorted({row["status"] for row in rows})}
+        write_json(root / "results.json", result)
+        write_json(args.output_root / "v1-latest.json", result)
+
+    # Every phase, including preparation, has an evidence record. A failure must not leave a previous successful
+    # v1-latest.json looking like the current run, or require parsing stderr to discover which check failed.
+    phase = "scenario-input"
+    record()
+    try:
+        if args.shared_root is None:
+            raise Refusal("V1_NO_SCENARIOS pass --shared-root naming generated synthetic scenarios")
+        phase = "source-integrity"
+        check_source(args)
+        compare = comparer()
+        phase = "build-witness"
+        state, classpath, runner, build = v1_prepare(args, root)
+        result["build"] = build
+        phase = "scenario-selection"
+        paths = v1_scenarios(args)
+        requested = [path.stem for path in paths]
+        result["requested"] = requested
+        for path in paths:
+            phase = "scenario-run:" + path.stem
+            try:
+                rows.append(v1_run(args, compare, path, root, classpath, runner, build))
+            except compare.Unjudgeable as failure:
+                rows.append({"scenario": path.stem, "status": failure.cls, "detail": str(failure)[:400], "trace": None})
+            record()
+        phase = "requested-scenario-results"
+        require_v1_results(requested, rows)
+        phase = "observation-proof"
+        proof_path, reason = v1_proof_case(args.shared_root)
+        proof = {"status": "unavailable", "scenario": V1_PROOF_SCENARIO, "reason": reason}
+        result["observation_proof"] = proof
+        if proof_path is not None:
+            traced = next((row for row in rows if row["scenario"] == V1_PROOF_SCENARIO), None)
+            if traced is None:
+                traced = v1_run(args, compare, proof_path, root, classpath, runner, build)
+            if traced["status"] != "complete":
+                proof["reason"] = "the traced run is " + traced["status"]
+            else:
+                off = v1_run(args, compare, proof_path, root, classpath, runner, build, observe=False)
+                proof = dict(v1_observation_proof(traced["trace"], off["trace"]), status="pass")
+                result["observation_proof"] = proof
+        phase = "document-witnesses"
+        documents = v1_document_witnesses(args, compare, root, classpath, runner, build, rows)
+        result["document_witnesses"] = documents
+        phase = "build-witness-recheck"
+        validate_v1_build(state, (HERE / "edit-spec.json").read_bytes(), HERE / "draft")
+        validate_draft_resources(args, state)
+        passed = all(row["status"] == "complete" for row in rows) and documents["status"] == "pass" and proof["status"] == "pass"
+        result["status"] = "pass" if passed else "incomplete"
+    except Exception as failure:
+        result.update(status="fail", failed_check=phase, error_type=type(failure).__name__, error=str(failure))
+        record()
+        raise
+    record()
     return result
 
 
@@ -1657,9 +2081,14 @@ def v1_failures(args):
     """Failure witnesses on REAL v1 evidence, each on a private copy: the producer's run checks and the comparer's
     behaviour rules must each fail with exactly their named class. The latest V1 run supplies the traces."""
     import copy
-    compare = comparer()
     latest = json.loads((args.output_root / "v1-latest.json").read_text(encoding="utf-8"))
+    # V1 writes running/failed records as well as successes. Never judge a refused or unfinished producer run.
+    if latest.get("status") != "pass":
+        raise Refusal("V1_EVIDENCE_NOT_PASSED " + str(latest.get("failed_check") or latest.get("status") or "missing status"))
     complete = {row["scenario"]: row for row in latest["results"] if row["status"] == "complete"}
+    if not complete:
+        raise Refusal("V1_EVIDENCE_NO_COMPLETE_SCENARIOS")
+    compare = comparer()
     base_id = "S-slice-breed-01" if "S-slice-breed-01" in complete else sorted(complete)[0]
     # Bound to the current producer, draft build and helpers, and to the trace bytes the run recorded.
     current = validate_v1_build(json.loads((args.cache_root / "latest-draft.json").read_text(encoding="utf-8")),

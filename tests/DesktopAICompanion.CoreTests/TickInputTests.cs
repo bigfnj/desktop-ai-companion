@@ -91,6 +91,55 @@ namespace DesktopAICompanion
             s.StepOnce();
             s.StepOnce();
             AssertFalse(still.Events.Exists(e => e.Contains(">Dragged")), "A press on an action that refuses dragging still started a drag.");
+
+            // CONTRACT v1.1 section 3: drag/start is written once Dragged is built. A pack with no Dragged fails the press
+            // (reported, disposed) and no drag began, so none is reported.
+            var noDragged = new TickLog();
+            TickType bare = TickType.Compile("Alpha", TickDoc(
+                TRoute(TEdge(10, 1)),
+                TBeh(10, "Stand", "Stand", 1, null),
+                TAct(30, "Stand", "Stay", null, new[] { TParam("Duration", "500"), TParam("Draggable", "true") }, TPose(0, 1))));
+            TickWorld nd = TInputWorld(noDragged, bare, false, 2, TickInputKind.Press, 618, 626);
+            nd.StepOnce();
+            nd.StepOnce();
+            AssertTrue(!noDragged.Events.Contains("m1 drag start") && noDragged.Faults.Exists(f => f.Contains("no behaviour named 'Dragged'"))
+                       && noDragged.Events.Contains("m1 dispose-request error"),
+                "A press whose Dragged cannot be built reported a drag start, or was not reported and disposed: "
+                + string.Join("; ", noDragged.Events) + " | " + string.Join("; ", noDragged.Faults));
+        }
+
+        /// <summary>A press or release for a companion that is not active at dispatch: the product drops it (a window can
+        /// close between the queue and the dispatch); a parity run's hook is told of it, for a press and a release but
+        /// never a pointer move. A start companion at tick 1 is still pending at dispatch (activation comes after input),
+        /// the shape of a birth pressed at its activation tick.</summary>
+        private static void TestTickInputInactiveTarget()
+        {
+            var dropped = new TickLog();
+            TickWorld product = TInputWorld(dropped, TInputType(true, null), false,
+                1, TickInputKind.Press, 618, 626, 2, TickInputKind.Press, 618, 626, 2, TickInputKind.Release, 618, 626);
+            ((TickDesk)product.Environment).Script[3] = new List<TickInput> { new TickInput(TickInputKind.Press, "m9", new TickPoint(618, 626)) };
+            product.StepOnce();
+            product.StepOnce();
+            product.StepOnce();
+            AssertTrue(product.InactiveButtonTarget == null && !dropped.Events.Exists(e => e.StartsWith("m9", StringComparison.Ordinal))
+                       && dropped.Faults.Count == 0,
+                "The product did not drop an edge for a companion that is not active: " + string.Join("; ", dropped.Events));
+
+            var told = new List<string>();
+            var hooked = new TickLog();
+            TickWorld parity = TInputWorld(hooked, TInputType(true, null), false,
+                1, TickInputKind.Press, 618, 626, 1, TickInputKind.Move, 620, 626);
+            parity.InactiveButtonTarget = input => told.Add(parity.Step + " " + input.Kind + " " + input.Sid);
+            ((TickDesk)parity.Environment).Script[2] = new List<TickInput>
+            {
+                new TickInput(TickInputKind.Release, "m9", new TickPoint(618, 626)),
+                new TickInput(TickInputKind.Move, "m9", new TickPoint(618, 626)),
+                new TickInput(TickInputKind.Press, "m1", new TickPoint(618, 626)),
+            };
+            parity.StepOnce();
+            parity.StepOnce();
+            AssertEqual("1 Press m1; 2 Release m9", string.Join("; ", told),
+                "The parity hook was not told of exactly the button edges for companions not active at dispatch");
         }
 
         private static void TestTickInputHotspot()

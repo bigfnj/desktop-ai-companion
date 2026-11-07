@@ -1,4 +1,9 @@
-# Shimeji parity contract, version 1
+# Shimeji parity contract, version 1.1
+
+Signed 2026-11-07 by Codex (proposal author) and Claude (host review). Version 1.1 replaces version 1, which was frozen
+and signed: v1's text is `git show 2d9c6f5:tools/ShimejiParity/CONTRACT.md`. Every passage v1.1 adds or changes is
+marked **(v1.1)**; unmarked text is v1's. The proposal this came from, `CONTRACT-v1.1-proposal.md`, is kept beside it,
+marked superseded; the host review's eight edits are applied here.
 
 Two runtimes run the same scenario and each writes a trace; the comparer decides whether they behaved the same.
 
@@ -9,7 +14,14 @@ Two runtimes run the same scenario and each writes a trace; the comparer decides
 
 This file is the contract both sides implement. A change to it bumps the schema version on every artefact it
 touches. Field names are exact and case-sensitive.
-Exception: the labelled v1.1 optional sourceNames map addition retains shimeji-parity-map/1; existing required fields and the trace/scenario schemas are unchanged.
+**(v1.1)** Version 1.1 requires shimeji-parity-map/2, including the source pose channel and the optional sourceNames
+channel. The source meaning of pose.index is unchanged. Explicit exceptions, each keeping its schema version. These
+retain shimeji-parity-trace/1: the oracle-only footer extensions (sections 3 and 5); the birth-refused payload narrowed
+to child null and reason cap or error, with toggle-off and missing-member no longer written; the tentative child's
+provisional sid; and the input-event rules of section 3, including drag/start after a successful Dragged build. This
+retains shimeji-parity-scenario/1, whose fields are unchanged: the inactive button-target rule of section 1. A trace or
+verdict made before v1.1 is judged under v1 and is not re-judged under v1.1 without fresh traces.
+Comparer result metadata in section 6 is not a trace or scenario field.
 
 ## 1. Scenario (`scenario.json`, schema `shimeji-parity-scenario/1`)
 
@@ -52,6 +64,12 @@ Exception: the labelled v1.1 optional sourceNames map addition retains shimeji-p
     edges. Only the left button reaches the runtime; the right one opens the menu.
   - A tick-0 entry sets state only (cursor position, window). A `press`, `release` or `click` at tick 0 is a
     scenario error: button edges start at tick 1, when the companions exist.
+  - **(v1.1)** A left-button `press`, `release` or `click` entry naming a companion that is not active at dispatch
+    (pending, removed or unknown) is a scenario error, classified scenario-invalid. Birth activation is after input
+    dispatch, so a pending birth is not a valid target even on the tick at which it will activate; a disposing companion
+    not yet removed is still active, and the edge does nothing. A runtime that meets one dispatches nothing more, writes
+    no state lines for that tick and ends with footer status `aborted`. A right-button entry reaches neither runtime and
+    is not checked.
 - Neither runtime ever reads the real mouse, the real windows or the real displays during a scenario.
 
 ## 2. Random numbers
@@ -73,7 +91,8 @@ Every consumer draws from the one stream: the oracle's Java `Math.random` call s
 - `site`: what drew it, named the same way by both runtimes. A built-in site is one of the table below. A script
   site is `script:<refKey>#<attribute>#<k>`: the element's `refKey` (section 3), the attribute holding the
   expression, and k, the 1-based ordinal of that `Math.random` call among the expression's direct calls, in source
-  order. It is an ordinal, not a character offset: a runtime that records offsets converts them.
+  order. It is an ordinal, not a character offset: a runtime that records offsets converts them. **(v1.1)** Map/2
+  does not yet let the host write this form (section 9).
 - `purpose` is informational (what the draw was for, in the runtime's own words). It is written but never compared.
 
 | site | what draws (source location, for the oracle) |
@@ -169,7 +188,7 @@ tick. `{ "type": "event", "tick": 12, "sid": "m1", "kind": "...", ... }` with th
 | `transform` | `fromImageSet`, `toImageSet`, `behavior` |
 | `birth-request` | `child` (sid), `imageSet`, `behavior`, `anchor`, `lookRight`, `ordinal`, `attempt` |
 | `birth-activate` | `child` |
-| `birth-refused` | `child` (sid or null), `attempt`, `reason` (`cap` / `toggle-off` / `missing-member` / `error`) |
+| `birth-refused` | **(v1.1)** `child` (always null), `attempt`, `reason` (`cap` / `error`) |
 | `scan-target` | `affordance`, `target` (sid or null) |
 | `interact` | `with`: the OTHER active companions on this one's anchor, in manager order (once per Interact step, at the start of its tick) |
 | `dispose-request` | `reason` |
@@ -183,6 +202,18 @@ tick. `{ "type": "event", "tick": 12, "sid": "m1", "kind": "...", ... }` with th
 | `hotspot` | `op` (`press` / `release`), `behavior` |
 | `error` | `message` |
 
+**(v1.1)** Input events are emitted at dispatch before the behavior entry they cause. A left press emits hotspot/press
+for the first hotspot of the current variant, in order, that contains the window-local point and whose behavior exists
+and is enabled (both looked up in the companion's current image set; the press then builds the behaviour from the
+configuration of the behaviour that holds the hotspot). Its behavior is that name, never null; a hotspot with no behavior, or a disabled one, does not take
+the press. Otherwise, if the leaf action permits dragging, the press builds Dragged by name without the enabled
+check and emits drag/start after the build succeeds and before entering it. A press whose Dragged cannot be built
+writes no drag/start. Releasing a held hotspot emits hotspot/release with behavior null. Releasing a dragging
+companion emits drag/end, then builds Thrown by name without the enabled check and enters it; drag/end is written even
+when Thrown cannot be built. When one
+release does both, hotspot/release precedes drag/end. A press and release in one tick, before a Dragged step sets
+the dragging flag, emits no drag/end. Pointer moves alone emit neither event.
+
 A behaviour's `cause` follows the entry that was CHOSEN: `select` when it came from the root list, `next` when it came
 from the ending behaviour's next list (even if a root behaviour shares its name); `forced` when it was entered by name
 (a scenario start, a birth, a Transform, a hotspot, lost ground, leaving the screen, a seeker's own transition);
@@ -191,16 +222,28 @@ from the ending behaviour's next list (even if a root behaviour shares its name)
 has no target). Action changes have no event of their own in v1: they show in the state lines, and a transient
 instant action that left no observable effect is not counted as covered by them.
 
-Birth lineage: `attempt` counts a parent's birth attempts from 1, refused or not. `ordinal` counts only its
-successful births from 1, and a child's sid is `<parentSid>.b<ordinal>`, so a refused attempt never consumes a sid.
-A refused birth's `child` is null when the source allocated no child; neither runtime evaluates `BornCount` or the
-birth offsets just to describe a child the source never made. Transform keeps the sid. Process ids and window
-handles never appear.
+**(v1.1)** Birth lineage: attempt counts a parent's birth attempts from 1, refused or not. Ordinal counts only successful
+births from 1; a successful child's sid is `<parentSid>.b<ordinal>`. A refusal has child null, including an error
+after a tentative child was allocated. Events that tentative child writes before it fails (its behavior entry,
+any rng-draw) carry provisional sid `<parentSid>.b<ordinal + 1>`, which the parent's next successful birth reuses.
+The attempt counter advances, the successful-birth ordinal does not; no birth-activate is written for the failed
+child. Reason cap is the host policy refusal before allocation; reason error is failure before the child joins
+the add queue. On the host's cap refusal, BornX, BornY and BornBehavior are not evaluated for that attempt;
+the oracle has no host birth cap and may proceed normally. Turning off
+the applicable Breeding or Transients setting prevents the attempt and emits no birth-refused event. An unavailable
+BornMascot member falls back to the parent's type instead of a missing-member refusal. Transform keeps the sid.
+Process ids and window handles never appear.
 
 **Last line, the footer:**
 `{ "type": "footer", "ticks": 600, "status": "complete", "draws": 0, "states": 601, "events": 12 }`.
 `ticks` is N; `draws`, `states` and `events` count the trace's `rng-draw` events, state lines and event lines. The
 status is `complete`, `timeout`, `aborted` or `error`. A trace with no footer is `truncated`.
+
+**(v1.1)** Oracle-only trace/1 footer extensions: every oracle trace carries eventSequenceSha256. A trace-off observation
+run also carries unobservedDraws and unobservedEvents, the actual totals withheld from its ordinary event lines.
+tapeExhausted is an optional boolean, true when the tape was exhausted. These optional extensions retain trace/1;
+ordinary host footers need none of them. Unknown footer extension fields are ignored by cross-runtime comparison.
+eventSequenceSha256 is required for the oracle's observation proof, with the definition and scope in section 5.
 
 ## 4. Update order, both runtimes
 
@@ -235,6 +278,16 @@ Tracing never evaluates a lazy variable, a script or a condition in order to obs
 Values come from the real evaluation sites, or from state already stored. Turning tracing on must not change
 behaviour; each runtime proves this once per build with a trace-on/trace-off pair over a directed scenario.
 
+**(v1.1)** eventSequenceSha256 is one running SHA-256, rendered as lowercase hexadecimal, over the concatenation in final
+output order of every event record's UTF-8 serialized line bytes, each followed by exactly one LF byte, with no
+BOM. The trace-off run uses the same serialization and flush order for stored event records, without writing
+the event lines. Empty event sequences hash the empty byte string. Hashing reads stored values only. The on-run
+digest must also equal a recomputation from the event lines it actually wrote. The proof compares final states,
+draw/event totals and this digest only between one runtime's trace-on and trace-off runs of one build. It never
+compares an oracle digest with a host digest: serialization number spelling and key order can differ.
+A host proof uses the same digest over the host's own serialization: its trace-off run forms the event records and
+withholds the lines, as the oracle's does, and the digest need not appear in an ordinary host footer.
+
 ## 6. Comparison
 
 A trace is checked before anything is compared, and a trace that fails a check is unjudgeable:
@@ -251,13 +304,19 @@ A trace is checked before anything is compared, and a trace that fails a check i
   judged as `rng-unexpected-draw` / `rng-tape-exhausted`, section 2.)
 - `runtime-mismatch`: the oracle trace is not labelled `oracle`, or the host trace `host`.
 - `scenario-invalid`: the scenario breaks section 1 (a tick-0 button edge, a missing field, a start companion without
-  a `behavior`: a directed start state names its behaviour, so no unplanned selection draw runs).
+  a `behavior`: a directed start state names its behaviour, so no unplanned selection draw runs; **(v1.1)** or, judged
+  from either trace with the scenario supplied, a left-button edge at tick t whose sid has no `pending: false` state
+  line at tick t-1). This class is decided before the run-failure classes, so a trace aborted by that refusal is
+  scenario-invalid, not `aborted`.
 - `pack-invalid`: the pack preflight refused a link or a path outside the pack (section 3).
 - `scenario-hash-mismatch` / `pack-hash-mismatch`: the traces disagree on the scenario or pack hash, or, when the
   comparer is given the scenario, either trace disagrees with the file or the pack on disk.
 - `artifact-hash-mismatch`: the comparer was given the oracle JAR or the host executable and its hash is not the
   witness's.
 - `tick-count-mismatch`: the traces ran a different number of steps, or not the scenario's.
+- **(v1.1)** `source-pin-mismatch`: the oracle build's sourceZipSha256 is not the repository's shared source archive pin.
+- **(v1.1)** `scenario-start-mismatch`: after scenario/pack/rng/tick binding succeeds, a trace's active tick-0 sids differ from
+  the supplied scenario's mascots in creation order, or any starter is pending. Only checked with a supplied scenario.
 
 Then:
 
@@ -274,7 +333,7 @@ Then:
 - **Free-running scenarios** (`splitmix64`) make a separate, weaker claim: behaviour time-share, with the tolerance
   and both draw counts printed beside the result. Their verdict is `time-share` pass or fail, never `exact`, whatever
   the state lines show.
-- **Verdicts:** `exact`, `within-tolerance:<name>`, `time-share-pass` (free-running only), `policy:<id>`, `approximate`, `unsupported`,
+- **Verdicts:** `exact`, **(v1.1)** `within-tolerance:<name>[,<name>...]`, `time-share-pass` (free-running only), `policy:<id>`, `approximate`, `unsupported`,
   `not-exercised`, `pending` (the host primitive does not exist yet), `fail`, `unjudgeable`.
 - **Behaviour failures:** `missing-event`, `extra-event`, `event-mismatch`, `entity-mismatch`, `state-mismatch`,
   `rng-unexpected-draw`, `rng-tape-exhausted`, `rng-draw-count`, `time-share`. **Run failures:** `truncated`,
@@ -282,16 +341,24 @@ Then:
 - Every failure names the scenario, the first mismatching tick, the sid and the field. One tolerance never covers
   an unrelated field.
 
+**(v1.1)** Comparer report metadata: buildWitness has oracle and host objects, each with artifactBound (boolean) and
+verification (artifact-bound or shape-only). Artifact-bound means a supplied artifact's bytes matched the trace
+header hash; it does not by itself prove its build provenance. shape-only means the header shape was validated
+without supplied artifact bytes. tolerancesUsed lists all used tolerance names, sorted and unique. A successful
+within-tolerance verdict joins those names with commas in the same order. No tolerance absorbs another field.
+
 ## 7. Policy divergences (expected; each carries its own verdict, never `exact`)
 
 | id | divergence |
 |---|---|
-| `policy:window-off-plays` | With window actions off, the animation plays and nothing moves. The source ends the action. |
+| `policy:window-off-plays` | **(v1.1)** With the host-only WindowActions off, the base animation/action plays and no window effect occurs. The source has no such switch and moves or minimizes the window. Both runtimes retain the source Throwing setting, which ends the action when off; the real host pins Throwing on. |
 | `policy:birth-cap` | Births count toward the host's 16-companion cap. At the cap, a `birth-refused` event with reason `cap` is written. |
 | `policy:session-only-births` | Bred companions are not saved into the user's companion mix. |
 | `policy:scaninteract-precedence` | ScanInteract honours Condition and Duration. The source's operator-precedence slip lets animation time bypass them. |
 | `policy:breed-parent-reposition` | A disabled born behaviour does not move the PARENT, as the source's fallback does. |
 | `policy:complexmove-guarded` | ComplexMove's arrival is guarded when scanning is off. The source dereferences a null target. |
+| `policy:startup-after-arrival` | **(v1.1)** The host defers configured startup behavior until source-style arrival ends, retries after an interruption until it ends of itself, and cancels it on Transform or disable. The source has no host pack-startup behavior. No parity run reaches this policy: only TickHost.SpawnLikeSource configures it. |
+| `policy:animate-no-variant` | **(v1.1)** An Animate-based host action with no eligible variant ends without its end effect; the source faults while dereferencing the missing animation. TickAnimate.HasNext defines the host behavior. |
 
 ## 8. Evidence
 
@@ -301,18 +368,72 @@ scenarios live in `tools/ShimejiParity/scenarios/`. Traces, clips and corpus sce
 ## 9. The host's map back to the source
 
 The host runs a converted pet, so it names source things through a parity map the converter writes beside the pet
-when asked to (a test artefact, never shipped and never read outside parity mode):
+when asked to (a test artefact, never shipped and never read outside parity mode). **(v1.1)** A host parity run
+reads shimeji-parity-map/2 only; map/1 is refused before the run with a regenerate message. A map/2 object has these
+top-level properties: `schema` (`shimeji-parity-map/2`), `imageSet`, `frames` (an array of
+`{frame, image, anchor, size}`), `actions` (`{<nodeId>: refKey}`), `children` (`{<nodeId>:<childIndex>: refKey}`),
+`behaviours` (`{<nodeId>: refKey}`), optional `sourceNames` (`{<nodeId>: name or null}`), and `poses`, which must be an
+object:
+
+```json
+{ "poses": { "2:0:0": { "refKey": "Alpha|conf/actions.xml|/Mascot[1]/ActionList[1]/Action[1]/Animation[1]/Pose[2]", "index": 1 } } }
+```
+
+The map contains:
 
 - every frame index: the source image key it came from (`image`, and `imageRight` when it is a right-facing
   alternate), with the anchor and size the source draws that image with: the EFFECTIVE anchor of section 3's
   `poseAnchor` (the first-loaded pose's, for a cached pair). A pose whose geometry disagrees with its frame's map
   entry is refused before anything is traced. A pose's authored anchor, where it differs, stays in the converter's
   source IR, not in the map;
+- **(v1.1)** every emitted pose except the exact decision-68 placeholder: its source Pose refKey and zero-based source index.
+  The poses key is actionNodeId:emittedVariantIndex:emittedPoseIndex, each canonical nonnegative decimal within
+  Int32 range, matching ^(0|[1-9][0-9]*):(0|[1-9][0-9]*):(0|[1-9][0-9]*)$. Positions refer to final emitted order
+  after omissions. Duration-0 source poses still consume their source index; Hotspot children do not.
+  Every other emitted pose needs exactly one mapping, including image-less poses, false-condition variants,
+  and variants of instant actions the host never plays. A mapping for an unplayed emitted pose is required,
+  not surplus. A missing mapping is permitted only for the decision-68 placeholder shape: one pose (frame -1,
+  ticks 1, dx 0, dy 0) of the sole variant, whose emitted `when` attribute is exactly the text `false`, of a node with type `Animate`, or
+  type `Embedded` and class `Interact`.
+  The converter omits the mapping for its synthetic placeholder. If that shape instead has a supplied source
+  mapping, validate it normally; an authored false variant can have the same shape. A false condition alone is no exemption:
+  MoveWithTurn can apply its last variant while turning without checking that condition.
+  Duplicate means a repeated poses property key. Surplus means a key names no emitted action node, variant or
+  pose. Malformed means a noncanonical/out-of-range key, or a value other than
+  an object with exactly the unique properties refKey (non-empty string) and index (nonnegative JSON-integer
+  token within Int32 range). The refKey has exactly three pipe-separated parts; its first part equals imageSet.
+  Its terminal source path step is Name[k], where Name retains the source vocabulary and k is a canonical positive
+  integer within Int32 range; index equals k-1. Original-element existence is a separate original-pack check.
+  Missing, duplicate, surplus or malformed mappings refuse the map before the run. The loader binds by the
+  emitted pose object's identity. After Transform, an applied pose is resolved through the map of the member
+  whose configuration defines it (the type that built the action playing it), never the companion's current
+  image set. A missing binding during tracing is a provenance fault; never fall back to emitted indices;
 - every action node and every edge that carries parameter bindings: the refKey of the declaration or reference it
   was lowered from;
-- every script site: its `script:<refKey>#<attribute>#<k>` name.
-- (v1.1) Every behaviour and action node whose emitted name differs from its source-observable name: that source name, keyed by the existing member-qualified node or activation identity. Preserve an absent Name as JSON null and an explicitly empty Name as the empty string. A present null or empty value is distinct from a missing map entry.
+- **(v1.1)** no script-site table yet. The host cannot name a script draw in section 2's form from map/2, because
+  conversion merges and moves script expressions. Until a later map revision adds a table from the host's (node,
+  attribute, ordinal) to the source site, a directed comparison in which either trace has an rng-draw whose site starts
+  `script:` is judged `pending`, never `exact` or `fail`.
+- (v1.1) Every behaviour and action node whose emitted name differs from its source-observable name: that source name, keyed by its node id, as `actions` and `behaviours` are (each map is one member's). Preserve an absent Name as JSON null and an explicitly empty Name as the empty string. A present null or empty value is distinct from a missing map entry.
 
-The map is what lets the host write `pose.image`, `poseAnchor`, `refKey`, `actionStack`, `rng-draw.site` and (v1.1)
+The map is what lets the host write `pose.image`, **(v1.1)** `pose.index`, `poseAnchor`, `refKey`, `actionStack` and (v1.1)
 state `behavior` and `action` and every name-bearing event payload whose name conversion changed in the oracle's
 terms. A host trace written without one is unjudgeable (`missing-field`).
+
+## v1.1 integration record
+
+Both halves landed together. The converter writes map/2 (`TickPackEmitter`) and its readers require it; the host
+(`src/dotNet/Shimeji/ParityRun.cs`) reads map/2 only and refuses map/1, checks every mapping as section 9 says before
+the trace file is opened (exit 2, no trace), binds each emitted pose by identity, traces pose.index through the map of
+the member that defines the applied pose (a provenance fault, never an emitted index, when it has none), writes
+drag/start only after Dragged is built, and stops a run at a left-button edge for a companion that is not active
+(footer `aborted`, exit 2). The host's trace-on/trace-off proof (section 5) runs in its window self-test. The oracle
+classifies only an aborted run carrying V1_REFUSAL V1_INPUT_TARGET_ABSENT as scenario-invalid in its result record and
+keeps the physical trace/1 aborted footer.
+
+S-slice-breed-01 describes the child behind the parent. That description changes the regenerated scenario hash, so
+fresh host traces are required for the new snapshot; historical comparisons keep their original input snapshot.
+
+Error-message text remains an exact `error` payload under v1.1. The two historical blank-behaviour mismatches (one
+birth, one Transform) differ only in that text and stay open until a separately reviewed rule or policy resolves them;
+v1.1 does not exempt them.

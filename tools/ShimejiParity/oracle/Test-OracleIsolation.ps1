@@ -75,8 +75,8 @@ try {
     Assert-OracleParentIsolation $oracleWrapper 'baseline'
     if ($Mutate) {
         [void][IO.Directory]::CreateDirectory($oracleCodeDirectory)
-        # SelfTest uses only these two files and Python's standard library. No recursive repository copy.
-        foreach ($leaf in @('Invoke-Oracle.ps1', 'oracle.py')) {
+        # SelfTest uses the wrapper, Python script, source pin and standard library. No recursive repository copy.
+        foreach ($leaf in @('Invoke-Oracle.ps1', 'oracle.py', 'source-pin.json')) {
             $target = Assert-OracleOwnedPath (Join-Path $oracleCodeDirectory $leaf)
             [IO.File]::WriteAllBytes($target, [IO.File]::ReadAllBytes((Join-Path $PSScriptRoot $leaf)))
             $oracleCopiedFiles.Add($target)

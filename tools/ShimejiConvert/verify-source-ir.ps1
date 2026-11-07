@@ -198,7 +198,8 @@ function Assert-InputsUnchanged {
 }
 function New-Snapshot {
     Add-XmlClosure (Join-Path $repo 'tools\ShimejiConvert\ShimejiConvert.csproj')
-    foreach ($relative in @('ProductVersion.props', 'src\dotNet\Xml.cs', 'src\dotNet\Animations.cs')) { [void](Add-SnapshotFile (Join-Path $repo $relative)) }
+    # AudioOutput.cs is read by AssertClipDecodeCap even though the converter does not compile it.
+    foreach ($relative in @('ProductVersion.props', 'src\dotNet\Xml.cs', 'src\dotNet\Animations.cs', 'src\dotNet\AudioOutput.cs')) { [void](Add-SnapshotFile (Join-Path $repo $relative)) }
     foreach ($name in @('global.json', '.editorconfig')) {
         $path = Assert-SafePath (Join-Path $repo $name) $repo
         if ([IO.File]::Exists($path)) { [void](Add-SnapshotFile $path) }
