@@ -723,7 +723,7 @@ it is how this directory's own CDP probe went stale inside one version.
 | `agentflow_join.py` | Does knowing the permission rules kill the false alarms? | `python agentflow_join.py --files 120 \| --selftest \| --difftest` |
 | `agentflow_classifier.py` | Which prompt option is safe to press? | `python agentflow_classifier.py --selftest \| --audit \| --mutate` |
 | `agentflow_cpu.py` | Does agent CPU separate blocked from working? | `python agentflow_cpu.py --verify \| --attribute \| --validate \| --interval 2 --count 20 --csv out.csv \| --report out.csv` |
-| `agentflow_cdp_probe.py` | A prompt is on screen and nothing pressed it — which read returned `none`? And what does a read cost? | `python agentflow_cdp_probe.py --raw \| --time 40` |
+| `agentflow_cdp_probe.py` | A prompt is on screen and nothing pressed it — which read returned `none`? And what does a read cost? | `python agentflow_cdp_probe.py --raw \| --time 40 \| --selftest` |
 | `agentflow_headers.py` | Does the prompt-HEADER table still cover the installed bundle, so the log names what it pressed? | `python agentflow_headers.py --audit \| --selftest \| --list` |
 | `agentflow_card_queue_check.py` | Does the real host press a run of identical cards, press every panel in one sweep, clear a Codex panel's queue and stack in one sweep, and still stand down on a stuck one? | `python agentflow_card_queue_check.py --exe <build>\DesktopAICompanion.exe [--agentflow <module folder> --control [1.9.0\|1.10.0\|1.11.0]] [--check-seconds N] [--only cqueue,cstack]` |
 | `agentflow_codex_card_count.py` | How many Codex approval cards are in each VS Code Codex panel, and how do they come and go? Counts only. | `python agentflow_codex_card_count.py [--watch 120 --every 200] [--structure]` |

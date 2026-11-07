@@ -17,6 +17,7 @@ selector miss (buttons exist, expression says 'none') from an empty panel -- the
 shape the module still cannot self-report.
 
     python agentflow_cdp_probe.py [--port 9321] [--raw] [--time N]
+    python agentflow_cdp_probe.py --selftest   # the drift guard, against the module source only
 
 Prints prompt option labels, which is the whole point, so its output is NOT safe to
 paste into a public issue unedited -- unlike the module's own log, which is.
@@ -29,7 +30,10 @@ import re
 import sys
 import urllib.request
 
-import websocket  # websocket-client
+try:
+    import websocket  # websocket-client
+except ImportError:  # only the live reads need it; --selftest runs without it (N-cxr-w1-04)
+    websocket = None
 
 # --- verbatim from modules/AgentFlow/CdpApprover.cs -------------------------------
 
@@ -178,50 +182,159 @@ CODEX_READ_PRE_142 = "(function () {" + DOCUMENT_PRELUDE + r"""
 # copy that has drifted tests nothing. These are the substrings each read turns on; if the
 # module stops containing one, the probe says so instead of quietly reporting on a stale
 # version of the code it claims to be replaying.
+#
+# SCOPED TO THE READ EXPRESSION EACH COPY MIRRORS, not searched for anywhere in the file
+# (N-cxr-w1-04). Most of these selectors are spelled twice in the module, once in a read and
+# once in the click that follows it (`shortcutNum`, `permissionRequestContainer`,
+# `buttonContainer`, the Codex card and its form), so a whole-file search stayed satisfied by
+# the CLICK's copy after a change to the READ alone, and the probe went on replaying the old
+# read with no DRIFT line. Each anchor now names the C# constant it must be found in.
 SOURCE = "../../modules/AgentFlow/CdpApprover.cs"
+CLAUDE_READ_CONST = "ReadExpression"
+CODEX_READ_CONST = "CodexReadExpression"
 LOAD_BEARING = [
-    '[class*=""@container/approval-card""]',
-    "card.querySelector('form')",
-    'button[aria-label=""Approval options""]',
-    "b === trigger",
+    (CODEX_READ_CONST, '[class*=""@container/approval-card""]'),
+    (CODEX_READ_CONST, "card.querySelector('form')"),
+    (CODEX_READ_CONST, 'button[aria-label=""Approval options""]'),
+    (CODEX_READ_CONST, "b === trigger"),
     # Added after these copies went stale against 1.4.3 and the guard stayed quiet,
     # because every substring it knew about was still there. A drift guard is only as
     # good as the list, so anything the copies are supposed to mirror belongs in it.
-    "return 'blind'",
+    (CLAUDE_READ_CONST, "return 'blind'"),
+    (CODEX_READ_CONST, "return 'blind'"),
     # The card fingerprint both readers emit since the 2026-09-30 burn-down (RA-022/RA-023/RA-049):
     # a hash of the card's text with the buttons dropped, never the text. The probe prints it beside
     # the options so a live prompt shows whether two ticks saw one card or two.
-    "out.fp = fingerprint(cardText(",
+    (CLAUDE_READ_CONST, "out.fp = fingerprint(cardText("),
+    (CODEX_READ_CONST, "out.fp = fingerprint(cardText("),
     # The card ELEMENT's id the Claude reader mints since 1.9.1 (BUG-017), printed in the same JSON. The
     # probe shares the module's map on the page, so a card the probe reads first is no longer a first
     # sight to the module: a settling card it saw is announced one sweep sooner, and that is all.
-    "ids.set(c, cid);",
+    (CLAUDE_READ_CONST, "ids.set(c, cid);"),
     # The Codex reader's mint, since 1.11.0 (N-agentflow-card-identity-01). The probe mints the card's FORM as well,
     # which the module does not: the live reads of 2026-10-21 that settled the item watched both.
-    "cardIds.set(card, kid);",
+    (CODEX_READ_CONST, "cardIds.set(card, kid);"),
     # Every Codex card, since 1.12.0: the copy above walks them all and answers the shape the module does.
-    "for (var ci = 0; ci < cards.length; ci++) {",
-    "return JSON.stringify({ cards: all, blind: blind });",
+    (CODEX_READ_CONST, "for (var ci = 0; ci < cards.length; ci++) {"),
+    (CODEX_READ_CONST, "return JSON.stringify({ cards: all, blind: blind });"),
     # The CLAUDE read's own anchors (N-audit-1106-115). Every entry above is the Codex read's or shared, so a change
     # to the module's Claude read left this probe replaying a stale copy of it with no DRIFT line: the failure the
     # comment above says already happened once. Spelled as the module's C# verbatim string spells them (doubled
     # quotes), which is what the source text holds.
-    '[class*=""permissionRequestContainer""]',
-    '[class*=""buttonContainer""]',
-    '[class*=""permissionRequestHeader""]',
-    '[class*=""permissionPath""]',
-    '[class*=""shortcutNum""]',
+    (CLAUDE_READ_CONST, '[class*=""permissionRequestContainer""]'),
+    (CLAUDE_READ_CONST, '[class*=""buttonContainer""]'),
+    (CLAUDE_READ_CONST, '[class*=""permissionRequestHeader""]'),
+    (CLAUDE_READ_CONST, '[class*=""permissionPath""]'),
+    (CLAUDE_READ_CONST, '[class*=""shortcutNum""]'),
 ]
+
+_BACKSLASH = chr(92)
+
+
+def declaration_span(text, name):
+    """(start, end) of the initializer of `const string <name> = ...;` in C# source, or None.
+
+    Walks string literals rather than searching for the next `;`, because the read
+    expressions are JavaScript and full of semicolons. A verbatim literal (@"...") ends at a
+    quote that is not doubled; a regular one honours backslash escapes. Anything between
+    literals (`+`, the name of a shared prelude constant) is skipped, which is all these
+    declarations hold.
+    """
+    match = re.search(r"\bconst string " + re.escape(name) + r"\s*=", text)
+    if not match:
+        return None
+    i, n = match.end(), len(text)
+    while i < n:
+        if text[i] == ";":
+            return match.end(), i
+        if text.startswith('@"', i):
+            i += 2
+            while i < n:
+                if text[i] == '"':
+                    if text.startswith('""', i):
+                        i += 2
+                        continue
+                    break
+                i += 1
+        elif text[i] == '"':
+            i += 1
+            while i < n and text[i] != '"':
+                i += 2 if text[i] == _BACKSLASH else 1
+        i += 1
+    return None
+
+
+def drift_in(text):
+    """The DRIFT lines for module source `text`: one per anchor missing from its own read."""
+    warnings, spans = [], {}
+    for scope, anchor in LOAD_BEARING:
+        if scope not in spans:
+            spans[scope] = declaration_span(text, scope)
+            if spans[scope] is None:
+                warnings.append("module no longer declares %s, the read these copies replay" % scope)
+        span = spans[scope]
+        if span is not None and anchor not in text[span[0]:span[1]]:
+            warnings.append("module's %s no longer contains %r" % (scope, anchor))
+    return warnings
 
 
 def check_drift(source_path):
-    """Warn when the module no longer contains what these expressions are built around."""
+    """Warn when the module's reads no longer contain what these expressions are built around."""
     try:
         with open(source_path, "r", encoding="utf-8-sig") as handle:
             text = handle.read()
     except OSError as error:
         return ["cannot read %s (%s)" % (source_path, error)]
-    return ["module no longer contains %r" % s for s in LOAD_BEARING if s not in text]
+    return drift_in(text)
+
+
+def drift_selftest(source_path):
+    """Prove the drift guard against the real module source, with no editor and no network.
+
+    Each anchor is renamed at its occurrence INSIDE its own read only, in memory, and the guard
+    must name exactly that anchor. Where the anchor is also spelled elsewhere in the file (the
+    click expressions), the old whole-file search would have stayed silent; the run counts those
+    and requires at least one, so the case the guard exists for is actually exercised
+    (N-cxr-w1-04).
+    """
+    results = []
+
+    def check(label, condition):
+        results.append((label, bool(condition)))
+
+    with open(source_path, "r", encoding="utf-8-sig") as handle:
+        text = handle.read()
+    check("the real module source carries no drift", drift_in(text) == [])
+    check("both read constants are found and non-empty",
+          all(declaration_span(text, scope) is not None
+              and declaration_span(text, scope)[1] - declaration_span(text, scope)[0] > 200
+              for scope in (CLAUDE_READ_CONST, CODEX_READ_CONST)))
+    hidden_by_whole_file = 0
+    for scope, anchor in LOAD_BEARING:
+        start, end = declaration_span(text, scope)
+        # Broken in the middle, never beside a quote: a character dropped between the two
+        # halves of a doubled quote would end the verbatim literal early and shrink the span.
+        cut = len(anchor) // 2
+        while anchor[cut - 1] == '"' or anchor[cut] == '"':
+            cut += 1
+        broken = anchor[:cut] + "~" + anchor[cut:]
+        mutated = text[:start] + text[start:end].replace(anchor, broken) + text[end:]
+        if anchor in mutated:
+            hidden_by_whole_file += 1
+        warnings = drift_in(mutated)
+        check("WITNESS (N-cxr-w1-04) a read-only change is named: %s %s" % (scope, anchor),
+              len(warnings) == 1 and scope in warnings[0] and repr(anchor) in warnings[0])
+    check("WITNESS (N-cxr-w1-04) some anchors are also spelled outside their read, so the scoping is exercised "
+          "(%d)" % hidden_by_whole_file, hidden_by_whole_file >= 1)
+    check("WITNESS a missing read constant is named, not passed",
+          any("no longer declares" in w for w in drift_in(text.replace(
+              "const string " + CLAUDE_READ_CONST + " =", "const string Renamed =", 1))))
+
+    for label, ok in results:
+        print("  %s %s" % ("PASS:" if ok else "FAIL:", label))
+    bad = [label for label, ok in results if not ok]
+    print("\nselftest %s: %d/%d" % ("FAILED" if bad else "OK", len(results) - len(bad), len(results)))
+    return 1 if bad else 0
 
 # --- what the module CANNOT see: everything else on the card ----------------------
 
@@ -273,6 +386,8 @@ class Browser(object):
     """One browser-endpoint connection, attaching per target with flatten, as the module does."""
 
     def __init__(self, port, timeout=8):
+        if websocket is None:
+            raise SystemExit("the live reads need websocket-client: pip install websocket-client")
         raw = urllib.request.urlopen("http://127.0.0.1:%d/json/version" % port, timeout=5).read()
         self.ws = websocket.create_connection(
             json.loads(raw)["webSocketDebuggerUrl"], timeout=timeout,
@@ -356,8 +471,12 @@ def main():
                         help="time N evaluations of each expression per target and stop. "
                              "Answers 'what does a change to the read expression cost', "
                              "which is otherwise guessed at.")
+    parser.add_argument("--selftest", action="store_true",
+                        help="prove the drift guard against the module source; no editor, no network")
     args = parser.parse_args()
 
+    if args.selftest:
+        return drift_selftest(os.path.join(os.path.dirname(os.path.abspath(__file__)), SOURCE))
     if args.time:
         return timed(args.port, args.time)
 

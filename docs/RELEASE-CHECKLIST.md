@@ -122,6 +122,7 @@ To cut a release:
    | [`docs/agentflow/agentflow_classifier.py --audit`](../docs/agentflow/agentflow_classifier.py) | the option table still covers the INSTALLED Claude Code bundle | `audit OK` |
    | [`docs/agentflow/agentflow_headers.py --audit`](../docs/agentflow/agentflow_headers.py) | the prompt-HEADER table still covers the INSTALLED bundle, so the log names what it pressed | `audit OK` |
    | [`docs/agentflow/agentflow_headers.py --selftest`](../docs/agentflow/agentflow_headers.py) | that audit's bundle extractor works, with no bundle installed | exit 0 |
+   | [`docs/agentflow/agentflow_cdp_probe.py --selftest`](../docs/agentflow/agentflow_cdp_probe.py) | the live probe's copies of the two read expressions still match the module: each anchor is looked for inside the read it mirrors, and a change to that read alone is named | exit 0 |
 
    On Windows, a guarded alternative for the fixed newest 120 eligible Claude transcripts is
    `python -I -S -X utf8 tools/agentbroker/Test-AgentFlowHistoryDiff.py --apply`
