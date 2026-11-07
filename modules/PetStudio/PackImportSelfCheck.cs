@@ -344,6 +344,7 @@ namespace DesktopAICompanion.PetStudioModule
 
                 CheckPreviewAndReplace(probe, accepted);
                 CheckRetryAndReimport(probe, accepted, packRoot, rows);
+                CheckAudit1106(probe, accepted, scratch);
 
                 probe.Check("WITNESS a refused pack with a prepared member still says one can be opened",
                     PackImport.Summary(notAccepted, "Synthetic Pack").IndexOf("A prepared member can still be opened below.", StringComparison.Ordinal) >= 0);
@@ -568,6 +569,84 @@ namespace DesktopAICompanion.PetStudioModule
                 && visiblePartial.Message.IndexOf("Add a companion already lists 'Egg (2)' as 'synthetic-pack-egg-2' on its own", StringComparison.Ordinal) >= 0
                 && visiblePartial.Message.IndexOf("lists '.Helper'", StringComparison.Ordinal) < 0
                 && visiblePartial.Message.IndexOf("Install pack again to finish: it replaces these under the same ids.", StringComparison.Ordinal) >= 0);
+        }
+
+        // ---- the 2026-11-06 audit's Companion Studio entries (1.4.1) ----
+
+        /// <summary>An earlier install of <paramref name="accepted"/>, every member under the id a first install gives it,
+        /// with the pack facts the host reports.</summary>
+        private static RecordingCompanionManager EarlierInstall(PackConversionResult accepted)
+        {
+            var host = new RecordingCompanionManager();
+            foreach (KeyValuePair<string, string> earlier in new Dictionary<string, string>
+                     { { "Alpha", "synthetic-pack-alpha" }, { "Egg (2)", "synthetic-pack-egg-2" }, { ".Helper", "synthetic-pack-helper" } })
+                host.InstalledInfo.Add(new CompanionTypeInfo
+                {
+                    TypeId = earlier.Value, DisplayName = earlier.Key, PackId = accepted.PackId, PackMember = earlier.Key,
+                    PackRole = earlier.Key == "Alpha" ? "main" : "egg", PackHidden = earlier.Key != "Alpha",
+                });
+            return host;
+        }
+
+        private static void CheckAudit1106(SelfTestProbe probe, PackConversionResult accepted, string scratch)
+        {
+            // N-audit-1106-047: a pack import lands under the modal replace question. The window's click captured the pack
+            // it showed; another pack (another id, the same member keys) is on screen when the author answers yes.
+            var other = new PackConversionResult(accepted.PackId + "-other", accepted.MainMember, accepted.Members,
+                new string[0], new string[0]);
+            var swapped = EarlierInstall(accepted);
+            PackConversionResult shown = accepted;
+            int asked = 0;
+            PackInstallOutcome underQuestion = PackImport.InstallPackAsked(accepted, "Synthetic Pack", swapped,
+                delegate { asked++; shown = other; return true; }, delegate { return shown; });
+            probe.Check("audit-1106-047: a pack that landed under the replace question installs nothing (installs " + swapped.Installs.Count +
+                        ", asked " + asked + "): " + underQuestion.Message,
+                asked == 1 && swapped.Installs.Count == 0 && !underQuestion.Complete && underQuestion.Message == PackImport.PackChangedUnderQuestion);
+            var same = EarlierInstall(accepted);
+            PackInstallOutcome answered = PackImport.InstallPackAsked(accepted, "Synthetic Pack", same,
+                delegate { return true; }, delegate { return accepted; });
+            probe.Check("WITNESS audit-1106-047: with the same pack still shown, a yes replaces it under its own ids: " +
+                        string.Join(", ", same.Installs.Select(i => i.Key)),
+                answered.Complete && answered.Replaced && same.Installs.Count == 3 && same.Installs[2].Key == "synthetic-pack-alpha");
+            var declined = EarlierInstall(accepted);
+            PackInstallOutcome no = PackImport.InstallPackAsked(accepted, "Synthetic Pack", declined,
+                delegate { return false; }, delegate { return accepted; });
+            probe.Check("WITNESS audit-1106-047: a no installs nothing and says so",
+                declined.Installs.Count == 0 && no.Message.StartsWith("Install pack cancelled", StringComparison.Ordinal));
+
+            // N-audit-1106-310: a REPLACE that stops part way. Order is .Helper, Egg (2), then the main member; the egg fails.
+            var stopping = EarlierInstall(accepted);
+            stopping.FailId = "synthetic-pack-egg-2";
+            Dictionary<string, string> prior = PackImport.PriorInstall(stopping, accepted.PackId);
+            PackInstallOutcome stopped = PackImport.InstallPack(accepted, "Synthetic Pack", stopping, prior);
+            string m = stopped.Message ?? "";
+            probe.Check("audit-1106-310: a replace that stops says the earlier install's main member and the rest are still installed: " + m,
+                !stopped.Complete && prior.Count == 3
+                && m.StartsWith("Stopped replacing the installed pack at 'Egg (2)' (as 'synthetic-pack-egg-2'): Pet file too large.", StringComparison.Ordinal)
+                && m.IndexOf("Written now: '.Helper' as 'synthetic-pack-helper'.", StringComparison.Ordinal) >= 0
+                && m.IndexOf("Still as the earlier install left them: 'Alpha' as 'synthetic-pack-alpha', 'Egg (2)' as 'synthetic-pack-egg-2'.", StringComparison.Ordinal) >= 0
+                && m.IndexOf("The main member was not installed", StringComparison.Ordinal) < 0
+                && m.IndexOf("without the rest of the pack", StringComparison.Ordinal) < 0);
+
+            // N-shimeji-1106-14: a refused pack whose first error is the picked member's says that error once.
+            const string betaError = "Beta: the actions document is not well-formed.";
+            var beta = new PackMemberConversionResult("Beta", null, null, null, null, null, false, false, betaError);
+            var gamma = new PackMemberConversionResult("Gamma", null, null, null, null, null, false, false, "Gamma: no sprites.");
+            var refused = new PackConversionResult(null, "Beta", new[] { beta, gamma },
+                new[] { "Image set 'Beta': " + betaError, "Image set 'Gamma': Gamma: no sprites." }, new string[0]);
+            string betaStatus = PackImport.RefusedMemberStatus(refused, null, "Refused Pack", beta);
+            int said = Regex.Matches(betaStatus, Regex.Escape("the actions document is not well-formed")).Count;
+            probe.Check("shimeji-1106-14: a refused member's error is said once in the status bar (" + said + "): " + betaStatus,
+                said == 1 && betaStatus.IndexOf("'Beta' was refused. It has no document to open", StringComparison.Ordinal) >= 0);
+            string gammaStatus = PackImport.RefusedMemberStatus(refused, null, "Refused Pack", gamma);
+            probe.Check("WITNESS shimeji-1106-14: another member's error, not the pack's first, is still named: " + gammaStatus,
+                gammaStatus.IndexOf("'Gamma' was refused (Gamma: no sprites). It has no document to open", StringComparison.Ordinal) >= 0);
+
+            // N-audit-1106-312: the rule the zip import uses to withdraw "Import with recovery" before deleting a tree.
+            string tree = Path.Combine(scratch, "petstudio-shimeji-tree");
+            probe.Check("audit-1106-312: a pack root inside the extraction tree lives under it, a sibling sharing its prefix does not",
+                PackImport.LivesUnder(Path.Combine(tree, "Pack"), tree) && PackImport.LivesUnder(tree, tree + Path.DirectorySeparatorChar)
+                && !PackImport.LivesUnder(tree + "2", tree) && !PackImport.LivesUnder(null, tree) && !PackImport.LivesUnder(tree, null));
         }
 
         // ---- Preview pack hands the host every member; Install pack replaces an earlier install of the same pack ----

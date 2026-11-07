@@ -5834,6 +5834,68 @@ Assert-True ($w3FormCode -cmatch 'PositionX = GripPositionX\(windowGrip, gripRec
     $w3FormCode -cnotmatch 'GripPositionX\(windowGrip, gripRect\.Left, gripRect\.Right, Width,' -and
     $w3OldGrip -cmatch 'GripPositionX\(windowGrip, gripRect\.Left, gripRect\.Right, Width,') (
     "w3-host-1: a side window grip is pinned with the sprite's full width, not the clipped form's (WITNESS: the form-width call matches the absent pattern)")
+# ---- burndown/w3-studio-1 ----
+# COMPANION STUDIO'S PACK REPORT AND IMPORT WINDOW (Companion Studio 1.4.1). No headless self-test builds the WPF window, so
+# its wiring is pinned on comment-stripped source as the host-pack-abi block above pins the rest of the pack report; the
+# rules these lines call (InstallPackAsked, RefusedMemberStatus, LivesUnder, the replace path's partial message) are graded
+# by --module-selftest=petstudio. Each assertion states the ORDER or the ARGUMENT, never only that a statement exists.
+$w3sStops = @("`n        private ", "`n        internal ", "`n        public ")
+$w3sInstall = Get-MethodBody $petStudioWindowCode 'private void InstallPackClicked()' $w3sStops
+$w3sPreview = Get-MethodBody $petStudioWindowCode 'private void PreviewPack()' $w3sStops
+$w3sClear = Get-MethodBody $petStudioWindowCode 'private void ClearPackDocument()' $w3sStops
+$w3sZip = Get-MethodBody $petStudioWindowCode 'private async void ImportShimejiZip()' $w3sStops
+$w3sRecover = Get-MethodBody $petStudioWindowCode 'private async void RecoverPackClicked()' $w3sStops
+$w3sWithdrawBody = Get-MethodBody $petStudioWindowCode 'private void WithdrawPackRecovery()' $w3sStops
+$w3sCore = Get-MethodBody $petStudioWindowCode 'private async Task ImportSkinFromRootCoreAsync(string root)' $w3sStops
+$w3sModule = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'modules\PetStudio\PetStudioModule.cs') -Raw)
+$w3sOpen = Get-MethodBody $w3sModule 'private bool TryOpen(out string failureCategory)' $w3sStops
+Assert-True ($w3sInstall.Length -gt 0 -and $w3sPreview.Length -gt 0 -and $w3sClear.Length -gt 0 -and $w3sZip.Length -gt 0 -and
+    $w3sRecover.Length -gt 0 -and $w3sWithdrawBody.Length -gt 0 -and $w3sCore.Length -gt 0 -and $w3sOpen.Length -gt 0) (
+    'w3-studio-1: the pack report, import and open methods could be sliced out for inspection')
+# N-audit-1106-047: an import in flight lands a new pack under Install pack's modal replace question, and the old click read
+# _pack again after it. Both pack actions refuse while an import holds the window, before the question or the preview, and
+# the install goes through InstallPackAsked with the pack captured at the click, never PackImport.InstallPack on the field.
+$w3sGuard = 'if (_importing) { SetStatus(StillConverting); return; }'
+Assert-True ($w3sInstall.IndexOf($w3sGuard) -ge 0 -and $w3sInstall.IndexOf($w3sGuard) -lt $w3sInstall.IndexOf('PackImport.InstallPackAsked(') -and
+    $w3sPreview.IndexOf($w3sGuard) -ge 0 -and $w3sPreview.IndexOf($w3sGuard) -lt $w3sPreview.IndexOf('PackImport.PreviewPack(')) (
+    'w3-studio-1: Install pack and Preview pack refuse while an import holds the window (N-audit-1106-047)')
+Assert-True ($w3sInstall -cmatch 'PackConversionResult pack = _pack;' -and $w3sInstall -cmatch 'PackImport\.InstallPackAsked\(pack, title, _pets,' -and
+    $w3sInstall -cmatch 'delegate \{ return _pack; \}\);' -and $w3sInstall -cnotmatch 'PackImport\.InstallPack\(' -and
+    'PackImport.InstallPack(_pack, _packTitle, _pets, null)' -cmatch 'PackImport\.InstallPack\(') (
+    'w3-studio-1: Install pack installs the pack captured at its click, through InstallPackAsked (WITNESS: the old call matches)')
+# N-audit-1106-317: the outcome, a partial install's list of ids included, also goes to the pack report, where a member
+# analysis landing later cannot overwrite it. The CONDITION is asserted: something was written, and the report is still
+# the clicked pack's.
+Assert-True ($w3sInstall -cmatch 'if \(\(outcome\.Complete \|\| outcome\.FailedKey != null\) && ReferenceEquals\(_pack, pack\)\)\s*_packSummary\.Text = _packSummaryBase \+ [^;]*outcome\.Message;') (
+    "w3-studio-1: Install pack's outcome is kept in the pack report (N-audit-1106-317)")
+# N-audit-1106-316: clearing the editor for a refused member overtakes the analysis in flight (the generation bump BEFORE the
+# editor is emptied), drops its queued rerun, and withdraws the previous member's Preview and report.
+$w3sBump = $w3sClear.IndexOf('Interlocked.Increment(ref _analyzeGeneration);')
+Assert-True ($w3sBump -ge 0 -and $w3sBump -lt $w3sClear.IndexOf('SetEditorText("");') -and $w3sClear -cmatch '_analyzeRerun = false;' -and
+    $w3sClear -cmatch '_previewButton\.IsEnabled = false;' -and $w3sClear -cmatch '_reportText\.Text = "";') (
+    'w3-studio-1: an emptied pack document drops the analysis in flight first (N-audit-1106-316)')
+# N-audit-1106-315: Re-analyze passes the pack prefix, so "Converted with recovery: N dropped" survives it.
+Assert-True ($petStudioWindowCode -cmatch 'private void Analyze\(\) \{ BeginAnalyze\(PackStatusPrefix\(\)\); \}' -and
+    $petStudioWindowCode -cnotmatch 'BeginAnalyze\(""\)') (
+    'w3-studio-1: Re-analyze keeps the pack prefix (N-audit-1106-315)')
+# N-audit-1106-312: a zip import withdraws "Import with recovery" BEFORE it deletes the tree the report was converted from,
+# and the recovery click refuses a folder that is gone BEFORE it converts.
+$w3sWithdraw = $w3sZip.IndexOf('if (PackImport.LivesUnder(_packRoot, previous)) WithdrawPackRecovery();')
+$w3sGone = $w3sRecover.IndexOf('if (!Directory.Exists(_packRoot))')
+Assert-True ($w3sWithdraw -ge 0 -and $w3sZip.IndexOf('DeleteTree(previous);') -gt $w3sWithdraw -and
+    $w3sGone -ge 0 -and $w3sGone -lt $w3sRecover.IndexOf('PackImport.ConvertGuarded(') -and
+    $w3sWithdrawBody -cmatch '_packRoot = null;' -and $w3sWithdrawBody -cmatch '_recoverPackButton\.Visibility = Visibility\.Collapsed;') (
+    'w3-studio-1: Import with recovery is withdrawn before its folder is deleted (N-audit-1106-312)')
+# N-audit-1106-314: a window closed during detection converts nothing: the close test directly follows each await that
+# precedes a conversion or the skin picker.
+Assert-True ($w3sCore -cmatch 'await Task\.Run\(\(\) => FindBundleRoot\(root\)\);\s*if \(_closed\) return;' -and
+    $w3sCore -cmatch 'await Task\.Run\(\(\) => ReadBundleName\(bundleRoot\)\);\s*if \(_closed\) return;' -and
+    $w3sCore -cmatch 'return found;\s*\}\);\s*if \(_closed\) return;') (
+    'w3-studio-1: a window closed during skin detection converts nothing (N-audit-1106-314)')
+# N-audit-1106-311: opening the studio restores a minimized window BEFORE it activates it.
+$w3sRestore = $w3sOpen.IndexOf('if (_window.WindowState == System.Windows.WindowState.Minimized) _window.WindowState = System.Windows.WindowState.Normal;')
+Assert-True ($w3sRestore -ge 0 -and $w3sRestore -lt $w3sOpen.IndexOf('_window.Activate();')) (
+    'w3-studio-1: opening the studio restores a minimized window (N-audit-1106-311)')
 
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that

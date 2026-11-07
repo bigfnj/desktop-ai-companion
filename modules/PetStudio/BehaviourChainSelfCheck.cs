@@ -429,11 +429,19 @@ namespace DesktopAICompanion.PetStudioModule
             // Looping closes the ring rather than handing back.
             string loopError;
             string looped = BehaviourChain.BuildDebugXml(fixturePetXml, steps, true, out loopError);
-            if (Check(sb, "a looped chain builds (" + (loopError ?? "") + ")", looped != null))
+            // Folded into ok, like every Check here: the host's --petstudio-selftest reads only this method's bool, so a
+            // FAIL written and not folded passed it while the looped chain stopped building (N-audit-1106-308). The parse
+            // below is a Check too, for the same reason: a looped chain the validator refused skipped the ring check with
+            // nothing written at all.
+            bool loopBuilt = Check(sb, "a looped chain builds (" + (loopError ?? "") + ")", looped != null);
+            ok &= loopBuilt;
+            if (loopBuilt)
             {
                 XmlData.RootNode loopParsed;
                 string e2;
-                if (CompanionXmlValidator.TryParse(looped, out loopParsed, out e2))
+                bool loopParses = CompanionXmlValidator.TryParse(looped, out loopParsed, out e2);
+                ok &= Check(sb, "a looped chain is a companion the host accepts (" + (e2 ?? "") + ")", loopParses);
+                if (loopParses)
                 {
                     XmlData.AnimationNode first = loopParsed.Animations.Animation[loopParsed.Animations.Animation.Length - wanted];
                     XmlData.AnimationNode last = loopParsed.Animations.Animation[loopParsed.Animations.Animation.Length - 1];
