@@ -581,6 +581,7 @@ def self_test(args):
                    "isolation-values-and-paths-refused", "uncontrolled-shared-tape-refused"])
     v1_self_test(args, labels)
     burndown_self_test(args, labels)
+    review_self_test(args, labels)
     return {"status": "pass", "witnesses": labels, "network_requests": 0}
 
 
@@ -847,6 +848,15 @@ def burndown_self_test(args, labels):
         fixture_args = SimpleNamespace(cache_root=root / "cache", output_root=root / "evidence",
                                        shared_root=root / "shared", temp_root=args.temp_root)
         write_json(fixture_args.cache_root / "latest-draft.json", {})
+        write_json(fixture_args.cache_root / "source-inventory.json", {"files": inventory})
+        resource_bridge = FunctionType(validate_draft_resources.__code__,
+                                       dict(globals(), check_source=lambda *unused: source), "validate_draft_resources")
+        assert resource_bridge(fixture_args, {"source": str(source)}) == inventory, "V1_RESOURCE_BRIDGE_POSITIVE_WITNESS"
+        missing.write_bytes(b"changed private library")
+        expect_refusal(lambda: resource_bridge(fixture_args, {"source": str(source)}), "V1_RESOURCE_CHANGED",
+                       "V1_RESOURCE_BRIDGE_WITNESS")
+        missing.write_bytes(resources["lib/synthetic.jar"])
+        labels.append("v1-archive-inventory-to-private-source-resource-wiring")
 
         def reject_resources(*unused):
             raise Refusal("V1_RESOURCE_CHANGED synthetic.jar")
@@ -892,23 +902,121 @@ def burndown_self_test(args, labels):
                     "v1_run": lambda *unused: {"scenario": "S-other", "status": "complete"}}),
                 ("proof-failure", "observation-proof", {"v1_proof_case": lambda *unused: (root / "proof.json", ""),
                                                         "v1_observation_proof": refused_stage}),
-                ("stale-recheck", "build-witness-recheck", {"validate_v1_build": refused_stage})):
+                ("stale-recheck", "build-witness-recheck", {"validate_v1_build": refused_stage}),
+                ("resource-recheck", "build-witness-recheck", {"validate_draft_resources": refused_stage})):
             isolated = SimpleNamespace(**vars(fixture_args))
             isolated.output_root = root / name
             copied = FunctionType(v1.__code__, dict(base, **overrides), "v1")
+            witness = "V1_RESOURCE_RECHECK_WITNESS" if name == "resource-recheck" else "V1_FAILURE_RECORD_WITNESS"
             try:
                 copied(isolated)
             except Refusal:
-                assert expected_stage is not None, "V1_FAILURE_RECORD_WITNESS positive control refused"
+                assert expected_stage is not None, witness + " positive control refused"
             else:
-                assert expected_stage is None, "V1_FAILURE_RECORD_WITNESS failure did not propagate"
+                assert expected_stage is None, witness + " failure did not propagate"
             latest = json.loads((isolated.output_root / "v1-latest.json").read_text(encoding="utf-8"))
             recorded = json.loads((Path(latest["evidence"]) / "results.json").read_text(encoding="utf-8"))
-            assert latest == recorded, "V1_FAILURE_RECORD_WITNESS latest differs from run record"
+            assert latest == recorded, witness + " latest differs from run record"
             if expected_stage is not None:
                 assert recorded.get("status") == "fail" and recorded.get("failed_check") == expected_stage, (
-                    "V1_FAILURE_RECORD_WITNESS wrong or missing failed check " + str(expected_stage))
+                    witness + " wrong or missing failed check " + str(expected_stage))
         labels.append("v1-failed-build-missing-scenario-proof-and-recheck-recorded-before-raising")
+
+
+def review_self_test(args, labels):
+    """Entry-point witnesses added after review; all inputs and child results are synthetic."""
+    with tempfile.TemporaryDirectory(prefix="oracle-review-", dir=args.temp_root) as folder:
+        root = Path(folder)
+        here = root / "tool"
+        here.mkdir()
+        (here / "edit-spec.json").write_text("{}", encoding="utf-8")
+        artifact = root / "synthetic.jar"
+        artifact.write_bytes(b"synthetic runtime")
+        state = {"artifact": str(artifact), "artifact_sha256": sha(artifact.read_bytes()), "source": str(root)}
+        fixture_args = SimpleNamespace(cache_root=root / "cache", output_root=root / "bridge",
+                                       shared_root=root / "shared-input", jdk_root=root / "jdk")
+        write_json(fixture_args.cache_root / "latest-draft.json", state)
+
+        good = {"status": "pass", "scriptDraws": 4, "unusedReadsOff": 0, "unusedReadsOn": 0,
+                "globalTypes": {name: "object" for name in ("engine", "context", "arguments")},
+                "boundGlobalTypes": {"engine": "number", "context": "number", "arguments": "object"},
+                "boundCustomValueObserved": {"engine": True, "context": True, "arguments": False}}
+        result = dict(good)
+
+        def synthetic_command(argv, *unused, **unused_keywords):
+            return {"exit_code": 0, "stdout": json.dumps(result)}
+
+        bridged = FunctionType(bridge.__code__, dict(globals(), HERE=here, command=synthetic_command,
+                               validate_v1_build=lambda *unused: state, validate_draft_resources=lambda *unused: None),
+                               "bridge")
+        assert bridged(fixture_args)["status"] == "pass", "BRIDGE_GLOBALS_POSITIVE_WITNESS"
+        for types in ({}, {"engine": "object", "context": "object", "arguments": "undefined"}):
+            result = dict(good, globalTypes=types)
+            expect_refusal(lambda: bridged(fixture_args), "BRIDGE_WITNESS_MISSING", "BRIDGE_GLOBALS_WITNESS")
+        labels.append("bridge-entry-point-refuses-missing-or-changed-pinned-global-types")
+        for changed in (dict(good, boundGlobalTypes=good["globalTypes"]),
+                        dict(good, boundCustomValueObserved={name: True for name in good["globalTypes"]})):
+            result = changed
+            expect_refusal(lambda: bridged(fixture_args), "BRIDGE_WITNESS_MISSING", "BRIDGE_BINDINGS_WITNESS")
+        labels.append("bridge-entry-point-refuses-changed-explicit-variable-binding-behaviour")
+
+        # Exercise shared(), not just its path helper. A bad id must fail before output creation or compilation.
+        names = ("S-slice-stand-walk-01", "S-slice-transform-01", "S-slice-breed-01")
+        (fixture_args.shared_root / "pack").mkdir(parents=True)
+        for name in names:
+            write_json(fixture_args.shared_root / (name + ".json"),
+                       {"id": name, "pack": "pack", "rng": {"kind": "none"}, "ticks": 1})
+        write_json(fixture_args.shared_root / (names[0] + ".json"),
+                   {"id": "S-other", "pack": "pack", "rng": {"kind": "none"}, "ticks": 1})
+        fixture_args.output_root = root / "shared-preflight"
+
+        def unexpected_command(*unused, **unused_keywords):
+            raise Refusal("SHARED_COMMAND_UNEXPECTED")
+
+        shared_globals = dict(globals(), HERE=here, check_source=lambda *unused: root,
+                              require_passing_comparison=lambda *unused: {}, command=unexpected_command)
+        copied_shared = FunctionType(shared.__code__, shared_globals, "shared")
+        expect_refusal(lambda: copied_shared(fixture_args), "SHARED_SCENARIO_ID_REFUSAL", "SHARED_PREFLIGHT_WITNESS")
+        assert not fixture_args.output_root.exists(), "SHARED_PREFLIGHT_WITNESS output created before id validation"
+        write_json(fixture_args.shared_root / (names[0] + ".json"),
+                   {"id": names[0], "pack": "pack", "rng": {"kind": "none"}, "ticks": 1})
+
+        # The first three calls preflight inputs; the fourth must guard the first run before mkdir/copy/launch.
+        calls = []
+
+        def guarded_run(root_path, scenario_id, stem):
+            calls.append((root_path, scenario_id, stem))
+            if len(calls) == 4:
+                raise Refusal("SHARED_RUN_DIRECTORY_CHECKED")
+            return shared_run_directory(root_path, scenario_id, stem)
+
+        shared_globals.update(shared_run_directory=guarded_run,
+                              runtime_inputs=lambda *unused: (state, "synthetic-classpath", {}),
+                              command=lambda *unused, **kw: {"exit_code": 0, "stdout": ""})
+        fixture_args.output_root = root / "shared-run-site"
+        copied_shared = FunctionType(shared.__code__, shared_globals, "shared")
+        expect_refusal(lambda: copied_shared(fixture_args), "SHARED_RUN_DIRECTORY_CHECKED", "SHARED_RUN_SITE_WITNESS")
+        assert len(calls) == 4, "SHARED_RUN_SITE_WITNESS wrong call count"
+        labels.append("shared-entry-point-preflight-and-run-directory-calls-are-required")
+
+        # A failed/running V1 record is not evidence. A healthy record must reach the build check instead.
+        fixture_args.output_root = root / "failure-records"
+
+        def reached_build(*unused):
+            raise Refusal("SYNTHETIC_CURRENT_BUILD_REACHED")
+
+        copied_failures = FunctionType(v1_failures.__code__, dict(globals(), HERE=here,
+                                      comparer=lambda: SimpleNamespace(), validate_v1_build=reached_build), "v1_failures")
+        complete = [{"scenario": "S-synthetic", "status": "complete", "trace": "not opened"}]
+        for status in ("fail", "running", "incomplete"):
+            write_json(fixture_args.output_root / "v1-latest.json",
+                       {"status": status, "failed_check": "build-witness-recheck", "results": complete})
+            expect_refusal(lambda: copied_failures(fixture_args), "V1_EVIDENCE_NOT_PASSED", "V1_FAILURE_STATUS_WITNESS")
+        write_json(fixture_args.output_root / "v1-latest.json", {"status": "pass", "results": []})
+        expect_refusal(lambda: copied_failures(fixture_args), "V1_EVIDENCE_NO_COMPLETE_SCENARIOS", "V1_FAILURE_EMPTY_WITNESS")
+        write_json(fixture_args.output_root / "v1-latest.json", {"status": "pass", "results": complete})
+        expect_refusal(lambda: copied_failures(fixture_args), "SYNTHETIC_CURRENT_BUILD_REACHED", "V1_FAILURE_POSITIVE_WITNESS")
+        labels.append("v1-failures-refuses-nonpassing-and-empty-evidence-before-judging")
 
 
 def png(red, green, blue):
@@ -1136,6 +1244,18 @@ def mutate(args):
         ("bd-codex-parity: event-sequence-digest", [('if not isinstance(on_digest, str) or re.fullmatch(r"[0-9a-f]{64}", on_digest) is None ' + 'or on_digest != off_digest:', 'if False:')], "V1_EVENT_SEQUENCE_WITNESS")])
     legs.append(("bd-codex-parity: resource-scan-errors", [(', onerror=' + 'resource_scan_failed', '')], "V1_RESOURCE_SCAN_WITNESS"))
     legs.append(("bd-codex-parity: event-digest-trace-binding", [('if on_digest ' + '!= trace_event_digest(on_trace):', 'if False:')], "V1_EVENT_TRACE_DIGEST_WITNESS"))
+    legs.extend([
+        ("bd-codex-parity: resource-wrapper-wiring", [('return validate_private_resources(state["source"], ' + 'inventory)', 'return inventory')], "V1_RESOURCE_BRIDGE_WITNESS"),
+        ("bd-codex-parity: resource-post-run-wiring", [('        validate_draft_resources(args, state)\n        ' + 'passed = ', '        passed = ')], "V1_RESOURCE_RECHECK_WITNESS"),
+        ("bd-codex-parity: shared-preflight-wiring", [('        shared_run_directory(root / "rebuilt", doc.get("id"), ' + 'path.stem)\n', '')], "SHARED_PREFLIGHT_WITNESS"),
+        ("bd-codex-parity: shared-run-wiring", [('            run = shared_run_directory(root / runtime, doc["id"], ' + 'path.stem)', '            run = root / runtime / doc["id"]')], "SHARED_RUN_SITE_WITNESS"),
+        ("bd-codex-parity: v1-failure-evidence-status", [('if latest.get("status") ' + '!= "pass":', 'if False:')], "V1_FAILURE_STATUS_WITNESS"),
+        ("bd-codex-parity: v1-failure-evidence-empty", [('if not ' + 'complete:', 'if False:')], "V1_FAILURE_EMPTY_WITNESS"),
+        ("bd-codex-parity: bridge-global-values", [('            or result.get("globalTypes") ' + '!= expected_types\n', '')], "BRIDGE_GLOBALS_WITNESS"),
+        ("bd-codex-parity: bridge-result-wiring", [('    validate_bridge_witness(' + 'result)\n', '    pass\n')], "BRIDGE_GLOBALS_WITNESS")])
+    legs.append(("bd-codex-parity: bridge-bound-variable-values", [(
+        '            or result.get("boundGlobalTypes") != expected_bound_types\n            ' + 'or result.get("boundCustomValueObserved") != expected_bound_values\n', '')],
+        "BRIDGE_BINDINGS_WITNESS"))
     if args.only:
         legs = [leg for leg in legs if args.only in leg[0]]
         if not legs:
@@ -1167,9 +1287,23 @@ def mutate(args):
     if (HERE / "oracle.py").read_bytes() != original_bytes:
         raise Refusal("MUTATION_TRACKED_SOURCE_CHANGED")
     result = {"status": "pass", "mutations": results, "tracked_source_unchanged": True,
+              "baseline_source_sha256": sha(original_bytes), "source_pin_sha256": sha((HERE / "source-pin.json").read_bytes()),
               "removed_scratch": str(root), "scratch_exists": root.exists()}
     write_json(args.output_root / "mutation-results.json", result)
     return result
+
+
+def validate_bridge_witness(result):
+    # typeof always returns a string, including "undefined". Require the pinned values, not just that JS ran.
+    expected_types = {name: "object" for name in ("engine", "context", "arguments")}
+    expected_bound_types = {"engine": "number", "context": "number", "arguments": "object"}
+    expected_bound_values = {"engine": True, "context": True, "arguments": False}
+    if (result.get("status") != "pass" or result.get("scriptDraws") != 4
+            or result.get("globalTypes") != expected_types
+            or result.get("boundGlobalTypes") != expected_bound_types
+            or result.get("boundCustomValueObserved") != expected_bound_values
+            or result.get("unusedReadsOff") != 0 or result.get("unusedReadsOn") != 0):
+        raise Refusal("BRIDGE_WITNESS_MISSING")
 
 
 def bridge(args):
@@ -1193,8 +1327,7 @@ def bridge(args):
     write_json(root / "launch.json", record)
     require_command(record, "BRIDGE_PROBE_FAILED " + str(root / "launch.json"))
     result = json.loads(record["stdout"].strip())
-    if result.get("status") != "pass" or result.get("scriptDraws") != 4:
-        raise Refusal("BRIDGE_WITNESS_MISSING")
+    validate_bridge_witness(result)
     result.update({"draft_artifact_sha256": state["artifact_sha256"], "evidence": str(root / "launch.json")})
     write_json(args.output_root / "bridge-latest.json", result)
     return result
@@ -1906,9 +2039,14 @@ def v1_failures(args):
     """Failure witnesses on REAL v1 evidence, each on a private copy: the producer's run checks and the comparer's
     behaviour rules must each fail with exactly their named class. The latest V1 run supplies the traces."""
     import copy
-    compare = comparer()
     latest = json.loads((args.output_root / "v1-latest.json").read_text(encoding="utf-8"))
+    # V1 writes running/failed records as well as successes. Never judge a refused or unfinished producer run.
+    if latest.get("status") != "pass":
+        raise Refusal("V1_EVIDENCE_NOT_PASSED " + str(latest.get("failed_check") or latest.get("status") or "missing status"))
     complete = {row["scenario"]: row for row in latest["results"] if row["status"] == "complete"}
+    if not complete:
+        raise Refusal("V1_EVIDENCE_NO_COMPLETE_SCENARIOS")
+    compare = comparer()
     base_id = "S-slice-breed-01" if "S-slice-breed-01" in complete else sorted(complete)[0]
     # Bound to the current producer, draft build and helpers, and to the trace bytes the run recorded.
     current = validate_v1_build(json.loads((args.cache_root / "latest-draft.json").read_text(encoding="utf-8")),
