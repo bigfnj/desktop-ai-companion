@@ -8,8 +8,8 @@ Reads two traces of the same scenario and decides whether the runtimes behaved t
 first (fields, build witness, counts, ordering, lineage, velocity and refKey consistency); a trace that fails a
 check is unjudgeable and nothing is compared. A directed scenario (rng kind none or tape) must then match EXACTLY on
 events and on every state field; a free-running one (splitmix64) is a separate claim and is reported as such. Every
-failure names the scenario, the first mismatching tick, the entity and the field. Exit 0 = parity (exact, or only
-declared tolerances), 1 = a mismatch, 2 = a trace or scenario that cannot be judged.
+failure names the scenario, the first mismatching tick, the entity and the field. Exit 0 = a successful exact,
+tolerated or free-running time-share comparison, 1 = a mismatch, 2 = a trace or scenario that cannot be judged.
 
 --self-test builds reference traces and a set of deliberately wrong ones, and requires each wrong one to fail with
 its expected class (and each positive control to stay exact); it is the proof that this comparer can fail.
@@ -18,6 +18,7 @@ import copy
 import hashlib
 import json
 import os
+from pathlib import Path
 import re
 import stat
 import sys
@@ -25,6 +26,10 @@ import sys
 SCHEMA_TRACE = "shimeji-parity-trace/1"
 SCHEMA_SCENARIO = "shimeji-parity-scenario/1"
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
+SOURCE_SHA256 = json.loads((Path(__file__).resolve().parent.parent / "oracle" / "source-pin.json").read_text(
+    encoding="utf-8"))["sourceZipSha256"]
+if not isinstance(SOURCE_SHA256, str) or not HEX64.fullmatch(SOURCE_SHA256):
+    raise ValueError("the shared oracle source pin is not a SHA-256")
 
 STATE_FIELDS = ("tick", "sid", "imageSet", "behavior", "action", "actionClass", "actionStack", "refKey", "actionAge",
                 "pose", "poseAnchor", "visible", "anchor", "origin", "lookRight", "velocity", "affordances", "target",
@@ -200,6 +205,9 @@ def load_trace(source, expected_runtime=None):
         if not ok:
             raise Unjudgeable("build-witness-missing", f"{runtime} build witness field {k!r} is missing or malformed ({v!r})")
     if runtime == "oracle":
+        # The source archive is fixed; the patch is per build and has no repository-wide expected hash.
+        if build["sourceZipSha256"] != SOURCE_SHA256:
+            raise Unjudgeable("source-pin-mismatch", "oracle sourceZipSha256 differs from the pinned source archive")
         deps = build["deps"]
         if not all(isinstance(n, str) and n and isinstance(h, str) and HEX64.match(h) for n, h in deps.items()):
             raise Unjudgeable("build-witness-missing", f"oracle build deps must map names to 64-hex hashes ({deps!r})")
@@ -244,6 +252,9 @@ def load_trace(source, expected_runtime=None):
                     raise Unjudgeable("missing-field", f"{runtime} line {i}: state {k!r} is {r[k]!r}")
             if not _is_point(r["anchor"]) or not _is_point(r["velocity"]):
                 raise Unjudgeable("missing-field", f"{runtime} line {i}: anchor and velocity are [x, y]")
+            # A nullable point still needs both coordinates. zip() alone would accept [] under a tolerance.
+            if r["origin"] is not None and not _is_point(r["origin"]):
+                raise Unjudgeable("missing-field", f"{runtime} line {i}: origin is null or [x, y]")
             states.append(r)
         elif t == "event":
             kind = r.get("kind")
@@ -308,8 +319,25 @@ def load_trace(source, expected_runtime=None):
     return header, states, events, footer
 
 
+def json_key(value):
+    """JSON equality: numbers compare by value, while booleans retain their distinct scalar type."""
+    if value is None:
+        return ("null",)
+    if isinstance(value, bool):
+        return ("boolean", value)
+    if isinstance(value, (int, float)):
+        return ("number", value)
+    if isinstance(value, str):
+        return ("string", value)
+    if isinstance(value, list):
+        return ("array", tuple(json_key(item) for item in value))
+    if isinstance(value, dict):
+        return ("object", tuple((key, json_key(item)) for key, item in sorted(value.items())))
+    raise ValueError("not a JSON value")
+
+
 def event_key(e):
-    return (e["tick"], e["sid"], e["kind"]) + tuple(json.dumps(e.get(k), sort_keys=True) for k in EVENT_PAYLOAD_KEYS[e["kind"]])
+    return tuple(json_key(e.get(k)) for k in ("tick", "sid", "kind") + EVENT_PAYLOAD_KEYS[e["kind"]])
 
 
 def compare(oracle, host, scenario=None, scenario_sha=None, pack_sha=None, artifacts=None, tolerances=None):
@@ -322,6 +350,14 @@ def compare(oracle, host, scenario=None, scenario_sha=None, pack_sha=None, artif
         oh, ostates, oevents, ofoot = load_trace(oracle, "oracle")
         hh, hstates, hevents, hfoot = load_trace(host, "host")
         sid = (scenario or {}).get("id") or oh["scenario"]["id"]
+        if scenario is not None:
+            # Equal omissions in two traces are still incomplete observations of this scenario's startup.
+            expected_starters = [mascot["sid"] for mascot in scenario["mascots"]]
+            for runtime, states in (("oracle", ostates), ("host", hstates)):
+                actual_starters = [state["sid"] for state in states if state["tick"] == 0]
+                if actual_starters != expected_starters:
+                    raise Unjudgeable("scenario-start-mismatch", f"{runtime} tick-0 companions {actual_starters!r} "
+                                      f"do not match scenario starters {expected_starters!r}")
         for runtime, h in (("oracle", oh), ("host", hh)):
             if scenario_sha is not None and h["scenario"]["sha256"] != scenario_sha:
                 raise Unjudgeable("scenario-hash-mismatch", f"the {runtime} trace is not of this scenario file")
@@ -342,7 +378,11 @@ def compare(oracle, host, scenario=None, scenario_sha=None, pack_sha=None, artif
         return {"verdict": "unjudgeable", "class": u.cls, "findings": [{"message": str(u)}]}
 
     report = {"verdict": "exact", "findings": [], "class": None, "scenario": sid,
-              "draws": {"oracle": ofoot["draws"], "host": hfoot["draws"]}}
+              "draws": {"oracle": ofoot["draws"], "host": hfoot["draws"]},
+              "buildWitness": {runtime: {"artifactBound": runtime in artifacts,
+                                         "verification": "artifact-bound" if runtime in artifacts else "shape-only"}
+                               for runtime in ("oracle", "host")}, "tolerancesUsed": []}
+    used_tolerances = set()
     rng = oh["rng"]["kind"]
     findings = report["findings"]
 
@@ -404,13 +444,13 @@ def compare(oracle, host, scenario=None, scenario_sha=None, pack_sha=None, artif
                 mismatch = None
                 for a, b in zip(oa, hb):
                     for f in EXACT_STATE_FIELDS:
-                        if a[f] != b[f]:
+                        if json_key(a[f]) != json_key(b[f]):
                             mismatch = (a["sid"], f, a[f], b[f])
                             break
                     if mismatch is None and a["anchor"] != b["anchor"]:
                         tol = tolerances.get("anchor")
                         if tol is not None and all(abs(x - y) <= tol for x, y in zip(a["anchor"], b["anchor"])):
-                            report["verdict"] = "within-tolerance:anchor"
+                            used_tolerances.add("anchor")
                         else:
                             mismatch = (a["sid"], "anchor", a["anchor"], b["anchor"])
                     # The drawn image's top-left, on its own: a sum with poseAnchor would pass an image drawn somewhere
@@ -419,7 +459,7 @@ def compare(oracle, host, scenario=None, scenario_sha=None, pack_sha=None, artif
                         tol = tolerances.get("origin")
                         if (tol is not None and isinstance(a["origin"], list) and isinstance(b["origin"], list)
                                 and all(abs(x - y) <= tol for x, y in zip(a["origin"], b["origin"]))):
-                            report["verdict"] = "within-tolerance:origin"
+                            used_tolerances.add("origin")
                         else:
                             mismatch = (a["sid"], "origin", a["origin"], b["origin"])
                     if mismatch:
@@ -446,6 +486,9 @@ def compare(oracle, host, scenario=None, scenario_sha=None, pack_sha=None, artif
         # A weaker claim than parity: never `exact`, whatever the state lines happen to show.
         report["verdict"] = "time-share-pass"
 
+    report["tolerancesUsed"] = sorted(used_tolerances)
+    if not findings and used_tolerances:
+        report["verdict"] = "within-tolerance:" + ",".join(report["tolerancesUsed"])
     if findings:
         report["verdict"] = "fail"
         report["class"] = findings[0]["class"]
@@ -486,7 +529,7 @@ def _reference(rng=None):
     rng = rng or {"kind": "none"}
     h = {"type": "header", "schema": SCHEMA_TRACE, "runtime": "oracle",
          "scenario": {"id": "S-selftest", "sha256": H("a"), "packSha256": H("b")},
-         "build": {"sourceZipSha256": H("1"), "patchSha256": H("2"), "jdk": "1.8.0_504", "deps": {"jna.jar": H("3")},
+         "build": {"sourceZipSha256": SOURCE_SHA256, "patchSha256": H("2"), "jdk": "1.8.0_504", "deps": {"jna.jar": H("3")},
                    "artifactSha256": H("4")},
          "rng": rng, "tickMs": 40, "dpiScale": 1.0, "runId": "r", "startedUtc": "t"}
     lines = [h,
@@ -673,6 +716,120 @@ def _scenario():
             "input": [{"tick": 0, "cursor": [1, 1]}]}
 
 
+BURNDOWN_CHECKS = ("N269 source pin", "N269 unbound report", "N270 typed state", "N270 typed event",
+                   "N270 event numbers", "N271 origin shape", "N272 tolerance names", "N400 starter population")
+
+
+def _case_require(value, name, detail):
+    if not value:
+        raise AssertionError("bd-codex-parity: " + name + ": " + detail)
+
+
+def _two_starter_reference():
+    oracle, host = _reference()
+    for trace in (oracle, host):
+        body = []
+        for row in trace[1:-1]:
+            body.append(row)
+            if row.get("type") == "state" and row["sid"] == "m1":
+                body.append(dict(copy.deepcopy(row), sid="m2"))
+        trace[1:-1] = body
+        _refoot(trace)
+    scenario = _scenario()
+    scenario["mascots"].append(dict(scenario["mascots"][0], sid="m2"))
+    return oracle, host, scenario
+
+
+def burndown_check(name):
+    """Focused public-comparer witnesses, also callable by the small source-mutation runner."""
+    oracle, host = _reference()
+    if name == "N269 source pin":
+        oracle[0]["build"]["sourceZipSha256"] = H("0")
+        report = compare(oracle, host)
+        _case_require(report["verdict"] == "unjudgeable" and report["class"] == "source-pin-mismatch", name,
+                      "another well-formed source hash was accepted")
+    elif name == "N269 unbound report":
+        report = compare(oracle, host)
+        bound = compare(oracle, host, artifacts={"oracle": H("4"), "host": H("5")})
+        _case_require(report["verdict"] == bound["verdict"] == "exact", name, "positive traces did not compare")
+        for runtime in ("oracle", "host"):
+            _case_require(report["buildWitness"][runtime] == {"artifactBound": False, "verification": "shape-only"},
+                          name, runtime + " unbound metadata was hidden")
+            _case_require(bound["buildWitness"][runtime] == {"artifactBound": True, "verification": "artifact-bound"},
+                          name, runtime + " bound positive control was misreported")
+        import contextlib
+        import io
+        import tempfile
+        with tempfile.TemporaryDirectory(prefix="parity-cli-") as folder:
+            paths = [os.path.join(folder, runtime + ".jsonl") for runtime in ("oracle", "host")]
+            for path, trace in zip(paths, (oracle, host)):
+                with open(path, "w", encoding="utf-8") as stream:
+                    stream.write("\n".join(json.dumps(row) for row in trace) + "\n")
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                status = main(["compare.py"] + paths)
+            _case_require(status == 0, name, "CLI positive control failed")
+            for runtime in ("oracle", "host"):
+                _case_require(output.getvalue().splitlines().count(
+                    "  " + runtime + " build witness: shape-only (artifact unbound)") == 1,
+                    name, runtime + " unbound CLI notice was missing")
+    elif name == "N270 typed state":
+        _where(oracle, 1, "m1")[0]["vars"] = {"flag": {"values": [1]}}
+        _where(host, 1, "m1")[0]["vars"] = {"flag": {"values": [True]}}
+        report = compare(oracle, host)
+        _case_require(report["verdict"] == "fail" and report["class"] == "state-mismatch"
+                      and report["findings"][0]["field"] == "vars", name, "a nested boolean equalled a number")
+        _where(host, 1, "m1")[0]["vars"] = {"flag": {"values": [1.0]}}
+        _case_require(compare(oracle, host)["verdict"] == "exact", name, "equivalent JSON numbers differed")
+    elif name == "N270 typed event":
+        next(row for row in host if row.get("kind") == "birth-request")["ordinal"] = True
+        report = compare(oracle, host)
+        _case_require(report["verdict"] == "fail" and report["class"] == "event-mismatch", name,
+                      "a boolean event payload equalled a number")
+    elif name == "N270 event numbers":
+        next(row for row in host if row.get("kind") == "birth-request")["anchor"] = [638.0, 680.0]
+        _case_require(compare(oracle, host)["verdict"] == "exact", name,
+                      "integer and decimal spellings of the same event coordinates differed")
+    elif name == "N271 origin shape":
+        for origin in ([], [604], [604, 552, 0], [True, 552], "604,552"):
+            for tolerances in ({}, {"origin": 1}):
+                wrong = copy.deepcopy(host)
+                _where(wrong, 2, "m1")[0]["origin"] = origin
+                report = compare(oracle, wrong, tolerances=tolerances)
+                _case_require(report["verdict"] == "unjudgeable" and report["class"] == "missing-field"
+                              and "origin is null or [x, y]" in report["findings"][0]["message"], name,
+                              "a malformed origin was judged: " + repr(origin))
+        for trace in (oracle, host):
+            _where(trace, 2, "m1")[0].update(pose=None, poseAnchor=None, origin=None, visible=False)
+        _case_require(compare(oracle, host)["verdict"] == "exact", name, "nullable origin positive control failed")
+    elif name == "N272 tolerance names":
+        _where(host, 2, "m1")[0]["anchor"][0] += 1
+        _where(host, 3, "m1")[0]["origin"][0] += 1
+        _revelocity(host)
+        report = compare(oracle, host, tolerances={"anchor": 1, "origin": 1})
+        _case_require(report["verdict"] == "within-tolerance:anchor,origin"
+                      and report["tolerancesUsed"] == ["anchor", "origin"], name,
+                      "the result omitted a tolerance used at an earlier tick")
+    elif name == "N400 starter population":
+        oracle, host, scenario = _two_starter_reference()
+        _case_require(compare(oracle, host, scenario=scenario)["verdict"] == "exact", name,
+                      "complete two-starter positive control failed")
+        for mode in ("missing", "reversed"):
+            pair = copy.deepcopy((oracle, host))
+            for trace in pair:
+                if mode == "missing":
+                    trace[1:-1] = [row for row in trace[1:-1] if row.get("sid") != "m2"]
+                    _refoot(trace)
+                else:
+                    first = [index for index, row in enumerate(trace) if row.get("type") == "state" and row["tick"] == 0]
+                    trace[first[0]], trace[first[1]] = trace[first[1]], trace[first[0]]
+            report = compare(*pair, scenario=scenario)
+            _case_require(report["verdict"] == "unjudgeable" and report["class"] == "scenario-start-mismatch", name,
+                          mode + " starters in both traces escaped the scenario check")
+    else:
+        raise ValueError("unknown burndown check " + name)
+
+
 def self_test():
     ok = True
 
@@ -824,6 +981,13 @@ def self_test():
             if os.path.lexists(link):
                 os.rmdir(link) if os.path.isdir(link) else os.remove(link)
             os.rmdir(outside)
+    for name in BURNDOWN_CHECKS:
+        try:
+            burndown_check(name)
+            print("  bd-codex-parity: " + name + " PASS")
+        except AssertionError as failure:
+            ok = False
+            print("  " + str(failure) + " FAIL")
     print("SELF-TEST", "PASS" if ok else "FAIL")
     return 0 if ok else 1
 
@@ -867,6 +1031,9 @@ def main(argv):
         with open(out, "w", encoding="utf-8") as f:
             json.dump(r, f, indent=1)
     print(f"{r.get('scenario', '?')}: {r['verdict']}" + (f" ({r['class']})" if r.get("class") else ""))
+    for runtime, witness in r.get("buildWitness", {}).items():
+        suffix = "" if witness["artifactBound"] else " (artifact unbound)"
+        print(f"  {runtime} build witness: {witness['verification']}{suffix}")
     for fnd in r["findings"][:5]:
         print("  " + fnd.get("message", str(fnd)))
     if "draws" in r:
