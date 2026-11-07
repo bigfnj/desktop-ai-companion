@@ -90,17 +90,19 @@ neglect.
 - **`IHost.ContextChanged` is the push half for a reader that must REACT to a change, and
   Remembrance reading `ReadContext` instead is NOT the bug.** Decided 2026-09-17, after an audit
   found the event has zero subscribers anywhere in the repo. Reminder publishes `meeting.current`
-  (`modules/Reminder/ReminderModule.cs:929`); Remembrance, the only consumer, calls
-  `ReadContext` (`modules/Remembrance/RemembranceModule.cs:175`). The two readings on the table were
+  (`modules/Reminder/ReminderModule.cs:1358`); Remembrance, the only consumer, calls
+  `ReadContext` (`modules/Remembrance/RemembranceModule.cs:960`). The two readings on the table were
   "it exists for out-of-tree modules" and "Remembrance should subscribe, so the polling is the bug".
   It is the first, and the deciding detail is that Remembrance does **not poll**: it reads once,
-  inside `StartRecording()`, at the instant the value is used. Three reasons that pull is the
+  inside `StartRecording()`, at the instant the value is used. (Its meeting-end watch, added later,
+  reads it again on each watch tick, `modules/Remembrance/RemembranceModule.Watch.cs:256` and `:272`:
+  still a read at the instant of use, still no subscription.) Three reasons that pull is the
   stronger pattern for this consumer, each readable in the code rather than argued:
   1. The host RETAINS the value. `CompanionHost._context`
-     (`src/dotNet/Plugins/CompanionHost.cs:699`) is a dictionary that outlives every raise, so a
+     (`src/dotNet/Plugins/CompanionHost.cs:1211`) is a dictionary that outlives every raise, so a
      reader arriving late still gets the current value, while a late SUBSCRIBER gets nothing until
      the next publish.
-  2. The publisher publishes **only on change** (`ReminderModule.cs:927` returns early when the
+  2. The publisher publishes **only on change** (`ReminderModule.cs:1356` returns early when the
      JSON is unchanged). One meeting publishes once, possibly an hour before the user presses
      Record, so "wait for the next event" is not a substitute for "read the value now".
   3. A subscription is one more handler `Shutdown` has to detach, and a handler that outlived
@@ -109,11 +111,12 @@ neglect.
      trade.
   So the channel's push half is for a module that must act ON THE CHANGE, which no module in this
   repo does yet, and `PluginApi.cs` now says so in the channel's own comment. **What the decision
-  leaves open** is the raise itself: `CompanionHost.PublishContext`'s raise has never run in a test
-  or under any shipped module, and that one assertion is the only part still filed in
-  [`../BACKLOG.md`](../BACKLOG.md). The shipped test double already mirrors the raise
-  (`ModuleKit.Testing.RecordingHost.PublishContext`), so an out-of-tree author can test a subscriber
-  today; it is the host's own raise that nothing exercises.
+  left open**, the raise itself, is closed and no longer filed in [`../BACKLOG.md`](../BACKLOG.md):
+  `SharedContextChannel` in `src/dotNet/Plugins/ModuleHostSelfTest.cs:1318` drives the real
+  `CompanionHost.PublishContext` raise (delivery with the key, a throwing subscriber that does not
+  stop the next one, and a late subscriber that gets nothing while a late reader gets the value).
+  The shipped test double mirrors the raise too (`ModuleKit.Testing.RecordingHost.PublishContext`),
+  so an out-of-tree author can test a subscriber.
 - **A test-observation member that only the host needs goes on the HOST's fake, never on
   `ModuleKit.Testing.RecordingHost`.** Measured cost, 2026-09-17: all seven modules that reference
   ModuleKit do so **without** `Private="false"`, on purpose, so its DLL is copied into each module
