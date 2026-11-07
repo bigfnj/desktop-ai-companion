@@ -4206,6 +4206,16 @@ CASES = (
         b"",
         "w2-tests-scripts-1: run_mutation_capture_checks.py names every",
     ),
+    # ---- burndown/w3-host-1 ----
+    # N-shimeji-1106-04: the resource churn drops its tick-companion step again (the counter still counts, so the driver's
+    # equal-count rule alone would not notice).
+    (
+        "bd-w3-host-1: the resource churn no longer runs the tick-companion step",
+        PROGRAM,
+        b"            string tickFailure = Shimeji.ShimejiWindowSelfTest.RunResourceChurnTickCycle(tickAudio, cycle);\n",
+        b"            string tickFailure = null;\n",
+        "w3-host-1: every churn cycle runs the tick-companion step",
+    ),
 )
 
 

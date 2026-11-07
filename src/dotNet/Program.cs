@@ -819,6 +819,13 @@ namespace DesktopAICompanion
         private long petGdi, petUser, trayGdi, trayUser, menuGdi, menuUser, questionGdi, questionUser;
         private int questionCardCycles;
 
+        // The tick-companion step (N-shimeji-1106-04): a pack member with a WAV clip, staged, run in two windows and played
+        // into this output, which has a mixer and NO device (the soak makes no sound, and the decode still runs). One for
+        // the run, created before the baseline so its own mixer is not counted as growth.
+        private readonly AudioOutput tickAudio;
+        private long tickGdi, tickUser;
+        private int tickCompanionCycles;
+
         // Post-finalization readings, taken at the start and end of churning. Their difference is the
         // only figure that distinguishes a real leak from finalizer lag; see SettleAndSample.
         private int baselineGdi, baselineUser, baselineHandles;
@@ -871,6 +878,8 @@ namespace DesktopAICompanion
                 Interval = configuration.IntervalMilliseconds
             };
             cycleTimer.Tick += CycleTimer_Tick;
+            tickAudio = new AudioOutput();
+            tickAudio.StartSilentForTest();
             // Baseline AFTER full finalization, so the figure this run is judged against does not
             // include whatever happened to be awaiting a finalizer when churning began.
             SettleAndSample(out baselineGdi, out baselineUser, out baselineHandles);
@@ -992,6 +1001,19 @@ namespace DesktopAICompanion
             questionUser += user1 - user0;
             questionCardCycles++;
 
+            // Tick companions (the Shimeji runtime, 1.9.0 on): their windows, the staged pair, the tick host and the WAV
+            // clip's decode, none of which the classic pet step above reaches. The settled series below judges them with
+            // the rest; the per-step figures say which step grew.
+            SampleGui(out gdi0, out user0);
+            string tickFailure = Shimeji.ShimejiWindowSelfTest.RunResourceChurnTickCycle(tickAudio, cycle);
+            if (tickFailure != null)
+                throw new InvalidOperationException(
+                    "The tick companion churn path did not complete: " + tickFailure);
+            SampleGui(out gdi1, out user1);
+            tickGdi += gdi1 - gdi0;
+            tickUser += user1 - user0;
+            tickCompanionCycles++;
+
             if (cycle > 0 && cycle % SettledSampleEveryCycles == 0)
             {
                 int sg, su, sh;
@@ -1040,6 +1062,7 @@ namespace DesktopAICompanion
                 ["speechAndPetCycles"] = speechAndPetCycles,
                 ["trayAndMenuCycles"] = trayAndMenuCycles,
                 ["questionCardCycles"] = questionCardCycles,
+                ["tickCompanionCycles"] = tickCompanionCycles,
                 // Net GDI/USER attributable to each step across the whole run. A step that allocates
                 // and frees nets ~0; a step that leaks grows roughly linearly with cycles.
                 ["petGdiNet"] = petGdi,
@@ -1050,6 +1073,8 @@ namespace DesktopAICompanion
                 ["menuUserNet"] = menuUser,
                 ["questionGdiNet"] = questionGdi,
                 ["questionUserNet"] = questionUser,
+                ["tickGdiNet"] = tickGdi,
+                ["tickUserNet"] = tickUser,
                 // The leak verdict: counters after full finalization, at the start and end of churning.
                 ["baselineGdiSettled"] = baselineGdi,
                 ["baselineUserSettled"] = baselineUser,
@@ -1092,6 +1117,7 @@ namespace DesktopAICompanion
             cycleTimer.Stop();
             cycleTimer.Tick -= CycleTimer_Tick;
             cycleTimer.Dispose();
+            tickAudio.Dispose();
             if (exitTimer != null)
             {
                 exitTimer.Stop();

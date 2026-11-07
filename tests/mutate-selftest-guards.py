@@ -21184,6 +21184,17 @@ CASES = (
      b'     None),\n',
      None, None,
      MUTATION_UNITTESTS, None, 'test_every_installer_variant_names_the_check_it_must_fail'),
+    # ---- burndown/w3-host-1 ----
+    # Named "bd-w3-host-1:" so one --only=bd-w3-host-1: run covers the lane.
+    # N-shimeji-1106-04: the soak's tick-companion step plays no clip (its sounds held, as for a fullscreen window), so the
+    # WAV decode the step exists to churn never runs.
+    ('bd-w3-host-1: the resource churn tick step plays no clip',
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ShimejiWindowSelfTest.Churn.cs"),
+     b'Audio = new AppTickAudio(() => output, () => false) };\n',
+     b'Audio = new AppTickAudio(() => output, () => true) };\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'resource churn: the tick step stages a pack member with a WAV clip'),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

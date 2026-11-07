@@ -5787,6 +5787,24 @@ Assert-True ($w2MutationModules.Count -gt 0 -and $w2MutationUnlisted.Count -eq 0
     "w2-tests-scripts-1: run_mutation_capture_checks.py names every tests\test_mutation_*.py module ($($w2MutationModules.Count); WITNESS: an unlisted name is reported)" +
     $(if ($w2MutationUnlisted.Count) { ' -- not run: ' + ($w2MutationUnlisted -join ', ') } else { '' }))
 
+# ---- burndown/w3-host-1 ----
+# THE RESOURCE SOAK RUNS A TICK COMPANION EVERY CYCLE (N-shimeji-1106-04). The churn's pet step builds a CLASSIC form, so
+# tick companions, their windows and their clip decoding ran under no leak soak. The step itself is proved working by
+# --shimeji-window-selftest ("resource churn: the tick step ..."); the soak is not a gate step, so what is pinned here is
+# that the churn keeps calling it: ORDER inside RunCycle (the call, its failure thrown, its counter, all before the settled
+# sample), and the driver requiring the counter, which it then holds equal to the cycle count like every other step's.
+$w3ProgramCode = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\Program.cs') -Raw)
+$w3RunCycle = Get-MethodBody $w3ProgramCode 'private void RunCycle(int cycle)' @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($w3RunCycle.Length -gt 0) 'w3-host-1: RuntimeResourceChurn.RunCycle was located'
+$w3TickCall = $w3RunCycle.IndexOf('string tickFailure = Shimeji.ShimejiWindowSelfTest.RunResourceChurnTickCycle(tickAudio, cycle);', [StringComparison]::Ordinal)
+$w3TickThrow = $w3RunCycle.IndexOf('if (tickFailure != null)', [Math]::Max(0, $w3TickCall), [StringComparison]::Ordinal)
+$w3TickCount = $w3RunCycle.IndexOf('tickCompanionCycles++;', [Math]::Max(0, $w3TickThrow), [StringComparison]::Ordinal)
+$w3Settled = $w3RunCycle.IndexOf('SettleAndSample(out sg, out su, out sh);', [StringComparison]::Ordinal)
+$w3SoakDriver = Remove-PsLineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'tests\runtime-resource-soak.ps1') -Raw)
+Assert-True ($w3TickCall -ge 0 -and $w3TickThrow -gt $w3TickCall -and $w3TickCount -gt $w3TickThrow -and $w3Settled -gt $w3TickCount -and
+    $w3SoakDriver -cmatch "foreach \(\`$expected in @\([^)]*'tickCompanionCycles'\)\)") (
+    "w3-host-1: every churn cycle runs the tick-companion step, fails on its failure and counts it before the settled sample, and the soak driver requires its counter (call at $w3TickCall, count at $w3TickCount, settled at $w3Settled)")
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever
