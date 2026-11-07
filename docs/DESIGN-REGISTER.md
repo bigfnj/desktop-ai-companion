@@ -7786,6 +7786,19 @@ it. Decoded worst case at the mixer format: a 4 MiB WAV at most about 176 MiB (8
 its bytes) before the decode cap, which stops every clip at 60 s (about 21 MB); a document's decoded total is bounded
 as it was, since its bytes are. The WAV lane's "size limits are unchanged" above is superseded by this.
 
+#### burndown/w2-fortunes-1
+
+Fortunes 1.2.2, the 2026-11-06 audit's Fortunes entries.
+
+**The smart index embeds on one core, without spinning** (N-audit-1106-018). The embedding session ran on ONNX Runtime's
+defaults, an intra-op pool sized to every physical core whose threads spin between operators, so a cold warm of the pool
+took the whole CPU on the user's machine; the 2026-10-01 campaign had removed that cost from the self-tests only.
+`Embedder.CreateSessionOptions` sets one intra-op thread (ORT then runs each operator on the calling thread, the warm's own
+pool thread), one inter-op thread under sequential execution, and spinning off for both pools. Two intra-op threads was the
+alternative, a faster cold warm for about one more core, refused: nobody waits on the warm (fortunes are random until it
+finishes, and Pick serves the warmed prefix as it grows), so its duration is invisible and its CPU is not. No timing is
+quoted for either setting because none was measured cold against the other.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

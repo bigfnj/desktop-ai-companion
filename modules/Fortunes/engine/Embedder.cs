@@ -221,6 +221,37 @@ namespace DesktopAICompanion.Ai
             }
         }
 
+        // ONE CORE AT MOST, AND NO SPINNING (N-audit-1106-018). The session was built with ONNX Runtime's
+        // defaults: an intra-op pool sized to every physical core, whose threads spin between operators. A cold
+        // warm embeds the whole pool on that session, so the shipped warm ran the user's whole CPU for work
+        // nobody waits on (fortunes are picked at random until it finishes, and Pick serves the warmed prefix as
+        // it grows): the cost the 2026-10-01 campaign took out of the self-tests by turning smart picks off in
+        // their fakes, while the shipped behaviour kept it. One intra-op thread means ORT runs each operator on
+        // the calling thread (the warm's own pool thread); sequential execution means no inter-op pool; spinning
+        // is turned off for both so a later raise of either count does not bring the busy-wait back with it.
+        // Two intra-op threads was the alternative, a faster cold warm for about one more core, refused because
+        // how long the warm takes is invisible to the user and the CPU it holds is not. The options are copied
+        // into the native session when it is created, so they are disposed straight after. Recorded in
+        // docs/DESIGN-REGISTER.md under burndown/w2-fortunes-1; the probe asserts the values.
+        internal static SessionOptions CreateSessionOptions()
+        {
+            var options = new SessionOptions();
+            try
+            {
+                options.IntraOpNumThreads = 1;
+                options.InterOpNumThreads = 1;
+                options.ExecutionMode = ExecutionMode.ORT_SEQUENTIAL;
+                options.AddSessionConfigEntry("session.intra_op.allow_spinning", "0");
+                options.AddSessionConfigEntry("session.inter_op.allow_spinning", "0");
+                return options;
+            }
+            catch
+            {
+                options.Dispose();
+                throw;
+            }
+        }
+
         private void EnsureLoaded()
         {
             lock (_lock)
@@ -244,7 +275,8 @@ namespace DesktopAICompanion.Ai
                         return;
                     }
 
-                    session = new InferenceSession(_modelPath);
+                    using (SessionOptions options = CreateSessionOptions())
+                        session = new InferenceSession(_modelPath, options);
                     _sessionsCreated++;   // under _lock
                     if (session.InputMetadata == null ||
                         session.InputMetadata.Count == 0 ||

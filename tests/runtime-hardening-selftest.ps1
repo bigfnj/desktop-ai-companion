@@ -5521,6 +5521,21 @@ Assert-True ($rbTranscriber -cmatch 'JobObjectLimitKillOnJobClose = 0x00002000;'
     $rbTranscriber -cmatch 'limits\.BasicLimitInformation\.LimitFlags = JobObjectLimitKillOnJobClose;') (
     'remembrance-1: the whisper job ends its processes when its last handle closes')
 
+# ---- burndown/w2-fortunes-1 ----
+# THE EMBEDDING SESSION IS BUILT WITH THE CAPPED OPTIONS (N-audit-1106-018). The session ran on ONNX Runtime's defaults,
+# an intra-op pool of every physical core, so a cold warm took the user's whole CPU. --module-selftest=fortunes asserts
+# the values Embedder.CreateSessionOptions returns; ORT has no way to read options back off a session, so that
+# EnsureLoaded HANDS them to the session is asserted here, as the argument, with the one-argument form (the defaults)
+# absent from the file. The WITNESS shows the pattern tells the two forms apart.
+$w2fEmbedder = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'modules\Fortunes\engine\Embedder.cs') -Raw)
+$w2fLoad = Get-MethodBody $w2fEmbedder 'private void EnsureLoaded()' @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($w2fLoad.Length -gt 0) 'w2-fortunes-1: Embedder.EnsureLoaded was located'
+Assert-True ('new InferenceSession(_modelPath)' -cmatch 'new InferenceSession\([^,()]*\)' -and
+    'new InferenceSession(_modelPath, options)' -cnotmatch 'new InferenceSession\([^,()]*\)' -and
+    $w2fLoad -cmatch '(?s)using \(SessionOptions options = CreateSessionOptions\(\)\)\s*session = new InferenceSession\(_modelPath, options\);' -and
+    $w2fEmbedder -cnotmatch 'new InferenceSession\([^,()]*\)') (
+    'w2-fortunes-1: the embedder builds its session with the capped options')
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever

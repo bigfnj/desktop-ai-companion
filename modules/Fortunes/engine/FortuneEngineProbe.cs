@@ -1741,6 +1741,16 @@ namespace DesktopAICompanion.FortunesModule
                     ok &= Check(sb, "WITNESS the shipped assets load with no failure recorded",
                         good.IsReady && good.LoadFailure == null);
                 }
+                // N-audit-1106-018: the session ran on ONNX Runtime's defaults, an intra-op pool of every physical
+                // core, so a cold warm took the user's whole CPU. The options the session is built with, by value;
+                // that EnsureLoaded hands them to the session is a source invariant in
+                // tests/runtime-hardening-selftest.ps1, because ORT has no way to read them back off a session.
+                using (Microsoft.ML.OnnxRuntime.SessionOptions sessionOptions = Embedder.CreateSessionOptions())
+                {
+                    ok &= Check(sb, "the embedding session runs on one intra-op thread with no inter-op pool (N-audit-1106-018)",
+                        sessionOptions.IntraOpNumThreads == 1 && sessionOptions.InterOpNumThreads == 1 &&
+                        sessionOptions.ExecutionMode == Microsoft.ML.OnnxRuntime.ExecutionMode.ORT_SEQUENTIAL);
+                }
                 // R-025: a missing or unloadable native onnxruntime arrives as a TypeInitializationException
                 // wrapping DllNotFoundException or BadImageFormatException (the runtime resolves it in a static
                 // constructor) and read "model: TypeInitializationException", the wrong asset named. Pure, so

@@ -129,7 +129,10 @@ namespace DesktopAICompanion.FortunesModule
         {
             Id = "fortunes",
             Name = "Fortunes",
-            Version = "1.2.1",   // 1.2.1: a pack import whose replace fails and whose backup cannot be put back is
+            Version = "1.2.2",   // 1.2.2: the smart index's embedding session runs on one intra-op thread with no
+                                 //        inter-op pool and no spinning, so a cold warm holds one core instead of
+                                 //        every core (N-audit-1106-018).
+                                 // 1.2.1: a pack import whose replace fails and whose backup cannot be put back is
                                  //        counted as a rollback failure, and the batch says its rollback could not be
                                  //        fully verified instead of "all earlier changes were rolled back"
                                  //        (N-modules-small-01). The importer self-test keeps its scratch folder after a

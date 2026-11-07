@@ -20842,6 +20842,18 @@ CASES = (
      b'            if (embedded && !runsClass(cls) && Array.IndexOf(EmbeddedClasses, cls) < 0)\n',
      HOST_CSPROJ, EXE,
      SECURITY, None, 'a class outside the list is refused by the list where every class is said to run'),
+    # ---- burndown/w2-fortunes-1 ----
+    # The 2026-11-06 audit's Fortunes entries (fortunes 1.2.2), each the defect as it stood put back, graded by
+    # --module-selftest=fortunes. Named "bd-w2-fortunes-1: ..." so --only=bd-w2-fortunes-1: runs exactly these.
+
+    # N-audit-1106-018: the embedding session's intra-op pool is ORT's default again, every physical core.
+    ("bd-w2-fortunes-1: the embedding session's intra-op pool is the all-core default again (N-audit-1106-018)",
+     os.path.join(REPO, "modules", "Fortunes", "engine", "Embedder.cs"),
+     b"                options.IntraOpNumThreads = 1;\n",
+     b"",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "the embedding session runs on one intra-op thread with no inter-op pool"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
