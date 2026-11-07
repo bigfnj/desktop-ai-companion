@@ -71,6 +71,8 @@ namespace DesktopAICompanion.ReminderModule
                                 //        all-day event is never meeting.current (N-audit-1106-042). A Zoom slot mark a
                                 //        day past its start is pruned even while the slot errors, so a signed-out or
                                 //        warning Zoom slot no longer grows the fired set for good (N-audit-1106-043).
+                                //        'at 09:00' rolled to tomorrow across a DST change fires at 09:00, not an
+                                //        hour off (N-audit-1106-293).
                                 // 1.3.0: Calendar 5 becomes the Zoom slot (the owner, 2026-11-03): the meetings the user
                                 //        HOSTS in Zoom, read from Zoom's REST API after a browser sign-in to a Zoom
                                 //        app the user creates (OAuth with PKCE, a loopback redirect, no secret; the

@@ -20895,6 +20895,14 @@ CASES = (
      REMINDER_CSPROJ, REMINDER_DLL,
      "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
      "zoom spent marks: another slot's mark is still kept while it errors"),
+    # N-audit-1106-293: tomorrow's 'at HH:mm' back to today's instant plus 24 hours, which keeps today's offset.
+    ("bd-w2-reminder-1: an at-time rolled to tomorrow keeps today's UTC offset again",
+     REMINDER_PARSER,
+     b"            return when <= now ? WallClockIn(today.AddDays(1).AddMinutes(hhmm), zone) : when;\n",
+     b"            return when <= now ? when.AddDays(1) : when;\n",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "set the evening before daylight time ends fired at"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
