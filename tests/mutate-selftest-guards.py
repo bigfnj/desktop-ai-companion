@@ -22336,6 +22336,50 @@ CASES = (
      b'            print("  NO-OP (pattern matched %d times)  %s" % (count, name))\n',
      None, None,
      MUTATION_UNITTESTS, None, 'test_check_patterns_counts_every_case_and_runs_nothing'),
+    # ---- burndown/w4-fortunes-1 ----
+    # Wave 4's Fortunes entries (fortunes 1.2.2, unreleased), each the defect as it stood put back, graded by
+    # --module-selftest=fortunes. Named "bd-w4-fortunes-1: ..." so --only=bd-w4-fortunes-1: runs exactly these.
+
+    # N-cxr-w2-04: the probe's sub-reports share one fixed name per sub-test again, so two runs in one TEMP clear and
+    # fold each other's; and a folded per-run report is left in TEMP (the cleanup the per-run names need).
+    ("bd-w4-fortunes-1: every run names a sub-test's report the same again (N-cxr-w2-04)",
+     os.path.join(REPO, "modules", "Fortunes", "engine", "FortuneEngineProbe.cs"),
+     b'            return stem + "-" + Guid.NewGuid().ToString("N").Substring(0, 12) + ".txt";\n',
+     b'            return stem + ".txt";\n',
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "two runs sharing TEMP name a sub-test's report apart"),
+    ("bd-w4-fortunes-1: a folded sub-report is left in TEMP (N-cxr-w2-04)",
+     os.path.join(REPO, "modules", "Fortunes", "engine", "FortuneEngineProbe.cs"),
+     b"            try { System.IO.File.Delete(path); }\n",
+     b"            try { }\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "WITNESS this run's own sub-report is folded, then removed from TEMP"),
+
+    # N-audit-1106-215: a contextual line is not drawn from the shuffle bag. The module does not tell the provider; the
+    # provider leaves the line in its bag; the provider does not make it the previous line its refill guard reads.
+    ("bd-w4-fortunes-1: a contextual line is not reported to the shuffle bag (N-audit-1106-215)",
+     os.path.join(REPO, "modules", "Fortunes", "FortunesModule.cs"),
+     b"                provider.NoteExternallyShown(f);\n",
+     b"",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a line the contextual picker spoke is not the next random draw"),
+    ("bd-w4-fortunes-1: a contextual line stays in the shuffle bag (N-audit-1106-215)",
+     os.path.join(REPO, "modules", "Fortunes", "engine", "FortuneProvider.cs"),
+     b"                _bag.Remove(i);   // the bag holds each index at most once\n",
+     b"",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a line the contextual picker spoke leaves the shuffle bag"),
+    ("bd-w4-fortunes-1: a contextual line is not the refill guard's previous line (N-audit-1106-215)",
+     os.path.join(REPO, "modules", "Fortunes", "engine", "FortuneProvider.cs"),
+     b"                _last = i;\n",
+     b"",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a line the contextual picker spoke is not the next random draw"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

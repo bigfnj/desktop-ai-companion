@@ -1130,9 +1130,9 @@ namespace DesktopAICompanion.Ai
         }
 
         // ---- diagnostic ---------------------------------------------------------
-        public static bool SelfTest()
+        public static bool SelfTest(string reportPath)
         {
-            string outp = Path.Combine(Path.GetTempPath(), "dp-smart-selftest.txt");
+            string outp = reportPath;   // named for the probe's run (N-cxr-w2-04; FortuneProvider.FilterSelfTest)
             var sb = new System.Text.StringBuilder();
             string cacheDir = Path.Combine(Path.GetTempPath(), "DesktopAICompanion-smart-selftest-" +
                 Guid.NewGuid().ToString("N"));
@@ -1457,9 +1457,9 @@ namespace DesktopAICompanion.Ai
         // Opt-in, slow: warm a >512 sample against a *cold* cache so real embedding happens, then prove
         // Pick serves the warmed prefix before the whole pool is done (indexed climbs monotonically, a
         // ready-but-incomplete window is observed, and a pick lands during it).
-        public static bool ProgressiveSelfTest()
+        public static bool ProgressiveSelfTest(string reportPath)
         {
-            string outp = Path.Combine(Path.GetTempPath(), "dp-smart-progress-selftest.txt");
+            string outp = reportPath;   // named for the probe's run (N-cxr-w2-04; FortuneProvider.FilterSelfTest)
             var sb = new System.Text.StringBuilder();
             string cacheDir = Path.Combine(Path.GetTempPath(), "DesktopAICompanion-smart-progress-" +
                 Guid.NewGuid().ToString("N"));

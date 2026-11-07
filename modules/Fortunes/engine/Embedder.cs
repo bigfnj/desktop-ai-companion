@@ -524,9 +524,9 @@ namespace DesktopAICompanion.Ai
         }
 
         /// <summary>Diagnostic: load the model and write status + cosines to a temp file.</summary>
-        public static bool SelfTest()
+        public static bool SelfTest(string reportPath)
         {
-            string outp = Path.Combine(Path.GetTempPath(), "dp-embed-selftest.txt");
+            string outp = reportPath;   // named for the probe's run (N-cxr-w2-04; FortuneProvider.FilterSelfTest)
             var sb = new StringBuilder();
             bool ok = false;
             bool vocabularyOk = VocabularySelfTest(sb);
