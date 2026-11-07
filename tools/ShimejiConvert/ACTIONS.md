@@ -43,7 +43,10 @@ document and graph report.
 
 The caller must require the whole result's `Accepted` before saving or installing any member. Successful
 members can remain as diagnostic previews when a sibling is refused; a refused member exposes no document,
-XML or parity map. If source preparation refuses any member, the result's `PackId` is null. Returned roots are
+XML or parity map. If source preparation refuses any member, the result's `PackId` is null and successful diagnostic
+previews omit `header/pack` and `header/startup`, so no successful-subset identity appears inside their XML.
+Member-specific pack diagnostics use `MemberNotes`, rendered under "Notes for this image set:"; format-wide notes
+retain their separate heading, and dropped recovery entries retain their loss count. Returned roots are
 independent mutable copies; `EmittedXml` records the validated result before any caller edits. The API is linked
 into Studio, but the import UI and its installation transaction are separate work.
 
@@ -188,8 +191,12 @@ NaN. NaN anywhere else (a comparison, a condition, text, a call other than a NaN
 holding a draw, any other reader) is refused by name. A Behavior's children other than its
 NextBehaviorList elements (a NextBehavior among them) are ignored, as 1.0.23 never reads them, and so is any child
 of a behaviour list other than a Condition and a Behavior (root list) or BehaviorReference (next list).
-A pose's Sound becomes a named WAV clip, its id the Sound text and its bytes unchanged, resolved as the source does
-(sound/, sound/<set>/, img/<set>/sound/), with the pose's Volume in dB; the member declares 'wav'. A missing clip,
+A pose's Sound becomes a named WAV asset, its id separator-normalized and invariant-lowercase, and its bytes unchanged,
+resolved as the source does (sound/, sound/<set>/, img/<set>/sound/). Separator/case aliases share embedded bytes;
+Volume remains on each pose, and the host keeps separate playback state for distinct volumes. The member declares 'wav'.
+A literal Mute Sound uses the same canonical prefix, retaining a directory prefix's trailing separator. A computed
+Mute prefix refuses with TICK_SOUND_MUTE_SCRIPTED; a literal whose normalization would change a Sound value read by
+a member script refuses with TICK_SOUND_MUTE_OBSERVED. A missing clip,
 MP3 bytes, a WAVE the host's rule rejects, a Volume outside -80 to 6.02 dB and a clip or document over the host's
 audio limits are refused by name.
 It refuses unsupported attributes and

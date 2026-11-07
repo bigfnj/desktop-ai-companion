@@ -57,8 +57,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             return ConvertPack(packRoot, outDir, mainMember, out warnings, recoverMissingNext);
         }
 
-        /// <summary>As above; <paramref name="warnings"/> receives what the lowering corrected on purpose
-        /// (PreparedMember.Warnings, a dropped next entry among them), each prefixed with its image set, for the caller
+        /// <summary>As above; <paramref name="warnings"/> receives skipped image-set notices and typed dropped next
+        /// entries, each prefixed with its image set, for the caller
         /// to report (review D55-A: such a correction is a policy divergence, never silent).</summary>
         public static IReadOnlyList<string> ConvertPack(string packRoot, string outDir, string mainMember, out IReadOnlyList<string> warnings,
             bool recoverMissingNext = false)
@@ -78,6 +78,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             if (prepared.Count == 0) throw new InvalidDataException("TICK_PACK_EMPTY: no image set of this pack has a configuration the source loads.");
             if (mainMember != null && !prepared.Any(m => m.Name == mainMember))
                 throw new InvalidDataException("TICK_PACK_MAIN_UNKNOWN: the requested main image set is not in this pack.");
+            if (mainMember != null && HiddenInSourceChooser(mainMember))
+                throw new InvalidDataException("TICK_PACK_MAIN_HIDDEN: the main image set '" + mainMember + "' must be visible.");
             if (prepared.Any(m => m.CrossMember) || mainMember != null || prepared.Any(m => HiddenInSourceChooser(m.Name)))
             {
                 if (mainMember == null)
@@ -168,13 +170,20 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     prepared.Add(new PreparedMember { Name = member, Skipped = true, Warnings = new List<string> {
                         "TICK_MEMBER_SKIPPED: no configuration of its own where the source looks (conf/<set>/, img/<set>/conf/) and no "
                         + "shared conf/ default, so the source does not load this image set; it is skipped, and a Breed or "
-                        + "Transform naming it finds no member" } });
+                        + "Transform naming it finds no member. Checked " + ConfigurationLocations(packRoot, member) } });
                     continue;
                 }
                 try
                 {
                     SafeEntry(memberPath);
-                    ShimejiSourceConfig source = ShimejiParser.ParseSourcePack(packRoot, member);
+                    ShimejiSourceConfig source;
+                    try { source = ShimejiParser.ParseSourcePack(packRoot, member); }
+                    catch (Exception missing) when (missing is FileNotFoundException || missing is DirectoryNotFoundException)
+                    {
+                        throw new InvalidDataException("TICK_MEMBER_CONFIGURATION: image set '" + member
+                            + "' could not load its configuration. Checked " + ConfigurationLocations(packRoot, member)
+                            + ". " + missing.Message, missing);
+                    }
                     prepared.Add(new MemberBuilder(packRoot, member, source, mixedRuntime) { RecoverMissingNext = recoverMissingNext }.Build());
                 }
                 catch (Exception failure) when (failure is InvalidDataException || failure is IOException
@@ -186,6 +195,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 }
             }
             return prepared;
+        }
+
+        private static string ConfigurationLocations(string packRoot, string member)
+        {
+            return "'" + Path.Combine(packRoot, "conf", member) + "', '" + Path.Combine(packRoot, "img", member, "conf")
+                + "', and shared '" + Path.Combine(packRoot, "conf") + "'";
         }
 
         internal static string SourcePackId(IEnumerable<PreparedMember> members)
@@ -249,8 +264,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             public bool Skipped;
             // Root names as the emitter actually writes them, including this member's schema mapping.
             public IReadOnlyDictionary<string, string> BehaviourNames = new Dictionary<string, string>(StringComparer.Ordinal);
-            /// <summary>What this lowering corrected on purpose and the caller should be told, other than a dropped next
-            /// entry (see <see cref="Dropped"/>). The pack API's warnings are PackConversion's to collect.</summary>
+            /// <summary>Notices for skipped image sets. Successful strict lowering has no free-form correction channel;
+            /// next-entry recovery records its losses in <see cref="Dropped"/> instead.</summary>
             public List<string> Warnings = new List<string>();
             /// <summary>PD-1: one item per next entry that recovery dropped (decision 64, policy:next-missing-dropped): the
             /// behaviour as its Name, the entry's name and source key in its Detail. Never merged: two entries that share
@@ -330,12 +345,11 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             private int _next = 2;
             // The feature tokens the validator demands for what this member USES (grimoire/06 sections 1 and 10).
             private bool _lifecycle, _social, _windows, _hotspots, _expressions, _variables;
-            // Pose clips by their source Sound text, in first-use order (Clip); Used marks those an emitted pose names.
-            private sealed class SoundClip { public string Id, PackPath; public byte[] Bytes; public bool Used; }
+            // Embedded audio assets by canonical Sound identity, in first-use order. Runtime clips additionally use
+            // the pose's volume (TickClip): two volumes share these bytes but have independent playback state.
+            private sealed class SoundClip { public string Id, PackPath, SourceName; public byte[] Bytes; public bool Used; }
             private readonly Dictionary<string, SoundClip> _clips = new Dictionary<string, SoundClip>(StringComparer.Ordinal);
             private readonly List<SoundClip> _clipOrder = new List<SoundClip>();
-            // Corrections the caller is told about (PreparedMember.Warnings).
-            private readonly List<string> _warnings = new List<string>();
             // PD-1: the next entries recovery dropped, one item each (PreparedMember.Dropped).
             private readonly List<ResidueItem> _dropped = new List<ResidueItem>();
             // Decision 64: whether this call selected recovery of a next entry naming no root behaviour (EmitNextEntries).
@@ -486,7 +500,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     E("spawns", E("spawn", new XAttribute("id", 0), new XAttribute("probability", 1),
                         E("x", "0"), E("y", "0"), E("next", new XAttribute("probability", 1), 1))),
                     E("animations", _nodes), E("childs"),
-                    // One named clip per distinct Sound text a pose plays, its bytes unchanged (the WAV lane's rule: id,
+                    // One named asset per canonical Sound identity a pose plays, its bytes unchanged (the WAV lane's rule: id,
                     // format, probability 0, no loop, no animationid).
                     clips.Count == 0 ? null : E("sounds", clips.Select(c => E("sound", new XAttribute("id", c.Id),
                         new XAttribute("format", "wav"), E("probability", 0), E("base64", Convert.ToBase64String(c.Bytes)))))));
@@ -531,7 +545,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 bool crossMember = _nodes.SelectMany(n => n.Descendants()).Any(n =>
                     (n.Name == Ns + "param" || n.Name == Ns + "bind") &&
                     IsMemberParameter((string)n.Attribute("name")));
-                return new PreparedMember { Name = _member, Xml = xml, Map = map + "\n", CrossMember = crossMember, Warnings = _warnings, Dropped = _dropped,
+                return new PreparedMember { Name = _member, Xml = xml, Map = map + "\n", CrossMember = crossMember, Dropped = _dropped,
                     SourceIdentity = SourceIdentity(), BehaviourNames = _rootOrder.ToDictionary(name => name, BehaviourName, StringComparer.Ordinal) };
             }
 
@@ -1151,15 +1165,14 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 if (_frameIds.TryGetValue(key, out index)) return index;
                 if (_frames.Count >= SpriteSheetBuilder.MaxTiles) Fail(source, "too many sprite identities");
                 // GDI+'s filename entry point has a shorter path limit than managed file I/O.
-                using (var imageInput = File.OpenRead(path))
-                using (var bitmap = new Bitmap(imageInput))
+                ReadSprite(path, bitmap =>
                 {
                     if (bitmap.Width > SpriteSheetBuilder.MaxSheetDimension || bitmap.Height > SpriteSheetBuilder.MaxSheetDimension)
                         Fail(source, "sprite exceeds image dimension limit");
                     index = _frames.Count;
                     _frames.Add(new Frame { Image = "img/" + _member + "/" + relative, Path = path, X = x, Y = y,
                         Width = bitmap.Width, Height = bitmap.Height });
-                }
+                });
                 _frameIds.Add(key, index);
                 return index;
             }
@@ -1173,10 +1186,28 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 string path = Path.GetFullPath(Path.Combine(_pack, "img", _member, relative.Replace('/', Path.DirectorySeparatorChar)));
                 if (!Inside(Path.Combine(_pack, "img", _member), path)) Fail(source, "sprite leaves its image set");
                 SafeEntry(path);
-                using (var neverShownInput = File.OpenRead(path))
-                using (var bitmap = new Bitmap(neverShownInput))
+                ReadSprite(path, bitmap =>
+                {
                     if (bitmap.Width > SpriteSheetBuilder.MaxSheetDimension || bitmap.Height > SpriteSheetBuilder.MaxSheetDimension)
                         Fail(source, "sprite exceeds image dimension limit");
+                });
+            }
+
+            // GDI+ calls corrupt images "Parameter is not valid" (and sometimes OutOfMemoryException). Keep the
+            // actual opened file in every decoding refusal, including zero-length poses and the compositor's reread.
+            private static void ReadSprite(string path, Action<Bitmap> use)
+            {
+                try
+                {
+                    using (var input = File.OpenRead(path))
+                    using (var bitmap = new Bitmap(input)) use(bitmap);
+                }
+                // File I/O already identifies its path; preserve its exception type and all existing semantic refusals.
+                catch (Exception failure) when (failure is ArgumentException || failure is ExternalException
+                    || failure is OutOfMemoryException)
+                {
+                    throw new InvalidDataException("TICK_SPRITE_READ: could not read sprite '" + path + "': " + failure.Message, failure);
+                }
             }
 
             private static string SpriteRelative(string image, ShimejiSourceElement source)
@@ -1252,6 +1283,22 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 // action document's schema: a Japanese literal is written mapped, and a Japanese script, whose value is
                 // known only at run time, cannot be.
                 bool japaneseBorder = attribute.Name == "BorderType" && _source.Actions.Schema == ShimejiSourceSchema.Japanese;
+                if (attribute.Name == "Sound" && _readerAction != null
+                    && Value(_readerAction, "Class") == "com.group_finity.mascot.action.Mute")
+                {
+                    // MuteNamed matches ordinal clip-id prefixes, so its literal prefix must use the same identity
+                    // spelling as pose clips. A computed prefix cannot be normalized by this format's expression API.
+                    if (attribute.Cache != ShimejiSourceCache.Literal)
+                        Fail(owner, "TICK_SOUND_MUTE_SCRIPTED: a computed Mute Sound cannot be normalized to clip ids");
+                    string normalized = SoundId(attribute.RawValue);
+                    // A directory prefix must keep its boundary: "dir/" must not also match "directory/".
+                    if (normalized.Length > 0 && (attribute.RawValue.EndsWith("/", StringComparison.Ordinal)
+                        || attribute.RawValue.EndsWith("\\", StringComparison.Ordinal)))
+                        normalized += "/";
+                    if (normalized != attribute.RawValue && _scriptNames.Contains("Sound"))
+                        Fail(owner, "TICK_SOUND_MUTE_OBSERVED: a script reads Sound, whose Mute prefix needs normalization");
+                    return E(tag, new XAttribute("name", attribute.Name), new XAttribute("value", normalized), new XAttribute("cache", "none"));
+                }
                 if (Array.IndexOf(BehaviourParameters, attribute.Name) >= 0)
                 {
                     string named = BehaviourValue(attribute, owner);
@@ -1401,14 +1448,16 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             /// Main.java:478-484). The format is decided from the BYTES, never the name: a RIFF/WAVE the host decodes
             /// (WavFormat, the host's own rule) becomes a named clip; MP3 bytes refuse as the source refuses them; a
             /// WAVE the host's rule rejects (two corpus clips have a bad header field) refuses by name, unrepaired.
-            /// The clip's id is the source's Sound text exactly, since a Mute matches clips by that name's prefix.
+            /// Separator/case aliases share one embedded asset, and a literal Mute uses the same canonical prefix.
+            /// Volume remains on the pose: the host's runtime cache keys (image set, id, volume), not bytes alone.
             /// </summary>
             private SoundClip Clip(string soundText, ShimejiSourceElement pose)
             {
                 SoundClip clip;
-                if (_clips.TryGetValue(soundText, out clip)) return clip;
-                if (soundText.Length < 1 || soundText.Length > 64)
-                    Fail(pose, "TICK_SOUND_ID_LIMIT: a Sound is its clip's id, 1 to 64 characters in this format");
+                string id = SoundId(soundText);
+                if (_clips.TryGetValue(id, out clip)) return clip;
+                if (id.Length < 1 || id.Length > 64)
+                    Fail(pose, "TICK_SOUND_ID_LIMIT: a normalized Sound id must be 1 to 64 characters in this format");
                 // Paths.get(".", "sound", Sound) joins the text under the folder, a leading separator included, and the
                 // file system resolves its dot segments as Windows does ("sound/../../x" is outside the install). A
                 // candidate that leaves the pack is somewhere this conversion cannot see, so it is passed over as absent;
@@ -1457,10 +1506,15 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     Fail(pose, "TICK_SOUND_MP3: clip '" + soundText + "' holds MP3 audio, which the source's javax.sound cannot open, so the source refuses this image set");
                 else
                     Fail(pose, "TICK_SOUND_FORMAT: clip '" + soundText + "' is neither a RIFF/WAVE nor MP3; the host plays WAV clips");
-                clip = new SoundClip { Id = soundText, PackPath = chosen, Bytes = bytes };
-                _clips.Add(soundText, clip);
+                clip = new SoundClip { Id = id, PackPath = chosen, SourceName = soundText, Bytes = bytes };
+                _clips.Add(id, clip);
                 _clipOrder.Add(clip);
                 return clip;
+            }
+
+            private static string SoundId(string text)
+            {
+                return string.Join("/", text.Replace('\\', '/').Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries)).ToLowerInvariant();
             }
 
             /// <summary>A pose's Volume, the clip's gain in dB (AnimationBuilder.java:105, Float.parseFloat, default 0).
@@ -1498,7 +1552,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 long total = clips.Sum(c => (long)c.Bytes.Length);
                 int perClip = DesktopAICompanion.CompanionXmlValidator.MaximumAudioBytesFor(new XmlData.SoundNode { Format = "wav" });
                 if (largest.Bytes.Length > perClip)
-                    throw new InvalidDataException("TICK_SOUND_CLIP_LIMIT: the host refuses clip '" + largest.Id + "' (" + largest.Bytes.Length
+                    throw new InvalidDataException("TICK_SOUND_CLIP_LIMIT: the host refuses clip '" + largest.SourceName + "' (" + largest.Bytes.Length
                         + " bytes) as larger than its per-clip limit of " + perClip + " bytes: " + _member);
                 if (total > DesktopAICompanion.CompanionXmlValidator.MaximumAudioBytesTotal)
                     throw new InvalidDataException("TICK_SOUND_DOCUMENT_LIMIT: the host refuses the member's " + clips.Count + " clips (" + total
@@ -1601,9 +1655,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                         for (int i = 0; i < _frames.Count; i++)
                         {
                             Frame frame = _frames[i];
-                            using (var spriteInput = File.OpenRead(frame.Path))
-                            using (var bitmap = new Bitmap(spriteInput))
-                                CopyPixels(bitmap, destination, (i % tilesX) * width, (i / tilesX) * height);
+                            int tile = i, columns = tilesX;
+                            ReadSprite(frame.Path, bitmap => CopyPixels(bitmap, destination, (tile % columns) * width, (tile / columns) * height));
                         }
                     }
                     finally { sheet.UnlockBits(destination); }
