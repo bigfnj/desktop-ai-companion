@@ -260,6 +260,55 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 try { if (Directory.Exists(webpDir)) Directory.Delete(webpDir, true); } catch { /* best-effort cleanup */ }
             }
 
+            // ---- 5) THE MANIFEST CANNOT REACH OUTSIDE THE BUNDLE ----
+            // sprites.basePath and sprites.filePattern were joined to the bundle folder with a bare Path.Combine, so
+            // an absolute or ../ value opened files anywhere the user can read (audit A0070). A full set of sprites
+            // sits OUTSIDE the bundle here, so a converter that follows the manifest out succeeds, and the refusal is
+            // the only thing that can fail each case.
+            string escapeRoot = Path.Combine(Path.GetTempPath(), "shimeji-bundle-escape-selftest-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                string bundle = Path.Combine(escapeRoot, "bundle"), outside = Path.Combine(escapeRoot, "outside");
+                WriteSyntheticBundle(bundle);
+                WriteSyntheticBundle(outside);
+                var escapes = new[]
+                {
+                    new { Label = "a ../ basePath", BasePath = "../outside/sprites/", Pattern = "%04d.png" },
+                    new { Label = "an absolute basePath", BasePath = Path.Combine(outside, "sprites").Replace('\\', '/'), Pattern = "%04d.png" },
+                    new { Label = "a ../ filePattern", BasePath = "sprites/", Pattern = "../../outside/sprites/%04d.png" },
+                };
+                foreach (var escape in escapes)
+                {
+                    File.WriteAllText(Path.Combine(bundle, "manifest.json"), ManifestJson
+                        .Replace("\"basePath\":\"sprites/\"", "\"basePath\":\"" + escape.BasePath + "\"")
+                        .Replace("\"filePattern\":\"%04d.png\"", "\"filePattern\":\"" + escape.Pattern + "\""), new UTF8Encoding(false));
+                    string escapeError;
+                    ConversionResult escaped = BundleConverter.ConvertBundle(bundle, "Escape Skin", out escapeError);
+                    if (escaped != null || escapeError == null || escapeError.IndexOf("resolves outside the bundle", StringComparison.Ordinal) < 0)
+                        failures.Add("bundle containment: " + escape.Label + " was followed outside the bundle (converted="
+                            + (escaped != null) + ", error=" + (escapeError ?? "(none)") + ")");
+                }
+                // WITNESS: the same bundle under its own manifest converts, so each refusal above is about the path.
+                File.WriteAllText(Path.Combine(bundle, "manifest.json"), ManifestJson, new UTF8Encoding(false));
+                string ownError;
+                if (BundleConverter.ConvertBundle(bundle, "Escape Skin", out ownError) == null)
+                    failures.Add("WITNESS: bundle containment: the escape fixture's own manifest did not convert: " + ownError);
+                // A UNC basePath never names a share: leading separators are bundle-relative, so it stays under the
+                // bundle (nothing here touches the network: the path is only resolved, never opened).
+                string uncDir, uncError;
+                if (BundleConverter.TryResolveSpritesDir(bundle, "//unreachable.invalid/share/sprites/", out uncDir, out uncError)
+                    && !uncDir.StartsWith(Path.GetFullPath(bundle) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                    failures.Add("bundle containment: a UNC basePath resolved to '" + uncDir + "', outside the bundle");
+            }
+            catch (Exception ex)
+            {
+                failures.Add("bundle containment fixture threw -- " + ex.Message);
+            }
+            finally
+            {
+                try { if (Directory.Exists(escapeRoot)) Directory.Delete(escapeRoot, true); } catch { /* best-effort cleanup */ }
+            }
+
             var sb = new StringBuilder();
             sb.AppendLine("bundle self-test: manifest.json + animation.json -> ShimejiConfig -> accepted pet; one WebP through dwebp");
             if (failures.Count == 0)

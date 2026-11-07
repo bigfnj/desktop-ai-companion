@@ -722,7 +722,16 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 // (Ralsei's gaze fallback is his sit pose), so frames and velocities agree and the collapse
                 // would happily merge them -- keeping whichever came first and, half the time, discarding the
                 // faceCursor tag that is the only difference between the two.
-                int existing = kept.FindIndex(k => k.IsGaze == e.IsGaze && SameFrames(k, e) && MirrorsOrDuplicates(k, e));
+                //
+                // Whether it LAUNCHES has to match too, for the same reason one step further. An embedded Jump
+                // declares its launch on the action (Class, VelocityParam), not in a pose, so its poses read
+                // Velocity="0,0" and a jump drawn with the rest pose's own art matches a Stay pose frame for
+                // frame and velocity for velocity. Merged, whichever came first survived: the jump vanished
+                // into a stationary pose, or, in the other order, the rest pose launched into an arc (Codex
+                // finding C01). Class and Type are not compared wholesale on purpose: a left/right pair with
+                // different Types is still one behaviour, and the arc is the one difference BuildSpoke makes.
+                int existing = kept.FindIndex(k => k.IsGaze == e.IsGaze && Launches(k) == Launches(e)
+                                                   && SameFrames(k, e) && MirrorsOrDuplicates(k, e));
                 if (existing < 0) { kept.Add(e); continue; }
                 // Prefer the LEFTWARD variant: unmirrored art is what the engine treats as left-facing.
                 // Whichever loses, record it: its source action is real and converted, just merged into an
@@ -2794,6 +2803,16 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             var ceilingConverted = new List<string>();
             var jumpConverted = new List<string>();
             var riseFlattened = new List<string>();
+            // The jumps the pet CARRIES, read from what was emitted: an animation BuildSpoke gives the arc
+            // (Launches), or an action merged into one. Reading QualifiesAsJump off config.Actions instead named
+            // every floor jump as converted, including one that never became an animation -- a jump collapsed into
+            // a stationary sibling before CollapseDirectionPairs compared Launches (Codex finding C01), or one
+            // whose poses have no image, so FramesOf gave it no frames and it was never a spoke.
+            var emittedJumps = new HashSet<string>(StringComparer.Ordinal);
+            foreach (Emitted e in emitted)
+                if (Launches(e) && e.Source.Name != null) emittedJumps.Add(e.Source.Name);
+            foreach (KeyValuePair<string, Emitted> merged in CollapsedInto)
+                if (Launches(merged.Value)) emittedJumps.Add(merged.Key);
             foreach (ShimejiAction a in config.Actions)
             {
                 // No pose-count conjunct here: IsWallAction and IsCeilingAction each reject an empty
@@ -2801,7 +2820,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 if (IsWallAction(a)) wallConverted.Add(a.Name);
                 if (IsCeilingAction(a)) ceilingConverted.Add(a.Name);
                 if (a == fallAction || a == dragAction || !IsFloorAction(a)) continue;
-                if (QualifiesAsJump(a)) jumpConverted.Add(a.Name);
+                if (QualifiesAsJump(a)) { if (a.Name != null && emittedJumps.Contains(a.Name)) jumpConverted.Add(a.Name); }
                 else if (RiseIsFlattened(a)) riseFlattened.Add(a.Name);
             }
             // Region actions the emitter LEFT OUT because nothing could reach them: wall art on a skin with

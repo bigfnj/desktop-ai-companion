@@ -48,7 +48,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             string name = !string.IsNullOrWhiteSpace(skinName) ? skinName.Trim()
                 : (!string.IsNullOrWhiteSpace(info.Name) ? info.Name.Trim() : "Shimeji");
 
-            string spritesDir = ResolveSpritesDir(bundleDir, info.SpritesBasePath);
+            string spritesDir;
+            if (!TryResolveSpritesDir(bundleDir, info.SpritesBasePath, out spritesDir, out error)) return null;
             Func<string, Bitmap> load = WebPLoader.ForDirectory(spritesDir);
 
             SpriteSheet sheet;
@@ -83,13 +84,22 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             return result;
         }
 
-        private static string ResolveSpritesDir(string bundleDir, string basePath)
+        /// <summary>
+        /// The manifest's sprites.basePath, resolved INSIDE the bundle folder, or false with the reason.
+        ///
+        /// The manifest is input from whoever made the bundle, and the join used to be a bare Path.Combine: a
+        /// rooted value replaces the bundle folder outright, so an absolute, drive-qualified or UNC basePath (a
+        /// remote SMB share) or one climbing out through ../ made the converter open files outside the bundle
+        /// (audit A0070). A leading separator is read as bundle-relative, the way a pose image name's is, and
+        /// the full path must then sit under the bundle folder; <see cref="WebPLoader.ContainedPath"/> holds the
+        /// rule for this and for each sprite name the filePattern produces.
+        /// </summary>
+        internal static bool TryResolveSpritesDir(string bundleDir, string basePath, out string spritesDir, out string error)
         {
-            string rel = (basePath ?? "sprites/")
-                .Replace('/', Path.DirectorySeparatorChar)
-                .Replace('\\', Path.DirectorySeparatorChar)
-                .TrimEnd(Path.DirectorySeparatorChar);
-            return string.IsNullOrEmpty(rel) ? bundleDir : Path.Combine(bundleDir, rel);
+            string reason;
+            spritesDir = WebPLoader.ContainedPath(bundleDir, basePath ?? "sprites/", out reason);
+            error = spritesDir == null ? "bundle sprites.basePath '" + basePath + "' refused: " + reason : null;
+            return spritesDir != null;
         }
     }
 }
