@@ -238,6 +238,16 @@ namespace DesktopAICompanion.RemembranceModule
                         Thread.Sleep(80);
                         module.StopRecordingForSelfTest();
                     };
+                    // Every line logged before a clear, kept for the leak check at the end (N-audit-1106-285): the clears
+                    // scope the checks that look for one line, and the leak check used to see only the lines after the
+                    // last of them, so the recording's summary on your own prompt file, its automatic follow-up and the
+                    // failed follow-up were never checked for the prompts, the transcript or the answer.
+                    var everyLine = new List<string>();
+                    Action clearLog = delegate
+                    {
+                        everyLine.AddRange(host.LoggedLines);
+                        host.ClearLoggedLines();
+                    };
                     try
                     {
                         OptionsPane pane = host.OptionsPanes[0];
@@ -326,7 +336,7 @@ namespace DesktopAICompanion.RemembranceModule
 
                         // ---- on: a recording's summary on your file, then the follow-up through Codex ----
                         fake.Clear();
-                        host.ClearLoggedLines();
+                        clearLog();
                         recordOnce();
                         bool followed = pumpUntil(delegate { return module.StatusLine().StartsWith("Transcript + summary + follow-up: ", StringComparison.Ordinal); });
                         FakeCliCall summaryCall = findCall("SENTINEL-OWN-PROMPT");
@@ -405,7 +415,7 @@ namespace DesktopAICompanion.RemembranceModule
                         System.IO.File.Delete(promptFile);
                         System.IO.File.Delete(followUpFile);
                         fake.Clear();
-                        host.ClearLoggedLines();
+                        clearLog();
                         recordOnce();
                         string noneLine = null;
                         bool noneSaid = pumpUntil(delegate { noneLine = module.StatusLine(); return noneLine.StartsWith("Transcript + summary (follow-up failed: ", StringComparison.Ordinal); });
@@ -448,6 +458,38 @@ namespace DesktopAICompanion.RemembranceModule
                             manualDone && findCall("SENTINEL-SCREEN-PROMPT-31cd") != null && findCall("SENTINEL-FOLLOWUP-PROMPT") != null &&
                             System.IO.File.Exists(System.IO.Path.Combine(scratch, "Orchard - follow-up.md")) && s.Get(SummaryPrompt.FileKey, null) == promptFile);
 
+                        // ---- a transcript not named "*.transcript.txt", the follow-up reading it too (N-audit-1106-279) ----
+                        // "Notes 1.txt" summarizes to "Notes 1.summary.md", and no "Notes 1.transcript.txt" exists: the follow-up
+                        // sends the file that was picked. Then, that file gone, a press on the latest summary says the transcript
+                        // is not there, never that it could not be read.
+                        string notes = System.IO.Path.Combine(scratch, "Notes 1.txt");
+                        System.IO.File.WriteAllText(notes, NextTranscript);
+                        host.PickedFiles = new List<string> { notes };
+                        Dictionary<string, string> notesScreen = CopyOf(pane.Load());
+                        notesScreen[FollowUp.InputKey] = FollowUp.InputBothDisplay;
+                        fake.Clear();
+                        Press(PaneActionFor(pane, "Try it on a file", "Summarize a transcript…"), notesScreen, ui, TimeSpan.FromSeconds(5));
+                        string notesLine = null;
+                        bool notesDone = pumpUntil(delegate { notesLine = module.StatusLine(); return notesLine.StartsWith("Summarized", StringComparison.Ordinal); });
+                        FakeCliCall notesCall = findCall("SENTINEL-FOLLOWUP-PROMPT");
+                        string notesPrompt = PromptOf(notesCall);
+                        check("follow-up: a transcript picked by any .txt name goes with its summary when the follow-up reads both (N-audit-1106-279): " +
+                              (notesLine == null ? "(no Status line)" : notesLine.Split(new[] { "  |  " }, StringSplitOptions.None)[0]),
+                            notesDone && notesLine.StartsWith("Summarized + follow-up: Notes 1", StringComparison.Ordinal) && notesCall != null &&
+                            notesPrompt.Contains("TRANSCRIPT:") && notesPrompt.Contains("orchard harvest moves to Thursday") &&
+                            System.IO.File.Exists(System.IO.Path.Combine(scratch, "Notes 1 - follow-up.md")));
+                        check("WITNESS follow-up: no transcript of the summary's own name was there to find",
+                            !System.IO.File.Exists(System.IO.Path.Combine(scratch, "Notes 1.transcript.txt")));
+                        System.IO.File.Delete(notes);
+                        fake.Clear();
+                        Press(PaneActionFor(pane, FollowUp.CardGroup, FollowUp.RunLabel), onScreen, ui, TimeSpan.FromSeconds(5));
+                        string goneLine = null;
+                        bool goneSaid = pumpUntil(delegate { goneLine = module.StatusLine(); return goneLine.StartsWith("Follow-up failed (", StringComparison.Ordinal); });
+                        check("follow-up: a transcript that is not there is said so, never \"could not be read\" (N-audit-1106-279): " +
+                              (goneLine == null ? "(no Status line)" : goneLine.Split(new[] { "  |  " }, StringSplitOptions.None)[0]),
+                            goneSaid && goneLine.StartsWith("Follow-up failed (there is no transcript beside the summary): Notes 1", StringComparison.Ordinal) &&
+                            findCall("SENTINEL-FOLLOWUP-PROMPT") == null);
+
                         // ---- a cloud summary sends it too, as its prompt ----
                         const string CloudKey = "sk-test-cloud-0123456789abcdef";
                         var provider = new FakeCloudProvider { AcceptKey = CloudKey };
@@ -472,8 +514,10 @@ namespace DesktopAICompanion.RemembranceModule
                             keySaved && cloudDone && chat != null && chat[3].Contains("SENTINEL-SCREEN-PROMPT-31cd") && chat[3].Contains("orchard harvest moves") &&
                             !chat[3].Contains("Topics: a part"));
 
-                        check("remembrance 2.8.0 follow-up: no log line carries the prompts, the transcript, the summary or the follow-up's answer",
-                            !host.LoggedLines.Exists(l => l.Contains("SENTINEL-") || l.Contains("orchard harvest") || l.Contains("QZX-SUM") || l.Contains("QZX-FUP")));
+                        everyLine.AddRange(host.LoggedLines);
+                        check("remembrance 2.8.0 follow-up: no log line carries the prompts, the transcript, the summary or the follow-up's answer (" +
+                              everyLine.Count.ToString(System.Globalization.CultureInfo.InvariantCulture) + " lines, N-audit-1106-285)",
+                            !everyLine.Exists(l => l.Contains("SENTINEL-") || l.Contains("orchard harvest") || l.Contains("QZX-SUM") || l.Contains("QZX-FUP")));
                         check("remembrance 2.8.0 follow-up: ...and the local summarizer was never asked", localSummaries == 0);
                     }
                     finally { try { module.Shutdown(); } catch { } }
@@ -488,6 +532,66 @@ namespace DesktopAICompanion.RemembranceModule
                 SummaryPrompt.PickSaveTarget = savedSaveTarget;
                 SynchronizationContext.SetSynchronizationContext(previous);
                 try { storage.Dispose(); } catch { }
+                try { System.IO.Directory.Delete(scratch, true); } catch { }
+            }
+        }
+
+        /// <summary>
+        /// "Run the follow-up on the latest summary" picks only from the summaries this module wrote (N-audit-1106-039): in
+        /// a scratch storage folder, ours by each layout's shape (flat in the root, per capture, by date) beside newer
+        /// summaries that are not: one in a folder Remembrance did not name (as "recording.summary.md" too, the name a
+        /// capture folder holds), one of another name in a day folder and in the root, and one stamped for another day.
+        /// </summary>
+        private static void SelfCheckLatestSummaryShapes(Action<string, bool> check)
+        {
+            string scratch = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "dp-remembrance-latest-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            DateTime t0 = DateTime.UtcNow.AddHours(-6);
+            Func<string, int, string> plant = delegate(string relative, int hoursAfter)
+            {
+                string path = System.IO.Path.Combine(scratch, relative);
+                System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path));
+                System.IO.File.WriteAllText(path, "a summary");
+                System.IO.File.SetLastWriteTimeUtc(path, t0.AddHours(hoursAfter));
+                return path;
+            };
+            try
+            {
+                string flat = plant("Standup - 2026-10-01 09-00-00.summary.txt", 0);
+                string perCapture = plant(System.IO.Path.Combine("2026-10-29 09-30 Standup", "recording.summary.md"), 1);
+                string byDate = plant(System.IO.Path.Combine("2026-10-30", "2026-10-30 10-00 Review.summary.md"), 2);
+                var foreign = new List<string>
+                {
+                    plant(System.IO.Path.Combine("Notes", "budget.summary.md"), 4),
+                    plant(System.IO.Path.Combine("Notes", "recording.summary.md"), 4),
+                    plant(System.IO.Path.Combine("2026-10-30", "my notes.summary.md"), 4),
+                    plant(System.IO.Path.Combine("2026-10-30", "2026-10-29 10-00 Elsewhere.summary.md"), 4),
+                    plant("diary.summary.md", 4),
+                };
+                List<string> ours = CaptureStore.ModuleSummaries(scratch);
+                check("latest summary: the walk takes the summaries Remembrance wrote, flat, per capture and by date (" +
+                      ours.Count.ToString(System.Globalization.CultureInfo.InvariantCulture) + " found)",
+                    ours.Count == 3 && ours.Contains(flat) && ours.Contains(perCapture) && ours.Contains(byDate));
+
+                var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                host.SettingsFor(Id).Set("storageLocation", scratch);
+                host.SettingsFor(Id).Set("summaryModelsCache", "alpha:1b");
+                var module = new RemembranceModule();
+                module.Init(host);
+                try
+                {
+                    string latest = module.LatestSummaryPath();
+                    check("latest summary: the follow-up never picks a newer summary Remembrance did not write (N-audit-1106-039): " +
+                          (latest == null ? "none" : latest.Substring(scratch.Length)),
+                        latest == byDate);
+                    check("WITNESS latest summary: each summary it must pass over is newer than the one it picks",
+                        foreign.TrueForAll(f => System.IO.File.GetLastWriteTimeUtc(f) > System.IO.File.GetLastWriteTimeUtc(byDate)));
+                }
+                finally { try { module.Shutdown(); } catch { } }
+            }
+            catch (Exception ex) { check("latest summary: the checks threw " + ex.GetType().Name + ": " + ex.Message, false); }
+            finally
+            {
                 try { System.IO.Directory.Delete(scratch, true); } catch { }
             }
         }

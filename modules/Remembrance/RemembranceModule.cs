@@ -101,7 +101,22 @@ namespace DesktopAICompanion.RemembranceModule
                                  //        counts the recordings with audio and no transcript, and the Status line says
                                  //        how many and when the purge reaches the oldest (N-audit-1106-038). The self-test
                                  //        of a rename whose target appeared after the plan now requires the move's own
-                                 //        refusal, ERROR_ALREADY_EXISTS (N-shimeji-1106-06).
+                                 //        refusal, ERROR_ALREADY_EXISTS (N-shimeji-1106-06). A transcript whose title
+                                 //        opens with "[Transcription pending]" is no longer taken for a stub, so a failed
+                                 //        re-run leaves it as it was (N-cxr-w1-01). A whisper-cli whose job Windows
+                                 //        refuses is stopped and the stub says why, where it ran on outside the job and
+                                 //        could outlive the app (N-cxr-w1-02). "Run the follow-up on the latest
+                                 //        summary" picks only from the summaries Remembrance wrote, by the purge's own
+                                 //        shapes, where the newest summary in any folder under the storage location could
+                                 //        be sent to the CLI (N-audit-1106-039). A follow-up that reads the transcript
+                                 //        too sends the file "Summarize a transcript..." was given, whatever its name,
+                                 //        and a transcript that is not there is said so, not called unreadable
+                                 //        (N-audit-1106-279). A snapshot refused before its capture starts says why,
+                                 //        aloud and on the Status line; it was only logged (N-audit-1106-281).
+                                 //        "Transcribe a WAV file..." uses the host's file picker, so the self-test can
+                                 //        press it (N-audit-1106-282). Self-test: the Network Protection read's key order
+                                 //        is pinned on chosen values, the failed-save check claims only the settings
+                                 //        file, and the log-leak check reads every line (N-audit-1106-283, -284, -285).
                                  // 2.10.0: one Claude Code sign-in, shared with AI Brain (host 1.8.0's
                                  //        IHostCredentials, BACKLOG N-cli-token-02, the owner's decision of
                                  //        2026-10-29), behind the ClaudeCodeSignIn grant, so MinHostVersion rises to
@@ -1375,7 +1390,20 @@ namespace DesktopAICompanion.RemembranceModule
                     Announce(ok ? "Snapshot saved." : "Snapshot failed.");
                 });
             }
-            catch (Exception ex) { try { _host.Log(Id, "snapshot failed: " + ex.Message); } catch { } }
+            catch (Exception ex)
+            {
+                try { _host.Log(Id, "snapshot failed: " + ex.Message); } catch { }
+                // A snapshot refused before its capture starts (no usable storage folder, one that cannot be created) is
+                // said, in the words a refused recording start uses: it was only logged, so the user who pressed the
+                // hotkey heard and saw nothing (N-audit-1106-281). The Status line carries it only while nothing records:
+                // during a recording that line says what is being recorded, and the announcement is enough.
+                if (!_recording)
+                {
+                    _lastStatus = "Snapshot failed: " + ex.Message;
+                    NotifyInfoChanged();
+                }
+                Announce("Snapshot failed. " + ex.Message);
+            }
         }
 
         /// <summary>The capture behind TakeSnapshot. A seam: the self-test swaps it for a probe that records
@@ -2930,13 +2958,14 @@ namespace DesktopAICompanion.RemembranceModule
                 return "✗ Set the whisper-cli path and a model first.";
             try
             {
-                using (var dlg = new System.Windows.Forms.OpenFileDialog())
+                // The host's picker, as "Summarize a transcript…" uses (N-audit-1106-282): this opened a WinForms
+                // OpenFileDialog of its own, which no self-test can press, so the busy span, the output path and the
+                // stub rules of this press were never run by one. The host's dialog offers "All files" beside the
+                // filter, as the old one did, and checks the file exists.
                 {
-                    dlg.Title = "Choose a WAV recording to transcribe";
-                    dlg.Filter = "WAV audio (*.wav)|*.wav|All files (*.*)|*.*";
-                    dlg.CheckFileExists = true;
-                    if (dlg.ShowDialog() != System.Windows.Forms.DialogResult.OK) return "Unchanged.";
-                    string wav = dlg.FileName;
+                    IReadOnlyList<string> picked = _host.PickFilesToOpen("Choose a WAV recording to transcribe", "WAV audio", new[] { "wav" });
+                    if (picked == null || picked.Count == 0) return "Unchanged.";
+                    string wav = picked[0];
                     string transcript = System.IO.Path.Combine(
                         System.IO.Path.GetDirectoryName(wav),
                         System.IO.Path.GetFileNameWithoutExtension(wav) + ".transcript.txt");
@@ -3544,6 +3573,9 @@ namespace DesktopAICompanion.RemembranceModule
                 if (name.EndsWith(".transcript", StringComparison.OrdinalIgnoreCase))
                     name = name.Substring(0, name.Length - ".transcript".Length);
                 string summaryPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(transcriptPath), name + CaptureStore.SummarySuffix);
+                // The follow-up that reads the transcript too sends THIS file with the summary, whatever its name
+                // (N-audit-1106-279): "notes.txt" summarizes to "notes.summary.md", and no "notes.transcript.txt" exists.
+                NotePickedTranscript(summaryPath, transcriptPath);
                 // The prompt as the card shows it (2.8.0), the file read now, for this summary.
                 SummaryPrompt.Resolved manualPrompt = ResolveSummaryPrompt(SummaryPrompt.UsesFile(shown), SummaryPrompt.FileOf(shown));
                 string manualInstructions = manualPrompt.Text;
@@ -4759,8 +4791,8 @@ namespace DesktopAICompanion.RemembranceModule
 
             // The registry read is machine-dependent, so what is pinned is the MEANING of a value (RA-163). The
             // line this replaces, "answers without throwing", could fail only on a value outside 0..2 already
-            // sitting in this machine's registry, and no change to the method reached FAIL; the machine's own
-            // value stays as the witness that whatever is there is something the interpreter accepts.
+            // sitting in this machine's registry, and no change to the method reached FAIL. The order of the two keys is
+            // pinned below on chosen values, never on this machine's own.
             check("a DWORD 1 reads as Network Protection ON", WhisperInstaller.InterpretNetworkProtectionValue(1) == 1);
             check("the decimal string '2' reads as audit mode", WhisperInstaller.InterpretNetworkProtectionValue("2") == 2);
             check("WITNESS 0 reads as off", WhisperInstaller.InterpretNetworkProtectionValue(0) == 0);
@@ -4771,9 +4803,28 @@ namespace DesktopAICompanion.RemembranceModule
                 WhisperInstaller.InterpretNetworkProtectionValue(new byte[] { 1 }) == null
                 && WhisperInstaller.InterpretNetworkProtectionValue("on") == null
                 && WhisperInstaller.InterpretNetworkProtectionValue(null) == null);
-            int? np = WhisperInstaller.NetworkProtectionState();
-            check("WITNESS this machine's own Network Protection value, if any, is one the interpreter accepts",
-                np == null || (np.Value >= 0 && np.Value <= 2));
+            // The ORDER of the read, on values chosen here (N-audit-1106-283). This replaced a WITNESS that read this
+            // machine's registry and asserted the answer was 0..2 or null, which is all the method can return.
+            Func<object, object, Func<string, object>> keysHolding = delegate(object policy, object effective)
+            {
+                return key => string.Equals(key, WhisperInstaller.NetworkProtectionKeys[0], StringComparison.Ordinal) ? policy : effective;
+            };
+            check("Network Protection: the policy key is read first",
+                WhisperInstaller.NetworkProtectionKeys.Length == 2
+                && WhisperInstaller.NetworkProtectionKeys[0].StartsWith(@"SOFTWARE\Policies\", StringComparison.Ordinal));
+            check("Network Protection: a managed machine's policy value wins over the effective one",
+                WhisperInstaller.NetworkProtectionStateFrom(keysHolding(1, 0)) == 1);
+            check("Network Protection: with no policy value, or one it does not understand, the effective value is read",
+                WhisperInstaller.NetworkProtectionStateFrom(keysHolding(null, 2)) == 2
+                && WhisperInstaller.NetworkProtectionStateFrom(keysHolding("on", 1)) == 1);
+            check("Network Protection: a key that cannot be read is passed over",
+                WhisperInstaller.NetworkProtectionStateFrom(delegate(string key)
+                {
+                    if (key == WhisperInstaller.NetworkProtectionKeys[0]) throw new System.Security.SecurityException("denied");
+                    return 1;
+                }) == 1);
+            check("WITNESS Network Protection: neither key holding a value reads as unknown",
+                WhisperInstaller.NetworkProtectionStateFrom(keysHolding(null, null)) == null);
 
             check("the install root is under the module's own storage",
                 WhisperInstaller.InstallRoot(@"c:\data\remembrance").Replace('/', '\\') == @"c:\data\remembrance\whisper");
@@ -5126,6 +5177,7 @@ namespace DesktopAICompanion.RemembranceModule
             SelfCheckStopOutcomes(check);
             SelfCheckFlushSingleShot(check);
             SelfCheckSnapshotOffThread(check);
+            SelfCheckSnapshotRefused(check);
             SelfCheckSummaryCoverage(check);
             SelfCheckWhisperLimit(check);
             SelfCheckLookupBound(check);
@@ -5180,6 +5232,8 @@ namespace DesktopAICompanion.RemembranceModule
             // Lane feature/remembrance-next (2.8.0): the summary's prompt, built in or the user's file, and the follow-up after
             // the summary (RemembranceModule.FollowUpSelfCheck.cs).
             SelfCheckRemembranceNext(check);
+            // Burn-down (N-audit-1106-039): the latest summary is one this module wrote.
+            SelfCheckLatestSummaryShapes(check);
             // Lane feature/host-abi-180: the shared Claude Code sign-in (RemembranceModule.SharedSignIn.cs).
             SelfCheckSharedSignIn(check);
 
@@ -5654,6 +5708,48 @@ namespace DesktopAICompanion.RemembranceModule
             }
         }
 
+        /// <summary>A snapshot refused before its capture starts is said, not only logged (N-audit-1106-281): the storage
+        /// location saved as "Recordings", not a full path, which the capture store refuses (N-followups-02), so the press
+        /// never reaches the capture. The announcement and the Status line both carry the reason.</summary>
+        private static void SelfCheckSnapshotRefused(Action<string, bool> check)
+        {
+            Func<string, bool> savedCapture = SnapshotCapture;
+            SynchronizationContext previous = SynchronizationContext.Current;
+            var ui = new RecorderSelfCheck.QueueSynchronizationContext();
+            int calls = 0;
+            try
+            {
+                SynchronizationContext.SetSynchronizationContext(ui);
+                SnapshotCapture = delegate(string png) { Interlocked.Increment(ref calls); return true; };
+                var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                host.SettingsFor(Id).Set("storageLocation", "Recordings");
+                host.SettingsFor(Id).Set("summaryModelsCache", "alpha:1b");
+                var module = new RemembranceModule();
+                module.Init(host);
+                try
+                {
+                    module.TakeSnapshotForSelfTest();
+                    ui.Drain();
+                    check("WITNESS a snapshot with no usable storage folder never reaches the capture",
+                        Interlocked.CompareExchange(ref calls, 0, 0) == 0);
+                    string said = null;
+                    foreach (string line in host.SaidLines)
+                        if (line.StartsWith("Snapshot failed. ", StringComparison.Ordinal)) said = line;
+                    check("a snapshot refused before its capture starts says so, with the reason (N-audit-1106-281)",
+                        said != null && said.Contains(CaptureStore.RelativeRootReason));
+                    check("a snapshot refused before its capture starts is on the Status line (N-audit-1106-281)",
+                        module.StatusLineForSelfTest().StartsWith("Snapshot failed: " + CaptureStore.RelativeRootReason, StringComparison.Ordinal));
+                }
+                finally { try { module.Shutdown(); } catch { } }
+            }
+            catch (Exception ex) { check("snapshot refused: " + ex.Message, false); }
+            finally
+            {
+                SnapshotCapture = savedCapture;
+                SynchronizationContext.SetSynchronizationContext(previous);
+            }
+        }
+
         /// <summary>A map-reduce that stops folding before the last part says so, in the text and in the
         /// message the caller logs; a model that runs out of time is not reported as the user cancelling
         /// (F173). The model is a delegate here, so no server is involved.</summary>
@@ -5759,6 +5855,7 @@ namespace DesktopAICompanion.RemembranceModule
                     && !Transcriber.RecordedLine(null).Contains(DateTime.Now.Year.ToString(CultureInfo.InvariantCulture)));
 
                 SelfCheckTranscriptKeeping(check, scratch, wav, startedAt);
+                SelfCheckJobRefused(check, wav);
             }
             catch (Exception ex) { check("wav length: " + ex.Message, false); }
             finally
@@ -5844,9 +5941,94 @@ namespace DesktopAICompanion.RemembranceModule
                 string freshAfter = System.IO.File.ReadAllText(fresh);
                 check("WITNESS a run that succeeds replaces that stub with the words",
                     freshRan && freshAfter.Contains("Alice: hello.") && !Transcriber.IsPendingStub(freshAfter));
+
+                // ---- a title that opens with the marker is a title, not a stub (N-cxr-w1-01) ----
+                // The meeting's name is the header's first line, and "Transcribe a WAV file..." names it after the file.
+                string titled = System.IO.Path.Combine(scratch, "titled.transcript.txt");
+                System.IO.File.WriteAllText(titled, Transcriber.PendingMarker + "Standup\r\nRecorded: earlier\r\n" +
+                                                    new string('-', 48) + "\r\n\r\nAlice: we ship on Friday.\r\n");
+                string titledBefore = System.IO.File.ReadAllText(titled);
+                string duringTitled = null;
+                Transcriber.Whisper = delegate(string w, string exe, string model, out bool ok, out string why)
+                {
+                    duringTitled = System.IO.File.ReadAllText(titled);
+                    ok = false;
+                    why = "simulated: whisper-cli exited 3";
+                    return "";
+                };
+                bool titledRan;
+                Transcriber.Transcribe(wav, titled, "", "", Transcriber.PendingMarker + "Standup", null, startedAt, out titledRan);
+                check("a transcript whose title opens with the pending marker is kept through a failed re-run, never read as a stub (N-cxr-w1-01)",
+                    !titledRan && duringTitled == titledBefore && System.IO.File.ReadAllText(titled) == titledBefore);
+                check("text with the marker and no header of ours is kept as the user's, not replaced as a stub",
+                    !Transcriber.IsPendingStub(Transcriber.PendingMarker + "my own notes\n"));
+                string titledStub = System.IO.Path.Combine(scratch, "titled-stub.transcript.txt");
+                Transcriber.WriteStub(titledStub, Transcriber.PendingMarker + "Standup", null, startedAt, "simulated: titled reason");
+                string titledStubText = System.IO.File.ReadAllText(titledStub);
+                check("WITNESS a stub under that same title is still a stub, its reason read from the body",
+                    Transcriber.IsPendingStub(titledStubText) && Transcriber.PendingReason(titledStubText) == "simulated: titled reason");
             }
             catch (Exception ex) { check("transcript keeping: " + ex.Message, false); }
             finally { Transcriber.Whisper = savedRun; }
+        }
+
+        /// <summary>
+        /// A whisper-cli whose kill-on-close job Windows refuses is ended and the run says why (N-cxr-w1-02). The job is
+        /// refused through Transcriber.AttachJob, and Windows PowerShell sleeping for 15 seconds stands in for whisper-cli
+        /// through Transcriber.StartChild, so the real run is exercised with a child that does nothing and ends by itself
+        /// even if this check's subject regresses.
+        /// </summary>
+        private static void SelfCheckJobRefused(Action<string, bool> check, string wav)
+        {
+            Func<ProcessStartInfo, Process> savedStart = Transcriber.StartChild;
+            Func<Process, IDisposable> savedAttach = Transcriber.AttachJob;
+            Process stand = null;
+            bool aliveWhenRefused = false;
+            try
+            {
+                string sleeper = System.IO.Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe");
+                if (!System.IO.File.Exists(sleeper))
+                {
+                    check("job refusal: Windows PowerShell, the stand-in child, is not on this machine", false);
+                    return;
+                }
+                Transcriber.StartChild = delegate(ProcessStartInfo psi)
+                {
+                    psi.ArgumentList.Clear();
+                    foreach (string arg in new[] { "-NoProfile", "-NonInteractive", "-Command", "Start-Sleep -Seconds 15" })
+                        psi.ArgumentList.Add(arg);
+                    return Process.Start(psi);
+                };
+                Transcriber.AttachJob = delegate(Process child)
+                {
+                    try
+                    {
+                        stand = Process.GetProcessById(child.Id);
+                        aliveWhenRefused = !stand.HasExited;
+                    }
+                    catch { }
+                    return null;
+                };
+                bool ok;
+                string why;
+                Transcriber.Whisper(wav, sleeper, wav, out ok, out why);
+                check("WITNESS the stand-in whisper-cli was running when its job was refused", aliveWhenRefused);
+                check("a whisper-cli whose job Windows refuses is not run on: the run fails and says why (N-cxr-w1-02)",
+                    !ok && why == Transcriber.JobRefusedReason);
+                check("a whisper-cli whose job Windows refuses has ended by the time the run returns (N-cxr-w1-02)",
+                    stand != null && stand.HasExited);
+            }
+            catch (Exception ex) { check("job refusal: " + ex.Message, false); }
+            finally
+            {
+                Transcriber.StartChild = savedStart;
+                Transcriber.AttachJob = savedAttach;
+                if (stand != null)
+                {
+                    try { if (!stand.HasExited) stand.Kill(true); } catch { }
+                    stand.Dispose();
+                }
+            }
         }
 
         /// <summary>A release lookup that gets no answer gives up at its own bound (F184).</summary>
@@ -6228,7 +6410,12 @@ namespace DesktopAICompanion.RemembranceModule
                 check("...and the log says which write did not land",
                     logged.Count == loggedBefore + 1 && logged[loggedBefore].Contains("Whisper paths")
                     && logged[loggedBefore].Contains("could not be written"));
-                check("...and the settings still read the paths that were there before the click",
+                // WHAT THIS READS IS THE FILE, NOT THE SESSION (N-audit-1106-284). The fake puts its values back to the last
+                // save that landed, which is what the settings FILE holds and the next launch reads; the shipped host's
+                // one handle, which this module keeps from Init, still carries the new paths for the rest of the session,
+                // as the answer says ("applies to this session only"). The label used to claim the module reads the old
+                // paths again, which only the fake does.
+                check("...and the settings file still holds the paths from before the click, what the next launch reads",
                     settings.Get("whisperExe", "") == @"c:\before\whisper-cli.exe"
                     && settings.Get("whisperModel", "") == @"c:\before\ggml-base.en.bin");
 
@@ -9492,9 +9679,11 @@ namespace DesktopAICompanion.RemembranceModule
                 System.IO.File.WriteAllBytes(exe, new byte[16]);
                 using (System.IO.FileStream f = System.IO.File.Create(model)) f.SetLength(11L * 1024 * 1024);
 
+                string lastTranscriptPath = null;
                 TranscribeWav = delegate(string wav, string transcriptPath, string whisperExe, string modelPath,
                     string meetingName, IReadOnlyList<string> attendees, DateTimeOffset? recordedAt, out bool did)
                 {
+                    lastTranscriptPath = transcriptPath;
                     transcribing.Set();
                     transcribeGate.Wait(TimeSpan.FromSeconds(10));
                     if (transcriptionThrows) throw new InvalidOperationException("simulated: whisper-cli died");
@@ -9658,6 +9847,25 @@ namespace DesktopAICompanion.RemembranceModule
                     summarizing.Wait(TimeSpan.FromSeconds(10));
                     summaryGate.Set();
                     check("...and clears it when the summary is written", pumpUntil(delegate { return BusyNow(host) == ""; }));
+
+                    // ---- "Transcribe a WAV file..." through the host's picker raises it as transcribing (N-audit-1106-282) ----
+                    string pickedWav = System.IO.Path.Combine(scratch, "Standup notes.wav");
+                    System.IO.File.WriteAllBytes(pickedWav, new byte[44]);
+                    host.PickedFiles = new List<string> { pickedWav };
+                    transcribing.Reset();
+                    transcribeGate.Reset();
+                    lastTranscriptPath = null;
+                    string wavAnswer = Press(PaneActionFor(pane, "Try it on a file", "Transcribe a WAV file…"), CopyOf(pane.Load()), null,
+                        TimeSpan.FromSeconds(5)) ?? "(no answer)";
+                    string wavBusy = BusyNow(host);   // before anything is drained
+                    bool wavRan = transcribing.Wait(TimeSpan.FromSeconds(10));
+                    check("Transcribe a WAV file takes the file the host's picker gives and raises the flag as transcribing (N-audit-1106-282): " +
+                          wavAnswer + " " + wavBusy,
+                        wavRan && wavAnswer == "Transcribing Standup notes…" && BusyPhaseOf(wavBusy) == BusyTranscribing);
+                    transcribeGate.Set();
+                    check("...and writes the transcript beside the WAV as \"<name>.transcript.txt\", clearing the flag after (N-audit-1106-282)",
+                        pumpUntil(delegate { return BusyNow(host) == ""; })
+                        && lastTranscriptPath == System.IO.Path.Combine(scratch, "Standup notes.transcript.txt"));
 
                     // ---- the host's shutdown with two spans open ----
                     transcribing.Reset();

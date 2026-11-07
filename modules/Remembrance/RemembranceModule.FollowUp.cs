@@ -97,6 +97,26 @@ namespace DesktopAICompanion.RemembranceModule
             _lastSummaryPath = summaryPath;
         }
 
+        /// <summary>The summary "Summarize a transcript…" names, and the transcript the user picked for it, as one array
+        /// written whole so a reader never sees one path without its partner. A picked .txt not named "*.transcript.txt"
+        /// has no "&lt;name&gt;.transcript.txt" beside its summary, so a follow-up set to read the transcript too failed
+        /// on every such summary (N-audit-1106-279); TranscriptFor takes this pairing first.</summary>
+        private volatile string[] _pickedTranscript;
+
+        private void NotePickedTranscript(string summaryPath, string transcriptPath)
+        {
+            _pickedTranscript = new[] { summaryPath, transcriptPath };
+        }
+
+        /// <summary>The transcript a follow-up sends with <paramref name="summaryPath"/>: the one picked for it by
+        /// "Summarize a transcript…" this session, else "&lt;name&gt;.transcript.txt" beside it.</summary>
+        private string TranscriptFor(string summaryPath)
+        {
+            string[] picked = _pickedTranscript;
+            if (picked != null && string.Equals(picked[0], summaryPath, StringComparison.OrdinalIgnoreCase)) return picked[1];
+            return FollowUp.TranscriptPathFor(summaryPath);
+        }
+
         /// <summary>
         /// One follow-up: the summary's text (its header left off), the transcript too when the setting says so, and the
         /// user's follow-up prompt, read from its file now, in one call through the CLI chosen, written as "&lt;name&gt; -
@@ -155,8 +175,11 @@ namespace DesktopAICompanion.RemembranceModule
             string transcript = null;
             if (call.ReadsTranscript)
             {
-                string transcriptPath = FollowUp.TranscriptPathFor(summaryPath);
-                try { transcript = System.IO.File.Exists(transcriptPath) ? System.IO.File.ReadAllText(transcriptPath) : null; }
+                string transcriptPath = TranscriptFor(summaryPath);
+                // A transcript that is not there is said apart from one that is there and cannot be read (N-audit-1106-279):
+                // both used to say "could not be read", which sent the user looking for a permissions fault.
+                if (!System.IO.File.Exists(transcriptPath)) return "there is no transcript beside the summary";
+                try { transcript = System.IO.File.ReadAllText(transcriptPath); }
                 catch (Exception ex) { Log("follow-up: transcript-unreadable " + ex.GetType().Name); transcript = null; }
                 if (transcript == null) return "the transcript beside the summary could not be read";
                 if (!SummaryRoute.FitsOneCall(SummaryRoute.Utf8Bytes(transcript) + SummaryRoute.Utf8Bytes(summary)))
@@ -216,8 +239,8 @@ namespace DesktopAICompanion.RemembranceModule
         }
 
         /// <summary>The newest summary there is: the one this session wrote last, or the newest ".summary.md" (or pre-2.9.0
-        /// ".summary.txt") in the storage
-        /// folder, its capture folders and its day folders, whichever was written later. Null when there is none.</summary>
+        /// ".summary.txt") this module wrote in the storage folder, its capture folders and its day folders
+        /// (CaptureStore.ModuleSummaries, N-audit-1106-039), whichever was written later. Null when there is none.</summary>
         private string LatestSummaryPath()
         {
             string best = null;
@@ -235,18 +258,11 @@ namespace DesktopAICompanion.RemembranceModule
             consider(_lastSummaryPath);
             try
             {
-                string root = StorageRoot();
-                // Never a location that is not a full path (N-followups-02): listed against the current directory, it
-                // would hand a CLI the newest summary in whatever folder the app was started from.
-                if (CaptureStore.IsFullFolder(root) && System.IO.Directory.Exists(root))
-                {
-                    foreach (string ending in CaptureStore.SummarySuffixes)
-                    {
-                        foreach (string f in System.IO.Directory.EnumerateFiles(root, "*" + ending)) consider(f);
-                        foreach (string sub in System.IO.Directory.EnumerateDirectories(root))
-                            foreach (string f in System.IO.Directory.EnumerateFiles(sub, "*" + ending)) consider(f);
-                    }
-                }
+                // Only the summaries this module wrote, by the purge's shapes (N-audit-1106-039): every subfolder of the
+                // root used to be walked, so a storage location set to Documents offered the newest summary of any program
+                // or any folder of the user's to the CLI. Never a location that is not a full path either (N-followups-02):
+                // ModuleSummaries refuses one.
+                foreach (string f in CaptureStore.ModuleSummaries(StorageRoot())) consider(f);
             }
             catch (Exception ex) { Log("follow-up: the storage folder could not be listed (" + ex.GetType().Name + ")"); }
             return best;

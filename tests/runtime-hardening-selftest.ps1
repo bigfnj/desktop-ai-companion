@@ -3500,10 +3500,12 @@ Assert-True ($tryVerifyBody -cmatch 'WavAudio\.FromPcm\(new short\[clipSamples\]
 
 # "TRANSCRIBE A WAV FILE..." RAISES remembrance.busy FOR ITS RUN. The aibrain-standdown lane reads that flag to keep
 # its own model off the GPU while this module runs whisper-cli, and the module self-test drives every other span
-# (the stop path, both Validates, "Summarize a transcript...") through stand-ins. This one opens a WinForms file
-# dialog before it runs anything, which a headless self-test cannot get past, so its ORDER is pinned here: the span
-# is raised on the UI thread before the background run starts, and cleared in that run's finally, so a whisper-cli
-# that throws still clears it. The positive control is the run itself going through the TranscribeWav seam.
+# (the stop path, both Validates, "Summarize a transcript...") through stand-ins. This one opened a WinForms file
+# dialog before it ran anything, which a headless self-test could not get past, so its ORDER was pinned here; since
+# N-audit-1106-282 it takes the host's picker and the module self-test presses it too, and this keeps the half that
+# press does not reach: the span is raised on the UI thread before the background run starts, and cleared in that
+# run's finally, so a whisper-cli that throws still clears it. The positive control is the run itself going through
+# the TranscribeWav seam.
 $transcribeExistingBody = Get-MethodBody $remembranceModuleCode 'private string TranscribeExisting('
 Assert-True ($transcribeExistingBody.Length -gt 0 -and
     $transcribeExistingBody -cmatch 'TranscribeWav\(wav, transcript, whisperExe, model, name, null, null, out did\)') (
@@ -5512,11 +5514,16 @@ Assert-True ('output.PlayClip(owner, audio, wav, volume)' -cmatch '\.PlayClip\(o
 $rbTranscriber = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'modules\Remembrance\Transcriber.cs') -Raw)
 $rbRun = Get-MethodBody $rbTranscriber 'private static string RunWhisper('
 Assert-True ($rbRun.Length -gt 0) 'remembrance-1: RunWhisper was located'
-$rbStart = $rbRun.IndexOf('using (Process proc = Process.Start(psi))', [StringComparison]::Ordinal)
-$rbJob = $rbRun.IndexOf('using (WhisperJob job = WhisperJob.TryAttach(proc))', [StringComparison]::Ordinal)
+# Since N-cxr-w1-02 the start and the attach go through Transcriber.StartChild and Transcriber.AttachJob (seams the
+# module self-test uses to have the job refused); their defaults are asserted here, and what a refusal does is asserted by
+# --module-selftest=remembrance, which this order check cannot see.
+$rbStart = $rbRun.IndexOf('using (Process proc = StartChild(psi))', [StringComparison]::Ordinal)
+$rbJob = $rbRun.IndexOf('using (IDisposable job = AttachJob(proc))', [StringComparison]::Ordinal)
 $rbWait = $rbRun.IndexOf('proc.WaitForExit(', [StringComparison]::Ordinal)
 Assert-True ($rbStart -ge 0 -and $rbJob -gt $rbStart -and $rbWait -gt $rbJob -and
-    $rbRun.Substring($rbStart, $rbJob - $rbStart) -cmatch '^using \(Process proc = Process\.Start\(psi\)\)\s*$') (
+    $rbRun.Substring($rbStart, $rbJob - $rbStart) -cmatch '^using \(Process proc = StartChild\(psi\)\)\s*$' -and
+    $rbTranscriber -cmatch 'internal static Func<ProcessStartInfo, Process> StartChild = Process\.Start;' -and
+    $rbTranscriber -cmatch 'internal static Func<Process, IDisposable> AttachJob = WhisperJob\.TryAttach;') (
     'remembrance-1: whisper-cli is put in its kill-on-close job straight after it starts and before the wait')
 Assert-True ($rbTranscriber -cmatch 'JobObjectLimitKillOnJobClose = 0x00002000;' -and
     $rbTranscriber -cmatch 'limits\.BasicLimitInformation\.LimitFlags = JobObjectLimitKillOnJobClose;') (

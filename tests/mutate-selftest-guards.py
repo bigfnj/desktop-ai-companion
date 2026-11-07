@@ -15948,9 +15948,11 @@ CASES = (
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "relative storage (saved): a move away from it applies and does not remember it for the purge"),
     ("followups2: remembrance: the follow-up looks for its newest summary in a location that is not a full path",
-     os.path.join(REPO, "modules", "Remembrance", "RemembranceModule.FollowUp.cs"),
-     b"                if (CaptureStore.IsFullFolder(root) && System.IO.Directory.Exists(root))\n",
-     b"                if (System.IO.Directory.Exists(root))\n",
+     # Re-pointed by burndown/w3-remembrance-1: the walk and its full-path guard moved to CaptureStore.ModuleSummaries
+     # (N-audit-1106-039).
+     os.path.join(REPO, "modules", "Remembrance", "CaptureStore.cs"),
+     b"                if (!IsFullFolder(root)) return found;\n",
+     b"",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "relative storage (saved): the follow-up does not look for its newest summary there"),
@@ -22011,6 +22013,147 @@ CASES = (
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      'resource churn: the tick step stages a pack member with a WAV clip'),
+    # ---- burndown/w3-remembrance-1 ----
+    # N-cxr-w1-01: the stub test reads the whole text again, header included, so a title opening with the marker makes a
+    # real transcript a stub and a failed re-run writes over it.
+    ("bd-w3-remembrance-1: the stub test reads the header's title again (N-cxr-w1-01)",
+     TRANSCRIBER,
+     b"            return body >= 0 && text.Length - body >= PendingMarker.Length &&\n"
+     b"                   string.CompareOrdinal(text, body, PendingMarker, 0, PendingMarker.Length) == 0;\n",
+     b"            return body >= -1 && text.IndexOf(PendingMarker, StringComparison.Ordinal) >= 0;\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a transcript whose title opens with the pending marker is kept through a failed re-run"),
+
+    # N-cxr-w1-02: a refused job is not noticed, so whisper-cli runs on outside it, as before the fix.
+    ("bd-w3-remembrance-1: a refused whisper job is not noticed (N-cxr-w1-02)",
+     TRANSCRIBER,
+     b"                    if (job == null)\n",
+     b"                    if (job == null && proc == null)\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a whisper-cli whose job Windows refuses is not run on"),
+
+    # N-cxr-w1-02: the refusal is reported but the child is left running.
+    ("bd-w3-remembrance-1: a refused whisper job reports and leaves the child running (N-cxr-w1-02)",
+     TRANSCRIBER,
+     b"                        StopUncontained(proc);\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a whisper-cli whose job Windows refuses has ended by the time the run returns"),
+
+    # N-audit-1106-039: the latest-summary walk enters every subfolder of the storage root again and takes any summary.
+    ("bd-w3-remembrance-1: the latest-summary walk enters any subfolder again (N-audit-1106-039)",
+     os.path.join(REPO, "modules", "Remembrance", "CaptureStore.cs"),
+     b"                        AddSummaries(sub, stem => IsCaptureBaseName(stem) || IsTimeFirstBaseName(stem, day), found);\n"
+     b"                    }\n",
+     b"                        AddSummaries(sub, stem => IsCaptureBaseName(stem) || IsTimeFirstBaseName(stem, day), found);\n"
+     b"                    }\n"
+     b"                    else\n"
+     b"                        AddSummaries(sub, stem => true, found);\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "latest summary: the follow-up never picks a newer summary Remembrance did not write"),
+
+    # N-audit-1106-039: inside the folders it walks, a summary of any name counts.
+    ("bd-w3-remembrance-1: the latest-summary walk takes a summary of any name (N-audit-1106-039)",
+     os.path.join(REPO, "modules", "Remembrance", "CaptureStore.cs"),
+     b"                        if (lower.EndsWith(ending, StringComparison.Ordinal) && isOurs(lower.Substring(0, lower.Length - ending.Length)))\n",
+     b"                        if (lower.EndsWith(ending, StringComparison.Ordinal))\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "latest summary: the follow-up never picks a newer summary Remembrance did not write"),
+
+    # N-audit-1106-281: a snapshot refused before its capture starts is logged only again.
+    ("bd-w3-remembrance-1: a refused snapshot is not announced (N-audit-1106-281)",
+     REMEMBRANCE_MODULE,
+     b"                Announce(\"Snapshot failed. \" + ex.Message);\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a snapshot refused before its capture starts says so, with the reason"),
+
+    # N-audit-1106-281: ...and the Status line keeps whatever it said before the press.
+    ("bd-w3-remembrance-1: a refused snapshot leaves the Status line as it was (N-audit-1106-281)",
+     REMEMBRANCE_MODULE,
+     b"                    _lastStatus = \"Snapshot failed: \" + ex.Message;\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a snapshot refused before its capture starts is on the Status line"),
+
+    # N-audit-1106-279: the follow-up looks only for "<name>.transcript.txt" beside the summary again.
+    ("bd-w3-remembrance-1: the follow-up forgets the transcript that was picked (N-audit-1106-279)",
+     REMEMBRANCE_FOLLOW_UP,
+     b"            if (picked != null && string.Equals(picked[0], summaryPath, StringComparison.OrdinalIgnoreCase)) return picked[1];\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "follow-up: a transcript picked by any .txt name goes with its summary"),
+
+    # N-audit-1106-279: a transcript that is not there is called unreadable again.
+    ("bd-w3-remembrance-1: a missing transcript is said to be unreadable (N-audit-1106-279)",
+     REMEMBRANCE_FOLLOW_UP,
+     b"                if (!System.IO.File.Exists(transcriptPath)) return \"there is no transcript beside the summary\";\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "follow-up: a transcript that is not there is said so"),
+
+    # N-audit-1106-285: a failed follow-up logs its prompt; that branch runs only before the leak check's last clear.
+    ("bd-w3-remembrance-1: a failed follow-up logs its prompt (N-audit-1106-285)",
+     REMEMBRANCE_FOLLOW_UP,
+     b"                Log(\"follow-up failed: cli-\" + CodingAgentCli.OutcomeWord(answer.Outcome));\n",
+     b"                Log(\"follow-up failed: cli-\" + CodingAgentCli.OutcomeWord(answer.Outcome) + \" \" + prompt);\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "remembrance 2.8.0 follow-up: no log line carries the prompts"),
+
+    # N-audit-1106-283: the effective key is read before the policy.
+    ("bd-w3-remembrance-1: Network Protection reads the effective key first (N-audit-1106-283)",
+     WHISPER_INSTALLER,
+     b"            foreach (string key in NetworkProtectionKeys)\n",
+     b"            foreach (string key in NetworkProtectionKeys.Reverse())\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Network Protection: a managed machine's policy value wins over the effective one"),
+
+    # N-audit-1106-283: a policy value it does not understand ends the read instead of falling through.
+    ("bd-w3-remembrance-1: Network Protection stops at an unknown policy value (N-audit-1106-283)",
+     WHISPER_INSTALLER,
+     b"                    if (state.HasValue) return state;\n",
+     b"                    return state;\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Network Protection: with no policy value, or one it does not understand, the effective value is read"),
+
+    # N-audit-1106-282: the press transcribes some other file than the one the picker gave.
+    ("bd-w3-remembrance-1: Transcribe a WAV file ignores the file picked (N-audit-1106-282)",
+     REMEMBRANCE_MODULE,
+     b"                    string wav = picked[0];\n",
+     b"                    string wav = System.IO.Path.Combine(System.IO.Path.GetTempPath(), \"elsewhere.wav\");\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Transcribe a WAV file takes the file the host's picker gives"),
+
+    # N-audit-1106-282: the press raises its busy span under another phase.
+    ("bd-w3-remembrance-1: Transcribe a WAV file raises the flag as validating (N-audit-1106-282)",
+     REMEMBRANCE_MODULE,
+     b"                    BusySpan busy = Busy(BusyTranscribing);\n",
+     b"                    BusySpan busy = Busy(BusyValidating);\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Transcribe a WAV file takes the file the host's picker gives"),
+
+    # N-audit-1106-282: the press writes its transcript under another name.
+    ("bd-w3-remembrance-1: Transcribe a WAV file writes its transcript under another name (N-audit-1106-282)",
+     REMEMBRANCE_MODULE,
+     b"                        System.IO.Path.GetFileNameWithoutExtension(wav) + \".transcript.txt\");\n",
+     b"                        System.IO.Path.GetFileNameWithoutExtension(wav) + \".txt\");\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "...and writes the transcript beside the WAV"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

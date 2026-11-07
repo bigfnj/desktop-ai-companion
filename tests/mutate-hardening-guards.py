@@ -3989,7 +3989,8 @@ CASES = (
     (
         "bd-remembrance-1: whisper-cli is no longer put in a kill-on-close job (N-audit-1106-041)",
         os.path.join(REPO, "modules", "Remembrance", "Transcriber.cs"),
-        b"                using (WhisperJob job = WhisperJob.TryAttach(proc))\n",
+        # Re-pointed by burndown/w3-remembrance-1: the attach goes through the AttachJob seam since N-cxr-w1-02.
+        b"                using (IDisposable job = AttachJob(proc))\n",
         b"",
         # The fragment stops before the label's end: PowerShell wraps the thrown message at the console width, and the
         # whole label split across two lines and scored WRONG on the run that first tried it.
@@ -4239,6 +4240,15 @@ CASES = (
         b"gripRect.Left, gripRect.Right, Math.Max(1, pictureBox1.Width), ins.Left, ins.Right);\n",
         b"gripRect.Left, gripRect.Right, Width, ins.Left, ins.Right);\n",
         "w3-host-1: a side window grip is pinned with the sprite's full width",
+    ),
+    # ---- burndown/w3-remembrance-1 ----
+    # N-cxr-w1-02: the shipped attach seam takes no job at all, which the module self-test (it replaces the seam) cannot see.
+    (
+        "bd-w3-remembrance-1: the shipped whisper attach seam takes no job (N-cxr-w1-02)",
+        os.path.join(REPO, "modules", "Remembrance", "Transcriber.cs"),
+        b"        internal static Func<Process, IDisposable> AttachJob = WhisperJob.TryAttach;\n",
+        b"        internal static Func<Process, IDisposable> AttachJob = p => null;\n",
+        "remembrance-1: whisper-cli is put in its kill-on-close job",
     ),
 )
 
