@@ -64,4 +64,17 @@ finally {
         if ($null -eq $previous[$name]) { Remove-Item -LiteralPath ('Env:' + $name) -ErrorAction SilentlyContinue }
         else { [Environment]::SetEnvironmentVariable($name, $previous[$name], 'Process') }
     }
+    # THE RUN'S OWN SCRATCH TREE GOES (N-audit-1106-343). Every run made a fresh artifacts\discovery-timeouts\<guid> with its
+    # NuGet.Config, CLI home and NuGet package, HTTP and plugin caches, and nothing deleted any of them, so the folder grew
+    # by a package cache per run. The build has copied what the checks load into the project's bin by now, so nothing
+    # read after this point lives here. Only this run's <guid> child is removed, after asserting it is one, and a tree that
+    # will not delete is a warning naming the path, never silence (the F414 shape).
+    $scratchParent = [IO.Path]::GetFullPath((Join-Path $repo 'artifacts\discovery-timeouts'))
+    if ([IO.Path]::GetDirectoryName($scratch) -ne $scratchParent -or (Split-Path -Leaf $scratch) -cnotmatch '^[0-9a-f]{32}$') {
+        Write-Warning "the discovery-timeout scratch folder is not a <guid> child of $scratchParent, so it is not deleted: $scratch"
+    }
+    else {
+        try { [IO.Directory]::Delete($scratch, $true) }
+        catch { Write-Warning "the discovery-timeout scratch folder could not be removed and is left for inspection: $scratch ($($_.Exception.Message))" }
+    }
 }

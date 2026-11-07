@@ -200,6 +200,19 @@ TEMPLATE_MODULE = os.path.join(REPO, "templates", "desktop-ai-companion-module",
 # since nothing is built; one mutating a module names the module's, as any other case does.
 MODULE_SELFTESTS = "MODULE-SELFTESTS"
 MODULE_SELFTESTS_PS1 = os.path.join(REPO, "tests", "Test-ModuleSelfTests.ps1")
+# The pseudo-flag a case names to run the mutation harnesses' OWN unit tests (lane burndown/w2-tests-scripts-1,
+# N-bd-tests-harness-1-01): tests\run_mutation_capture_checks.py, which runs every tests\test_mutation_*.py module and is
+# called by tests\run-gate.ps1. Until then no harness could mutate the harnesses' own Python, so a fix there had no CASES
+# entry and wave 1 graded its legs with a scratch runner. Each unittest "FAIL: <test> (...)" or "ERROR: <test> (...)" line
+# becomes "FAIL: <test> (...)", so a case names the TEST METHOD as its fragment; every other line is prefixed "| " so a
+# captured message that happens to start with FAIL is never read as a verdict; the exit code becomes the column-0 RESULT=
+# line. Nothing is built: a case names no csproj and no artefact (None), and the rebuild is the fresh interpreter, which
+# imports the mutated source (the named test failing is the witness that it ran). About twenty seconds per run.
+MUTATION_UNITTESTS = "MUTATION-UNITTESTS"
+MUTATION_UNITTESTS_PY = os.path.join(REPO, "tests", "run_mutation_capture_checks.py")
+MUTATE_DIAGNOSTICS_PY = os.path.join(REPO, "tests", "mutate-diagnostics.py")
+PIN_DIAGNOSTIC_RUNNER_PY = os.path.join(REPO, "tests", "run_agentbroker_pin_diagnostic_mutations.py")
+INSTALLER_SHUTDOWN_RUNNER_PY = os.path.join(REPO, "tests", "run_installer_shutdown_mutations.py")
 # Lane burn/tools' converter targets: the engine files its cases mutate, all compiled into SHIMEJI_ENGINE_DLL.
 SHIMEJI_ENGINE_CS = os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Engine.cs")
 SHIMEJI_PARSER = os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Shimeji", "ShimejiParser.cs")
@@ -21116,6 +21129,61 @@ CASES = (
      REMINDER_CSPROJ, REMINDER_DLL,
      "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
      "set the evening before daylight time ends fired at"),
+    # ---- burndown/w2-tests-scripts-1 ----
+    # N-audit-1106-056. A module SelfTest that asserts nothing: it returns true with an empty detail before running any
+    # check. Test-ModuleSelfTests.ps1 counted the host's untagged convention PASS: lines (nine or more for every module),
+    # so this printed OK; counting only the module's own [reminder]-tagged lines, it is "reported PASS with no assertion
+    # lines". The condition is not a constant, so the build does not refuse the unreachable code after it.
+    ('bd-w2-tests-scripts-1: a module self-test that asserts nothing reports PASS (N-audit-1106-056)',
+     REMINDER_MODULE,
+     b'        public static bool SelfTest(out string detail)\n        {\n',
+     b'        public static bool SelfTest(out string detail)\n        {\n'
+     b'            if (System.Environment.TickCount64 != 0) { detail = ""; return true; }\n',
+     REMINDER_CSPROJ, REMINDER_DLL,
+     MODULE_SELFTESTS, None, 'reminder : reported PASS with no assertion lines, so it proved nothing'),
+    # N-bd-tests-harness-1-01. A harness's own Python, mutated and graded through MUTATION_UNITTESTS: mutate-diagnostics.py
+    # prints each verdict only at the end of the run again, so an interrupted run loses the FIRED lines it had measured
+    # (the N-audit-1106-346 fix, which wave 1 could grade only with a scratch runner).
+    ('bd-w2-tests-scripts-1: the diagnostics harness holds its verdicts until the end again (N-bd-tests-harness-1-01)',
+     MUTATE_DIAGNOSTICS_PY,
+     b'        print("%-9s %s\\n          %s" % (verdict, name, detail), flush=True)\n',
+     b'',
+     None, None,
+     MUTATION_UNITTESTS, None, 'test_a_verdict_is_on_the_console_before_the_run_is_cut_short'),
+    # N-codex-1102-02. The pin-diagnostic runner's restore reads each source unguarded again, so a source it cannot read
+    # stops the loop and every later source stays mutated.
+    ('bd-w2-tests-scripts-1: the pin-diagnostic restore stops at an unreadable source (N-codex-1102-02)',
+     PIN_DIAGNOSTIC_RUNNER_PY,
+     b'            try:\n'
+     b'                current = read_source(relative)\n'
+     b'            except RuntimeError as error:\n'
+     b'                conflicts.append(relative + " (a link: " + str(error) + ")")\n'
+     b'                continue\n'
+     b'            except OSError as error:\n'
+     b'                conflicts.append(relative + " (unreadable: " + type(error).__name__ + ")")\n'
+     b'                continue\n',
+     b'            current = read_source(relative)\n',
+     None, None,
+     MUTATION_UNITTESTS, None, 'test_an_unreadable_earlier_source_does_not_stop_the_restore_of_a_later_one'),
+    # N-codex-1102-02. The installer shutdown runner's restore stops checking for a link, so a source swapped for a link
+    # during the run is written through.
+    ('bd-w2-tests-scripts-1: the installer restore writes through a link again (N-codex-1102-02)',
+     INSTALLER_SHUTDOWN_RUNNER_PY,
+     b'        try:\n'
+     b'            refuse_links(path)\n'
+     b'        except RuntimeError as error:\n'
+     b'            left.append(relative + " (a link: " + str(error) + ")")\n'
+     b'            continue\n',
+     b'',
+     None, None,
+     MUTATION_UNITTESTS, None, 'test_the_installer_restore_refuses_a_source_that_became_a_link'),
+    # N-audit-1106-353. An installer variant names no failure label again, so any failing check of its suite would count.
+    ('bd-w2-tests-scripts-1: an installer variant names no failure label (N-audit-1106-353)',
+     INSTALLER_SHUTDOWN_RUNNER_PY,
+     b'     "only the complete installed image is closed gracefully"),\n',
+     b'     None),\n',
+     None, None,
+     MUTATION_UNITTESTS, None, 'test_every_installer_variant_names_the_check_it_must_fail'),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
@@ -21582,6 +21650,8 @@ def selftest(flag, marker):
         return template_selftest()
     if flag == MODULE_SELFTESTS:
         return module_selftests_runner()
+    if flag == MUTATION_UNITTESTS:
+        return mutation_unittests()
     if flag == WINDOWSOAK_JUDGE:
         return windowsoak_judge()
     path = os.path.join(RUN_TEMP, marker)
@@ -21730,6 +21800,29 @@ def module_selftests_runner():
     for line in ((proc.stdout or "") + (proc.stderr or "")).splitlines():
         stripped = line.strip()
         lines.append("FAIL: " + stripped[len("PROBLEM: "):] if stripped.startswith("PROBLEM: ") else line)
+    lines.append("RESULT=PASS" if proc.returncode == 0 else "RESULT=FAIL")
+    return "\n".join(lines) + "\n", proc.returncode
+
+
+def mutation_unittests():
+    """tests\\run_mutation_capture_checks.py in the marker vocabulary the ladder grades (MUTATION_UNITTESTS).
+
+    The same interpreter as this harness, -X utf8 as the gate runs it, with CHILD_ENV; the runner makes its own scratch
+    folder under tests\\ and leaves it only when something was left in it. unittest's FAIL:/ERROR: summary lines become
+    FAIL: lines (an ERROR is a test that raised where it should have asserted, and it is a failure of that test all the
+    same); everything else is prefixed "| " (see MUTATION_UNITTESTS). Bounded at 600 s; an unmutated run takes ~20 s.
+    """
+    try:
+        proc = run_text([sys.executable, "-X", "utf8", MUTATION_UNITTESTS_PY],
+                        capture_output=True, timeout=600, env=CHILD_ENV, cwd=REPO)
+    except subprocess.TimeoutExpired:
+        return None, "run_mutation_capture_checks.py did not exit in 600s"
+    lines = []
+    for line in ((proc.stdout or "") + (proc.stderr or "")).splitlines():
+        if line.startswith("FAIL: ") or line.startswith("ERROR: "):
+            lines.append("FAIL: " + line.split(": ", 1)[1])
+        else:
+            lines.append("| " + line)
     lines.append("RESULT=PASS" if proc.returncode == 0 else "RESULT=FAIL")
     return "\n".join(lines) + "\n", proc.returncode
 

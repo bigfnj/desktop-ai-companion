@@ -4107,6 +4107,105 @@ CASES = (
         b"        if ($false) {\n",
         "w2-packaging-ci-1: the module publish commits only when",
     ),
+    # ---- burndown/w2-tests-scripts-1 ----
+    # N-audit-1106-054: a CoreTests group's registration is deleted; the group still compiles and never runs, and the gate
+    # read only CoreTests' exit code.
+    (
+        "bd-w2-tests-scripts-1: a CoreTests group is no longer registered (N-audit-1106-054)",
+        os.path.join(REPO, "tests", "DesktopAICompanion.CoreTests", "Program.cs"),
+        b'                Run("Kill fade arithmetic", TestKillFade);\n',
+        b"",
+        "w2-tests-scripts-1: every CoreTests group method is registered",
+    ),
+    # N-audit-1106-054: an AgentBroker check class's only call is deleted.
+    (
+        "bd-w2-tests-scripts-1: an AgentBroker check class is never run (N-audit-1106-054)",
+        os.path.join(REPO, "tests", "AgentBroker.Network.Tests", "Program.cs"),
+        b"    await MutualPairingChecks.RunAsync(a, b, Check, Refuses);\n",
+        b"",
+        "w2-tests-scripts-1: every AgentBroker check class is run from another file",
+    ),
+    # N-audit-1106-054: the default run's call is deleted while the focused --accepted-incoming-only switch still calls the
+    # class, so only the call-site floor can see it.
+    (
+        "bd-w2-tests-scripts-1: an AgentBroker default-run call is deleted beside its focused switch (N-audit-1106-054)",
+        os.path.join(REPO, "tests", "AgentBroker.Core.Tests", "Program.cs"),
+        b"    passed += PeerReceiptChecks.Run(root);\n    passed += AcceptedIncomingChecks.Run(root);\n",
+        b"    passed += PeerReceiptChecks.Run(root);\n",
+        "w2-tests-scripts-1: the AgentBroker harnesses keep at least the",
+    ),
+    # N-audit-1106-052: the A/B driver deletes the folder -WorkRoot names again, whatever was in it.
+    (
+        "bd-w2-tests-scripts-1: the A/B driver deletes -WorkRoot itself (N-audit-1106-052)",
+        os.path.join(REPO, "tests", "fullscreen-standdown-probe", "standdown-ab.ps1"),
+        b"        try { [IO.Directory]::Delete($runRoot, $true) }\n",
+        b"        try { [IO.Directory]::Delete($WorkRoot, $true) }\n",
+        "w2-tests-scripts-1: the A/B driver recursively deletes only its own run folder",
+    ),
+    # N-audit-1106-052: the leaf check that keeps the delete on this run's own standdown-ab-<guid> child is gone.
+    (
+        "bd-w2-tests-scripts-1: the A/B driver deletes its run folder unchecked (N-audit-1106-052)",
+        os.path.join(REPO, "tests", "fullscreen-standdown-probe", "standdown-ab.ps1"),
+        b"            (Split-Path -Leaf $runRoot) -cnotmatch '^standdown-ab-[0-9a-f]{32}$') {\n",
+        b"            $false) {\n",
+        "w2-tests-scripts-1: the A/B driver's run folder is a fresh standdown-ab-<guid> child",
+    ),
+    # N-audit-1106-351: discovery and freshness share one try again, so a discovery failure skips freshness.
+    (
+        "bd-w2-tests-scripts-1: the gate tries discovery and freshness together (N-audit-1106-351)",
+        os.path.join(REPO, "tests", "run-gate.ps1"),
+        b"    try { & (Join-Path $repoRoot 'tests\\Test-ModuleSourceDiscovery.ps1') }\n"
+        b"    catch { $failures.Add('Test-ModuleSourceDiscovery.ps1: ' + $_.Exception.Message) }\n"
+        b"    try { & (Join-Path $repoRoot 'packaging\\Test-ModulePublishFreshness.ps1') }\n",
+        b"    try {\n"
+        b"        & (Join-Path $repoRoot 'tests\\Test-ModuleSourceDiscovery.ps1')\n"
+        b"        & (Join-Path $repoRoot 'packaging\\Test-ModulePublishFreshness.ps1')\n"
+        b"    }\n",
+        "w2-tests-scripts-1: the gate runs module discovery and publish freshness in separate tries",
+    ),
+    # N-audit-1106-343: the discovery-timeout checks leave their scratch tree behind again.
+    (
+        "bd-w2-tests-scripts-1: the discovery-timeout scratch tree is kept (N-audit-1106-343)",
+        os.path.join(REPO, "tests", "Invoke-DesktopDiscoveryTimeoutChecks.ps1"),
+        b"        try { [IO.Directory]::Delete($scratch, $true) }\n",
+        b"        try { }\n",
+        "w2-tests-scripts-1: the discovery-timeout checks delete their own",
+    ),
+    # N-audit-1106-354: the ! is dropped, so the bubble is drawn only when a responder ALREADY spoke the sass. The older
+    # order check above (offer before '.Say(') still passes on this mutant; it runs earlier in the script and its PASS
+    # line is in the mutant's output.
+    (
+        "bd-w2-tests-scripts-1: the poke sass bubble is no longer the fallback (N-audit-1106-354)",
+        os.path.join(REPO, "src", "dotNet", "StartUp.cs"),
+        b"if (Host == null || !Host.RaiseSpeechRequest(subject, s)) subject.Say(s);",
+        b"if (Host == null || Host.RaiseSpeechRequest(subject, s)) subject.Say(s);",
+        "w2-tests-scripts-1: the poke sass draws its bubble only when",
+    ),
+    # N-audit-1106-355: the tick worker reads the live setting through the dictionary instead of the copy. The older check
+    # (no literal 'Inspect(ArgvPath') still passes on this mutant.
+    (
+        "bd-w2-tests-scripts-1: the AgentFlow tick worker reads the live argv path (N-audit-1106-355)",
+        os.path.join(REPO, "modules", "AgentFlow", "AgentFlowModule.cs"),
+        b"VsCodeSetup.Inspect(argvPathNow, 200);",
+        b'VsCodeSetup.Inspect(_settings.Get(SettingArgvPath, ""), 200);',
+        "w2-tests-scripts-1: every VsCodeSetup.Inspect call in the AgentFlow tick",
+    ),
+    # N-bd-tests-harness-1-01: the gate calls the mutation unit tests but no longer reads their exit code.
+    (
+        "bd-w2-tests-scripts-1: the gate ignores the mutation unit tests' exit code (N-bd-tests-harness-1-01)",
+        os.path.join(REPO, "tests", "run-gate.ps1"),
+        b"            $mutationUnitExit = $LASTEXITCODE\n",
+        b"            $mutationUnitExit = 0\n",
+        "w2-tests-scripts-1: the gate runs run_mutation_capture_checks.py and fails on its exit code",
+    ),
+    # N-bd-tests-harness-1-01: a test_mutation_*.py module is left out of the runner the gate calls.
+    (
+        "bd-w2-tests-scripts-1: a mutation unit-test module is left out of the gate's runner (N-bd-tests-harness-1-01)",
+        os.path.join(REPO, "tests", "run_mutation_capture_checks.py"),
+        b'            "test_mutation_runner_restore",\n',
+        b"",
+        "w2-tests-scripts-1: run_mutation_capture_checks.py names every",
+    ),
 )
 
 

@@ -35,21 +35,31 @@ CHECKS = ROOT / "build/scoped-shutdown/ShutdownChecks.exe"
 # The healthy count is read from the wrapper's own expectation, so one literal
 # (tests/Test-InstallerShutdown.ps1 `unit = N`) moves when checks are added.
 WRAPPER = ROOT / "tests/Test-InstallerShutdown.ps1"
-# (name, fake suite, source, before, after, label the failure must name or None)
+# (name, fake suite, source, before, after, label the failure must name)
+#
+# EVERY VARIANT NAMES ITS LABEL (N-audit-1106-353). The first four carried None, and a None label let ANY failing check
+# of the focused fake suite count the mutant as killed: a mutation that broke an unrelated check of the same suite, or a
+# suite already red for another reason, scored as a witness for the rule it names. Each label below is the description
+# of the Check that the mutation makes fail first (ShutdownChecks.cpp throws at its first failing Check and prints that
+# description), and main() refuses a selected variant without one before it builds anything.
 VARIANTS = (
     ("basename-selection", "paths", POLICY,
      '        for (const auto& image : context.installedImages) installed |= SamePath(identity.image, image);',
-     '        for (const auto& image : context.installedImages) { (void)image; installed = true; }', None),
+     '        for (const auto& image : context.installedImages) { (void)image; installed = true; }',
+     "only the complete installed image is closed gracefully"),
     ("legacy-refusal", "legacy", POLICY,
      '            if (context.legacyTransition) throw Failure("legacy_foreign_companion_present");',
-     '            (void)context.legacyTransition;', None),
+     '            (void)context.legacyTransition;',
+     "a legacy upgrade refuses a foreign same-basename companion"),
     ("owner-prevalidation", "prevalidation", POLICY,
      '        if (identity.userSid != context.userSid) throw Failure("installed_companion_owner_mismatch");',
-     '        (void)context.userSid;', None),
+     '        (void)context.userSid;',
+     "an installed image owned by a different user refuses shutdown"),
     ("retained-fallback-identity", "changed-identity", POLICY,
      '        if (!SameIdentity(target.identity, target.process->ReadIdentity())) throw Failure("companion_identity_changed");\n'
      '        target.process->Terminate();',
-     '        target.process->Terminate();', None),
+     '        target.process->Terminate();',
+     "fallback rejects changed incarnation or image after graceful close times out"),
     # ---- lane feature/installer-tests ----
     ("installer-tests:cached-package-missing", "paths", PLATFORM,
      'std::wstring CanonicalCachedPackage(const std::wstring& path) { return Canonical(path, false, "cached_package_missing"); }',
@@ -76,6 +86,11 @@ def healthy_count() -> int:
     return int(found[0])
 
 
+def unlabelled_variants(variants) -> list[str]:
+    """The names of variants with no failure label (N-audit-1106-353): main refuses them before any build."""
+    return [variant[0] for variant in variants if not (isinstance(variant[5], str) and variant[5].strip())]
+
+
 def file_label(name: str) -> str:
     return name.replace(":", "-")
 
@@ -99,10 +114,20 @@ def restore_owned(root: Path, sources: list[str], original: dict, current: dict)
     holds anything else, or cannot be written is never recreated or overwritten here; it is named after the loop, and
     the backups in the evidence folder stay for it. Stopping at the first such file left a later source still mutated:
     first a foreign edit (Codex 01a1855c), then an I/O error on an earlier source (Codex review 2026-11-02).
+
+    A LINK IS REFUSED HERE TOO, not only at the start (N-codex-1102-02). main() checks each source for a link once, before
+    the first build; a link swapped in for a source during the run was then followed by this read and this write, so the
+    restore wrote the original bytes through it to wherever it pointed. Each source is checked again immediately before it
+    is read, and a link is left as found and named, like any other source this run does not own.
     """
     left = []
     for relative in sources:
         path = root / relative
+        try:
+            refuse_links(path)
+        except RuntimeError as error:
+            left.append(relative + " (a link: " + str(error) + ")")
+            continue
         try:
             raw = path.read_bytes()
         except OSError as error:
@@ -138,10 +163,24 @@ def self_test() -> int:
     mutated = {name: b"synthetic owned mutation " + name.encode() + b"\n" for name in names}
     foreign = b"synthetic foreign edit\n"
     # (case, how the earlier source starts, the word its refusal must carry, or None for no refusal)
+    # "linked": the earlier source became a link during the run (N-codex-1102-02). It still holds this run's own mutation,
+    # so only the link check at restore keeps it from being written through. refuse_links is patched for every case to
+    # refuse that one path alone, so the cases do not depend on whether this host's temporary folder sits under a link.
     cases = (("all-owned", "owned", None), ("foreign-earlier-source", "foreign", "differs"),
              ("missing-earlier-source", "missing", "unreadable"),
-             ("unwritable-earlier-source", "readonly", "could not be restored"))
+             ("unwritable-earlier-source", "readonly", "could not be restored"),
+             ("linked-earlier-source", "linked", "a link"))
+    module = globals()
+    saved_refuse = module["refuse_links"]
     failed = []
+    if unlabelled_variants(VARIANTS):
+        failed.append("every-variant-names-its-label")
+        print("FAIL every-variant-names-its-label: " + ", ".join(unlabelled_variants(VARIANTS)))
+    elif unlabelled_variants((("synthetic", "paths", POLICY, "a", "b", None),)) != ["synthetic"]:
+        failed.append("every-variant-names-its-label")
+        print("FAIL every-variant-names-its-label: a variant with no label is not reported (WITNESS)")
+    else:
+        print("PASS every-variant-names-its-label")
     for case, earlier_state, word in cases:
         folder = Path(tempfile.mkdtemp(prefix="installer-shutdown-restore-selftest-"))
         try:
@@ -158,11 +197,18 @@ def self_test() -> int:
                 if os.access(first, os.W_OK):
                     raise AssertionError("this host cannot make a file unwritable, so the case cannot be produced")
             before = first.read_bytes() if first.exists() else None
+
+            def refuse(path, linked=first if earlier_state == "linked" else None):
+                if linked is not None and Path(path) == linked:
+                    raise RuntimeError("Linked mutation/evidence path refused: " + str(path))
+            module["refuse_links"] = refuse
             try:
                 restore_owned(folder, names, original, mutated)
                 refusal = None
             except RuntimeError as error:
                 refusal = str(error)
+            finally:
+                module["refuse_links"] = saved_refuse
             if (folder / later).read_bytes() != original[later]:
                 raise AssertionError("the later owned mutation was not restored")
             after = first.read_bytes() if first.exists() else None
@@ -196,9 +242,9 @@ def self_test() -> int:
             print("FAIL " + case + ": " + type(error).__name__ + ": " + str(error))
         finally:
             shutil.rmtree(folder)
-    total = len(cases) + len(main_cases)
+    total = len(cases) + len(main_cases) + 1
     print(("FAIL %d of %d" % (len(failed), total)) if failed else
-          ("PASS %d restoration cases (%d of main itself)" % (total, len(main_cases))))
+          ("PASS %d restoration and plan cases (%d of main itself)" % (total, len(main_cases))))
     return 1 if failed else 0
 
 
@@ -224,7 +270,8 @@ def main_wiring_case(folder: Path, missing_earlier: bool) -> None:
         (folder / name).parent.mkdir(parents=True, exist_ok=True)
         (folder / name).write_bytes((text[name] + "\n").encode())
     original = {name: (folder / name).read_bytes() for name in names}
-    variants = tuple(("synthetic-" + Path(name).stem, "paths", name, text[name], "synthetic MUTATED line of " + name, None)
+    variants = tuple(("synthetic-" + Path(name).stem, "paths", name, text[name], "synthetic MUTATED line of " + name,
+                      "a synthetic check")
                      for name in (later, earlier))
     builds = []
     problems = []
@@ -310,6 +357,11 @@ def main(argv: list[str] | None = None) -> int:
     if not selected:
         print("No variant name contains: " + args.only, file=sys.stderr)
         return 2
+    unlabelled = unlabelled_variants(selected)
+    if unlabelled:
+        print("Every variant must name the check its mutation fails (N-audit-1106-353); no label: " +
+              ", ".join(unlabelled), file=sys.stderr)
+        return 2
     if not args.apply:
         print(json.dumps({"readOnly": True, "healthyChecks": healthy_count(),
                           "variants": [{"name": n, "fakeSuite": s, "source": src} for n, s, src, _, _, _ in selected]},
@@ -389,7 +441,7 @@ def main(argv: list[str] | None = None) -> int:
             rebuilt = built_stamp() > stamp
             result = command(name + "-negative", [str(CHECKS), "--case", suite])
             fired = rebuilt and result["exitCode"] == 1 and "FAIL ShutdownChecks.cpp:" in result["text"] and \
-                (label is None or label in result["text"])
+                bool(label) and label in result["text"]
             report["witnesses"].append({"name": name, "suite": suite, "source": relative, "rebuilt": rebuilt,
                                         "fired": fired, "exitCode": result["exitCode"]})
             if not fired:

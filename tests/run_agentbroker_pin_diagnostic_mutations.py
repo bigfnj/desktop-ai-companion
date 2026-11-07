@@ -823,14 +823,30 @@ class Runner:
         (ROOT / relative).write_bytes(changed)
 
     def restore(self) -> None:
+        # EVERY SOURCE IS VISITED, whatever an earlier one did (N-codex-1102-02). The read of each source was unguarded, so
+        # a source that could not be read (missing, locked, or a link that read_source refuses) raised out of this loop and
+        # every source after it stayed mutated, while the refusal named only the first. The installer shutdown runner had
+        # the same shape until 80fee26 (restore_owned there); this is that fix: a source that cannot be read, holds a
+        # foreign edit, or cannot be written is left as found and named, and the loop goes on.
         conflicts = []
         for relative, original in self.original.items():
-            current = read_source(relative)
+            try:
+                current = read_source(relative)
+            except RuntimeError as error:
+                conflicts.append(relative + " (a link: " + str(error) + ")")
+                continue
+            except OSError as error:
+                conflicts.append(relative + " (unreadable: " + type(error).__name__ + ")")
+                continue
             if current not in (original, self.owned_current[relative]):
                 conflicts.append(relative)
                 continue  # Never overwrite a concurrent edit by somebody else.
             if current != original:
-                (ROOT / relative).write_bytes(original)
+                try:
+                    (ROOT / relative).write_bytes(original)
+                except OSError as error:
+                    conflicts.append(relative + " (could not be restored: " + type(error).__name__ + ")")
+                    continue
             self.owned_current[relative] = original
         if conflicts:
             raise RuntimeError("Concurrent source edits prevent automatic restoration: " + ", ".join(conflicts))
