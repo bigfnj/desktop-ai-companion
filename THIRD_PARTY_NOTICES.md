@@ -135,8 +135,8 @@ Module projects keep no lock file. Each package is pinned by the exact `Version`
 | NAudio.Midi | 3.0.0-preview.6 | MIT | https://github.com/naudio/NAudio | Remembrance | NAudio.Wasapi |
 | Windows SDK projection (`Microsoft.Windows.SDK.NET.dll`, `WinRT.Runtime.dll`) | 10.0.19041.57 | Windows SDK license terms, linked from the package metadata as https://aka.ms/WinSDKLicenseURL and not yet reviewed here | https://aka.ms/WinSDKProjectURL | AI Brain, Remembrance | the `net10.0-windows10.0.19041.0` target framework |
 
-The AgentBroker module's worker is the one self-contained process. It carries the .NET and ASP.NET
-Core shared frameworks and the Model Context Protocol C# SDK, pinned by
+The AgentBroker module's `worker/` folder is the one self-contained payload. It carries the .NET and
+ASP.NET Core shared frameworks and the Model Context Protocol C# SDK, whose packages are pinned by
 [`tools/AgentBroker.Worker/packages.lock.json`](tools/AgentBroker.Worker/packages.lock.json). Its
 inventory, and the license and notice files that ship beside it in `worker/licenses/`, are
 [`packaging/AgentBrokerNotices/THIRD-PARTY-NOTICES.txt`](packaging/AgentBrokerNotices/THIRD-PARTY-NOTICES.txt)
