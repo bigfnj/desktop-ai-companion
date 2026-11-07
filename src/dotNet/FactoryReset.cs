@@ -20,9 +20,12 @@ namespace DesktopAICompanion
     ///     an installer-owned file, and a major upgrade leaves them untouched -- which is exactly why they
     ///     survive a reinstall and why "as if brand new" has to name them.
     ///
-    /// Refuses rather than guesses. A path that is a drive root, a well-known profile or system folder, or
-    /// simply not where this app keeps things, is left alone and reported: the cost of a wrong delete here
-    /// is a user's documents, and the cost of refusing is that they clear it by hand.
+    /// Refuses rather than guesses, within what <see cref="IsSafeToWipe"/> can tell: a path that is not fully
+    /// qualified, a drive root, fewer than two folders below one, or exactly one of the well-known profile and
+    /// system folders it lists is left alone and reported: the cost of a wrong delete here is a user's documents,
+    /// and the cost of refusing is that they clear it by hand. It does NOT know where this app keeps things
+    /// beyond <see cref="AppPaths"/>: a data root overridden to a deep folder that holds other files is emptied
+    /// whole (N-audit-1106-222; this comment used to claim otherwise).
     /// </summary>
     internal static class FactoryReset
     {
