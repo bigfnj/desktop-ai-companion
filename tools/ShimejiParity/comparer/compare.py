@@ -350,14 +350,6 @@ def compare(oracle, host, scenario=None, scenario_sha=None, pack_sha=None, artif
         oh, ostates, oevents, ofoot = load_trace(oracle, "oracle")
         hh, hstates, hevents, hfoot = load_trace(host, "host")
         sid = (scenario or {}).get("id") or oh["scenario"]["id"]
-        if scenario is not None:
-            # Equal omissions in two traces are still incomplete observations of this scenario's startup.
-            expected_starters = [mascot["sid"] for mascot in scenario["mascots"]]
-            for runtime, states in (("oracle", ostates), ("host", hstates)):
-                actual_starters = [state["sid"] for state in states if state["tick"] == 0]
-                if actual_starters != expected_starters:
-                    raise Unjudgeable("scenario-start-mismatch", f"{runtime} tick-0 companions {actual_starters!r} "
-                                      f"do not match scenario starters {expected_starters!r}")
         for runtime, h in (("oracle", oh), ("host", hh)):
             if scenario_sha is not None and h["scenario"]["sha256"] != scenario_sha:
                 raise Unjudgeable("scenario-hash-mismatch", f"the {runtime} trace is not of this scenario file")
@@ -374,6 +366,21 @@ def compare(oracle, host, scenario=None, scenario_sha=None, pack_sha=None, artif
         if ofoot["ticks"] != hfoot["ticks"] or (scenario is not None and scenario["ticks"] != ofoot["ticks"]):
             raise Unjudgeable("tick-count-mismatch", f"oracle ran {ofoot['ticks']} steps, host {hfoot['ticks']}"
                               + (f", scenario {scenario['ticks']}" if scenario is not None else ""))
+        if scenario is not None:
+            # Bind the observations to their inputs before judging this scenario's startup. Otherwise a wrong
+            # --scenario file with different starters looks like a runtime startup defect instead of a hash mismatch.
+            # Equal omissions in two bound traces are still incomplete observations of this scenario's startup.
+            expected_starters = [mascot["sid"] for mascot in scenario["mascots"]]
+            for runtime, states in (("oracle", ostates), ("host", hstates)):
+                starter_states = [state for state in states if state["tick"] == 0]
+                actual_starters = [state["sid"] for state in starter_states]
+                if actual_starters != expected_starters:
+                    raise Unjudgeable("scenario-start-mismatch", f"{runtime} tick-0 companions {actual_starters!r} "
+                                      f"do not match scenario starters {expected_starters!r}")
+                # Startup is normalized to active companions before tick 0; two equally pending populations
+                # must not establish parity merely because their sid order and pending flags agree.
+                if any(state["pending"] for state in starter_states):
+                    raise Unjudgeable("scenario-start-mismatch", f"{runtime} tick-0 starters must be active, not pending")
     except Unjudgeable as u:
         return {"verdict": "unjudgeable", "class": u.cls, "findings": [{"message": str(u)}]}
 
@@ -717,7 +724,8 @@ def _scenario():
 
 
 BURNDOWN_CHECKS = ("N269 source pin", "N269 unbound report", "N270 typed state", "N270 typed event",
-                   "N270 event numbers", "N271 origin shape", "N272 tolerance names", "N400 starter population")
+                   "N270 event numbers", "N271 origin shape", "N272 tolerance names", "N400 starter population",
+                   "N400 binding order", "N400 pending starters")
 
 
 def _case_require(value, name, detail):
@@ -826,6 +834,42 @@ def burndown_check(name):
             report = compare(*pair, scenario=scenario)
             _case_require(report["verdict"] == "unjudgeable" and report["class"] == "scenario-start-mismatch", name,
                           mode + " starters in both traces escaped the scenario check")
+    elif name == "N400 pending starters":
+        oracle, host, scenario = _two_starter_reference()
+        _case_require(compare(oracle, host, scenario=scenario)["verdict"] == "exact", name,
+                      "active two-starter positive control failed")
+        for runtimes in (("oracle", "host"), ("oracle",), ("host",)):
+            pair = copy.deepcopy((oracle, host))
+            for runtime, trace in zip(("oracle", "host"), pair):
+                if runtime in runtimes:
+                    _where(trace, 0, "m1")[0]["pending"] = True
+            report = compare(*pair, scenario=scenario)
+            _case_require(report["verdict"] == "unjudgeable" and report["class"] == "scenario-start-mismatch"
+                          and "must be active, not pending" in report["findings"][0]["message"], name,
+                          ",".join(runtimes) + " pending tick-0 starter escaped the startup check")
+            report = compare(*pair, scenario=scenario, scenario_sha=H("c"))
+            _case_require(report["class"] == "scenario-hash-mismatch", name,
+                          "a pending starter hid the wrong scenario hash")
+    elif name == "N400 binding order":
+        _, _, scenario = _two_starter_reference()
+        # Both traces have one starter; the supplied scenario has two. An unrelated input refusal must win
+        # before the population check attributes the difference to either runtime.
+        cases = (
+            ("scenario-hash-mismatch", {"scenario_sha": H("c")}),
+            ("pack-hash-mismatch", {"scenario_sha": H("a"), "pack_sha": H("d")}),
+            ("artifact-hash-mismatch", {"artifacts": {"host": H("9")}}),
+        )
+        for expected, arguments in cases:
+            report = compare(oracle, host, scenario=scenario, **arguments)
+            _case_require(report["verdict"] == "unjudgeable" and report["class"] == expected, name,
+                          expected + " was hidden by a starter-population refusal")
+        wrong_rng = dict(scenario, rng={"kind": "tape", "values": []})
+        report = compare(oracle, host, scenario=wrong_rng)
+        _case_require(report["class"] == "scenario-hash-mismatch", name,
+                      "rng binding was hidden by a starter-population refusal")
+        report = compare(oracle, host, scenario=dict(scenario, ticks=5))
+        _case_require(report["class"] == "tick-count-mismatch", name,
+                      "tick-count binding was hidden by a starter-population refusal")
     else:
         raise ValueError("unknown burndown check " + name)
 

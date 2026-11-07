@@ -30,6 +30,17 @@ CASES = (
      'used_tolerances.add("origin")', 'used_tolerances.clear()\n                            used_tolerances.add("origin")'),
     ("bd-codex-parity: N400 starter-population", "N400 starter population",
      'if actual_starters != expected_starters:', 'if False:'),
+    ("bd-codex-parity: N400 pending-starter-refusal", "N400 pending starters",
+     'if any(state["pending"] for state in starter_states):', 'if False:'),
+    ("bd-codex-parity: N400 starter-population-before-binding", "N400 binding order",
+     '        for runtime, h in (("oracle", oh), ("host", hh)):',
+     '''        if scenario is not None:
+            expected_starters = [mascot["sid"] for mascot in scenario["mascots"]]
+            for runtime, states in (("oracle", ostates), ("host", hstates)):
+                actual_starters = [state["sid"] for state in states if state["tick"] == 0]
+                if actual_starters != expected_starters:
+                    raise Unjudgeable("scenario-start-mismatch", "startup checked before input binding")
+        for runtime, h in (("oracle", oh), ("host", hh)):'''),
 )
 
 
@@ -58,7 +69,9 @@ def main():
     original = source.read_bytes()
     text = original.decode("utf-8")
     pin = (HERE.parent / "oracle" / "source-pin.json").read_bytes()
-    baseline, _ = loaded_source(source, original)
+    baseline, baseline_digest = loaded_source(source, original)
+    print("EXECUTED BASELINE artifact=" + str(source) + " sha256=" + baseline_digest
+          + " mtimeNs=" + str(source.stat().st_mtime_ns))
     for check in dict.fromkeys(case[1] for case in selected):
         baseline.burndown_check(check)
         print("BASELINE " + check + " PASS")
@@ -94,9 +107,10 @@ def main():
                 target.write_bytes(original)
                 if target.read_bytes() != original:
                     raise AssertionError(name + ": private source was not restored byte-identical")
-                restored, _ = loaded_source(target, original)
+                restored, restored_digest = loaded_source(target, original)
                 restored.burndown_check(check)
-                print("RESTORED " + name + " PASS")
+                print("RESTORED " + name + " PASS sha256=" + restored_digest
+                      + " mtimeNs=" + str(target.stat().st_mtime_ns) + " artifact=" + str(target))
     if scratch.exists() or source.read_bytes() != original:
         raise AssertionError("mutation cleanup or checkout source integrity failed")
     print("COMPARER MUTATIONS PASS: " + str(fired) + "/" + str(len(selected)) + " FIRED; source restored byte-identical")
