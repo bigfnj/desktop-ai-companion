@@ -91,10 +91,18 @@ namespace DesktopAICompanion.Ai
         /// user's timeout, 120 s by default), before the fallover ran, while <see cref="_primaryProbe"/> already said down.
         /// Every probe still asks the primary, so the first one it answers puts the remarks back on it; before any probe
         /// the primary is tried as before. Not while a stand-down holds the local leg back: the cloud is then tried and
-        /// its own failure is the turn's, as above. A redirect reads as down to the probe too (SendAndCheckAnsweredAsync
-        /// refuses one), so a base URL that redirects answers locally where each remark used to fail on the redirect; the
-        /// log line says the cloud was passed over. Rejected: racing both legs per remark, which would run the local model
+        /// its own failure is the turn's, as above. Rejected: racing both legs per remark, which would run the local model
         /// for every remark the cloud answers.
+        ///
+        /// Not for a probe the cloud answered with a redirect (<see cref="PrimaryRedirected"/>, N-bd-w3-aibrain-1-01). The
+        /// probe refuses a redirect (SendAndCheckAnsweredAsync), and while that read as down here, a base URL that
+        /// redirects had every remark answered by the local model, its only trace a log line and the Status card's local
+        /// model name, where 1.7.0 failed each remark on the redirect for the user to see. A redirect is an answer: plain
+        /// HTTP is refused for anything but loopback, so one comes from the configured HTTPS server itself, not from a
+        /// network in the way, and the chat fails on it deterministically, which this class's rule keeps from falling
+        /// over (a bad key's 401 is the same case, and F107 made the probe read it as up). So the cloud is tried and its
+        /// redirect is the turn's error. Rejected: skipping on a redirect and saying so in the pane instead, which would
+        /// keep answering from a model the user did not choose until they read it there.
         /// </summary>
         private bool PrimarySkipped()
         {
@@ -197,12 +205,16 @@ namespace DesktopAICompanion.Ai
         /// it: a retired cloud id then failed every turn with http-400, deterministic, no fallover, until the next
         /// Apply or pane Refresh. The brain now re-lists while its inventory is unknown, and this record is what lets
         /// <see cref="ListModelsAsync"/> answer "cannot enumerate" without a request while the primary is away, so
-        /// the inventory stays unknown instead of becoming an empty list (RA-062).
+        /// the inventory stays unknown instead of becoming an empty list (RA-062). Down means the probe got no answer;
+        /// <see cref="PrimaryRedirected"/> means the cloud answered with something its chat fails on deterministically
+        /// (a redirect), which <see cref="PrimarySkipped"/> must not pass over (N-bd-w3-aibrain-1-01). One field, so a
+        /// reader never sees half of a record.
         /// </summary>
         private volatile int _primaryProbe;
         private const int PrimaryUnknown = 0;
         private const int PrimaryUp = 1;
         private const int PrimaryDown = 2;
+        private const int PrimaryRedirected = 3;
         private volatile Task _primaryProbeRecorded;
 
         private void RememberPrimaryProbe(Task<bool> probe)
@@ -210,13 +222,24 @@ namespace DesktopAICompanion.Ai
             _primaryProbeRecorded = probe.ContinueWith(
                 delegate(Task<bool> finished)
                 {
-                    _primaryProbe = finished.Status == TaskStatus.RanToCompletion && finished.Result
-                        ? PrimaryUp
-                        : PrimaryDown;
+                    if (finished.Status != TaskStatus.RanToCompletion) _primaryProbe = PrimaryDown;
+                    else if (finished.Result) _primaryProbe = PrimaryUp;
+                    else _primaryProbe = PrimaryAnsweredNo() ? PrimaryRedirected : PrimaryDown;
                 },
                 CancellationToken.None,
                 TaskContinuationOptions.ExecuteSynchronously,
                 TaskScheduler.Default);
+        }
+
+        /// <summary>Whether the primary's "not reachable" was an ANSWER its chat fails on deterministically: the reason
+        /// the probe kept (<see cref="IAvailabilityProbeStatus"/>) is an AiBackendHttpException the retry and the fallover
+        /// would not act on (<see cref="AiEndpointPolicy.IsRetryable"/>), today the redirect. A primary that keeps no
+        /// reason reads as down, as before.</summary>
+        private bool PrimaryAnsweredNo()
+        {
+            IAvailabilityProbeStatus status = _primary as IAvailabilityProbeStatus;
+            AiBackendHttpException answered = status == null ? null : status.LastProbeFailure as AiBackendHttpException;
+            return answered != null && !answered.IsTransient;
         }
 
         /// <summary>Completes once the most recent primary probe's answer has been recorded, for the self-test,
@@ -292,12 +315,15 @@ namespace DesktopAICompanion.Ai
         /// Null as well while the primary's own probe last answered "down" (RA-062): the composite is up through
         /// its local leg, so the brain keeps asking while its inventory is unknown, and a request against a
         /// primary that is away would only tie the ask up on a listing that fails; "cannot enumerate" costs no
-        /// request and keeps the inventory unknown until the primary is back.
+        /// request and keeps the inventory unknown until the primary is back. The same for a primary whose probe was
+        /// answered with a redirect (N-bd-w3-aibrain-1-01): the listing would be refused on it too, so it asks nothing of
+        /// it, as when a redirect read as down.
         /// </summary>
         public Task<IReadOnlyList<ModelListing>> ListModelsAsync(CancellationToken ct)
         {
             IModelLister lister = _primary as IModelLister;
-            if (lister == null || _primaryProbe == PrimaryDown)
+            int probe = _primaryProbe;
+            if (lister == null || probe == PrimaryDown || probe == PrimaryRedirected)
                 return Task.FromResult<IReadOnlyList<ModelListing>>(null);
             return lister.ListModelsAsync(ct);
         }

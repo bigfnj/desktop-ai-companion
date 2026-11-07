@@ -4608,8 +4608,8 @@ CASES = (
     # unknown inventory.
     ("burn-aibrain: the composite enumerates a primary its probe saw down again",
      os.path.join(REPO, "modules", "AiBrain", "engine", "FallbackBackend.cs"),
-     b"            if (lister == null || _primaryProbe == PrimaryDown)",
-     b"            if (lister == null)",
+     b"            if (lister == null || probe == PrimaryDown || probe == PrimaryRedirected)",
+     b"            if (lister == null || probe == PrimaryRedirected)",
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "the composite cannot enumerate while its primary is down"),
@@ -22032,6 +22032,32 @@ CASES = (
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "WITNESS aibrain audit-1106 w3: an inherited OLLAMA_HOST that already listens everywhere on the endpoint's port is kept"),
+    # ---- burndown/w4-aibrain-1 ----
+    # AI Brain's fourth-wave item (aibrain 1.7.1), graded by --module-selftest=aibrain's "aibrain bd-w4:" checks
+    # (engine/AiEngineProbe.BurndownW4.cs). Named "bd-w4-aibrain-1: ..." so --only=bd-w4-aibrain-1: runs the lane.
+    # N-bd-w3-aibrain-1-01: a cloud whose probe was answered with a redirect read as one that got no answer, so the
+    # composite sent every remark to the local model and the redirect never reached the user.
+    ("bd-w4-aibrain-1: the composite reads a probe answered with a redirect as no answer again (N-bd-w3-aibrain-1-01)",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "FallbackBackend.cs"),
+     b"            return answered != null && !answered.IsTransient;\n",
+     b"            return answered != null && answered.IsTransient;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "aibrain bd-w4: a cloud whose probe was answered with a redirect is still tried"),
+    ("bd-w4-aibrain-1: the cloud probe forgets why it said not reachable (N-bd-w3-aibrain-1-01)",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "OpenAiCompatBackend.cs"),
+     b"            catch (Exception ex) { LastProbeFailure = ex; return false; }\n",
+     b"            catch (Exception ex) { LastProbeFailure = ex == null ? ex : null; return false; }\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "aibrain bd-w4: a cloud whose probe was answered with a redirect is still tried"),
+    ("bd-w4-aibrain-1: the composite lists a cloud whose probe was answered with a redirect again (RA-062)",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "FallbackBackend.cs"),
+     b"            if (lister == null || probe == PrimaryDown || probe == PrimaryRedirected)\n",
+     b"            if (lister == null || probe == PrimaryDown)\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "aibrain bd-w4: the composite asks nothing of a cloud whose probe was answered with a redirect for its models"),
     # ---- burndown/w3-host-1 ----
     # Named "bd-w3-host-1:" so one --only=bd-w3-host-1: run covers the lane.
     # N-shimeji-1106-04: the soak's tick-companion step plays no clip (its sounds held, as for a fullscreen window), so the
