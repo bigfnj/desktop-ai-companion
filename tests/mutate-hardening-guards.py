@@ -4384,6 +4384,16 @@ CASES = (
         b"    <TargetFramework>net10.0-windows</TargetFramework>\n    <WarningLevel>4</WarningLevel>\n",
         "w4-contracts-1: no src project pins WarningLevel below the net10 default of 10",
     ),
+    # ---- burndown/w4-converter-1 ----
+    # The converter's last ffmpeg candidate goes back to the bare name CreateProcess searches the current directory for.
+    # "bd-w4-converter-1:" for one --only.
+    (
+        "bd-w4-converter-1: FindFfmpeg starts the bare name ffmpeg again (N-audit-1106-153)",
+        os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Engine.cs"),
+        b"            return onPath != null && ProbeFfmpeg(onPath) ? onPath : null;\n",
+        b"            return ProbeFfmpeg(\"ffmpeg\") ? \"ffmpeg\" : null;\n",
+        "w4-converter-1: the converter's PATH ffmpeg candidate is FfmpegOnPath's full path",
+    ),
 )
 
 

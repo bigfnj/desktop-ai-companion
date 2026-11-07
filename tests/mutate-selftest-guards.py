@@ -21833,8 +21833,8 @@ CASES = (
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL, SHIMEJI, 'cli-roundtrip', 'CLI_PREFLIGHT_REFUSAL'),
     ('bd-codex-converter-1: revision floor admission is mistaken for actual emitted Group2 use',
      PET_EMITTER,
-     b'if (!used) { notOnFloor.Add(a.Name); continue; }',
-     b'if (!used && !IsFloorAction(a)) { notOnFloor.Add(a.Name); continue; }',
+     b'                    if (!used)\n',
+     b'                    if (!used && !IsFloorAction(a))\n',
      SHIMEJI_CSPROJ,
      SHIMEJI_ENGINE_DLL,
      SHIMEJI,
@@ -21842,8 +21842,8 @@ CASES = (
      'classic Group2 missing frames: admission was reported as emitted use without a sheet key'),
     ('bd-codex-converter-1: revision unused Group2 actions are falsely called kept',
      PET_EMITTER,
-     b'if (!used) { notOnFloor.Add(a.Name); continue; }',
-     b'if (!used && config.Actions.Count == 0) { notOnFloor.Add(a.Name); continue; }',
+     b'                    if (!used)\n',
+     b'                    if (!used && config.Actions.Count == 0)\n',
      SHIMEJI_CSPROJ,
      SHIMEJI_ENGINE_DLL,
      SHIMEJI,
@@ -22362,6 +22362,56 @@ CASES = (
      b'            print("  NO-OP (pattern matched %d times)  %s" % (count, name))\n',
      None, None,
      MUTATION_UNITTESTS, None, 'test_check_patterns_counts_every_case_and_runs_nothing'),
+    # ---- burndown/w4-converter-1 ----
+    # Converter entries of burn-down wave 4. "bd-w4-converter-1:" for one --only.
+    # N-cxr-w1-03 / N-bd-converter-1-01: bundle containment checks the path text only again, so a junction inside the
+    # bundle (its sprites folder, or a folder its filePattern names) reads sprites from outside it.
+    ("bd-w4-converter-1: a junction inside a bundle is followed outside it (N-cxr-w1-03)",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Shimeji", "WebPLoader.cs"),
+     b"                    && (File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)\n",
+     b"                    && current == null)\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "bundle containment: a sprites folder that is a link was followed outside the bundle"),
+    # N-audit-1106-153: the PATH resolver takes a relative entry again, so "." finds the current directory's ffmpeg.exe
+    # first, the search order the bare name had.
+    ("bd-w4-converter-1: the ffmpeg PATH resolver reads a relative entry (N-audit-1106-153)",
+     SHIMEJI_ENGINE_CS,
+     b"                    if (!Path.IsPathFullyQualified(folder)) continue;\n",
+     b"",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "sound-resolve", "ffmpeg on PATH resolved to"),
+    # N-audit-1106-156: the keyed compositor stops keying a below-threshold sprite pixel (it goes opaque instead); the
+    # sheet's magenta background clear used to hide this from the only magenta assertion.
+    ("bd-w4-converter-1: the keyed compositor leaves a transparent sprite pixel unkeyed (N-audit-1106-156)",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Shimeji", "SpriteSheetBuilder.cs"),
+     b"                        if (a < AlphaThreshold)\n",
+     b"                        if (a < AlphaThreshold && bmp == null)\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "keying: "),
+    # N-audit-1106-157: the emitter's room test stops charging a <sound> node's markup allowance; the near-cap case now
+    # leaves a third clip's payload in the room, so only the allowance refuses it.
+    ("bd-w4-converter-1: the sound room test drops the per-<sound> markup allowance (N-audit-1106-157)",
+     PET_EMITTER,
+     b"                            && audioBase64 + encodedLength + SoundMarkupAllowanceBytes <= xmlRoom;\n",
+     b"                            && audioBase64 + encodedLength <= xmlRoom;\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "classic-emitter", "a sheet with room for two clips embedded 3"),
+    # N-bd-codex-converter-1-04: an unused Group2 action loses its classifier reason again and is printed under the
+    # converter-gap sentence.
+    ("bd-w4-converter-1: an unused Group2 action is called a converter gap without its reason (N-bd-codex-converter-1-04)",
+     PET_EMITTER,
+     b"            List<string> gap = notOnFloor.Where(n => !unusedClassifiedNames.Contains(n)).ToList();\n",
+     b"            List<string> gap = notOnFloor; unusedClassified.Clear();\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "classic-emitter", "classic Group2 residue: an action left out on purpose is not listed with its classifier reason"),
+    # N-audit-1106-152: the tick compositor copies a re-read sprite at whatever size it now has. The self-test's sheet is
+    # wider than the cell, so the unguarded copy stays inside the buffer and the run reports instead of crashing.
+    ("bd-w4-converter-1: the tick compositor copies a sprite that changed size since it was measured (N-audit-1106-152)",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
+     b"            if (source.Width != measuredWidth || source.Height != measuredHeight)\n",
+     b"            if (source == null)\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "tick-emitter/sprite-changed-refusal", "a sprite that grew between the measuring read and the compositing read"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

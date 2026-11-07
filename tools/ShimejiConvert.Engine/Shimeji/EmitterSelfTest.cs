@@ -1320,10 +1320,14 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 // A sheet that left room for exactly TWO embeddings: the projection the compositor would have
                 // reported for a near-cap sheet, set on the real sheet so the document stays small and valid
                 // while the arithmetic under test sees a 12 MiB document. Restored afterwards.
+                // The room also holds a THIRD clip's payload and half its markup allowance, so the third
+                // embedding is refused by the allowance alone. With 64 bytes of slack instead, the room was
+                // 576 bytes short of a ~273 KB third payload, and a room test that dropped the per-<sound>
+                // allowance still embedded exactly two (N-audit-1106-157).
                 int base64Length = Convert.ToBase64String(fakeMp3).Length;
                 int realProjection = sheet.ProjectedXmlBytes;
                 sheet.ProjectedXmlBytes = SpriteSheetBuilder.XmlBudgetBytes
-                    - (2 * (base64Length + PetEmitter.SoundMarkupAllowanceBytes) + 64);
+                    - (2 * (base64Length + PetEmitter.SoundMarkupAllowanceBytes) + base64Length + PetEmitter.SoundMarkupAllowanceBytes / 2);
                 try
                 {
                     ConversionResult rn = PetEmitter.Emit(config, sheet, load, "TestSkinNearCap", stubClips);
@@ -2099,6 +2103,17 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 || !targets.Residue.Notes.Any(note => note.StartsWith("These animations are not attempted:", StringComparison.Ordinal)
                     && note.Contains("CursorChase") && note.Contains("WindowHop") && note.Contains("WindowLook")))
                 failures.Add("classic target contexts: window or moving-cursor actions entered the floor graph or its weights");
+            // Left out ON PURPOSE, so the residue keeps the classifier's reason beside each name and the converter-gap
+            // sentence does not claim them (N-bd-codex-converter-1-04).
+            ShimejiAction windowHop = ShimejiParser.ParseConfXml("<Mascot><ActionList>" + targeted + "</ActionList></Mascot>", targetedBehaviours)
+                .Actions.FirstOrDefault(a => a.Name == "WindowHop");
+            string hopReason = windowHop == null ? null : windowHop.Reason;
+            if (string.IsNullOrEmpty(hopReason)
+                || !targets.Residue.Notes.Any(note => note.StartsWith("These animations are not attempted:", StringComparison.Ordinal)
+                    && note.Contains("WindowHop (" + hopReason + ")"))
+                || targets.Residue.Notes.Any(note => note.Contains("converter gap") && note.Contains("WindowHop")))
+                failures.Add("classic Group2 residue: an action left out on purpose is not listed with its classifier reason '"
+                    + (hopReason ?? "(none)") + "', or is called a converter gap");
 
             string noStand = "<Action Name='Vanish' Type='Stay'><Animation><Pose Velocity='0,0' Duration='50'/></Animation></Action>"
                 + "<Action Name='Idle' Type='Stay'><Animation><Pose Image='/a.png' ImageAnchor='4,8' Velocity='0,0' Duration='2'/></Animation></Action>";

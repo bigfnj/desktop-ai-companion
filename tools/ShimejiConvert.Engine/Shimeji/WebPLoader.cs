@@ -54,6 +54,16 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         /// that climbs out lands outside once GetFullPath has resolved it. ONE test, on the resolved path, rather
         /// than a list of text shapes beside it: each shape test was redundant with this one, so no input could
         /// show one of them missing.
+        ///
+        /// A path that is contained by its TEXT can still leave the root on disk: a junction or symbolic link
+        /// inside the bundle (a "sprites" folder that is a junction to another folder) sits under the root by
+        /// name and reads wherever it points (N-bd-converter-1-01). So every segment below the root that exists
+        /// is refused when it is a reparse point, the walk TickPackEmitter.SafeEntry does for a pack. It starts
+        /// BELOW the root rather than at the drive as SafeEntry's does: the root is the folder the user picked (or
+        /// the one their archive was extracted to), and a profile folder redirected through a junction above it
+        /// reaches nothing the user did not choose. The sprites folder is checked here when the basePath is
+        /// resolved, and each sprite below it when the loader resolves the name, so together they cover the
+        /// bundle folder down to the file.
         /// </summary>
         internal static string ContainedPath(string root, string relative, out string reason)
         {
@@ -67,6 +77,18 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             {
                 reason = "it resolves outside the bundle";
                 return null;
+            }
+            string current = full;
+            foreach (string part in joined.Substring(full.Length).Split(
+                new[] { Path.DirectorySeparatorChar }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                current = Path.Combine(current, part);
+                if ((Directory.Exists(current) || File.Exists(current))
+                    && (File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
+                {
+                    reason = "it passes through a junction or symbolic link ('" + part + "'), which can point outside the bundle";
+                    return null;
+                }
             }
             return joined;
         }

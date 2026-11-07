@@ -63,6 +63,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         public static bool Run(out string detail)
         {
             var failures = new List<string>();
+            // Checks this machine could not run, printed on every run, pass or fail.
+            var degraded = new List<string>();
 
             // ---- 1) parse mapping (no sprites needed) ----
             BundleInfo info;
@@ -299,6 +301,43 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 if (BundleConverter.TryResolveSpritesDir(bundle, "//unreachable.invalid/share/sprites/", out uncDir, out uncError)
                     && !uncDir.StartsWith(Path.GetFullPath(bundle) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
                     failures.Add("bundle containment: a UNC basePath resolved to '" + uncDir + "', outside the bundle");
+
+                // A LINK INSIDE THE BUNDLE IS NOT THE BUNDLE (N-bd-converter-1-01). Both paths below are contained by
+                // their text, and each reaches the outside sprite set through a junction (or a symbolic link where one
+                // can be made): the bundle's own sprites folder, and a folder below a real sprites folder that the
+                // filePattern names. Without the segment walk both convert from the outside set.
+                string viaFolder = Path.Combine(escapeRoot, "via-folder"), viaPattern = Path.Combine(escapeRoot, "via-pattern");
+                Directory.CreateDirectory(viaFolder);
+                Directory.CreateDirectory(Path.Combine(viaPattern, "sprites"));
+                foreach (string linked in new[] { viaFolder, viaPattern })
+                {
+                    File.WriteAllText(Path.Combine(linked, "animation.json"), AnimationJson, new UTF8Encoding(false));
+                    File.WriteAllText(Path.Combine(linked, "manifest.json"), linked == viaFolder ? ManifestJson
+                        : ManifestJson.Replace("\"filePattern\":\"%04d.png\"", "\"filePattern\":\"sub/%04d.png\""), new UTF8Encoding(false));
+                }
+                var links = new[]
+                {
+                    new { Label = "a sprites folder that is a link", Bundle = viaFolder, Link = Path.Combine(viaFolder, "sprites") },
+                    new { Label = "a filePattern folder that is a link", Bundle = viaPattern, Link = Path.Combine(viaPattern, "sprites", "sub") },
+                };
+                foreach (var link in links)
+                {
+                    if (!TryMakeDirectoryLink(link.Link, Path.Combine(outside, "sprites")))
+                    {
+                        // Said on every run where it happens, never skipped in silence: the refusal is untested here.
+                        degraded.Add("DEGRADED: bundle containment: " + link.Label + " could not be made (no symbolic link or junction), so the link refusal is not exercised");
+                        continue;
+                    }
+                    try
+                    {
+                        string linkError;
+                        ConversionResult followed = BundleConverter.ConvertBundle(link.Bundle, "Link Skin", out linkError);
+                        if (followed != null || linkError == null || linkError.IndexOf("junction or symbolic link", StringComparison.Ordinal) < 0)
+                            failures.Add("bundle containment: " + link.Label + " was followed outside the bundle (converted="
+                                + (followed != null) + ", error=" + (linkError ?? "(none)") + ")");
+                    }
+                    finally { try { Directory.Delete(link.Link); } catch { /* best-effort: the recursive delete below removes it too */ } }
+                }
             }
             catch (Exception ex)
             {
@@ -311,6 +350,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
 
             var sb = new StringBuilder();
             sb.AppendLine("bundle self-test: manifest.json + animation.json -> ShimejiConfig -> accepted pet; one WebP through dwebp");
+            foreach (string d in degraded) sb.AppendLine("  " + d);
             if (failures.Count == 0)
             {
                 sb.Append("  mapping correct (Type/Class/border, dx/dy velocity, bottom-centre anchor, Fall->Class Fall); " +
@@ -321,6 +361,38 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             foreach (string f in failures) sb.AppendLine("  FAIL " + f);
             detail = sb.ToString();
             return false;
+        }
+
+        /// <summary>A directory link at <paramref name="link"/> to <paramref name="target"/>: a symbolic link where this
+        /// account may make one, else a junction, which needs no privilege. The same two steps as the host's
+        /// ShimejiWindowSelfTest.TryMakeDirectoryLink; false when neither could be made.</summary>
+        private static bool TryMakeDirectoryLink(string link, string target)
+        {
+            try
+            {
+                Directory.CreateSymbolicLink(link, target);
+                return true;
+            }
+            catch (Exception) { }
+            try
+            {
+                // cmd.exe by its full path: a bare name is searched for in the current directory ahead of System32.
+                var psi = new System.Diagnostics.ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "cmd.exe"),
+                    "/c mklink /J \"" + link + "\" \"" + target + "\"")
+                {
+                    CreateNoWindow = true,
+                    UseShellExecute = false,
+                };
+                // mklink's message is not read, so it is not redirected: a synchronous read would wait for cmd to exit
+                // and leave the 5-second bound unreachable.
+                using (System.Diagnostics.Process p = System.Diagnostics.Process.Start(psi))
+                    p.WaitForExit(5000);
+                return Directory.Exists(link) && (File.GetAttributes(link) & FileAttributes.ReparsePoint) != 0;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
         }
 
         private static ShimejiAction ByName(ShimejiConfig config, string name)
