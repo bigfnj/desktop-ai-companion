@@ -99,7 +99,9 @@ namespace DesktopAICompanion.RemembranceModule
                                  //        on, one warning per track; it was logged only at the stop, and a second such
                                  //        end overwrote the first (N-audit-1106-036). Each start, and each purge pass,
                                  //        counts the recordings with audio and no transcript, and the Status line says
-                                 //        how many and when the purge reaches the oldest (N-audit-1106-038).
+                                 //        how many and when the purge reaches the oldest (N-audit-1106-038). The self-test
+                                 //        of a rename whose target appeared after the plan now requires the move's own
+                                 //        refusal, ERROR_ALREADY_EXISTS (N-shimeji-1106-06).
                                  // 2.10.0: one Claude Code sign-in, shared with AI Brain (host 1.8.0's
                                  //        IHostCredentials, BACKLOG N-cli-token-02, the owner's decision of
                                  //        2026-10-29), behind the ClaudeCodeSignIn grant, so MinHostVersion rises to

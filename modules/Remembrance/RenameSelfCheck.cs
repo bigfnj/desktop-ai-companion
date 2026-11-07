@@ -229,11 +229,26 @@ namespace DesktopAICompanion.RemembranceModule
             RenamePlan raced = new CaptureStore(failRoot, FolderLayout.ByDate).PlanRenames();
             // Something takes one of the planned names between the plan and the move.
             File.WriteAllText(Path.Combine(failDay, "2026-08-28 15-00 Review.summary.txt"), "someone else's");
-            RenameReport refused = CaptureStore.ApplyRenames(raced);
+            // The refusal itself is recorded, not only its outcome (N-shimeji-1106-06): the outcome check below passed
+            // for a reason other than the never-overwrite in the full-tier run that scored "the rename overwrites a file
+            // in its way" as survived, so the first exception the real move throws is kept and named. It must be the
+            // target's existence, ERROR_ALREADY_EXISTS as an IOException, and nothing else a move can throw.
+            Exception firstRefusal = null;
+            RenameReport refused;
+            CaptureStore.MoveEntry = (from, to, isFolder) =>
+            {
+                try { moveWas(from, to, isFolder); }
+                catch (Exception ex) { if (firstRefusal == null) firstRefusal = ex; throw; }
+            };
+            try { refused = CaptureStore.ApplyRenames(raced); }
+            finally { CaptureStore.MoveEntry = moveWas; }
             check("rename: a target that appeared after the plan is never overwritten, and the capture is put back",
                 refused.CapturesFailed == 1
                 && text(Path.Combine(failDay, "2026-08-28 15-00 Review.summary.txt")) == "someone else's"
                 && oldFiles.All(name => File.Exists(Path.Combine(failDay, name))));
+            check("rename: ...refused by the move itself, because the target exists (ERROR_ALREADY_EXISTS): " +
+                  (firstRefusal == null ? "no exception" : firstRefusal.GetType().Name + " 0x" + firstRefusal.HResult.ToString("X8")),
+                firstRefusal is IOException && firstRefusal.HResult == unchecked((int)0x800700B7));
 
             // ---- the Storage card's line and button ----
             string paneRoot = Path.Combine(scratch, "pane");

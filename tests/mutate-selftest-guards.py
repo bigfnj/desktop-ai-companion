@@ -20921,6 +20921,15 @@ CASES = (
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "the next start says on the Status line which recordings have audio and no transcript"),
+
+    # N-shimeji-1106-06: the rename overwrites a raced target, and the refusal it must meet never comes.
+    ("bd-w2-remembrance-1: the rename overwrites a raced target, so no ERROR_ALREADY_EXISTS is met (N-shimeji-1106-06)",
+     os.path.join(REPO, "modules", "Remembrance", "CaptureStore.Rename.cs"),
+     b"            else File.Move(from, to);\n",
+     b"            else File.Move(from, to, true);\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "refused by the move itself, because the target exists (ERROR_ALREADY_EXISTS)"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
