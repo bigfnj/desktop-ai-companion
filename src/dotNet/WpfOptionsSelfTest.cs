@@ -1675,6 +1675,26 @@ namespace DesktopAICompanion
                         desc != null && !desc.StartsWith("✗"));
                     ok &= Check(sb, "an absent chime is still described as missing",
                         (DesktopAICompanion.Wpf.OptionsShell.DescribeNotificationSound(probeFile + ".gone") ?? "").StartsWith("✗"));
+
+                    // The PATH, not only the primitive (N-audit-1106-030). The deadline above is ProbeBounded's own;
+                    // DescribeNotificationSound, the call Preferences' Load makes, reaches it through FileExistsBounded,
+                    // and either of them made unbounded again passed every check here. So the description itself is
+                    // driven with a filesystem call that hangs: it must come back inside the bound and say the drive
+                    // did not answer.
+                    Func<string, bool> realExists = DesktopAICompanion.Wpf.OptionsShell.FileExistsProbe;
+                    try
+                    {
+                        DesktopAICompanion.Wpf.OptionsShell.FileExistsProbe =
+                            delegate (string hungPath) { System.Threading.Thread.Sleep(5000); return true; };
+                        var swDescribe = System.Diagnostics.Stopwatch.StartNew();
+                        string hung = DesktopAICompanion.Wpf.OptionsShell.DescribeNotificationSound(probeFile);
+                        swDescribe.Stop();
+                        ok &= Check(sb, "the chime description gives the settings window back when its drive hangs (took "
+                            + swDescribe.ElapsedMilliseconds + "ms)", swDescribe.ElapsedMilliseconds < 2000);
+                        ok &= Check(sb, "the chime description says its hung drive did not answer: " + (hung ?? "(null)"),
+                            hung != null && hung.EndsWith("(on a drive that did not answer)", StringComparison.Ordinal));
+                    }
+                    finally { DesktopAICompanion.Wpf.OptionsShell.FileExistsProbe = realExists; }
                 }
                 finally { try { File.Delete(probeFile); } catch { } }
 

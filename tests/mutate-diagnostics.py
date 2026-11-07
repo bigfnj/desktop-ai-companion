@@ -1187,6 +1187,17 @@ CASES = [
      "                        if (tenth != (int)Math.Round(data.GetVolume() * 10.0)) ok &= data.SetVolume(tenth / 10.0);\n",
      "                        ok &= data.SetVolume(tenth / 10.0);\n",
      "wpf", "options-ui volume: an Apply that leaves the volume field alone keeps a stored volume off the 0.1 grid"),
+    # ---- burndown/w2-host-1 ----
+    # N-audit-1106-030: the chime description Preferences' Load shows waits on a sleeping drive again, through either
+    # caller of the bounded probe. "bd-w2-host-1:" for one --only.
+    ("bd-w2-host-1: FileExistsBounded calls the filesystem without its deadline", OPTIONS,
+     "            return ProbeBounded(delegate { return exists(path); }, timeoutMs);\n",
+     "            return exists(path);\n",
+     "wpf", "the chime description gives the settings window back when its drive hangs"),
+    ("bd-w2-host-1: DescribeNotificationSound asks the filesystem directly", OPTIONS,
+     "            bool? there = FileExistsBounded(path, FileProbeMs);\n",
+     "            bool? there = System.IO.File.Exists(path);\n",
+     "wpf", "the chime description says its hung drive did not answer"),
 ]
 
 

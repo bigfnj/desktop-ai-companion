@@ -944,8 +944,16 @@ namespace DesktopAICompanion.Wpf
         internal static bool? FileExistsBounded(string path, int timeoutMs)
         {
             if (string.IsNullOrEmpty(path)) return false;
-            return ProbeBounded(delegate { return System.IO.File.Exists(path); }, timeoutMs);
+            // Read once, here, on the caller's thread, so the worker cannot see the self-test put it back half way.
+            Func<string, bool> exists = FileExistsProbe ?? System.IO.File.Exists;
+            return ProbeBounded(delegate { return exists(path); }, timeoutMs);
         }
+
+        /// <summary>The filesystem call <see cref="FileExistsBounded"/> makes: File.Exists. A seam for
+        /// --wpf-options-selftest only, which hands it a call that blocks so the check drives
+        /// <see cref="DescribeNotificationSound"/>, the path Preferences' Load takes, end to end (N-audit-1106-030):
+        /// a deadline asserted on ProbeBounded alone passed with either caller made unbounded again.</summary>
+        internal static Func<string, bool> FileExistsProbe = System.IO.File.Exists;
 
         /// <summary>
         /// The deadline itself, with the filesystem call passed in.
