@@ -432,5 +432,8 @@ namespace DesktopAICompanion.AgentFlow
         /// <summary>Panels whose protection could not be confirmed (round 6): the attach was refused, the read threw, or no
         /// answer came. Not proof of a failed install.</summary>
         public readonly List<KeyValuePair<string, string>> Unconfirmed = new List<KeyValuePair<string, string>>();
+        /// <summary>Every agent panel the sweep listed (N-audit-1106-101), so the once-per-panel "not protected" lines can
+        /// forget a panel that has closed. Empty when the sweep listed none or never ran, as PressBudget.EndSweep reads it.</summary>
+        public readonly List<string> Listed = new List<string>();
     }
 }

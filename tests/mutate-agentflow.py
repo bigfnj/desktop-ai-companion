@@ -822,13 +822,15 @@ CASES = (
         # be chosen at all.
         "installed pets are hidden whenever any pet is on screen",
         PANE,
-        "            foreach (CompanionTypeInfo type in InstalledPets())\n"
+        "            IReadOnlyList<CompanionTypeInfo> installed = InstalledPets();\n"
+        "            foreach (CompanionTypeInfo type in installed)\n"
         "            {\n"
-        "                string display = PetDisplay(type);",
+        "                string display = PetRow(type, installed);",
+        "            IReadOnlyList<CompanionTypeInfo> installed = InstalledPets();\n"
         "            if (choices.Count == 1)\n"
-        "            foreach (CompanionTypeInfo type in InstalledPets())\n"
+        "            foreach (CompanionTypeInfo type in installed)\n"
         "            {\n"
-        "                string display = PetDisplay(type);",
+        "                string display = PetRow(type, installed);",
         "an installed pet that is NOT on screen can still be chosen",
     ),
     # ---- 2026-09-29 audit campaign: each lane adds its cases directly under its own anchor so parallel
@@ -1280,8 +1282,8 @@ CASES = (
         # RA-025: the screen one-shot is spent before anything could carry it.
         "burn: RA-025 a screen notice nobody can hear spends the one-shot again",
         MODULE,
-        "            if (delivery.Wanted && !delivery.Delivered)\n            {\n                string heldBack = \"held back a screen notice about \"",
-        "            if (false && delivery.Wanted && !delivery.Delivered)\n            {\n                string heldBack = \"held back a screen notice about \"",
+        "            if (delivery.Wanted && !delivery.Delivered)\n            {\n                LogScreenHeldBack(\"held back a screen notice about \"",
+        "            if (false && delivery.Wanted && !delivery.Delivered)\n            {\n                LogScreenHeldBack(\"held back a screen notice about \"",
         "the same screen prompt is still announced once a companion appears",
     ),
     (
@@ -1748,8 +1750,8 @@ CASES = (
     (
         "beyond: the sweep pass ignores the mode and presses nothing",
         MODULE,
-        "                if (_mayPress)\n                    note = Decide(",
-        "                if (false && _mayPress)\n                    note = Decide(",
+        "                if (_mayPress)\n                {\n                    // The opt-ins at the last look",
+        "                if (false && _mayPress)\n                {\n                    // The opt-ins at the last look",
         "in auto-approve a VS Code prompt is still pressed as before",
     ),
 
@@ -2812,6 +2814,115 @@ CASES = (
         "                    if (AgentMode.Presses(Mode) != pressedBefore) PressingSwitched();\n",
         "                    if (true) PressingSwitched();\n",
         "(N-audit-1106-099, -100) a pane Save that leaves the mode where it was forgets nothing",
+    ),
+    # ---- burndown/w4-agentflow-1 ----
+    (
+        "bd-w4-agentflow-1: the tick keeps the last session-limit figure once the port is gone (N-audit-1106-094)",
+        MODULE,
+        "                            _limitLine = LimitNotAnsweringLine;\n                            _limitTray = LimitNotAnsweringTray;\n",
+        "",
+        ("(N-audit-1106-094) with VS Code not answering, the tray's session-limit row says it was not read",
+         "(N-audit-1106-094) ...and so do the Status card's limit row"),
+    ),
+    (
+        "bd-w4-agentflow-1: the watch waits out its minute after the port comes back (N-audit-1106-094)",
+        MODULE,
+        "                    _limitWatch.ReadOnNextLook();\n",
+        "",
+        "(N-audit-1106-094) ...and the first tick that finds the port again reads the panels at once",
+    ),
+    (
+        "bd-w4-agentflow-1: the pass decides on the tick's snapshot of the all-projects box again (N-audit-1106-095)",
+        MODULE,
+        "                    bool allProjects = _allProjects && (AllProjectsNow == null || AllProjectsNow());\n",
+        "                    bool allProjects = _allProjects;\n",
+        "(N-audit-1106-095) a for-all-projects box unticked while the prompt was read",
+    ),
+    (
+        "bd-w4-agentflow-1: a pane Save leaves the opt-in mirrors where Init set them (N-audit-1106-095)",
+        MODULE,
+        "            MirrorWiderOptIns();\n            bool ok = _settings.Save();",
+        "            bool ok = _settings.Save();",
+        "(N-audit-1106-095) ...and unticking them on the pane reaches it at once",
+    ),
+    (
+        "bd-w4-agentflow-1: a screen notice held by the pause is silent in the log again (N-audit-1106-098)",
+        MODULE,
+        "                LogScreenHeldBack(\"held back a screen notice about \" + seen.Subject + \": \" + paused);\n",
+        "",
+        "(N-audit-1106-098) a screen notice held by the death-loop pause is said in the log once",
+    ),
+    (
+        "bd-w4-agentflow-1: the focus guard's once-said set is never pruned again (N-audit-1106-101)",
+        MODULE,
+        "            _guardDegradedSaid.IntersectWith(ticket.Listed);\n",
+        "",
+        "(N-audit-1106-101) a panel reported as not protected is forgotten once no sweep lists it",
+    ),
+    (
+        "bd-w4-agentflow-1: the sweep leaves the guard ticket's panel list empty (N-audit-1106-101)",
+        CDP,
+        "            if (guard != null) guard.Listed.AddRange(panels);\n",
+        "",
+        "WITNESS (N-audit-1106-101) the sweep's ticket lists every agent panel it found",
+    ),
+    (
+        "bd-w4-agentflow-1: the tray toggle promises single-call approvals whatever the boxes say (N-audit-1106-102)",
+        MODULE,
+        "                    ? AutoApproveOnSpeech(ApproveForAllProjects, ApproveSimilarCommands)\n",
+        "                    ? \"Auto-approve is on. I will only press single-call approvals.\"\n",
+        "(N-audit-1106-102) switching auto-approve on from the tray with the all-projects box ticked",
+    ),
+    (
+        "bd-w4-agentflow-1: Disable leaves the real file's port value behind (N-audit-1106-103)",
+        VSCODE,
+        "            int cut = ValueEnd(blanked, valueStart);",
+        "            int cut = valueStart;",
+        "(N-audit-1106-103) Disable on the real file, which already asks for a port",
+    ),
+    (
+        "bd-w4-agentflow-1: EndSweep drops no card that went away (N-audit-1106-104)",
+        BUDGETPRESS,
+        "                if (!stillListed || (wasRead && !_seen.Contains(entry.Key))) gone.Add(entry.Key);",
+        "                if (false) gone.Add(entry.Key);",
+        "WITNESS (N-audit-1106-104) a prompt that goes away each time never trips the repeat cap",
+    ),
+    (
+        "bd-w4-agentflow-1: the card element leaves the press signature (N-audit-1106-104)",
+        BUDGETPRESS,
+        "            if (!string.IsNullOrEmpty(cardId)) {",
+        "            if (false) {",
+        "WITNESS (N-audit-1106-104) a run of compound-command prompts",
+    ),
+    (
+        "bd-w4-agentflow-1: the detector takes the last-listed outstanding call (N-audit-1106-105)",
+        DETECTOR,
+        "                if (oldest == null || call.StartedUtc < oldest.StartedUtc) oldest = call;",
+        "                oldest = call;",
+        "the OLDEST outstanding call is the blocker, listed between two newer ones",
+    ),
+    (
+        "bd-w4-agentflow-1: the session-limit step counts the panels planned again (N-audit-1106-106)",
+        SESSIONLIMIT_MODULE,
+        "                int asked = results.Count;\n",
+        "                int asked = plan.SendTo.Count;\n",
+        ("(N-audit-1106-106) a step stopped before its first panel says so",
+         "(N-audit-1106-106) the log and the notice count the one panel asked"),
+    ),
+    (
+        "bd-w4-agentflow-1: the sessions row ignores the Watch switches again (N-audit-1106-107)",
+        MODULE,
+        "            _sessionsLine = SessionsLine(results, WatchClaude, WatchCodex);",
+        "            _sessionsLine = SessionsLine(results);",
+        "(N-audit-1106-107) ...and the row Apply writes from a scan names it too",
+    ),
+    (
+        "bd-w4-agentflow-1: the pet dropdown keys pets by display name again (N-audit-1106-109)",
+        PANE,
+        "                    return display + \" (\" + type.TypeId + \")\";",
+        "                    return display;",
+        ("(N-audit-1106-109) two installed pets with the same name are two rows",
+         "(N-audit-1106-109) ...and a stored choice of the second is shown as itself"),
     ),
 )
 

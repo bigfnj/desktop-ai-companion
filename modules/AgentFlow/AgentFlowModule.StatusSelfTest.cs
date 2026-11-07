@@ -133,6 +133,28 @@ namespace DesktopAICompanion.AgentFlow
                 && sessionsLine.EndsWith("1 waiting on a prompt.", StringComparison.Ordinal));
             probe.Check("status: no sessions is said, not left blank",
                 SessionsLine(new List<Detection>()) == "None active in the last 15 minutes.");
+            // N-audit-1106-107: a Watch switch that is off means that agent was never read, so the row names it.
+            probe.Check("status: (N-audit-1106-107) with Watch Codex off the sessions row says Codex was not counted, beside the "
+                        + "count it does have",
+                SessionsLine(new List<Detection>(), true, false)
+                    == "None active in the last 15 minutes. Codex not counted: Watch Codex is off."
+                && SessionsLine(sessions, false, true).StartsWith(sessionsLine, StringComparison.Ordinal)
+                && SessionsLine(sessions, false, true).EndsWith(" Claude Code not counted: Watch Claude Code is off.", StringComparison.Ordinal)
+                && SessionsLine(null, false, false) == "Not watched: Watch Claude Code and Watch Codex are both off.");
+            var watchHost = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+            using (var watchStorage = new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-watchrow"))
+            {
+                watchHost.UseStorage("agentflow", watchStorage);
+                watchHost.SettingsFor("agentflow").Set(SettingMode, AgentMode.Off);   // no scan at Init (F037)
+                watchHost.SettingsFor("agentflow").Set(SettingWatchCodex, "false");
+                var watcher = new AgentFlowModule();
+                watcher.Init(watchHost);
+                watcher.Apply(new List<Detection>());
+                probe.Check("status: (N-audit-1106-107) ...and the row Apply writes from a scan names it too ("
+                            + watcher._sessionsLine + ")",
+                    watcher._sessionsLine == "None active in the last 15 minutes. Codex not counted: Watch Codex is off.");
+                watcher.Shutdown();
+            }
 
             var panels = new List<PanelUsage>
             {

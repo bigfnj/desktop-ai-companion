@@ -624,6 +624,8 @@ namespace DesktopAICompanion.AgentFlow
             // Every panel listed, handed on with each card so a press can find the panel the user is in (1.12.3). Only
             // with the guard on: off, a press makes no detection probe, as in 1.12.2.
             List<string> panels = guard != null ? work.ConvertAll(listed => listed.Key) : null;
+            // ...and the ticket keeps the same list, so the module can forget a closed panel's guard line (N-audit-1106-101).
+            if (guard != null) guard.Listed.AddRange(panels);
 
             string browserUrl = BrowserSocketUrl(port, timeoutMs);
             if (string.IsNullOrEmpty(browserUrl)) return null;
