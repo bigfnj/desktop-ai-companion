@@ -795,8 +795,22 @@ namespace DesktopAICompanion
                 // ends (N-audit-1106-219). The playback thread holds that lock for longer than an instant twice: while
                 // it opens the device (InitializeDirectSound) and while it stops the buffer (StopPlayback, on its way
                 // out). So a teardown that lands while a slow device is still opening, through both TryEnters (the
-                // Stop above and this one), leaves that thread reading the detached mixer. Swallowed like the Stop above.
+                // Stop above and this one), leaves that thread running on past the open, reading the detached mixer;
+                // the block below is what ends it. Swallowed like the Stop above.
                 try { o.Dispose(); } catch { }
+            }
+            // The stream the old player reads ENDS here, whichever way those TryEnters went (N-bd-audio-1-01). Its
+            // playback thread leaves its loop when a feed reads nothing (Feed returns 0, then StopPlayback, and the thread
+            // releases its DirectSound buffer and exits). ReadFully pads every read to full length, which is what keeps an
+            // idle output running, so a thread that outlived a lost Stop read silence from this mixer for the rest of the
+            // session, and anything still queued in it played on through the device being left. With no inputs and no
+            // padding its next feed reads 0 and it ends itself; the PlaybackStopped it then raises reaches nobody, as the
+            // handler was taken off above. Rejected: retrying Stop until the lock is won. The open holds that lock for as
+            // long as the device takes, and this runs under _sync, usually on the UI thread.
+            if (m != null)
+            {
+                m.ReadFully = false;
+                m.RemoveAllMixerInputs();
             }
         }
 

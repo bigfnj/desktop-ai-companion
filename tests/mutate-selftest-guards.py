@@ -20842,6 +20842,36 @@ CASES = (
      b'            if (embedded && !runsClass(cls) && Array.IndexOf(EmbeddedClasses, cls) < 0)\n',
      HOST_CSPROJ, EXE,
      SECURITY, None, 'a class outside the list is refused by the list where every class is said to run'),
+
+    # ---- burndown/w2-audio-1 ----
+    # N-bd-audio-1-01: an output torn down while a slow device is still opening loses both of NAudio's 50 ms TryEnters,
+    # and its playback thread runs on until a feed reads nothing. AudioOutput.DisposeOutput ends the detached mixer's
+    # stream so that feed comes. Driven through AudioOutput.OpenOutput's stand-in, which loses every Stop the same way.
+    # As filed: nothing ends the stream, so the thread reads padded silence for the rest of the session.
+    ("bd-w2-audio-1: N-bd-audio-1-01 a teardown that lost Stop leaves the playback thread reading forever again",
+     AUDIO_OUTPUT,
+     b"            if (m != null)\n            {\n                m.ReadFully = false;\n                m.RemoveAllMixerInputs();\n"
+     b"            }\n",
+     b"",
+     HOST_CSPROJ, EXE,
+     "--audio-selftest", "dp-audio-selftest.txt",
+     "a torn-down idle output whose Stop was lost reads end-of-stream at its next feed"),
+    # One half each: the detached mixer keeps padding its reads (an idle thread never sees the end)...
+    ("bd-w2-audio-1: N-bd-audio-1-01 the detached mixer still pads every read to full length",
+     AUDIO_OUTPUT,
+     b"                m.ReadFully = false;\n",
+     b"",
+     HOST_CSPROJ, EXE,
+     "--audio-selftest", "dp-audio-selftest.txt",
+     "a torn-down idle output whose Stop was lost reads end-of-stream at its next feed"),
+    # ...or keeps its inputs (a queued sound plays out on the device being left before the end comes).
+    ("bd-w2-audio-1: N-bd-audio-1-01 the detached mixer keeps the sounds queued in it",
+     AUDIO_OUTPUT,
+     b"                m.RemoveAllMixerInputs();\n",
+     b"",
+     HOST_CSPROJ, EXE,
+     "--audio-selftest", "dp-audio-selftest.txt",
+     "a sound queued before the teardown does not play on through the output being left"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

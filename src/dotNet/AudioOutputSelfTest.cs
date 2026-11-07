@@ -37,6 +37,7 @@ namespace DesktopAICompanion
                 ok &= FadeEndsTheInput(sb);
                 ok &= OutputFailureIsObserved(sb);
                 ok &= CleanStopReopensTheOutput(sb);
+                ok &= TeardownEndsAnOutputWhoseStopWasLost(sb);
                 ok &= NotificationSoundSettingRoundTrips(sb);
                 ok &= NotificationGatesInOrder(sb);
                 ok &= NotificationPicksAreValidatedAtPickTime(sb);
@@ -562,6 +563,85 @@ namespace DesktopAICompanion
                 EventHandler<StoppedEventArgs> handler = PlaybackStopped;
                 if (handler != null) handler(this, new StoppedEventArgs(error));
             }
+        }
+
+        /// <summary>
+        /// N-bd-audio-1-01: an output torn down while its device is still opening keeps no playback thread. In the pinned
+        /// NAudio 3.0.0-preview.6, DirectSoundOut.Stop takes its lock with a 50 ms TryEnter, and the playback thread holds
+        /// that lock for as long as the device takes to open (InitializeDirectSound). So a SetDevice within about 100 ms of
+        /// the start, on a device slower than that, loses both TryEnters (Stop, then Dispose), the state stays Playing,
+        /// and the thread runs on past the open. It leaves its loop only when a feed reads nothing, so what ends it is the
+        /// stream it reads, not the Stop. The stand-in here loses every Stop the same way and feeds from the provider it
+        /// was given, as that thread does; the case asserts what its next feed reads after the teardown. One leg per half
+        /// of the fix: an idle output's feed is padded to full length while the mixer pads its reads, and a queued sound's
+        /// samples are what a mixer that keeps its inputs still sends to the device being left.
+        /// </summary>
+        private static bool TeardownEndsAnOutputWhoseStopWasLost(StringBuilder sb)
+        {
+            bool ok = true;
+            using (var output = new AudioOutput())
+            {
+                var opened = new System.Collections.Generic.List<UnstoppableOutput>();
+                output.OpenOutput = delegate (Guid d) { var o = new UnstoppableOutput(); opened.Add(o); return o; };
+                // 50 ms of the mixer's 16-bit stereo output per feed, about what one DirectSound notification asks for.
+                var feed = new byte[2205 * 4];
+                Guid? device;
+                if (!output.EnsureStartedForTest(out device) || opened.Count != 1)
+                    return Check(sb, "the stand-in output whose Stop is lost opens", false);
+                int read = opened[0].Feed(feed);
+                ok &= Check(sb, "WITNESS a running idle output's feed is padded to full length (" + read + " of "
+                    + feed.Length + " bytes)", read == feed.Length);
+
+                output.SetDevice(Guid.NewGuid().ToString());   // the teardown Preferences makes when the device changes
+                ok &= Check(sb, "WITNESS the torn-down stand-in was told to stop and still plays, as a DirectSoundOut that "
+                    + "lost both TryEnters does", opened[0].StopRequests > 0 && opened[0].PlaybackState == PlaybackState.Playing);
+                read = opened[0].Feed(feed);
+                ok &= Check(sb, "a torn-down idle output whose Stop was lost reads end-of-stream at its next feed, so its "
+                    + "playback thread ends (N-bd-audio-1-01) (" + read + " bytes)", read == 0);
+
+                if (!output.EnsureStartedForTest(out device) || opened.Count != 2)
+                    return Check(sb, "the stand-in output whose Stop is lost opens again on the new device", false);
+                output.PlayTestTone();
+                read = opened[1].Feed(feed);
+                int sounding = NonZeroBytes(feed, read);
+                ok &= Check(sb, "WITNESS a queued test tone reaches the stand-in's feed (" + sounding + " non-zero of "
+                    + read + " bytes)", sounding > 0);
+
+                output.SetDevice("");
+                read = opened[1].Feed(feed);
+                sounding = NonZeroBytes(feed, read);
+                ok &= Check(sb, "a sound queued before the teardown does not play on through the output being left "
+                    + "(N-bd-audio-1-01) (" + sounding + " non-zero of " + read + " bytes)", sounding == 0);
+            }
+            return ok;
+        }
+
+        private static int NonZeroBytes(byte[] buffer, int count)
+        {
+            int n = 0;
+            for (int i = 0; i < count; i++) if (buffer[i] != 0) n++;
+            return n;
+        }
+
+        /// <summary>A DirectSoundOut whose Stop and Dispose both lost the 50 ms TryEnter to a slow device's open: each is
+        /// counted and changes nothing, so the state stays Playing. <see cref="Feed"/> is the playback thread's own read,
+        /// what it does at every buffer notification until a read returns 0.</summary>
+        private sealed class UnstoppableOutput : IWavePlayer
+        {
+            private IWaveProvider _source;
+            private PlaybackState _state = PlaybackState.Stopped;
+            public int StopRequests;
+            // Never raised: that thread reports a stop only once its loop ends, and AudioOutput has unsubscribed by then.
+            public event EventHandler<StoppedEventArgs> PlaybackStopped { add { } remove { } }
+            public PlaybackState PlaybackState { get { return _state; } }
+            public float Volume { get { return 1f; } set { } }
+            public WaveFormat OutputWaveFormat { get { return _source != null ? _source.WaveFormat : null; } }
+            public void Init(IWaveProvider waveProvider) { _source = waveProvider; }
+            public void Play() { _state = PlaybackState.Playing; }
+            public void Pause() { _state = PlaybackState.Paused; }
+            public void Stop() { StopRequests++; }
+            public void Dispose() { Stop(); }
+            public int Feed(byte[] buffer) { return _source == null ? -1 : _source.Read(buffer.AsSpan()); }
         }
 
         private static bool RejectsRubbish(StringBuilder sb)
