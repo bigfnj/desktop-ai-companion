@@ -5945,6 +5945,19 @@ Assert-True ($w3Offline.Length -gt 0 -and $w3Missing.Count -eq 0 -and $w3PythonL
     "w3-tests-harness-1: the offline script checks run every mutation-tooling check and fail on its exit code before the throw" +
     " (loops at $w3PythonLoop and $w3PwshLoop, exit reads at $($w3ExitReads -join ', '), exit checks at $($w3ExitAdds -join ', '), throw at $w3Throw)" +
     $(if ($w3Missing.Count) { ' -- not listed: ' + ($w3Missing -join ', ') } else { '' }))
+# ---- burndown/w4-converter-1 ----
+# THE CONVERTER STARTS FFMPEG FROM PATH BY ITS FULL PATH (N-audit-1106-153). A bare "ffmpeg" with UseShellExecute=false
+# reaches CreateProcess, which searches the current directory before PATH. FfmpegOnPath's rule (full paths only, relative
+# entries passed over) is graded by the converter's sound-resolve self-test; that FindFfmpeg's last candidate is that
+# resolver's answer, probed and returned as the same value, needs a spawn the self-test's zero-probe budget forbids, so it
+# is pinned here. The ARGUMENT is asserted: the probe and the return carry onPath, and the bare name is gone.
+$w4cFind = Get-MethodBody $engineCode 'private static string FindFfmpeg()' @("`n        private ", "`n        internal ", "`n        public ", "`n        /// ")
+Assert-True ($w4cFind.Length -gt 0) 'w4-converter-1: FindFfmpeg could be sliced out for inspection'
+Assert-True ($w4cFind -cmatch 'string onPath = FfmpegOnPath\(Environment\.GetEnvironmentVariable\("PATH"\)\);' -and
+    $w4cFind -cmatch 'return onPath != null && ProbeFfmpeg\(onPath\) \? onPath : null;' -and
+    $w4cFind -cnotmatch 'ProbeFfmpeg\("ffmpeg"\)' -and $w4cFind -cnotmatch '\? "ffmpeg"' -and
+    'return ProbeFfmpeg("ffmpeg") ? "ffmpeg" : null;' -cmatch 'ProbeFfmpeg\("ffmpeg"\)') (
+    "w4-converter-1: the converter's PATH ffmpeg candidate is FfmpegOnPath's full path, never the bare name (WITNESS: the old line matches)")
 
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that

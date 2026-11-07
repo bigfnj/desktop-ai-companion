@@ -782,8 +782,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
         }
 
         /// <summary>The environment variable naming the ffmpeg executable to use ahead of the bundled and PATH
-        /// candidates. The PATH probe starts the bare name with UseShellExecute=false, which CreateProcess
-        /// resolves to an .exe only: a .cmd shim -- the one way the maintainer's own toolbox exposes ffmpeg --
+        /// candidates. The PATH probe looks for ffmpeg.exe only (<see cref="FfmpegOnPath"/>, as CreateProcess did
+        /// for the bare name it used to start): a .cmd shim -- the one way the maintainer's own toolbox exposes ffmpeg --
         /// is invisible to it, so every sounded classic skin converted silent on that box while `ffmpeg
         /// -version` worked in every shell (RA-379). An explicit override keeps ffmpeg an executable, so no
         /// clip path ever passes through cmd.exe.</summary>
@@ -819,7 +819,36 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                 }
             }
             catch { }
-            return ProbeFfmpeg("ffmpeg") ? "ffmpeg" : null;
+            // A FULL path from PATH, never the bare name. Process.Start with UseShellExecute=false hands a bare
+            // "ffmpeg" to CreateProcess, whose search reads the process's current directory before PATH, so an
+            // ffmpeg.exe in whatever folder the CLI was started from (a downloaded skin's, say) ran ahead of the
+            // real one; measured 2026-11-07 with a stand-in exe in the current directory and
+            // NoDefaultCurrentDirectoryInExePath unset, the default (N-audit-1106-153).
+            string onPath = FfmpegOnPath(Environment.GetEnvironmentVariable("PATH"));
+            return onPath != null && ProbeFfmpeg(onPath) ? onPath : null;
+        }
+
+        /// <summary>The first ffmpeg.exe in a directory of <paramref name="pathVariable"/>, as a full path, or null.
+        /// Only fully qualified entries count: a relative one ("." or "bin") is the current directory again under
+        /// another name, which is the search this replaces. An .exe only, as CreateProcess resolved the bare name
+        /// before; a .cmd shim is what <see cref="FfmpegOverrideVariable"/> is for. Reads the file system and
+        /// spawns nothing, so the self-test pins it inside its zero-probe budget (F457).</summary>
+        internal static string FfmpegOnPath(string pathVariable)
+        {
+            if (string.IsNullOrEmpty(pathVariable)) return null;
+            foreach (string entry in pathVariable.Split(Path.PathSeparator))
+            {
+                string folder = entry.Trim().Trim('"');
+                if (folder.Length == 0) continue;
+                try
+                {
+                    if (!Path.IsPathFullyQualified(folder)) continue;
+                    string candidate = Path.Combine(folder, "ffmpeg.exe");
+                    if (File.Exists(candidate)) return Path.GetFullPath(candidate);
+                }
+                catch (ArgumentException) { }   // an entry with characters no path can hold names nothing
+            }
+            return null;
         }
 
         private static bool ProbeFfmpeg(string exe)

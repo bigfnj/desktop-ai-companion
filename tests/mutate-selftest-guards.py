@@ -22346,6 +22346,14 @@ CASES = (
      b"                    && current == null)\n",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
      SHIMEJI, None, "bundle containment: a sprites folder that is a link was followed outside the bundle"),
+    # N-audit-1106-153: the PATH resolver takes a relative entry again, so "." finds the current directory's ffmpeg.exe
+    # first, the search order the bare name had.
+    ("bd-w4-converter-1: the ffmpeg PATH resolver reads a relative entry (N-audit-1106-153)",
+     SHIMEJI_ENGINE_CS,
+     b"                    if (!Path.IsPathFullyQualified(folder)) continue;\n",
+     b"",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "sound-resolve", "ffmpeg on PATH resolved to"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

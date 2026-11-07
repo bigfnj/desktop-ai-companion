@@ -297,6 +297,32 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                         failures.Add("WITNESS: with no override set the override still resolved to something");
                 }
                 finally { Environment.SetEnvironmentVariable(SoundBaker.FfmpegOverrideVariable, previousOverride); }
+
+                // ---- THE PATH CANDIDATE IS A FULL PATH FROM PATH, NEVER THE CURRENT DIRECTORY (N-audit-1106-153) ----
+                // A bare "ffmpeg" was handed to CreateProcess, which searches the current directory before PATH. The
+                // resolver is pinned without a spawn: a relative entry and an entry naming the current directory's
+                // stand-in are both passed over, the first absolute folder holding ffmpeg.exe wins, and the answer is
+                // rooted. The stand-ins are two-byte files that are never run.
+                string here = Path.Combine(root, "cwd"), onPath = Path.Combine(root, "path-bin"), empty = Path.Combine(root, "path-empty");
+                Directory.CreateDirectory(here);
+                Directory.CreateDirectory(onPath);
+                Directory.CreateDirectory(empty);
+                File.WriteAllBytes(Path.Combine(here, "ffmpeg.exe"), new byte[] { 0x4D, 0x5A });
+                File.WriteAllBytes(Path.Combine(onPath, "ffmpeg.exe"), new byte[] { 0x4D, 0x5A });
+                string previousDirectory = Environment.CurrentDirectory;
+                try
+                {
+                    Environment.CurrentDirectory = here;
+                    string pathVariable = "." + Path.PathSeparator + "cwd" + Path.PathSeparator + empty + Path.PathSeparator + onPath;
+                    string found = SoundBaker.FfmpegOnPath(pathVariable);
+                    if (found == null || !Path.IsPathFullyQualified(found)
+                        || !string.Equals(found, Path.Combine(onPath, "ffmpeg.exe"), StringComparison.OrdinalIgnoreCase))
+                        failures.Add("ffmpeg on PATH resolved to '" + (found ?? "null") + "', expected the PATH folder's ffmpeg.exe as a full "
+                            + "path; a relative PATH entry or the bare name runs the current directory's ffmpeg.exe first");
+                    if (SoundBaker.FfmpegOnPath(empty) != null)
+                        failures.Add("WITNESS: a PATH whose only folder holds no ffmpeg.exe still resolved to one");
+                }
+                finally { Environment.CurrentDirectory = previousDirectory; }
             }
             catch (Exception ex) { failures.Add("threw: " + ex.GetType().Name + ": " + ex.Message); }
             finally
@@ -316,7 +342,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     + "asked its baker once and embedded the clip; two sets kept their own ordered sound paths and reported "
                     + "filename fallback with local-set preference; empty step defaults round-tripped without hiding changed values; "
                     + "round trips checked semantic fidelity and a stable second serialization; "
-                    + "the ffmpeg override names a file or nothing");
+                    + "the ffmpeg override names a file or nothing; the PATH candidate is a full path past the current directory");
                 detail = sb.ToString();
                 return true;
             }
