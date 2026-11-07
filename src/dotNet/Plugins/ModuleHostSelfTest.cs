@@ -1497,6 +1497,13 @@ namespace DesktopAICompanion.Plugins
                 deniedPacks != null
                 && deniedPacks.SpawnPackPreview(new Dictionary<string, string> { { "Alpha", "<xml/>" } }, "Alpha", out error) == null
                 && !string.IsNullOrEmpty(error) && error.Contains("Companions permission"));
+            // The same refusing instance answers a DECLARING module that asks during its own Init (the gate reads the
+            // loaded list, which gains a module only after Init returns), so the reason must name that cause as well
+            // as the missing flag. Until N-audit-1106-133 it named only the flag.
+            string initReason;
+            ok &= Check(sb, "pets: the refusal reason also names a call made during the module's own Init (N-audit-1106-133)",
+                !denied.ValidateXml("<xml/>", out initReason) && initReason != null
+                && initReason.Contains("Companions permission") && initReason.Contains("during its own Init"));
             ICompanionPackPreview noRuntime = new CompanionManagerBridge(null, host);
             string noRuntimeError;
             ok &= Check(sb, "WITNESS a granted manager with no pet runtime behind it answers a pack preview with a reason, not a throw",

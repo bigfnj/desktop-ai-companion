@@ -22569,6 +22569,18 @@ CASES = (
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "WITNESS the recorder checks put the stop's wait back to StopBound"),
+
+    # ---- burndown/w5-contracts-1 ----
+    # Shared contract libraries, burn-down wave 5. "bd-w5-contracts-1:" for one --only.
+    # N-audit-1106-133: the refusing manager's reason names only the undeclared flag again, so a declaring module that
+    # asks during its own Init is told it declared nothing.
+    ("bd-w5-contracts-1: the denying manager's reason drops the during-Init cause (N-audit-1106-133)",
+     COMPANION_HOST,
+     b"        private const string Denied = \"This module has not declared the Companions permission, or it asked during its own Init, before a declared permission takes effect: ask again once Init has returned.\";\n",
+     b"        private const string Denied = \"This module has not declared the Companions permission.\";\n",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "the refusal reason also names a call made during the module's own Init"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

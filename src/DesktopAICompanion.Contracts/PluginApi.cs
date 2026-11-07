@@ -1122,8 +1122,9 @@ namespace DesktopAICompanion.Modules
         // has not declared ModulePermissions.Companions a refusing instance is returned (enumerations come back
         // empty, fallible verbs return false with a reason), matching how RegisterHotkey degrades to a no-op
         // handle rather than throwing into a module. A DECLARING module gets the same refusing instance when it
-        // asks during its own Init (see the header), and its reasons still say the permission is not declared:
-        // that refusal is not kept, so ask again once Init has returned and the real service comes back.
+        // asks during its own Init (see the header); its reasons name both causes, the undeclared flag and the
+        // call from Init, since the gate cannot tell them apart. That refusal is not kept, so ask again once
+        // Init has returned and the real service comes back.
         ICompanionManager GetCompanionManager(string moduleId);
 
         // True when the app is presenting itself dark. A module that owns a WINDOW needs this to match the
