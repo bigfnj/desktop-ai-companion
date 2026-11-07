@@ -32,8 +32,8 @@ no paths, and an 8-character session prefix rather than an id that identifies a 
 **To see it speak you need a session in `default` permission mode**, blocked on a prompt for longer
 than the threshold. In `auto`, `acceptEdits` or `plan` it stands down by design, because measured
 precision outside `default` is ~0.4%.
-This directory holds the eight harnesses that decided whether it was buildable and what they
-measured. Read it before proposing work, because several of the obvious designs are ruled out by
+This directory holds the harnesses that decided whether it was buildable and what they
+measured (the table under "The harnesses" lists each). Read it before proposing work, because several of the obvious designs are ruled out by
 numbers rather than opinion, and two of the numbers recorded here were themselves wrong once and
 are marked as superseded.
 
@@ -660,7 +660,7 @@ cycles, and the `consecutiveErrors > 5` branch only logs.
 
 ## The harnesses
 
-Five are standalone Python 3, no dependencies, read-only. They print tool names, counts and
+Unless its paragraph below says otherwise, each is standalone Python 3, no dependencies, read-only. They print tool names, counts and
 durations — never command arguments, never tool output, never a path or prompt text out of a
 transcript. Any production code has to hold the same line, especially out of the diagnostic log.
 
@@ -688,7 +688,8 @@ on screen at once, which 1.12.0 presses on the same sweep while 1.11.0 left the 
 empty. `--control 1.11.0` holds the published 1.11.0 to that.
 
 `agentflow_codex_card_count.py` (1.12.0) is the opposite of the probe: it COUNTS the Codex approval cards in every
-VS Code Codex panel and prints nothing else, so its output is safe to paste anywhere. Per card it reports whether it
+VS Code Codex panel and prints nothing else, so its output is safe to paste anywhere. Like the probe it needs
+`websocket-client`. Per card it reports whether it
 has a form, how many buttons and how many are enabled, whether it is visible, and two ids: its own, from a WeakMap of
 its own so it never makes a card look already seen to the module, and whether AgentFlow has minted one (read with
 `get`, never set). `--watch N` prints each change for N seconds, which is how the two shapes 1.12.0 handles were
@@ -735,10 +736,14 @@ tools concurrently and says `DEGRADED` when it does not have them. `--attribute`
 Codex roots by design rather than scoring them against Claude transcripts, which would be a
 mis-attribution path; Codex needs its own candidate index.
 
-`--audit` re-derives the option set from whatever agent bundle is installed and fails if the table
-cannot classify one of them. `--mutate` breaks the classifier five ways and proves the self-test
-catches each; a clean run with no mutation firing means the suite is blind, not that the code is
-good. Current state: 25/25 self-test, audit clean, 5/5 mutations fired.
+`--audit` re-derives the option set from whatever agent bundle is installed and fails (exit 1) if the
+table cannot classify one of them, or if a complete label matched only a prefix template such as
+`Yes, allow ` and so has no entry of its own. Since 2026-11-06 it says `audit DEGRADED` and exits 3
+when it compared nothing: no bundle installed, or an extracted set without the `Yes` and `No` every
+prompt carries. Before that both printed a pass. `--mutate` breaks the classifier and its audit in each
+way `mutate()` lists and proves the self-test catches each; a clean run with no mutation firing means
+the suite is blind, not that the code is good. Run it for the current counts rather than trusting a
+number written here.
 
 ### Two more defects, found after the module was built, by testing the SEAM
 

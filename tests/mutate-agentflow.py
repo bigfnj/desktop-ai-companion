@@ -700,7 +700,8 @@ CASES = (
     (
         "speech fires whether or not it was asked for",
         MODULE,
-        "            bool wantsSpeech = NotifySpeakOn && AgentMode.Speaks(Mode);",
+        # Re-pointed 2026-11-06 (lane burndown/agentflow-1, N-audit-1106-006): the mode is read once into speaksInMode.
+        "            bool wantsSpeech = NotifySpeakOn && speaksInMode;",
         "            bool wantsSpeech = true;",
         "a chime with no chatter is possible",
     ),
@@ -752,7 +753,8 @@ CASES = (
     (
         "Log mode speaks, so it is identical to Notify",
         MODULE,
-        "            bool wantsSpeech = NotifySpeakOn && AgentMode.Speaks(Mode);",
+        # Re-pointed 2026-11-06 (lane burndown/agentflow-1, N-audit-1106-006): the mode is read once into speaksInMode.
+        "            bool wantsSpeech = NotifySpeakOn && speaksInMode;",
         "            bool wantsSpeech = NotifySpeakOn;",
         "Log is the quiet one, and says nothing out loud",
     ),
@@ -1825,7 +1827,8 @@ CASES = (
     (
         "session-limit: the step no longer re-reads the switch before typing",
         SESSIONLIMIT_MODULE,
-        "                    if (_shuttingDown || !PauseAtLimit) break;",
+        # Re-pointed 2026-11-06 (lane burndown/agentflow-1, N-audit-1106-007): the look is LimitMayType(switch, mode).
+        "                    if (_shuttingDown || !LimitMayType(PauseAtLimit, Mode)) break;",
         "                    if (_shuttingDown) break;",
         "the last look: with the switch turned off the step types into no panel",
     ),
@@ -2738,6 +2741,36 @@ CASES = (
         "                            if (guard != null) guard.Unconfirmed.Add(new KeyValuePair<string, string>(targetId, agent));\n                            continue;",
         "                            continue;",
         "a panel whose attach is refused is reported once as unconfirmed",
+    ),
+    # ---- burndown/agentflow-1 ----
+    (
+        "bd-agentflow-1: Log mode plays the notification sound again (N-audit-1106-006)",
+        MODULE,
+        "            bool wantsSound = NotifySoundOn && speaksInMode;",
+        "            bool wantsSound = NotifySoundOn;",
+        "(N-audit-1106-006) Log mode neither chimes nor animates",
+    ),
+    (
+        "bd-agentflow-1: Log mode plays the animation again (N-audit-1106-006)",
+        MODULE,
+        "            bool wantsAnimation = Animate && speaksInMode;",
+        "            bool wantsAnimation = Animate;",
+        "(N-audit-1106-006) Log mode neither chimes nor animates",
+    ),
+    (
+        "bd-agentflow-1: the session-limit last look ignores the mode (N-audit-1106-007)",
+        SESSIONLIMIT_MODULE,
+        "                    if (_shuttingDown || !LimitMayType(PauseAtLimit, Mode)) break;",
+        "                    if (_shuttingDown || !PauseAtLimit) break;",
+        "(N-audit-1106-007) in Log mode, with the switch on, the step types into no panel",
+    ),
+    (
+        "bd-agentflow-1: the session-limit switch is taken without the mode (N-audit-1106-007)",
+        SESSIONLIMIT_MODULE,
+        "            return pauseAtLimit && AgentMode.Speaks(mode);",
+        "            return pauseAtLimit;",
+        ("(N-audit-1106-007) the tick's snapshot takes the mode with the switch",
+         "(N-audit-1106-007) in Log mode, with the switch on, the step types into no panel"),
     ),
 )
 

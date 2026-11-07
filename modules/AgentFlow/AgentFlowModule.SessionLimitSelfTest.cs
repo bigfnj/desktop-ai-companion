@@ -318,6 +318,10 @@ namespace DesktopAICompanion.AgentFlow
                         module.PauseAtLimit && module.PauseAtPercent == 85
                         && host.SettingsFor("agentflow").Get("aboutLimitNow", "missing") == "missing");
 
+                    // A mode that acts, set after Init (which was seeded Off so it would not scan, F037): since
+                    // N-audit-1106-007 the step's last look reads the mode beside the switch, and a tick never runs the
+                    // step in Off anyway, so Off is not a state the steps below could meet outside this test.
+                    module.SetMode(AgentMode.Notify);
                     var panel = new FakeCdpServer.Target { Id = "PANELAB12CD", Url = "vscode-webview://z?" + CdpApprover.ClaudeTargetMarker,
                         EvaluateResult = eventJson, SendResult = "sent", ConfirmResult = "accepted" };
                     using (var server = new FakeCdpServer(new[] { panel }))
@@ -356,6 +360,30 @@ namespace DesktopAICompanion.AgentFlow
                         probe.Check("WITNESS the last look: with the switch turned off the step types into no panel",
                             late.LastSendExpression == null);
                     }
+
+                    // N-audit-1106-007: Log mode ("never speaks, never presses") with the switch still ON from Notify. The
+                    // pane greys the box in Log, so the user cannot untick it there; the watch must not type regardless.
+                    // Driven through the step with pauseOn true, which is what a tick that snapshotted only the switch
+                    // handed it, so the step's own last look is what is under test here.
+                    module.SavePaneValues(new Dictionary<string, string> { { SettingPauseAtLimit, "true" } });
+                    module.SetMode(AgentMode.Log);
+                    string logJson = eventJson.Replace(r, now.AddHours(12).ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture))
+                                              .Replace(at, now.AddHours(9).ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture));
+                    var logPanel = new FakeCdpServer.Target { Id = "LOGMODE1", Url = "vscode-webview://v?" + CdpApprover.ClaudeTargetMarker,
+                        EvaluateResult = logJson, SendResult = "sent", ConfirmResult = "accepted" };
+                    using (var server = new FakeCdpServer(new[] { logPanel }))
+                    {
+                        LimitClock = () => now.AddHours(9).AddMinutes(1);
+                        LimitOutcome inLog = module.WatchSessionLimit(server.Port, true, 90, null);
+                        probe.Check("session limit: (control, N-audit-1106-007) in Log mode the step still reads the panel, and its window is open and due",
+                            inLog != null && inLog.Line.IndexOf("Session:", StringComparison.Ordinal) == 0 && inLog.Notice != null);
+                        probe.Check("session limit: (N-audit-1106-007) in Log mode, with the switch on, the step types into no panel",
+                            module.PauseAtLimit && logPanel.LastSendExpression == null);
+                    }
+                    probe.Check("session limit: (N-audit-1106-007) the tick's snapshot takes the mode with the switch: off in Log and Off, as set in Notify and auto-approve",
+                        !LimitMayType(true, AgentMode.Log) && !LimitMayType(true, AgentMode.Off)
+                        && LimitMayType(true, AgentMode.Notify) && LimitMayType(true, AgentMode.AutoApprove)
+                        && !LimitMayType(false, AgentMode.Notify));
                     module.Shutdown();
                 }
             }
