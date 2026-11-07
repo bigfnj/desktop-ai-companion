@@ -54,6 +54,15 @@ namespace DesktopAICompanion.RemembranceModule
         /// </summary>
         internal static readonly TimeSpan StopBound = TimeSpan.FromSeconds(10);
 
+        /// <summary>
+        /// The wait <see cref="Stop"/> gives each source: <see cref="StopBound"/> everywhere but inside the recorder's own
+        /// self-check, which sets a short bound of its own for its run and puts this back (N-shimeji-1106-18). With BUG-009
+        /// back, every stop in that check waited out the full bound per source on its dead message loop, and the module's
+        /// self-test ran past the mutation harness's ceiling, so the case meant to catch BUG-009 could not score. The
+        /// check's verdict never rested on the wait; only its length did.
+        /// </summary>
+        internal static TimeSpan StopWait = StopBound;
+
         private sealed class Source
         {
             public IWaveIn Capture;
@@ -494,7 +503,7 @@ namespace DesktopAICompanion.RemembranceModule
             // later, which is why the bound is a ceiling and no longer the cost (OpenCapture has the history).
             foreach (Source s in _sources)
             {
-                try { s.Stopped.Wait(StopBound); } catch { }
+                try { s.Stopped.Wait(StopWait); } catch { }
             }
             // Read BEFORE the stream is disposed, which is the only moment its failure can still be asked for.
             // A keep-alive that died mid-capture left the loopback track short from that second on (RA-150).

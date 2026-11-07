@@ -122,6 +122,8 @@ namespace DesktopAICompanion.RemembranceModule
                                  //        no transcript walks the earlier storage folders the purge also deletes from,
                                  //        and says when one is there (N-cxr-w2-02); the purge waits for the count in
                                  //        flight, so its warning is up before anything is deleted (N-cxr-w2-03).
+                                 //        Self-test: the recorder checks give each stop a short wait of their own, so
+                                 //        the BUG-009 case finishes inside the harness's bound (N-shimeji-1106-18).
                                  // 2.10.0: one Claude Code sign-in, shared with AI Brain (host 1.8.0's
                                  //        IHostCredentials, BACKLOG N-cli-token-02, the owner's decision of
                                  //        2026-10-29), behind the ClaudeCodeSignIn grant, so MinHostVersion rises to

@@ -22386,6 +22386,15 @@ CASES = (
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "a purge whose count was still running when the module shut down deletes nothing"),
+
+    # N-shimeji-1106-18: the recorder checks leave their short stop wait in place for every check after them.
+    ("bd-w4-remembrance-1: the recorder checks leave their short stop wait behind (N-shimeji-1106-18)",
+     os.path.join(REPO, "modules", "Remembrance", "RecorderSelfCheck.cs"),
+     b"                    AudioRecorder.StopWait = savedStopWait;\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "WITNESS the recorder checks put the stop's wait back to StopBound"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

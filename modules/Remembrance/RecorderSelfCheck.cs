@@ -293,16 +293,28 @@ namespace DesktopAICompanion.RemembranceModule
             }
         }
 
+        /// <summary>The wait each Stop in <see cref="Run"/> gives a source (N-shimeji-1106-18; see the comment in Run).</summary>
+        internal static readonly TimeSpan SelfCheckStopWait = TimeSpan.FromSeconds(2);
+
         /// <summary>The recorder on its own: construction, stop delivery, mix, scratch cleanup, failed start.
         /// <paramref name="scratch"/> is a directory this call may create and write into.</summary>
         public static void Run(Action<string, bool> check, string scratch)
         {
             var dead = new DeadLoopSynchronizationContext();
             SynchronizationContext previous = SynchronizationContext.Current;
+            TimeSpan savedStopWait = AudioRecorder.StopWait;
             using (var devices = new FakeDevices())
             {
                 try
                 {
+                    // THIS CHECK'S OWN SHORT WAIT (N-shimeji-1106-18). Every recorder below is started on the dead loop,
+                    // so with BUG-009 back each Stop waited the full StopBound per source for a RecordingStopped that was
+                    // never coming (the first Stop below took 20165 ms), the module's self-test took 331 s against the
+                    // mutation harness's 300 s ceiling, and the case for BUG-009 graded BROKEN instead of FIRED. A
+                    // fake's stop arrives within one 20 ms buffer when the recorder is right, so two seconds is a ceiling
+                    // a hundred times over, and the checks that catch the defect read who delivered the stop, never how
+                    // long Stop took.
+                    AudioRecorder.StopWait = SelfCheckStopWait;
                     // The thread that starts a recording in the app is the WinForms UI thread, and on the
                     // shutdown path its message loop is gone. A context whose posts never run is that thread.
                     SynchronizationContext.SetSynchronizationContext(dead);
@@ -468,8 +480,11 @@ namespace DesktopAICompanion.RemembranceModule
                 finally
                 {
                     SynchronizationContext.SetSynchronizationContext(previous);
+                    AudioRecorder.StopWait = savedStopWait;
                 }
             }
+            check("WITNESS the recorder checks put the stop's wait back to StopBound for every check after them (N-shimeji-1106-18)",
+                AudioRecorder.StopWait == AudioRecorder.StopBound);
 
             // ---- DeleteIfEmptyRecording keeps whatever it cannot vouch for ----
             // It runs after a failed start, in a folder the user chose, so "empty" has to mean a WAV this
