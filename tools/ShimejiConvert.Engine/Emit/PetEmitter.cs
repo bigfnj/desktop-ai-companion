@@ -144,6 +144,14 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             var result = new ConversionResult { Residue = new ResidueReport() };
             CollapsedInto = new Dictionary<string, Emitted>(StringComparer.Ordinal);   // per-conversion, not per-process
             skinName = string.IsNullOrWhiteSpace(skinName) ? "Shimeji" : skinName.Trim();
+            // Classic frame indexes cannot be -1. Keep an image-less pose as a real blank tile, rather than
+            // deleting its time/velocity slot (or its whole action). Work on a copy: the caller owns its sheet.
+            if (PosesToComposite(config).Any(p => p != null && string.IsNullOrEmpty(p.Image)))
+            {
+                string blankError;
+                sheet = WithImageLessFrame(sheet, out blankError);
+                if (sheet == null) { result.Error = blankError; return result; }
+            }
 
             // --- gather sprite-bearing primitives and the magic sources ---
             ShimejiAction fallAction = FirstWithClass(config, "Fall");
@@ -201,11 +209,11 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             if (!wallSpokes.Any(WillClimb)) ceilingSpokes.Clear();
 
             // AND THE WALL ITSELF NEEDS A WAY IN, which the two clears above never asked. Every inbound edge to
-            // a wall spoke is one of: a LOCOMOTION floor spoke's only="vertical" / window-left / window-right
-            // border edge (BuildSpoke, all gated on `loco`), another wall spoke, or a ceiling spoke's exit --
+            // a wall spoke is one of: a travelling floor spoke's only="vertical" / window-left / window-right
+            // border edge (BuildSpoke's sideTravel), another wall spoke, or a ceiling spoke's exit --
             // and the ceiling is entered only from a climbing wall spoke or from a JUMP's only="window-bottom"
             // edge. The hub's choice list is floor spokes only; fall/drag/sync/turn route to the hub or to
-            // fall; chain steps route to their successor. So a skin with wall art but no Type="Move" floor
+            // fall; chain steps route to their successor. So a skin with wall art but no travelling floor
             // action, and no jump-plus-ceiling pair, emitted every wall animation with zero inbound edges:
             // Graph.Unreachable non-empty, Accepted false, the CLI exiting 1 and refusing to write the file,
             // on XML the app's own validator accepted and would play. The `turn` guard further down records
@@ -217,7 +225,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             // because a ceiling without a wall cannot be left or (without a jump) entered. BuildResidue is
             // told what was emitted rather than left to re-derive it from the config, so the report says
             // "left out: nothing can reach the wall" instead of "Wall climbing IS converted".
-            bool anyLocomotion = spokes.Any(IsLocomotion);
+            bool anyLocomotion = spokes.Any(NeedsSideBorder);
             bool wallReachable = anyLocomotion || (ceilingSpokes.Count > 0 && spokes.Any(Launches));
             if (!wallReachable)
             {
@@ -912,7 +920,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         }
 
         /// <summary>
-        /// A floor-appropriate primitive: Group1, has sprites, Floor (or unset) border context, and either
+        /// A floor-appropriate primitive: Group1 or Group2, has poses, Floor (or unset) border context, and either
         /// not Embedded at all or one of the frame-playing embedded classes (see
         /// <see cref="IsFramePlayingEmbeddedClass"/> -- Jump/Regist/Broadcast*/MoveWithTurn in, Look/Offset/Fall/
         /// Dragged/SelfDestruct out). Wall/ceiling/climb primitives are excluded from the floor behaviour --
@@ -920,7 +928,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         /// </summary>
         internal static bool IsFloorAction(ShimejiAction a)
         {
-            if (a == null || a.Group != FidelityGroup.Group1) return false;
+            // Group2 loses its state-dependent selection, not its drawable action. The wall and ceiling use
+            // the same rule; claiming these floor actions as "kept but simplified" while emitting none was false.
+            if (a == null || (a.Group != FidelityGroup.Group1 && a.Group != FidelityGroup.Group2)) return false;
             if (a.Animations.Count == 0 || a.Animations[0].Poses.Count == 0) return false;
             // Embedded actions used to be refused wholesale here, which silently contradicted the
             // classifier. ActionClassifier already grades Regist as Group1 "drag-resist animation; plays
@@ -1261,8 +1271,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             foreach (ShimejiAction a in config.Actions)
             {
                 bool ceiling = IsCeilingAction(a);
-                // Gaze belongs here explicitly. It is not a floor action by IsFloorAction's reckoning (a cursor
-                // condition makes it Group2), so leaving it out meant its sprite was never drawn into the sheet,
+                // Gaze belongs here explicitly. Before Group2 floor admission, its cursor condition left it
+                // out of IsFloorAction, so its sprite was never drawn into the sheet,
                 // FramesOf found no matching key, and the spoke was dropped for having zero frames -- silently,
                 // one step before the faceCursor tag that was supposed to be the whole point.
                 // Set-piece members belong here for the same reason the gaze does: they are emitted as chain
@@ -1338,7 +1348,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             {
                 if (variant == null || variant.Poses.Count == 0) continue;
                 int index;
-                if (sheet.FrameIndexByKey.TryGetValue(variant.Poses[0].FrameKey, out index))
+                string key = string.IsNullOrEmpty(variant.Poses[0].Image) ? ImageLessFrameKey : variant.Poses[0].FrameKey;
+                if (sheet.FrameIndexByKey.TryGetValue(key, out index))
                     frames.Add(index);
             }
             // A single-variant drag (most Android bundles) behaves exactly as before: one frame, no swing.
@@ -1356,10 +1367,59 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             foreach (ShimejiPose p in variant.Poses)
             {
                 int idx;
-                if (p != null && !string.IsNullOrEmpty(p.Image) && sheet.FrameIndexByKey.TryGetValue(p.FrameKey, out idx))
+                if (p != null && sheet.FrameIndexByKey.TryGetValue(string.IsNullOrEmpty(p.Image) ? ImageLessFrameKey : p.FrameKey, out idx))
                     frames.Add(idx);
             }
             return frames;
+        }
+
+        // A real FrameKey always has anchor separators, so this cannot collide with authored art.
+        private const string ImageLessFrameKey = "";
+
+        private static SpriteSheet WithImageLessFrame(SpriteSheet source, out string error)
+        {
+            error = null;
+            int slots = source.TilesX * source.TilesY;
+            var used = new HashSet<int>(source.FrameIndexByKey.Values);
+            int blank = 0;
+            while (blank < slots && used.Contains(blank)) blank++;
+            int rows = source.TilesY + (blank == slots ? 1 : 0);
+            int width = source.TilesX * source.CellWidth, height = rows * source.CellHeight;
+            if ((long)source.TilesX * rows > SpriteSheetBuilder.MaxTiles || width > SpriteSheetBuilder.MaxSheetDimension
+                || height > SpriteSheetBuilder.MaxSheetDimension || (long)width * height > DesktopAICompanion.CompanionXmlValidator.MaximumImagePixels)
+            {
+                error = "An image-less pose needs one blank sprite tile, but the sheet is already at the host's size or tile limit.";
+                return null;
+            }
+            var result = new SpriteSheet { TilesX = source.TilesX, TilesY = rows, CellWidth = source.CellWidth,
+                CellHeight = source.CellHeight, Scale = source.Scale, IsAlpha = source.IsAlpha };
+            foreach (KeyValuePair<string, int> frame in source.FrameIndexByKey) result.FrameIndexByKey.Add(frame.Key, frame.Value);
+            result.FrameIndexByKey.Add(ImageLessFrameKey, blank);
+            using (var input = new System.IO.MemoryStream(source.PngBytes ?? Convert.FromBase64String(source.Base64Png)))
+            using (var original = new Bitmap(input))
+            using (var bitmap = new Bitmap(width, height, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
+            {
+                using (Graphics graphics = Graphics.FromImage(bitmap))
+                {
+                    graphics.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceCopy;
+                    Color clear = source.IsAlpha ? Color.Transparent : Color.Magenta;
+                    graphics.Clear(clear);
+                    graphics.DrawImageUnscaled(original, 0, 0);
+                    using (var brush = new SolidBrush(clear))
+                        graphics.FillRectangle(brush, (blank % source.TilesX) * source.CellWidth,
+                            (blank / source.TilesX) * source.CellHeight, source.CellWidth, source.CellHeight);
+                }
+                using (var output = new System.IO.MemoryStream())
+                { bitmap.Save(output, System.Drawing.Imaging.ImageFormat.Png); result.PngBytes = output.ToArray(); }
+            }
+            result.Base64Png = Convert.ToBase64String(result.PngBytes);
+            result.ProjectedXmlBytes = result.Base64Png.Length + SpriteSheetBuilder.MarkupAllowanceBytes;
+            if (result.ProjectedXmlBytes > SpriteSheetBuilder.XmlBudgetBytes)
+            {
+                error = "Adding the image-less pose's blank tile would exceed the host's XML byte limit.";
+                return null;
+            }
+            return result;
         }
 
         /// <summary>
@@ -1404,6 +1464,18 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             foreach (ShimejiPose p in PosesOf(e.Source))
                 if (p != null && (p.VelX != 0 || p.VelY != 0)) return true;
             return false;
+        }
+
+        // A travelling performance still meets a screen/window side. Give it an answer there without
+        // giving Animate/Stay the Move-only repeats and keep-going edge that made trips loop indefinitely.
+        private static bool NeedsSideBorder(Emitted e)
+        {
+            if (IsLocomotion(e)) return true;
+            if (e.Source == null || Launches(e)) return false;
+            List<ShimejiPose> poses = PosesOf(e);
+            // BuildSpoke writes these endpoints. Interior velocity that its one start/end pair cannot retain
+            // does not make the emitted performance travel, so it cannot make a wall region reachable either.
+            return poses.Count > 0 && (poses[0].VelX != 0 || poses[poses.Count - 1].VelX != 0);
         }
 
         /// <summary>Does this wall action actually move UP the wall? Used to prefer a climb over a static grab
@@ -1455,7 +1527,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         /// <summary>Distance one pass must be able to cover: a 4K screen's longer side, with margin, so the
         /// same number serves a vertical climb and a horizontal ceiling walk on any display.</summary>
         private const int SurfaceReachPx = 4000;
-        private const int MaxSurfaceRepeats = 500;
+        // A one-frame cycle is the worst case: its repeat cap must still permit the promised crossing.
+        private const int MaxSurfaceRepeats = (SurfaceReachPx + SurfacePxPerStep - 1) / SurfacePxPerStep;
 
         /// <summary>
         /// Repeat count so one pass covers <see cref="SurfaceReachPx"/> at <see cref="SurfacePxPerStep"/>, for a
@@ -1748,6 +1821,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             int iv0 = poses.Count > 0 ? Interval(poses[0].Duration) : 200;
             int ivN = poses.Count > 0 ? Interval(poses[poses.Count - 1].Duration) : 200;
             bool loco = IsLocomotion(e);
+            bool sideTravel = NeedsSideBorder(e);
 
             // PHASE 1 of a jump, the LAUNCH. Nothing about the arc is inherited: the launch velocity is solved
             // from the step count so the pet always rises about JumpPeakPx, the descent is forced, and the
@@ -1880,7 +1954,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             // climbs), i.e. the pet spent the difference mashed against the edge doing nothing.
             if (chained)
                 node.Border = new HitNode { Next = new[] { Next(e.ChainNext.Id, 100, "none") } };
-            // `loco || jump`, not `loco`. A jump is not always locomotion: IsLocomotion requires
+            // Keep jump beside sideTravel. A jump is not always locomotion: IsLocomotion requires
             // Type="Move", and the canonical Shimeji jump is Type="Embedded" Class="...action.Jump" whose
             // launch lives in VelocityParam while its poses read Velocity="0,0". Gating the whole border
             // block on loco therefore emitted every CLASS-BASED jump with no <border> element at all, which
@@ -1891,20 +1965,20 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             // the residue report told the user it would "either hop again or run off rather than stopping
             // dead". The `rejump` migration (Program.cs) already attaches these edges to any hub-selectable
             // gravity-less riser, so the migration and the emitter disagreed, with the migration right.
-            if ((loco || jump) && !chained)
+            if ((sideTravel || jump) && !chained)
             {
                 // Reach an edge -> turn (flip) and head back. At a LEFT/RIGHT screen edge specifically, the
                 // pet may instead grab the wall and climb: both entries are eligible there, so the weights
                 // decide (climb wins 1 in 3). At any other border only the only="none" turn matches, so
                 // behaviour away from the walls is exactly what it was.
                 //
-                // TRAVEL's edges, so they stay behind `loco`. A non-locomotion jump must NOT get the
+                // Side travel's edges. A non-locomotion jump must NOT get the
                 // only="none" turn: that edge is eligible at the taskbar too, and a turn there is the exact
                 // "every landing was a facing flip into the hub's idle dwell" outcome the taskbar edges
                 // below exist to replace -- 30 of 31 landings on Hornet, before they were added.
                 var borderNext = new List<NextNode>();
-                if (loco) borderNext.Add(Next(turn.Id, BorderTurnWeight, "none"));
-                if (loco && wallEntry != null) borderNext.Add(Next(wallEntry.Id, BorderClimbWeight, "vertical"));
+                if (sideTravel) borderNext.Add(Next(turn.Id, BorderTurnWeight, "none"));
+                if (sideTravel && wallEntry != null) borderNext.Add(Next(wallEntry.Id, BorderClimbWeight, "vertical"));
                 // The SIDE of a window is the same surface as a screen edge as far as the art is concerned,
                 // and every converted pet already carries wall poses it could previously only use at the two
                 // screen edges. This is the entry: walk off the side of a window you are standing on and
@@ -1914,7 +1988,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 // up into the window's top edge it just left, come over the lip, and put it back where it
                 // started -- a loop that costs a tick and shows nothing. Going down is the behaviour worth
                 // having, and the wall spokes chain among themselves, so it can still turn and climb back up.
-                if (loco && wallExit != null)
+                if (sideTravel && wallExit != null)
                 {
                     borderNext.Add(Next(wallExit.Id, BorderWindowGripWeight, "window-left"));
                     borderNext.Add(Next(wallExit.Id, BorderWindowGripWeight, "window-right"));
@@ -2370,7 +2444,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         }
 
         // Turn root behaviour frequencies into per-spoke selection weights. A <Behavior Name="X" Frequency="N">
-        // names action X, which is usually a Sequence/Select composite whose sprites live on the low-level
+        // runs Action= when present and action X otherwise, usually a Sequence/Select composite whose sprites live on the low-level
         // posed actions it references; walk those references down to the actual floor spokes and credit each
         // with N. A behaviour that already names a posed floor action credits it directly. Frequencies
         // accumulate, so an action many behaviours play (Walk is reached by walk-and-sit, walk-and-jump, ...)
@@ -2384,7 +2458,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             foreach (ShimejiAction a in config.Actions)
                 if (a != null && a.Name != null && !byName.ContainsKey(a.Name)) byName[a.Name] = a;
 
-            foreach (KeyValuePair<string, int> kv in config.BehaviorFrequency)
+            foreach (KeyValuePair<string, int> kv in BehaviourActionFrequencies(config))
             {
                 var spokes = new HashSet<string>(StringComparer.Ordinal);
                 ResolveSpokes(kv.Key, byName, spokes, new HashSet<string>(StringComparer.Ordinal), 0);
@@ -2417,6 +2491,36 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             return result;
         }
 
+        // The legacy frequency projection is keyed by behaviour NAME. Action= may name another action,
+        // including a set-piece, so resolve the source declaration before either frequency walk. Configs
+        // created without a behaviours document (bundles and callers constructing one) keep the name fallback.
+        private static Dictionary<string, int> BehaviourActionFrequencies(ShimejiConfig config)
+        {
+            if (config.Source == null || config.Source.Behaviors == null)
+                return config.BehaviorFrequency;
+            var frequencies = new Dictionary<string, int>(StringComparer.Ordinal);
+            CollectBehaviourActionFrequencies(config.Source.Behaviors.Root, frequencies);
+            return frequencies;
+        }
+
+        private static void CollectBehaviourActionFrequencies(ShimejiSourceElement node, Dictionary<string, int> frequencies)
+        {
+            foreach (ShimejiSourceElement child in node.Children)
+            {
+                if (child.Kind == ShimejiSourceKind.Condition || child.Kind == ShimejiSourceKind.BehaviorList)
+                    CollectBehaviourActionFrequencies(child, frequencies);
+                else if (child.Kind == ShimejiSourceKind.Behavior)
+                {
+                    ShimejiSourceAttribute name = child.Attribute("Name"), action = child.Attribute("Action"), frequency = child.Attribute("Frequency");
+                    int value, previous;
+                    if (name == null || frequency == null || !int.TryParse(frequency.RawValue, out value) || value <= 0) continue;
+                    string target = action == null ? name.RawValue : action.RawValue;
+                    frequencies.TryGetValue(target, out previous);
+                    frequencies[target] = previous + value;
+                }
+            }
+        }
+
         // Resolve an action name to the set of floor spokes it (transitively) plays. A directly-posed floor
         // action IS a spoke; a composite recurses into the actions it references. Bounded depth + a visited set
         // guard malformed self-referential configs.
@@ -2433,7 +2537,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             // what makes reproducing ORDER weight-neutral: the same frequency, spent on one entry.
             if (ExpandedSetPieces.Contains(name)) { outSpokes.Add(name); return; }
             // A GAZE is a leaf too. EmitCore admits it as a spoke beside the floor actions, but the classifier
-            // grades every cursor-conditioned action Group2 and IsFloorAction demands Group1, so the walk ended
+            // grades every cursor-conditioned action Group2 and IsFloorAction used to demand Group1, so the walk ended
             // here crediting nothing and a gaze sat at the base weight however often the artist played it
             // (RA-375). It has no ReferencedActions to recurse into, so this is the only place its frequency
             // could land.
@@ -2469,7 +2573,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             foreach (ShimejiAction a in config.Actions)
                 if (a != null && a.Name != null && !byName.ContainsKey(a.Name)) byName[a.Name] = a;
 
-            foreach (KeyValuePair<string, int> kv in config.BehaviorFrequency)
+            foreach (KeyValuePair<string, int> kv in BehaviourActionFrequencies(config))
             {
                 if (kv.Value <= 0) continue;   // frequency 0 means the artist disabled it
                 CollectSequences(kv.Key, byName, found, new HashSet<string>(StringComparer.Ordinal), 0);
@@ -2842,7 +2946,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             if (wallRegionEmitted)
                 residue.Notes.Add("Wall climbing IS converted: on reaching a left/right screen edge the pet may grab the wall and climb it, then let go and fall. Converted for this skin: " + string.Join(", ", wallConverted) + ".");
             else if (wallConverted.Count > 0)
-                residue.Notes.Add("This skin has wall animations (" + string.Join(", ", wallConverted) + ") but nothing can reach a wall: the way in is a walk (Type=\"Move\") meeting a screen edge, or a jump up into a ceiling, and this skin has neither. They are left out rather than emitted as animations nothing can reach.");
+                residue.Notes.Add("This skin has wall animations (" + string.Join(", ", wallConverted) + ") but no travelling floor animation or jump into a ceiling can reach them. They are left out rather than emitted as animations nothing can reach.");
             if (ceilingRegionEmitted)
                 residue.Notes.Add("Ceiling walking IS converted: a pet that climbs a wall to the top of the screen usually carries on across the ceiling, then either drops or climbs back down the far wall. Converted for this skin: " + string.Join(", ", ceilingConverted) + ".");
             else if (ceilingConverted.Count > 0)
