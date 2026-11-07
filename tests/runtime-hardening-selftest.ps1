@@ -5787,6 +5787,24 @@ Assert-True ($w2MutationModules.Count -gt 0 -and $w2MutationUnlisted.Count -eq 0
     "w2-tests-scripts-1: run_mutation_capture_checks.py names every tests\test_mutation_*.py module ($($w2MutationModules.Count); WITNESS: an unlisted name is reported)" +
     $(if ($w2MutationUnlisted.Count) { ' -- not run: ' + ($w2MutationUnlisted -join ', ') } else { '' }))
 
+# ---- burndown/codex-parity-2 ----
+# The strict map reader must run in both normal verification paths. Match executable calls and their
+# failure handling, so retaining a comment, an echo, or a detached PASS marker cannot keep these green.
+$p2MapGate = Remove-PsLineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'tests\run-gate.ps1') -Raw)
+$p2MapCi = [regex]::Replace((Get-Content -LiteralPath (Join-Path $repoRoot '.github\workflows\build.yml') -Raw), '(?m)^\s*#.*$', '')
+$p2MapCaller = (Remove-PsLineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'tools\ShimejiConvert.ValidationProbe\Invoke-Checks.ps1') -Raw)).Replace("`r`n", "`n")
+$p2MapResult = Get-MethodBody $p2MapCaller 'function Assert-MapReaderResult(' @("`nfunction ")
+Assert-True ($p2MapGate.Length -gt 0 -and $p2MapCi.Length -gt 0 -and $p2MapResult.Length -gt 0) 'bd-codex-parity-2: map-reader verification sources and result method were read'
+$p2MapGateRule = '(?m)^\s*try \{ & \(Join-Path \$repoRoot ''tools\\ShimejiConvert\.ValidationProbe\\Invoke-Checks\.ps1''\) \}\r?\n\s*catch \{ \$failures\.Add\(''Invoke-Checks\.ps1: '' \+ \$_\.Exception\.Message\) \}'
+$p2MapComment = Remove-PsLineComments '# try { & (Join-Path $repoRoot ''tools\ShimejiConvert.ValidationProbe\Invoke-Checks.ps1'') }'
+Assert-True ($p2MapGate -cmatch $p2MapGateRule -and $p2MapComment -cnotmatch $p2MapGateRule) 'bd-codex-parity-2: local gate invokes the map-reader caller and collects its failure (WITNESS: a comment cannot invoke it)'
+$p2MapCiRule = '(?m)^\s+\.\\tools\\ShimejiConvert\.ValidationProbe\\Invoke-Checks\.ps1\s*$'
+Assert-True ($p2MapCi -cmatch $p2MapCiRule -and 'Write-Host ''.\tools\ShimejiConvert.ValidationProbe\Invoke-Checks.ps1''' -cnotmatch $p2MapCiRule) 'bd-codex-parity-2: CI executes the same map-reader caller (WITNESS: an echo does not match)'
+$p2MapSelfTestAt = $p2MapCaller.IndexOf("`nTest-MapReaderResult`n", [StringComparison]::Ordinal)
+$p2MapChildAt = $p2MapCaller.IndexOf('& powershell.exe -NoLogo -NoProfile -NonInteractive -File', [StringComparison]::Ordinal)
+$p2MapJudgeAt = $p2MapCaller.IndexOf('Assert-MapReaderResult $childExit $output', [StringComparison]::Ordinal)
+Assert-True ($p2MapSelfTestAt -ge 0 -and $p2MapChildAt -gt $p2MapSelfTestAt -and $p2MapJudgeAt -gt $p2MapChildAt -and $p2MapCaller -cmatch '\$env:PSModulePath=\$originalModulePath') 'bd-codex-parity-2: caller self-check precedes child execution and actual-result grading, with module-path restoration'
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever

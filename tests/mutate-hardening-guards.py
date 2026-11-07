@@ -4206,6 +4206,27 @@ CASES = (
         b"",
         "w2-tests-scripts-1: run_mutation_capture_checks.py names every",
     ),
+
+    # ---- burndown/codex-parity-2 ----
+    ('bd-codex-parity-2: map-reader result method is renamed away',
+     os.path.join(REPO, 'tools', 'ShimejiConvert.ValidationProbe', 'Invoke-Checks.ps1'),
+     b'function Assert-MapReaderResult(', b'function InvalidMapReaderResult(',
+     'bd-codex-parity-2: map-reader verification sources and result method were read'),
+    ('bd-codex-parity-2: local gate only echoes the reader caller',
+     os.path.join(REPO, 'tests', 'run-gate.ps1'),
+     b"try { & (Join-Path $repoRoot 'tools\\ShimejiConvert.ValidationProbe\\Invoke-Checks.ps1') }",
+     b"try { Write-Host (Join-Path $repoRoot 'tools\\ShimejiConvert.ValidationProbe\\Invoke-Checks.ps1') }",
+     'bd-codex-parity-2: local gate invokes the map-reader caller and collects its failure'),
+    ('bd-codex-parity-2: CI only echoes the reader caller',
+     BUILD_YML,
+     b'          .\\tools\\ShimejiConvert.ValidationProbe\\Invoke-Checks.ps1',
+     b'          Write-Host .\\tools\\ShimejiConvert.ValidationProbe\\Invoke-Checks.ps1',
+     'bd-codex-parity-2: CI executes the same map-reader caller'),
+    ('bd-codex-parity-2: caller drops its result self-check',
+     os.path.join(REPO, 'tools', 'ShimejiConvert.ValidationProbe', 'Invoke-Checks.ps1'),
+     b'Test-MapReaderResult\nif ($SelfTestOnly)',
+     b'# Test-MapReaderResult omitted.\nif ($SelfTestOnly)',
+     'bd-codex-parity-2: caller self-check precedes child execution and actual-result grading'),
 )
 
 

@@ -259,6 +259,11 @@ try {
     try { & (Join-Path $repoRoot 'tests\Invoke-OfflineScriptChecks.ps1') }
     catch { $failures.Add('Invoke-OfflineScriptChecks.ps1: ' + $_.Exception.Message) }
 
+    # N-bd-parity-recheck-04: positive strict map-reader controls run in both this gate and CI.
+    Write-Host '=== strict parity map readers' -ForegroundColor Cyan
+    try { & (Join-Path $repoRoot 'tools\ShimejiConvert.ValidationProbe\Invoke-Checks.ps1') }
+    catch { $failures.Add('Invoke-Checks.ps1: ' + $_.Exception.Message) }
+
     # The mutation harnesses' OWN Python (N-bd-tests-harness-1-01; the gap N-audit-1106-372/373 name from the gate's side).
     # tests\run_mutation_capture_checks.py runs every tests\test_mutation_*.py module: the byte capture every harness grades
     # through, the case plan and sharding, the stale-artefact rebuilds, the diagnostics driver, and the two native runners'

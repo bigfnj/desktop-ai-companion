@@ -58,6 +58,8 @@ jobs:
           # safety, checker timeout and log observation, and the privacy self-test (N-installer-tests-02). The same
           # runner tests\run-gate.ps1 calls; it throws on any failure, which fails this step.
           .\tests\Invoke-OfflineScriptChecks.ps1
+          # The same positive strict-reader controls as the local gate; mutation legs remain a lane check.
+          .\tools\ShimejiConvert.ValidationProbe\Invoke-Checks.ps1
 
       - name: Build Release x64 and the portable ZIP
         # The id is read by the module self-test step's `if:` below (RA-001).
