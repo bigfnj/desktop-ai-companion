@@ -1365,9 +1365,13 @@ namespace DesktopAICompanion.Wpf
             try
             {
                 if (_netCts == null) _netCts = new CancellationTokenSource();
-                byte[] bytes = await RemoteCatalogClient.DownloadVerifiedAsync(
-                    module.Url, module.Sha256, RemoteCatalogClient.MaximumModuleBytes, _netCts.Token);
-                if (!IsLoaded) return;
+                // Through the seams the update path takes (N-audit-1106-031): the verified download, the staging root,
+                // the update marker and the removal marker. Live() is the very calls this method made directly, so
+                // nothing changes for a user; --wpf-options-selftest can now press Install and Reinstall against fakes,
+                // where before only an order regex covered this flow. IsUp, not IsLoaded, here and in the catches, for
+                // the same reason: a pane built headless is never Loaded, and IsUp is IsLoaded when shipped.
+                byte[] bytes = await _seams.DownloadVerified(module, _netCts.Token);
+                if (!IsUp) return;
 
                 string installDir = SafeModuleDir(module.Id);
 
@@ -1388,11 +1392,15 @@ namespace DesktopAICompanion.Wpf
                 // rollback for free.
                 if (Directory.Exists(installDir))
                 {
-                    stagedHere = DesktopAICompanion.Plugins.PendingModuleUpdates.PrepareStagingDirectory(module.Id);
+                    stagedHere = DesktopAICompanion.Plugins.PendingModuleUpdates.PrepareStagingDirectory(module.Id, _seams.StagingRoot);
                     using (var zipStream = new MemoryStream(bytes))
                         await ZipFile.ExtractToDirectoryAsync(zipStream, stagedHere, true, _netCts.Token);
                     Program.TryRequestRestartAfterSave(
-                        delegate { DesktopAICompanion.Plugins.PendingModuleUpdates.MarkForUpdate(module.Id); return true; },
+                        delegate
+                        {
+                            _seams.MarkForUpdate(module.Id);   // the next launch swaps the staged copy in
+                            return true;
+                        },
                         delegate
                         {
                             stagedHere = null;   // marked: the next launch owns it now
@@ -1414,7 +1422,7 @@ namespace DesktopAICompanion.Wpf
                 // there whole or not at all. A process killed mid-unpack strands only a staging folder,
                 // beside modules/ where the loader never looks, and PrepareStagingDirectory replaces it
                 // on the next attempt.
-                stagedHere = DesktopAICompanion.Plugins.PendingModuleUpdates.PrepareStagingDirectory(module.Id);
+                stagedHere = DesktopAICompanion.Plugins.PendingModuleUpdates.PrepareStagingDirectory(module.Id, _seams.StagingRoot);
                 // Awaited: see the update path. A synchronous unpack of a 31 MB module froze the window.
                 using (var zipStream = new MemoryStream(bytes))
                     await ZipFile.ExtractToDirectoryAsync(zipStream, stagedHere, true, _netCts.Token);
@@ -1428,7 +1436,7 @@ namespace DesktopAICompanion.Wpf
                 // turning a successful install into "Couldn't install": the module is in place; only the
                 // housekeeping failed, and the status says exactly that and what to do if it bites.
                 string unmarkWarning = "";
-                try { DesktopAICompanion.Plugins.PendingModuleRemovals.Unmark(module.Id); }
+                try { _seams.UnmarkRemoval(module.Id); }
                 catch (Exception ex)
                 {
                     unmarkWarning = " A pending-uninstall marker could not be updated (" + PaneText.Short(ex.Message) +
@@ -1454,17 +1462,17 @@ namespace DesktopAICompanion.Wpf
             catch (OperationCanceledException)
             {
                 DiscardStaged(stagedHere);
-                if (IsLoaded) _status.Text = "Stopped installing " + module.Name + "; nothing was left behind.";
+                if (IsUp) _status.Text = "Stopped installing " + module.Name + "; nothing was left behind.";
             }
             catch (Exception ex)
             {
                 DiscardStaged(stagedHere);
-                if (IsLoaded) _status.Text = "Couldn't install " + module.Name + ": " + PaneText.Short(ex.Message);
+                if (IsUp) _status.Text = "Couldn't install " + module.Name + ": " + PaneText.Short(ex.Message);
             }
             finally
             {
                 _downloadsInFlight--;
-                if (IsLoaded) install.IsEnabled = true;
+                if (IsUp) install.IsEnabled = true;
             }
         }
 
@@ -1518,8 +1526,8 @@ namespace DesktopAICompanion.Wpf
     /// staged or an uninstall pending, the live module infos, the catalog's verified download, the yes/no
     /// questions it puts to the user, and whether a pane built headless (never Loaded) still counts as up.
     /// <see cref="Live"/> is the shipped wiring, the very calls the pane made directly before 2026-10-02, and
-    /// nothing but that self-test builds another. Install, Reinstall and Uninstall are driven by no self-test
-    /// and keep their own direct calls. The check-now fetch and the clipboard joined on 2026-10-06
+    /// nothing but that self-test builds another. Install and Reinstall joined on 2026-11-07 (N-audit-1106-031:
+    /// before, only an order regex covered them); Uninstall is driven by no self-test and keeps its own direct calls. The check-now fetch and the clipboard joined on 2026-10-06
     /// (feature/catalog-insight), so the problem panel's Try again and Copy details can be pressed there too.
     /// </summary>
     internal sealed class ModulesPaneSeams
@@ -1531,6 +1539,9 @@ namespace DesktopAICompanion.Wpf
         internal Func<string, bool> IsBeingRemoved;
         internal Func<string, ModuleInfo> LoadedInfo;
         internal Func<CatalogModule, CancellationToken, Task<byte[]>> DownloadVerified;
+        /// <summary>Forgetting a pending uninstall of a module just installed (F352): the shipped removal marker. Install's
+        /// own call since N-audit-1106-031, so a probe's install never touches the data folder's marker.</summary>
+        internal Action<string> UnmarkRemoval;
         internal Func<string, string, MessageBoxImage, bool> AskYesNo;
         internal bool CountsAsLoaded;
         /// <summary>The Check button's (and the problem panel's Try again) check-now fetch (feature/catalog-insight).</summary>
@@ -1556,6 +1567,7 @@ namespace DesktopAICompanion.Wpf
                 MarkForUpdate = DesktopAICompanion.Plugins.PendingModuleUpdates.MarkForUpdate,
                 IsStaged = DesktopAICompanion.Plugins.PendingModuleUpdates.IsStaged,
                 IsBeingRemoved = DesktopAICompanion.Plugins.PendingModuleRemovals.IsMarked,
+                UnmarkRemoval = DesktopAICompanion.Plugins.PendingModuleRemovals.Unmark,
                 LoadedInfo = ModulesPaneControl.LiveLoadedInfo,
                 DownloadVerified = delegate (CatalogModule m, CancellationToken t)
                 {
