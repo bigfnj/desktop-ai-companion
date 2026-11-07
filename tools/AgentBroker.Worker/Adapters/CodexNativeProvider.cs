@@ -39,6 +39,7 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
     public bool VerificationPending => enableDelivery &&
         (profileTrust == DesktopRouterTrust.Unverified ? profileUnavailable : adapter is null);
     public IReadOnlyList<AdapterDiscoveryDiagnostic> DiscoveryDiagnostics => discoveryDiagnostics;
+    public bool VerifiesDeliveryAtSubmission => true;
 
     public CodexNativeProvider(bool enableDelivery = false, bool updateTolerantDelivery = false)
         : this(enableDelivery, async token => new CodexOwnerConnection(await DesktopAdapter.ConnectAsync(
@@ -100,6 +101,7 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
             catch (DesktopAdapterException error)
             {
                 profileTrust = DesktopRouterTrust.Unverified;
+                profileUnavailable = IsVerificationUnavailable(error);
                 profilePinRefusal = error;
                 profilePinDiagnostic = CodexNativeAdapter.DescribeDiscoveryFailure(error);
                 diagnostics.Add(profilePinDiagnostic);
@@ -149,7 +151,7 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
         {
             try { verifyProfilesForDiscovery(); profileTrust = DesktopRouterTrust.ExactPinned; }
             catch (DesktopAdapterException error)
-            { profileTrust = VerifyProfilesByPublisher(error, diagnostics: null, verifyByPublisherForDiscovery); }
+            { profileUnavailable = IsVerificationUnavailable(error); profileTrust = VerifyProfilesByPublisher(error, diagnostics: null, verifyByPublisherForDiscovery); }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException)
             { profileUnavailable = true; }
         }
@@ -221,6 +223,7 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
         try { verify(); return DesktopRouterTrust.PublisherSigned; }
         catch (DesktopAdapterException error)
         {
+            profileUnavailable = IsVerificationUnavailable(error);
             diagnostics?.Add(CodexNativeAdapter.DescribeDiscoveryFailure(error));
             return DesktopRouterTrust.Unverified;
         }
@@ -287,11 +290,11 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
                 ownerPins[(binding.ServerPid, binding.ServerCreationFileTime)] = pin;
             return binding;
         }
-        // The router's complete answer about one conversation leaves the protocol in step: the library throws these two
+        // The router's complete answer about one conversation leaves the protocol in step: the library throws these per-conversation errors
         // only after RequestAsync returned the response matching its request ID (DesktopAdapter.DiscoverCoreAsync), and
         // only RequestAsync's own failure closes the protocol. Discarding the connection here made every later pass pay a
         // full owner re-verification while that conversation kept answering with an error (A-broker-01).
-        catch (DesktopAdapterException error) when (error.Code is "owner_discovery_rejected" or "owner_capability_mismatch") { throw; }
+        catch (DesktopAdapterException error) when (error.Code is "owner_discovery_rejected" or "owner_capability_mismatch" or "invalid_protocol_identity") { throw; }
         catch
         {
             ownerPins.Clear();
@@ -372,7 +375,7 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
 
     public async Task<DesktopSubmissionResult> SubmitAsync(DesktopOwnerBinding binding, Guid messageId, string text, CancellationToken token)
     {
-        if (!IsDeliveryAuthorized(binding) || adapter is null)
+        if (!enableDelivery || adapter is null)
             return new(DesktopSubmissionOutcome.Rejected, ErrorCode: "native_client_profile_unverified");
         // Advertisement uses only the verification from this discovery pass. Actual model input
         // always gets fresh full hashes and running-client validation; no metadata/hash cache is trusted.
@@ -391,10 +394,13 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
         catch (Exception error) when (error is DesktopAdapterException or IOException or UnauthorizedAccessException)
         {
             profileTrust = DesktopRouterTrust.Unverified;
-            profileUnavailable = error is not DesktopAdapterException;
+            profileUnavailable = error is not DesktopAdapterException desktop || IsVerificationUnavailable(desktop);
             forgetDiscovery();
             return Unverified();
         }
+        if (!IsDeliveryAuthorized(binding)) return Unverified();
+        if (token.IsCancellationRequested)
+            return new(DesktopSubmissionOutcome.DeferredNotSubmitted, ErrorCode: "native_not_submitted");
         DesktopSubmissionResult submitted;
         try { submitted = await adapter.SubmitAsync(binding, messageId, text, token); }
         catch (DesktopAdapterException exception) when (exception.Code == "receipt_capacity")
@@ -418,6 +424,9 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
     private DesktopSubmissionResult Unverified() => profileUnavailable
         ? new(DesktopSubmissionOutcome.DeferredNotSubmitted, ErrorCode: "native_verification_unavailable")
         : new(DesktopSubmissionOutcome.Rejected, ErrorCode: "native_client_profile_unverified");
+
+    private static bool IsVerificationUnavailable(DesktopAdapterException error)
+        => error.Code is "vscode_process_observation_expired" or "public_image_trust_unavailable";
 
     public async ValueTask DisposeAsync()
     {

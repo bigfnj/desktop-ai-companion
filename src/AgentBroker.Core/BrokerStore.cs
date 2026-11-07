@@ -910,10 +910,19 @@ public sealed partial class BrokerStore : IDisposable
     // Move(overwrite), this never asks Windows for a copy-and-delete fallback.
     private static void ReplaceFile(string temporary, string destination)
     {
-        if (File.Exists(destination) && OperatingSystem.IsWindows())
-            DesktopAICompanion.ModuleKit.AtomicFile.ReplaceExisting(temporary, destination, null!, CancellationToken.None);
-        else if (File.Exists(destination)) File.Replace(temporary, destination, destinationBackupFileName: null, ignoreMetadataErrors: true);
-        else File.Move(temporary, destination);
+        try
+        {
+            if (File.Exists(destination) && OperatingSystem.IsWindows())
+                DesktopAICompanion.ModuleKit.AtomicFile.ReplaceExisting(temporary, destination, null!, CancellationToken.None);
+            else if (File.Exists(destination)) File.Replace(temporary, destination, destinationBackupFileName: null, ignoreMetadataErrors: true);
+            else File.Move(temporary, destination);
+        }
+        catch (System.ComponentModel.Win32Exception error)
+        {
+            // AtomicFile's native fallback reports Win32 errors. This is still a failed durable store write,
+            // so callers must take the same fail-closed path as FileStream/File.Replace IO failures.
+            throw new IOException("Broker durable snapshot replacement failed.", error);
+        }
     }
 
     // N-broker-notices-01 (2026-10-28): two messages sent to a mailbox nobody read expired with attempts=0, and their

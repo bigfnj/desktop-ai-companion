@@ -119,9 +119,11 @@ public static class VsCodeCompatibilityProfile
 
     // The explicit root keeps synthetic image/hash checks inside their owned fixture. Production uses ExtensionsRoot.
     internal static int ValidateRunningClients(IReadOnlyList<CodeOwnedEngine> engines, IReadOnlyList<ExtensionProfile> profiles,
-        string extensionsRoot)
+        string extensionsRoot, Func<string, string>? hashImage = null)
     {
         string root = Path.GetFullPath(extensionsRoot);
+        var verifiedImages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        hashImage ??= image => { using var stream = File.OpenRead(image); return Convert.ToHexString(SHA256.HashData(stream)); };
         foreach (var engine in engines)
         {
             // The engine's own image path selects the reviewed build it belongs to; its hash must be that build's.
@@ -133,9 +135,11 @@ public static class VsCodeCompatibilityProfile
                 // The version an OpenAI extension layout declares, for status text; null for any other path.
                 throw new DesktopAdapterException("unsupported_running_vscode_profile",
                     PublisherEngineVersion(engine.Image, root));
+            // Every engine's process facts are checked above. Identical on-disk images need one hash in this fresh
+            // invocation, never one per process mapping. The next pass and every submission start a new set.
+            if (!verifiedImages.Add(Path.GetFullPath(engine.Image))) continue;
             DesktopCompatibilityProfile.VerifyRegularPath(engine.Image);
-            using var stream = File.OpenRead(engine.Image);
-            if (Convert.ToHexString(SHA256.HashData(stream)) != profile.NativeImageSha256)
+            if (hashImage(engine.Image) != profile.NativeImageSha256)
                 throw new DesktopAdapterException("running_vscode_image_mismatch", PublisherEngineVersion(engine.Image, root));
         }
         return engines.Count;

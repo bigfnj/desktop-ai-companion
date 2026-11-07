@@ -12,7 +12,7 @@ internal sealed record CodeOwnedEngine(string Image, ulong CreationFileTime, str
 
 internal static class WindowsClientProcesses
 {
-    internal static IReadOnlyList<CodeOwnedEngine> ReadCodeOwnedEngines() => SelectCodeOwnedEngines(ReadSnapshot(), ReadMetadata);
+    internal static IReadOnlyList<CodeOwnedEngine> ReadCodeOwnedEngines() => SelectCodeOwnedEngines(ReadSnapshot(), ReadMetadata, ReadSnapshot);
 
     // The engines a thread's writer-lock holder may be (CodexEngineBinding, report only): codex.exe processes under a running
     // Code.exe (the engines the profile check reads) and the desktop app's, a codex.exe whose parent is the Codex package's
@@ -76,18 +76,30 @@ internal static class WindowsClientProcesses
     // for the whole set, so one orphan anywhere on the machine turned off Codex wake for every chat (A-broker-03). Every
     // codex.exe whose parent IS a running Code.exe is still read and checked exactly as before.
     internal static IReadOnlyList<CodeOwnedEngine> SelectCodeOwnedEngines(IReadOnlyDictionary<uint, (uint Parent, string Name)> processes,
-        Func<uint, (string Image, ulong Created, bool SameUser)> readMetadata) => SelectOwnedEngines(processes, readMetadata, "Code.exe");
+        Func<uint, (string Image, ulong Created, bool SameUser)> readMetadata,
+        Func<IReadOnlyDictionary<uint, (uint Parent, string Name)>>? readCurrentSnapshot = null)
+        => SelectOwnedEngines(processes, readMetadata, "Code.exe", readCurrentSnapshot);
 
     private static IReadOnlyList<CodeOwnedEngine> SelectOwnedEngines(IReadOnlyDictionary<uint, (uint Parent, string Name)> processes,
-        Func<uint, (string Image, ulong Created, bool SameUser)> readMetadata, string parentName)
+        Func<uint, (string Image, ulong Created, bool SameUser)> readMetadata, string parentName,
+        Func<IReadOnlyDictionary<uint, (uint Parent, string Name)>>? readCurrentSnapshot)
     {
         List<CodeOwnedEngine> result = [];
         foreach (var process in processes.Where(p => string.Equals(p.Value.Name, "codex.exe", StringComparison.OrdinalIgnoreCase)))
         {
             if (!processes.TryGetValue(process.Value.Parent, out var parent)) continue;
             if (!string.Equals(parent.Name, parentName, StringComparison.OrdinalIgnoreCase)) continue;
-            var childMetadata = readMetadata(process.Key);
-            var parentMetadata = readMetadata(process.Value.Parent);
+            (string Image, ulong Created, bool SameUser) childMetadata, parentMetadata;
+            try { childMetadata = readMetadata(process.Key); parentMetadata = readMetadata(process.Value.Parent); }
+            catch (DesktopAdapterException error) when (error.Code == "vscode_process_identity_unverified" && readCurrentSnapshot is not null)
+            {
+                // Only positive evidence that the child or parent vanished makes this observation incomplete.
+                // A still-present process whose identity cannot be read keeps its original fail-closed verdict.
+                var current = readCurrentSnapshot();
+                if (!current.ContainsKey(process.Key) || !current.ContainsKey(process.Value.Parent))
+                    throw new DesktopAdapterException("vscode_process_observation_expired");
+                throw;
+            }
             result.Add(new(childMetadata.Image, childMetadata.Created, parentMetadata.Image, parentMetadata.Created,
                 childMetadata.SameUser && parentMetadata.SameUser, process.Key));
             if (result.Count > 256) throw new DesktopAdapterException("vscode_process_count_limit");

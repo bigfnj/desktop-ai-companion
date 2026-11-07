@@ -33,8 +33,7 @@ try
     // No access token, certificate bytes, message body or local path is written to stdout.
     Console.WriteLine(JsonSerializer.Serialize(new { ready = true, brokerId = worker.Runtime.Store.BrokerId,
         endpoints = worker.Application.Urls.ToArray() }));
-    await worker.Application.WaitForShutdownAsync();
-    return 0;
+    return await WorkerLifetime.WaitForShutdownAsync(worker, Console.Error);
 }
 catch (Exception e) when (e is ArgumentException or FormatException or OverflowException)
 { Console.Error.WriteLine("agentbroker: invalid_arguments"); return 2; }

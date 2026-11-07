@@ -10,12 +10,25 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
+if (args.Length == 3 && args[0] == "--durable-failure-child")
+    return await DurableFailureChecks.RunChildAsync(args[1], args[2]);
+
 int assertions = 0;
 void Check(bool value, string name)
 { if (!value) throw new InvalidOperationException(name); assertions++; Console.WriteLine("PASS: " + name); }
 if (args.Length == 1 && args[0] == "--claude-title-hook-only")
 {
     try { await ClaudeTitleHookChecks.RunAsync(Check); Console.WriteLine($"RESULT=PASS assertions={assertions}"); return 0; }
+    catch (Exception error) { Console.Error.WriteLine(error); Console.WriteLine("RESULT=FAIL"); return 1; }
+}
+if (args.Length == 1 && args[0] == "--claude-submission-boundary-only")
+{
+    try { await ClaudeSubmissionBoundaryChecks.RunAsync(Check); Console.WriteLine($"RESULT=PASS assertions={assertions}"); return 0; }
+    catch (Exception error) { Console.Error.WriteLine(error); Console.WriteLine("RESULT=FAIL"); return 1; }
+}
+if (args.Length == 1 && args[0] == "--durable-failure-only")
+{
+    try { await DurableFailureChecks.RunAsync(Check); Console.WriteLine($"RESULT=PASS assertions={assertions}"); return 0; }
     catch (Exception error) { Console.Error.WriteLine(error); Console.WriteLine("RESULT=FAIL"); return 1; }
 }
 if (args.Length == 1 && args[0] == "--adapter-safety-only")
@@ -43,6 +56,7 @@ if (args.Length == 1 && args[0] == "--observation-pruning-only")
     try
     {
         ObservationPruningChecks.Run(Check);
+        await ObservationPruningChecks.RunRuntimeAsync(Check);
         Console.WriteLine($"RESULT=PASS assertions={assertions}");
         return 0;
     }
@@ -363,9 +377,11 @@ try
 {
     await ControlPipeChecks.RunAsync(Check);
     await RuntimeLifecycleChecks.RunAsync(Check);
+    await DurableFailureChecks.RunAsync(Check);
     await PeerDiagnosticsChecks.RunAsync(Check);
     await McpCallClientChecks.RunAsync(Check);
     await ClaudeTitleHookChecks.RunAsync(Check);
+    await ClaudeSubmissionBoundaryChecks.RunAsync(Check);
     await ClaudeObservationChecks.RunAsync(Check);
     await PaginationChecks.RunAsync(Check);
     await McpActivityChecks.RunAsync(Check);
@@ -400,6 +416,7 @@ try
         // Compact sender receipts that tell their age and since when their recipient was seen busy (lane broker-163).
         await CompactReceiptChecks.RunAsync(Check);
         ObservationPruningChecks.Run(Check);
+        await ObservationPruningChecks.RunRuntimeAsync(Check);
         // The report-only Codex engine binding on rows and receipts (lane broker-163).
         await EngineBindingReportChecks.RunAsync(Check);
         // Client inbox attribution and the LAN network profile (lane feature/agentbroker-backlog-a).

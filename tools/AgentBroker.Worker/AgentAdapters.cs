@@ -15,6 +15,8 @@ public sealed record PeerSenderInfo(string? Label, string Scope);
 public interface ILocalAgentAdapter : IAsyncDisposable
 {
     string Id { get; }
+    // Report only: a complete successful native pass can end busy observations for absent rows.
+    bool DiscoveryCensusComplete => true;
     IReadOnlyList<AdapterDiscoveryDiagnostic> DiscoveryDiagnostics => Array.Empty<AdapterDiscoveryDiagnostic>();
     Task<IReadOnlyList<BrokerSession>> DiscoverAsync(Guid brokerId, CancellationToken token);
     Task<AdapterResult> SubmitAsync(BrokerMessage message, CancellationToken token);

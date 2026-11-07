@@ -1,6 +1,7 @@
 using AgentBroker.CodexDesktopAdapter;
 using System.Security.AccessControl;
 using System.Security.Cryptography.X509Certificates;
+using System.Security.Cryptography;
 using System.Text.Json.Nodes;
 
 // Codex observation-only discovery and the opt-in update-tolerant delivery gate at the adapter library layer.
@@ -13,6 +14,7 @@ internal static class CodexObservationChecks
 
     internal static async Task RunAsync(Action<bool, string> check)
     {
+        Console.WriteLine("WITNESS: CODEX_OBSERVATION_EXECUTED");
         PublisherSubjects(check);
         ProtectedDescriptors(check);
         RouterFallback(check);
@@ -20,6 +22,7 @@ internal static class CodexObservationChecks
         RunningEngines(check);
         StartupRead(check);
         OrphanEngines(check);
+        FreshImageDeduplication(check);
         await AdapterGateAsync(check);
         await TrustProbeAsync(check);
     }
@@ -49,6 +52,64 @@ internal static class CodexObservationChecks
         catch (DesktopAdapterException error) { witness = error.Code; }
         check(witness == "vscode_process_identity_unverified",
             File + "ORPHAN_ENGINE_IGNORED WITNESS: a Code-owned engine whose identity cannot be read still refuses the whole set (" + witness + ")");
+        foreach (uint vanished in new uint[] { 20, 10 })
+        {
+            string expired = "none";
+            try
+            {
+                WindowsClientProcesses.SelectCodeOwnedEngines(snapshot,
+                    pid => pid == vanished ? throw new DesktopAdapterException("vscode_process_identity_unverified") : Metadata(pid),
+                    () => snapshot.Where(pair => pair.Key != vanished).ToDictionary());
+            }
+            catch (DesktopAdapterException error) { expired = error.Code; }
+            check(expired == "vscode_process_observation_expired",
+                File + "EXITED_PROCESS_OBSERVATION_EXPIRES: a fresh snapshot proves the unreadable child or parent has exited (" + vanished + ")");
+        }
+        string live = "none";
+        try
+        {
+            WindowsClientProcesses.SelectCodeOwnedEngines(snapshot,
+                _ => throw new DesktopAdapterException("vscode_process_identity_unverified"), () => snapshot);
+        }
+        catch (DesktopAdapterException error) { live = error.Code; }
+        check(live == "vscode_process_identity_unverified",
+            File + "LIVE_PROCESS_IDENTITY_STAYS_REFUSED: a failed identity read is not transient unless a fresh snapshot proves an exit");
+    }
+
+    private static void FreshImageDeduplication(Action<bool, string> check)
+    {
+        string root = Path.Combine(AppContext.BaseDirectory, "scratch", "exact-profile-hashes-" + Guid.NewGuid().ToString("N"));
+        string directory = "openai.chatgpt-1.2.3-win32-x64";
+        string image = Path.Combine(root, directory, "bin", "windows-x86_64", "codex.exe");
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(image)!);
+            System.IO.File.WriteAllBytes(image, Enumerable.Range(0, 262144).Select(value => (byte)value).ToArray());
+            string Hash(string path) { using var stream = System.IO.File.OpenRead(path); return Convert.ToHexString(SHA256.HashData(stream)); }
+            var profile = new VsCodeCompatibilityProfile.ExtensionProfile("1.2.3", directory, Hash(image), "unused", []);
+            CodeOwnedEngine Engine(ulong created, bool sameUser = true) => new(image, created, @"C:\Synthetic\Code.exe", 1, sameUser);
+            int hashes = 0;
+            long bytes = 0;
+            string CountHash(string path) { hashes++; bytes += new FileInfo(path).Length; return Hash(path); }
+            check(VsCodeCompatibilityProfile.ValidateRunningClients([Engine(2), Engine(3)], [profile], root, CountHash) == 2 &&
+                hashes == 1 && bytes == 262144,
+                File + "EXACT_IMAGE_ONE_HASH_PER_PASS: two engine processes mapping one image perform one actual file hash in a fresh pass");
+            VsCodeCompatibilityProfile.ValidateRunningClients([Engine(2), Engine(3)], [profile], root, CountHash);
+            check(hashes == 2 && bytes == 524288,
+                File + "EXACT_IMAGE_NEXT_PASS_FRESH: the next invocation reopens and hashes the image again without cross-pass reuse");
+            string ownership = "none";
+            try { VsCodeCompatibilityProfile.ValidateRunningClients([Engine(2), Engine(3, false)], [profile], root, CountHash); }
+            catch (DesktopAdapterException error) { ownership = error.Code; }
+            check(ownership == "unsupported_running_vscode_profile",
+                File + "EXACT_IMAGE_DEDUP_CHECKS_EVERY_OWNER: a shared image never bypasses any engine's identity checks");
+            System.IO.File.WriteAllText(image, "Synthetic changed image.");
+            string changed = "none";
+            try { VsCodeCompatibilityProfile.ValidateRunningClients([Engine(2)], [profile], root, CountHash); }
+            catch (DesktopAdapterException error) { changed = error.Code; }
+            check(changed == "running_vscode_image_mismatch",
+                File + "EXACT_IMAGE_CHANGED_FILE_REFUSES: replacing the on-disk image between passes is detected by the next fresh hash");
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
     }
 
     // O-agentbroker-02 (lane broker-next): the two startup-read savings that move no trust decision. The Code.exe version is

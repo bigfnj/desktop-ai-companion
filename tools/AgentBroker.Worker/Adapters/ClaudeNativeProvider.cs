@@ -12,6 +12,7 @@ public sealed class ClaudeNativeProvider : IClaudeNativeProvider
     private readonly bool updateTolerant;
     private readonly Func<string?> pinDocumentError;
     private IReadOnlyList<AdapterDiscoveryDiagnostic> discoveryDiagnostics = Array.Empty<AdapterDiscoveryDiagnostic>();
+    private bool discoveryCensusComplete;
     // Sessions this pass found but could not open (see RefreshCoreAsync). Discovery runs one pass at a time.
     private int unopenableThisPass;
     private const int ErrorAccessDenied = 5;
@@ -29,6 +30,7 @@ public sealed class ClaudeNativeProvider : IClaudeNativeProvider
     }
 
     public IReadOnlyList<AdapterDiscoveryDiagnostic> DiscoveryDiagnostics => discoveryDiagnostics;
+    public bool DiscoveryCensusComplete => discoveryCensusComplete;
 
     /// <summary>The publisher check NativePeerAdapter runs on the connected image before a send to an unpinned build; null
     /// (exact pins only) unless update-tolerant delivery is in effect. It observes through the same source as discovery.</summary>
@@ -38,6 +40,7 @@ public sealed class ClaudeNativeProvider : IClaudeNativeProvider
     public async Task<IReadOnlyList<ClaudeNativeCandidate>> DiscoverAsync(CancellationToken token)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
+        discoveryCensusComplete = false;
         var found = new List<ClaudeNativeCandidate>();
         var diagnostics = new List<AdapterDiscoveryDiagnostic>();
         // A refused pin document verifies no build (EngineProfile.Verified is empty), so every session below is at
@@ -47,11 +50,14 @@ public sealed class ClaudeNativeProvider : IClaudeNativeProvider
                 + "); no Claude Code build is verified, so no session can be woken until an AgentBroker module update replaces it."));
         var live = new HashSet<int>();
         unopenableThisPass = 0;
-        foreach (int processId in source.GetProcessIds().Order().Take(32))
+        var processIds = source.GetProcessIds().Order().Take(33).ToArray();
+        bool complete = processIds.Length <= 32;
+        foreach (int processId in processIds.Take(32))
         {
             token.ThrowIfCancellationRequested(); live.Add(processId);
             var candidate = await RefreshCoreAsync(processId, diagnostics, token);
             if (candidate is not null) found.Add(candidate);
+            else complete = false;
         }
         // Counted, never named (no process ID, session ID or path): such a session used to be skipped in silence, so its
         // owner saw no row and no reason (N-broker-elevated-caller-01).
@@ -67,6 +73,7 @@ public sealed class ClaudeNativeProvider : IClaudeNativeProvider
         // Publish only a completed pass. A stale process cannot hide a supported one, and a later
         // healthy pass replaces the entire snapshot rather than retaining historical refusals.
         discoveryDiagnostics = Array.AsReadOnly(diagnostics.Distinct().ToArray());
+        discoveryCensusComplete = complete;
         return found;
     }
 

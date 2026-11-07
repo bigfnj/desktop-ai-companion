@@ -11,6 +11,7 @@ internal static class AdapterSafetyChecks
     {
         Console.WriteLine("WITNESS: ADAPTER_SAFETY_EXECUTED");
         await IndependentConnectionsAsync(check);
+        await CodexIsolationChecks.RunAsync(check);
         await MalformedResultsAsync(check);
         await DirectoryBusyRuntimeAsync(check);
         await ClaudeObservationChecks.RunBusyCausesAsync(check);
@@ -58,10 +59,10 @@ internal static class AdapterSafetyChecks
                     "CODEX_DISCOVERY_DURING_SUBMISSION: a held delivery cannot prevent independently verified discovery renewal");
             }
             finally { deliveryOwner.ReleaseSubmission.TrySetResult(); }
-            check((await submitted).Outcome == AdapterAdmission.Submitted && prepared == 1 && fresh == 1 &&
+            check((await submitted).Outcome == AdapterAdmission.Submitted && prepared == 0 && fresh == 1 &&
                 deliveryOwner.LastSubmittedBinding?.Incarnation == deliveryOwner.ConnectionId &&
                 deliveryOwner.ConnectionId != discoveryOwner.ConnectionId,
-                "CODEX_DELIVERY_OWNS_CONNECTION: preparation and fresh verification use delivery's independently resolved connection binding");
+                "CODEX_DELIVERY_OWNS_CONNECTION: fresh verification uses delivery's independently resolved connection binding");
 
             deliveryOwner.Started++;
             var changed = await adapter.SubmitAsync(Message(), default);

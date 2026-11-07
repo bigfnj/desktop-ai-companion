@@ -109,9 +109,13 @@ internal static class CompactReceiptChecks
         var busy = new AdapterResult(AdapterAdmission.DeferredNotSubmitted, DeliveryObservations.BusyReason);
         var first = clock.GetUtcNow();
         observations.Record(message, busy);
+        clock.Advance(TimeSpan.FromSeconds(5));
+        observations.Record(message, busy);
+        check(observations.BusySince(Busy()) == first, "BUSY_SINCE_KEPT: fresh later busy answers keep the first one's time");
         clock.Advance(TimeSpan.FromMinutes(5));
         observations.Record(message, busy);
-        check(observations.BusySince(Busy()) == first, "BUSY_SINCE_KEPT: later busy answers keep the first one's time");
+        check(observations.BusySince(Busy()) == clock.GetUtcNow(),
+            "BUSY_RUN_GAP_RESTARTS: a busy answer after an unobserved gap starts a new episode");
         check(observations.SeenBusy(recipient), "BUSY_ROW_FRESH: a recipient that answered busy just now is seen busy");
         clock.Advance(DeliveryObservations.BusyFreshFor);
         check(!observations.SeenBusy(recipient), "BUSY_ROW_FRESHNESS: a busy answer older than 30 seconds no longer counts");
@@ -154,7 +158,7 @@ internal static class CompactReceiptChecks
         var listed = (await fixture.Tools.ListSessions(default)).Single(session => session.Address == row.Address);
         check(listed.Activity == SessionActivity.Busy && fixture.Current(row.Address)?.Activity == SessionActivity.Unknown,
             "BUSY_ROW_PRESENTED: list_sessions shows the Unknown row Busy while the stored activity, which decides delivery, stays Unknown");
-        fixture.Clock.Advance(TimeSpan.FromMinutes(1));
+        fixture.Clock.Advance(TimeSpan.FromSeconds(5));
         fixture.Store.Register(row with { LeaseUntil = fixture.Clock.GetUtcNow().AddMinutes(2) });
         bool again = await Attempts(2);
         var later = fixture.Tools.GetMessageReceipt(id);

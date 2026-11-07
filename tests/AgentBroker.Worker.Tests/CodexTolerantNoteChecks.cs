@@ -72,9 +72,24 @@ internal static class CodexTolerantNoteChecks
             f.ProfileFailure = new DesktopAdapterException("running_vscode_image_mismatch", ExtensionVersion);
             f.PublisherFailure = new DesktopAdapterException(code, ExtensionVersion);
             var rows = await f.DiscoverAsync();
-            check(rows.Count == 1 && rows[0].Capabilities == SessionCapabilities.None && NoCarriedNote(f.Diagnostics) &&
+            // Unavailable trust is an incomplete broker check, not a signature/publisher verdict. It retains only
+            // bounded Receive so the queue can wait; neither outcome permits native input or a carried-build note.
+            bool unavailable = code == "public_image_trust_unavailable";
+            var expected = unavailable ? SessionCapabilities.Receive : SessionCapabilities.None;
+            check(rows.Count == 1 && rows[0].Capabilities == expected && !HasWake(rows[0]) &&
+                !rows[0].Capabilities.HasFlag(SessionCapabilities.NativeIdleGuard) && NoCarriedNote(f.Diagnostics) &&
                 Error(f.Diagnostics, "running_vscode_image_mismatch") && Error(f.Diagnostics, code),
                 L + "failed publisher evidence retains both real errors and never becomes a carried note (" + code + ")");
+            int discoveries = f.Owner.Discoveries;
+            var recipient = rows[0].Address;
+            var message = new BrokerMessage(Guid.NewGuid(), Guid.NewGuid(), null,
+                new(recipient.BrokerId, "synthetic-note-sender", Guid.NewGuid()), recipient, "Synthetic unavailable trust check.",
+                DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddMinutes(1));
+            var result = await f.Adapter.SubmitAsync(message, default);
+            check(f.Owner.Submissions == 0 && f.Owner.Discoveries == discoveries &&
+                (unavailable ? result is { Outcome: AdapterAdmission.DeferredNotSubmitted, Reason: "native_verification_unavailable" }
+                    : result.Outcome == AdapterAdmission.Refused),
+                L + "failed publisher evidence never wakes, rediscovers or submits native input (" + code + ")");
         }
         await using (var f = new Fixture())
         {

@@ -204,6 +204,8 @@ public sealed partial class BrokerRuntime(BrokerStore store, IPeerFederation fed
     internal TimeSpan LoopRestartLimit { get; init; } = TimeSpan.FromMinutes(1);
     private readonly ConcurrentDictionary<string, int> loopFailures = new(StringComparer.Ordinal);
     private int invalidAdapterResults;
+    private int durableStateUnavailable;
+    internal bool DurableStateUnavailable => Volatile.Read(ref durableStateUnavailable) != 0;
 
     private async Task GuardAsync(string name, Func<CancellationToken, Task> run, CancellationToken stop)
     {
@@ -220,7 +222,10 @@ public sealed partial class BrokerRuntime(BrokerStore store, IPeerFederation fed
             catch (Exception e) when (e is IOException or InvalidDataException or BrokerException or UnauthorizedAccessException)
             {
                 adapterErrors["broker"] = "durable_state_unavailable";
-                lifetime?.Cancel(); FatalError?.Invoke();
+                if (Interlocked.Exchange(ref durableStateUnavailable, 1) == 0)
+                {
+                    lifetime?.Cancel(); FatalError?.Invoke();
+                }
                 return;
             }
             // Any other exception ended the loop in silence (N-broker-161-02): a receipt loop that stopped meant no outbound
@@ -276,6 +281,9 @@ public sealed partial class BrokerRuntime(BrokerStore store, IPeerFederation fed
                         observations.ObserveDirectory(session);
                     }
                 }
+                // Missing rows end only report-only busy evidence, and only when this successful native pass was complete.
+                if (adapter.DiscoveryCensusComplete)
+                    observations.ObserveDirectoryCensus(adapter.Id, sessions);
                 var reported = adapter.DiscoveryDiagnostics.Take(8).ToArray();
                 var diagnostics = reported.Where(item => !item.Note).Select(item => item.ToStatusText()).Distinct().ToArray();
                 if (diagnostics.Length == 0) adapterErrors.TryRemove(adapter.Id, out _);
