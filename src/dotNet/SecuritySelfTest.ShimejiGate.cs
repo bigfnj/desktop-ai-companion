@@ -478,6 +478,23 @@ namespace DesktopAICompanion
             Check(CompanionXmlValidator.TryParseWithFeatures(text, CompanionFormatFeatures.All, out parsed, out error),
                 "extension gate: WITNESS the same companion validates with this build's own answer (ScanMove runs)" + FormatError(error),
                 ref failures, output);
+
+            // The class LIST is a guard of its own, not a restatement of the runtime probe. Where no runtime is linked (the
+            // converter validates with a probe that answers true for every name) the list is the only thing that refuses a
+            // class this host has never heard of, so it is tested here with exactly that permissive probe. The refusal the
+            // other checks see comes from the probe, and its message names the class too, so with only those, disabling
+            // the list changed nothing a check could see (N-shimeji-1106-05: the harness case 'the embedded class list is
+            // open' survived on that).
+            Func<string, bool> everyClassRuns = cls => true;
+            StandAct(doc).Class = "Teleport";
+            Check(!CompanionXmlValidator.TryParseWithFeatures(Serialize(doc), CompanionFormatFeatures.All, out parsed, out error, everyClassRuns)
+                  && Contains(error, "embedded class 'Teleport' is not one this host runs"),
+                "extension gate: a class outside the list is refused by the list where every class is said to run (" + error + ")",
+                ref failures, output);
+            StandAct(doc).Class = "ScanMove";
+            Check(CompanionXmlValidator.TryParseWithFeatures(Serialize(doc), CompanionFormatFeatures.All, out parsed, out error, everyClassRuns),
+                "extension gate: WITNESS a listed class validates where every class is said to run" + FormatError(error),
+                ref failures, output);
         }
 
         /// <summary>The embedded classes a feature token gates. 'actions' gates every class no other token does, except

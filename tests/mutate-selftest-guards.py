@@ -16394,7 +16394,9 @@ CASES = (
      b'            if (embedded && Array.IndexOf(EmbeddedClasses, cls) < 0)\n',
      b'            if (false && embedded && Array.IndexOf(EmbeddedClasses, cls) < 0)\n',
      HOST_CSPROJ, EXE,
-     SECURITY, None, 'an unknown embedded class is refused'),
+     # Re-pointed (N-shimeji-1106-05): 'an unknown embedded class is refused' is refused by the runtime probe too,
+     # with a message that names the class, so this case SURVIVED on it at e20decd.
+     SECURITY, None, 'a class outside the list is refused by the list where every class is said to run'),
     ('shimeji-format: the pose frame bound is off by one',
      os.path.join(REPO, "src", "dotNet", "ShimejiFormatValidator.cs"),
      b'                        if (p == null || p.Frame < -1 || p.Frame >= tileCount)\n',
@@ -20464,6 +20466,17 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--shimeji-window-selftest", "dp-shimeji-window-selftest.txt",
      "parity trace: a provenance fault ends the run in error, naming the field"),
+
+    # ---- burndown/tests-harness-1 ----
+    # N-shimeji-1106-05. The list consulted only when the runtime probe already refuses: the shape a "simplification"
+    # that folds the list into the probe takes, and with a probe that answers true for every name (the converter's)
+    # the list then refuses nothing.
+    ('bd-tests-harness-1: the embedded class list is consulted only where the probe refuses',
+     os.path.join(REPO, "src", "dotNet", "ShimejiFormatValidator.cs"),
+     b'            if (embedded && Array.IndexOf(EmbeddedClasses, cls) < 0)\n',
+     b'            if (embedded && !runsClass(cls) && Array.IndexOf(EmbeddedClasses, cls) < 0)\n',
+     HOST_CSPROJ, EXE,
+     SECURITY, None, 'a class outside the list is refused by the list where every class is said to run'),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
