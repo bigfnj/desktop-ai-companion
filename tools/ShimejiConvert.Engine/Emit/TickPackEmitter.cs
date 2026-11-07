@@ -1774,8 +1774,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         // unescape from B.2) and Nashorn's own (print, load, the Java access objects and package roots, the typed
         // arrays). An attribute of one of these names is not carried, so a script reading it refuses by name.
         private static readonly HashSet<string> ReservedNames = Set("mascot Math true false null "
-            // N-shimeji-1106-10: the pinned JDK 8 JSR-223 Script bridge exposes these as globals too
-            // (DraftBridgeProbe's typeof witness). Carrying a same-named custom variable would change its binding.
+            // N-shimeji-1106-10: the pinned JDK 8 bridge exposes all three as unbound global objects, which
+            // SafeScript does not model. Keep them reserved. DraftBridgeProbe also measures explicit bindings:
+            // engine/context can be shadowed by a custom scalar, while arguments retains its global object.
             + "engine context arguments "
             + "NaN Infinity undefined eval parseInt parseFloat isNaN isFinite decodeURI decodeURIComponent encodeURI "
             + "encodeURIComponent escape unescape Object Function Array String Boolean Number Date RegExp JSON Error "
