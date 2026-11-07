@@ -5678,9 +5678,9 @@ five is the default. Refused: the median of the steps (a level alternating +37, 
 judged as a leak), also requiring growth in every segment (a real leak under one -37 MB swing would pass), and the median
 of several runs (one run is one process, and nothing re-runs it). Handles, GDI and USER are counts that do not swing and
 are judged as before. The judge runs on its own as `--judge-selftest` (no window, no module), which
-`tests/mutate-selftest-guards.py` grades as WINDOWSOAK-JUDGE, and every soak runs it before its first window. **Until
-`tests/module-window-soak.ps1` changes (outside this lane), its default `-Segments 2` makes the soak FAIL with "NOT
-JUDGED, a slope needs at least 4 segments and 2 ran"**: run it with `-Segments 5`.
+`tests/mutate-selftest-guards.py` grades as WINDOWSOAK-JUDGE, and every soak runs it before its first window. The
+wrapper agrees since `715071a`: `tests/module-window-soak.ps1` defaults `-Segments` to 5 and refuses fewer than 4 at
+binding time (`[ValidateRange(4, ...)]`, its param block at :49), so a plain run is judged.
 
 **Fortunes has its own module self-test limit of 300 s (N-release-150-02).** Its self-test took 187 s and 174 s under load
 on 2026-10-07 against `tests/Test-ModuleSelfTests.ps1`'s shared 180 s, and 32.4 to 34.5 s in three fresh runs on
@@ -7803,13 +7803,19 @@ as it was, since its bytes are. The WAV lane's "size limits are unchanged" above
 
 ## Known ABI gaps
 
-Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of
-these is scheduled, and neither is an oversight. (A store shared across modules for a sign-in was one, declined on
+Add the verb when the module that needs it is written — see `handoff.md`'s host contract. None of
+these is scheduled, and none is an oversight. (A store shared across modules for a sign-in was one, declined on
 2026-10-26; host 1.8.0's `IHostCredentials` holds the Claude Code sign-in, one fixed credential behind a user's grant, and
 holds nothing else: a second credential is a design of its own.)
 
 - 📌 **A module cannot draw on or near the companion.** No ABI for overlay/decoration. Nothing
   planned needs it yet; noted so it is not mistaken for an oversight if something does.
+
+- 📌 **A module cannot move a companion** ("walk to centre screen"). Deferred by decision on 2026-08-27
+  ([`BACKLOG-CLOSED.md`](BACKLOG-CLOSED.md), "Moving a companion still needs new ABI"): a companion's
+  position is driven by its animations' velocity expressions rather than set directly, so a "move to point"
+  verb would fight the engine rather than sit beside it. Making a companion react is already possible through
+  `IHost.TryPlayAnimation` and `IHost.PlayAnimationAll`.
 
 - ⬜ **A module cannot push a live value into an open tray menu.** Found while porting the standalone
   app's "Next blink" countdown, which refreshed every 250ms because that app owned its own menu. This
@@ -7831,8 +7837,9 @@ sentence cost a planning cycle: a Reminder entry asserted the ABI could not driv
 animation or move a companion, while `IHost.TryPlayAnimation` and `IHost.PlayAnimationAll` had
 existed since the emotion work and AiBrain had been using them all along. The full case is in
 [`HISTORY-post-1.0.0.md`](HISTORY-post-1.0.0.md). Genuinely-missing ABI that somebody is waiting on
-stays in [`../BACKLOG.md`](../BACKLOG.md) — moving a companion, and the pane's unapplied-value
-preview, are both there.
+is filed in [`../BACKLOG.md`](../BACKLOG.md). Moving a companion, which this paragraph used to send there,
+is the deferred gap listed above, and the pane's unapplied-value preview shipped in host 1.2.5 (`f9c84ad`)
+as `PaneAction.InvokeWithPendingAsync` (`src/DesktopAICompanion.Contracts/PluginApi.cs:514`).
 
 ---
 
@@ -7992,14 +7999,19 @@ them in a commit message.
 ## Numbers in documentation
 
 **A number nobody re-measures goes stale, so make the code count it.**
-`tests/DesktopAICompanion.CoreTests/Program.cs:87` is the in-repo model: it **counts** its groups
-rather than hardcoding them, and the comment beside it records the drift that motivated it — *"the
+`tests/DesktopAICompanion.CoreTests/Program.cs:206-212` is the in-repo model: it **counts** its groups
+(`_groups`, incremented in `Run` and printed in the summary at `:193-194`) rather than hardcoding them,
+and the comment beside it records the drift that motivated it — *"the
 literal in the summary line had drifted five groups behind reality, so it reported 26 while 31 groups
 ran."*
 
 Where a document cannot count, it should describe what it counts rather than assert how many. The
 `SMOKETEST.md` invariant figure was wrong **three separate times** (61, then 82, then 84) before the
-sentence was rewritten to stop carrying a literal at all. The trap that produced the last two: a bare
+sentence was rewritten to stop carrying a literal at all. The literal has since come back to its line 4,
+and it is checked now rather than trusted: `tests/runtime-hardening-selftest.ps1` counts its own
+line-start `Assert-True` sites (`:1895`) and its last assertion fails when the figure in `SMOKETEST.md`
+differs (`:5530-5535`), the "make the code count it" rule applied to a document that cannot count. The
+trap that produced the last two wrong figures: a bare
 `grep -c 'Assert-True'` over `tests/runtime-hardening-selftest.ps1` counts the function definition
 and a comment mentioning the helper, and ten of the real call sites sit inside `foreach` loops, so
 the static site count and the runtime PASS count are different numbers and neither is the raw grep.
