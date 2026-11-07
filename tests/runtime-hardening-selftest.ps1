@@ -5896,6 +5896,30 @@ Assert-True ($w3sCore -cmatch 'await Task\.Run\(\(\) => FindBundleRoot\(root\)\)
 $w3sRestore = $w3sOpen.IndexOf('if (_window.WindowState == System.Windows.WindowState.Minimized) _window.WindowState = System.Windows.WindowState.Normal;')
 Assert-True ($w3sRestore -ge 0 -and $w3sRestore -lt $w3sOpen.IndexOf('_window.Activate();')) (
     'w3-studio-1: opening the studio restores a minimized window (N-audit-1106-311)')
+# ---- burndown/w3-tests-core-1 ----
+# A CHILD CROSSES THE MONITOR ORIGIN EXACTLY ONCE EACH WAY (N-audit-1106-336). CoreTests' "Child-position coordinate
+# reproduction" re-did the arithmetic inline and so could not fail on FormCompanion applying the origin twice; it is gone,
+# and no headless test can build a FormCompanion with its animations. The parent's virtual position becomes monitor-local
+# ONCE, and that local point is what the child is constructed with (it feeds the child's expressions through
+# CreateExpressionContext, which converts nothing); PlayChild turns the expression's local result back into a virtual
+# position ONCE. ARGUMENTS and COUNTS are asserted, each against a WITNESS of the doubled shape.
+$w3Core = Get-MethodBody $respawnPet 'private void SetNewAnimationCore(int id)' $respawnStops
+$w3Context = Get-MethodBody $respawnPet 'private IDisposable CreateExpressionContext()' $respawnStops
+Assert-True ($w3Core.Length -gt 0 -and $respawnChild.Length -gt 0 -and $w3Context.Length -gt 0) (
+    'w3-tests-core-1: SetNewAnimationCore, PlayChild and CreateExpressionContext were located in comment-stripped FormCompanion.cs')
+$w3ChildCtor = 'new FormCompanion\(\s*Animations,\s*Xml,\s*this,\s*parentLocal,'
+Assert-True ($w3Core -cmatch 'Point parentLocal = DesktopGeometry\.VirtualToMonitorLocal\(\s*parentVirtual, ScreenBounds\);' -and
+    $w3Core -cmatch $w3ChildCtor -and @([regex]::Matches($w3Core, 'new FormCompanion\(')).Count -eq 1 -and
+    $w3Core -cnotmatch 'MonitorLocalToVirtual\(' -and
+    $w3Context -cmatch 'CanonicalParentX\(\s*parentPosition\.X,' -and $w3Context -cnotmatch 'MonitorLocalToVirtual\(|VirtualToMonitorLocal\(' -and
+    'child = new FormCompanion(Animations, Xml, this, parentVirtual, !IsMovingLeft,' -cnotmatch $w3ChildCtor) (
+    "w3-tests-core-1: a child is constructed with its parent's monitor-local position, converted once (WITNESS: the virtual position does not match)")
+$w3ToVirtual = 'DesktopGeometry\.MonitorLocalToVirtual\('
+$w3Doubled = 'Point childPosition = DesktopGeometry.MonitorLocalToVirtual(DesktopGeometry.MonitorLocalToVirtual(new Point(childX, childY), ScreenBounds), ScreenBounds);'
+Assert-True (@([regex]::Matches($respawnChild, $w3ToVirtual)).Count -eq 1 -and
+    $respawnChild -cmatch 'Point childPosition = DesktopGeometry\.MonitorLocalToVirtual\(\s*new Point\(childX, childY\), ScreenBounds\);\s*Left = childPosition\.X;\s*Top = childPosition\.Y;' -and
+    $respawnChild -cnotmatch 'VirtualToMonitorLocal\(' -and @([regex]::Matches($w3Doubled, $w3ToVirtual)).Count -eq 2) (
+    "w3-tests-core-1: PlayChild converts the child's local position to virtual exactly once (WITNESS: a doubled conversion counts 2; found $(@([regex]::Matches($respawnChild, $w3ToVirtual)).Count))")
 
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that

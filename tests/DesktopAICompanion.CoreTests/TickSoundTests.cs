@@ -157,6 +157,16 @@ namespace DesktopAICompanion
             AssertEqual("m1 mute la|m1 sound la stop|m1 sound lab stop",
                 string.Join("|", log.Events.FindAll(e => e.Contains(" mute ") || e.Contains(" sound "))),
                 "The Mute and its stops were not reported in order.");
+
+            // "At any volume" (N-audit-1106-341): above, every running clip of the initiator is at 0 dB, so a Mute that
+            // matched only 0 dB clips passed. Here Alpha's la runs at -6 dB and not at 0 dB: the -6 dB clip stops, and the
+            // 0 dB one, not running, is still left alone.
+            var soft = new TickClipDesk();
+            soft.Running.Add("Alpha/la@-6");
+            TickWorld w2 = TSoundWorld(new TickLog(), soft, null, alpha, beta);
+            w2.CreateAtStart("m1", alpha, new TickPoint(640, 680), false, "Hush");
+            AssertEqual("stop Alpha/la@-6", string.Join("|", soft.Calls),
+                "A named Mute did not stop the initiator's running clip at a volume other than 0 dB: " + string.Join("|", soft.Calls));
         }
 
         private static void TestTickSoundMuteAll()

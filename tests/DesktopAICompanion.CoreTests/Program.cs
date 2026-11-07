@@ -60,7 +60,6 @@ namespace DesktopAICompanion
                 Run("Window-follow relative scaling", TestWindowFollowRelativeScaling);
                 Run("Retiring pet runtime ownership", TestRetiringPetRuntimeOwnership);
                 Run("Unicode speech and logical sprite anchoring", TestSpeechGeometryAndUnicode);
-                Run("Child-position coordinate reproduction", TestChildPositionReproduction);
                 Run("Screen dimensions and fullscreen detection", TestMetricsAndFullscreen);
                 Run("ModuleKit atomic file writes", TestModuleKitAtomicFile);
                 Run("Atomic replace fallback past MAX_PATH", TestAtomicReplaceFallbackPastMaxPath);
@@ -133,13 +132,16 @@ namespace DesktopAICompanion
                 Run("Tick social ScanMove: a missing name is reported and leaves its companion as it was", TestTickSocialScanMoveMissing);
                 Run("Tick social ScanMove: ends when its target stops offering", TestTickSocialScanMoveLost);
                 Run("Tick social ScanJump: jumps at its target with the arc and lands within one step", TestTickSocialScanJump);
+                Run("Tick social ScanJump: ends when its target stops offering", TestTickSocialScanJumpLost);
                 Run("Tick social ScanInteract: rescans when its target stops offering and faces the new one", TestTickSocialScanInteractReacquire);
                 Run("Tick social ScanInteract: on its last tick a non-blank Behavior enters both; a blank one blocks the target's", TestTickSocialScanInteractEnd);
                 Run("Tick social ScanInteract: Condition and Duration end it (policy:scaninteract-precedence)", TestTickSocialScanInteractPolicy);
                 Run("Tick social Interact: holds while two or more companions share its anchor", TestTickSocialInteract);
                 Run("Tick social ComplexMove: Characteristics split exactly; it breeds (not while turning) and scans as named", TestTickSocialComplexMove);
                 Run("Tick social ComplexMove: arrival is guarded when scanning is off (policy:complexmove-guarded)", TestTickSocialComplexMovePolicy);
+                Run("Tick social ComplexMove: scanning, it ends when its target stops offering", TestTickSocialComplexMoveLost);
                 Run("Tick social ComplexJump: scanning it lands on its target; plain, it jumps and breeds", TestTickSocialComplexJump);
+                Run("Tick social ComplexJump: scanning, it ends when its target stops offering", TestTickSocialComplexJumpLost);
                 Run("Tick windows WalkWithIE: carries the window by the exact grip at its lower corner, both facings", TestTickWindowsWalkCarries);
                 Run("Tick windows WalkWithIE: a grip 1 px off, or the window gone, loses the ground", TestTickWindowsWalkLosesGround);
                 Run("Tick windows switch: off, the animation plays and no window moves; Throwing off ends the action", TestTickWindowsSwitchOff);
@@ -166,6 +168,7 @@ namespace DesktopAICompanion
                 Run("Tick packs resolution: a member key resolves inside its own pack, never another pack's", TestTickPacksResolveInScope);
                 Run("Tick packs fallback: a missing member keeps the current type, one diagnostic per (type, reference)", TestTickPacksFallback);
                 Run("Tick packs resolver: the host stages an unknown member once, from the asker's pack only", TestTickPacksResolver);
+                Run("Tick packs conflict: a second type claiming a held member key never replaces the first, and is reported once", TestTickPacksReferenceConflict);
                 Run("Tick packs startup: the startup member and behaviour, and the egg preference only for an egg", TestTickPacksStartPlan);
                 Run("Tick packs index: library first, then folder order; a duplicate is reported and never wins", TestTickPacksIndex);
                 Run("Tick packs validator: one main, unique keys, references, one transparency, an egg that hatches", TestTickPacksValidator);
@@ -402,10 +405,15 @@ namespace DesktopAICompanion
             AssertEqual(2, low.SpeechDurationSeconds, "Speech-duration lower clamp failed.");
         }
 
+        /// <summary>
+        /// N-audit-1106-051: both forms used to be 0.3 ("0.3" and "30"), which is also the default the importer starts
+        /// from, so an importer that never read Volume at all passed this group (the vacuity F384 fixed for backup
+        /// recovery). 0.55 is no default, so dropping the Volume import or the percentage division changes the number.
+        /// </summary>
         private static void TestLegacyVolumeMigration()
         {
-            AssertLegacyVolume("0.3", 0.3, "normalized");
-            AssertLegacyVolume("30", 0.3, "percentage");
+            AssertLegacyVolume("0.55", 0.55, "normalized");
+            AssertLegacyVolume("55", 0.55, "percentage");
         }
 
         private static void AssertLegacyVolume(string persisted, double expected, string suffix)
@@ -433,16 +441,18 @@ namespace DesktopAICompanion
             string directory = NewDirectory("settings-one-time");
             string legacy = Path.Combine(directory, "user.config");
             string current = Path.Combine(directory, "settings.json");
-            WriteLegacyUserSettings(legacy, "Volume", "30");
+            // A non-default legacy volume (N-audit-1106-051): with "30" the expected 0.3 was also the fresh default, so
+            // a store that never read userSettings (user.config) imported nothing, fell back to defaults and passed.
+            WriteLegacyUserSettings(legacy, "Volume", "55");
 
             AppSettingsDocument first =
                 new AppSettingsStore(current, new[] { legacy }).Load();
-            AssertEqual(0.3, first.Volume, "Initial user.config migration failed.");
+            AssertEqual(0.55, first.Volume, "Initial user.config migration failed (0.3 would mean nothing was imported).");
 
             WriteLegacyUserSettings(legacy, "Volume", "80");
             AppSettingsDocument second =
                 new AppSettingsStore(current, new[] { legacy }).Load();
-            AssertEqual(0.3, second.Volume, "Legacy settings were re-imported over settings.json.");
+            AssertEqual(0.55, second.Volume, "Legacy settings were re-imported over settings.json.");
         }
 
         private static void TestAtomicBackup()
@@ -1703,22 +1713,11 @@ namespace DesktopAICompanion
                 "Speech anchor bottom did not use the full logical sprite height.");
         }
 
-        private static void TestChildPositionReproduction()
-        {
-            Rectangle monitor = new Rectangle(-2560, -1440, 2560, 1440);
-            Point parentVirtual = new Point(-2160, -1140);
-            Point parentLocal = DesktopGeometry.VirtualToMonitorLocal(parentVirtual, monitor);
-            Point childOffset = new Point(25, -40);
-            Point childLocal = new Point(
-                parentLocal.X + childOffset.X,
-                parentLocal.Y + childOffset.Y);
-            Point childVirtual = DesktopGeometry.MonitorLocalToVirtual(childLocal, monitor);
-
-            AssertEqual(
-                new Point(parentVirtual.X + childOffset.X, parentVirtual.Y + childOffset.Y),
-                childVirtual,
-                "Child positioning applied the monitor origin more than once.");
-        }
+        // "Child-position coordinate reproduction" stood here until N-audit-1106-336 (2026-11-07). It re-did the child
+        // arithmetic inline (parentLocal + offset, then MonitorLocalToVirtual), so it re-tested the converter pair that
+        // TestMonitorLayouts pins (on the same negative-origin monitor) and could not fail on what its label named:
+        // FormCompanion applying the monitor origin twice. FormCompanion is not compiled here, so that is now a source
+        // invariant in tests/runtime-hardening-selftest.ps1 (w3-tests-core-1), which asserts each crossing's argument.
 
         private static void TestMetricsAndFullscreen()
         {

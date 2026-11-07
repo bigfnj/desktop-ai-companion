@@ -121,6 +121,47 @@ namespace DesktopAICompanion
             AssertTrue(m1.Behaviour.Name == "Hugging" && m2.Behaviour.Name == "Hugged",
                 "The pair did not stay in their new behaviours (the old action's second check ended one).");
             AssertEqual(0, log.Faults.Count, "A clean arrival reported a fault: " + string.Join("; ", log.Faults));
+
+            // N-audit-1106-339: every fixture above has seeker and target on one y and no turn variant, so the y half and
+            // the turning half of the arrival test (TickSocialFamily.cs, ScanMove's Tick) could go with every check green.
+            // Off the target's y: the target offers on the floor at (630, 680) and the seeker, borderless, moves at y 600
+            // (it waits in Float, which has no border either, so neither falls). Its pose has no dy, so it reaches x 630 at
+            // step 3 and holds there (each step's 5 px is snapped back), never at y 680.
+            TickType flier = SocialType("Seek", MAct(30, "Seek", "Embedded", "ScanMove", "", SocialParams("Hugging", "Hugged", false),
+                MVar(null, false, TPose(0, 1, -5))));
+            var logY = new TickLog();
+            TickWorld wy = MotionWorld(new TickDesk(), logY, null, null, flier);
+            TickMascot y1 = wy.CreateAtStart("m1", flier, new TickPoint(640, 600), false, "Float");
+            TickMascot y2 = wy.CreateAtStart("m2", flier, new TickPoint(630, 680), false, "Offer");
+            wy.StepOnce();
+            SocialEnter(wy, y1, "Seek");
+            wy.StepOnce();
+            wy.StepOnce();
+            wy.StepOnce();
+            AssertEqual(new TickPoint(630, 600), y1.Anchor, "WITNESS: the seeker did not reach the target's x off its y.");
+            AssertTrue(y1.Behaviour.Name == "Seek" && y2.Behaviour.Name == "Offer" && !logY.Events.Exists(e => e.Contains(">Hugging")),
+                "ScanMove arrived on the target's x alone, off its y: " + y1.Behaviour.Name + "/" + y2.Behaviour.Name);
+
+            // While turning: the target is 1 px behind the seeker, and the two-tick turn variant moves 1 px a tick, so the
+            // seeker is on the target's anchor from the turn's first tick (age 0). The transitions wait for the turn to end
+            // (age 2), then run on the same anchor.
+            TickType turner = SocialType("Seek", MAct(30, "Seek", "Embedded", "ScanMove", "Floor", SocialParams("Hugging", "Hugged", false),
+                MVar(null, false, TPose(0, 1, -5)), MVar(null, true, TPose(3, 2, -1))));
+            var logT = new TickLog();
+            TickWorld wt = MotionWorld(new TickDesk(), logT, null, null, turner);
+            TickMascot t1 = wt.CreateAtStart("m1", turner, new TickPoint(640, 680), false, "Stand");
+            TickMascot t2 = wt.CreateAtStart("m2", turner, new TickPoint(641, 680), false, "Offer");
+            wt.StepOnce();
+            SocialEnter(wt, t1, "Seek");
+            wt.StepOnce();
+            AssertTrue(t1.Anchor.Equals(new TickPoint(641, 680)) && t1.LookRight,
+                "WITNESS: the turning seeker was not on its target's anchor, facing it, at the turn's first tick: " + t1.Anchor.X + "," + t1.Anchor.Y);
+            wt.StepOnce();
+            AssertTrue(t1.Behaviour.Name == "Seek" && t2.Behaviour.Name == "Offer",
+                "ScanMove ran the partner transitions while turning: " + t1.Behaviour.Name + "/" + t2.Behaviour.Name);
+            wt.StepOnce();
+            AssertTrue(t1.Behaviour.Name == "Hugging" && t2.Behaviour.Name == "Hugged",
+                "WITNESS: ScanMove did not arrive once its turn ended: " + t1.Behaviour.Name + "/" + t2.Behaviour.Name);
         }
 
         private static void TestTickSocialScanMoveMissing()
@@ -173,6 +214,53 @@ namespace DesktopAICompanion
             w.StepOnce();
             AssertEqual("Stand", m1.Behaviour.Name, "ScanMove went on after its target stopped offering.");
             AssertTrue(m1.Target == null, "The state's scan target outlived the action that chose it.");
+        }
+
+        /// <summary>
+        /// N-audit-1106-340: the ScanMove group above was the only "target stopped offering" check; ScanJump and scanning
+        /// ComplexMove and ComplexJump end on the same guard in their HasNext, which could go with every check green.
+        /// The same timeline as ScanMove's: the target (far off, so no arrival) enters Stand between steps 2 and 3, its
+        /// offer list changes when it steps (after the seeker, in step 3), and the seeker ends at step 4's check,
+        /// selecting Stand. <paramref name="what"/> names the action in the failure.
+        /// </summary>
+        private static void SocialAssertEndsOnLostTarget(TickType t, TickPoint seekerAt, TickPoint targetAt, string what)
+        {
+            TickWorld w = MotionWorld(new TickDesk(), new TickLog(), null, null, t);
+            TickMascot m1 = w.CreateAtStart("m1", t, seekerAt, false, "Stand");
+            TickMascot m2 = w.CreateAtStart("m2", t, targetAt, false, "Offer");
+            w.StepOnce();
+            SocialEnter(w, m1, "Seek");
+            AssertTrue(ReferenceEquals(m2, m1.Target), "WITNESS: " + what + " did not choose the offering companion at init.");
+            w.StepOnce();
+            SocialEnter(w, m2, "Stand");
+            w.StepOnce();
+            AssertEqual("Seek", m1.Behaviour.Name, what + " ended before its target's offer list changed.");
+            w.StepOnce();
+            AssertEqual("Stand", m1.Behaviour.Name, what + " went on after its target stopped offering.");
+            AssertTrue(m1.Target == null, what + ": the state's scan target outlived the action that chose it.");
+        }
+
+        private static void TestTickSocialScanJumpLost()
+        {
+            SocialAssertEndsOnLostTarget(
+                SocialType("Seek", MAct(30, "Seek", "Embedded", "ScanJump", "", SocialParams("Hugging", "Hugged", false),
+                    MVar(null, false, TPose(0, 1)))),
+                new TickPoint(100, 680), new TickPoint(600, 680), "ScanJump");
+        }
+
+        private static void TestTickSocialComplexMoveLost()
+        {
+            // The target is ahead (left, the way the seeker faces), so no turn holds the move open.
+            SocialAssertEndsOnLostTarget(SocialType("Seek", SocialComplexMove("Scan")),
+                new TickPoint(640, 680), new TickPoint(100, 680), "ComplexMove with Scan");
+        }
+
+        private static void TestTickSocialComplexJumpLost()
+        {
+            SocialAssertEndsOnLostTarget(
+                SocialType("Seek", MAct(30, "Seek", "Embedded", "ComplexJump", "",
+                    SocialParams("Hugging", "Hugged", false, TParam("Characteristics", "Scan")), MVar(null, false, TPose(0, 1)))),
+                new TickPoint(100, 680), new TickPoint(600, 680), "ComplexJump with Scan");
         }
 
         // ---- ScanJump
