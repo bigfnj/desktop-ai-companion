@@ -131,7 +131,10 @@ namespace DesktopAICompanion.FortunesModule
             Name = "Fortunes",
             Version = "1.2.2",   // 1.2.2: the smart index's embedding session runs on one intra-op thread with no
                                  //        inter-op pool and no spinning, so a cold warm holds one core instead of
-                                 //        every core (N-audit-1106-018).
+                                 //        every core (N-audit-1106-018). The vector cache refuses a file that
+                                 //        claims more entries than the cache may hold instead of loading it cut
+                                 //        short, and each of its adversarial self-test fixtures is now refused by
+                                 //        the guard it names and no other (N-audit-1106-019).
                                  // 1.2.1: a pack import whose replace fails and whose backup cannot be put back is
                                  //        counted as a rollback failure, and the batch says its rollback could not be
                                  //        fully verified instead of "all earlier changes were rolled back"
