@@ -1415,16 +1415,43 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
 
         private static void NashornGlobals()
         {
+            // DraftBridgeProbe's pinned-JDK8 controls distinguish explicit scalar bindings from unbound objects.
+            // Exercise each owner whose attributes join an action's variable map; the value 5 is the probe's control.
+            foreach (string name in new[] { "engine", "context" })
+                foreach (string owner in new[] { "Action", "NestedAction", "ActionReference", "Behavior", "BehaviorReference" })
+                    NashornBoundScalar(name, owner);
+
             foreach (string global in new[] { "engine", "context", "arguments" })
                 using (var fixture = new Fixture())
                 {
                     XDocument actions = BuildActions();
                     actions.Root.Element("ActionList").Add(S("Action", A("Name", "Global"), A("Type", "Move"),
-                        A("TargetX", "${" + global + " * 10}"), A(global, "5"), S("Animation", Pose("/p.png", 1))));
+                        A("TargetX", "${" + global + " * 10}"), S("Animation", Pose("/p.png", 1))));
                     fixture.Actions(actions);
-                    Refusal(fixture, "TICK_EXPRESSION_UNSUPPORTED TargetX: unknown name '" + global + "'");
-                    Require(!Directory.Exists(fixture.Output), "nashorn-globals: a reserved global left partial output: " + global);
+                    // Inspect the emitter's preparation result before the independent host validator can refuse it.
+                    // A widened emitter scope must fail this assertion even if the host still rejects the output.
+                    bool refused = false;
+                    try { TickPackEmitter.PrepareMembers(fixture.Pack, false); }
+                    catch (InvalidDataException error)
+                    {
+                        Require(error.Message.Contains("TICK_EXPRESSION_UNSUPPORTED TargetX: unknown name '" + global + "'"),
+                            "nashorn-globals: an unbound object received the wrong refusal: " + global + ": " + error.Message);
+                        refused = true;
+                    }
+                    Require(refused, "nashorn-globals: an unbound object was accepted: " + global);
+                    Require(!Directory.Exists(fixture.Output), "nashorn-globals: an unbound object left partial output: " + global);
                 }
+
+            // The same explicit binding that shadows engine/context cannot shadow arguments on the measured runtime.
+            using (var fixture = new Fixture())
+            {
+                XDocument actions = BuildActions();
+                actions.Root.Element("ActionList").Add(S("Action", A("Name", "Global"), A("Type", "Move"),
+                    A("TargetX", "${arguments * 10}"), A("arguments", "5"), S("Animation", Pose("/p.png", 1))));
+                fixture.Actions(actions);
+                Refusal(fixture, "TICK_EXPRESSION_UNSUPPORTED TargetX: unknown name 'arguments'");
+                Require(!Directory.Exists(fixture.Output), "nashorn-globals: a bound arguments object left partial output");
+            }
             // WITNESS: the names are case-sensitive globals, not forbidden custom-variable prefixes.
             using (var fixture = new Fixture())
             {
@@ -1437,6 +1464,55 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 Require(Bound(local, "param", "Engine") == "1" && Bound(local, "param", "contextValue") == "2"
                     && Bound(local, "param", "argumentsValue") == "3",
                     "nashorn-globals: ordinary case-distinct and suffixed custom variables remain usable");
+            }
+        }
+
+        private static void NashornBoundScalar(string name, string owner)
+        {
+            using (var fixture = new Fixture())
+            {
+                XDocument actions = BuildActions(), behaviours = BuildBehaviors();
+                XElement scalar = S("Action", A("Name", "Global"), A("Type", "Move"),
+                    A("TargetX", "${" + name + " * 10}"), S("Animation", Pose("/p.png", 1)));
+                XElement list = actions.Root.Element("ActionList");
+                if (owner == "Action" || owner == "NestedAction") scalar.SetAttributeValue(name, "5");
+                if (owner == "NestedAction") list.Add(S("Action", A("Name", "GlobalSequence"), A("Type", "Sequence"), scalar));
+                else list.Add(scalar);
+                if (owner == "ActionReference")
+                    list.Add(S("Action", A("Name", "GlobalSequence"), A("Type", "Sequence"),
+                        S("ActionReference", A("Name", "Global"), A(name, "5"))));
+                if (owner == "Behavior")
+                    behaviours.Root.Element("BehaviorList").Add(S("Behavior", A("Name", "GlobalBehavior"),
+                        A("Action", "Global"), A("Frequency", 0), A(name, "5")));
+                if (owner == "BehaviorReference")
+                    behaviours.Descendants("NextBehaviorList").First().Add(S("BehaviorReference", A("Name", "Idle"),
+                        A("Action", "Global"), A("Frequency", 1), A(name, "5")));
+                fixture.Actions(actions);
+                fixture.Behaviors(behaviours);
+                XDocument document;
+                try { document = fixture.Convert(); }
+                catch (InvalidDataException error)
+                {
+                    throw new InvalidOperationException("nashorn-globals: a bound " + name + " scalar was refused: " + owner + ": " + error.Message);
+                }
+                XElement act = NamedNode(document, "Global").Element(Ns + "act"), binding = act;
+                string tag = "param";
+                if (owner == "ActionReference")
+                {
+                    binding = NamedNode(document, "GlobalSequence").Element(Ns + "act").Element(Ns + "children").Element(Ns + "child");
+                    tag = "bind";
+                }
+                if (owner == "Behavior" || owner == "BehaviorReference")
+                {
+                    binding = Nodes(document).Select(n => n.Element(Ns + "behaviour"))
+                        .Single(b => b != null && (string)b.Attribute("runs") == "Global");
+                    tag = "bind";
+                }
+                Require(binding.Elements(Ns + tag).Count(p => (string)p.Attribute("name") == name
+                    && (string)p.Attribute("value") == "5" && (string)p.Attribute("cache") == "none") == 1
+                    && Scripted(act, "param", "TargetX", "action") == name + " * 10",
+                    "nashorn-globals: WITNESS a bound scalar and its reader survive: " + name + ": " + owner);
+                Validate(document, "bound " + name + " scalar on " + owner);
             }
         }
 
