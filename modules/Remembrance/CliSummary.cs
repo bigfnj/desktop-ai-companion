@@ -103,9 +103,14 @@ namespace DesktopAICompanion.RemembranceModule
         /// for the prompt overhead and the answer. Since 2.3.0 the window is the model the CLI card chooses (an alias, or
         /// Claude Code's default as before), still taken as 200k tokens: that figure was not re-measured per alias when
         /// the choice arrived, so a model with a smaller window would need this limit lowered with it. At the measured
-        /// rate of about 54 KB of transcript an hour, the limit is
-        /// over six hours of talk, and whisper's own limit on one recording is six (Transcriber.MaximumWhisperTimeout), so
-        /// a recording practically always takes the one call, and the fallback is for a long transcript summarized by hand.
+        /// rate of about 54 KB of transcript an hour, the limit is a little over six and a half hours of talk. That is not
+        /// an upper bound on a recording: "Longest recording" goes up to eight hours (WatchTuning.LimitHoursMax) and every
+        /// "Keep 30 more min" answer to its question adds half an hour more (WatchTuning.LimitExtension), so a long meeting
+        /// can cross it on the stop path, not only a long transcript summarized by hand. A stop-path transcript over the
+        /// limit takes the local map-reduce when a local summary model is set, and otherwise the Status line says it was
+        /// too long for one call and no local model is set (the stop path in RemembranceModule.cs). (Until 2026-11-07 this
+        /// said whisper's own limit on one recording was six hours; that constant bounds how long whisper-cli may RUN,
+        /// not how long a recording is, N-audit-1106-277.)
         /// Bytes rather than characters because a tokenizer works on bytes: a character count would let a CJK transcript
         /// three times as heavy through.
         /// </summary>
