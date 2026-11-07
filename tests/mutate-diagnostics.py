@@ -17,12 +17,15 @@ Usage:  %TOOLBOX_PYTHON% tests/mutate-diagnostics.py [--fast] [--only=<substring
         --only selects cases by name, case-insensitively; a selection that matches nothing is a
         refusal (exit 2), not "0/0 fired" (RA-353): with no case there is no baseline either, so a
         mistyped substring used to report success having measured nothing.
+        Any other argument is a refusal too (exit 2, N-shimeji-tests-01): an unknown flag, the sibling
+        harnesses' --shard included, used to be ignored and the whole mutating suite ran.
 
 The per-run TEMP is removed after a clean run and KEPT, named on the console, after anything else,
 with every non-FIRED case's whole output under a per-case name (R-060, R-065): it used to go in every
 outcome, so a WRONG or BROKEN verdict survived only as a 200-character console summary.
 """
 
+import argparse
 import io
 import os
 import re
@@ -1321,8 +1324,23 @@ def run_wpf(expect_rebuild):
     return ok, text
 
 
+def parse_arguments(argv):
+    """--fast and --only=<substring>, and nothing else (N-shimeji-tests-01). The loop this replaces read those two out
+    of sys.argv and ignored every other argument, so a sibling harness's --shard or --check-patterns, or a mistyped
+    --olny=, started the full mutating suite instead of being refused. Abbreviations are refused as well: a prefix
+    argparse would complete today can come to mean another flag the day one is added."""
+    parser = argparse.ArgumentParser(prog="mutate-diagnostics.py", allow_abbrev=False)
+    parser.add_argument("--fast", action="store_true",
+                        help="skip the cases that need a rebuild (source-invariant cases only)")
+    parser.add_argument("--only", default="", metavar="SUBSTRING",
+                        help="run only the cases whose name holds SUBSTRING, case-insensitively")
+    return parser.parse_args(argv)
+
+
 def main():
     global RUN_TEMP, WPF_RESULT, CHILD_ENV
+    # Parsed before anything is created, so a refused argument leaves nothing behind.
+    args = parse_arguments(sys.argv[1:])
     # Short on purpose: a self-test's own temp paths sit below this, and one of them (the fortunes
     # VectorCache fallback probe) reaches MAX_PATH once TEMP itself is ~107 characters. Measured 2026-09-29.
     RUN_TEMP = os.path.join(os.environ.get("TEMP", "."), "dp-mdg-" + uuid.uuid4().hex[:12])
@@ -1337,7 +1355,7 @@ def main():
     # directory, and Invoke-SelfTests.ps1's aged dp-* sweep collects a kept one after an hour.
     keep = True
     try:
-        code = score()
+        code = score(args)
         keep = code != 0
         return code
     finally:
@@ -1348,12 +1366,9 @@ def main():
             shutil.rmtree(RUN_TEMP, ignore_errors=True)
 
 
-def score():
-    fast = "--fast" in sys.argv
-    only = ""
-    for a in sys.argv[1:]:
-        if a.startswith("--only="):
-            only = a[len("--only="):]
+def score(args):
+    fast = args.fast
+    only = args.only
     cases = [c for c in CASES if not (fast and c[4] == "wpf") and (not only or only.lower() in c[0].lower())]
     if not cases:
         print("no case matched --only=%s%s" % (only, " with --fast" if fast else ""))
@@ -1423,26 +1438,36 @@ def score():
                 return 2
 
     results = []
+
+    def record(verdict, name, detail):
+        # PRINTED AS IT IS MEASURED (N-audit-1106-346). The verdicts used to be printed only after the last case, so
+        # an interrupt, a build timeout or a capture error mid-run discarded every verdict already measured, the
+        # FIRED ones without a trace (only a non-FIRED case keeps its output on disk). The flush keeps the line
+        # ahead of a hard kill when the console is a pipe.
+        results.append((verdict, name, detail))
+        print("%-9s %s\n          %s" % (verdict, name, detail), flush=True)
+
+    print("")
     rebuilt = True
     try:
         for index, (name, rel, find, repl, checker, expect) in enumerate(cases, 1):
             src = baseline[rel]
             find_b, repl_b = line_ending_variant(src, find.encode("utf-8"), repl.encode("utf-8"))
             if src.count(find_b) != 1:
-                results.append(("NO-OP", name,
-                                "pattern matched %d times in %s -- the mutation would change nothing"
-                                % (src.count(find_b), rel)))
+                record("NO-OP", name,
+                       "pattern matched %d times in %s -- the mutation would change nothing"
+                       % (src.count(find_b), rel))
                 continue
             write_bytes(os.path.join(ROOT, rel), src.replace(find_b, repl_b))
             ok, text = (run_gate() if checker == "gate" else run_wpf(True))
             restore()
 
             if ok is None:
-                results.append(("BROKEN", name, text.strip()[:200]))
+                record("BROKEN", name, text.strip()[:200])
                 keep_output(index, name, text)
                 continue
             if ok:
-                results.append(("SURVIVED", name, "the check still passed -- it does not cover this"))
+                record("SURVIVED", name, "the check still passed -- it does not cover this")
                 keep_output(index, name, text)
                 continue
             # The two checks report failure differently: the gate THROWS ("<name> failed."), so it stops
@@ -1479,12 +1504,12 @@ def score():
                 others = [ln.strip() for ln in text.splitlines() if is_failure(ln) and expect not in ln]
             if not hits:
                 got = others if others else [ln.strip() for ln in text.splitlines() if is_failure(ln)]
-                results.append(("WRONG", name,
-                                "failed, but not on '%s'; got: %s" % (expect, "; ".join(got[:3]))))
+                record("WRONG", name,
+                       "failed, but not on '%s'; got: %s" % (expect, "; ".join(got[:3])))
                 keep_output(index, name, text)
             else:
                 extra = " (+%d other failures)" % len(others) if others else ""
-                results.append(("FIRED", name, hits[0][:120] + extra))
+                record("FIRED", name, hits[0][:120] + extra)
     finally:
         restore()
         # Leave build\ current with the restored source, the rule the sibling harnesses follow. A wpf case
@@ -1498,10 +1523,12 @@ def score():
                 print("\nTHE CLEAN REBUILD FAILED -- build\\ may still hold the last mutant's exe:")
                 print(rebuild_text[-800:])
 
-    print("")
-    for verdict, name, detail in results:
-        print("%-9s %s\n          %s" % (verdict, name, detail))
     bad = [r for r in results if r[0] != "FIRED"]
+    if bad:
+        # The same lines again, together, since a long run scrolls them apart.
+        print("\nnot FIRED:")
+        for verdict, name, detail in bad:
+            print("%-9s %s\n          %s" % (verdict, name, detail))
     print("\n%d/%d fired" % (len(results) - len(bad), len(results)))
     return 1 if bad or not rebuilt or not results else 0
 
