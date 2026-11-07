@@ -27,7 +27,9 @@
 # Every input is already labeled v2 data that lives in the repository, so the build is a pure
 # assembly: concatenate, deduplicate on text, sort, validate, write. It is deterministic and
 # idempotent -- running it on a clean tree reproduces the committed file byte for byte, which
-# --check asserts in CI or by hand.
+# --check asserts when someone runs it. Nothing runs it automatically: no gate step, CI workflow or
+# test script calls it (this said "in CI" until N-audit-1106-137), so a corpus that drifts from its
+# inputs (packs/dadjokes.txt above all) stays unnoticed until a hand run of --check.
 #
 # Inputs are named by source id in corpus-required-files.txt and resolved in this order:
 #   1. sources/<id>.tsv   primary labeled data owned by the corpus (no pack carries it)
