@@ -22,6 +22,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         public readonly List<ResidueItem> Dropped = new List<ResidueItem>();   // Group3
         public readonly List<ResidueItem> Degraded = new List<ResidueItem>();  // Group2
         public readonly List<string> Notes = new List<string>();               // format-wide losses
+        // A member warning or a source-specific fact is not a limit shared by every import.
+        public readonly List<string> MemberNotes = new List<string>();
 
         public int Total { get { return Dropped.Count + Degraded.Count; } }
 
@@ -39,6 +41,13 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 sb.AppendLine();
             }
 
+            if (MemberNotes.Count > 0)
+            {
+                sb.AppendLine("Notes for this image set:");
+                foreach (string n in MemberNotes) sb.AppendLine("  - " + n);
+                sb.AppendLine();
+            }
+
             if (Dropped.Count > 0)
             {
                 sb.AppendLine("Dropped entirely (" + Dropped.Count + "):");
@@ -53,7 +62,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 sb.AppendLine();
             }
 
-            if (Total == 0 && Notes.Count == 0)
+            if (Total == 0 && Notes.Count == 0 && MemberNotes.Count == 0)
                 sb.AppendLine("Nothing was dropped or degraded.");
 
             return sb.ToString().TrimEnd();

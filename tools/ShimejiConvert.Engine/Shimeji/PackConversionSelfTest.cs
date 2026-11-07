@@ -48,6 +48,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "missing-next-recovery-option", Run = (Action)MissingNextRecoveryOption },
                 new { Name = "skipped-member-api-controls", Run = (Action)SkippedMemberApiControls },
                 new { Name = "recovered-drop-residue", Run = (Action)RecoveredDropResidue },
+                new { Name = "member-diagnostic-headings", Run = (Action)MemberDiagnosticHeadings },
             };
             if (onlyCase != null && !cases.Any(c => c.Name == onlyCase))
             { detail = "pack-conversion unknown case: " + onlyCase; return false; }
@@ -186,6 +187,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 PackConversionResult result = Accepted(fixture, Options());
                 Require(result.Warnings.Any(w => w.IndexOf("Missing form", StringComparison.Ordinal) >= 0),
                     "missing target fallback did not produce a pack warning");
+                Require(Member(result, "Alpha").Residue.MemberNotes.Any(w => w.Contains("Missing form"))
+                    && !Member(result, "Alpha").Residue.Notes.Any(w => w.Contains("Missing form")),
+                    "missing target pack warning was not a member-specific note");
                 XElement action = Node(Document(Member(result, "Alpha")), "Change").Element(Ns + "act");
                 Require(action.Elements(Ns + "param").Any(p => (string)p.Attribute("name") == "TransformMascot"
                     && (string)p.Attribute("value") == "Missing form"), "missing-member warning erased the source reference");
@@ -209,6 +213,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 Refused(fixture, options, "Absent");
                 options.Members = new Dictionary<string, PackMemberOptions> { { "Alpha", new PackMemberOptions { Role = "mystery" } } };
                 Refused(fixture, options, "role");
+                options.Members = new Dictionary<string, PackMemberOptions> { { "bad/key", new PackMemberOptions() } };
+                PackConversionResult invalid = Refused(fixture, options,
+                    "TICK_PACK_MEMBER_INVALID: member metadata has an invalid image-set key: 'bad/key'.");
+                Require(invalid.Errors.Count == 1, "invalid key diagnostic was obscured by later preparation errors");
             }
         }
         private static void StartupMember()
@@ -254,7 +262,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 Require(result.Members.Count == 2 && Member(result, "Bad").Disposition == PackMemberDisposition.Refused
                     && Member(result, "Alpha").Disposition == PackMemberDisposition.Prepared && Member(result, "Alpha").Root != null,
                     "one refused member erased successful diagnostic previews or disappeared from reports");
-                Require(Member(result, "Bad").Residue != null && Member(result, "Bad").Residue.Notes.Count > 0,
+                Require(Member(result, "Alpha").Root.Header.Pack == null && Pack(Document(Member(result, "Alpha"))) == null,
+                    "partial source diagnostic preview advertised a subset pack identity inside its document");
+                Require(Member(result, "Bad").Residue != null && Member(result, "Bad").Residue.MemberNotes.Count > 0,
                     "refused member lost its residue diagnostic");
             }
         }
@@ -352,12 +362,16 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         {
             using (var fixture = Single())
             {
-                PackMemberConversionResult member = Member(Accepted(fixture, Options()), "Alpha");
+                PackConversionResult result = Accepted(fixture, Options());
+                PackMemberConversionResult member = Member(result, "Alpha");
                 int unused = (int)Node(Document(member), "Unused").Attribute("id");
                 Require(member.Graph != null && member.Graph.Unreachable.Contains(unused),
                     "unused source action disappeared from the graph diagnostic");
                 Require(member.Residue.Dropped.Count == 0 && member.Residue.Degraded.Count == 0,
                     "unused source action was mislabeled as lost");
+                Require(result.Warnings.Any(w => w.Contains("source action or behaviour nodes") && w.Contains("this is informational"))
+                    && member.Residue.MemberNotes.Any(w => w.Contains("this is informational")),
+                    "preserved unreachable source nodes were not described as informational");
             }
         }
         private static void OptionalParityMap()
@@ -469,7 +483,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                         bool expected = missing == "all" || missing == name;
                         Require(result.Warnings.Any(w => w.StartsWith(diagnostic, StringComparison.Ordinal)) == expected,
                             "runtime entry warning did not distinguish absent " + name + " from a present zero-frequency root");
-                        Require(Member(result, "Alpha").Residue.Notes.Any(w => w.StartsWith(diagnostic, StringComparison.Ordinal)) == expected,
+                        Require(Member(result, "Alpha").Residue.MemberNotes.Any(w => w.StartsWith(diagnostic, StringComparison.Ordinal)) == expected,
                             "member residue lost runtime entry warning for " + name);
                         Require(result.Warnings.Any(w => w.StartsWith("Image set 'Beta' has no " + name + " behaviour;", StringComparison.Ordinal)),
                             "a sibling's missing runtime entry warning was lost for " + name);
@@ -477,6 +491,42 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     Require(result.Warnings.Where(w => w.Contains("has no ") && w.Contains(" behaviour;"))
                         .All(w => w.Contains("dispos")), "runtime entry warning did not state the companion is disposed");
                 }
+        }
+
+        private static void MemberDiagnosticHeadings()
+        {
+            using (var fixture = new Fixture())
+            {
+                fixture.Member("Alpha", Actions("Missing form"), Behaviours());
+                fixture.Member(".Helper", Actions(), Behaviours());
+                PackConversionResult result = Accepted(fixture, Options());
+                PackMemberConversionResult member = Member(result, "Alpha"), hidden = Member(result, ".Helper");
+                Require(member.Residue.MemberNotes.Any(w => w.Contains("no Fall behaviour"))
+                    && member.Residue.MemberNotes.Any(w => w.Contains("Missing form"))
+                    && member.Residue.MemberNotes.Any(w => w.Contains("source action or behaviour nodes"))
+                    && hidden.Residue.MemberNotes.Any(w => w.Contains("source chooser hides"))
+                    && member.Residue.Notes.Count == 0 && hidden.Residue.Notes.Count == 0,
+                    "source-specific runtime, pack, visibility or graph notes leaked into format-wide limits");
+                string onlyMember = member.Residue.ToText(member.SourceKey);
+                Require(onlyMember.Contains("Notes for this image set:") && !onlyMember.Contains("Format limits (affect every import):"),
+                    "member-only residue rendered as format-wide limits");
+                // Both channels coexist without changing the loss count or claiming that a noted member has no notes.
+                member.Residue.Notes.Add("synthetic format-wide limit");
+                string mixed = member.Residue.ToText(member.SourceKey).Replace("\r\n", "\n");
+                int global = mixed.IndexOf("Format limits (affect every import):", StringComparison.Ordinal);
+                int local = mixed.IndexOf("Notes for this image set:", StringComparison.Ordinal);
+                Require(global >= 0 && local > global && mixed.Substring(global, local - global).Contains("synthetic format-wide limit")
+                    && mixed.Contains("  - synthetic format-wide limit\n\nNotes for this image set:")
+                    && !mixed.Substring(global, local - global).Contains("Missing form")
+                    && mixed.Substring(local).Contains("Missing form") && member.Residue.Total == 0,
+                    "format-wide and member-specific residue sections were not kept separate");
+                var empty = new Emit.ResidueReport();
+                Require(empty.ToText("empty").Contains("Nothing was dropped or degraded."),
+                    "empty residue lost its positive control");
+                empty.MemberNotes.Add("synthetic member note");
+                Require(!empty.ToText("noted").Contains("Nothing was dropped or degraded."),
+                    "member-only residue still claimed nothing needed reporting");
+            }
         }
 
         private static void PreparedMemberWarnings()
@@ -614,7 +664,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 string droppedSection = section(alpha, "Dropped entirely (");
                 Require(names.All(n => droppedSection.Contains("next entry '" + n + "'"))
                     && droppedSection.Split('\n').Count(l => l.Contains("policy:next-missing-dropped")) == names.Length
-                    && !section(alpha, "Format limits").Contains("next entry"),
+                    && !section(alpha, "Format limits").Contains("next entry")
+                    && !section(alpha, "Notes for this image set").Contains("next entry"),
                     "residue.txt does not list each dropped entry under Dropped entirely, or lists one under Format limits");
             }
         }
