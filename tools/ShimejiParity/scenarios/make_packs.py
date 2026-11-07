@@ -7,7 +7,9 @@ img/<Set>/*.png; the conf-tiers pack keeps its documents at the source's lower t
 <out>/<scenario id>.json for every scenario below. The sprites are generated, so nothing here is anyone's art: each is
 an asymmetric body (a notch on its LEFT side, so a mirrored frame is visibly mirrored), a red anchor dot at the
 authored ImageAnchor, and its frame number as white marks along the top, so a clip shows which pose is on screen.
-Deterministic: the same inputs give byte-identical files, so a scenario's SHA-256 is stable.
+Deterministic: a manifest records the generated packs tree and S-*.json documents. A rerun replaces those owned
+paths, so the same inputs give byte-identical generated files. Populated unmanaged output and extra paths in these
+namespaces are refused before anything is removed. Other output-root files are left alone.
 
 Beyond the three vertical-slice scenarios, every Shimeji feature and branch the parity suite covers has a DIRECTED
 scenario (rng none or a chosen tape, a fixed tick count, a description a reader can check against the trace). Packs are
@@ -15,7 +17,10 @@ shared where one conf serves several scenarios; PACK_MAIN names the main image s
 needs for a cross-member or hidden-member pack.
 """
 import json
+import os
+import shutil
 import sys
+import tempfile
 from pathlib import Path
 from xml.sax.saxutils import escape
 
@@ -1190,16 +1195,152 @@ SCENARIOS += [
 ]
 
 
+OUTPUT_MANIFEST = ".make-packs-manifest.json"
+OUTPUT_SCHEMA = "shimeji-parity-pack-output/1"
+
+
+def generated_paths(out):
+    """Enumerate the managed namespaces completely before any deletion, without traversing links."""
+    paths = set()
+
+    def remember(path):
+        if path.is_symlink() or getattr(path.lstat(), "st_file_attributes", 0) & 0x400:
+            raise ValueError("PACK_GENERATOR_LINKED_OUTPUT: " + path.relative_to(out).as_posix())
+        paths.add(path.relative_to(out).as_posix())
+
+    def unreadable(error):
+        raise ValueError("PACK_GENERATOR_UNREADABLE_OUTPUT: " + str(error)) from error
+
+    packs = out / "packs"
+    if packs.exists() or packs.is_symlink():
+        remember(packs)
+        if not packs.is_dir():
+            raise ValueError("PACK_GENERATOR_INVALID_OUTPUT: packs is not a directory")
+        for folder, directories, files in os.walk(packs, followlinks=False, onerror=unreadable):
+            for name in directories + files:
+                remember(Path(folder) / name)
+    for scenario_file in out.glob("S-*.json"):
+        remember(scenario_file)
+        if not scenario_file.is_file():
+            raise ValueError("PACK_GENERATOR_INVALID_OUTPUT: scenario output is not a file")
+    return paths
+
+
+def require_owned_output(out):
+    actual = generated_paths(out)
+    manifest = out / OUTPUT_MANIFEST
+    if manifest.is_symlink() or (manifest.exists() and getattr(manifest.lstat(), "st_file_attributes", 0) & 0x400):
+        raise ValueError("PACK_GENERATOR_LINKED_OUTPUT: " + OUTPUT_MANIFEST)
+    if actual and not manifest.exists():
+        raise ValueError("PACK_GENERATOR_UNMANAGED_OUTPUT: populated packs or S-*.json output has no ownership manifest")
+    if manifest.exists():
+        ownership = json.loads(manifest.read_text(encoding="utf-8"))
+        if (not isinstance(ownership, dict) or ownership.get("schema") != OUTPUT_SCHEMA
+                or not isinstance(ownership.get("paths"), list)
+                or not all(isinstance(path, str) for path in ownership["paths"])):
+            raise ValueError("PACK_GENERATOR_INVALID_MANIFEST: unrecognized output ownership manifest")
+        unknown = actual - set(ownership["paths"])
+        if unknown:
+            raise ValueError("PACK_GENERATOR_UNOWNED_OUTPUT: " + sorted(unknown)[0])
+
+
 def main(out):
     out = Path(out)
+    out.mkdir(parents=True, exist_ok=True)
+    # Overwriting known leaves alone retains retired members or sprites, making hashes depend on destination
+    # history (N-audit-1106-275). Ownership must be checked FIRST: a caller's custom pack or scenario has the same
+    # shape as ours and must never be inferred to be disposable from its name alone. Retired paths from a previous
+    # generator version remain removable because that version recorded them in its manifest.
+    require_owned_output(out)
+    packs = out / "packs"
+    if packs.exists():
+        shutil.rmtree(packs)
+    for previous in out.glob("S-*.json"):
+        previous.unlink()
     for name, build in PACKS.items():
         build(out / "packs" / name)
     for s in SCENARIOS:
         doc = dict(BASE)
         doc.update(s)
         (out / f"{s['id']}.json").write_text(json.dumps(doc, indent=1, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
+    (out / OUTPUT_MANIFEST).write_text(json.dumps({"schema": OUTPUT_SCHEMA, "paths": sorted(generated_paths(out))},
+                                                indent=1, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
     print(f"wrote {len(PACKS)} pack(s) and {len(SCENARIOS)} scenario(s) to {out}")
 
 
+def self_test():
+    """A reused destination must supply exactly the same parity inputs as a fresh one."""
+    import contextlib
+    import io
+
+    def inventory(root):
+        files = list((root / "packs").rglob("*")) + list(root.glob("S-*.json"))
+        return {p.relative_to(root).as_posix(): p.read_bytes() for p in files if p.is_file()}
+
+    def require(condition, label):
+        if not condition:
+            raise AssertionError(label)
+
+    def refuse_unchanged(root, prefix, label):
+        before = {p.relative_to(root).as_posix(): p.read_bytes() for p in root.rglob("*") if p.is_file()}
+        try:
+            main(root)
+        except ValueError as error:
+            require(str(error).startswith(prefix), label + ": wrong refusal: " + str(error))
+        else:
+            raise AssertionError(label + ": custom output was not refused")
+        after = {p.relative_to(root).as_posix(): p.read_bytes() for p in root.rglob("*") if p.is_file()}
+        require(before == after, label + ": refusal changed caller files")
+
+    with tempfile.TemporaryDirectory(prefix="parity-pack-generator-") as temporary:
+        clean, reused = Path(temporary) / "clean", Path(temporary) / "reused"
+        with contextlib.redirect_stdout(io.StringIO()):
+            main(clean)
+        shutil.copytree(clean, reused)
+        first_pack = reused / "packs" / next(iter(PACKS))
+        stale_frame = first_pack / "img" / "retired-member" / "obsolete.png"
+        stale_frame.parent.mkdir(parents=True)
+        stale_frame.write_bytes(b"old sprite")
+        old_pack = reused / "packs" / "retired-pack"
+        old_pack.mkdir()
+        (old_pack / "obsolete.xml").write_bytes(b"old pack")
+        old_scenario = reused / "S-retired-scenario.json"
+        old_scenario.write_bytes(b"old scenario")
+        # Simulate a previous generator version which owned these now-retired paths. A bare stale-looking file
+        # without this ownership is caller data, tested separately below, not permission to delete it.
+        (reused / OUTPUT_MANIFEST).write_text(json.dumps({"schema": OUTPUT_SCHEMA,
+                                                        "paths": sorted(generated_paths(reused))}), encoding="utf-8")
+        keep = reused / "notes.txt"
+        keep.write_bytes(b"caller notes")
+        with contextlib.redirect_stdout(io.StringIO()):
+            main(reused)
+        require(not stale_frame.exists(), "PACK_GENERATOR_STALE_MEMBER: retired member survived regeneration")
+        require(not old_pack.exists(), "PACK_GENERATOR_STALE_PACK: retired pack survived regeneration")
+        require(not old_scenario.exists(), "PACK_GENERATOR_STALE_SCENARIO: retired scenario survived regeneration")
+        require(inventory(reused) == inventory(clean), "PACK_GENERATOR_HISTORY: reused output differs from fresh output")
+        require(keep.read_bytes() == b"caller notes", "PACK_GENERATOR_NOTES: unrelated output-root file changed")
+        require((reused / OUTPUT_MANIFEST).read_bytes() == (clean / OUTPUT_MANIFEST).read_bytes(),
+                "PACK_GENERATOR_MANIFEST: fresh and reused ownership differ")
+
+        unmanaged = Path(temporary) / "unmanaged"
+        custom = unmanaged / "packs" / "caller-pack" / "custom.xml"
+        custom.parent.mkdir(parents=True)
+        custom.write_bytes(b"caller pack")
+        refuse_unchanged(unmanaged, "PACK_GENERATOR_UNMANAGED_OUTPUT:", "PACK_GENERATOR_UNMANAGED_PRESERVED")
+        for name, relative, label in (
+                ("custom-pack", "packs/caller-pack/custom.xml", "PACK_GENERATOR_CUSTOM_PACK_PRESERVED"),
+                ("custom-scenario", "S-custom.json", "PACK_GENERATOR_CUSTOM_SCENARIO_PRESERVED")):
+            destination = Path(temporary) / name
+            shutil.copytree(clean, destination)
+            caller_file = destination / relative
+            caller_file.parent.mkdir(parents=True, exist_ok=True)
+            caller_file.write_bytes(b"caller content")
+            refuse_unchanged(destination, "PACK_GENERATOR_UNOWNED_OUTPUT:", label)
+    print("MAKE-PACKS SELF-TEST PASS")
+    return 0
+
+
 if __name__ == "__main__":
+    if sys.argv[1:] == ["--self-test"]:
+        sys.exit(self_test())
     main(sys.argv[1])
