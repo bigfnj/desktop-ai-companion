@@ -410,10 +410,17 @@ The map contains:
   image set. A missing binding during tracing is a provenance fault; never fall back to emitted indices;
 - every action node and every edge that carries parameter bindings: the refKey of the declaration or reference it
   was lowered from;
-- **(v1.1)** no script-site table yet. The host cannot name a script draw in section 2's form from map/2, because
-  conversion merges and moves script expressions. Until a later map revision adds a table from the host's (node,
-  attribute, ordinal) to the source site, a directed comparison in which either trace has an rng-draw whose site starts
-  `script:` is judged `pending`, never `exact` or `fail`.
+- **(v1.1 clarification)** no script-site table yet. The host cannot name a script draw in section 2's form from map/2,
+  because conversion merges and moves script expressions. This clarification was approved by Codex and Claude on
+  2026-11-07. Until a later map revision adds a table from the host's (node, attribute, ordinal) to the source site,
+  unresolved attribution prevents grading the remaining directed parity claim; attribution-dependent site/event
+  matching therefore yields pending in an otherwise valid comparison. The schema, input, artifact-binding and
+  run-status checks of section 6 apply first. Independent RNG failures retain their
+  declared classes: a draw with `rng.kind` set to `none` is `rng-unexpected-draw`, tape exhaustion is `rng-tape-exhausted`,
+  and a draw-count disagreement is `rng-draw-count`. After those checks succeed, a comparison in which either trace
+  has an rng-draw whose site starts `script:` has verdict `pending` with class `script-site-unmapped`.
+  The current oracle's `V1_RNG_SCRIPT_SITE_UNATTRIBUTED` refusal occurs before a draw record and remains
+  `unjudgeable` with class `aborted` until an attribution channel exists; it is not converted to `pending`.
 - (v1.1) Every behaviour and action node whose emitted name differs from its source-observable name: that source name, keyed by its node id, as `actions` and `behaviours` are (each map is one member's). Preserve an absent Name as JSON null and an explicitly empty Name as the empty string. A present null or empty value is distinct from a missing map entry.
 
 The map is what lets the host write `pose.image`, **(v1.1)** `pose.index`, `poseAnchor`, `refKey`, `actionStack` and (v1.1)

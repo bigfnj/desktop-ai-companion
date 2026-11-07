@@ -439,15 +439,6 @@ def compare(oracle, host, scenario=None, scenario_sha=None, pack_sha=None, artif
                          "message": message or f"{sid}: tick {tick}, {ent}, {field}: oracle {a!r} vs host {b!r}"})
 
     if rng in ("none", "tape"):
-        # Map/2 cannot recover the source script call site. This is a pending parity claim only after both
-        # traces passed validity, input binding and run checks; it must never hide a broken observation.
-        script_draw = next((event for event in oevents + hevents if event["kind"] == "rng-draw"
-                            and isinstance(event["site"], str) and event["site"].startswith("script:")), None)
-        if script_draw is not None:
-            report["verdict"] = "pending"
-            findings.append({"tick": script_draw["tick"], "sid": script_draw["sid"], "field": "rng-draw.site",
-                             "message": f"{sid}: script RNG sites cannot be compared until a later parity map revision"})
-            return report
         odraws = [e for e in oevents if e["kind"] == "rng-draw"]
         hdraws = [e for e in hevents if e["kind"] == "rng-draw"]
         tape_len = len(oh["rng"]["values"]) if rng == "tape" else None
@@ -461,6 +452,18 @@ def compare(oracle, host, scenario=None, scenario_sha=None, pack_sha=None, artif
                  f"{sid}: a run drew past the tape's {tape_len} value(s) (oracle {len(odraws)}, host {len(hdraws)})")
         elif len(odraws) != len(hdraws):
             fail("rng-draw-count", None, None, "rng-draw", len(odraws), len(hdraws))
+        if not findings:
+            # Map/2 cannot recover the source script call site. After validity, binding and run checks,
+            # the independent RNG failures above still stand; only attribution-dependent matching is pending.
+            script_draw = next((event for event in oevents + hevents if event["kind"] == "rng-draw"
+                                and isinstance(event["site"], str) and event["site"].startswith("script:")), None)
+            if script_draw is not None:
+                report["verdict"] = "pending"
+                report["class"] = "script-site-unmapped"
+                findings.append({"class": "script-site-unmapped", "tick": script_draw["tick"], "sid": script_draw["sid"],
+                                 "field": "rng-draw.site",
+                                 "message": f"{sid}: script RNG site attribution is unavailable until a later parity map revision"})
+                return report
         if not findings:
             okeys = [event_key(e) for e in oevents]
             hkeys = [event_key(e) for e in hevents]
@@ -776,7 +779,8 @@ def _scenario():
 BURNDOWN_CHECKS = ("N269 source pin", "N269 unbound report", "N270 typed state", "N270 typed event",
                    "N270 event numbers", "N271 origin shape", "N272 tolerance names", "N400 starter population",
                    "N400 binding order", "N400 pending starters", "P2 inactive targets", "P2 input precedence",
-                   "P2 partial input proof", "P2 physical input CLI", "P2 script pending", "P2 script precedence")
+                   "P2 partial input proof", "P2 physical input CLI", "P2 script pending", "P2 script precedence",
+                   "P2 script independent failures", "P2 script refusal before draw", "P2 script pending CLI")
 
 
 def _case_require(value, name, detail):
@@ -945,16 +949,17 @@ def _p2_check(name):
                     "WITNESS same physical JSONL without scenario")
             _case_require(status == 2, name, "generic abort CLI exit changed")
     elif name == "P2 script pending":
-        # Section 9's current literal rule precedes behaviour attribution, including draws forbidden by none or
-        # beyond an empty tape. Those are not rng-invalid observations; valid draw values still reach pending.
-        for rng in ({"kind": "none"}, {"kind": "tape", "values": [0.5]}, {"kind": "tape", "values": []}):
+        for rng in ({"kind": "tape", "values": [0.5]},):
             for script_runtime in ("oracle", "host", "both"):
                 oracle, host = _reference({"kind": "tape", "values": [0.5]})
                 for runtime, trace in (("oracle", oracle), ("host", host)):
                     trace[0]["rng"] = rng
                     if script_runtime in (runtime, "both"):
                         next(row for row in trace if row.get("kind") == "rng-draw")["site"] = "script:Alpha#label#1"
-                require(compare(oracle, host), None, "script site on " + script_runtime + " with " + rng["kind"], "pending")
+                report = compare(oracle, host)
+                require(report, "script-site-unmapped", "script site on " + script_runtime + " with " + rng["kind"], "pending")
+                _case_require(report["findings"][0]["class"] == "script-site-unmapped", name,
+                              "pending finding lost its diagnostic class")
         oracle, host = _reference({"kind": "splitmix64", "seed": "0x0123456789abcdef"})
         for trace in (oracle, host):
             next(row for row in trace if row.get("kind") == "rng-draw")["site"] = "script:Alpha#label#1"
@@ -991,7 +996,67 @@ def _p2_check(name):
             o, h, s = copy.deepcopy((oracle, host, scenario))
             change(o, h, s)
             require(compare(o, h, scenario=s, **arguments), expected, "script pending hid " + expected)
-        require(compare(oracle, host, scenario=scenario), None, "WITNESS valid bound script pair", "pending")
+        require(compare(oracle, host, scenario=scenario), "script-site-unmapped", "WITNESS valid bound script pair", "pending")
+    elif name == "P2 script independent failures":
+        # These existing failures require no source-site identity. Each stays a failure with a script draw
+        # on either side, including equal script sites that would otherwise establish an unjustified exact claim.
+        for rng, expected in (({"kind": "none"}, "rng-unexpected-draw"),
+                              ({"kind": "tape", "values": []}, "rng-tape-exhausted")):
+            for drawn_runtime in ("oracle", "host", "both"):
+                oracle, host = _reference({"kind": "tape", "values": [0.5]})
+                for runtime, trace in (("oracle", oracle), ("host", host)):
+                    trace[0]["rng"] = rng
+                    if drawn_runtime in (runtime, "both"):
+                        next(row for row in trace if row.get("kind") == "rng-draw")["site"] = "script:Alpha#label#1"
+                    else:
+                        trace[1:-1] = [row for row in trace[1:-1] if row.get("kind") != "rng-draw"]
+                        _refoot(trace)
+                require(compare(oracle, host), expected, drawn_runtime + " script draw with " + rng["kind"], "fail")
+        for extra_runtime in ("oracle", "host"):
+            for values, expected in (([0.5], "rng-tape-exhausted"), ([0.5, 0.5], "rng-draw-count")):
+                oracle, host = _reference({"kind": "tape", "values": values})
+                extra = oracle if extra_runtime == "oracle" else host
+                extra.insert(3, _ev(1, "m1", "rng-draw", site="script:Alpha#label#1", occurrence=2,
+                                    value=0.5, purpose="script draw"))
+                _refoot(extra)
+                require(compare(oracle, host), expected, extra_runtime + " extra script draw", "fail")
+        oracle, host = _reference({"kind": "tape", "values": [0.5]})
+        next(row for row in host if row.get("kind") == "rng-draw")["site"] = "script:Alpha#label#1"
+        require(compare(oracle, host), "script-site-unmapped", "WITNESS valid equal draw counts still defer", "pending")
+    elif name == "P2 script refusal before draw":
+        # The real oracle can refuse an unattributed script call before logging a draw. A generic aborted footer
+        # carries no attribution evidence; neither a peer's script draw nor its absence turns the refusal pending.
+        for failed_runtime in ("oracle", "host"):
+            for peer_script in (False, True):
+                oracle, host = _reference({"kind": "tape", "values": [0.5]})
+                failed, peer = (oracle, host) if failed_runtime == "oracle" else (host, oracle)
+                _cut_reference(failed, 1)
+                if peer_script:
+                    next(row for row in peer if row.get("kind") == "rng-draw")["site"] = "script:Alpha#label#1"
+                scenario = _scenario()
+                scenario["rng"] = oracle[0]["rng"]
+                for supplied in (None, scenario):
+                    require(compare(oracle, host, scenario=supplied), "aborted",
+                            failed_runtime + " pre-draw refusal, peer script=" + str(peer_script)
+                            + ", scenario supplied=" + str(supplied is not None))
+    elif name == "P2 script pending CLI":
+        import contextlib
+        import io
+        import tempfile
+        with tempfile.TemporaryDirectory(prefix="parity-p2-script-cli-") as folder:
+            root = Path(folder)
+            oracle, host = _reference({"kind": "tape", "values": [0.5]})
+            next(row for row in host if row.get("kind") == "rng-draw")["site"] = "script:Alpha#label#1"
+            for runtime, trace in (("oracle", oracle), ("host", host)):
+                (root / (runtime + ".jsonl")).write_text("\n".join(json.dumps(row) for row in trace) + "\n", encoding="utf-8")
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                status = main(["compare.py", str(root / "oracle.jsonl"), str(root / "host.jsonl"),
+                               "--json", str(root / "report.json")])
+            report = json.loads((root / "report.json").read_text(encoding="utf-8"))
+            require(report, "script-site-unmapped", "physical JSONL pending diagnostic", "pending")
+            _case_require(status == 1 and "S-selftest: pending (script-site-unmapped)" in output.getvalue(), name,
+                          "pending CLI did not expose the diagnostic class and non-success exit")
     else:
         raise ValueError("unknown parity-2 check " + name)
 
