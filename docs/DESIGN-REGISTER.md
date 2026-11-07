@@ -1654,6 +1654,11 @@ same way as F017 (`WebFetch(domain:...)`): the Python follows the documented sem
 self-test cases, and prints a note naming every paren-less rule it loaded so a figure is read with the
 caveat; the divergence is closed on the C# side (NormalizeRuleUncached or RuleRegexSource treating a
 parenthesis-less rule as `Tool(*)`, with a SelfCheck WITNESS), which is lane burn/agentflow's file.
+**Closed by `410ec90` (AgentFlow 1.4.12).** `RuleRegexSource` compiles a paren-less rule to the whole tool
+(`modules/AgentFlow/PermissionRules.cs:126-128`), the module's rule self-check pins it with WITNESS cases
+(`modules/AgentFlow/AgentFlowModule.cs:4027-4048`), and the harness's note says the two matchers agree, so
+the 21/30 is what the module computes too; [`agentflow/README.md`](agentflow/README.md) keeps the 23/30 as
+the module's figure before that commit.
 
 **The harness reads the five rule files the module reads (RA-009, 2026-09-30).** `load_rules` takes the
 three home tiers RuleLoader.cs takes (settings.json, remote-settings.json, settings.local.json), and
@@ -2521,7 +2526,10 @@ documented semantics now, pinned by nine self-test cases; the C# (`modules/Agent
 is outside lane fix/scripts and is left for its owner, and the harness prints a note whenever it loads
 such a rule so a WebFetch number is read with that caveat. No such rule exists on this box, so nothing
 published moved. This is the one place the reference is deliberately ahead of the port; it is a
-divergence to close on the C# side, not to undo here.
+divergence to close on the C# side, not to undo here. **Closed by `410ec90` (AgentFlow 1.4.12):**
+`PermissionRules.RuleMatches` sends a `domain:` rule to a port of the Python's `domain_matches` before the
+regex path (`modules/AgentFlow/PermissionRules.cs:200-207`), pinned by WITNESS cases at
+`modules/AgentFlow/AgentFlowModule.cs:4051-4060`, and the harness's note says both matchers honour it.
 
 **Module zips are read through entry streams, not expanded to TEMP (F222).** Whole freshness check
 (`Test-ModulePublishFreshness.ps1`), scratch clone at the audit commit where every zip was current, fresh
