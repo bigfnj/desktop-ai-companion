@@ -348,6 +348,18 @@ namespace DesktopAICompanion
                         MessageBoxButtons.OK,
                         MessageBoxIcon.Warning);
                 }
+                // An unreadable settings.json that was replaced (from the backup, an earlier version's settings or the
+                // defaults) and kept aside: said once, in its own box, because the box above says changes may not be
+                // saved, which is false on this path (N-audit-1106-032). Until then a reset to defaults said nothing.
+                if (!string.IsNullOrWhiteSpace(MyData.SettingsRecoveryNotice))
+                {
+                    DiagnosticLog.Write(LogCategory.App, "warn", null, "settings: " + MyData.SettingsRecoveryNotice);
+                    MessageBox.Show(
+                        MyData.SettingsRecoveryNotice,
+                        "Settings recovered",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
+                }
 
                 // Check and parse the arguments
                 const string SearchStringLocalXml = "localxml=";

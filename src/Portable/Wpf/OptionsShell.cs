@@ -557,7 +557,15 @@ namespace DesktopAICompanion.Wpf
                     bool audioDeviceChosen = false;   // set inside the batch, acted on after its commit (RA-322)
                     using (LocalData.Batch batch = data.BeginBatch())
                     {
-                    if (values.TryGetValue("volume", out s) && int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out n)) ok &= data.SetVolume(Math.Max(0, Math.Min(10, n)) / 10.0);
+                    // The field shows the volume ROUNDED to tenths (Load above), and every Apply posts every field, so
+                    // writing the posted tenth back unconditionally moved a stored volume off the 0.1 grid (an earlier
+                    // version's setting, a hand edit) onto the grid on any unrelated Apply (N-audit-1106-260). A tenth equal
+                    // to what Load showed is an untouched field and keeps the stored value; only a changed one is written.
+                    if (values.TryGetValue("volume", out s) && int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out n))
+                    {
+                        int tenth = Math.Max(0, Math.Min(10, n));
+                        if (tenth != (int)Math.Round(data.GetVolume() * 10.0)) ok &= data.SetVolume(tenth / 10.0);
+                    }
                     if (values.TryGetValue("windowForeground", out s) && bool.TryParse(s, out b)) ok &= data.SetWindowForeground(b);
                     if (values.TryGetValue("stealFocus", out s) && bool.TryParse(s, out b)) ok &= data.SetStealTaskbarFocus(b);
                     if (values.TryGetValue("multiscreen", out s) && bool.TryParse(s, out b)) ok &= data.SetMultiscreen(b);

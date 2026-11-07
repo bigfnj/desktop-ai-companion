@@ -218,6 +218,7 @@
     <Compile Include="dotNet\RuntimeHardeningSelfTest.cs" />
     <Compile Include="dotNet\WpfOptionsSelfTest.cs" />
     <Compile Include="dotNet\WpfOptionsSelfTest.TickSwitches.cs" />
+    <Compile Include="dotNet\WpfOptionsSelfTest.OptionsUi.cs" />
     <Compile Include="dotNet\Plugins\ModuleHost.cs" />
     <Compile Include="dotNet\Plugins\ModuleHostRequirement.cs" />
     <Compile Include="dotNet\Plugins\ModuleUpdateScan.cs" />

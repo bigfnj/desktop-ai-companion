@@ -33,6 +33,8 @@ namespace DesktopAICompanion
                 Run("Settings one-time migration", TestOneTimeMigration);
                 Run("Settings atomic backup", TestAtomicBackup);
                 Run("Settings corrupt-primary recovery", TestCorruptPrimaryRecovery);
+                Run("Settings recovery notice", TestCorruptPrimaryRecoveryNotice);
+                Run("Settings future-schema advice", TestFutureSchemaAdviceNamesBackup);
                 Run("Settings future-schema preservation", TestFutureSchemaPreservation);
                 Run("Settings pet-mix v1->v2 migration", TestSettingsPetMixMigration);
                 Run("Settings pet-mix validation", TestSettingsPetMixValidation);
@@ -501,6 +503,80 @@ namespace DesktopAICompanion
                 0.8,
                 (double)JsonNode.Parse(File.ReadAllText(recoveryStore.BackupPath, Encoding.UTF8))["volume"],
                 "Recovery destroyed the backup it restored from.");
+        }
+
+        /// <summary>
+        /// N-audit-1106-032: an unreadable settings.json was replaced by the backup or by the DEFAULTS and nobody was
+        /// told; LastLoadWarning stayed null on that path and LastRecoveryFile was read only here. The store now says
+        /// what replaced the file and where it was kept (LastRecoveryNotice), and leaves LastLoadWarning, whose startup
+        /// box says changes may not be saved, alone. Both ways out are asserted, because a notice written on one branch
+        /// only is the shape a refactor of LoadCore would leave.
+        /// </summary>
+        private static void TestCorruptPrimaryRecoveryNotice()
+        {
+            const string corrupt = "{ this is not valid json";
+
+            string cleanDirectory = NewDirectory("settings-notice-clean");
+            var cleanStore = new AppSettingsStore(Path.Combine(cleanDirectory, "settings.json"), null);
+            cleanStore.Load();
+            AssertTrue(
+                string.IsNullOrEmpty(cleanStore.LastRecoveryNotice),
+                "Recovery notice: a first-run load with no settings file at all produced one.");
+
+            // Backup path: a valid backup replaces the unreadable primary.
+            string directory = NewDirectory("settings-notice-backup");
+            string path = Path.Combine(directory, "settings.json");
+            var writer = new AppSettingsStore(path, null);
+            AppSettingsDocument settings = writer.Load();
+            settings.Volume = 0.8;
+            AssertTrue(writer.Save(settings), "Could not create the backup for the notice check.");
+            File.WriteAllText(path, corrupt, new UTF8Encoding(false));
+            var fromBackup = new AppSettingsStore(path, null);
+            fromBackup.Load();
+            string notice = fromBackup.LastRecoveryNotice ?? "";
+            AssertTrue(
+                notice.Length > 0 && notice.Contains("backup") &&
+                !string.IsNullOrEmpty(fromBackup.LastRecoveryFile) && notice.Contains(fromBackup.LastRecoveryFile),
+                "Recovery notice: a corrupt primary restored from the backup said nothing, or did not name the kept file: " + notice);
+            AssertTrue(
+                string.IsNullOrEmpty(fromBackup.LastLoadWarning),
+                "Recovery notice: a recovered load raised the storage-unavailable warning instead of its own notice.");
+
+            // Defaults path: no backup, no legacy file, so the session starts from the defaults.
+            string bareDirectory = NewDirectory("settings-notice-defaults");
+            string barePath = Path.Combine(bareDirectory, "settings.json");
+            File.WriteAllText(barePath, corrupt, new UTF8Encoding(false));
+            var fromDefaults = new AppSettingsStore(barePath, null);
+            AppSettingsDocument reset = fromDefaults.Load();
+            AssertEqual(0.3, reset.Volume, "WITNESS: the corrupt primary with no backup did not fall back to the defaults.");
+            string resetNotice = fromDefaults.LastRecoveryNotice ?? "";
+            AssertTrue(
+                resetNotice.Contains("default settings") &&
+                !string.IsNullOrEmpty(fromDefaults.LastRecoveryFile) && resetNotice.Contains(fromDefaults.LastRecoveryFile),
+                "Recovery notice: a corrupt primary reset to DEFAULTS said nothing, or did not name the kept file: " + resetNotice);
+        }
+
+        /// <summary>
+        /// N-audit-1106-256: the future-schema warning told the user to move "the file" aside and named settings.json
+        /// only. Every save by the newer build rotates its previous document into settings.json.bak, so a user who
+        /// followed the advice reached the backup read, the same read-only session, and a warning naming a file that
+        /// was gone. Built the way the user meets it: settings.json moved aside, a newer-schema settings.json.bak left.
+        /// </summary>
+        private static void TestFutureSchemaAdviceNamesBackup()
+        {
+            string directory = NewDirectory("settings-future-advice");
+            string path = Path.Combine(directory, "settings.json");
+            File.WriteAllText(
+                path + ".bak",
+                "{\r\n  \"schemaVersion\": 99,\r\n  \"volume\": 0.7\r\n}",
+                new UTF8Encoding(false));
+            var store = new AppSettingsStore(path, null);
+            AppSettingsDocument loaded = store.Load();
+            AssertEqual(99, loaded.SchemaVersion, "WITNESS: the newer-schema backup was not the document read.");
+            string warning = store.LastLoadWarning ?? "";
+            AssertTrue(
+                warning.Contains(store.BackupPath) && warning.Contains(path),
+                "Future-schema advice: the warning does not name both settings files, so moving the one it names changes nothing: " + warning);
         }
 
         private static void TestFutureSchemaPreservation()

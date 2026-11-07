@@ -1168,6 +1168,22 @@ CASES = [
      "                    Text = SignInRowText(granted, out signInCaption),\n",
      "                    Text = SignInRowText(granted == true, out signInCaption),\n",
      "wpf", "audit-host: modules row: a grants record that cannot be read is said so"),
+    # ---- burndown/options-ui-1 ----
+    # The 2026-11-06 audit burn-down, host options UI. "bd-options-ui-1:" for one --only.
+    # N-audit-1106-033: a pane not rebuilt after Apply keeps measuring edits against its pre-Apply Load again.
+    ("bd-options-ui-1: a successful Save keeps the pre-Apply field baseline", OPTIONSWINDOW,
+     "                if (rebased.ContainsKey(kv.Key)) rebased[kv.Key] = kv.Value;\n",
+     "",
+     "wpf", "options-ui rebase: a field changed back after Apply to its pre-Apply value lights Apply"),
+    ("bd-options-ui-1: a successful Save keeps each deferred box's pre-Apply tick", OPTIONSWINDOW,
+     "            foreach (Action rebase in _rebaseDeferredBoxes) rebase();\n",
+     "",
+     "wpf", "options-ui rebase: a deferred box ticked back after Apply lights Apply"),
+    # N-audit-1106-260: Preferences writes the posted volume tenth back whether or not the field was touched.
+    ("bd-options-ui-1: Preferences writes the rounded volume back on every Apply", OPTIONS,
+     "                        if (tenth != (int)Math.Round(data.GetVolume() * 10.0)) ok &= data.SetVolume(tenth / 10.0);\n",
+     "                        ok &= data.SetVolume(tenth / 10.0);\n",
+     "wpf", "options-ui volume: an Apply that leaves the volume field alone keeps a stored volume off the 0.1 grid"),
 ]
 
 

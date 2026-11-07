@@ -30,7 +30,9 @@ namespace DesktopAICompanion.Wpf
             { "negima",        "Pure anime energy, rendered in pixels." },
             { "neko",          "The internet's favorite cat, now loitering on your taskbar." },
             { "pikachu",       "You knew this one was coming. Pika." },
-            { "pingus",        "A penguin with the most moves outside the sheep club (28!); waddles with purpose." },
+            // No "most moves" claim (N-audit-1106-388): it said "the most moves outside the sheep club (28!)", but the
+            // converted companions bundled beside it have up to 120. The 28 is its own animations.xml's count.
+            { "pingus",        "A penguin with 28 moves and a waddle with purpose." },
             { "pink_fox",      "Fox, but make it pink — same cunning, more flair." },
             { "pink_neko",     "Neko in its full Barbie era." },
             { "shiny_sylveon", "Sparkly, elegant, and well aware of it — the shiny-variant flex." },

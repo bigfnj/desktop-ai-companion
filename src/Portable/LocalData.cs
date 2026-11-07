@@ -19,6 +19,9 @@ namespace DesktopAICompanion
         private AppSettingsDocument _settings;
 
         public string SettingsWarning { get; private set; }
+        /// <summary>The store's notice that an unreadable settings.json was replaced and where it was kept
+        /// (AppSettingsStore.LastRecoveryNotice); null on an ordinary load.</summary>
+        public string SettingsRecoveryNotice { get; private set; }
 
         public LocalData()
             : this(new AppSettingsStore(AppPaths.SettingsFile, BuildLegacyCandidates()))
@@ -37,6 +40,7 @@ namespace DesktopAICompanion
             {
                 _settings = _store.Load() ?? AppSettingsDocument.CreateDefault();
                 SettingsWarning = _store.LastLoadWarning;
+                SettingsRecoveryNotice = _store.LastRecoveryNotice;
                 MigrateRandomDropIfAbsent();
                 _settings.Normalize();
             }
