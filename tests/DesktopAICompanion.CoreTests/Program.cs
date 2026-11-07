@@ -401,10 +401,15 @@ namespace DesktopAICompanion
             AssertEqual(2, low.SpeechDurationSeconds, "Speech-duration lower clamp failed.");
         }
 
+        /// <summary>
+        /// N-audit-1106-051: both forms used to be 0.3 ("0.3" and "30"), which is also the default the importer starts
+        /// from, so an importer that never read Volume at all passed this group (the vacuity F384 fixed for backup
+        /// recovery). 0.55 is no default, so dropping the Volume import or the percentage division changes the number.
+        /// </summary>
         private static void TestLegacyVolumeMigration()
         {
-            AssertLegacyVolume("0.3", 0.3, "normalized");
-            AssertLegacyVolume("30", 0.3, "percentage");
+            AssertLegacyVolume("0.55", 0.55, "normalized");
+            AssertLegacyVolume("55", 0.55, "percentage");
         }
 
         private static void AssertLegacyVolume(string persisted, double expected, string suffix)
@@ -432,16 +437,18 @@ namespace DesktopAICompanion
             string directory = NewDirectory("settings-one-time");
             string legacy = Path.Combine(directory, "user.config");
             string current = Path.Combine(directory, "settings.json");
-            WriteLegacyUserSettings(legacy, "Volume", "30");
+            // A non-default legacy volume (N-audit-1106-051): with "30" the expected 0.3 was also the fresh default, so
+            // a store that never read userSettings (user.config) imported nothing, fell back to defaults and passed.
+            WriteLegacyUserSettings(legacy, "Volume", "55");
 
             AppSettingsDocument first =
                 new AppSettingsStore(current, new[] { legacy }).Load();
-            AssertEqual(0.3, first.Volume, "Initial user.config migration failed.");
+            AssertEqual(0.55, first.Volume, "Initial user.config migration failed (0.3 would mean nothing was imported).");
 
             WriteLegacyUserSettings(legacy, "Volume", "80");
             AppSettingsDocument second =
                 new AppSettingsStore(current, new[] { legacy }).Load();
-            AssertEqual(0.3, second.Volume, "Legacy settings were re-imported over settings.json.");
+            AssertEqual(0.55, second.Volume, "Legacy settings were re-imported over settings.json.");
         }
 
         private static void TestAtomicBackup()

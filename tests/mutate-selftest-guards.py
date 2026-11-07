@@ -21184,6 +21184,21 @@ CASES = (
      b'     None),\n',
      None, None,
      MUTATION_UNITTESTS, None, 'test_every_installer_variant_names_the_check_it_must_fail'),
+    # ---- burndown/w3-tests-core-1 ----
+    # N-audit-1106-051. The legacy importer drops Volume, or never reads userSettings (user.config). Both left the
+    # importer's own default, 0.3, which is what the migration groups expected until their legacy volumes became 0.55.
+    ('bd-w3-tests-core-1: the legacy importer drops Volume (N-audit-1106-051)',
+     APPSETTINGS_STORE,
+     b'                    imported.Volume = volume;\n',
+     b'',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, 'Settings legacy volume migration: Legacy normalized volume migrated incorrectly.'),
+    ('bd-w3-tests-core-1: the legacy importer never reads userSettings (N-audit-1106-051)',
+     APPSETTINGS_STORE,
+     b'"/configuration/userSettings/*/setting"',
+     b'"/configuration/userSettings/*/settingX"',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, 'Settings one-time migration: Initial user.config migration failed'),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
