@@ -283,7 +283,18 @@ BUNDLE_GLOB = os.path.join(
 # runtime from pieces, like the rule-destination rows above, which exists nowhere as one literal.
 # Each is invisible to this audit. That is precisely why the module refuses on an unrecognised
 # option instead of guessing -- no audit of a minified bundle can promise to be complete.
-_BUNDLE_OPTION = re.compile(r'"((?:Yes|No|Submit|Send)(?:[^"\\]|\\.)*)"')
+#
+# The verb is checked on the DECODED text, not in the regex (N-cxr-w1-06). The pattern used to
+# require the verb itself straight after the opening quote, so a literal whose opening letter was
+# written as an escape (\x59es, \u0059es) displays "Yes..." and was never extracted. The opening
+# now admits a verb's first letter or a backslash, the literal is decoded, and _DISPLAYED_VERB
+# decides. Opening on those characters rather than on ANY quote is deliberate: a match still has to
+# start where a label could, so a stray quote inside a single-quoted or regex literal cannot shift
+# every later quote in the region from opening to closing and hide the labels after it.
+_OPTION_VERBS = ("Yes", "No", "Submit", "Send")
+_BUNDLE_OPTION = re.compile(r'"((?:[' + "".join(sorted(set(v[0] for v in _OPTION_VERBS)))
+                            + r']|\\)(?:[^"\\]|\\.)*)"')
+_DISPLAYED_VERB = re.compile("(?:" + "|".join(_OPTION_VERBS) + ")")
 
 _BACKSLASH = chr(92)   # built, not written: this file is edited by tools that eat escapes
 _SIMPLE_ESCAPES = {"n": "\n", "t": "\t", "r": "\r", "b": "\b", "f": "\f", "v": "\v", "0": "\0"}
@@ -385,8 +396,9 @@ DEGRADED_EXIT = 3
 AUDIT_ANCHORS = ("Yes", "No")
 
 
-def _complete_label_via_template(text, entry):
-    """True when a COMPLETE bundle literal classified only through a prefix TEMPLATE (N-audit-1106-116).
+def _label_via_other_template(text, entry):
+    """True when a bundle literal classified only through a prefix TEMPLATE it is not (N-audit-1106-116,
+    N-cxr-w1-05).
 
     A template ("yes, allow ") exists for the literal that ends in a space and has a runtime value
     appended. A literal that does NOT end in a space is not a rendering of it: it is a fixed label,
@@ -395,8 +407,17 @@ def _complete_label_via_template(text, entry):
     template is what arrives -- so a new "Yes, allow <anything>" label in the bundle classified
     approve-once and the audit printed "audit OK" over exactly the fail-open case rule 1 exists for.
     In the audit it needs its own exact entry, whatever class it turns out to be.
+
+    THE TEMPLATE LITERAL ITSELF is the only one exempt, and it is matched as itself rather than by
+    its trailing space (N-cxr-w1-05). The first version exempted every literal ending in a space, so
+    a NEW longer template ("Yes, allow everything in " + a value) and a complete label padded with a
+    space both rendered through the shorter "yes, allow " and passed as approve-once. A literal is
+    exempt only when it ends in a space and, normalised, IS the entry it matched: normalize() strips
+    the trailing space, so the space is put back before comparing.
     """
-    return (not text.endswith(" ")) and entry is not None and entry.endswith(" ")
+    if entry is None or not entry.endswith(" "):
+        return False
+    return not (text.endswith(" ") and normalize(text) + " " == entry)
 
 
 def _no_bundle(bundle_glob):
@@ -427,8 +448,8 @@ def audit(bundle_glob=BUNDLE_GLOB):
 def audit_text(blob, name):
     """The audit over one bundle's text, split out so the self-test can hand it a synthetic one."""
     regions, scoped = _component_regions(blob)
-    found = sorted(set(_decode_js_literal(text) for region in regions
-                       for text in _BUNDLE_OPTION.findall(region)))
+    decoded = (_decode_js_literal(text) for region in regions for text in _BUNDLE_OPTION.findall(region))
+    found = sorted(set(text for text in decoded if _DISPLAYED_VERB.match(text)))
     print("audit: %s" % name)
     print("scope: %d prompt-component region(s)%s"
           % (len(regions), "" if scoped else "  -- FELL BACK TO THE WHOLE BUNDLE, the "
@@ -449,9 +470,9 @@ def audit_text(blob, name):
         probe = text + "<value>" if text.endswith(" ") else text
         kind, entry = classify(probe)
         note = " (as template)" if probe is not text else ""
-        unseen = kind == UNKNOWN or _complete_label_via_template(text, entry)
+        unseen = kind == UNKNOWN or _label_via_other_template(text, entry)
         if kind != UNKNOWN and unseen:
-            note = " (a complete label matched only the template %r: it needs its own entry)" % entry
+            note = " (a label that is not the template %r matched only through it: it needs its own entry)" % entry
         flag = "!!" if unseen else "  "
         print("  %s %-46r -> %s%s" % (flag, text, kind, note))
         if unseen:
@@ -633,6 +654,29 @@ def selftest(verbose=True):
     code, said = run_audit("Yes", "No", "Yes, and don" + _BACKSLASH + "u0027t ask again")
     _check(r, "WITNESS audit: an escaped label is decoded before it is classified, so a known one passes",
            code == 0 and "approve-wider" in said)
+    # N-cxr-w1-05: only the template literal itself is exempt. A NEW longer template and a complete
+    # label padded with a space both render through the shorter "yes, allow " and used to pass.
+    code, said = run_audit("Yes", "No", "Yes, allow everything in ")
+    _check(r, "audit (N-cxr-w1-05): an unknown longer template fragment is flagged, not passed through 'yes, allow '",
+           code == 1 and "needs its own entry" in said)
+    code, said = run_audit("Yes", "No", "Yes, allow all edits this session ")
+    _check(r, "audit (N-cxr-w1-05): a complete label padded with a space is flagged, not passed as approve-once",
+           code == 1 and "needs its own entry" in said)
+    code, said = run_audit("Yes", "No", "Yes, allow ", "Yes, allow access to ", "No, keep ")
+    _check(r, "WITNESS audit (N-cxr-w1-05): the table's own template literals still pass as templates",
+           code == 0 and "audit OK" in said and said.count("(as template)") == 3)
+    # N-cxr-w1-06: the verb is judged on the decoded text, so an escaped OPENING letter is extracted.
+    code, said = run_audit("Yes", "No", _BACKSLASH + "x59es, and keep going forever")
+    _check(r, "audit (N-cxr-w1-06): a label whose opening letter is escaped is extracted and flagged",
+           code == 1 and "audit FAILED" in said and "Yes, and keep going forever" in said)
+    code, said = run_audit("Yes", "No", _BACKSLASH + "u0059es, and don't ask again",
+                           "N" + _BACKSLASH + "x6f, never mind")
+    _check(r, "WITNESS audit (N-cxr-w1-06): escaped opening letters are decoded, so a known label passes and "
+              "an unknown one is still caught",
+           code == 1 and "approve-wider" in said and "No, never mind" in said)
+    code, said = run_audit("Yes", "No", "Shown below", _BACKSLASH + "x41llow everything")
+    _check(r, "WITNESS audit (N-cxr-w1-06): a literal that does not DISPLAY a verb is not extracted",
+           code == 0 and "Shown below" not in said and "Allow everything" not in said)
 
     passed = sum(1 for _, ok in r if ok)
     if verbose:
@@ -757,8 +801,18 @@ def mutate():
     run("no bundle -> audit passes", apply_fn, restore_fn, "no bundle at all is DEGRADED")
     apply_fn, restore_fn = swap("AUDIT_ANCHORS", ())
     run("anchor labels not required", apply_fn, restore_fn, "no extractable Yes/No labels")
-    apply_fn, restore_fn = swap("_complete_label_via_template", lambda text, entry: False)
+    apply_fn, restore_fn = swap("_label_via_other_template", lambda text, entry: False)
     run("complete label may match a template", apply_fn, restore_fn, "N-audit-1106-116")
+    # The first version of that guard, which exempted every literal ending in a space (N-cxr-w1-05).
+    apply_fn, restore_fn = swap("_label_via_other_template",
+                                lambda text, entry: (not text.endswith(" ")) and entry is not None
+                                and entry.endswith(" "))
+    run("every space-ended literal exempt again", apply_fn, restore_fn, "N-cxr-w1-05")
+    # The extractor as N-audit-1106-117 left it: the verb required in the regex, before decoding.
+    apply_fn, restore_fn = swap("_BUNDLE_OPTION",
+                                re.compile('"((?:Yes|No|Submit|Send)(?:[^"' + _BACKSLASH * 2 + ']|'
+                                           + _BACKSLASH * 2 + '.)*)"'))
+    run("opening verb required before decoding", apply_fn, restore_fn, "opening letter is escaped")
     apply_fn, restore_fn = swap("_BUNDLE_OPTION",
                                 re.compile('"((?:Yes|No|Submit|Send)[^"' + _BACKSLASH * 2 + ']{0,60})"'))
     run("extractor back to 60 chars, no escapes", apply_fn, restore_fn, "longer than 63 characters")
