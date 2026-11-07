@@ -212,7 +212,7 @@ those two was true.
 
 ### Fortunes does not declare Network, and that is correct (2026-09-17)
 
-Fortunes triggers real HTTPS catalog fetches and pack downloads (`FortunesModule.cs:736` and `:777`)
+Fortunes triggers real HTTPS catalog fetches and pack downloads (`FortunesModule.cs:1756` and `:1948`)
 while its shipped consent line reads "Speech, ScreenContext, Storage". Raised by the ABI audit as a
 possible under-declaration, ranked low by it, and settled here as NOT one.
 
@@ -2212,13 +2212,17 @@ is recorded, not removed, because its signatures (HandleRef, CharSet.Auto) diffe
 `Xml.TryReadXml(xml, stageImages:false)`, the `!stageImages` branch and `Xml.ReadPngSize` have no
 production caller: PetStudio's F155, the consumer F318 grew them for, adopted the validator's RootNode
 instead. Deleting them is the register's own test-only-member rule and it crosses lanes in one commit: the
-probe block at `src/dotNet/RuntimeHardeningSelfTest.cs:1080-1107` (lane burn/host-shell), the no-stage
+probe block in `src/dotNet/RuntimeHardeningSelfTest.cs` (lane burn/host-shell), the no-stage
 clauses in `tests/runtime-hardening-selftest.ps1`'s fix/host block, the F318 case at
 `tests/mutate-selftest-guards.py` ("the no-stage loader decodes the sprite sheet anyway") and the F155
 payload beside it, which puts the overload back as its rejected shape and would stop compiling. Until then
 the words are true (RA-269: the validator's proof decode of the sheet runs once per call; what the overload
 skips is the loader's second decode and the tiling) and `ReadPngSize` says it is lenient BY CONTRACT
 because the validator has already proved the container, and that a stricter reader breaks the probe.
+**Removed the same day.** Lane burn/host-shell deleted the overload, the `!stageImages` branch,
+`ReadPngSize`, the probe block and the F318 case in `06d8c70`, so the seam this entry kept no longer exists.
+Where each stood is marked at `src/dotNet/RuntimeHardeningSelfTest.cs:1386-1388`, `src/dotNet/Xml.cs:642-643`
+and `tests/mutate-selftest-guards.py:825-826`.
 
 **Every Modules pane restart goes through the save-then-restart helper (2026-10-01, RA-248, RA-249; corrected
 2026-10-02 by lane feature/modules-update-all).** This entry used to record `Program.TryRequestRestartAfterSave`
@@ -3164,8 +3168,8 @@ it moved to Local provider, not back to AB2's Local server, which is Ollama's ca
 provider, and it tested whichever slot was active, so on the local model it was the local slot's only test. Greying
 Cloud provider whole off the cloud would have taken it from every local install. Each slot card's button now tests
 its own slot: Local provider's the local model (on the cloud, the fallback), Cloud provider's the cloud, refusing
-off the cloud as Refresh cloud models does. The host keys a result by card and label (`OptionsWindow.cs:1219`,
-`1800`), so the two share the label. The Remembrance hold reads the card (`localSlot`), not the settings: read from
+off the cloud as Refresh cloud models does. The host keys a result by card and label (`OptionsWindow.cs:1688`,
+`2304`), so the two share the label. The Remembrance hold reads the card (`localSlot`), not the settings: read from
 the settings it would let the new button send a chat to the local model mid-transcription while the cloud is primary.
 
 **The OCR engine is a path field, and "Choose OCR engine…" is gone (P4, which AB2 marks optional).** The 177 DIP
@@ -4458,7 +4462,7 @@ absolute path in any body or header, where the 1.5.5 control's bodies held the s
 roots` and absolute paths, and its screenshot labels the call id and the product folder), after the image-path
 study's arms b and s-off. What the call carries of the user's own still can: a screen question's front window title and
 the title of the window the companion stands on ("You are standing on the window: <title>"), the OCR text or the
-screenshot's own content (`modules/AiBrain/engine/AiBrain.cs:512-513`, `DescribeScreenContext`), and a summary's
+screenshot's own content (`modules/AiBrain/engine/AiBrain.cs:542-543`, `DescribeScreenContext`), and a summary's
 transcript; the proof's prompts named no folder, so it does not speak to them. A later Codex that renamed
 `skills.include_instructions` would send the skill-roots list again with nothing failing (BACKLOG
 N-codex-config-refusal-04). Not studied: what a Claude Code call's request carries of the module's work folder under
@@ -4623,7 +4627,7 @@ saying that changing the speed or unticking "Stop when Caps Lock is on" starts i
 made that sentence true: a pane Apply that changed the speed or unticked "Stop when Caps Lock is on" switched such an off
 back on and cleared its reason in its own Save(), as those choices end a session stop. Its review found what that did to
 the user's next Apply. The options window re-reads a pane after Apply only when the schema has an Info or Header row
-(`RefreshAfterApply`, `src/Portable/Wpf/OptionsWindow.cs:436-440` and `:487-500`), and this schema has neither, so the
+(`RefreshAfterApply`, `src/Portable/Wpf/OptionsWindow.cs:450-454` and `:520-535`), and this schema has neither, so the
 pane went on showing the off it had loaded. The next Apply from it, picking another speed or changing only the announce
 box, sent that off; `SavePaneValues` compares the submitted on/off with the disk's, which now read on, took it for the
 user's Off, cleared the reason and saved a plain off the user never picked. That is the failure this version exists to
@@ -4632,10 +4636,10 @@ announce unticked, and "Blinking LED: off" in the row). Of the review's three fi
 pane half goes. A pane Apply now writes the on/off it submitted and nothing else, so over such an off only ticking "Blink
 the Scroll Lock light" switches it on from the pane, and every other change there leaves the off and its reason as they
 were. Kept: a tray speed pick still ends it at once, since the tray menu is built afresh on every open (`BuildChildren`,
-`src/DesktopAICompanion.Contracts/PluginApi.cs:280`) and a pick never acts on a stale view; and the next start still
+`src/DesktopAICompanion.Contracts/PluginApi.cs:316`) and a pick never acts on a stale view; and the next start still
 resumes it while the box is ticked. Refused: an Info row so that the window rebuilds the pane after Apply, which would
 rest the module's rule on when a host chooses to re-read a pane, something the module ABI does not state (it names "the
-refresh after Apply" in passing, `PluginApi.cs:390`, and not when one happens), for a row that would exist only for that
+refresh after Apply" in passing, `PluginApi.cs:427`, and not when one happens), for a row that would exist only for that
 side effect; and comparing an Apply with what the pane last loaded instead of the disk, which keeps a second copy of the
 pane's state beside the disk, the kind of drift "disk wins" exists to avoid. A session stop with the box ticked never
 had the hazard: it saves nothing, so the pane loaded the saved on, and an Apply from it, however long ago it loaded,
@@ -7843,7 +7847,7 @@ that had to be reverted.
   The cell keeps exactly the above-anchor pixels and drops exactly the below-anchor ones. Nothing
   above the anchor is lost, and scale is 1.0 so no resampling is involved either.
 
-  That is `SpriteSheetBuilder.cs:186` doing what `:169-176` says it does: `cellH = max(AnchorY)`,
+  That is `SpriteSheetBuilder.cs:275` doing what `:257-265` says it does: `cellH = max(AnchorY)`,
   with the anchor placed on the cell's BOTTOM edge because the Shimeji `ImageAnchor` is the mascot's
   ground-contact point and the host stands a pet by putting its window's bottom edge on the floor.
   Reserving a band below the anchor is what the code used to do, and it lifted every pet off the
