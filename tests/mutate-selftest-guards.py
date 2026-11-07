@@ -20505,6 +20505,19 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--module-host-selftest", "dp-module-host-selftest.txt",
      "partial load: a too-new module with a type implementing a contract this host lacks"),
+    # N-audit-1106-026: what an evaluation builds is unbounded again, one leg per bound.
+    ("bd-host-1: SafeScript's + builds a string past the cap",
+     os.path.join(REPO, "src", "dotNet", "SafeScript.cs"),
+     b"if (length > MaximumStringLength)",
+     b"if (length > MaximumStringLength * 1000)",
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "SafeScript bounds what evaluations build"),
+    ("bd-host-1: mascot.variables takes a new name past the cap",
+     os.path.join(REPO, "src", "dotNet", "SafeScript.cs"),
+     b"if (!had && run.Context.VariableCount >= MaximumVariables)",
+     b"if (false && run.Context.VariableCount >= MaximumVariables)",
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "SafeScript bounds what evaluations build"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

@@ -240,6 +240,7 @@ namespace DesktopAICompanion.Shimeji
 
         public bool TryGetVariable(string key, out ScriptValue value) { return _mascot.Variables.TryGetValue(key, out value); }
         public void SetVariable(string key, ScriptValue value) { _mascot.Variables[key] = value; }
+        public int VariableCount { get { return _mascot.Variables.Count; } }
 
         public double Random(int site)
         {
