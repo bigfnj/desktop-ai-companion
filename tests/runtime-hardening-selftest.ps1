@@ -1261,14 +1261,15 @@ Assert-True ($reloadBody -match 'registry\.Add\(target, stagedXml, stagedAnimati
 Assert-True ($reloadBody -match 'AnyPetBusy\(\)') (
     'a reload refuses while a pet is being dragged, which RemoveOnePet does not check for itself')
 # Kill before spawn, or a reload at MAX_SHEEPS spawns nothing and quietly loses pets.
+# Re-pointed by burndown/w2-host-1: the removals go through RemoveOneChosenPet since N-audit-1106-028.
 Assert-True (
-    $reloadBody.IndexOf('RemoveOnePet(target)') -gt 0 -and
-    $reloadBody.IndexOf('AddSheepCore(fresh.Xml') -gt $reloadBody.IndexOf('RemoveOnePet(target)')
+    $reloadBody.IndexOf('RemoveOneChosenPet(target)') -gt 0 -and
+    $reloadBody.IndexOf('AddSheepCore(fresh.Xml') -gt $reloadBody.IndexOf('RemoveOneChosenPet(target)')
 ) 'a reload kills before it spawns, so it cannot exceed the pet cap half way through'
 # Staging must precede any teardown, so a bad file leaves the pets alone.
 Assert-True (
     $reloadBody.IndexOf('TryStageRuntime(') -gt 0 -and
-    $reloadBody.IndexOf('TryStageRuntime(') -lt $reloadBody.IndexOf('RemoveOnePet(target)')
+    $reloadBody.IndexOf('TryStageRuntime(') -lt $reloadBody.IndexOf('RemoveOneChosenPet(target)')
 ) 'a reload validates the new definition before closing anything'
 
 # Every respawn would otherwise re-announce the pet to modules, so four copies of an updated skin would
@@ -5520,6 +5521,52 @@ Assert-True ($rbStart -ge 0 -and $rbJob -gt $rbStart -and $rbWait -gt $rbJob -an
 Assert-True ($rbTranscriber -cmatch 'JobObjectLimitKillOnJobClose = 0x00002000;' -and
     $rbTranscriber -cmatch 'limits\.BasicLimitInformation\.LimitFlags = JobObjectLimitKillOnJobClose;') (
     'remembrance-1: the whisper job ends its processes when its last handle closes')
+
+# ---- burndown/w2-host-1 ----
+# A RELOAD RESPAWNS ONLY THE PETS THE USER CHOSE (N-audit-1106-028). A companion born this session (Breed) is not in the
+# saved mix; counted as a pet to respawn, it was removed, respawned as a chosen pet and persisted, so it came back at
+# every launch. StartUp needs a live desktop no headless self-test has, so the COUNT and the REMOVAL are pinned here,
+# each with its old shape absent (WITNESS: the old count line matches the absent pattern).
+$w2Reload = Get-MethodBody $startUpCodeHost 'internal CompanionReloadOutcome ReloadPetType(string id, out int reloaded, out string error)' @("`n        private ", "`n        internal ", "`n        public ")
+$w2Chosen = Get-MethodBody $startUpCodeHost 'private bool RemoveOneChosenPet(string id)' @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($w2Reload.Length -gt 0 -and $w2Chosen.Length -gt 0) 'w2-host-1: ReloadPetType and RemoveOneChosenPet were located'
+$w2OldCount = '                if (string.Equals(petId, target, StringComparison.OrdinalIgnoreCase)) live++;'
+Assert-True ($w2Reload -cmatch 'if \(bornPets\.Contains\(pet\)\) born\+\+;\s*else live\+\+;' -and
+    $w2Reload -cnotmatch 'StringComparison\.OrdinalIgnoreCase\)\) live\+\+;' -and
+    $w2OldCount -cmatch 'StringComparison\.OrdinalIgnoreCase\)\) live\+\+;') (
+    'w2-host-1: a reload counts the chosen pets of the type apart from the born ones (WITNESS: the old count line matches)')
+$w2Skip = $w2Chosen.IndexOf('if (pet == null || bornPets.Contains(pet)) continue;', [StringComparison]::Ordinal)
+Assert-True ($w2Reload -cmatch 'for \(int i = 0; i < live; i\+\+\) RemoveOneChosenPet\(target\);' -and
+    $w2Reload -cnotmatch 'RemoveOnePet\(' -and
+    $w2Skip -ge 0 -and $w2Skip -lt $w2Chosen.IndexOf('return KillSheep(pet);', [StringComparison]::Ordinal)) (
+    'w2-host-1: a reload removes only chosen pets, passing over the born ones')
+# With only born companions up, the new file is staged to displace the cached parse and nothing is removed or persisted.
+$w2Staged = $w2Reload.IndexOf('registry.Add(target, stagedXml, stagedAnimations);', [StringComparison]::Ordinal)
+$w2BornOnly = $w2Reload.IndexOf('if (live == 0)', $w2Staged + 1, [StringComparison]::Ordinal)
+Assert-True ($w2Staged -ge 0 -and $w2BornOnly -gt $w2Staged -and
+    $w2BornOnly -lt $w2Reload.IndexOf('reloadInProgress = true;', [StringComparison]::Ordinal) -and
+    $w2Reload.Substring($w2BornOnly) -cmatch '^if \(live == 0\)\s*\{\s*AddDebugInfo\([^;]*;\s*return CompanionReloadOutcome\.NothingOnScreen;') (
+    'w2-host-1: with only born companions up a reload stages the file and returns before removing anything')
+
+# A FAILED 'USE THIS COMPANION' PUTS THE SPAWN TIMER BACK (N-audit-1106-029). The catch re-armed "A" whatever had
+# happened, so a failure before any pet closed spawned the whole saved mix again on top of the pets on screen. "A" is
+# re-armed only once CloseAllPetsImmediate has run; otherwise the timer's own Tag, Interval and Enabled come back, taken
+# before timer1.Stop(). ORDER and CONDITION are asserted, and the old unconditional re-arm is absent.
+$w2Use = Get-MethodBody $startUpCodeHost 'public bool LoadNewXMLFromString(string strXml, bool fromPack)' @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($w2Use.Length -gt 0) 'w2-host-1: LoadNewXMLFromString was located'
+$w2Taken = $w2Use.IndexOf('object oldTimerTag = timer1.Tag;', [StringComparison]::Ordinal)
+$w2Stop = $w2Use.IndexOf('timer1.Stop();', [StringComparison]::Ordinal)
+$w2Catch = $w2Use.IndexOf('catch (Exception ex)', [StringComparison]::Ordinal)
+Assert-True ($w2Taken -ge 0 -and $w2Stop -gt $w2Taken -and $w2Catch -gt $w2Stop -and
+    $w2Use.Substring(0, $w2Catch) -cmatch 'CloseAllPetsImmediate\(\);\s*petsClosed = true;') (
+    "w2-host-1: Use takes the spawn timer's state before it stops it, and marks the pets closed right after closing them")
+$w2OldRearm = "stagedXml.Dispose();`n                timer1.Tag = `"A`";`n                timer1.Start();"
+Assert-True ($w2Catch -gt 0 -and
+    $w2Use.Substring($w2Catch) -cmatch 'if \(petsClosed\)\s*\{\s*spawnPlan = null;\s*spawnPlanIndex = 0;\s*timer1\.Tag = "A";' -and
+    $w2Use.Substring($w2Catch) -cmatch '\}\s*else\s*\{\s*timer1\.Tag = oldTimerTag;\s*timer1\.Interval = oldTimerInterval;\s*timer1\.Enabled = oldTimerEnabled;' -and
+    $w2Use.Substring($w2Catch) -cnotmatch 'stagedXml\.Dispose\(\);\s*timer1\.Tag = "A";' -and
+    $w2OldRearm -cmatch 'stagedXml\.Dispose\(\);\s*timer1\.Tag = "A";') (
+    'w2-host-1: a failed Use re-arms the startup spawn only once every pet was closed (WITNESS: the old re-arm matches)')
 
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that

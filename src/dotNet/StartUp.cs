@@ -993,15 +993,23 @@ namespace DesktopAICompanion
             bool targetIsDefault = !activeSlotIsCustom &&
                 string.Equals(ActivePetId, target, StringComparison.OrdinalIgnoreCase);
 
-            // How many of this type are up, counted the same way RemoveOnePet finds them.
+            // How many of this type are up, counted the same way RemoveOneChosenPet finds them: the pets the user
+            // CHOSE. A companion born this session (bornPets, Breed) is counted apart and never respawned here
+            // (N-audit-1106-028): counted with the chosen ones, it was removed, respawned as a chosen pet, and written
+            // into the saved mix by the PersistMix below, so a hatchling came back at every launch. It keeps running on
+            // the old pair, which stays alive while the tick host holds it for a companion running that type
+            // (TickHost.Packs.cs Hold), until it ends itself; a born companion is session-only either way.
             int live = 0;
+            int born = 0;
             for (int i = 0; i < iSheeps; i++)
             {
                 FormCompanion pet = sheeps[i];
                 if (pet == null) continue;
                 CompanionTypeRegistry.Entry held;
                 string petId = petEntries.TryGetValue(pet, out held) ? (held.Id ?? "") : "";
-                if (string.Equals(petId, target, StringComparison.OrdinalIgnoreCase)) live++;
+                if (!string.Equals(petId, target, StringComparison.OrdinalIgnoreCase)) continue;
+                if (bornPets.Contains(pet)) born++;
+                else live++;
             }
 
             // The active pet also appears in the mix keyed "", so a pet whose id matches nothing on screen
@@ -1011,10 +1019,15 @@ namespace DesktopAICompanion
                 if (targetIsDefault)
                     return CompanionReloadOutcome.NeedsRestart;
 
-                // Nothing borrowing it: drop any staged copy so the next spawn re-reads from disk.
-                CompanionTypeRegistry.Entry staged;
-                if (registry.TryGet(target, out staged)) registry.DropIfUnused(staged);
-                return CompanionReloadOutcome.NothingOnScreen;
+                // Nothing borrowing it: drop any staged copy so the next spawn re-reads from disk. Born companions
+                // still borrowing it would keep the drop from taking it, and the next spawn would get the old parse,
+                // so then the new file is staged below to displace it, and nothing on screen is touched.
+                if (born == 0)
+                {
+                    CompanionTypeRegistry.Entry staged;
+                    if (registry.TryGet(target, out staged)) registry.DropIfUnused(staged);
+                    return CompanionReloadOutcome.NothingOnScreen;
+                }
             }
 
             // Never yank a window out from under the mouse. RemoveOnePet does not consult this, so a reload
@@ -1043,11 +1056,20 @@ namespace DesktopAICompanion
             // Displace the cached parse. The pets still on screen keep borrowing the OLD pair until their
             // FormClosed releases it; DisposeEntry removes by identity, so that release cannot evict this one.
             CompanionTypeRegistry.Entry fresh = registry.Add(target, stagedXml, stagedAnimations);
+            if (live == 0)
+            {
+                // Only born companions were up: the cached parse is displaced, they keep the old pair, and no chosen pet
+                // is removed, respawned or persisted.
+                AddDebugInfo(DEBUG_TYPE.info,
+                    "[pets] staged the updated definition of '" + target + "', and " + born +
+                    " born companion(s) keep the old one until they end");
+                return CompanionReloadOutcome.NothingOnScreen;
+            }
 
             reloadInProgress = true;
             try
             {
-                for (int i = 0; i < live; i++) RemoveOnePet(target);
+                for (int i = 0; i < live; i++) RemoveOneChosenPet(target);
                 for (int i = 0; i < live; i++)
                 {
                     if (AddSheepCore(fresh.Xml, fresh.Animations, fresh) != null) reloaded++;
@@ -1704,6 +1726,25 @@ namespace DesktopAICompanion
         }
 
         /// <summary>
+        /// <see cref="RemoveOnePet"/> over the pets the user chose only: a companion born this session is passed over.
+        /// ReloadPetType's removals, which must match the chosen pets it counted and respawns (N-audit-1106-028).
+        /// </summary>
+        private bool RemoveOneChosenPet(string id)
+        {
+            string target = id ?? "";
+            for (int i = iSheeps - 1; i >= 0; i--)
+            {
+                FormCompanion pet = sheeps[i];
+                if (pet == null || bornPets.Contains(pet)) continue;
+                CompanionTypeRegistry.Entry entry;
+                string petId = petEntries.TryGetValue(pet, out entry) ? (entry.Id ?? "") : "";
+                if (string.Equals(petId, target, StringComparison.OrdinalIgnoreCase))
+                    return KillSheep(pet);
+            }
+            return false;
+        }
+
+        /// <summary>
         /// Set a pet type's size PERCENT override (25..400, or 0 to follow the global size) and persist it.
         /// The size is baked in when the type is staged, so it takes effect the next time this pet is added
         /// (or on the next launch); pets of this type already on screen keep their current size until then.
@@ -2062,6 +2103,14 @@ namespace DesktopAICompanion
             }
             stagedAnimations.PetTypeId = useId;
 
+            // The spawn timer's state, put back as it was if the swap fails before any pet is closed
+            // (N-audit-1106-029). The catch used to re-arm "A" whatever had happened: with the old pets still on
+            // screen, "A" built a fresh startup plan and spawned every pet of the saved mix again on top of them. "A"
+            // is re-armed only once CloseAllPetsImmediate has run, when the desktop really is empty.
+            object oldTimerTag = timer1.Tag;
+            int oldTimerInterval = timer1.Interval;
+            bool oldTimerEnabled = timer1.Enabled;
+            bool petsClosed = false;
             timer1.Stop();
             Xml oldXml = xml;
             Animations oldAnimations = animations;
@@ -2085,6 +2134,7 @@ namespace DesktopAICompanion
                 activeSlotIsCustom = !fromPack;
 
                 CloseAllPetsImmediate();
+                petsClosed = true;
                 // "Use this pet" resets the desktop to a single active type: drop every extra type
                 // (their pets' FormClosed already released most; this clears any stragglers). Never
                 // touches the staged or old active pair -- neither is in the registry.
@@ -2118,8 +2168,22 @@ namespace DesktopAICompanion
                 ApplyTrayIcon(xml);
                 stagedAnimations.Dispose();
                 stagedXml.Dispose();
-                timer1.Tag = "A";
-                timer1.Start();
+                if (petsClosed)
+                {
+                    // Every pet is gone: the old mix comes back from a fresh plan, as at launch.
+                    spawnPlan = null;
+                    spawnPlanIndex = 0;
+                    timer1.Tag = "A";
+                    timer1.Interval = 1000;
+                    timer1.Start();
+                }
+                else
+                {
+                    // Nothing was closed: a finished startup stays finished, one still spawning carries on.
+                    timer1.Tag = oldTimerTag;
+                    timer1.Interval = oldTimerInterval;
+                    timer1.Enabled = oldTimerEnabled;
+                }
                 return false;
             }
 
