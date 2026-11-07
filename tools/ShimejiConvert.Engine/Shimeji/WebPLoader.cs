@@ -35,11 +35,40 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             if (string.IsNullOrEmpty(spritesDir)) throw new ArgumentNullException("spritesDir");
             return delegate(string image)
             {
-                string name = (image ?? "").TrimStart('/', '\\');
-                string path = Path.Combine(spritesDir, name);
+                // The name comes from the manifest's filePattern, so it is held to the sprites folder as the
+                // basePath is held to the bundle (BundleConverter.TryResolveSpritesDir): Path.Combine alone let a
+                // pattern such as "../../x/%04d.webp" or "C:/x/%d.png" open any file the user can read.
+                string reason;
+                string path = ContainedPath(spritesDir, image, out reason);
+                if (path == null) throw new InvalidDataException("Sprite path '" + image + "' refused: " + reason);
                 if (!File.Exists(path)) throw new FileNotFoundException("Sprite not found: " + path);
                 return Decode(path);
             };
+        }
+
+        /// <summary>
+        /// <paramref name="relative"/> joined under <paramref name="root"/> as a full path, or null with the reason
+        /// when the full path does not sit under the root. Leading separators are read as root-relative, as a pose
+        /// image name ("/0005.webp") always has been, so "//host/share" is a folder of the bundle rather than a
+        /// share; a drive-qualified value is rooted, so Path.Combine returns it whole and it lands outside; a ".."
+        /// that climbs out lands outside once GetFullPath has resolved it. ONE test, on the resolved path, rather
+        /// than a list of text shapes beside it: each shape test was redundant with this one, so no input could
+        /// show one of them missing.
+        /// </summary>
+        internal static string ContainedPath(string root, string relative, out string reason)
+        {
+            reason = null;
+            string text = (relative ?? "").Replace('\\', '/').TrimStart('/');
+            string full = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            string joined = text.Length == 0 ? full
+                : Path.GetFullPath(Path.Combine(full, text.Replace('/', Path.DirectorySeparatorChar)));
+            if (!string.Equals(joined, full, StringComparison.OrdinalIgnoreCase)
+                && !joined.StartsWith(full + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            {
+                reason = "it resolves outside the bundle";
+                return null;
+            }
+            return joined;
         }
 
         /// <summary>Decode a single image file to a Format32bppArgb bitmap, preserving its alpha channel. WebP

@@ -20482,6 +20482,20 @@ CASES = (
      b"if (QualifiesAsJump(a)) { jumpConverted.Add(a.Name); }",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
      SHIMEJI, None, "jump and rest twins: the residue names 'LeapUnseen' as a converted jump"),
+    # N-audit-1106-016: a bundle manifest's basePath and filePattern are held inside the bundle. The first case
+    # disables the one containment test (both joins go through it); the second puts the loader's old bare join back.
+    ("bd-converter-1: a bundle path that resolves outside the bundle is accepted",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Shimeji", "WebPLoader.cs"),
+     b"            if (!string.Equals(joined, full, StringComparison.OrdinalIgnoreCase)\n",
+     b"            if (joined == null\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "bundle containment: a ../ basePath was followed outside the bundle"),
+    ("bd-converter-1: the sprite loader joins a filePattern name with a bare Path.Combine",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Shimeji", "WebPLoader.cs"),
+     b"                string path = ContainedPath(spritesDir, image, out reason);\n",
+     b"                string path = ContainedPath(spritesDir, \"\", out reason) == null ? null : Path.Combine(spritesDir, (image ?? \"\").TrimStart('/'));\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "bundle containment: a ../ filePattern was followed outside the bundle"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
