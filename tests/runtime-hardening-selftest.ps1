@@ -5521,6 +5521,129 @@ Assert-True ($rbTranscriber -cmatch 'JobObjectLimitKillOnJobClose = 0x00002000;'
     $rbTranscriber -cmatch 'limits\.BasicLimitInformation\.LimitFlags = JobObjectLimitKillOnJobClose;') (
     'remembrance-1: the whisper job ends its processes when its last handle closes')
 
+# ---- burndown/w2-tests-scripts-1 ----
+# EVERY CORETESTS GROUP AND EVERY AGENTBROKER CHECK CLASS IS REGISTERED (N-audit-1106-054). The gate reads only the exit code
+# of DesktopAICompanion.CoreTests.exe and of each AgentBroker harness, so deleting one Run("...", TestX) line or one
+# XChecks.Run(...) call left every check green: the group still compiled and simply never ran. A pinned floor would need a
+# deliberate edit for every added group; this asks the question directly instead. A group method is any parameterless
+# static void Test*() in the CoreTests sources, and it must be named by a Run("<name>", <method>) registration. A check class
+# is any static class *Checks in an AgentBroker.*.Tests folder, and some OTHER file of that folder must call one of its
+# Run* entry points (its own file calling itself is no registration). A group or class deleted whole is a deliberate edit
+# and is not what this catches.
+$w2CoreSource = (@(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'tests\DesktopAICompanion.CoreTests') -Filter '*.cs' -File |
+    Sort-Object Name | ForEach-Object { Remove-LineComments (Get-Content -LiteralPath $_.FullName -Raw) })) -join "`n"
+$w2CoreGroups = @([regex]::Matches($w2CoreSource, '(?m)^\s*(?:private |internal |public )?static void (Test\w+)\(\)') |
+    ForEach-Object { $_.Groups[1].Value })
+$w2CoreRegistered = @([regex]::Matches($w2CoreSource, '(?m)^\s*Run\("[^"\r\n]+", (Test\w+)\);') | ForEach-Object { $_.Groups[1].Value })
+$w2CoreUnregistered = @($w2CoreGroups | Where-Object { $w2CoreRegistered -cnotcontains $_ })
+Assert-True ($w2CoreGroups.Count -gt 0 -and $w2CoreRegistered.Count -gt 0) (
+    "w2-tests-scripts-1: the CoreTests group methods and their Run registrations were found ($($w2CoreGroups.Count) and $($w2CoreRegistered.Count))")
+Assert-True ($w2CoreUnregistered.Count -eq 0 -and @(@('TestW2WitnessGroup') | Where-Object { $w2CoreRegistered -cnotcontains $_ }).Count -eq 1) (
+    'w2-tests-scripts-1: every CoreTests group method is registered in Main''s Run list (WITNESS: an unregistered name is reported)' +
+    $(if ($w2CoreUnregistered.Count) { ' -- not registered: ' + ($w2CoreUnregistered -join ', ') } else { '' }))
+# A class is also called once per focused --*-only switch in some harnesses (AgentBroker.Core.Tests runs each check class
+# from its own switch AND from the default run the gate uses), so "called somewhere" alone misses a deleted default-run
+# call. The CALL SITES are therefore also floored, pinned to the count the harnesses carry today, as the gate pins
+# $shimejiSuiteFloor: deleting one fails here and has to be a deliberate edit of this number, while adding one costs nothing.
+$w2BrokerCallSiteFloor = 118
+$w2BrokerClasses = 0
+$w2BrokerCallSites = 0
+$w2BrokerUnrun = New-Object 'Collections.Generic.List[string]'
+function Get-W2CheckClassCalls([string] $ClassName, [string[]] $OtherTexts) {
+    $calls = 0
+    foreach ($text in $OtherTexts) { $calls += [regex]::Matches($text, '\b' + [regex]::Escape($ClassName) + '\.Run\w*\(').Count }
+    return $calls
+}
+function Test-W2CheckClassCalled([string] $ClassName, [string[]] $OtherTexts) {
+    return ((Get-W2CheckClassCalls $ClassName $OtherTexts) -gt 0)
+}
+foreach ($w2Dir in @(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'tests') -Directory -Filter 'AgentBroker.*.Tests')) {
+    $w2Texts = @{}
+    foreach ($w2File in @(Get-ChildItem -LiteralPath $w2Dir.FullName -Filter '*.cs' -File)) {
+        $w2Texts[$w2File.Name] = Remove-LineComments (Get-Content -LiteralPath $w2File.FullName -Raw)
+    }
+    foreach ($w2Name in @($w2Texts.Keys)) {
+        foreach ($w2Class in [regex]::Matches($w2Texts[$w2Name], '(?m)^\s*(?:internal |public )?static class (\w+Checks)\b')) {
+            $w2BrokerClasses++
+            $w2Others = @($w2Texts.Keys | Where-Object { $_ -cne $w2Name } | ForEach-Object { $w2Texts[$_] })
+            $w2Calls = Get-W2CheckClassCalls $w2Class.Groups[1].Value $w2Others
+            $w2BrokerCallSites += $w2Calls
+            if ($w2Calls -eq 0) { $w2BrokerUnrun.Add($w2Dir.Name + '\' + $w2Class.Groups[1].Value) }
+        }
+    }
+}
+Assert-True ($w2BrokerClasses -gt 0) "w2-tests-scripts-1: the AgentBroker harnesses' check classes were found ($w2BrokerClasses)"
+Assert-True ($w2BrokerUnrun.Count -eq 0 -and (Test-W2CheckClassCalled 'W2WitnessChecks' @('W2WitnessChecks.RunAsync(check);')) -and
+    -not (Test-W2CheckClassCalled 'W2WitnessChecks' @('// W2WitnessChecks is not called here', 'OtherW2WitnessChecks.Run(root);'))) (
+    'w2-tests-scripts-1: every AgentBroker check class is run from another file of its harness (WITNESS: a call is seen, a mention or a longer name is not)' +
+    $(if ($w2BrokerUnrun.Count) { ' -- never run: ' + ($w2BrokerUnrun -join ', ') } else { '' }))
+Assert-True ($w2BrokerCallSites -ge $w2BrokerCallSiteFloor) (
+    "w2-tests-scripts-1: the AgentBroker harnesses keep at least the $w2BrokerCallSiteFloor check-class call sites they carry today" +
+    $(if ($w2BrokerCallSites -lt $w2BrokerCallSiteFloor) { " -- found $w2BrokerCallSites; a registration was deleted, or this floor needs a deliberate edit" } else { " (found $w2BrokerCallSites)" }))
+
+# THE STAND-DOWN A/B DRIVER DELETES ONLY ITS OWN RUN FOLDER (N-audit-1106-052). After a clean sweep it deleted -WorkRoot
+# recursively, so a -WorkRoot naming an existing folder lost everything in it. Asserted as ARGUMENTS and ORDER: the one
+# recursive Directory.Delete takes $runRoot; $runRoot is a fresh standdown-ab-<guid> child made without -Force (which
+# refuses an existing folder); each per-arm data root sits under $runRoot; and the leaf-and-parent check precedes the delete.
+$w2Ab = Remove-PsLineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'tests\fullscreen-standdown-probe\standdown-ab.ps1') -Raw)
+Assert-True ($w2Ab.Length -gt 0) 'w2-tests-scripts-1: standdown-ab.ps1 was read'
+$w2AbDeletes = @([regex]::Matches($w2Ab, '\[IO\.Directory\]::Delete\(([^,]+),') | ForEach-Object { $_.Groups[1].Value.Trim() })
+$w2AbRemoves = @([regex]::Matches($w2Ab, 'Remove-Item\b[^\r\n}]*-Recurse[^\r\n}]*') | ForEach-Object { $_.Value })
+$w2AbGuard = $w2Ab.IndexOf('(Split-Path -Leaf $runRoot) -cnotmatch ''^standdown-ab-[0-9a-f]{32}$''', [StringComparison]::Ordinal)
+$w2AbDeleteAt = $w2Ab.IndexOf('[IO.Directory]::Delete($runRoot, $true)', [StringComparison]::Ordinal)
+Assert-True ($w2AbDeletes.Count -eq 1 -and $w2AbDeletes[0] -ceq '$runRoot' -and
+    $w2AbRemoves.Count -eq 1 -and @($w2AbRemoves | Where-Object { $_ -cnotmatch '-Force \$root\s*$' }).Count -eq 0 -and
+    $w2Ab -cmatch '(?m)^\s*\$root = Join-Path \$runRoot \("dataroot-" \+ \$arm\)' -and
+    @([regex]::Matches('try { [IO.Directory]::Delete($WorkRoot, $true) }', '\[IO\.Directory\]::Delete\(([^,]+),') | ForEach-Object { $_.Groups[1].Value }) -cne '$runRoot') (
+    'w2-tests-scripts-1: the A/B driver recursively deletes only its own run folder and the data roots under it (WITNESS: a delete of $WorkRoot is told apart)' +
+    " (deletes: $($w2AbDeletes -join ', '))")
+Assert-True ($w2Ab -cmatch '(?m)^\$runRoot = Join-Path \$WorkRoot \(''standdown-ab-'' \+ \[Guid\]::NewGuid\(\)\.ToString\(''N''\)\)\r?$' -and
+    $w2Ab -cmatch '(?m)^New-Item -ItemType Directory -Path \$runRoot \| Out-Null\r?$' -and
+    $w2AbGuard -ge 0 -and $w2AbDeleteAt -gt $w2AbGuard) (
+    "w2-tests-scripts-1: the A/B driver's run folder is a fresh standdown-ab-<guid> child, and its leaf is checked before the delete (guard at $w2AbGuard, delete at $w2AbDeleteAt)")
+
+# THE GATE TRIES MODULE DISCOVERY AND PUBLISH FRESHNESS SEPARATELY (N-audit-1106-351). One try held both, so a discovery
+# failure skipped the freshness check and was reported under the freshness script's name. Each call must be the only
+# statement of its own try, whose catch names that script.
+$w2Gate = Remove-PsLineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'tests\run-gate.ps1') -Raw)
+$w2GateDiscovery = '(?m)^\s*try \{ & \(Join-Path \$repoRoot ''tests\\Test-ModuleSourceDiscovery\.ps1''\) \}\r?\n\s*catch \{ \$failures\.Add\(''Test-ModuleSourceDiscovery\.ps1: '' \+ \$_\.Exception\.Message\) \}'
+$w2GateFreshness = '(?m)^\s*try \{ & \(Join-Path \$repoRoot ''packaging\\Test-ModulePublishFreshness\.ps1''\) \}\r?\n\s*catch \{ \$failures\.Add\(''Test-ModulePublishFreshness\.ps1: '' \+ \$_\.Exception\.Message\) \}'
+$w2GateMerged = "    try {`n        & (Join-Path `$repoRoot 'tests\Test-ModuleSourceDiscovery.ps1')`n        & (Join-Path `$repoRoot 'packaging\Test-ModulePublishFreshness.ps1')`n    }`n    catch { `$failures.Add('Test-ModulePublishFreshness.ps1: ' + `$_.Exception.Message) }"
+Assert-True ($w2Gate -cmatch $w2GateDiscovery -and $w2Gate -cmatch $w2GateFreshness -and
+    $w2GateMerged -cnotmatch $w2GateDiscovery -and $w2GateMerged -cnotmatch $w2GateFreshness) (
+    'w2-tests-scripts-1: the gate runs module discovery and publish freshness in separate tries, each failure under its own script name (WITNESS: the shared try does not match)')
+
+# THE DISCOVERY-TIMEOUT CHECKS REMOVE THEIR OWN SCRATCH TREE (N-audit-1106-343). Each run made artifacts\discovery-timeouts\<guid>
+# with a NuGet package cache in it, and nothing deleted any of them. ORDER inside the script's finally: the guid-leaf check,
+# then the recursive delete of $scratch, and nothing else is deleted recursively.
+$w2Dt = Remove-PsLineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'tests\Invoke-DesktopDiscoveryTimeoutChecks.ps1') -Raw)
+$w2DtFinally = $w2Dt.IndexOf("`nfinally {", [StringComparison]::Ordinal)
+$w2DtGuard = $w2Dt.IndexOf('(Split-Path -Leaf $scratch) -cnotmatch ''^[0-9a-f]{32}$''', [StringComparison]::Ordinal)
+$w2DtDelete = $w2Dt.IndexOf('[IO.Directory]::Delete($scratch, $true)', [StringComparison]::Ordinal)
+Assert-True ($w2Dt.Length -gt 0 -and $w2DtFinally -ge 0 -and $w2DtGuard -gt $w2DtFinally -and $w2DtDelete -gt $w2DtGuard -and
+    @([regex]::Matches($w2Dt, '\[IO\.Directory\]::Delete\(')).Count -eq 1) (
+    "w2-tests-scripts-1: the discovery-timeout checks delete their own <guid> scratch tree in their finally, after checking its leaf (finally at $w2DtFinally, guard at $w2DtGuard, delete at $w2DtDelete)")
+
+# THE POKE SASS'S BUBBLE IS THE FALLBACK (N-audit-1106-354). The order check above (offer before '.Say(') passes when the
+# condition is inverted, and dropping the ! there silences every poke sass on a default install, where no speech responder
+# is registered and the offer returns false. This asserts the CONDITION: the bubble is drawn only when no responder took it.
+$w2Sass = [regex]::Match((Remove-LineComments $startUpSource), '(?s)PokeReactions\.RandomSass\(\).*?return;')
+$w2SassFallback = '(?m)^\s*if \(Host == null \|\| !Host\.RaiseSpeechRequest\(subject, s\)\) subject\.Say\(s\);'
+Assert-True ($w2Sass.Success -and $w2Sass.Value -cmatch $w2SassFallback -and @([regex]::Matches($w2Sass.Value, '\.Say\(')).Count -eq 1 -and
+    'if (Host == null || Host.RaiseSpeechRequest(subject, s)) subject.Say(s);' -cnotmatch $w2SassFallback) (
+    'w2-tests-scripts-1: the poke sass draws its bubble only when no speech responder took it (WITNESS: the un-negated offer does not match)')
+
+# THE AGENTFLOW TICK WORKER INSPECTS THE COPIED PATH (N-audit-1106-355). The check above asserts the copy exists and that the
+# literal 'Inspect(ArgvPath' is absent; a worker reading the live setting any other way passed. Every VsCodeSetup.Inspect
+# call in OnTick must take argvPathNow as its path.
+$w2Tick = Get-MethodBody (Remove-LineComments $agentFlowSource) 'private void OnTick(' @("`n        private ", "`n        internal ", "`n        public ")
+$w2InspectArgs = @([regex]::Matches($w2Tick, 'VsCodeSetup\.Inspect\(\s*([^,)]*)') | ForEach-Object { $_.Groups[1].Value.Trim() })
+Assert-True ($w2Tick.Length -gt 0 -and $w2InspectArgs.Count -gt 0 -and @($w2InspectArgs | Where-Object { $_ -cne 'argvPathNow' }).Count -eq 0 -and
+    @([regex]::Matches('VsCodeSetup.Inspect(_settings.Get(SettingArgvPath, ""), 200)', 'VsCodeSetup\.Inspect\(\s*([^,)]*)') |
+        ForEach-Object { $_.Groups[1].Value.Trim() } | Where-Object { $_ -cne 'argvPathNow' }).Count -eq 1) (
+    'w2-tests-scripts-1: every VsCodeSetup.Inspect call in the AgentFlow tick takes the copied argvPathNow (WITNESS: a live settings read is told apart)' +
+    " (paths: $($w2InspectArgs -join ', '))")
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever

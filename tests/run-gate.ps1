@@ -218,10 +218,12 @@ try {
     catch { $failures.Add('runtime-hardening-selftest.ps1: ' + $_.Exception.Message) }
 
     Write-Host '=== published module payloads' -ForegroundColor Cyan
-    try {
-        & (Join-Path $repoRoot 'tests\Test-ModuleSourceDiscovery.ps1')
-        & (Join-Path $repoRoot 'packaging\Test-ModulePublishFreshness.ps1')
-    }
+    # ONE TRY EACH (N-audit-1106-351). The two shared a try whose catch named only the freshness script, so a discovery
+    # failure skipped the freshness check altogether and was reported under the freshness script's name: the summary
+    # then pointed at the wrong file, and a stale published payload behind it went unreported in that run.
+    try { & (Join-Path $repoRoot 'tests\Test-ModuleSourceDiscovery.ps1') }
+    catch { $failures.Add('Test-ModuleSourceDiscovery.ps1: ' + $_.Exception.Message) }
+    try { & (Join-Path $repoRoot 'packaging\Test-ModulePublishFreshness.ps1') }
     catch { $failures.Add('Test-ModulePublishFreshness.ps1: ' + $_.Exception.Message) }
 
     # The freshness check above is about module VERSIONS. Nothing verified the catalog's asset

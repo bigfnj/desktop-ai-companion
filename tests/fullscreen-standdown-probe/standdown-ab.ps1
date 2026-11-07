@@ -22,7 +22,10 @@ param(
     [Parameter(Mandatory = $true)] [string] $Baseline,
     [Parameter(Mandatory = $true)] [string] $Changed,
     [string] $Probe = '',
-    [string] $WorkRoot = (Join-Path ([IO.Path]::GetTempPath()) ("standdown-ab-" + $PID))
+    # The PARENT of this run's work folder. The run creates its own fresh standdown-ab-<guid> child under it and only that
+    # child is ever deleted (N-audit-1106-052): this used to be the folder itself, deleted recursively after a clean sweep,
+    # so a -WorkRoot naming an existing folder lost everything already in it.
+    [string] $WorkRoot = ([IO.Path]::GetTempPath())
 )
 $ErrorActionPreference = 'Stop'   # a failed Remove-Item or New-Item on a data root stops the run, never samples a dirty root
 # ...except around the ONE native call (RA-346, RA-347). Under Windows PowerShell 5.1 a native command's stderr
@@ -46,7 +49,13 @@ $arms = [ordered]@{
     CHANGED  = $Changed
 }
 foreach ($arm in $arms.Keys) { if (-not (Test-Path -LiteralPath $arms[$arm])) { throw "missing $arm at $($arms[$arm])" } }
+# A FRESH CHILD, never the named folder itself (N-audit-1106-052). The parent may already exist and hold anything; the run
+# folder is new by construction, and New-Item without -Force refuses one that exists, so the delete in the finally can
+# only ever reach what this run created.
+$WorkRoot = [IO.Path]::GetFullPath($WorkRoot)
 New-Item -ItemType Directory -Path $WorkRoot -Force | Out-Null
+$runRoot = Join-Path $WorkRoot ('standdown-ab-' + [Guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $runRoot | Out-Null
 
 $reloc = @{ BASELINE = @(); CHANGED = @() }
 $hide = @{ BASELINE = @(); CHANGED = @() }
@@ -65,7 +74,7 @@ function Spread($label, $v) {
 try {
     foreach ($phase in $Phases) {
         foreach ($arm in $arms.Keys) {
-            $root = Join-Path $WorkRoot ("dataroot-" + $arm)
+            $root = Join-Path $runRoot ("dataroot-" + $arm)
             if (Test-Path $root) { Remove-Item -Recurse -Force $root }
             New-Item -ItemType Directory -Path $root | Out-Null
             # Continue for the native call only (see the top of the file); stderr lines become plain text.
@@ -113,17 +122,22 @@ try {
     }
 }
 finally {
-    # The PID-keyed work root and its two data roots were left behind by every run, unnamed (RA-335). Kept,
-    # and named, when any sample failed or was inconclusive -- the last sample's data roots hold the app's
-    # own diagnostic log for each arm -- and removed after a clean sweep in the F414 shape: a root that will
-    # not delete is a warning naming the path, never silence.
+    # The run folder and its two data roots were left behind by every run, unnamed (RA-335). Kept, and named,
+    # when any sample failed or was inconclusive -- the last sample's data roots hold the app's own diagnostic
+    # log for each arm -- and removed after a clean sweep in the F414 shape: a root that will not delete is a
+    # warning naming the path, never silence. Only $runRoot is deleted, and only after the prefix assertion
+    # below confirms it is this run's own standdown-ab-<guid> child of -WorkRoot (N-audit-1106-052).
     $anyProblem = $false
     foreach ($arm in $arms.Keys) { if ($fails[$arm] -gt 0 -or $inconc[$arm] -gt 0) { $anyProblem = $true } }
     if ($anyProblem) {
-        Write-Host "work root kept for inspection (the last sample's data roots, one per arm): $WorkRoot"
+        Write-Host "run folder kept for inspection (the last sample's data roots, one per arm): $runRoot"
+    }
+    elseif ([IO.Path]::GetDirectoryName($runRoot).TrimEnd('\') -ne $WorkRoot.TrimEnd('\') -or
+            (Split-Path -Leaf $runRoot) -cnotmatch '^standdown-ab-[0-9a-f]{32}$') {
+        Write-Warning ("the A/B driver's run folder is not a standdown-ab-<guid> child of $WorkRoot, so it is not deleted: $runRoot")
     }
     else {
-        try { [IO.Directory]::Delete($WorkRoot, $true) }
-        catch { Write-Warning ("the A/B driver's work root could not be removed and is left for inspection: $WorkRoot ($($_.Exception.Message))") }
+        try { [IO.Directory]::Delete($runRoot, $true) }
+        catch { Write-Warning ("the A/B driver's run folder could not be removed and is left for inspection: $runRoot ($($_.Exception.Message))") }
     }
 }
