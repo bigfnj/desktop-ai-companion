@@ -230,9 +230,9 @@ done
 LC_ALL=C sort -u "$temp_dir/all-corpus-texts" > "$temp_dir/corpus.keys"
 cut -f2 "$LABEL_INPUT" | LC_ALL=C sort > "$temp_dir/input.keys"
 if ! cmp -s "$temp_dir/corpus.keys" "$temp_dir/input.keys"; then
-  comm -23 "$temp_dir/input.keys" "$temp_dir/corpus.keys" | sed -n '1,5p' |
+  LC_ALL=C comm -23 "$temp_dir/input.keys" "$temp_dir/corpus.keys" | sed -n '1,5p' |
     sed 's/^/missing-from-corpus: /' >&2
-  comm -13 "$temp_dir/input.keys" "$temp_dir/corpus.keys" | sed -n '1,5p' |
+  LC_ALL=C comm -13 "$temp_dir/input.keys" "$temp_dir/corpus.keys" | sed -n '1,5p' |
     sed 's/^/extra-in-corpus: /' >&2
   label_die "corpus text set changed since label-input.tsv was frozen"
 fi

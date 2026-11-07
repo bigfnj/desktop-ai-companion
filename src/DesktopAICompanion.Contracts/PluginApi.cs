@@ -7,7 +7,12 @@ namespace DesktopAICompanion.Modules
     // DesktopAICompanion plugin ABI (v1). A module is a class implementing IModule, shipped as a DLL that
     // references ONLY this assembly. The host loads it (in an isolated AssemblyLoadContext), calls
     // Init(host) once, and Shutdown() on unload. In Init the module subscribes to host lifecycle
-    // events, calls host services, and registers its tray/options contributions. Everything here is
+    // events, calls host services, and registers its tray/options contributions. EXCEPT the services
+    // gated on a declared permission (GetCompanionManager, PlaySound, PlayNotificationSound, OpenLink,
+    // IHostCredentials): the gate reads the host's list of loaded modules, and the host adds a module to
+    // it only after its Init returns, so a gated call made DURING Init is refused as though the flag were
+    // undeclared. Make those calls later -- from an event, a tray item or a pane action. (The ABI said
+    // modules call host services in Init with no exception until N-audit-1106-133.) Everything here is
     // handle-based (ICompanion, not the app's FormCompanion) and framework-agnostic (no WinForms/WPF/System.Drawing)
     // so the contract stays small and stable as the host evolves.
     // =====================================================================================
@@ -122,26 +127,36 @@ namespace DesktopAICompanion.Modules
 
         // Starts a child process the MODULE chose -- an engine, a converter, a downloaded tool.
         //
-        // Unlike InputMonitoring above, this one has holders RIGHT NOW, and that is why it is here
-        // rather than waiting for T58. Three shipped modules spawn executables and no flag has ever
-        // said so:
-        //   AiBrain       -- the ollama runtime (engine\OllamaClient.cs:291, engine\AiBrain.cs:1427
-        //                    and the :1603 kill path)
-        //   Remembrance   -- whisper.cpp (Transcriber.cs:73) and its installer's verify probe
-        //                    (WhisperInstaller.cs:714)
-        //   PetStudio     -- ffmpeg and ffprobe through the conversion engine
-        //                    (tools\ShimejiConvert.Engine\Engine.cs:266 and :310,
-        //                    Shimeji\WebPLoader.cs:113)
+        // Unlike InputMonitoring above, this one had holders the day it was added, and that is why it
+        // is here rather than waiting for T58: shipped modules spawned executables and no flag said so.
+        // The holders, each declaring it beside its Permissions line, named by METHOD rather than by
+        // file:line (the first version of this list cited ten line numbers, and every one had drifted
+        // onto unrelated code by the 2026-11-06 audit, N-audit-1106-131):
+        //   AiBrain       -- `ollama serve` (engine\OllamaClient.TryStartServer), tesseract for OCR
+        //                    (engine\AiBrain.RunOcrAsync, with taskkill in AiBrain.KillProcessTree), and
+        //                    claude or codex for a reply the user routed to a coding-agent CLI
+        //                    (shared\CodingAgentCli, linked in)
+        //   Remembrance   -- whisper-cli for every transcription (Transcriber.RunWhisper), the verify probe
+        //                    of "Set up Whisper for me" (WhisperInstaller.TryVerify), and claude or codex
+        //                    for a summary routed to a coding-agent CLI (the same shared runner)
+        //   PetStudio     -- dwebp per sprite of an Android-bundle import (WebPLoader.DwebpToPam) and ffmpeg
+        //                    for a skin's sounds when it is on PATH (SoundBaker.ProbeFfmpeg and
+        //                    TranscodeWithFfmpeg), all in tools\ShimejiConvert.Engine, source-linked
+        //   AgentBroker   -- its broker worker (WorkerSupervisor through WorkerChildLauncher), the coding-agent
+        //                    CLIs its client setup runs (AgentClientCommand), and that worker again, elevated,
+        //                    to add the LAN firewall rule (LanFirewallElevationRunner)
+        // Each module's self-test asserts its own declaration; nothing checks this list, so a new
+        // holder adds itself here.
         // This is the same finding that produced InputSynthesis: a shipped module doing something
         // the consent screen never mentioned, where the pane's "wants: Speech, Storage" reads as an
         // affirmative claim that those are the two things it does.
         //
         // DELIBERATELY EXCLUDED: shell-opening something the user can already see. Fortunes reveals
-        // its packs folder (FortunesModule.cs:677) and Reminder opens an event URL
-        // (ReminderModule.cs:892), both UseShellExecute on a path or URL the user asked for, in
+        // its packs folder (FortunesModule.OpenFortunesFolderAsync) and Reminder opens an event URL
+        // (ReminderModule.TryOpenUrl), both UseShellExecute on a path or URL the user asked for, in
         // their own default handler. Those are the user's own action taking effect, not the module
         // choosing an executable, and folding them in here would make the flag mean so little that
-        // seven of eight modules would carry it.
+        // most modules would carry it.
         //
         // Disclosure, not a gate, for the reason the whole enum gives above: a module is an
         // in-process assembly with the user's privileges and there is no host API to intercept.
@@ -687,18 +702,20 @@ namespace DesktopAICompanion.Modules
         // The writable pet library on disk (…\pets), where InstallType lands a pet and where the user's
         // installed/downloaded pets live. A pet-authoring module uses it to open a file dialog where the
         // author's pets already are, rather than guessing the host's folder layout. Read-only, absolute,
-        // and possibly not-yet-created; "" when the host cannot resolve it. Added after the freeze (1.4.6)
-        // — a module that reads it must declare MinHostVersion 1.0.0 or the load-time check refuses it.
-        // (Added pre-rebase as 1.4.6; the 1.0.0 rename rebase collapsed every version at or below
-        // 1.9.16 into 1.0.0, so 1.0.0 is the correct declaration and 1.4.6 is a version this host
-        // does not have. See docs/1.0.0-RENAME-PLAN.md.)
+        // and possibly not-yet-created; "" when the host cannot resolve it. Added after the freeze (1.4.6),
+        // which the 1.0.0 rename rebase folded into 1.0.0 with every version at or below 1.9.16 (see
+        // docs/1.0.0-RENAME-PLAN.md), so every host there is has it and 1.0.0 is the floor to name for it.
+        // Naming no floor is not refused either: the load gate (ModuleHostRequirement.IsSatisfied) turns a
+        // module away only for a MinHostVersion ABOVE the running host, never for one that under-declares.
+        // This said "must declare 1.0.0 or the load-time check refuses it" until N-audit-1106-132.
         string CompanionsDirectory { get; }
         IReadOnlyList<CompanionTypeInfo> InstalledTypes();
         // Read an installed pet type's animations.xml by id -- the writable library, then the bundled pets
         // beside the exe, then the built-in default -- so an authoring/analysis module can open a pet the user
         // already has without knowing (or being able to reach) the host's folder layout. Returns false with a
-        // reason when the id is unknown/unsafe or the Companions permission is missing. Added in 1.8.0; a module that
-        // calls it must declare MinHostVersion 1.0.0 or the load gate refuses it. (Pre-rebase 1.8.0.)
+        // reason when the id is unknown/unsafe or the Companions permission is missing. Added in pre-rebase 1.8.0, which
+        // is 1.0.0 now, so every host has it; the floor to name is 1.0.0, and the load gate never refuses a module for
+        // naming a lower one or none (see CompanionsDirectory above).
         bool TryReadTypeXml(string typeId, out string animationsXml, out string error);
         // Live pets counted by type, in first-appearance order. PREVIEW pets are deliberately not counted,
         // so this can sum to less than MaxCompanions while IsAtMax is already true.
@@ -927,8 +944,8 @@ namespace DesktopAICompanion.Modules
         void SayAll(string text);
         // As Say/SayAll, but with an optional per-message SpeechStyle (font family/size, colour, bold/italic/
         // underline) the bubble renders. A null style -- or any unset field within it -- renders exactly as the
-        // plain Say/SayAll, so this is a pure superset. Added in 1.8.0: a module that calls these must declare
-        // MinHostVersion 1.0.0 or the load gate refuses it. (Pre-rebase 1.8.0.)
+        // plain Say/SayAll, so this is a pure superset. Added in pre-rebase 1.8.0, which is 1.0.0 now: every host has
+        // them, and the load gate refuses only a MinHostVersion above the running host, never an under-declared one.
         void Say(ICompanion pet, string text, SpeechStyle style);
         void SayAll(string text, SpeechStyle style);
         bool TryPlayAnimation(ICompanion pet, string animationName);
@@ -1036,8 +1053,9 @@ namespace DesktopAICompanion.Modules
         // contract entirely -- ModuleKit's WavAudio.FromPcm wraps raw samples for you.
         // `volume` is 0..1 RELATIVE to the user's master volume, which the host applies: a module can be
         // quieter than the pet, never louder, and a master of 0 means silence.
-        // Requires ModulePermissions.Audio. Returns false whenever nothing will be heard -- refused, no usable
-        // device, muted, undecodable, more than 2 channels, or over the size cap. That single bool is what
+        // Requires ModulePermissions.Audio. Returns false whenever nothing will be heard -- refused (a call made
+        // during Init included, see the header), no usable device, muted, undecodable, more than 2 channels, or
+        // over the size cap. That single bool is what
         // lets a caller fall back to showing a bubble instead.
         //
         // Deliberately no completion callback and no IsSoundPlaying: a caller knows the duration of the audio
@@ -1060,8 +1078,9 @@ namespace DesktopAICompanion.Modules
         bool StopSound(string moduleId);
 
         // Play the notification sound THE USER CHOSE, in Preferences, for the whole application.
-        // Gated on ModulePermissions.Audio exactly like PlaySound, and it honours the same three
-        // layers: the notificationSounds master switch, the master volume, and the output device.
+        // Gated on ModulePermissions.Audio exactly like PlaySound (so refused during Init, see the
+        // header), and it honours the same three layers: the notificationSounds master switch, the
+        // master volume, and the output device.
         // Added 1.1.6.
         //
         // It exists because before it, "the app's notification sound" was not a thing a module
@@ -1102,7 +1121,9 @@ namespace DesktopAICompanion.Modules
         // The pet inspection/authoring/placement service (see ICompanionManager). Never null: when the named module
         // has not declared ModulePermissions.Companions a refusing instance is returned (enumerations come back
         // empty, fallible verbs return false with a reason), matching how RegisterHotkey degrades to a no-op
-        // handle rather than throwing into a module.
+        // handle rather than throwing into a module. A DECLARING module gets the same refusing instance when it
+        // asks during its own Init (see the header), and its reasons still say the permission is not declared:
+        // that refusal is not kept, so ask again once Init has returned and the real service comes back.
         ICompanionManager GetCompanionManager(string moduleId);
 
         // True when the app is presenting itself dark. A module that owns a WINDOW needs this to match the
@@ -1128,7 +1149,8 @@ namespace DesktopAICompanion.Modules
         // Requires the calling module to declare ModulePermissions.Network — launching a browser is weaker
         // than the raw network access that flag already grants, but it IS user-visible, so it stays behind
         // a declared capability rather than being free to any module. The host validates the URL (HTTPS,
-        // real host, no userinfo, length-bounded) and swallows failures. Returns false when refused.
+        // real host, no userinfo, length-bounded) and swallows failures. Returns false when refused, a call made
+        // during Init included (see the header).
         bool OpenLink(string moduleId, string httpsUrl);
 
         // ---- shared context (host 1.0.0+, pre-rebase 1.9.0) ----
@@ -1138,8 +1160,8 @@ namespace DesktopAICompanion.Modules
         // never parses. Reading an unset key returns "". ContextChanged fires with the key that changed, on the
         // UI thread, so a reader reacts without polling. Live process state, not settings: it is unpersisted and
         // cleared on restart, and deliberately ungated (it is strictly weaker than the storage a module has).
-        // A module that calls these must declare MinHostVersion 1.0.0 or the load gate refuses it.
-        // (Pre-rebase 1.9.0.)
+        // Added in pre-rebase 1.9.0, which is 1.0.0 now: every host has them, and the load gate refuses only a
+        // MinHostVersion above the running host, never an under-declared one.
         void PublishContext(string moduleId, string key, string valueJson);
         string ReadContext(string key);
 
@@ -1484,7 +1506,10 @@ namespace DesktopAICompanion.Modules
         Imported = 2,
         NotImported = 3,      // the store has been used, so the caller's old copy is not taken (delete it)
         Removed = 4,
-        NothingToRemove = 5,  // nothing was saved (never, or removed already); the store is closed to imports all the same
+        // Nothing was saved (never, or removed already), and nothing is written: a store never used stays open to an
+        // import, one removed already stays closed (see THE STORE'S LIFE). Said "closed to imports all the same" until
+        // N-audit-1106-134, which fca125a had reversed.
+        NothingToRemove = 5,
         Refused = 6,          // the value is nothing a token can be: see Problem
         Denied = 7,
         ConsentRequired = 8,
@@ -1495,8 +1520,9 @@ namespace DesktopAICompanion.Modules
     public sealed class HostCredentialCommit
     {
         public HostCredentialOutcome Outcome { get; set; }
-        // The revision committed (Saved, Imported, Removed, and NothingToRemove when it had to close the store), or the
-        // current one when nothing was committed and it could be read; -1 when it could not.
+        // The revision committed (Saved, Imported, Removed), or the current one when nothing was committed and it could
+        // be read (NothingToRemove commits nothing: 0 for a store never used, the removal's revision for one removed
+        // already); -1 when it could not.
         public long Revision { get; set; }
         // Refused and Unavailable: why, in a short sentence that never carries the value. "" otherwise.
         public string Problem { get; set; }

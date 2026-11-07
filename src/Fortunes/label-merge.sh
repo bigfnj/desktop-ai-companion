@@ -95,10 +95,10 @@ for tsv in "${chunk_files[@]}"; do
     continue
   fi
 
-  if ! awk -v topics="$LABEL_TOPICS" -v genres="$LABEL_GENRES" '
+  if ! awk -v topics="$LABEL_TOPICS" -v genres="$LABEL_GENRES" "$LABEL_AWK_MEMBER"'
       NF != 3 || $1 != FNR ||
-        index(topics, "|" $2 "|") == 0 ||
-        index(genres, "|" $3 "|") == 0 { bad=1 }
+        !label_member(topics, $2) ||
+        !label_member(genres, $3) { bad=1 }
       END { exit bad ? 1 : 0 }
     ' "$out"; then
     failed=$((failed + 1))

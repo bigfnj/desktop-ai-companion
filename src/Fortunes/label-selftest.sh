@@ -233,6 +233,21 @@ lock_holder_pid=""
 [ ! -e "$fort/.label-pipeline.lock" ]
 
 # Duplicate source selection is bytewise and independent of creation/traversal order or locale.
+# BOTH AXES MUST BE ABLE TO VARY (N-audit-1106-140). The duplicate sources are B-source and a-source:
+# bytewise 'B' sorts first, while a collating locale (and bash's glob under it) puts 'a' first, so a
+# build-input that dropped its bytewise sort would keep B-source under C and a-source under that locale.
+# They were a-source and z-source, which every locale orders the same way, so the sort could go unnoticed.
+# The locale is chosen by PROBING that it collates differently from C, never by taking the first
+# non-C name `locale -a` prints; a host with none says DEGRADED on every run instead of passing quietly.
+collating_locale=""
+for candidate in en_US.UTF-8 en_US.utf8 $(locale -a 2>/dev/null | LC_ALL=C grep -v -E '^(C|C[.]UTF-8|C[.]utf8|POSIX)$' || true); do
+  if [ "$(printf 'B\na\n' | LC_ALL="$candidate" sort 2>/dev/null | sed -n '1p')" = 'a' ]; then
+    collating_locale="$candidate"
+    break
+  fi
+done
+[ -n "$collating_locale" ] ||
+  echo 'label pipeline self-test: DEGRADED: no locale here collates differently from C; the locale legs of the determinism and comm stages run under C' >&2
 det_fort="$fixture/determinism/project/src/Fortunes"
 det_packs="$fixture/determinism/project/packs"
 mkdir -p -- "$det_fort" "$det_packs"
@@ -241,37 +256,72 @@ cat > "$det_fort/fortunes.txt" <<'EOF'
 embedded	general	general	0	Unique embedded fortune.
 EOF
 : > "$det_fort/labels-store.tsv"
-printf 'pack	general	general	0\tShared duplicate fortune.\n' > "$det_packs/z-source.txt"
+printf 'pack	general	general	0\tShared duplicate fortune.\n' > "$det_packs/B-source.txt"
 printf 'pack	general	general	0\tShared duplicate fortune.\n' > "$det_packs/a-source.txt"
 (cd / && LC_ALL=C bash "$det_fort/label-build-input.sh") >/dev/null
 cp -- "$det_fort/label-input.tsv" "$fixture/deterministic-input.tsv"
 cp -- "$det_fort/label-input.meta" "$fixture/deterministic-input.meta"
 deterministic_hash="$(sha256_file "$det_fort/label-input.tsv")"
-grep -Fqx $'a-source\tShared duplicate fortune.' "$det_fort/label-input.tsv"
+grep -Fqx $'B-source\tShared duplicate fortune.' "$det_fort/label-input.tsv" ||
+  { echo 'determinism: the bytewise-lowest source (B-source) did not keep the duplicate text under C' >&2; exit 1; }
 
-# Recreate the duplicate-bearing files in the opposite order and use a non-C locale when one
-# exists. The generated input must remain byte-for-byte identical.
-rm -f -- "$det_packs/a-source.txt" "$det_packs/z-source.txt"
+# Recreate the duplicate-bearing files in the opposite order and build under the collating locale
+# probed above. The generated input must remain byte-for-byte identical.
+rm -f -- "$det_packs/a-source.txt" "$det_packs/B-source.txt"
 printf 'pack	general	general	0\tShared duplicate fortune.\n' > "$det_packs/a-source.txt"
-printf 'pack	general	general	0\tShared duplicate fortune.\n' > "$det_packs/z-source.txt"
-alternate_locale=""
-if command -v locale >/dev/null 2>&1; then
-  alternate_locale="$(
-    locale -a 2>/dev/null |
-      LC_ALL=C awk '
-        !found && $0 !~ /^(C|C[.]UTF-8|C[.]utf8|POSIX)$/ {
-          candidate=$0
-          found=1
-        }
-        END { if (found) print candidate }
-      '
-  )"
-fi
-alternate_locale="${alternate_locale:-C}"
+printf 'pack	general	general	0\tShared duplicate fortune.\n' > "$det_packs/B-source.txt"
+alternate_locale="${collating_locale:-C}"
 (cd / && LC_ALL="$alternate_locale" bash "$det_fort/label-build-input.sh") >/dev/null
-cmp -s "$fixture/deterministic-input.tsv" "$det_fort/label-input.tsv"
+cmp -s "$fixture/deterministic-input.tsv" "$det_fort/label-input.tsv" ||
+  { printf 'determinism: label-input.tsv differs under %s from the C build\n' "$alternate_locale" >&2; exit 1; }
 cmp -s "$fixture/deterministic-input.meta" "$det_fort/label-input.meta"
 [ "$(sha256_file "$det_fort/label-input.tsv")" = "$deterministic_hash" ]
+
+# comm walks its inputs in its own locale's order, so every comm in the pipeline runs under the C locale its keys
+# were sorted in (N-audit-1106-139). Under a collating locale it mis-paired "Bravo..." and "alpha...", and label-next
+# refused a valid store as holding a text outside the input. This drives label-next under the probed locale; the
+# source check after it holds the other comm sites, which this stage cannot reach, to the same prefix.
+loc_fort="$fixture/locale/project/src/Fortunes"
+mkdir -p -- "$loc_fort" "$fixture/locale/project/packs"
+cp -- "$SOURCE_DIR/label-common.sh" "$SOURCE_DIR/label-next.sh" "$loc_fort/"
+printf 'embedded\tBravo locale fortune.\nembedded\talpha locale fortune.\n' > "$loc_fort/label-input.tsv"
+printf 'alpha locale fortune.\ttech\tquip\n' > "$loc_fort/labels-store.tsv"
+if ! (cd / && LC_ALL="${collating_locale:-C}" bash "$loc_fort/label-next.sh" 5) >/dev/null 2>"$fixture/locale-next.err"; then
+  printf 'comm locale: label-next refused a valid store under %s: %s\n' "${collating_locale:-C}" "$(cat "$fixture/locale-next.err")" >&2
+  exit 1
+fi
+[ "$(cat "$loc_fort/.batchtexts")" = 'Bravo locale fortune.' ] ||
+  { echo 'comm locale: label-next did not batch exactly the one unlabeled text' >&2; exit 1; }
+# The pipeline's scripts, this one excluded: its own greps name both patterns, and counting them made the witness
+# below pass with no real site at all.
+pipeline_scripts=()
+for script in "$SOURCE_DIR"/label-*.sh; do
+  [ "${script##*/}" = label-selftest.sh ] || pipeline_scripts+=("$script")
+done
+prefixed_comm="$(grep -h 'LC_ALL=C comm -' "${pipeline_scripts[@]}" | grep -c . || true)"
+bare_comm="$(grep -n 'comm -' "${pipeline_scripts[@]}" | grep -v 'LC_ALL=C comm -' || true)"
+[ "$prefixed_comm" -gt 0 ] && [ -z "$bare_comm" ] ||
+  { printf 'comm locale: a pipeline comm runs in the caller locale (prefixed sites seen: %s): %s\n' "$prefixed_comm" "$bare_comm" >&2; exit 1; }
+
+# A taxonomy value is an exact member of its list (N-audit-1106-138). Two adjacent values joined by the list's own
+# delimiter ("tech|science") passed the substring test in every validator. The two shared validators are driven
+# directly; ingest's and merge's awk use the same label_member, and the source check holds every validator to it.
+pipe_store="$fixture/pipe-label-store.tsv"
+printf 'A text with a joined topic.\ttech|science\tquip\n' > "$pipe_store"
+expect_failure_matching 'labels-store.tsv has invalid' \
+  bash -c '. "$1/label-common.sh"; label_validate_store "$2"' _ "$det_fort" "$pipe_store"
+printf 'A text with a joined genre.\ttech\tpun|quip\n' > "$pipe_store"
+expect_failure_matching 'labels-store.tsv has invalid' \
+  bash -c '. "$1/label-common.sh"; label_validate_store "$2"' _ "$det_fort" "$pipe_store"
+printf 'src\ttech\tquip\tgeneral|edgy\t0\tA text with a joined level.\n' > "$pipe_store"
+expect_failure_matching 'invalid schema-v2 output' \
+  bash -c '. "$1/label-common.sh"; label_validate_six_column_file "$2"' _ "$det_fort" "$pipe_store"
+printf 'A text with one topic.\ttech\tquip\n' > "$pipe_store"
+bash -c '. "$1/label-common.sh"; label_validate_store "$2"' _ "$det_fort" "$pipe_store" ||
+  { echo 'taxonomy: a valid single-member store row was refused' >&2; exit 1; }
+substring_tests="$(grep -n 'index(\(topics\|genres\|levels\)' "${pipeline_scripts[@]}" || true)"
+[ -z "$substring_tests" ] ||
+  { printf 'taxonomy: a validator still tests membership by substring: %s\n' "$substring_tests" >&2; exit 1; }
 
 # The two Python in-place transforms stage output and preserve the exact prior bytes when a
 # later row fails validation or a resource bound.
@@ -470,10 +520,15 @@ cp -- "$fixture/clean-alpha.tsv" "$build_fort/sources/alpha.tsv"
 # A clean build: four input rows, one text shared by alpha and beta, so three rows come out, the
 # duplicate resolved in manifest order (alpha keeps it), sorted C-locale by source then text.
 (cd / && bash "$build_fort/build-corpus.sh") >/dev/null
+grep -Fqx $'alpha\ttech\tquip\t0\t0\tA durable scratch fortune.' "$build_fort/fortunes.txt"
+# An `if`, not a bare `! grep`: set -e ignores a negated command, so that form could never stop the script
+# (N-audit-1106-141). Ahead of the row counts so a kept duplicate is reported as itself.
+if grep -Fq $'beta\tfacts\tgeneral\t0\t0\tA durable scratch fortune.' "$build_fort/fortunes.txt"; then
+  echo "build-corpus kept beta's copy of a text alpha already supplies" >&2
+  exit 1
+fi
 awk -F'\t' 'NF != 6 { exit 1 } END { if (NR != 3) exit 1 }' "$build_fort/fortunes.txt"
 [ "$(cut -f1 "$build_fort/fortunes.txt" | LC_ALL=C sort | uniq -c | awk '{print $1":"$2}' | paste -sd, -)" = "2:alpha,1:beta" ]
-grep -Fqx $'alpha\ttech\tquip\t0\t0\tA durable scratch fortune.' "$build_fort/fortunes.txt"
-! grep -Fq $'beta\tfacts\tgeneral\t0\t0\tA durable scratch fortune.' "$build_fort/fortunes.txt"
 expect_no_match "$build_fort" '.build-corpus.*'
 
 # --check passes on the file it just wrote, refuses a drifted one without rewriting it, and refuses
@@ -518,19 +573,21 @@ expect_failure bash "$fort/label-merge.sh"
 [ "$(sha256_file "$fort/labels-store.tsv")" = "$before_store" ] ||
   { echo "merge failure changed prior store" >&2; exit 1; }
 
-# An unexpected output with no corresponding input chunk is also fatal and atomic.
-printf '1 tech quip\n' > "$fort/label-chunks/chunk999.out"
-expect_failure bash "$fort/label-merge.sh"
-[ "$(sha256_file "$fort/labels-store.tsv")" = "$before_store" ] ||
-  { echo "extra-output failure changed prior store" >&2; exit 1; }
-rm -f -- "$fort/label-chunks/chunk999.out"
-
 # A complete, ordered, locked chunk set replaces the store.
 cat > "$fort/label-chunks/chunk001.out" <<'EOF'
 1 tech quip
 2 life dark
 3 science fact
 EOF
+
+# An unexpected output with no corresponding input chunk is also fatal and atomic. It runs AFTER chunk001.out
+# exists: run before it, merge failed on the missing chunk, so deleting the extra-output guard left this case green
+# (N-audit-1106-142). The match is the guard's own NEEDS REDO entry.
+printf '1 tech quip\n' > "$fort/label-chunks/chunk999.out"
+expect_failure_matching 'chunk999(extra-output)' bash "$fort/label-merge.sh"
+[ "$(sha256_file "$fort/labels-store.tsv")" = "$before_store" ] ||
+  { echo "extra-output failure changed prior store" >&2; exit 1; }
+rm -f -- "$fort/label-chunks/chunk999.out"
 
 # TERM while the store rename is in flight restores both the prior store and metadata, then releases the lock.
 merge_store_before="$(sha256_file "$fort/labels-store.tsv")"

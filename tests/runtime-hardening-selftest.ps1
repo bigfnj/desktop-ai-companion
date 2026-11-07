@@ -5946,6 +5946,33 @@ Assert-True ($w3Offline.Length -gt 0 -and $w3Missing.Count -eq 0 -and $w3PythonL
     " (loops at $w3PythonLoop and $w3PwshLoop, exit reads at $($w3ExitReads -join ', '), exit checks at $($w3ExitAdds -join ', '), throw at $w3Throw)" +
     $(if ($w3Missing.Count) { ' -- not listed: ' + ($w3Missing -join ', ') } else { '' }))
 
+# ---- burndown/w4-contracts-1 ----
+# NO WARNING-LEVEL PIN BELOW THE SDK DEFAULT IN src\ (N-audit-1106-136). src\Directory.Build.props pinned WarningLevel 4, the
+# .NET Framework value; for a net10 project the SDK default is the framework's major version, 10, so the pin switched the
+# compiler's warning waves 5 to 10 off for the host, Contracts, ModuleKit and AgentBroker.Core, and TreatWarningsAsErrors
+# could never fire on those classes. XML comments are stripped first (the props file explains the rule in one), then every
+# WarningLevel element in the props file and in each src project must be a number of at least 10. WITNESS: the scan read
+# the props file and at least four projects, and the props file still sets TreatWarningsAsErrors, so a scan that read
+# nothing, or the wrong file, fails instead of passing.
+$w4SrcBuildFiles = @(Get-Item -LiteralPath (Join-Path $repoRoot 'src\Directory.Build.props')) +
+    @(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'src') -Recurse -Filter '*.csproj' -File |
+        Where-Object { $_.FullName -cnotmatch '\\(bin|obj)\\' })
+$w4LowPins = @()
+$w4PropsText = ''
+foreach ($w4File in $w4SrcBuildFiles) {
+    $w4Xml = [regex]::Replace((Get-Content -LiteralPath $w4File.FullName -Raw), '(?s)<!--.*?-->', '')
+    if ($w4File.Name -ceq 'Directory.Build.props') { $w4PropsText = $w4Xml }
+    foreach ($w4Pin in [regex]::Matches($w4Xml, '<WarningLevel\b[^>]*>\s*([^<]*?)\s*</WarningLevel>')) {
+        $w4Value = $w4Pin.Groups[1].Value
+        if ($w4Value -cnotmatch '^\d{1,5}$' -or [int] $w4Value -lt 10) { $w4LowPins += ($w4File.Name + '=' + $w4Value) }
+    }
+}
+Assert-True ($w4SrcBuildFiles.Count -ge 5 -and $w4PropsText -cmatch '<TreatWarningsAsErrors>true</TreatWarningsAsErrors>') (
+    "w4-contracts-1: the warning-level scan read src\Directory.Build.props and the src projects (WITNESS: TreatWarningsAsErrors is still set; $($w4SrcBuildFiles.Count) files)")
+Assert-True ($w4LowPins.Count -eq 0) (
+    "w4-contracts-1: no src project pins WarningLevel below the net10 default of 10" +
+    $(if ($w4LowPins.Count) { ' -- ' + ($w4LowPins -join ', ') } else { '' }))
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever

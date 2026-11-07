@@ -86,7 +86,7 @@ if [ -e "$LABEL_STORE" ] || [ -L "$LABEL_STORE" ]; then
     label_validate_store "$LABEL_STORE"
     cut -f1 "$LABEL_STORE" | LC_ALL=C sort > "$tmp_dir/store.keys"
     cut -f2 "$tmp_dir/input.tsv" | LC_ALL=C sort > "$tmp_dir/input.keys"
-    if ! comm -12 "$tmp_dir/store.keys" "$tmp_dir/input.keys" |
+    if ! LC_ALL=C comm -12 "$tmp_dir/store.keys" "$tmp_dir/input.keys" |
          cmp -s - "$tmp_dir/store.keys"; then
       label_die "existing store contains texts outside the rebuilt input; refusing to replace input"
     fi

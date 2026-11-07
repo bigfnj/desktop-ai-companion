@@ -4367,6 +4367,23 @@ CASES = (
         b"}\n\nif ($failures.Count -gt 0) {",
         "w3-tests-harness-1: the offline script checks run every mutation-tooling check",
     ),
+    # ---- burndown/w4-contracts-1 ----
+    # The WarningLevel 4 pin comes back, in the shared props file or in one src project (N-audit-1106-136).
+    # "bd-w4-contracts-1:" for one --only.
+    (
+        "bd-w4-contracts-1: src Directory.Build.props pins WarningLevel 4 again (N-audit-1106-136)",
+        os.path.join(REPO, "src", "Directory.Build.props"),
+        b"    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>\n",
+        b"    <WarningLevel>4</WarningLevel>\n    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>\n",
+        "w4-contracts-1: no src project pins WarningLevel below the net10 default of 10",
+    ),
+    (
+        "bd-w4-contracts-1: the Contracts project pins WarningLevel 4 (N-audit-1106-136)",
+        os.path.join(REPO, "src", "DesktopAICompanion.Contracts", "DesktopAICompanion.Contracts.csproj"),
+        b"    <TargetFramework>net10.0-windows</TargetFramework>\n",
+        b"    <TargetFramework>net10.0-windows</TargetFramework>\n    <WarningLevel>4</WarningLevel>\n",
+        "w4-contracts-1: no src project pins WarningLevel below the net10 default of 10",
+    ),
 )
 
 
