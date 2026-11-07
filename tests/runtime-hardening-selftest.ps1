@@ -3500,10 +3500,12 @@ Assert-True ($tryVerifyBody -cmatch 'WavAudio\.FromPcm\(new short\[clipSamples\]
 
 # "TRANSCRIBE A WAV FILE..." RAISES remembrance.busy FOR ITS RUN. The aibrain-standdown lane reads that flag to keep
 # its own model off the GPU while this module runs whisper-cli, and the module self-test drives every other span
-# (the stop path, both Validates, "Summarize a transcript...") through stand-ins. This one opens a WinForms file
-# dialog before it runs anything, which a headless self-test cannot get past, so its ORDER is pinned here: the span
-# is raised on the UI thread before the background run starts, and cleared in that run's finally, so a whisper-cli
-# that throws still clears it. The positive control is the run itself going through the TranscribeWav seam.
+# (the stop path, both Validates, "Summarize a transcript...") through stand-ins. This one opened a WinForms file
+# dialog before it ran anything, which a headless self-test could not get past, so its ORDER was pinned here; since
+# N-audit-1106-282 it takes the host's picker and the module self-test presses it too, and this keeps the half that
+# press does not reach: the span is raised on the UI thread before the background run starts, and cleared in that
+# run's finally, so a whisper-cli that throws still clears it. The positive control is the run itself going through
+# the TranscribeWav seam.
 $transcribeExistingBody = Get-MethodBody $remembranceModuleCode 'private string TranscribeExisting('
 Assert-True ($transcribeExistingBody.Length -gt 0 -and
     $transcribeExistingBody -cmatch 'TranscribeWav\(wav, transcript, whisperExe, model, name, null, null, out did\)') (

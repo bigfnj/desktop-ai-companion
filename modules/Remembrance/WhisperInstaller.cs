@@ -617,26 +617,42 @@ namespace DesktopAICompanion.RemembranceModule
         /// </summary>
         internal static int? NetworkProtectionState()
         {
-            string[] keys =
-            {
-                @"SOFTWARE\Policies\Microsoft\Windows Defender\Windows Defender Exploit Guard\Network Protection",
-                @"SOFTWARE\Microsoft\Windows Defender\Windows Defender Exploit Guard\Network Protection",
-            };
-            foreach (string key in keys)
+            return NetworkProtectionStateFrom(ReadNetworkProtectionValue);
+        }
+
+        /// <summary>The two keys <see cref="NetworkProtectionState"/> reads under HKLM, the policy first.</summary>
+        internal static readonly string[] NetworkProtectionKeys =
+        {
+            @"SOFTWARE\Policies\Microsoft\Windows Defender\Windows Defender Exploit Guard\Network Protection",
+            @"SOFTWARE\Microsoft\Windows Defender\Windows Defender Exploit Guard\Network Protection",
+        };
+
+        /// <summary>
+        /// The order of the read, apart from the registry: the first key whose value means 0, 1 or 2 wins, so on a managed
+        /// machine the policy value is the one in force, and an absent, unreadable or not-understood value falls through
+        /// to the next key. <paramref name="readValue"/> gives the "EnableNetworkProtection" value under a key, or null.
+        /// Split out so the self-test can drive the order with values it chooses: the check it replaces read this
+        /// machine's registry and asserted the answer was 0..2 or null, which is all the method can return, so it could
+        /// not fail (N-audit-1106-283).
+        /// </summary>
+        internal static int? NetworkProtectionStateFrom(Func<string, object> readValue)
+        {
+            foreach (string key in NetworkProtectionKeys)
             {
                 try
                 {
-                    using (Microsoft.Win32.RegistryKey k =
-                               Microsoft.Win32.Registry.LocalMachine.OpenSubKey(key))
-                    {
-                        if (k == null) continue;
-                        int? state = InterpretNetworkProtectionValue(k.GetValue("EnableNetworkProtection"));
-                        if (state.HasValue) return state;
-                    }
+                    int? state = InterpretNetworkProtectionValue(readValue(key));
+                    if (state.HasValue) return state;
                 }
                 catch (Exception) { }
             }
             return null;
+        }
+
+        private static object ReadNetworkProtectionValue(string key)
+        {
+            using (Microsoft.Win32.RegistryKey k = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(key))
+                return k == null ? null : k.GetValue("EnableNetworkProtection");
         }
 
         /// <summary>
