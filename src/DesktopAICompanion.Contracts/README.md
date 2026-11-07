@@ -43,7 +43,9 @@ when you actually call a member a newer host introduced.
 
 ## Also worth having
 
-[`DesktopAICompanion.ModuleKit`](https://www.nuget.org/packages/DesktopAICompanion.ModuleKit) — optional helpers plus a
-headless `RecordingHost`, so you can self-test a module with no app running.
+`DesktopAICompanion.ModuleKit` — optional helpers plus a headless `RecordingHost`, so you can self-test a module
+with no app running. Neither package is on nuget.org: both are attached to every
+[GitHub release](https://github.com/bigfnj/desktop-ai-companion/releases), so point a local package source at the
+folder you download them to.
 
 Full guide: [`docs/module-authoring.md`](https://github.com/bigfnj/desktop-ai-companion/blob/master/docs/module-authoring.md).

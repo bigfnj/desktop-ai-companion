@@ -1,8 +1,10 @@
 # DesktopAICompanion.ModuleKit
 
 Optional helpers for writing a [Desktop AI Companion](https://github.com/bigfnj/desktop-ai-companion) module. The
-required reference is [`DesktopAICompanion.Contracts`](https://www.nuget.org/packages/DesktopAICompanion.Contracts); this is
-the code the first-party modules kept re-copying by hand until it was collected here.
+required reference is `DesktopAICompanion.Contracts`; this is the code the first-party modules kept re-copying by
+hand until it was collected here. Neither package is on nuget.org: both are attached to every
+[GitHub release](https://github.com/bigfnj/desktop-ai-companion/releases), so point a local package source at the
+folder you download them to.
 
 | Type | For |
 |---|---|
