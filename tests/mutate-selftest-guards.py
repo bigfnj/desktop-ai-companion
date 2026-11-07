@@ -16017,7 +16017,8 @@ CASES = (
     ("audit-host: CredentialChanged's add is not ledgered",
      COMPANION_HOST,
      # Re-pointed by lane fix/final-host-1029: the add also records the handler's module (N-audit-runner-02).
-     b'            add { _credentialChanged += value; Ledger(delegate { _credentialChanged -= value; }); NoteCredentialHandlerOwner(value); }\n',
+     # Re-pointed by burndown/w4-host-1: the ledgered undo also forgets the owner (N-audit-1106-232).
+     b'            add { _credentialChanged += value; Ledger(delegate { _credentialChanged -= value; ForgetCredentialHandlerOwner(value); }); NoteCredentialHandlerOwner(value); }\n',
      b'            add { _credentialChanged += value; NoteCredentialHandlerOwner(value); }\n',
      HOST_CSPROJ, EXE,
      "--module-host-selftest", "dp-module-host-selftest.txt",
