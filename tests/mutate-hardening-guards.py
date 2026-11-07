@@ -4394,6 +4394,51 @@ CASES = (
         b"            return ProbeFfmpeg(\"ffmpeg\") ? \"ffmpeg\" : null;\n",
         "w4-converter-1: the converter's PATH ffmpeg candidate is FfmpegOnPath's full path",
     ),
+    # ---- burndown/w5-packaging-ci-1 ----
+    # release.yml's test step calls Invoke-OfflineScriptChecks.ps1, which fails without Pillow: the install step goes, loses
+    # its throw, drifts from build.yml's pin, or runs while the signing key is still in the store. "bd-w5-packaging-ci-1:"
+    # for one --only.
+    (
+        "bd-w5-packaging-ci-1: release.yml drops its Pillow install step",
+        RELEASE_YML,
+        b"      - name: Install the parity generator test dependency\n"
+        b"        shell: pwsh\n"
+        b"        run: |\n"
+        b"          python -m pip install --disable-pip-version-check \"Pillow==12.3.0\"\n"
+        b"          if ($LASTEXITCODE -ne 0) { throw \"Pillow installation failed (exit $LASTEXITCODE).\" }\n"
+        b"\n"
+        b"      - name: Test the build being released\n",
+        b"      - name: Test the build being released\n",
+        "w5-packaging-ci-1: every workflow that runs the offline checks installs Pillow in an earlier step",
+    ),
+    (
+        "bd-w5-packaging-ci-1: release.yml ignores a failed Pillow install",
+        RELEASE_YML,
+        b"\"Pillow==12.3.0\"\n"
+        b"          if ($LASTEXITCODE -ne 0) { throw \"Pillow installation failed (exit $LASTEXITCODE).\" }\n",
+        b"\"Pillow==12.3.0\"\n",
+        "w5-packaging-ci-1: every workflow that runs the offline checks installs Pillow in an earlier step",
+    ),
+    (
+        "bd-w5-packaging-ci-1: release.yml pins a different Pillow from build.yml",
+        RELEASE_YML,
+        b"\"Pillow==12.3.0\"",
+        b"\"Pillow==12.2.0\"",
+        "w5-packaging-ci-1: build.yml and release.yml install one Pillow pin",
+    ),
+    (
+        "bd-w5-packaging-ci-1: release.yml installs Pillow before the signing key is scrubbed",
+        RELEASE_YML,
+        b"      - name: Remove the signing certificate from the runner\n",
+        b"      - name: Install the parity generator test dependency\n"
+        b"        shell: pwsh\n"
+        b"        run: |\n"
+        b"          python -m pip install --disable-pip-version-check \"Pillow==12.3.0\"\n"
+        b"          if ($LASTEXITCODE -ne 0) { throw \"Pillow installation failed (exit $LASTEXITCODE).\" }\n"
+        b"\n"
+        b"      - name: Remove the signing certificate from the runner\n",
+        "w5-packaging-ci-1: release.yml installs Pillow after the signing key is scrubbed",
+    ),
 )
 
 
