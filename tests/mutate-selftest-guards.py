@@ -21184,6 +21184,36 @@ CASES = (
      b'     None),\n',
      None, None,
      MUTATION_UNITTESTS, None, 'test_every_installer_variant_names_the_check_it_must_fail'),
+
+    # ---- burndown/w3-remembrance-1 ----
+    # N-cxr-w1-01: the stub test reads the whole text again, header included, so a title opening with the marker makes a
+    # real transcript a stub and a failed re-run writes over it.
+    ("bd-w3-remembrance-1: the stub test reads the header's title again (N-cxr-w1-01)",
+     TRANSCRIBER,
+     b"            return body >= 0 && text.Length - body >= PendingMarker.Length &&\n"
+     b"                   string.CompareOrdinal(text, body, PendingMarker, 0, PendingMarker.Length) == 0;\n",
+     b"            return body >= -1 && text.IndexOf(PendingMarker, StringComparison.Ordinal) >= 0;\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a transcript whose title opens with the pending marker is kept through a failed re-run"),
+
+    # N-cxr-w1-02: a refused job is not noticed, so whisper-cli runs on outside it, as before the fix.
+    ("bd-w3-remembrance-1: a refused whisper job is not noticed (N-cxr-w1-02)",
+     TRANSCRIBER,
+     b"                    if (job == null)\n",
+     b"                    if (job == null && proc == null)\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a whisper-cli whose job Windows refuses is not run on"),
+
+    # N-cxr-w1-02: the refusal is reported but the child is left running.
+    ("bd-w3-remembrance-1: a refused whisper job reports and leaves the child running (N-cxr-w1-02)",
+     TRANSCRIBER,
+     b"                        StopUncontained(proc);\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a whisper-cli whose job Windows refuses has ended by the time the run returns"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

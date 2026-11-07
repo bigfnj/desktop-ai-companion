@@ -68,16 +68,45 @@ namespace DesktopAICompanion.RemembranceModule
         internal const string AppClosedReason =
             "The app closed while this recording was being saved, so it was not transcribed.";
 
-        /// <summary>The first word of every stub's body, at the start of its line. What tells a stub of ours from a
-        /// transcript: whisper-cli's -otxt output never opens a line with it.</summary>
+        /// <summary>The first word of every stub's body, at the start of its first line. What tells a stub of ours from a
+        /// transcript: whisper-cli's -otxt output never opens with it.</summary>
         internal const string PendingMarker = "[Transcription pending] ";
 
-        /// <summary>True when <paramref name="text"/> is one of our stubs: a body line opens with the marker.</summary>
+        /// <summary>The line that closes the header of every transcript and stub this module has written since 1.0.0,
+        /// with an empty line after it; the body starts below.</summary>
+        private static readonly string HeaderRule = new string('-', 48);
+
+        /// <summary>True when <paramref name="text"/> is one of our stubs: its BODY opens with the marker.</summary>
         internal static bool IsPendingStub(string text)
         {
-            return !string.IsNullOrEmpty(text) &&
-                   (text.StartsWith(PendingMarker, StringComparison.Ordinal) ||
-                    text.IndexOf("\n" + PendingMarker, StringComparison.Ordinal) >= 0);
+            int body = BodyStart(text);
+            return body >= 0 && text.Length - body >= PendingMarker.Length &&
+                   string.CompareOrdinal(text, body, PendingMarker, 0, PendingMarker.Length) == 0;
+        }
+
+        /// <summary>
+        /// Where the body of a transcript or stub of ours starts: just past the header's closing rule and the empty line
+        /// under it, the first such pair in the text. -1 when there is none, which makes the text no stub, so a file this
+        /// module cannot read as its own is kept.
+        ///
+        /// THE BODY, NOT THE WHOLE TEXT (N-cxr-w1-01). The marker used to be looked for at the start of ANY line, header
+        /// included, and the header's first line is the meeting's name: a WAV picked for "Transcribe a WAV file..." named
+        /// "[Transcription pending] Standup.wav", or a calendar subject that opens that way, made a real transcript read
+        /// as a stub. A re-run then wrote the pre-run stub over it before whisper-cli started, and a failure left failure
+        /// text where the words had been. The header's own lines cannot be the rule pair: its first line is followed by
+        /// "Recorded:", never by an empty line. Both line endings are read, since a transcript is a file the user may
+        /// have edited and saved with either.
+        /// </summary>
+        private static int BodyStart(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return -1;
+            foreach (string newline in new[] { "\r\n", "\n" })
+            {
+                string rule = newline + HeaderRule + newline + newline;
+                int at = text.IndexOf(rule, StringComparison.Ordinal);
+                if (at >= 0) return at + rule.Length;
+            }
+            return -1;
         }
 
         /// <summary>True when a transcript worth keeping is on disk at <paramref name="path"/>: a file with text in it
@@ -93,16 +122,14 @@ namespace DesktopAICompanion.RemembranceModule
             catch { return true; }
         }
 
-        /// <summary>The reason a stub gives, from the text Transcribe returned: what follows the marker on its line, or
-        /// null for a transcript. The manual path puts it on the Status line when it kept an earlier transcript, which
-        /// then is the only place the reason appears.</summary>
+        /// <summary>The reason a stub gives, from the text Transcribe returned: what follows the marker on the body's first
+        /// line, or null for a transcript (the header's lines are never read for it, as in IsPendingStub). The manual path
+        /// puts it on the Status line when it kept an earlier transcript, which then is the only place the reason
+        /// appears.</summary>
         internal static string PendingReason(string text)
         {
-            if (string.IsNullOrEmpty(text)) return null;
-            int at = text.StartsWith(PendingMarker, StringComparison.Ordinal) ? 0
-                : text.IndexOf("\n" + PendingMarker, StringComparison.Ordinal);
-            if (at < 0) return null;
-            int start = at + (at == 0 ? 0 : 1) + PendingMarker.Length;
+            if (!IsPendingStub(text)) return null;
+            int start = BodyStart(text) + PendingMarker.Length;
             int end = text.IndexOf('\n', start);
             return (end < 0 ? text.Substring(start) : text.Substring(start, end - start)).TrimEnd('\r');
         }
@@ -196,11 +223,26 @@ namespace DesktopAICompanion.RemembranceModule
                 // app. The job's only handle is this one, so it closes when this block ends, when anything in it throws,
                 // and when the process ends however it ends, and Windows ends whisper-cli with it. AI Brain contains its
                 // OCR child the same way. Rejected: tracking the Process and killing it from Shutdown, which a crash or a
-                // task-manager kill never reaches. Best-effort like AI Brain's: a refused job leaves the old behaviour.
-                using (Process proc = Process.Start(psi))
-                using (WhisperJob job = WhisperJob.TryAttach(proc))
+                // task-manager kill never reaches.
+                using (Process proc = StartChild(psi))
+                using (IDisposable job = AttachJob(proc))
                 {
                     if (proc == null) { why = "Windows would not start whisper-cli."; return ""; }
+                    // A REFUSED JOB STOPS THE RUN (N-cxr-w1-02). This was best effort, as AI Brain's is: TryAttach
+                    // returns null when Windows refuses to create, configure or assign the job, using(null) is legal, and
+                    // whisper-cli ran on as the free-standing child the job exists to prevent, with nothing said. AI
+                    // Brain's OCR child lives for seconds; this one lives for hours, so the gap is the whole point of the
+                    // job. It is ended here, before anything waits on it, and the stub says why. Rejected: carrying on
+                    // and logging, which keeps the transcript on the rare machine that refuses a nested job, but leaves
+                    // the user nothing on screen and the next app close an orphan holding the CPU. What remains
+                    // uncontained is the moment between Process.Start and the assign, which Process.Start (no
+                    // CREATE_SUSPENDED) cannot close.
+                    if (job == null)
+                    {
+                        StopUncontained(proc);
+                        why = JobRefusedReason;
+                        return "";
+                    }
                     // BOTH pipes drained CONCURRENTLY, and only then the wait.
                     //
                     // This was ReadToEnd() on stdout and then on stderr, followed by WaitForExit(timeout).
@@ -239,6 +281,24 @@ namespace DesktopAICompanion.RemembranceModule
                 return result;
             }
             catch (Exception ex) { why = "Transcription failed: " + ex.Message; return ""; }
+        }
+
+        /// <summary>How whisper-cli is started and put in its job, behind delegates so the self-test can have the job
+        /// refused with a harmless child standing in for whisper-cli (N-cxr-w1-02). AttachJob returns null when Windows
+        /// refuses the job. Default to the real ones.</summary>
+        internal static Func<ProcessStartInfo, Process> StartChild = Process.Start;
+        internal static Func<Process, IDisposable> AttachJob = WhisperJob.TryAttach;
+
+        /// <summary>Why a run whose job Windows refused did not transcribe (N-cxr-w1-02).</summary>
+        internal const string JobRefusedReason =
+            "Windows would not let Remembrance tie whisper-cli to the app, so it was stopped rather than left to run on its own after the app closes.";
+
+        /// <summary>End a whisper-cli that is in no job, and wait for it to be gone, so nothing it does outlives this
+        /// call. Best-effort: one that has already exited is the outcome wanted.</summary>
+        private static void StopUncontained(Process proc)
+        {
+            try { proc.Kill(true); } catch { }
+            try { proc.WaitForExit(5000); } catch { }
         }
 
         /// <summary>The one message that is genuinely about setup, so the five that are NOT stop borrowing

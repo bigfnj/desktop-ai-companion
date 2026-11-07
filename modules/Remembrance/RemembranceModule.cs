@@ -101,7 +101,11 @@ namespace DesktopAICompanion.RemembranceModule
                                  //        counts the recordings with audio and no transcript, and the Status line says
                                  //        how many and when the purge reaches the oldest (N-audit-1106-038). The self-test
                                  //        of a rename whose target appeared after the plan now requires the move's own
-                                 //        refusal, ERROR_ALREADY_EXISTS (N-shimeji-1106-06).
+                                 //        refusal, ERROR_ALREADY_EXISTS (N-shimeji-1106-06). A transcript whose title
+                                 //        opens with "[Transcription pending]" is no longer taken for a stub, so a failed
+                                 //        re-run leaves it as it was (N-cxr-w1-01). A whisper-cli whose job Windows
+                                 //        refuses is stopped and the stub says why, where it ran on outside the job and
+                                 //        could outlive the app (N-cxr-w1-02).
                                  // 2.10.0: one Claude Code sign-in, shared with AI Brain (host 1.8.0's
                                  //        IHostCredentials, BACKLOG N-cli-token-02, the owner's decision of
                                  //        2026-10-29), behind the ClaudeCodeSignIn grant, so MinHostVersion rises to
@@ -5759,6 +5763,7 @@ namespace DesktopAICompanion.RemembranceModule
                     && !Transcriber.RecordedLine(null).Contains(DateTime.Now.Year.ToString(CultureInfo.InvariantCulture)));
 
                 SelfCheckTranscriptKeeping(check, scratch, wav, startedAt);
+                SelfCheckJobRefused(check, wav);
             }
             catch (Exception ex) { check("wav length: " + ex.Message, false); }
             finally
@@ -5844,9 +5849,94 @@ namespace DesktopAICompanion.RemembranceModule
                 string freshAfter = System.IO.File.ReadAllText(fresh);
                 check("WITNESS a run that succeeds replaces that stub with the words",
                     freshRan && freshAfter.Contains("Alice: hello.") && !Transcriber.IsPendingStub(freshAfter));
+
+                // ---- a title that opens with the marker is a title, not a stub (N-cxr-w1-01) ----
+                // The meeting's name is the header's first line, and "Transcribe a WAV file..." names it after the file.
+                string titled = System.IO.Path.Combine(scratch, "titled.transcript.txt");
+                System.IO.File.WriteAllText(titled, Transcriber.PendingMarker + "Standup\r\nRecorded: earlier\r\n" +
+                                                    new string('-', 48) + "\r\n\r\nAlice: we ship on Friday.\r\n");
+                string titledBefore = System.IO.File.ReadAllText(titled);
+                string duringTitled = null;
+                Transcriber.Whisper = delegate(string w, string exe, string model, out bool ok, out string why)
+                {
+                    duringTitled = System.IO.File.ReadAllText(titled);
+                    ok = false;
+                    why = "simulated: whisper-cli exited 3";
+                    return "";
+                };
+                bool titledRan;
+                Transcriber.Transcribe(wav, titled, "", "", Transcriber.PendingMarker + "Standup", null, startedAt, out titledRan);
+                check("a transcript whose title opens with the pending marker is kept through a failed re-run, never read as a stub (N-cxr-w1-01)",
+                    !titledRan && duringTitled == titledBefore && System.IO.File.ReadAllText(titled) == titledBefore);
+                check("text with the marker and no header of ours is kept as the user's, not replaced as a stub",
+                    !Transcriber.IsPendingStub(Transcriber.PendingMarker + "my own notes\n"));
+                string titledStub = System.IO.Path.Combine(scratch, "titled-stub.transcript.txt");
+                Transcriber.WriteStub(titledStub, Transcriber.PendingMarker + "Standup", null, startedAt, "simulated: titled reason");
+                string titledStubText = System.IO.File.ReadAllText(titledStub);
+                check("WITNESS a stub under that same title is still a stub, its reason read from the body",
+                    Transcriber.IsPendingStub(titledStubText) && Transcriber.PendingReason(titledStubText) == "simulated: titled reason");
             }
             catch (Exception ex) { check("transcript keeping: " + ex.Message, false); }
             finally { Transcriber.Whisper = savedRun; }
+        }
+
+        /// <summary>
+        /// A whisper-cli whose kill-on-close job Windows refuses is ended and the run says why (N-cxr-w1-02). The job is
+        /// refused through Transcriber.AttachJob, and Windows PowerShell sleeping for 15 seconds stands in for whisper-cli
+        /// through Transcriber.StartChild, so the real run is exercised with a child that does nothing and ends by itself
+        /// even if this check's subject regresses.
+        /// </summary>
+        private static void SelfCheckJobRefused(Action<string, bool> check, string wav)
+        {
+            Func<ProcessStartInfo, Process> savedStart = Transcriber.StartChild;
+            Func<Process, IDisposable> savedAttach = Transcriber.AttachJob;
+            Process stand = null;
+            bool aliveWhenRefused = false;
+            try
+            {
+                string sleeper = System.IO.Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe");
+                if (!System.IO.File.Exists(sleeper))
+                {
+                    check("job refusal: Windows PowerShell, the stand-in child, is not on this machine", false);
+                    return;
+                }
+                Transcriber.StartChild = delegate(ProcessStartInfo psi)
+                {
+                    psi.ArgumentList.Clear();
+                    foreach (string arg in new[] { "-NoProfile", "-NonInteractive", "-Command", "Start-Sleep -Seconds 15" })
+                        psi.ArgumentList.Add(arg);
+                    return Process.Start(psi);
+                };
+                Transcriber.AttachJob = delegate(Process child)
+                {
+                    try
+                    {
+                        stand = Process.GetProcessById(child.Id);
+                        aliveWhenRefused = !stand.HasExited;
+                    }
+                    catch { }
+                    return null;
+                };
+                bool ok;
+                string why;
+                Transcriber.Whisper(wav, sleeper, wav, out ok, out why);
+                check("WITNESS the stand-in whisper-cli was running when its job was refused", aliveWhenRefused);
+                check("a whisper-cli whose job Windows refuses is not run on: the run fails and says why (N-cxr-w1-02)",
+                    !ok && why == Transcriber.JobRefusedReason);
+                check("a whisper-cli whose job Windows refuses has ended by the time the run returns (N-cxr-w1-02)",
+                    stand != null && stand.HasExited);
+            }
+            catch (Exception ex) { check("job refusal: " + ex.Message, false); }
+            finally
+            {
+                Transcriber.StartChild = savedStart;
+                Transcriber.AttachJob = savedAttach;
+                if (stand != null)
+                {
+                    try { if (!stand.HasExited) stand.Kill(true); } catch { }
+                    stand.Dispose();
+                }
+            }
         }
 
         /// <summary>A release lookup that gets no answer gives up at its own bound (F184).</summary>
