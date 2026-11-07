@@ -2358,10 +2358,10 @@
       "id": "agentflow",
       "name": "AgentFlow",
       "desc": "Notices when a coding agent (Claude Code, Codex) is stuck on a permission prompt, and tells you which app is waiting: Claude desktop, Claude Code in VS Code or the CLI, Codex desktop, Codex in VS Code, or codex exec. It can also APPROVE the prompt for you in VS Code, if you switch that on. By default it presses only the option that approves THAT ONE CALL: never \"don't ask again\", never \"allow all edits this session\", never a permission-mode change. Two opt-ins let it press Claude's \"for all projects\" row (a saved permission rule) or Codex's \"Allow similar commands\" instead. If it cannot recognise even one option it touches nothing. Another pauses working VS Code sessions near your Claude session limit, to resume after the reset. It cannot act in the desktop apps or a terminal, and says so. READS YOUR CODING-AGENT TRANSCRIPTS AND PERMISSION SETTINGS: those files contain every command you ran and everything you typed to the agent. It never speaks or logs command text or a file path.",
-      "version": "1.12.3",
+      "version": "1.12.4",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/agentflow.zip",
-      "sha256": "8e1b093b2c39031b66e91d621019d5fdf496784565f13ef93f2e4ba9bf9eeec6",
-      "bytes": 243960,
+      "sha256": "018a034f48ce95b78396ad2ddf5af0307dc17679c23b46a3917fcaa02125e861",
+      "bytes": 248693,
       "permissions": "Speech, Animation, Storage, AgentTranscripts, InputSynthesis, Network, Companions, Audio",
       "minHostVersion": "1.2.0"
     },
@@ -2369,10 +2369,10 @@
       "id": "agentbroker",
       "name": "AgentBroker",
       "desc": "Local MCP messaging with discovery, mutual LAN pairing, and opt-in native agent adapters.",
-      "version": "1.7.2",
+      "version": "1.8.0",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/agentbroker.zip",
-      "sha256": "c6000f78e6ea23a275325bdf1ce871783fe1469cb11208889ce85fcbed7f1952",
-      "bytes": 51380966,
+      "sha256": "568dc4c4f85352595be5df032f45f9555b4457ee7c162ab1c9ddbbd934bdd075",
+      "bytes": 51450855,
       "permissions": "Network, Storage, LaunchProcess, AgentTranscripts",
       "minHostVersion": "1.6.1"
     }
