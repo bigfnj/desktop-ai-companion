@@ -1,4 +1,4 @@
-"""Shimeji parity comparer (CONTRACT.md v1, sections 3 and 6).
+"""Shimeji parity comparer (CONTRACT.md v1.1, sections 3, 6 and 9).
 
     compare.py <oracle trace.jsonl> <host trace.jsonl> [--scenario scenario.json] [--oracle-artifact <jar>]
                [--host-exe <exe>] [--json out.json]
@@ -170,7 +170,7 @@ def validate_scenario(s):
                 bad("a tick-0 press, release or click (button edges start at tick 1)")
 
 
-def load_trace(source, expected_runtime=None):
+def load_trace(source, expected_runtime=None, defer_run_failure=False):
     lines = source
     if isinstance(source, str):
         with open(source, encoding="utf-8") as f:
@@ -225,9 +225,7 @@ def load_trace(source, expected_runtime=None):
         raise Unjudgeable("truncated", f"{runtime} trace has no footer")
     footer = records[-1]
     status = footer.get("status")
-    if status in ("timeout", "aborted", "error"):
-        raise Unjudgeable(status if status != "error" else "aborted", f"{runtime} run ended with status {status}")
-    if status != "complete":
+    if status not in ("complete", "timeout", "aborted", "error"):
         raise Unjudgeable("missing-field", f"{runtime} footer status {status!r}")
     for k in ("ticks", "draws", "states", "events"):
         if not isinstance(footer.get(k), int) or isinstance(footer.get(k), bool) or footer[k] < 0:
@@ -303,20 +301,60 @@ def load_trace(source, expected_runtime=None):
             malformed(f"tick {s['tick']}, {s['sid']}: refKey {s['refKey']!r} is not the last actionStack entry")
     if not any(s["tick"] == 0 for s in states):
         malformed("there is no state at tick 0")
+    # A failed run can stop before N, but the recorded prefix still has to be an internally valid observation.
+    # compare() defers its status so section 6 can first identify an invalid input from the preceding snapshot.
+    observed_end = n if status == "complete" else max(s["tick"] for s in states)
     disposed = {(e["sid"], e["tick"]) for e in events if e["kind"] == "dispose"}
     for sid_, rows in by_sid.items():
         ticks = [r["tick"] for r in rows]
         if ticks != list(range(ticks[0], ticks[-1] + 1)):
             malformed(f"{sid_}'s state lines have a gap ({ticks[0]}..{ticks[-1]}, {len(ticks)} lines)")
-        if ticks[-1] < n and (sid_, ticks[-1] + 1) not in disposed:
-            malformed(f"{sid_} stops at tick {ticks[-1]} of {n} with no dispose event at tick {ticks[-1] + 1}")
+        if ticks[-1] < observed_end and (sid_, ticks[-1] + 1) not in disposed:
+            malformed(f"{sid_} stops at tick {ticks[-1]} of {observed_end} with no dispose event at tick {ticks[-1] + 1}")
         prev = None
         for r in rows:
             want = [0, 0] if prev is None else [r["anchor"][0] - prev["anchor"][0], r["anchor"][1] - prev["anchor"][1]]
             if r["velocity"] != want:
                 malformed(f"tick {r['tick']}, {sid_}: velocity {r['velocity']} is not the anchor change {want}")
             prev = r
+    if not defer_run_failure:
+        _check_run_status(runtime, footer)
     return header, states, events, footer
+
+
+def _check_run_status(runtime, footer):
+    status = footer["status"]
+    if status != "complete":
+        raise Unjudgeable(status if status != "error" else "aborted", f"{runtime} run ended with status {status}")
+
+
+def _validate_input_targets(scenario, traces):
+    """Section 6: infer an inactive LEFT target only from a reached, complete previous-tick snapshot."""
+    for edge in scenario.get("input", []):
+        if not any(edge.get(button) == "left" for button in BUTTON_EDGES):
+            continue
+        previous = edge["tick"] - 1
+        for runtime, states, events, footer in traces:
+            observed_end = footer["ticks"] if footer["status"] == "complete" else max(s["tick"] for s in states)
+            if previous > observed_end:
+                continue  # A future edge after an unrelated abort has no observed dispatch state.
+            expected = {mascot["sid"] for mascot in scenario["mascots"]}
+            for event in events:
+                if event["tick"] > previous:
+                    break
+                if event["kind"] == "birth-request":
+                    if not isinstance(event["child"], str):
+                        expected = None
+                        break
+                    expected.add(event["child"])
+                elif event["kind"] == "dispose":
+                    expected.discard(event["sid"])
+            snapshot = [state for state in states if state["tick"] == previous]
+            if expected is None or {state["sid"] for state in snapshot} != expected:
+                continue  # An omitted snapshot or child line cannot prove that its target was inactive.
+            if not any(state["sid"] == edge.get("sid") and not state["pending"] for state in snapshot):
+                raise Unjudgeable("scenario-invalid", f"scenario {scenario['id']}: {runtime} tick {edge['tick']} "
+                                  f"left-button edge targets inactive sid {edge.get('sid')!r}")
 
 
 def json_key(value):
@@ -347,8 +385,8 @@ def compare(oracle, host, scenario=None, scenario_sha=None, pack_sha=None, artif
     try:
         if scenario is not None:
             validate_scenario(scenario)
-        oh, ostates, oevents, ofoot = load_trace(oracle, "oracle")
-        hh, hstates, hevents, hfoot = load_trace(host, "host")
+        oh, ostates, oevents, ofoot = load_trace(oracle, "oracle", defer_run_failure=True)
+        hh, hstates, hevents, hfoot = load_trace(host, "host", defer_run_failure=True)
         sid = (scenario or {}).get("id") or oh["scenario"]["id"]
         for runtime, h in (("oracle", oh), ("host", hh)):
             if scenario_sha is not None and h["scenario"]["sha256"] != scenario_sha:
@@ -381,6 +419,9 @@ def compare(oracle, host, scenario=None, scenario_sha=None, pack_sha=None, artif
                 # must not establish parity merely because their sid order and pending flags agree.
                 if any(state["pending"] for state in starter_states):
                     raise Unjudgeable("scenario-start-mismatch", f"{runtime} tick-0 starters must be active, not pending")
+            _validate_input_targets(scenario, (("oracle", ostates, oevents, ofoot), ("host", hstates, hevents, hfoot)))
+        for runtime, footer in (("oracle", ofoot), ("host", hfoot)):
+            _check_run_status(runtime, footer)
     except Unjudgeable as u:
         return {"verdict": "unjudgeable", "class": u.cls, "findings": [{"message": str(u)}]}
 
@@ -398,6 +439,15 @@ def compare(oracle, host, scenario=None, scenario_sha=None, pack_sha=None, artif
                          "message": message or f"{sid}: tick {tick}, {ent}, {field}: oracle {a!r} vs host {b!r}"})
 
     if rng in ("none", "tape"):
+        # Map/2 cannot recover the source script call site. This is a pending parity claim only after both
+        # traces passed validity, input binding and run checks; it must never hide a broken observation.
+        script_draw = next((event for event in oevents + hevents if event["kind"] == "rng-draw"
+                            and isinstance(event["site"], str) and event["site"].startswith("script:")), None)
+        if script_draw is not None:
+            report["verdict"] = "pending"
+            findings.append({"tick": script_draw["tick"], "sid": script_draw["sid"], "field": "rng-draw.site",
+                             "message": f"{sid}: script RNG sites cannot be compared until a later parity map revision"})
+            return report
         odraws = [e for e in oevents if e["kind"] == "rng-draw"]
         hdraws = [e for e in hevents if e["kind"] == "rng-draw"]
         tape_len = len(oh["rng"]["values"]) if rng == "tape" else None
@@ -725,7 +775,8 @@ def _scenario():
 
 BURNDOWN_CHECKS = ("N269 source pin", "N269 unbound report", "N270 typed state", "N270 typed event",
                    "N270 event numbers", "N271 origin shape", "N272 tolerance names", "N400 starter population",
-                   "N400 binding order", "N400 pending starters")
+                   "N400 binding order", "N400 pending starters", "P2 inactive targets", "P2 input precedence",
+                   "P2 partial input proof", "P2 physical input CLI", "P2 script pending", "P2 script precedence")
 
 
 def _case_require(value, name, detail):
@@ -748,8 +799,207 @@ def _two_starter_reference():
     return oracle, host, scenario
 
 
+def _cut_reference(trace, before_tick, status="aborted"):
+    trace[1:-1] = [row for row in trace[1:-1] if row["tick"] < before_tick]
+    trace[-1]["status"] = status
+    _refoot(trace)
+
+
+def _input_reference(tick=2, sid="m1.b1", button="left", edge="click"):
+    oracle, host = _reference()
+    scenario = _scenario()
+    scenario["input"].append(dict({"tick": tick, "sid": sid}, **{edge: button}))
+    return oracle, host, scenario
+
+
+def _p2_check(name):
+    def require(report, expected, detail, verdict="unjudgeable"):
+        _case_require(report["verdict"] == verdict and report["class"] == expected, name,
+                      detail + ": " + repr((report["verdict"], report["class"])))
+
+    if name == "P2 inactive targets":
+        for edge in BUTTON_EDGES:
+            for tick, target in ((1, "unknown"), (2, "m1.b1")):
+                for failed_runtime in (None, "oracle", "host", "both"):
+                    oracle, host, scenario = _input_reference(tick, target, edge=edge)
+                    for runtime, trace in (("oracle", oracle), ("host", host)):
+                        if failed_runtime in (runtime, "both"):
+                            _cut_reference(trace, tick)
+                    require(compare(oracle, host, scenario=scenario), "scenario-invalid",
+                            edge + " inactive target before " + str(failed_runtime) + " run failure")
+        # Either runtime's observation establishes the pending target, even when its peer has activated it early.
+        for pending_runtime in ("oracle", "host"):
+            oracle, host, scenario = _input_reference()
+            for runtime, trace in (("oracle", oracle), ("host", host)):
+                if runtime != pending_runtime:
+                    _where(trace, 1, "m1.b1")[0]["pending"] = False
+            require(compare(oracle, host, scenario=scenario), "scenario-invalid", pending_runtime + " pending target")
+        for tick, target in ((1, "m1"), (3, "m1.b1"), (4, "m1.b1")):
+            for edge in BUTTON_EDGES:
+                oracle, host, scenario = _input_reference(tick, target, edge=edge)
+                require(compare(oracle, host, scenario=scenario), None,
+                        "WITNESS active, activated or still-disposing left target", "exact")
+        oracle, host, scenario = _input_reference(4, "m1.b1")
+        for trace in (oracle, host):
+            next(row for row in trace if row.get("kind") == "dispose")["tick"] = 3
+            trace[1:-1] = [row for row in trace[1:-1] if not (
+                row.get("type") == "state" and row["tick"] == 3 and row["sid"] == "m1.b1")]
+            _resort(trace)
+            _refoot(trace)
+        require(compare(oracle, host, scenario=scenario), "scenario-invalid", "removed target")
+        for edge in BUTTON_EDGES:
+            for target in ("unknown", "m1.b1"):
+                oracle, host, scenario = _input_reference(2, target, "right", edge)
+                require(compare(oracle, host, scenario=scenario), None, "WITNESS right edge is ignored", "exact")
+        oracle, host, scenario = _input_reference()
+        scenario["input"][-1] = {"tick": 2, "sid": "unknown", "cursor": [1, 2]}
+        require(compare(oracle, host, scenario=scenario), None, "WITNESS cursor-only entry is not a button edge", "exact")
+    elif name == "P2 input precedence":
+        oracle, host, scenario = _input_reference()
+        for trace in (oracle, host):
+            _cut_reference(trace, 2)
+        cases = (
+            ("missing-field", lambda o, h, s: _where(h, 1, "m1")[0].pop("actionAge"), {}),
+            ("malformed", lambda o, h, s: h[-1].update(states=999), {}),
+            ("malformed", lambda o, h, s: _where(h, 1, "m1")[0].update(velocity=[999, 0]), {}),
+            ("build-witness-missing", lambda o, h, s: h[0].pop("build"), {}),
+            ("source-pin-mismatch", lambda o, h, s: o[0]["build"].update(sourceZipSha256=H("0")), {}),
+            ("scenario-hash-mismatch", lambda o, h, s: None, {"scenario_sha": H("c")}),
+            ("pack-hash-mismatch", lambda o, h, s: None, {"pack_sha": H("d")}),
+            ("artifact-hash-mismatch", lambda o, h, s: None, {"artifacts": {"host": H("9")}}),
+            ("scenario-hash-mismatch", lambda o, h, s: s.update(rng={"kind": "tape", "values": []}), {}),
+            ("tick-count-mismatch", lambda o, h, s: s.update(ticks=5), {}),
+            ("scenario-start-mismatch", lambda o, h, s: s["mascots"].append(dict(s["mascots"][0], sid="m2")), {}),
+            ("scenario-start-mismatch", lambda o, h, s: _where(h, 0, "m1")[0].update(pending=True), {}),
+        )
+        for expected, change, arguments in cases:
+            o, h, s = copy.deepcopy((oracle, host, scenario))
+            change(o, h, s)
+            require(compare(o, h, scenario=s, **arguments), expected, "input classification hid " + expected)
+        require(compare(oracle, host, scenario=scenario), "scenario-invalid", "WITNESS validated pending prefix")
+    elif name == "P2 partial input proof":
+        oracle, host, scenario = _input_reference(4, "unknown")
+        for trace in (oracle, host):
+            _cut_reference(trace, 1)
+        require(compare(oracle, host, scenario=scenario), "aborted", "future edge after an unrelated abort")
+        require(compare(oracle, host), "aborted", "WITNESS old abort without scenario stays unjudgeable")
+        # Once every companion has left, an empty future snapshot looks like an empty observed one. The prefix
+        # boundary must still prove that the preceding tick was reached; an abort is not an implicit clock advance.
+        for trace in (oracle, host):
+            trace.insert(-1, _ev(1, "m1", "dispose"))
+            _refoot(trace)
+        require(compare(oracle, host, scenario=scenario), "aborted", "future empty population after an unrelated abort")
+        oracle, host, scenario = _input_reference()
+        for trace in (oracle, host):
+            _cut_reference(trace, 2)
+            trace[1:-1] = [row for row in trace[1:-1] if row.get("sid") != "m1.b1"]
+            _refoot(trace)
+        require(compare(oracle, host, scenario=scenario), "aborted", "missing child snapshot is not inactive-target evidence")
+        oracle, host, scenario = _input_reference()
+        for trace in (oracle, host):
+            _cut_reference(trace, 2)
+        require(compare(oracle, host[:-1], scenario=scenario), "truncated", "missing footer cannot establish invalid input")
+        # A gap in an earlier starter line remains malformed even though both runs stopped before N.
+        oracle, host, scenario = _input_reference(3, "unknown")
+        for trace in (oracle, host):
+            _cut_reference(trace, 3)
+        host[1:-1] = [row for row in host[1:-1] if not (
+            row.get("type") == "state" and row["tick"] == 1 and row["sid"] == "m1")]
+        _refoot(host)
+        require(compare(oracle, host, scenario=scenario), "malformed", "an incomplete prefix hid a state gap")
+        oracle, host, scenario = _input_reference()
+        for trace in (oracle, host):
+            _cut_reference(trace, 2)
+        require(compare(oracle, host, scenario=scenario), "scenario-invalid", "WITNESS complete pending prefix")
+        for status, expected in (("timeout", "timeout"), ("error", "aborted"), ("aborted", "aborted")):
+            oracle, host, scenario = _input_reference(2, "m1")
+            _cut_reference(host, 2, status)
+            require(compare(oracle, host, scenario=scenario), expected, "WITNESS active input preserves " + status)
+    elif name == "P2 physical input CLI":
+        import contextlib
+        import io
+        import tempfile
+        with tempfile.TemporaryDirectory(prefix="parity-p2-cli-") as folder:
+            root = Path(folder)
+            (root / "pack").mkdir()
+            (root / "pack" / "synthetic.txt").write_text("synthetic comparer fixture\n", encoding="utf-8")
+            oracle, host, scenario = _input_reference()
+            scenario["pack"] = "pack"
+            scenario_bytes = json.dumps(scenario).encode("utf-8")
+            (root / "scenario.json").write_bytes(scenario_bytes)
+            for runtime, trace in (("oracle", oracle), ("host", host)):
+                _cut_reference(trace, 2)
+                trace[0]["scenario"].update(sha256=sha256_bytes(scenario_bytes), packSha256=pack_sha256(root / "pack"))
+                (root / (runtime + ".jsonl")).write_text("\n".join(json.dumps(row) for row in trace) + "\n", encoding="utf-8")
+            output = io.StringIO()
+            arguments = ["compare.py", str(root / "oracle.jsonl"), str(root / "host.jsonl")]
+            with contextlib.redirect_stdout(output):
+                status = main(arguments + ["--scenario", str(root / "scenario.json"), "--json", str(root / "report.json")])
+            report = json.loads((root / "report.json").read_text(encoding="utf-8"))
+            require(report, "scenario-invalid", "physical JSONL with supplied scenario")
+            _case_require(status == 2 and "unjudgeable (scenario-invalid)" in output.getvalue(), name,
+                          "CLI did not expose scenario-invalid and exit 2")
+            with contextlib.redirect_stdout(io.StringIO()):
+                status = main(arguments + ["--json", str(root / "report.json")])
+            require(json.loads((root / "report.json").read_text(encoding="utf-8")), "aborted",
+                    "WITNESS same physical JSONL without scenario")
+            _case_require(status == 2, name, "generic abort CLI exit changed")
+    elif name == "P2 script pending":
+        # Section 9's current literal rule precedes behaviour attribution, including draws forbidden by none or
+        # beyond an empty tape. Those are not rng-invalid observations; valid draw values still reach pending.
+        for rng in ({"kind": "none"}, {"kind": "tape", "values": [0.5]}, {"kind": "tape", "values": []}):
+            for script_runtime in ("oracle", "host", "both"):
+                oracle, host = _reference({"kind": "tape", "values": [0.5]})
+                for runtime, trace in (("oracle", oracle), ("host", host)):
+                    trace[0]["rng"] = rng
+                    if script_runtime in (runtime, "both"):
+                        next(row for row in trace if row.get("kind") == "rng-draw")["site"] = "script:Alpha#label#1"
+                require(compare(oracle, host), None, "script site on " + script_runtime + " with " + rng["kind"], "pending")
+        oracle, host = _reference({"kind": "splitmix64", "seed": "0x0123456789abcdef"})
+        for trace in (oracle, host):
+            next(row for row in trace if row.get("kind") == "rng-draw")["site"] = "script:Alpha#label#1"
+        require(compare(oracle, host), None, "WITNESS free-running claim remains time-share", "time-share-pass")
+        oracle, host = _reference({"kind": "tape", "values": [0.5]})
+        require(compare(oracle, host), None, "WITNESS matching builtin draws remain exact", "exact")
+        next(row for row in host if row.get("kind") == "rng-draw")["site"] = "builtin:other"
+        require(compare(oracle, host), "event-mismatch", "WITNESS builtin mismatches still fail", "fail")
+        for site in ("Script:Alpha#label#1", "other:script:Alpha#label#1"):
+            oracle, host = _reference({"kind": "tape", "values": [0.5]})
+            next(row for row in host if row.get("kind") == "rng-draw")["site"] = site
+            require(compare(oracle, host), "event-mismatch", "WITNESS only exact script prefix defers", "fail")
+    elif name == "P2 script precedence":
+        oracle, host = _reference({"kind": "tape", "values": [0.5]})
+        next(row for row in host if row.get("kind") == "rng-draw")["site"] = "script:Alpha#label#1"
+        scenario = _scenario()
+        scenario["rng"] = oracle[0]["rng"]
+        cases = (
+            ("build-witness-missing", lambda o, h, s: h[0].pop("build"), {}),
+            ("source-pin-mismatch", lambda o, h, s: o[0]["build"].update(sourceZipSha256=H("0")), {}),
+            ("malformed", lambda o, h, s: h[-1].update(states=999), {}),
+            ("rng-invalid", lambda o, h, s: next(row for row in h if row.get("kind") == "rng-draw").update(value=1.25), {}),
+            ("scenario-invalid", lambda o, h, s: s["input"].append({"tick": 2, "sid": "m1.b1", "click": "left"}), {}),
+            ("scenario-hash-mismatch", lambda o, h, s: None, {"scenario_sha": H("c")}),
+            ("pack-hash-mismatch", lambda o, h, s: None, {"pack_sha": H("d")}),
+            ("artifact-hash-mismatch", lambda o, h, s: None, {"artifacts": {"host": H("9")}}),
+            ("scenario-start-mismatch", lambda o, h, s: _where(h, 0, "m1")[0].update(pending=True), {}),
+            ("aborted", lambda o, h, s: _cut_reference(h, 2), {}),
+            ("timeout", lambda o, h, s: _cut_reference(h, 2, "timeout"), {}),
+            ("aborted", lambda o, h, s: _cut_reference(h, 2, "error"), {}),
+            ("truncated", lambda o, h, s: h.pop(), {}),
+        )
+        for expected, change, arguments in cases:
+            o, h, s = copy.deepcopy((oracle, host, scenario))
+            change(o, h, s)
+            require(compare(o, h, scenario=s, **arguments), expected, "script pending hid " + expected)
+        require(compare(oracle, host, scenario=scenario), None, "WITNESS valid bound script pair", "pending")
+    else:
+        raise ValueError("unknown parity-2 check " + name)
+
+
 def burndown_check(name):
     """Focused public-comparer witnesses, also callable by the small source-mutation runner."""
+    if name.startswith("P2 "):
+        return _p2_check(name)
     oracle, host = _reference()
     if name == "N269 source pin":
         oracle[0]["build"]["sourceZipSha256"] = H("0")

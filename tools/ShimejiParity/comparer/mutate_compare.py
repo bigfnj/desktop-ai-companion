@@ -41,6 +41,53 @@ CASES = (
                 if actual_starters != expected_starters:
                     raise Unjudgeable("scenario-start-mismatch", "startup checked before input binding")
         for runtime, h in (("oracle", oh), ("host", hh)):'''),
+    # ---- burndown/codex-parity-2 ----
+    ("bd-codex-parity-2: inactive target classification", "P2 inactive targets",
+     'if not any(state["sid"] == edge.get("sid") and not state["pending"] for state in snapshot):', 'if False:'),
+    ("bd-codex-parity-2: pending target classification", "P2 inactive targets",
+     'if not any(state["sid"] == edge.get("sid") and not state["pending"] for state in snapshot):',
+     'if not any(state["sid"] == edge.get("sid") for state in snapshot):'),
+    ("bd-codex-parity-2: disposing target stays active", "P2 inactive targets",
+     'if not any(state["sid"] == edge.get("sid") and not state["pending"] for state in snapshot):',
+     'if not any(state["sid"] == edge.get("sid") and not state["pending"] and not state["disposing"] for state in snapshot):'),
+    ("bd-codex-parity-2: right button stays unchecked", "P2 inactive targets",
+     'if not any(edge.get(button) == "left" for button in BUTTON_EDGES):',
+     'if not any(edge.get(button) in ("left", "right") for button in BUTTON_EDGES):'),
+    ("bd-codex-parity-2: oracle run failure deferred", "P2 inactive targets",
+     'oh, ostates, oevents, ofoot = load_trace(oracle, "oracle", defer_run_failure=True)',
+     'oh, ostates, oevents, ofoot = load_trace(oracle, "oracle")'),
+    ("bd-codex-parity-2: host run failure deferred", "P2 inactive targets",
+     'hh, hstates, hevents, hfoot = load_trace(host, "host", defer_run_failure=True)',
+     'hh, hstates, hevents, hfoot = load_trace(host, "host")'),
+    ("bd-codex-parity-2: natural abort prefix cutoff", "P2 inactive targets",
+     'observed_end = n if status == "complete" else max(s["tick"] for s in states)', 'observed_end = n'),
+    ("bd-codex-parity-2: scenario binding before input inference", "P2 input precedence",
+     '        sid = (scenario or {}).get("id") or oh["scenario"]["id"]',
+     '''        if scenario is not None:
+            _validate_input_targets(scenario, (("oracle", ostates, oevents, ofoot), ("host", hstates, hevents, hfoot)))
+        sid = (scenario or {}).get("id") or oh["scenario"]["id"]'''),
+    ("bd-codex-parity-2: future input lacks evidence", "P2 partial input proof",
+     'if previous > observed_end:', 'if False:'),
+    ("bd-codex-parity-2: incomplete snapshot lacks evidence", "P2 partial input proof",
+     'if expected is None or {state["sid"] for state in snapshot} != expected:', 'if False:'),
+    ("bd-codex-parity-2: physical trace scenario inference", "P2 physical input CLI",
+     '            _validate_input_targets(scenario, (("oracle", ostates, oevents, ofoot), ("host", hstates, hevents, hfoot)))',
+     '            pass'),
+    ("bd-codex-parity-2: oracle script site defers", "P2 script pending",
+     'event for event in oevents + hevents if event["kind"] == "rng-draw"',
+     'event for event in hevents if event["kind"] == "rng-draw"'),
+    ("bd-codex-parity-2: host script site defers", "P2 script pending",
+     'event for event in oevents + hevents if event["kind"] == "rng-draw"',
+     'event for event in oevents if event["kind"] == "rng-draw"'),
+    ("bd-codex-parity-2: script pending verdict", "P2 script pending",
+     'report["verdict"] = "pending"', 'report["verdict"] = "exact"'),
+    ("bd-codex-parity-2: script prefix is exact", "P2 script pending",
+     'event["site"].startswith("script:")', '"script:" in event["site"]'),
+    ("bd-codex-parity-2: script pending is directed only", "P2 script pending",
+     '    if rng in ("none", "tape"):\n        # Map/2',
+     '    if rng in ("none", "tape", "splitmix64"):\n        # Map/2'),
+    ("bd-codex-parity-2: run failures before script pending", "P2 script precedence",
+     'for runtime, footer in (("oracle", ofoot), ("host", hfoot)):', 'for runtime, footer in ():'),
 )
 
 
@@ -91,6 +138,8 @@ def main():
             target.write_bytes(changed)
             if changed == original:
                 raise AssertionError(name + ": mutation did not change source bytes")
+            if target.stat().st_mtime_ns <= source.stat().st_mtime_ns:
+                raise AssertionError(name + ": private executable source is not newer than the checkout source")
             try:
                 module, digest = loaded_source(target, changed)
                 print("EXECUTED " + name + " sha256=" + digest + " mtimeNs=" + str(target.stat().st_mtime_ns))
