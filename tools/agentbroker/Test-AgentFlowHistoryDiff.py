@@ -31,7 +31,7 @@ MAX_COMMAND_TEXT = 16 * 1024 * 1024
 MAX_INPUT = 64 * 1024 * 1024
 MAX_ENTRIES = 50000
 SOURCES = {
-    "python": (REPO / "docs/agentflow/agentflow_join.py", "4176127277042e54b4b49a7cbca292522f285c4b42a1d734e6a46c6853054400"),
+    "python": (REPO / "docs/agentflow/agentflow_join.py", "e0819117f93bc97f08dedc51e9021e1107b57149b447ac561dba6ca4d313ce0c"),
     "auto-learn": (REPO.parent / "ai-acolyte/src/auto-learn.js", "b38eddfac598a1b894e7d9b4a6ccd74eba6cf4fa815ffa88cd8798c4e935636b"),
     "tool-learn": (REPO.parent / "ai-acolyte/src/tool-learn.js", "fc4a0436e3b9e3228ac9de399596cf1df858a84823f097dca6649c05e30604ae"),
     "permissions": (REPO.parent / "ai-acolyte/src/permissions.js", "c8bc9fcb76ea819c51e4882885305c877267bdbba7fd4b436f6795c260770761"),

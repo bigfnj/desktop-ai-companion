@@ -1059,25 +1059,121 @@ def privacy_selftest():
     return 1 if failures else 0
 
 
-def js_original_candidates():
+def difftest_plumbing_selftest():
+    """Where --difftest looks for the JS original, and what it exits with when it cannot compare
+    (N-fulltier-1107-02). A synthetic tree in the layout this workstation has: the main checkout and
+    the sibling side by side in one folder, the worktree in another, so no ANCESTOR of the worktree
+    holds the sibling and only the derived main checkout can find it."""
+    import contextlib
+    import shutil
+    import tempfile
+
+    failures = 0
+    print("\ndifftest plumbing self-test")
+
+    def check(label, ok):
+        nonlocal failures
+        if ok:
+            print("  ok   %s" % label)
+        else:
+            failures += 1
+            print("  FAIL %s" % label)
+
+    scratch = tempfile.mkdtemp(prefix="agentflow-join-difftest-")
+    try:
+        main = os.path.join(scratch, "projects", "companion")
+        pointer = os.path.join(main, ".git", "worktrees", "lane")
+        worktree = os.path.join(scratch, "worktrees", "lane")
+        sibling = os.path.join(scratch, "projects", "ai-acolyte", "src", "auto-learn.js")
+        for folder in (pointer, worktree, os.path.dirname(sibling)):
+            os.makedirs(folder)
+        with open(os.path.join(pointer, "commondir"), "w", encoding="utf-8") as handle:
+            handle.write("../..\n")
+        with open(os.path.join(worktree, ".git"), "w", encoding="utf-8") as handle:
+            handle.write("gitdir: %s\n" % pointer.replace(os.sep, "/"))
+        with open(sibling, "w", encoding="utf-8") as handle:
+            handle.write("// synthetic\n")
+
+        check("WITNESS (N-fulltier-1107-02) a worktree's main checkout is read from git's own pointer",
+              main_checkout(worktree) is not None
+              and os.path.normcase(main_checkout(worktree)) == os.path.normcase(main))
+        found = [path for path in js_original_candidates(worktree) if os.path.isfile(path)]
+        check("WITNESS (N-fulltier-1107-02) the sibling beside the main checkout is found from a worktree elsewhere",
+              [os.path.normcase(path) for path in found] == [os.path.normcase(sibling)])
+        check("a main checkout (its .git a folder) and a folder with no .git are not worktrees",
+              main_checkout(main) is None and main_checkout(scratch) is None)
+
+        sink = io.StringIO()
+        with contextlib.redirect_stdout(sink):
+            code = splitter_difftest(0, candidates=[os.path.join(scratch, "no-such", "auto-learn.js")])
+        check("(N-fulltier-1107-02) a difftest that cannot find the original exits DEGRADED, apart from a "
+              "disagreement (1) and a pass (0)",
+              code == DEGRADED_EXIT and code not in (0, 1) and "DEGRADED" in sink.getvalue())
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+    return 1 if failures else 0
+
+
+# The exit status of a difftest that compared nothing (N-fulltier-1107-02): not 0, because it did
+# not pass, and not 1, because nothing disagreed. agentflow_classifier.py uses the same number for
+# its own DEGRADED audit, so one release step can read both the same way.
+DEGRADED_EXIT = 3
+_SIBLINGS = ("ai-acolyte", "permission-wildcarding")
+
+
+def main_checkout(repo):
+    """The main checkout a git WORKTREE belongs to, or None when `repo` is not a linked worktree.
+
+    Read from the files git itself writes rather than by running git: a worktree's `.git` is a
+    file holding `gitdir: <main>/.git/worktrees/<name>`, and that directory's `commondir` names the
+    main `.git` relative to it. Any surprise along the way answers None, never a guess.
+    """
+    try:
+        with open(os.path.join(repo, ".git"), "r", encoding="utf-8") as handle:
+            line = handle.readline().strip()
+        if not line.startswith("gitdir:"):
+            return None
+        gitdir = os.path.normpath(os.path.join(repo, line[len("gitdir:"):].strip()))
+        with open(os.path.join(gitdir, "commondir"), "r", encoding="utf-8") as handle:
+            common = os.path.normpath(os.path.join(gitdir, handle.readline().strip()))
+    except (OSError, ValueError):
+        return None
+    if os.path.basename(common).lower() != ".git":
+        return None
+    return os.path.dirname(common)
+
+
+def js_original_candidates(repo=None):
     """Where the JS original may live, in the order tried.
 
     AGENTFLOW_JS_ORIGINAL (the auto-learn.js path) first, because a sibling checkout's name is
     somebody else's decision: the project was renamed permission-wildcarding -> ai-acolyte on
     2026-09-25 and this difftest, which had the old name hard-coded, exited DEGRADED on every run
-    for four days without anything noticing (F019). Then both sibling names under the same parent.
+    for four days without anything noticing (F019). Then both sibling names beside the MAIN
+    checkout when this is a worktree, then under every ancestor.
+
+    The main checkout is DERIVED (N-fulltier-1107-02). Worktrees moved out from beside the main
+    checkout to a folder of their own, so none of the ancestor candidates reached the sibling, and
+    the full tier at e20decd ended DEGRADED on this workstation unless the variable was set. Where
+    worktrees live is as much somebody else's decision as the sibling's name, so it is read from
+    git's own pointer rather than written down here.
     """
     candidates = []
     override = os.environ.get("AGENTFLOW_JS_ORIGINAL")
     if override:
         candidates.append(override)
-    # Every ancestor of the repository root, not only its parent: a git worktree of this repo sits
-    # under <projects>\.dac-worktrees\<lane>\, one level deeper than the checkout the old path was
-    # written against, and the sibling still lives beside the main checkout.
-    repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    if repo is None:
+        repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    main = main_checkout(repo)
+    if main is not None:
+        for sibling in _SIBLINGS:
+            candidates.append(os.path.join(os.path.dirname(main), sibling, "src", "auto-learn.js"))
+    # Every ancestor of the repository root, not only its parent: a git worktree of this repo can sit
+    # deeper than the checkout the old path was written against, and the sibling still lives beside
+    # the main checkout.
     ancestor = os.path.dirname(repo)
     for _depth in range(4):
-        for sibling in ("ai-acolyte", "permission-wildcarding"):
+        for sibling in _SIBLINGS:
             candidates.append(os.path.join(ancestor, sibling, "src", "auto-learn.js"))
         parent = os.path.dirname(ancestor)
         if parent == ancestor:
@@ -1096,7 +1192,7 @@ process.stdout.write(JSON.stringify(out));
 """
 
 
-def splitter_difftest(files):
+def splitter_difftest(files, candidates=None):
     """Compare this port against the JS original it was ported from.
 
     Two implementations of one algorithm drift, and the drift is invisible: both
@@ -1107,7 +1203,8 @@ def splitter_difftest(files):
     the corpus is real transcript commands and this harness's standing rule is that
     command text is read to evaluate it and never printed.
     """
-    candidates = js_original_candidates()
+    if candidates is None:
+        candidates = js_original_candidates()
     entry = next((path for path in candidates if os.path.isfile(path)), None)
     if entry is None:
         print("DEGRADED: cannot find the JS original. Tried:")
@@ -1115,7 +1212,7 @@ def splitter_difftest(files):
             print("  " + path)
         print("  Set AGENTFLOW_JS_ORIGINAL to the auto-learn.js of the ai-acolyte checkout.")
         print("  This test compares against it and proves nothing without it.")
-        return 1
+        return DEGRADED_EXIT
 
     cases = [{"command": c, "shell": s} for _l, c, s, _e in SPLITTER_CASES
              if c is not None]
@@ -1170,11 +1267,11 @@ def splitter_difftest(files):
             print("DEGRADED: could not run node (%s)." % exc)
             print("  This test compares against the JS original and proves nothing")
             print("  without it. It is NOT a pass.")
-            return 1
+            return DEGRADED_EXIT
         if proc.returncode != 0:
             print("DEGRADED: node exited %d" % proc.returncode)
             print((proc.stderr or b"").decode("utf-8", "replace")[-600:])
-            return 1
+            return DEGRADED_EXIT
         theirs = json.loads(proc.stdout.decode("utf-8", "strict"))
     finally:
         for path in (case_path, bridge_path):
@@ -1188,7 +1285,7 @@ def splitter_difftest(files):
     if harvested == 0:
         print("DEGRADED: harvested ZERO real commands, so this ran only the same")
         print("  handful of cases the self-test already covers. Not a pass.")
-        return 1
+        return DEGRADED_EXIT
 
     mismatches = 0
     for index, case in enumerate(cases):
@@ -1220,7 +1317,10 @@ def main():
     args = parser.parse_args()
 
     if args.selftest:
-        return 1 if (splitter_selftest() or matcher_selftest() or privacy_selftest()) else 0
+        # Each runs whatever the one before it answered: `or` would stop at the first failure and
+        # hide whether the rest pass.
+        results = [splitter_selftest(), matcher_selftest(), privacy_selftest(), difftest_plumbing_selftest()]
+        return 1 if any(results) else 0
     if args.difftest:
         return splitter_difftest(args.files)
 
