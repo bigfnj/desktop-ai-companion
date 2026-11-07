@@ -201,7 +201,18 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             return pets;
         }
 
+        private delegate bool TextRoundTrip(string xml, out string error);
+
         private static int Verify(string petsDirectory)
+        {
+            return Verify(petsDirectory, ShimejiEngine.RoundTrips);
+        }
+
+        // The round-trip check is a parameter so the cli-roundtrip self-test can record what Verify hands it.
+        // The check must get the file's TEXT, not the parsed DTO, or information a parse loses is invisible to
+        // it; the DTO keeps every schema-valid field since N-cxr-conv-01, so no real file can show the
+        // difference any more and the self-test asks the question directly.
+        private static int Verify(string petsDirectory, TextRoundTrip roundTrips)
         {
             if (!Directory.Exists(petsDirectory))
             {
@@ -265,7 +276,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                         report.Unreachable.Count.ToString().PadLeft(9);
 
                     string roundTripError;
-                    roundTrip = ShimejiEngine.RoundTrips(xml, out roundTripError) ? "ok" : "FAIL";
+                    roundTrip = roundTrips(xml, out roundTripError) ? "ok" : "FAIL";
                     if (roundTrip == "FAIL")
                     {
                         roundTripFailures++;
@@ -481,23 +492,41 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                         if (exit != 0 || !output.ToString().Contains("round-trip failures 0"))
                             failures.Add("CLI_ROUNDTRIP_WITNESS: Verify refused a faithful synthetic pet");
                     }
-                    XElement lossy = XElement.Parse(original);
-                    XNamespace ns = lossy.Name.Namespace;
-                    lossy.Element(ns + "childs").Add(new XElement(ns + "child", new XAttribute("animationid", 1),
+                    // A schema-valid child/next probability: lost while parsing until N-cxr-conv-01, kept now.
+                    XElement withChild = XElement.Parse(original);
+                    XNamespace ns = withChild.Name.Namespace;
+                    withChild.Element(ns + "childs").Add(new XElement(ns + "child", new XAttribute("animationid", 1),
                         new XElement(ns + "x", "0"), new XElement(ns + "y", "0"),
                         new XElement(ns + "next", new XAttribute("probability", 37), 1)));
-                    if (!ShimejiEngine.TryValidate(lossy.ToString(), out parsed, out error))
+                    if (!ShimejiEngine.TryValidate(withChild.ToString(), out parsed, out error))
                         failures.Add("CLI_ROUNDTRIP_PARSE_WITNESS: child/next fixture is invalid: " + error);
                     else
                     {
-                        File.WriteAllText(path, lossy.ToString(), new UTF8Encoding(false));
+                        File.WriteAllText(path, withChild.ToString(), new UTF8Encoding(false));
                         using (var output = new StringWriter(CultureInfo.InvariantCulture))
                         {
                             Console.SetOut(output); Console.SetError(output);
                             int exit = Verify(directory);
-                            if (exit != 1 || !output.ToString().Contains("Round-trip semantic mismatch at /animations/childs[1]/child[1]/next[1]/@probability.")
+                            if (exit != 0 || !output.ToString().Contains("round-trip failures 0"))
+                                failures.Add("CLI_ROUNDTRIP_CHILD_NEXT: Verify refused a child/next probability the DTO keeps");
+                        }
+                        // Verify hands its check the file's TEXT. The recording check refuses with a marker, so the
+                        // run must report that refusal too: a Verify that checked the parsed DTO instead never calls it.
+                        string handed = null;
+                        TextRoundTrip recording = delegate(string xml, out string recordError)
+                        {
+                            handed = xml;
+                            recordError = "synthetic refusal from the recording check";
+                            return false;
+                        };
+                        using (var output = new StringWriter(CultureInfo.InvariantCulture))
+                        {
+                            Console.SetOut(output); Console.SetError(output);
+                            int exit = Verify(directory, recording);
+                            if (exit != 1 || handed != withChild.ToString()
+                                || !output.ToString().Contains("round-trip: synthetic refusal from the recording check")
                                 || !output.ToString().Contains("invalid 0   round-trip failures 1"))
-                                failures.Add("CLI_ROUNDTRIP_PARSE_LOSS: Verify failed to refuse parse-time child/next probability loss at its path");
+                                failures.Add("CLI_ROUNDTRIP_PARSE_LOSS: Verify did not hand its round-trip check the file's text");
                         }
                     }
                 }
@@ -511,7 +540,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                 catch (Exception ex) { failures.Add("CLI_ROUNDTRIP_CLEANUP: " + ex.Message); }
             }
             detail = failures.Count == 0
-                ? "cli-roundtrip self-test: PASS faithful Verify input accepted; parse-time child/next probability loss refused at its path"
+                ? "cli-roundtrip self-test: PASS faithful Verify input accepted; child/next probability kept; Verify hands its check the file's text"
                 : string.Join(Environment.NewLine, failures.Select(f => "FAIL " + f));
             return failures.Count == 0;
         }

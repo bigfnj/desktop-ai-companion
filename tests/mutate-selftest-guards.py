@@ -21596,7 +21596,7 @@ CASES = (
      SHIMEJI,
      'sound-resolve',
      'ROUNDTRIP_FIXED_POINT'),
-    ('bd-codex-converter-1: parse-loss-wiring; bd-codex-converter-1-final-engine:; bd-codex-converter-1-final-revision:',
+    ('bd-codex-converter-1: parse-loss-wiring; bd-codex-converter-1-final-engine:; bd-codex-converter-1-final-revision:; bd-w4-options-ui-1: witness now the parse seam (N-cxr-conv-01)',
      os.path.join(REPO, 'tools', 'ShimejiConvert.Engine', 'Engine.cs'),
      b'return RoundTripsCore(root, originalXml, Serialize, out error);',
      b'return RoundTripsCore(root, null, Serialize, out error);',
@@ -21614,7 +21614,7 @@ CASES = (
      SHIMEJI,
      'sound-resolve',
      'ROUNDTRIP_ATTRIBUTE_LOSS'),
-    ('bd-codex-converter-1: default-carrier; bd-codex-converter-1-final-engine:; bd-codex-converter-1-final-revision:',
+    ('bd-codex-converter-1: default-carrier; bd-codex-converter-1-final-engine:; bd-codex-converter-1-final-revision:; bd-w4-options-ui-1: carrier now sound/loop (N-cxr-conv-01)',
      os.path.join(REPO, 'tools', 'ShimejiConvert.Engine', 'Engine.cs'),
      b'return child.HasElements || child.Attributes().Any(a => !a.IsNamespaceDeclaration)\n                    || !IsDefaultScalar(type, field, child.Value);',
      b'return !IsDefaultScalar(type, field, child.Value);',
@@ -21821,9 +21821,9 @@ CASES = (
      b'? pathRoot : ancestor;',
      b'? pathRoot.TrimEnd(Path.DirectorySeparatorChar) : ancestor;',
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL, SHIMEJI, 'sound-resolve', 'SOUND_ROOT_SEARCH'),
-    ('bd-codex-converter-1: revision CLI verify uses parsed DTO; bd-codex-converter-1-final-revision:',
+    ('bd-codex-converter-1: revision CLI verify uses parsed DTO; bd-codex-converter-1-final-revision:; bd-w4-options-ui-1: re-pointed at the TextRoundTrip seam (N-cxr-conv-01)',
      os.path.join(REPO, 'tools', 'ShimejiConvert', 'Program.cs'),
-     b'roundTrip = ShimejiEngine.RoundTrips(xml, out roundTripError) ? "ok" : "FAIL";',
+     b'roundTrip = roundTrips(xml, out roundTripError) ? "ok" : "FAIL";',
      b'roundTrip = ShimejiEngine.RoundTrips(root, out roundTripError) ? "ok" : "FAIL";',
      SHIMEJI_CSPROJ, os.path.join(os.path.dirname(SHIMEJI_ENGINE_DLL), 'ShimejiConvert.dll'),
      SHIMEJI, 'cli-roundtrip', 'CLI_ROUNDTRIP_PARSE_LOSS'),
@@ -22495,6 +22495,21 @@ CASES = (
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      'one move: a tick frame that resizes and moves its window never shows it at a mixed size or its old place'),
+    # ---- burndown/w4-options-ui-1 ----
+    # Options UI and LocalData. "bd-w4-options-ui-1:" for one --only.
+    # N-cxr-conv-01: the companion DTO drops a schema-valid probability on child/next again, so a load and save
+    # returns a different document; the converter's round trip of the public string API is the witness.
+    ('bd-w4-options-ui-1: child/next probability is not kept by the DTO (N-cxr-conv-01)',
+     os.path.join(REPO, 'src', 'LocalData', 'AnimationXML.cs'),
+     b'[XmlAttribute("probability")] public int Probability;',
+     b'[XmlIgnore] public int Probability;',
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL, SHIMEJI, 'sound-resolve', 'ROUNDTRIP_CHILD_NEXT:'),
+    # N-cxr-conv-01: the compatibility property every runtime reader uses stops reading the kept element.
+    ('bd-w4-options-ui-1: ChildNode.Next no longer reads the kept next element (N-cxr-conv-01)',
+     os.path.join(REPO, 'src', 'LocalData', 'AnimationXML.cs'),
+     b'get { return NextEdge != null ? NextEdge.Value : 0; }',
+     b'get { return 0; }',
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL, SHIMEJI, 'sound-resolve', 'ROUNDTRIP_CHILD_NEXT_WITNESS:'),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

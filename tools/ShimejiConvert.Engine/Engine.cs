@@ -64,8 +64,19 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
         /// cannot disappear before the fidelity comparison. Formatting and default scalar values are normalized.</summary>
         public static bool RoundTrips(string originalXml, out string error)
         {
+            return RoundTripsXml(originalXml, TryValidate, out error);
+        }
+
+        internal delegate bool XmlParse(string xml, out XmlData.RootNode root, out string error);
+
+        // A call-scoped parse seam beside the serializer seam below. The DTO keeps every schema-valid field
+        // since N-cxr-conv-01 (the last gap was child/next probability), so no real document still loses
+        // information while parsing, and the self-test injects that loss to prove this overload compares
+        // the emitted XML with the ORIGINAL text rather than with the DTO. Production passes TryValidate.
+        internal static bool RoundTripsXml(string originalXml, XmlParse parse, out string error)
+        {
             XmlData.RootNode root;
-            if (!TryValidate(originalXml, out root, out error)) return false;
+            if (!parse(originalXml, out root, out error)) return false;
             return RoundTripsCore(root, originalXml, Serialize, out error);
         }
 

@@ -282,7 +282,10 @@ row above changes to supported.
 
 The ordinary CLI selftest runs twelve engine suites plus the CLI round-trip/caller suite and reports
 SELFTEST-COUNT: 13. Focused selftest cli-roundtrip calls actual Verify on faithful input and on a schema-valid
-child/next probability 37 input, requiring the first to pass and the second to fail at the lost attribute.
+child/next probability 37 input, requiring both to pass now that the DTO keeps that attribute (N-cxr-conv-01).
+It then runs Verify with a recording round-trip check, requiring Verify to hand the check the file's text and
+to report the check's refusal: no real file loses information while parsing any more, so that is how the
+wiring is proved.
 It also exercises actual ConvertVerb with a full drawable sheet and with an additional image-less pose:
 the first writes output; the preflight refusal writes neither XML nor residue. ConvertSkin maps a failed
 emitter preflight to null plus out error, so folder CLI and Studio callers take their existing failure path.
