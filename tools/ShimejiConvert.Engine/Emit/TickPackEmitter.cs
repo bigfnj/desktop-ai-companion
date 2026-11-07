@@ -288,8 +288,11 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             private readonly Dictionary<string, ShimejiSourceElement> _actions = new Dictionary<string, ShimejiSourceElement>(StringComparer.Ordinal);
             // Each nested action element and its node name (its Name, or the name an anonymous one is given).
             private readonly Dictionary<ShimejiSourceElement, string> _nestedNames = new Dictionary<ShimejiSourceElement, string>();
-            // Global action name -> the custom variables references and behaviours bind to it (ScopeFor).
+            // Global action name -> the union of custom variables references and behaviours bind to it (ScopeFor).
             private readonly Dictionary<string, HashSet<string>> _boundCustom = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+            // Unlike ordinary missing custom names, engine/context fall back to source global objects. They need
+            // the intersection of ALL invocation bindings, including an invocation that supplies no custom names.
+            private readonly Dictionary<string, HashSet<string>> _alwaysBoundCustom = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
             // The scope ScriptParameter parses in: the action whose variable map the attribute being lowered joins.
             private Func<string, bool> _scope;
             // The action whose map the parameter being lowered joins, for the NaN pass's reader (NaNReading).
@@ -429,8 +432,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 foreach (string key in EngineBehaviourKeys)
                     if (_engineNames.ContainsValue(key) && _roots.ContainsKey(key))
                         Fail(_roots[key].Source, "TICK_ENGINE_NAME_COLLISION: '" + key + "' is an ordinary behaviour under this member's Japanese schema, and the host enters a behaviour of that name on its own events");
-                // The names the member's scripts mention (Carried), then the custom variables each global action is
-                // bound (ScopeFor), from every reference and behaviour.
+                // The names the member's scripts mention (Carried), then the union and intersection of custom names
+                // supplied by every global-action invocation. Include zero-frequency and conditional entries: a
+                // named entry can still run, and a condition is not proof that an unbound path is unreachable.
                 foreach (ShimejiSourceDocument scripted in new[] { _source.Actions, _source.Behaviors })
                     foreach (ShimejiSourceElement element in scripted.Root.DescendantsAndSelf())
                         foreach (ShimejiSourceAttribute attribute in element.Attributes)
@@ -1280,33 +1284,49 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
 
             /// <summary>
             /// The scope a script in an action's variable map sees: what ActionScope holds, plus the action's own custom
-            /// variables and every custom variable a reference or behaviour binds to it anywhere. That union is the
-            /// validator's ScopeFor (the act's own params and every name bound to it), so a body this accepts the host
-            /// accepts. An action with no custom variable keeps ActionScope itself.
+            /// variables and the union of ordinary custom variables a reference or behaviour binds to it. engine and
+            /// context instead need an own literal scalar or a literal scalar on EVERY invocation: without one the source reads
+            /// a global object, while the host has no value. A BehaviorReference supplies only its own bindings, not
+            /// its root behaviour's, and an inline action inherits none from its parent. The host validator's broader
+            /// union cannot prove this property. An action with no eligible custom variable keeps ActionScope itself.
             /// </summary>
             private Func<string, bool> ScopeFor(ShimejiSourceElement action)
             {
-                var names = new HashSet<string>(StringComparer.Ordinal);
-                foreach (ShimejiSourceAttribute attribute in action.Attributes) if (Carried(attribute)) names.Add(attribute.SourceName);
+                var declared = new HashSet<string>(StringComparer.Ordinal);
+                foreach (ShimejiSourceAttribute attribute in action.Attributes)
+                    if (Carried(attribute) && (!HasGlobalFallback(attribute.SourceName) || ProvenGlobalScalar(attribute))) declared.Add(attribute.SourceName);
+                var names = new HashSet<string>(declared, StringComparer.Ordinal);
                 HashSet<string> bound;
                 string own = _nestedNames.ContainsKey(action) ? null : LiteralRaw(action, "Name");
                 if (own != null && _boundCustom.TryGetValue(own, out bound)) names.UnionWith(bound);
+                foreach (string global in new[] { "engine", "context" })
+                {
+                    HashSet<string> every;
+                    if (!declared.Contains(global) && (own == null || !_alwaysBoundCustom.TryGetValue(own, out every) || !every.Contains(global)))
+                        names.Remove(global);
+                }
                 if (names.Count == 0) return ActionScope;
                 return name => ActionScope(name) || names.Contains(name);
             }
 
             /// <summary>Records the custom variables an ActionReference, Behavior or BehaviorReference binds to the
-            /// action it names, for that action's ScopeFor.</summary>
+            /// action it names, for that action's ScopeFor. Empty binding sets participate in the intersection, so one
+            /// binding site cannot make a different unbound path appear safe.</summary>
             private void NoteBoundCustom(string target, ShimejiSourceElement element)
             {
                 if (target == null) return;
+                var supplied = new HashSet<string>(StringComparer.Ordinal);
                 foreach (ShimejiSourceAttribute attribute in element.Attributes)
                 {
                     if (!Carried(attribute)) continue;
+                    if (!HasGlobalFallback(attribute.SourceName) || ProvenGlobalScalar(attribute)) supplied.Add(attribute.SourceName);
                     HashSet<string> names;
                     if (!_boundCustom.TryGetValue(target, out names)) _boundCustom.Add(target, names = new HashSet<string>(StringComparer.Ordinal));
                     names.Add(attribute.SourceName);
                 }
+                HashSet<string> every;
+                if (!_alwaysBoundCustom.TryGetValue(target, out every)) _alwaysBoundCustom.Add(target, supplied);
+                else every.IntersectWith(supplied);
             }
 
             private static string LiteralRaw(ShimejiSourceElement element, string key)
@@ -1315,10 +1335,25 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 return attribute != null && attribute.Cache == ShimejiSourceCache.Literal ? attribute.RawValue : null;
             }
 
+            private static bool HasGlobalFallback(string name) { return name == "engine" || name == "context"; }
+
+            // Presence alone does not prove a scalar: engine="${engine ? 5 : 7}" can read the source object before
+            // assignment on an unbound entry. Keep these exceptional bindings to finite decimal literals until a
+            // separate RHS analysis can prove more. Ordinary custom parameters retain their existing script support.
+            private static bool ProvenGlobalScalar(ShimejiSourceAttribute attribute)
+            {
+                double value;
+                return Regex.IsMatch(attribute.RawValue, @"^[ \t\r\n]*[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?[ \t\r\n]*$")
+                    && double.TryParse(attribute.RawValue, NumberStyles.Float, Invariant, out value)
+                    && !double.IsNaN(value) && !double.IsInfinity(value);
+            }
+
             /// <summary>A custom variable as a parameter or binding, by its source name: a literal as written, a script as
             /// its body and cache, parsed in the scope of the action whose map it joins.</summary>
             private XElement CustomParameter(string tag, ShimejiSourceAttribute attribute, ShimejiSourceElement owner)
             {
+                if (HasGlobalFallback(attribute.SourceName) && !ProvenGlobalScalar(attribute))
+                    Fail(owner, "TICK_GLOBAL_BINDING_UNPROVEN " + attribute.QualifiedName + ": engine/context bindings require a finite decimal scalar literal");
                 if (attribute.Cache != ShimejiSourceCache.Literal) return ScriptParameter(tag, attribute.SourceName, attribute, owner);
                 string literal = attribute.RawValue.Trim();
                 if (Regex.IsMatch(literal, @"^[+-]?0[xX](?:[0-9a-fA-F]+(?:\.[0-9a-fA-F]*)?|\.[0-9a-fA-F]+)[pP][+-]?[0-9]+[dDfF]?$"))
@@ -1775,8 +1810,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         // arrays). An attribute of one of these names is not carried, so a script reading it refuses by name.
         private static readonly HashSet<string> ReservedNames = Set("mascot Math true false null "
             // N-bd-parity-recheck-05: the pinned JDK 8 DraftBridgeProbe measures explicit engine/context bindings
-            // as custom scalars, so they may be carried. Without a binding ScopeFor still refuses their global
-            // objects. arguments stays a global object even when bound and must remain reserved.
+            // as custom scalars, so finite decimal literal bindings may be carried. ScopeFor requires an action declaration or bindings on every
+            // invocation path before a script can read them; a union of some binders would admit unmodelled global
+            // objects on the other paths. arguments stays a global object even when bound and must remain reserved.
             + "arguments "
             + "NaN Infinity undefined eval parseInt parseFloat isNaN isFinite decodeURI decodeURIComponent encodeURI "
             + "encodeURIComponent escape unescape Object Function Array String Boolean Number Date RegExp JSON Error "
