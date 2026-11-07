@@ -25,6 +25,7 @@ if __name__ == "__main__":
             "test_mutation_capture_harnesses",
             "test_mutation_baseline_reports",
             "test_mutation_caseplan",
+            "test_mutation_stale_artefacts",
         ))
         result = unittest.TextTestRunner(verbosity=2).run(suite)
     finally:
