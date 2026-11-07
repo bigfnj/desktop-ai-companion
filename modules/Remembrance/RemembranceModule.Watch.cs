@@ -464,19 +464,29 @@ namespace DesktopAICompanion.RemembranceModule
 
         // ---- a track that stopped saving ----
 
-        /// <summary>Log each track that stopped saving, once, and keep the newest for the Status line. Called by the tick
-        /// while recording and by the save after the stop, which runs on a pool thread, hence the lock.</summary>
+        /// <summary>Log each track that stopped saving, or whose capture ended, once, and keep every one for the Status line.
+        /// Called by the tick while recording and by the save after the stop, which runs on a pool thread, hence the lock.
+        /// </summary>
         private void NoteTrackFailures(AudioRecorder recorder)
         {
             if (recorder == null) return;
             foreach (TrackWriteFailure f in recorder.WriteFailures)
             {
-                string line = "the " + f.Track + " track stopped saving " + AudioRecorder.Duration(f.At) + " in (" + f.ExceptionType +
-                              "); the recording keeps what it saved before that";
+                // A capture that ended (N-audit-1106-036) is worded for what happened: the device went, so nothing more is
+                // recorded from it, which "stopped saving" would put down to the disk.
+                string line = f.CaptureEnded
+                    ? "the " + f.Track + " capture stopped " + AudioRecorder.Duration(f.At) + " in (" +
+                      (f.ExceptionType.Length > 0 ? f.ExceptionType : "no error given") +
+                      "): nothing more is recorded from it, and the recording keeps what it captured before that"
+                    : "the " + f.Track + " track stopped saving " + AudioRecorder.Duration(f.At) + " in (" + f.ExceptionType +
+                      "); the recording keeps what it saved before that";
                 lock (_trackFailureLock)
                 {
                     if (!_trackFailuresLogged.Add(f.Track)) continue;
-                    _trackFailureLine = line;
+                    // One warning per track, each kept (N-audit-1106-036): this held the newest alone, so with both tracks
+                    // gone the Status line named one and the meeting went on unrecorded under the other's silence.
+                    string warning = char.ToUpperInvariant(line[0]) + line.Substring(1) + ".";
+                    _trackFailureLine = _trackFailureLine == null ? warning : _trackFailureLine + "  |  ⚠ " + warning;
                 }
                 Log(line);
             }
@@ -491,7 +501,7 @@ namespace DesktopAICompanion.RemembranceModule
                 s += "  |  ⚠ The storage folder is inside OneDrive: recordings upload to the cloud, and audio deleted here " +
                      "stays in the OneDrive recycle bin. Choose a folder outside OneDrive to keep them on this computer.";
             string failure = _trackFailureLine;
-            if (!string.IsNullOrEmpty(failure)) s += "  |  ⚠ " + char.ToUpperInvariant(failure[0]) + failure.Substring(1) + ".";
+            if (!string.IsNullOrEmpty(failure)) s += "  |  ⚠ " + failure;
             return s;
         }
     }

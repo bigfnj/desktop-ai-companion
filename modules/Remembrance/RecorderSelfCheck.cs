@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -344,7 +345,9 @@ namespace DesktopAICompanion.RemembranceModule
                     check("the silent render stream is released with its source",
                         devices.KeepAlives.Count == 1 && devices.KeepAlives[0].Disposed);
                     check("WITNESS a clean stop reports neither a keep-alive nor a capture failure",
-                        recorder.KeepAliveEndedEarly == null && recorder.CaptureFailure == null);
+                        recorder.KeepAliveEndedEarly == null && recorder.CaptureFailures.Count == 0);
+                    check("a clean stop records no track failure: a stop this recorder asked for is not a capture that ended",
+                        recorder.WriteFailures.Count == 0);
                     recorder.Dispose();
 
                     // ---- a start that fails half-way leaves no header-only scratch behind (F171) ----
@@ -373,10 +376,42 @@ namespace DesktopAICompanion.RemembranceModule
                     dying.Stop();
                     check("a silent render stream that stopped mid-capture is reported at Stop, with the reason",
                         dying.KeepAliveEndedEarly != null && dying.KeepAliveEndedEarly.Contains("DEVICE_INVALIDATED"));
+                    IReadOnlyList<string> diedAtStop = dying.CaptureFailures;
                     check("a capture whose thread died is reported at Stop, naming the source and the reason",
-                        dying.CaptureFailure != null && dying.CaptureFailure.Contains("microphone")
-                        && dying.CaptureFailure.Contains("capture thread died"));
+                        diedAtStop.Count == 1 && diedAtStop[0].Contains("microphone")
+                        && diedAtStop[0].Contains("capture thread died"));
                     dying.Dispose();
+
+                    // ---- a capture that dies WHILE the recording goes on is a live track failure, one per source ----
+                    // (N-audit-1106-036) The fake's own thread ending with an exception, nobody having asked it to stop:
+                    // the shape of a headset unplugged or an endpoint invalidated mid-meeting. It was reported only at
+                    // Stop, in the log, and a second death overwrote the first.
+                    var unplugged = new AudioRecorder();
+                    unplugged.Start(Path.Combine(scratch, "unplugged.wav"), true, "", true, "");
+                    FakeCapture micFake = devices.Captures.Last(f => !f.Loopback);
+                    FakeCapture systemFake = devices.Captures.Last(f => f.Loopback);
+                    Thread.Sleep(60);
+                    micFake.StopException = new InvalidOperationException("simulated: the microphone endpoint was invalidated");
+                    micFake.StopRecording();
+                    bool micSeen = SpinWait.SpinUntil(delegate { return unplugged.WriteFailures.Count > 0; }, TimeSpan.FromSeconds(5));
+                    IReadOnlyList<TrackWriteFailure> live = unplugged.WriteFailures;
+                    check("a capture that dies mid-recording is a live track failure before any Stop, by track and exception type: " +
+                          string.Join(", ", live.Select(f => f.Track + " " + f.ExceptionType + (f.CaptureEnded ? " ended" : ""))),
+                        micSeen && unplugged.IsRecording && live.Count == 1 && live[0].Track == "microphone"
+                        && live[0].CaptureEnded && live[0].ExceptionType == "InvalidOperationException");
+                    systemFake.StopException = new InvalidOperationException("simulated: the output endpoint was invalidated");
+                    systemFake.StopRecording();
+                    SpinWait.SpinUntil(delegate { return unplugged.WriteFailures.Count > 1; }, TimeSpan.FromSeconds(5));
+                    unplugged.Stop();
+                    IReadOnlyList<TrackWriteFailure> both = unplugged.WriteFailures;
+                    IReadOnlyList<string> bothLogged = unplugged.CaptureFailures;
+                    check("two captures that die keep one entry each, the first not overwritten by the second (" +
+                          both.Count.ToString(CultureInfo.InvariantCulture) + " track failure(s), " +
+                          bothLogged.Count.ToString(CultureInfo.InvariantCulture) + " log line(s))",
+                        both.Count == 2 && both.Any(f => f.Track == "microphone") && both.Any(f => f.Track == "system output")
+                        && bothLogged.Count == 2 && bothLogged.Any(l => l.Contains("microphone endpoint was invalidated"))
+                        && bothLogged.Any(l => l.Contains("output endpoint was invalidated")));
+                    unplugged.Dispose();
 
                     // ---- the refusal NAudio actually raises: at StartRecording, with the system capture running (R-037) ----
                     // WasapiCapture's constructor only activates the client and reads the mix format; the

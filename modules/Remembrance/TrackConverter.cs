@@ -424,12 +424,18 @@ namespace DesktopAICompanion.RemembranceModule
         internal readonly string Track;
         internal readonly TimeSpan At;
         internal readonly string ExceptionType;
+        // True when the CAPTURE ended under a recording still going (N-audit-1106-036: a headset unplugged, a Bluetooth
+        // drop, an endpoint invalidated) rather than a write failing; ExceptionType is "" when it ended with no exception.
+        internal readonly bool CaptureEnded;
 
-        internal TrackWriteFailure(string track, TimeSpan at, string exceptionType)
+        internal TrackWriteFailure(string track, TimeSpan at, string exceptionType) : this(track, at, exceptionType, false) { }
+
+        internal TrackWriteFailure(string track, TimeSpan at, string exceptionType, bool captureEnded)
         {
             Track = track ?? "";
             At = at;
             ExceptionType = exceptionType ?? "";
+            CaptureEnded = captureEnded;
         }
     }
 }

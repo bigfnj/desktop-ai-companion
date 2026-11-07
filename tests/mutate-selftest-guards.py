@@ -3360,13 +3360,15 @@ CASES = (
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "a silent render stream that stopped mid-capture is reported at Stop"),
 
+    # Re-pointed by burndown/w2-remembrance-1 (N-audit-1106-036): the failure is one entry per source in a list now.
     ("burn/remembrance: the capture's RecordingStopped drops its exception again (RA-150)",
      AUDIO_RECORDER,
      b"                try\n"
      b"                {\n"
      b"                    if (e != null && e.Exception != null)\n"
-     b"                        CaptureFailure = (s.Loopback ? \"the system output capture\" : \"the microphone capture\")\n"
-     b"                                         + \" stopped with an error: \" + e.Exception.Message;\n"
+     b"                        lock (_captureFailures)\n"
+     b"                            _captureFailures.Add((s.Loopback ? \"the system output capture\" : \"the microphone capture\")\n"
+     b"                                                 + \" stopped with an error: \" + e.Exception.Message);\n"
      b"                }\n"
      b"                catch { }\n",
      b"",
@@ -20967,6 +20969,92 @@ CASES = (
      b'                    if (false && payloadOffset < ranges[previous].End &&\n',
      HOST_CSPROJ, EXE,
      SECURITY, None, 'overlapping ICO payloads are rejected before decoding'),
+    # ---- burndown/w2-remembrance-1 ----
+    # Wave 2's Remembrance entries of the 2026-11-06 audit, each the defect as it stood put back. Named
+    # "bd-w2-remembrance-1: ..." so --only=bd-w2-remembrance-1: runs exactly these.
+
+    # N-audit-1106-036: a capture that ends under a running recording records no live failure again, so the tick has
+    # nothing to put on the Status line until the Stop logs it.
+    ("bd-w2-remembrance-1: a capture that dies mid-recording is no live track failure (N-audit-1106-036)",
+     AUDIO_RECORDER,
+     b"                    if (!s.StopRequested)\n"
+     b"                        s.NoteCaptureEnded(e != null && e.Exception != null ? e.Exception.GetType().Name : null);\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a capture that dies mid-recording is a live track failure before any Stop"),
+
+    # N-audit-1106-036: readers see one capture failure, the newest, as the one overwritten string gave them.
+    ("bd-w2-remembrance-1: two capture deaths leave only the last one's line (N-audit-1106-036)",
+     AUDIO_RECORDER,
+     b"            get { lock (_captureFailures) return _captureFailures.ToArray(); }\n",
+     b"            get { lock (_captureFailures) return _captureFailures.Skip(Math.Max(0, _captureFailures.Count - 1)).ToArray(); }\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "two captures that die keep one entry each"),
+
+    # N-audit-1106-036: the Status line keeps the newest track warning alone again.
+    ("bd-w2-remembrance-1: the Status line keeps only the newest track warning (N-audit-1106-036)",
+     os.path.join(REPO, "modules", "Remembrance", "RemembranceModule.Watch.cs"),
+     b"_trackFailureLine = _trackFailureLine == null ? warning : ",
+     b"_trackFailureLine = true ? warning : ",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "...and a second death adds its own warning, the first kept"),
+
+    # N-audit-1106-036: a stop the recorder asked for is taken for a capture that ended.
+    ("bd-w2-remembrance-1: a clean stop is reported as a capture that ended (N-audit-1106-036)",
+     AUDIO_RECORDER,
+     b"            foreach (Source s in _sources) s.StopRequested = true;\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a clean stop records no track failure"),
+
+    # N-audit-1106-038, the Init half: the start counts nothing, so a recording saved at exit waits for the purge unseen.
+    ("bd-w2-remembrance-1: the start no longer counts recordings with no transcript (N-audit-1106-038)",
+     REMEMBRANCE_MODULE,
+     b"            BeginUntranscribedScan();\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "the next start says on the Status line which recordings have audio and no transcript"),
+
+    # N-audit-1106-038: a stub counts as a transcript, so the exit save's own recording is never counted.
+    ("bd-w2-remembrance-1: the count takes a stub for a transcript (N-audit-1106-038)",
+     os.path.join(REPO, "modules", "Remembrance", "CaptureStore.cs"),
+     b"                        if (Transcriber.HoldsTranscript(transcript)) continue;\n",
+     b"                        if (File.Exists(transcript)) continue;\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "the next start says on the Status line which recordings have audio and no transcript"),
+
+    # N-audit-1106-038: the count walks every subfolder, so a user's own folder holding a recording.wav is counted.
+    ("bd-w2-remembrance-1: the count walks folders the module never named (N-audit-1106-038)",
+     os.path.join(REPO, "modules", "Remembrance", "CaptureStore.cs"),
+     b"                    else if (IsCaptureFolderName(name))\n",
+     b"                    else\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "the next start says on the Status line which recordings have audio and no transcript"),
+
+    # N-audit-1106-038: the count is kept and logged but the Status line never shows it.
+    ("bd-w2-remembrance-1: the Status line leaves out the untranscribed warning (N-audit-1106-038)",
+     REMEMBRANCE_MODULE,
+     b"if (untranscribed != null) s += ",
+     b"if (untranscribed == \"\") s += ",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "the next start says on the Status line which recordings have audio and no transcript"),
+
+    # N-shimeji-1106-06: the rename overwrites a raced target, and the refusal it must meet never comes.
+    ("bd-w2-remembrance-1: the rename overwrites a raced target, so no ERROR_ALREADY_EXISTS is met (N-shimeji-1106-06)",
+     os.path.join(REPO, "modules", "Remembrance", "CaptureStore.Rename.cs"),
+     b"            else File.Move(from, to);\n",
+     b"            else File.Move(from, to, true);\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "refused by the move itself, because the target exists (ERROR_ALREADY_EXISTS)"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

@@ -912,5 +912,90 @@ namespace DesktopAICompanion.RemembranceModule
                 try { if (Directory.Exists(scratch)) Directory.Delete(scratch, true); } catch (Exception) { }
             }
         }
+
+        // ---- recordings with audio and no transcript (N-audit-1106-038, the Init half) ----
+        // A recording saved as the app closed gets a stub transcript and no whisper run, and the next start used not to
+        // notice: the 72-hour purge then deleted the only copy of the meeting, and nothing had said so where the user
+        // looks. Each start, and each purge pass after it, counts the recordings under the storage folder whose audio
+        // has no transcript beside it (CaptureStore.UntranscribedAudio) and the Status line says how many and when the
+        // purge reaches the oldest. Off the UI thread, like the purge: the walk reads a folder the user chose, which may
+        // be large or on a slow disk. A generation counter keeps a slower, older count from replacing a newer one.
+        private readonly object _untranscribedLock = new object();
+        private int _untranscribedGeneration;
+        private volatile string _untranscribedWarning;
+        private Task _untranscribedScan = Task.CompletedTask;
+
+        /// <summary>The storage folder the count walks, read on the caller's thread with the settings; null for none, or
+        /// for a location that is not a full path, which names no folder (N-followups-02).</summary>
+        private string UntranscribedRoot()
+        {
+            string root = StorageRoot();
+            return root != null && CaptureStore.IsFullFolder(root) ? root : null;
+        }
+
+        /// <summary>Count in the background, from Init and after a manual transcription; the purge counts on its own pool
+        /// thread after its pass (RunPurge).</summary>
+        private Task BeginUntranscribedScan()
+        {
+            string root = UntranscribedRoot();
+            int generation = NextUntranscribedGeneration();
+            Task scan = Task.Run(() => ScanUntranscribed(root, generation));
+            _untranscribedScan = scan;
+            return scan;
+        }
+
+        private int NextUntranscribedGeneration()
+        {
+            lock (_untranscribedLock) return ++_untranscribedGeneration;
+        }
+
+        /// <summary>One count, on the calling (pool) thread. Logs a changed count once, by number only: a capture's name
+        /// carries the meeting's title.</summary>
+        private void ScanUntranscribed(string root, int generation)
+        {
+            try
+            {
+                List<DateTime> found = root == null ? new List<DateTime>() : CaptureStore.UntranscribedAudio(root);
+                string warning = UntranscribedWarning(found, DateTime.UtcNow);
+                string before;
+                lock (_untranscribedLock)
+                {
+                    if (generation != _untranscribedGeneration) return;
+                    before = _untranscribedWarning;
+                    _untranscribedWarning = warning;
+                }
+                if (string.Equals(before, warning, StringComparison.Ordinal)) return;
+                if (found.Count > 0)
+                    Log("found " + found.Count.ToString(CultureInfo.InvariantCulture) +
+                        " recording(s) with audio and no transcript; the " + RetentionHours() + "-hour purge reaches the oldest " +
+                        PurgeDue(found, DateTime.UtcNow));
+                NotifyInfoChanged();
+            }
+            catch (Exception ex) { Log("the count of recordings with no transcript failed (" + ex.GetType().Name + ")"); }
+        }
+
+        /// <summary>"in 12 h", or "at the next purge" once the oldest is past the window: when the purge deletes the oldest
+        /// of these recordings' audio. Whole hours, rounded up, never "in 0 h".</summary>
+        private static string PurgeDue(List<DateTime> audioWrittenUtc, DateTime nowUtc)
+        {
+            TimeSpan left = audioWrittenUtc.Min() + CaptureStore.Retention - nowUtc;
+            if (left <= TimeSpan.Zero) return "at the next purge";
+            return "in " + Math.Max(1, (int)Math.Ceiling(left.TotalHours)).ToString(CultureInfo.InvariantCulture) + " h";
+        }
+
+        /// <summary>The Status line's warning, or null when every recording has its transcript.</summary>
+        internal static string UntranscribedWarning(List<DateTime> audioWrittenUtc, DateTime nowUtc)
+        {
+            if (audioWrittenUtc == null || audioWrittenUtc.Count == 0) return null;
+            int n = audioWrittenUtc.Count;
+            return (n == 1 ? "1 recording has" : n.ToString(CultureInfo.InvariantCulture) + " recordings have") +
+                   " audio and no transcript, and the " + RetentionHours() + "-hour purge deletes " +
+                   (n == 1 ? "its" : "the oldest one's") + " audio " + PurgeDue(audioWrittenUtc, nowUtc) +
+                   ". Use \"Transcribe a WAV file...\" on " + (n == 1 ? "it" : "each") +
+                   ", or move the .wav out of the storage folder to keep it.";
+        }
+
+        internal Task UntranscribedScanForSelfTest { get { return _untranscribedScan; } }
+        internal string UntranscribedWarningForSelfTest { get { return _untranscribedWarning; } }
     }
 }

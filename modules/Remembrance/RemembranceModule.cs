@@ -94,7 +94,14 @@ namespace DesktopAICompanion.RemembranceModule
                                  //        stub is on disk while it runs (N-audit-1106-041). A recording saved as the app
                                  //        closes gets that stub too, saying it was never transcribed (N-audit-1106-038).
                                  //        "Rename older recordings" moves an old capture's follow-up with the rest of it
-                                 //        (N-audit-1106-276).
+                                 //        (N-audit-1106-276). A capture that ends mid-meeting (a headset unplugged, a
+                                 //        Bluetooth drop) is on the Status line and in the log while the recording goes
+                                 //        on, one warning per track; it was logged only at the stop, and a second such
+                                 //        end overwrote the first (N-audit-1106-036). Each start, and each purge pass,
+                                 //        counts the recordings with audio and no transcript, and the Status line says
+                                 //        how many and when the purge reaches the oldest (N-audit-1106-038). The self-test
+                                 //        of a rename whose target appeared after the plan now requires the move's own
+                                 //        refusal, ERROR_ALREADY_EXISTS (N-shimeji-1106-06).
                                  // 2.10.0: one Claude Code sign-in, shared with AI Brain (host 1.8.0's
                                  //        IHostCredentials, BACKLOG N-cli-token-02, the owner's decision of
                                  //        2026-10-29), behind the ClaudeCodeSignIn grant, so MinHostVersion rises to
@@ -568,8 +575,16 @@ namespace DesktopAICompanion.RemembranceModule
             // load gate is what turns an older host into a refusal with a reason. Not shipped before host 1.6.0 is
             // released (docs/VERSIONING.md's sequencing rule). The self-test pins this floor beside the other two.
             MinHostVersion = "1.8.0",
-            // Network is for two user-initiated local/upstream calls: fetching whisper.cpp from its GitHub release +
-            // Hugging Face, and talking to a LOOPBACK Ollama for the summary. There is deliberately no cloud
+            // Network is for three kinds of call. "Set up Whisper for me" fetches whisper.cpp from its GitHub release
+            // and the model from Hugging Face (WhisperInstaller). A local summary, and the model list and pull of "Set
+            // up and check Ollama", go to the address in "Local Ollama address": loopback by default
+            // (OllamaSummarizer.DefaultEndpoint), but a free-text field that takes any URL, so it is local only while
+            // the user leaves it so (whether to hold it to loopback is BACKLOG N-audit-1106-037). And since 2.2.0 the
+            // module itself sends the transcript's TEXT to a cloud provider when the user picks "Cloud provider" under
+            // "Summary runs on": OpenAI, OpenRouter or any OpenAI-compatible base URL (CloudSummary), over https, or
+            // plain http only to this computer (AiEndpointPolicy.TryNormalize), with that card's "Validate" and "Refresh
+            // cloud models" calling the same host. This comment said "two user-initiated local/upstream calls" and a
+            // LOOPBACK Ollama until the 2026-11-06 audit (N-audit-1106-280). There is deliberately no cloud
             // transcription path, because a recording can be privileged or consent-regulated audio. Since 2.1.0 the
             // SUMMARY can go through a coding-agent CLI, which sends the transcript's text to its maker, when the user
             // picks one under "Summary runs on" (off by default; the owner reversed "no cloud summary path, ever" on
@@ -672,6 +687,11 @@ namespace DesktopAICompanion.RemembranceModule
 
             _hostShutdownHandler = OnHostShutdown;
             try { host.HostShutdown += _hostShutdownHandler; } catch { }
+
+            // Recordings left with audio and no transcript (a save as the app closed, a whisper-cli run cut short) are
+            // counted now, in the background, and named on the Status line before the purge's first pass a minute from
+            // now can reach any of them (N-audit-1106-038). A read: unlike the purge, nothing here deletes.
+            BeginUntranscribedScan();
         }
 
         public void Shutdown()
@@ -853,8 +873,8 @@ namespace DesktopAICompanion.RemembranceModule
                 Log("the silent keep-alive stream beside the system output stopped before the recording did (" +
                     recorder.KeepAliveEndedEarly + "); from that point the system track may run short of the " +
                     "microphone, the way every version before 1.0.17 recorded");
-            if (recorder.CaptureFailure != null)
-                Log(recorder.CaptureFailure + "; its scratch track holds what arrived before that");
+            foreach (string captureFailure in recorder.CaptureFailures)
+                Log(captureFailure + "; its scratch track holds what arrived before that");
             // 2.4.0: a track that stopped saving and was not yet logged by the watch's tick, and a track that came out
             // more than 2 % short of the wall clock (packets lost somewhere; what follows the loss is early in the mix).
             NoteTrackFailures(recorder);
@@ -1662,6 +1682,7 @@ namespace DesktopAICompanion.RemembranceModule
             // The folders the storage location pointed to before, read here on the caller's thread with the root
             // (N-remembrance-delete-logging-06); each is purged by the same shapes, after the current root.
             List<string> earlier = EarlierRoots(root);
+            int untranscribedGeneration = NextUntranscribedGeneration();
             return Task.Run(() =>
             {
                 try
@@ -1674,6 +1695,9 @@ namespace DesktopAICompanion.RemembranceModule
                 }
                 // By the exception's TYPE, never its Message, which can name the path it failed on (DeletionReport).
                 catch (Exception ex) { Log("purge failed: " + ex.GetType().Name); }
+                // What is left untranscribed after the pass, so the Status line's count and its hours stay current
+                // (N-audit-1106-038). After the purge, never instead of it: the count reads, it does not decide.
+                ScanUntranscribed(root, untranscribedGeneration);
             });
         }
 
@@ -2849,6 +2873,9 @@ namespace DesktopAICompanion.RemembranceModule
             // 2.4.0: the storage folder inside OneDrive (recordings upload; deleted audio waits in its recycle bin), and a
             // track of this recording, or the last, that stopped saving.
             s += MeetingStatusWarnings(root);
+            // Recordings with audio and no transcript, and when the purge reaches the oldest (N-audit-1106-038).
+            string untranscribed = _untranscribedWarning;
+            if (untranscribed != null) s += "  |  ⚠ " + untranscribed;
             if (System.Windows.Forms.SystemInformation.TerminalServerSession)
                 s += "  |  ⚠ Remote Desktop session: the machine's real mic and speakers are not presented here, so recording won't work. Run on the machine's own console. (The device lists refresh every time this pane opens, so reopening it on the console is enough; no restart needed.)";
             else if (mics == 0)
@@ -2916,6 +2943,7 @@ namespace DesktopAICompanion.RemembranceModule
                     string name = System.IO.Path.GetFileNameWithoutExtension(wav);
                     // remembrance.busy (2.0.0): up synchronously on this UI thread, cleared in the finally.
                     BusySpan busy = Busy(BusyTranscribing);
+                    string scanRoot = UntranscribedRoot();   // read here, with the settings, on this UI thread
                     Task.Run(() =>
                     {
                         try
@@ -2934,6 +2962,8 @@ namespace DesktopAICompanion.RemembranceModule
                                     : "Transcription failed" + (kept ? ", the earlier transcript is kept" : "") +
                                       (string.IsNullOrEmpty(reason) ? "" : " (" + reason + ")") + ": " + name,
                                 did ? "Transcript ready." : "Transcription failed.");
+                            // The recording may have been one the Status line counted as untranscribed (N-audit-1106-038).
+                            ScanUntranscribed(scanRoot, NextUntranscribedGeneration());
                         }
                         catch (Exception ex) { try { _host.Log(Id, "manual transcribe failed: " + ex.Message); } catch { } }
                         finally { busy.Dispose(); }
@@ -5219,6 +5249,49 @@ namespace DesktopAICompanion.RemembranceModule
                         host.LoggedLines.Any(l => l.Contains("microphone capture stopped with an error")
                                                   && l.Contains("capture thread died")));
                     module.Shutdown();
+
+                    // ---- the NEXT start finds that recording, and says so before the purge can reach it ----
+                    // (N-audit-1106-038, the Init half) Beside the exit capture: a by-date capture saved 60 hours ago with
+                    // no transcript at all (12 hours from the purge, so the oldest), its scratch track (not a recording),
+                    // a capture with a real transcript, and a user's own folder holding a recording.wav (not ours).
+                    string dayDir = System.IO.Path.Combine(scratch, "2026-08-28");
+                    System.IO.Directory.CreateDirectory(dayDir);
+                    string oldWav = System.IO.Path.Combine(dayDir, "2026-08-28 15-00 Review.wav");
+                    System.IO.File.WriteAllText(oldWav, "audio");
+                    System.IO.File.SetLastWriteTimeUtc(oldWav, DateTime.UtcNow - TimeSpan.FromHours(60));
+                    System.IO.File.WriteAllText(System.IO.Path.Combine(dayDir, "2026-08-28 15-00 Review" + AudioRecorder.MicScratchSuffix), "scratch");
+                    string doneDir = System.IO.Path.Combine(scratch, "2026-08-27 09-30 Board");
+                    System.IO.Directory.CreateDirectory(doneDir);
+                    System.IO.File.WriteAllText(System.IO.Path.Combine(doneDir, "recording.wav"), "audio");
+                    System.IO.File.WriteAllText(System.IO.Path.Combine(doneDir, "recording.transcript.txt"), "Board\nwords\n");
+                    string userDir = System.IO.Path.Combine(scratch, "Zoom");
+                    System.IO.Directory.CreateDirectory(userDir);
+                    System.IO.File.WriteAllText(System.IO.Path.Combine(userDir, "recording.wav"), "not ours");
+                    var nextHost = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                    nextHost.SettingsFor(Id).Set("storageLocation", scratch);
+                    nextHost.SettingsFor(Id).Set("summaryModelsCache", "alpha:1b");
+                    var next = new RemembranceModule();
+                    next.Init(nextHost);
+                    try
+                    {
+                        bool counted = next.UntranscribedScanForSelfTest.Wait(TimeSpan.FromSeconds(20));
+                        string nextStatus = next.StatusLineForSelfTest();
+                        check("the next start says on the Status line which recordings have audio and no transcript, and when the " +
+                              "purge reaches the oldest (N-audit-1106-038): " + (next.UntranscribedWarningForSelfTest ?? "none"),
+                            counted && nextStatus.Contains("⚠ 2 recordings have audio and no transcript, and the 72-hour purge deletes " +
+                                                           "the oldest one's audio in 12 h. Use \"Transcribe a WAV file...\" on each"));
+                        check("...and logs the count once, naming no meeting",
+                            nextHost.LoggedLines.Count(l => l.Contains("found 2 recording(s) with audio and no transcript")) == 1
+                            && !nextHost.LoggedLines.Any(l => l.Contains("Review") || l.Contains("Board")));
+                        string stubDir = System.IO.Path.Combine(scratch, "2026-08-27 10-00 Sync");
+                        System.IO.Directory.CreateDirectory(stubDir);
+                        System.IO.File.WriteAllText(System.IO.Path.Combine(stubDir, "recording.wav"), "audio");
+                        Transcriber.WriteStub(System.IO.Path.Combine(stubDir, "recording.transcript.txt"), "Sync", null, null, "simulated");
+                        check("WITNESS a capture folder whose transcript is a stub is counted, one more than before",
+                            CaptureStore.UntranscribedAudio(scratch).Count == 3);
+                        check("WITNESS with nothing to count there is no warning", UntranscribedWarning(new List<DateTime>(), DateTime.UtcNow) == null);
+                    }
+                    finally { next.Shutdown(); }
                 }
 
                 // ---- exit inside the save window after NORMAL stops: shutdown waits for EVERY save ----

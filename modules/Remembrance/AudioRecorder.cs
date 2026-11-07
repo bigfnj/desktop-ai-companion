@@ -81,6 +81,9 @@ namespace DesktopAICompanion.RemembranceModule
             // track (TrackWriteFailure says why it is never resumed). Read on the UI thread by the watch's tick.
             public volatile bool Failed;
             public volatile TrackWriteFailure WriteFailure;
+            // Set before this recorder stops or releases the capture itself, so a RecordingStopped that arrives WITHOUT
+            // it is a capture that ended under a recording still going (N-audit-1106-036).
+            public volatile bool StopRequested;
             public WaveFormat WrittenFormat;
             public long BytesWritten;
             private Action<byte[], int> _writePcm;
@@ -116,6 +119,19 @@ namespace DesktopAICompanion.RemembranceModule
                     Failed = true;
                     WriteFailure = new TrackWriteFailure(Name, WrittenTime, ex.GetType().Name);
                 }
+            }
+
+            /// <summary>
+            /// The capture ended while the recording goes on (N-audit-1106-036): a headset unplugged, a Bluetooth drop, an
+            /// endpoint invalidated. Recorded as this track's failure, the same entry a write that throws makes, so the
+            /// module's tick puts it on the Status line and in the log while the meeting is still on; until then it was
+            /// seen only at Stop, in the log, and the Status line said "Recording" over a track capturing nothing. A
+            /// write failure already recorded is kept: it came first. Runs on the capture thread, as Write does.
+            /// </summary>
+            public void NoteCaptureEnded(string exceptionType)
+            {
+                Failed = true;
+                if (WriteFailure == null) WriteFailure = new TrackWriteFailure(Name, WrittenTime, exceptionType, true);
             }
 
             /// <summary>How much audio this track has on disk, from the bytes written and the format they were written in.</summary>
@@ -227,12 +243,17 @@ namespace DesktopAICompanion.RemembranceModule
         public string KeepAliveEndedEarly { get; private set; }
 
         /// <summary>
-        /// The exception a capture's RecordingStopped carried, prefixed with which source, or null when both
-        /// stopped clean. NAudio delivers a capture thread's death through that event's Exception, and the
-        /// handler dropped it (RA-150); the writer was finalised either way, so the scratch holds what arrived
-        /// before the failure, and the caller logs why it ends where it does.
+        /// The exception each capture's RecordingStopped carried, prefixed with which source, one line per source that
+        /// stopped with one, or empty when every source stopped clean. NAudio delivers a capture thread's death through
+        /// that event's Exception, and the handler dropped it (RA-150); the writer was finalised either way, so the
+        /// scratch holds what arrived before the failure, and the caller logs why it ends where it does. A list since
+        /// N-audit-1106-036: it was one string each death overwrote, so with both sources dead only the last was logged.
         /// </summary>
-        public string CaptureFailure { get; private set; }
+        public IReadOnlyList<string> CaptureFailures
+        {
+            get { lock (_captureFailures) return _captureFailures.ToArray(); }
+        }
+        private readonly List<string> _captureFailures = new List<string>();
 
         /// <summary>
         /// How long the last <see cref="Stop"/> spent stopping the captures and finalising the scratch WAVs, and
@@ -387,13 +408,23 @@ namespace DesktopAICompanion.RemembranceModule
                 // also the thread DataAvailable wrote from, so the writer changes hands to nobody.
                 try { if (s.Writer != null) { s.Writer.Dispose(); s.Writer = null; } } catch { }
                 // The capture thread's own death arrives here, as the event's Exception, and nowhere else. Kept
-                // for the caller's log rather than dropped (RA-150); the writer above was finalised regardless,
-                // so the scratch holds everything that arrived before it.
+                // for the caller's log rather than dropped (RA-150), one line per source (N-audit-1106-036); the
+                // writer above was finalised regardless, so the scratch holds everything that arrived before it.
                 try
                 {
                     if (e != null && e.Exception != null)
-                        CaptureFailure = (s.Loopback ? "the system output capture" : "the microphone capture")
-                                         + " stopped with an error: " + e.Exception.Message;
+                        lock (_captureFailures)
+                            _captureFailures.Add((s.Loopback ? "the system output capture" : "the microphone capture")
+                                                 + " stopped with an error: " + e.Exception.Message);
+                }
+                catch { }
+                // Nobody asked this capture to stop, so it ended under a recording still going: the track's live
+                // failure, for the tick to show now rather than the log to say after the meeting (N-audit-1106-036).
+                // The type only, as Write records it. A stop this recorder asked for is not a failure, whatever it carries.
+                try
+                {
+                    if (!s.StopRequested)
+                        s.NoteCaptureEnded(e != null && e.Exception != null ? e.Exception.GetType().Name : null);
                 }
                 catch { }
                 // Guarded: Stopped is disposed once the capture is torn down, and an unguarded Set() on a
@@ -454,6 +485,7 @@ namespace DesktopAICompanion.RemembranceModule
             TimeSpan wall = _wall != null ? _wall.Elapsed : TimeSpan.Zero;
 
             var stopwatch = Stopwatch.StartNew();
+            foreach (Source s in _sources) s.StopRequested = true;
             foreach (Source s in _sources)
             {
                 try { s.Capture.StopRecording(); } catch { s.Stopped.Set(); }
@@ -667,6 +699,7 @@ namespace DesktopAICompanion.RemembranceModule
         private static void DisposeSource(Source s)
         {
             if (s == null) return;
+            s.StopRequested = true;   // a release is a stop this recorder asked for (N-audit-1106-036)
             try { if (s.Writer != null) { s.Writer.Dispose(); s.Writer = null; } } catch { }
             try { if (s.Capture != null) { s.Capture.Dispose(); s.Capture = null; } } catch { }
             try { if (s.KeepAlive != null) { s.KeepAlive.Dispose(); s.KeepAlive = null; } } catch { }
