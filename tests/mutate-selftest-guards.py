@@ -20464,6 +20464,40 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--shimeji-window-selftest", "dp-shimeji-window-selftest.txt",
      "parity trace: a provenance fault ends the run in error, naming the field"),
+    # ---- burndown/audio-1 ----
+    # The audio output's stop handling (BUG-019, N-shimeji-1106-01/02, N-audit-1106-020). Named "bd-audio-1:" so one
+    # --only=bd-audio-1: run covers the lane. The clean stop is driven through AudioOutput.OpenOutput's stand-in player.
+    # BUG-019 as shipped: a stop with no error latches the default for RetryInterval (the condition can never hold:
+    # _observedFailures is at least 1 there, and a constant false would not compile under warnings as errors).
+    ("bd-audio-1: BUG-019 a clean stop of the default output mutes all sound for the retry interval again",
+     AUDIO_OUTPUT,
+     b"                if (clean && now - _cleanStopReopenedUtc >= RetryInterval)\n",
+     b"                if (clean && now - _cleanStopReopenedUtc >= RetryInterval && _observedFailures < 0)\n",
+     HOST_CSPROJ, EXE,
+     "--audio-selftest", "dp-audio-selftest.txt",
+     "a clean stop of the default output is reopened by the next sound, not muted for"),
+    ("bd-audio-1: BUG-019 every clean stop is reopened, a second one soon after included",
+     AUDIO_OUTPUT,
+     b"                    _cleanStopReopenedUtc = now;\n",
+     b"",
+     HOST_CSPROJ, EXE,
+     "--audio-selftest", "dp-audio-selftest.txt",
+     "a second clean stop soon after still mutes for the retry interval"),
+    ("bd-audio-1: BUG-019 a stop that carries an error is reopened like a clean one",
+     AUDIO_OUTPUT,
+     b"                bool clean = e == null || e.Exception == null;\n",
+     b"                bool clean = true;\n",
+     HOST_CSPROJ, EXE,
+     "--audio-selftest", "dp-audio-selftest.txt",
+     "a stop of the default output that carries an error still mutes for the retry interval"),
+    # N-audit-1106-020: the chosen device's death mutes ALL sound, which the case passed while it ignored the result.
+    ("bd-audio-1: N-audit-1106-020 the chosen device's death mutes all sound",
+     AUDIO_OUTPUT,
+     b"                    _chosenDeviceFailed = true;\n                    next = ",
+     b"                    _chosenDeviceFailed = true;\n                    MarkUnavailable();\n                    next = ",
+     HOST_CSPROJ, EXE,
+     "--audio-selftest", "dp-audio-selftest.txt",
+     "after the chosen device died, the next sound starts the output on the default device"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
