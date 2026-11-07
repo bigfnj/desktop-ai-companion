@@ -222,7 +222,18 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             // A hint must not keep an otherwise omitted default scalar alive. These trees are private
             // parsed comparison documents; remove only the two non-runtime XSI attributes before filtering.
             foreach (XElement child in element.Elements())
+            {
                 foreach (XAttribute hint in child.Attributes().Where(IsSchemaHint).ToArray()) hint.Remove();
+                // The step XSD supplies these two values for an empty element, before DTO parsing.
+                // Restrict that normalization to the declared defaults; empty attributes and other
+                // numeric fields are data or validation errors, not permission to discard information.
+                if (type == typeof(XmlData.MovingNode) && child.Name.Namespace == element.Name.Namespace
+                    && !child.HasElements && string.IsNullOrWhiteSpace(child.Value))
+                {
+                    if (child.Name.LocalName == "offsety") child.Value = "0";
+                    else if (child.Name.LocalName == "opacity") child.Value = "1";
+                }
+            }
             return element.Elements().Where(child =>
             {
                 FieldInfo field = child.Name.Namespace == element.Name.Namespace ? XmlField(type, child.Name.LocalName, false) : null;
@@ -320,10 +331,18 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             if (!bundled && HasSoundedPose(config))
             {
                 baker = BakerFactory(SoundSearchRoot(confDir, imgDir), ImageSetName(imgDir));
+                baker.FallbackDirectory = imgDir;
                 if (baker.TranscoderAvailable) loadSound = baker.Bake;
             }
 
             ConversionResult result = PetEmitter.Emit(config, sheet, SpriteSheetBuilder.FileLoader(imgDir), skinName, loadSound);
+            // A preflight refusal has no document to preview. Use the existing caller failure channel
+            // rather than letting the CLI write an empty file or Studio load an empty editor.
+            if (result != null && result.Root == null && !string.IsNullOrEmpty(result.Error))
+            {
+                error = result.Error;
+                return null;
+            }
             if (bundled && result != null && result.Residue != null)
                 result.Residue.Notes.Insert(0, "This skin shipped no behaviour config, so the bundled Shimeji base behaviour was used (Shimeji-EE, BSD-licensed -- see THIRD_PARTY_NOTICES).");
             // Said, not left to be inferred from a flat hub. A conf directory that holds an actions file but no
@@ -355,11 +374,15 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
         /// </summary>
         internal static Func<string, string, SoundBaker> BakerFactory = delegate(string root, string imageSet) { return new SoundBaker(root, imageSet); };
 
-        private static string ImageSetName(string imgDir)
+        internal static string ImageSetName(string imgDir)
         {
             var directory = new DirectoryInfo(imgDir);
-            return string.Equals(directory.Name, "img", StringComparison.OrdinalIgnoreCase) && directory.Parent != null
-                ? directory.Parent.Name : directory.Name;
+            if (string.Equals(directory.Name, "img", StringComparison.OrdinalIgnoreCase) && directory.Parent != null)
+            {
+                // A drive/share root has no image-set segment. Global sound and basename fallback still work.
+                return SoundBaker.NormalizeImageSet(directory.Parent.Name);
+            }
+            return SoundBaker.NormalizeImageSet(directory.Name);
         }
 
         /// <summary>The animation names the host binds as runtime entry points (fall/drag/kill/sync), as
@@ -379,10 +402,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             return PetEmitter.HasSoundedEmittableAction(config);
         }
 
-        // Where to look for a pose's Sound clip. Start at the directory that holds both the conf and the
-        // sprites, then climb a few levels to a dir that has a sound/ child: a multi-character pack keeps
-        // conf+sprites under img/<char>/ but its clips in a top-level sound/, above that common ancestor.
-        private static string SoundSearchRoot(string confDir, string imgDir)
+        // Canonical img/<set> and <set>/img layouts establish their install root, widened only to a shared
+        // config ancestor. Other layouts retain the bounded ancestor search for a sound/ directory.
+        internal static string SoundSearchRoot(string confDir, string imgDir)
         {
             // The image-set directory is not the pack root even when it has its own sound/ child:
             // global sound/ and sound/<set>/ take precedence over img/<set>/sound/.
@@ -433,7 +455,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                 int i = 0;
                 while (i < n && string.Equals(pa[i], pb[i], StringComparison.OrdinalIgnoreCase)) i++;
                 if (i == 0) return null;
-                return string.Join(Path.DirectorySeparatorChar.ToString(), pa, 0, i);
+                string ancestor = string.Join(Path.DirectorySeparatorChar.ToString(), pa, 0, i);
+                string pathRoot = Path.GetPathRoot(Path.GetFullPath(a));
+                return string.Equals(ancestor, pathRoot.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase)
+                    ? pathRoot : ancestor;
             }
             catch { return null; }
         }
@@ -491,6 +516,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
         private bool _scanFaulted;
         private readonly List<string> _fallbackResolutions = new List<string>();
         internal IReadOnlyList<string> FallbackResolutions { get { return _fallbackResolutions; } }
+        internal string FallbackDirectory { get; set; }
 
         /// <summary>How many recursive scans of the skin root have actually been performed. Exposed so the
         /// self-test can assert that N references to one clip cost ONE scan; the count is the only
@@ -609,13 +635,21 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             string relative = (clipPath ?? "").Replace('\\', '/').TrimStart('/');
             if (relative.Length == 0) return null;
             imageSet = imageSet ?? "";
-            if (imageSet.IndexOfAny(new[] { '/', '\\', ':' }) >= 0 || imageSet == "..") return null;
+            imageSet = NormalizeImageSet(imageSet);
             string key = imageSet + "\0" + relative;
             string hit;
             if (_resolved.TryGetValue(key, out hit)) return hit;
             string found = Resolve(relative, imageSet);
             _resolved[key] = found;
             return found;
+        }
+
+        internal static string NormalizeImageSet(string imageSet)
+        {
+            if (string.IsNullOrEmpty(imageSet) || imageSet == "." || imageSet == ".."
+                || imageSet.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0
+                || imageSet.IndexOfAny(new[] { '/', '\\', ':' }) >= 0) return "";
+            return imageSet;
         }
 
         private string Resolve(string clipPath, string imageSet)
@@ -628,21 +662,21 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             {
                 if (!Directory.Exists(_root)) return null;
                 string relative = clipPath.Replace('/', Path.DirectorySeparatorChar);
-                string[] candidates = new[] {
-                    Path.Combine(_root, "sound", relative),
-                    Path.Combine(_root, "sound", imageSet, relative),
-                    Path.Combine(_root, "img", imageSet, "sound", relative)
-                }.Select(ContainedSoundPath).Where(path => path != null).ToArray();
+                var sourceCandidates = new List<string> { Path.Combine(_root, "sound", relative) };
+                if (imageSet.Length > 0)
+                {
+                    sourceCandidates.Add(Path.Combine(_root, "sound", imageSet, relative));
+                    sourceCandidates.Add(Path.Combine(_root, "img", imageSet, "sound", relative));
+                }
+                string[] candidates = sourceCandidates.Select(ContainedSoundPath).Where(path => path != null).ToArray();
                 foreach (string candidate in candidates) if (File.Exists(candidate)) return candidate;
-                _scans++;
                 // EnumerationOptions, not the (path, pattern, SearchOption) overload. On .NET Core that
                 // overload maps to options with IgnoreInaccessible = false, so ONE subdirectory the user
                 // cannot list -- a locked vendor folder, a junction the account lacks rights to -- threw
                 // UnauthorizedAccessException out of the enumerator before or after the clip was reached,
                 // the bare catch swallowed it, and ResolveCached stored the null: every clip in the skin
-                // became a cached miss and the residue blamed "missing clips" (F438). SoundSearchRoot can
-                // climb up to four parents looking for a sound/ sibling, so the scanned root is often wider
-                // than the skin folder. AttributesToSkip is 0 to keep the legacy overload's reach over
+                // became a cached miss and the residue blamed "missing clips" (F438). The pack root may
+                // be wider than the skin folder. AttributesToSkip is 0 to keep the legacy overload's reach over
                 // hidden and system files; the case rule is the one the legacy overload had on Windows.
                 var options = new EnumerationOptions
                 {
@@ -651,10 +685,18 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                     AttributesToSkip = 0,
                     MatchCasing = MatchCasing.CaseInsensitive,
                 };
-                foreach (string path in Directory.EnumerateFiles(_root, name, options))
+                // Prefer this image set's noncanonical clips before widening a legacy basename search
+                // to the pack. The canonical source candidates above keep their original precedence.
+                string local = string.IsNullOrEmpty(FallbackDirectory) ? null : ContainedSoundPath(FallbackDirectory);
+                string[] fallbackRoots = local != null && Directory.Exists(local) ? new[] { local, _root } : new[] { _root };
+                foreach (string fallbackRoot in fallbackRoots)
                 {
-                    _fallbackResolutions.Add(imageSet + "/" + clipPath + " -> " + Path.GetRelativePath(_root, path).Replace('\\', '/'));
-                    return path;
+                    _scans++;
+                    foreach (string path in Directory.EnumerateFiles(fallbackRoot, name, options))
+                    {
+                        _fallbackResolutions.Add(imageSet + "/" + clipPath + " -> " + Path.GetRelativePath(_root, path).Replace('\\', '/'));
+                        return path;
+                    }
                 }
             }
             catch { _scanFaulted = true; }

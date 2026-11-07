@@ -83,6 +83,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     failures.Add("a clean scan of an ordinary tree was reported as faulted");
                 CheckClassicSoundOrder(root, failures);
                 CheckDotSoundPaths(root, failures);
+                CheckLocalSoundFallback(root, failures);
+                CheckRootImageSet(root, failures);
 
                 // ---- A SUBDIRECTORY THE USER CANNOT LIST MUST NOT HIDE THE CLIP ----
                 // The (path, pattern, SearchOption) overload enumerates with IgnoreInaccessible = false, so
@@ -312,7 +314,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 sb.Append("  12 hits + 8 misses over 2 names cost 2 scans; a denied sibling directory hid nothing; "
                     + "an over-budget clip was transcoded once; a silent skin converted without a probe; a sounded skin "
                     + "asked its baker once and embedded the clip; two sets kept their own ordered sound paths and reported "
-                    + "filename fallback; round trips checked semantic fidelity and a stable second serialization; "
+                    + "filename fallback with local-set preference; empty step defaults round-tripped without hiding changed values; "
+                    + "round trips checked semantic fidelity and a stable second serialization; "
                     + "the ffmpeg override names a file or nothing");
                 detail = sb.ToString();
                 return true;
@@ -437,6 +440,82 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             finally { ShimejiEngine.BakerFactory = previous; }
         }
 
+        private static void CheckLocalSoundFallback(string parent, List<string> failures)
+        {
+            string pack = Path.Combine(parent, "local-conf-fallback");
+            Func<string, string, SoundBaker> previous = ShimejiEngine.BakerFactory;
+            try
+            {
+                foreach (string set in new[] { "Alpha", "Beta" })
+                {
+                    string img = Path.Combine(pack, "img", set);
+                    Directory.CreateDirectory(Path.Combine(img, "se"));
+                    Directory.CreateDirectory(Path.Combine(img, "conf"));
+                    File.WriteAllBytes(Path.Combine(img, "se", "hi.wav"), new byte[] { 1 });
+                    WritePng(Path.Combine(img, "n1.png"), Color.Coral);
+                    WritePng(Path.Combine(img, "n2.png"), Color.CadetBlue);
+                    File.WriteAllText(Path.Combine(img, "conf", "actions.xml"), SoundedActionsXml, new UTF8Encoding(false));
+                }
+                foreach (string set in new[] { "Alpha", "Beta" })
+                {
+                    string img = Path.Combine(pack, "img", set), captured = null;
+                    ShimejiEngine.BakerFactory = delegate(string searchRoot, string imageSet)
+                    {
+                        return SoundBaker.WithTranscoder(searchRoot, imageSet,
+                            delegate(string file) { captured = file; return FakeMp3(600); });
+                    };
+                    string error;
+                    ConversionResult result = ShimejiEngine.ConvertSkin(Path.Combine(img, "conf"), img, "Renamed", out error);
+                    if (result == null || !result.Accepted || captured != Path.Combine(img, "se", "hi.wav"))
+                        failures.Add("SOUND_LOCAL_FALLBACK: " + set + " borrowed a sibling's noncanonical clip: " + error);
+                    if (result == null || !result.Residue.MemberNotes.Any(n => n.Contains(" -> img/" + set + "/se/hi.wav")))
+                        failures.Add("SOUND_LOCAL_FALLBACK_REPORT: local filename fallback was not reported for " + set);
+                }
+                // WITNESS: when the selected set has no match, the reported pack-wide fallback remains.
+                string beta = Path.Combine(pack, "img", "Beta");
+                File.Delete(Path.Combine(beta, "se", "hi.wav"));
+                SoundBaker wider = SoundBaker.WithoutTranscoder(pack);
+                wider.FallbackDirectory = beta;
+                if (wider.ResolveCached("/hi.wav", "Beta") != Path.Combine(pack, "img", "Alpha", "se", "hi.wav")
+                    || wider.FallbackResolutions.Count != 1 || wider.Scans != 2)
+                    failures.Add("SOUND_LOCAL_FALLBACK_WITNESS: a local miss lost the reported wider match");
+            }
+            finally { ShimejiEngine.BakerFactory = previous; }
+        }
+
+        private static void CheckRootImageSet(string parent, List<string> failures)
+        {
+            string root = Path.Combine(parent, "root-image-set");
+            Directory.CreateDirectory(Path.Combine(root, "sound"));
+            Directory.CreateDirectory(Path.Combine(root, "legacy"));
+            File.WriteAllBytes(Path.Combine(root, "sound", "global.wav"), new byte[] { 1 });
+            File.WriteAllBytes(Path.Combine(root, "legacy", "fallback.wav"), new byte[] { 2 });
+            foreach (string invalid in new[] { "E:\\", "\\\\server\\share\\", "bad/set", ".." })
+            {
+                SoundBaker baker = SoundBaker.WithoutTranscoder(root);
+                if (baker.ResolveCached("/global.wav", invalid) != Path.Combine(root, "sound", "global.wav")
+                    || baker.Scans != 0 || baker.FallbackResolutions.Count != 0)
+                    failures.Add("SOUND_ROOT_SET_GLOBAL: an invalid set segment suppressed global sound");
+                if (baker.ResolveCached("/fallback.wav", invalid) != Path.Combine(root, "legacy", "fallback.wav")
+                    || baker.FallbackResolutions.Count != 1)
+                    failures.Add("SOUND_ROOT_SET_FALLBACK: an invalid set segment suppressed filename fallback");
+            }
+            if (ShimejiEngine.ImageSetName(Path.Combine(Path.GetPathRoot(parent), "img")) != ""
+                || ShimejiEngine.ImageSetName("\\\\synthetic-server\\synthetic-share\\img") != "")
+                failures.Add("SOUND_ROOT_SET_NAME: a drive/share-root img folder acquired a set segment");
+            string driveRoot = Path.GetPathRoot(parent), shareRoot = "\\\\synthetic-server\\synthetic-share\\";
+            string driveSearch = ShimejiEngine.SoundSearchRoot(Path.Combine(driveRoot, "conf"), Path.Combine(driveRoot, "img"));
+            string shareSearch = ShimejiEngine.SoundSearchRoot(Path.Combine(shareRoot, "conf"), Path.Combine(shareRoot, "img"));
+            // Path.GetPathRoot returns a UNC share without its optional final separator. Unlike D:,
+            // that form is still absolute; require qualification and the same share, not its spelling.
+            if (driveSearch != driveRoot || !Path.IsPathFullyQualified(shareSearch)
+                || shareSearch.TrimEnd(Path.DirectorySeparatorChar) != shareRoot.TrimEnd(Path.DirectorySeparatorChar))
+                failures.Add("SOUND_ROOT_SEARCH: a drive/share-root install lost its absolute search root: " + driveSearch + " | " + shareSearch);
+            if (ShimejiEngine.ImageSetName(Path.Combine(root, "img", "Alpha")) != "Alpha"
+                || ShimejiEngine.ImageSetName(Path.Combine(root, "Beta", "img")) != "Beta")
+                failures.Add("SOUND_ROOT_SET_WITNESS: ordinary image-set names were discarded");
+        }
+
         private static void CheckRoundTrips(XmlData.RootNode root, List<string> failures)
         {
             string error;
@@ -534,6 +613,29 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             else failures.Add("ROUNDTRIP_NORMALIZATION_WITNESS: synthetic pet has no moving node");
             if (!ShimejiEngine.RoundTrips(normalized.ToString(), out error))
                 failures.Add("ROUNDTRIP_NORMALIZATION_WITNESS: omitted moving defaults changed semantics: " + error);
+            if (moving != null)
+            {
+                moving.Add(new XElement(ns + "offsety"), new XElement(ns + "opacity"));
+                if (!ShimejiEngine.RoundTrips(normalized.ToString(), out error))
+                    failures.Add("ROUNDTRIP_EMPTY_DEFAULTS: empty XSD step defaults changed semantics: " + error);
+                // WITNESS: nondefault values remain meaningful, even beside an empty default.
+                moving.Element(ns + "offsety").Value = "7";
+                string difference = ShimejiEngine.FirstSemanticDifference(normalized, XElement.Parse(original),
+                    typeof(XmlData.RootNode), "/animations");
+                if (difference == null || difference.IndexOf("/offsety[1]", StringComparison.Ordinal) < 0)
+                    failures.Add("ROUNDTRIP_EMPTY_DEFAULTS_WITNESS: normalization hid a nondefault offset");
+                moving.Element(ns + "offsety").Value = "";
+                moving.Element(ns + "opacity").Value = "0.25";
+                difference = ShimejiEngine.FirstSemanticDifference(normalized, XElement.Parse(original),
+                    typeof(XmlData.RootNode), "/animations");
+                if (difference == null || difference.IndexOf("/opacity[1]", StringComparison.Ordinal) < 0)
+                    failures.Add("ROUNDTRIP_EMPTY_DEFAULTS_WITNESS: normalization hid a nondefault opacity");
+                string attributeDifference = ShimejiEngine.FirstSemanticDifference(
+                    new XElement("start", new XElement("offsety", new XAttribute("marker", "kept"))),
+                    new XElement("start"), typeof(XmlData.MovingNode), "/start");
+                if (attributeDifference != "/start/offsety[1]")
+                    failures.Add("ROUNDTRIP_EMPTY_DEFAULTS_ATTRIBUTE: an empty default hid a meaningful attribute");
+            }
         }
 
         /// <summary>Deny the current user the right to list <paramref name="dir"/>. False, with the reason,
