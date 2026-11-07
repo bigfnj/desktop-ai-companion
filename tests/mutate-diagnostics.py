@@ -13,6 +13,9 @@ Two rules this harness exists to enforce, both learned the hard way in this repo
     is a no-op, and a no-op mutation always looks like a passing test.
 
 Usage:  %TOOLBOX_PYTHON% tests/mutate-diagnostics.py [--fast] [--only=<substring>]
+        %TOOLBOX_PYTHON% tests/mutate-diagnostics.py --check-patterns
+        --check-patterns counts every case's pattern against its file and stops: nothing is built,
+        mutated or created (N-audit-1106-344; tests/Invoke-OfflineScriptChecks.ps1 runs it).
         --fast skips the cases that need a rebuild (source-invariant cases only).
         --only selects cases by name, case-insensitively; a selection that matches nothing is a
         refusal (exit 2), not "0/0 fired" (RA-353): with no case there is no baseline either, so a
@@ -867,12 +870,14 @@ CASES = [
      "                _rebuiltFrom = gen;\n",
      "",
      "wpf", "Apply stays lit after a ReloadOnChange cascade"),
-    # The window never forgets which view's rebuild it ran, so a view left behind by a nav switch lights Apply on
-    # the pane the user moved to.
+    # The window never forgets which view's rebuild it ran, so a view left behind by a nav switch sets Apply on the
+    # pane the user moved to. A schema view asks its own released pane, which answers "no edits", so what the window
+    # shows is that pane's Apply GREYED over an unsaved edit: the "lights" witness survived the full tier at e20decd
+    # and the expected label is the check added for it (N-fulltier-1107-01).
     ("feature/pane-rebuild: a view left behind by a nav switch can light Apply", OPTIONSWINDOW,
      "            _rebuiltFrom = 0;\n",
      "",
-     "wpf", "no view left behind lights its Apply"),
+     "wpf", "a view left behind by a nav switch cannot grey the Apply of the pane the user moved to"),
     # The two re-raises the window now honours, each removed: neither had a case, and the window-level checks are
     # the first that can see them.
     ("feature/pane-rebuild: a ReloadPaneAfter action does not re-raise the edits it carried", OPTIONSWINDOW,
@@ -1267,11 +1272,23 @@ def line_ending_variant(base, old, new):
     return old, new
 
 
+# The bound on one run of the invariant script, the sibling's (mutate-hardening-guards.py run_gate). An unmutated run
+# takes well under a minute; the bound exists for a mutant that stalls it.
+GATE_TIMEOUT = 900
+
+
 def run_gate():
-    """Source invariants only. Returns (ok, text)."""
-    p = run_text(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
-                        "-File", os.path.join(ROOT, "tests", "runtime-hardening-selftest.ps1")],
-                       cwd=ROOT, capture_output=True, env=windows_powershell_env())
+    """Source invariants only. Returns (ok, text); ok is None when the script did not exit in GATE_TIMEOUT.
+
+    BOUNDED (N-audit-1106-395). This was the one child in either harness with no timeout, so a stalled powershell.exe
+    hung the run with the mutant still in the source tree, instead of reading BROKEN and restoring it. A timeout is no
+    verdict either way, the way run_wpf reports a self-test that did not exit."""
+    try:
+        p = run_text(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                            "-File", os.path.join(ROOT, "tests", "runtime-hardening-selftest.ps1")],
+                           cwd=ROOT, capture_output=True, timeout=GATE_TIMEOUT, env=windows_powershell_env())
+    except subprocess.TimeoutExpired:
+        return None, "the invariant script did not exit in %ds" % GATE_TIMEOUT
     return p.returncode == 0, p.stdout + p.stderr
 
 
@@ -1366,7 +1383,8 @@ def run_wpf(expect_rebuild):
 
 
 def parse_arguments(argv):
-    """--fast and --only=<substring>, and nothing else (N-shimeji-tests-01). The loop this replaces read those two out
+    """--fast, --only=<substring> and --check-patterns, and nothing else (N-shimeji-tests-01; --check-patterns since
+    N-audit-1106-344, alone). The loop this replaces read the first two out
     of sys.argv and ignored every other argument, so a sibling harness's --shard or --check-patterns, or a mistyped
     --olny=, started the full mutating suite instead of being refused. Abbreviations are refused as well: a prefix
     argparse would complete today can come to mean another flag the day one is added."""
@@ -1375,13 +1393,43 @@ def parse_arguments(argv):
                         help="skip the cases that need a rebuild (source-invariant cases only)")
     parser.add_argument("--only", default="", metavar="SUBSTRING",
                         help="run only the cases whose name holds SUBSTRING, case-insensitively")
-    return parser.parse_args(argv)
+    parser.add_argument("--check-patterns", action="store_true",
+                        help="count every case's pattern against its file, build nothing, and stop")
+    args = parser.parse_args(argv)
+    if args.check_patterns and (args.fast or args.only):
+        parser.error("--check-patterns cannot combine with --fast or --only")
+    return args
+
+
+def check_patterns():
+    """Every case's pattern counted against its file, nothing built and nothing written (N-audit-1106-344), the
+    sibling's --check-patterns (mutate-agentflow.py). A case whose pattern matches nothing prints NO-OP in a full run
+    and is never reached by a --only run, so it can sit guarding nothing; this is about a second, so the offline
+    script checks run it for the gate and CI. The same line-ending choice as a mutation run (line_ending_variant).
+    Exit 1 on any case not matching exactly once."""
+    bad = 0
+    for name, rel, find, repl, _checker, _expect in CASES:
+        path = os.path.join(ROOT, rel)
+        if not os.path.isfile(path):
+            print("  MISSING FILE  %s (%s)" % (name, rel))
+            bad += 1
+            continue
+        source = read_bytes(path)
+        find_b, _ = line_ending_variant(source, find.encode("utf-8"), repl.encode("utf-8"))
+        count = source.count(find_b)
+        if count != 1:
+            print("  NO-OP (pattern matched %d times)  %s" % (count, name))
+            bad += 1
+    print("%d cases, %d not matching exactly once." % (len(CASES), bad))
+    return 1 if bad else 0
 
 
 def main():
     global RUN_TEMP, WPF_RESULT, CHILD_ENV
     # Parsed before anything is created, so a refused argument leaves nothing behind.
     args = parse_arguments(sys.argv[1:])
+    if args.check_patterns:
+        return check_patterns()
     # Short on purpose: a self-test's own temp paths sit below this, and one of them (the fortunes
     # VectorCache fallback probe) reaches MAX_PATH once TEMP itself is ~107 characters. Measured 2026-09-29.
     RUN_TEMP = os.path.join(os.environ.get("TEMP", "."), "dp-mdg-" + uuid.uuid4().hex[:12])

@@ -25,7 +25,9 @@ class DiagnosticsDriverTests(unittest.TestCase):
 
     def test_an_unknown_argument_is_refused_before_anything_runs(self):
         # N-shimeji-tests-01: every one of these used to be ignored, and the whole mutating suite ran.
-        for argv in (["--shard=1/8"], ["--check-patterns"], ["--olny=wpf"], ["--on=wpf"], ["wpf"]):
+        # --check-patterns joined the accepted flags with N-audit-1106-344; combined with a selection it is refused.
+        for argv in (["--shard=1/8"], ["--check-patterns", "--only=wpf"], ["--check-patterns", "--fast"], ["--olny=wpf"],
+                     ["--on=wpf"], ["wpf"]):
             with self.subTest(argv=argv), \
                  patch.object(self.harness.sys, "argv", ["mutate-diagnostics.py"] + argv), \
                  patch.object(self.harness, "score", side_effect=AssertionError("no case may run")), \
@@ -73,6 +75,56 @@ class DiagnosticsDriverTests(unittest.TestCase):
         self.assertRegex(output.getvalue(), r"FIRED\s+synthetic one",
                          "diagnostics driver: a measured verdict is printed before a later case is interrupted")
         self.assertEqual(len(runs), 3, "the synthetic run reached the second case")
+
+    def test_check_patterns_counts_every_case_and_runs_nothing(self):
+        # N-audit-1106-344: this harness had no pattern-only check, so a case guarding nothing showed only as NO-OP in a
+        # whole run, which nobody runs. --check-patterns counts each case's pattern against its file, as the sibling's.
+        with tempfile.TemporaryDirectory() as folder:
+            Path(folder, "lf.cs").write_bytes(b"guard one\nguard two\n")
+            Path(folder, "crlf.cs").write_bytes(b"line a\r\nline b\r\n")
+            matching = [("synthetic once", "lf.cs", "guard one\n", "", "gate", "x"),
+                        ("synthetic crlf", "crlf.cs", "line a\nline b\n", "", "wpf", "x")]
+            moved = matching + [("synthetic moved", "lf.cs", "guard three\n", "", "gate", "x"),
+                                ("synthetic twice", "lf.cs", "guard", "", "gate", "x")]
+            for cases, want in ((moved, 1), (matching, 0)):
+                output = io.StringIO()
+                with patch.object(self.harness, "ROOT", folder), \
+                     patch.object(self.harness, "CASES", cases), \
+                     patch.object(self.harness.sys, "argv", ["mutate-diagnostics.py", "--check-patterns"]), \
+                     patch.object(self.harness, "score", side_effect=AssertionError("no case may run")), \
+                     patch.object(self.harness.os, "makedirs", side_effect=AssertionError("nothing may be created")), \
+                     contextlib.redirect_stdout(output):
+                    code = self.harness.main()
+                self.assertEqual(code, want, "diagnostics driver: --check-patterns fails on a case not matching once")
+                if want:
+                    self.assertIn("NO-OP (pattern matched 0 times)  synthetic moved", output.getvalue())
+                    self.assertIn("NO-OP (pattern matched 2 times)  synthetic twice", output.getvalue())
+                # WITNESS: a CRLF target matches its LF pattern, as in a mutation run.
+                self.assertNotIn("synthetic crlf", output.getvalue())
+            # WITNESS: nothing was written to the targets.
+            self.assertEqual(Path(folder, "lf.cs").read_bytes(), b"guard one\nguard two\n")
+
+    def test_a_stalled_invariant_script_reads_broken(self):
+        # N-audit-1106-395: run_gate was the one child with no timeout, so a stalled powershell.exe hung the run with the
+        # mutant in place. The fake stands in for the stall: given a bound, it reaches it; given none, it would wait for
+        # ever, which a test cannot, so it says so instead.
+        calls = []
+
+        def stalled(args, **kwargs):
+            calls.append(kwargs.get("timeout"))
+            if kwargs.get("timeout") is None:
+                raise RuntimeError("the invariant script was started with no bound and would have hung the run")
+            raise self.harness.subprocess.TimeoutExpired(args, kwargs["timeout"])
+
+        with patch.object(self.harness, "run_text", side_effect=stalled):
+            ok, text = self.harness.run_gate()
+        self.assertEqual(calls, [self.harness.GATE_TIMEOUT])
+        self.assertIsNone(ok, "diagnostics driver: a stalled invariant script is no verdict")
+        self.assertIn("did not exit in %ds" % self.harness.GATE_TIMEOUT, text)
+        # WITNESS: a script that exits is graded on its exit code, as before.
+        with patch.object(self.harness, "run_text",
+                          return_value=self.harness.subprocess.CompletedProcess([], 0, "PASS: x\n", "")):
+            self.assertEqual(self.harness.run_gate(), (True, "PASS: x\n"))
 
 
 if __name__ == "__main__":

@@ -5920,6 +5920,31 @@ Assert-True (@([regex]::Matches($respawnChild, $w3ToVirtual)).Count -eq 1 -and
     $respawnChild -cmatch 'Point childPosition = DesktopGeometry\.MonitorLocalToVirtual\(\s*new Point\(childX, childY\), ScreenBounds\);\s*Left = childPosition\.X;\s*Top = childPosition\.Y;' -and
     $respawnChild -cnotmatch 'VirtualToMonitorLocal\(' -and @([regex]::Matches($w3Doubled, $w3ToVirtual)).Count -eq 2) (
     "w3-tests-core-1: PlayChild converts the child's local position to virtual exactly once (WITNESS: a doubled conversion counts 2; found $(@([regex]::Matches($respawnChild, $w3ToVirtual)).Count))")
+# ---- burndown/w3-tests-harness-1 ----
+# THE OFFLINE SCRIPT CHECKS RUN THE MUTATION TOOLING'S OWN CHECKS (N-audit-1106-344, N-release-180-02). The two harnesses'
+# --check-patterns, the two native runners' --self-test and the shard controller's three synthetic checks were called by
+# no gate or CI step. tests\Invoke-OfflineScriptChecks.ps1 (which run-gate.ps1 and build.yml both call) lists each, runs
+# each list entry, and adds a failure on a nonzero exit; ORDER: every failure is added before the final throw.
+$w3Offline = Remove-PsLineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'tests\Invoke-OfflineScriptChecks.ps1') -Raw)
+$w3Wanted = @("@('mutate-agentflow.py', '--check-patterns')", "@('mutate-diagnostics.py', '--check-patterns')",
+    "@('run_installer_shutdown_mutations.py', '--self-test')", "@('run_codex_tolerant_note_mutations.py', '--self-test')",
+    "@('..\tools\agentbroker\Invoke-MutationShards.ps1', '-SelfTest')", "@('Test-MutationShardRemainder.ps1', '')",
+    "@('Test-MutationTempBudget.ps1', '')")
+$w3Missing = @($w3Wanted | Where-Object { $w3Offline.IndexOf($_, [StringComparison]::Ordinal) -lt 0 })
+$w3PythonLoop = $w3Offline.IndexOf('foreach ($check in $mutationPython) {', [StringComparison]::Ordinal)
+$w3PwshLoop = $w3Offline.IndexOf('foreach ($check in $mutationPwsh) {', [StringComparison]::Ordinal)
+$w3ExitAdds = @([regex]::Matches($w3Offline, [regex]::Escape('if ($null -ne $checkExit -and $checkExit -ne 0) { $failures.Add("$label (exit $checkExit)") }')) | ForEach-Object { $_.Index })
+$w3Throw = $w3Offline.IndexOf('if ($failures.Count -gt 0) {', [StringComparison]::Ordinal)
+# Each loop reads its child's exit code straight after the call, the line a no-op mutation would replace with a constant.
+$w3ExitReads = @([regex]::Matches($w3Offline, '(?m)^\s*\$checkExit = \$LASTEXITCODE\r?$') | ForEach-Object { $_.Index })
+# Both counts first: -and stops at the first false, so no index below is read past the end of its list.
+Assert-True ($w3Offline.Length -gt 0 -and $w3Missing.Count -eq 0 -and $w3PythonLoop -ge 0 -and $w3PwshLoop -gt $w3PythonLoop -and
+    $w3ExitAdds.Count -eq 2 -and $w3ExitReads.Count -eq 2 -and
+    $w3ExitReads[0] -gt $w3PythonLoop -and $w3ExitReads[0] -lt $w3ExitAdds[0] -and $w3ExitAdds[0] -lt $w3PwshLoop -and
+    $w3ExitReads[1] -gt $w3PwshLoop -and $w3ExitReads[1] -lt $w3ExitAdds[1] -and $w3Throw -gt $w3ExitAdds[1]) (
+    "w3-tests-harness-1: the offline script checks run every mutation-tooling check and fail on its exit code before the throw" +
+    " (loops at $w3PythonLoop and $w3PwshLoop, exit reads at $($w3ExitReads -join ', '), exit checks at $($w3ExitAdds -join ', '), throw at $w3Throw)" +
+    $(if ($w3Missing.Count) { ' -- not listed: ' + ($w3Missing -join ', ') } else { '' }))
 
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that

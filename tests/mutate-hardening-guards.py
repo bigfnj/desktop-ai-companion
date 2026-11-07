@@ -4341,6 +4341,32 @@ CASES = (
         b"Point childPosition = DesktopGeometry.MonitorLocalToVirtual(DesktopGeometry.MonitorLocalToVirtual(\n                    new Point(childX, childY), ScreenBounds), ScreenBounds);",
         "w3-tests-core-1: PlayChild converts the child's local position to virtual exactly once",
     ),
+    # ---- burndown/w3-tests-harness-1 ----
+    # The offline script checks (gate and CI) lose one of the mutation tooling's checks, or stop reading its exit code.
+    # "bd-w3-tests-harness-1:" for one --only.
+    (
+        "bd-w3-tests-harness-1: the offline checks drop the diagnostics pattern check (N-audit-1106-344)",
+        os.path.join(REPO, "tests", "Invoke-OfflineScriptChecks.ps1"),
+        b"    @('mutate-diagnostics.py', '--check-patterns'),\n",
+        b"",
+        "w3-tests-harness-1: the offline script checks run every mutation-tooling check",
+    ),
+    (
+        "bd-w3-tests-harness-1: the offline checks read no exit code from a runner self-test (N-release-180-02)",
+        os.path.join(REPO, "tests", "Invoke-OfflineScriptChecks.ps1"),
+        b"        & $python.Source -X utf8 (Join-Path $repoTests $check[0]) $check[1] 2>&1 | ForEach-Object { Write-Host \"$_\" }\n"
+        b"        $checkExit = $LASTEXITCODE\n",
+        b"        & $python.Source -X utf8 (Join-Path $repoTests $check[0]) $check[1] 2>&1 | ForEach-Object { Write-Host \"$_\" }\n"
+        b"        $checkExit = 0\n",
+        "w3-tests-harness-1: the offline script checks run every mutation-tooling check",
+    ),
+    (
+        "bd-w3-tests-harness-1: the offline checks never fail on a shard controller check (N-release-180-02)",
+        os.path.join(REPO, "tests", "Invoke-OfflineScriptChecks.ps1"),
+        b"    if ($null -ne $checkExit -and $checkExit -ne 0) { $failures.Add(\"$label (exit $checkExit)\") }\n}\n\nif ($failures.Count -gt 0) {",
+        b"}\n\nif ($failures.Count -gt 0) {",
+        "w3-tests-harness-1: the offline script checks run every mutation-tooling check",
+    ),
 )
 
 
@@ -4411,6 +4437,11 @@ def main():
         print("  its LAST assertion, so everything this harness scores ran and passed.")
     print("  baseline %s (%d assertions)\n"
           % ("DEGRADED" if degraded else "PASS", out.count("PASS:")))
+    # The degraded baseline's own failure lines (N-audit-1106-347). A case whose expected text is on one of them, the
+    # DOC DRIFT case's above all, would otherwise read FIRED whatever its mutation did, because the baseline already
+    # printed that line. A hit counts only on a line the baseline did not print: the doc-count assertion names both
+    # numbers, so a mutation that moved the documented count prints a line of its own.
+    baseline_failures = set(l.strip() for l in out.splitlines() if not l.strip().startswith("PASS:")) if degraded else set()
 
     print("mutation run: %d case(s)%s\n" % (len(cases), "" if args.only is None else " matching --only=%s" % args.only))
     fired = 0
@@ -4449,7 +4480,7 @@ def main():
         # thing when the expected assertion text appears anywhere in the output on a line that is
         # not a PASS.
         bad = [l.strip() for l in out.splitlines()
-               if expect in l and not l.strip().startswith("PASS:")]
+               if expect in l and not l.strip().startswith("PASS:") and l.strip() not in baseline_failures]
         if bad:
             fired += 1
             print("  %-46s FIRED" % name)

@@ -19300,30 +19300,38 @@ CASES = (
      b"                if (guard == null) act.Add(guard);\n",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
      SHIMEJI, None, "scripted action Condition: the guard's when does not name its cached parameter"),
-    ("convert-widen: a scripted Animation Condition's parameter is not written",
+    # N-shimeji-1106-19: since 98d687d ConvertPack runs the host's validator over what it emitted and refuses with TICK_OUTPUT_INVALID
+    # before the self-test reads the document, so the check fails on that refusal; the fragment names its rule.
+    ("convert-widen: a scripted Animation Condition's parameter is not written (N-shimeji-1106-19)",
      os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
      b"                    if (conditions != null) conditions.Add(lowered);\n",
      b"                    if (conditions == null) conditions.Add(lowered);\n",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
-     SHIMEJI, None, "scripted param AnimationCondition1 is missing or repeated"),
-    ("convert-widen: a selection condition is parsed in the action scope",
+     SHIMEJI, None, "expression-placements: TICK_OUTPUT_INVALID: image set 'A': the host's validator refuses the emitted document: animation 4 'Stand' variant condition has an invalid expression: unknown name 'AnimationCondition1'"),
+    # N-shimeji-1106-19: since 98d687d ConvertPack runs the host's validator over what it emitted and refuses with TICK_OUTPUT_INVALID
+    # before the self-test reads the document, so the check fails on that refusal; the fragment names its rule.
+    ("convert-widen: a selection condition is parsed in the action scope (N-shimeji-1106-19)",
      os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
      b"                if (attribute.Cache != ShimejiSourceCache.Literal) return Script(attribute, source, SelectionScope);\n",
      b"                if (attribute.Cache != ShimejiSourceCache.Literal) return Script(attribute, source, ActionScope);\n",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
-     SHIMEJI, None, "conversion accepted an input requiring refusal: TICK_EXPRESSION_UNSUPPORTED Condition:"),
-    ("convert-widen: a script body outside the tick grammar is written anyway",
+     SHIMEJI, None, "expression-grammar-refusal: wrong refusal: TICK_OUTPUT_INVALID: image set 'A': the host's validator refuses the emitted document: animation 1 'route' transition condition has an invalid expression: unknown name 'TargetX'"),
+    # N-shimeji-1106-19: since 98d687d ConvertPack runs the host's validator over what it emitted and refuses with TICK_OUTPUT_INVALID
+    # before the self-test reads the document, so the check fails on that refusal; the fragment names its rule.
+    ("convert-widen: a script body outside the tick grammar is written anyway (N-shimeji-1106-19)",
      os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
      b"                if (!parsed) Fail(owner, \"TICK_EXPRESSION_UNSUPPORTED \"",
      b"                if (!parsed && error == null) Fail(owner, \"TICK_EXPRESSION_UNSUPPORTED \"",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
-     SHIMEJI, None, "conversion accepted an input requiring refusal: TICK_EXPRESSION_UNSUPPORTED TargetX:"),
-    ("convert-widen: an expression reading mascot.variables declares no 'variables'",
+     SHIMEJI, None, "expression-grammar-refusal: wrong refusal: TICK_OUTPUT_INVALID: image set 'A': the host's validator refuses the emitted document: animation 2 'Composite' -> Walk binding TargetX has an invalid expression: unexpected 'end'"),
+    # N-shimeji-1106-19: since 98d687d ConvertPack runs the host's validator over what it emitted and refuses with TICK_OUTPUT_INVALID
+    # before the self-test reads the document, so the check fails on that refusal; the fragment names its rule.
+    ("convert-widen: an expression reading mascot.variables declares no 'variables' (N-shimeji-1106-19)",
      os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
      b"                if (_variables) features += \" variables\";\n",
      b"                if (_variables) features += \"\";\n",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
-     SHIMEJI, None, "host validator refused the emitted variables member"),
+     SHIMEJI, None, "expression-variables: TICK_OUTPUT_INVALID: image set 'A': the host's validator refuses the emitted document: animation 7 'Change' parameter Condition mascot.variables needs feature 'variables'"),
     ("convert-widen: a scripted Affordance is written as a scripted parameter",
      os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
      b"                    if (attribute.Name == \"Affordance\")\n                        Fail(owner, \"TICK_AFFORDANCE_SCRIPTED \"",
@@ -19380,30 +19388,38 @@ CASES = (
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
      SHIMEJI, None, "unsupported action attribute 'VelocityParam'"),
     # The family tokens: each mutant declares the wrong one, and the host validator names the missing token.
-    ("convert-widen: the breeding classes declare no lifecycle (the first lowering's two-class rule)",
+    # N-shimeji-1106-19: since 98d687d ConvertPack runs the host's validator over what it emitted and refuses with TICK_OUTPUT_INVALID
+    # before the self-test reads the document, so the check fails on that refusal; the fragment names its rule.
+    ("convert-widen: the breeding classes declare no lifecycle (the first lowering's two-class rule) (N-shimeji-1106-19)",
      os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
      b"                    if (Array.IndexOf(ShimejiFormatValidator.LifecycleClasses, cls) >= 0) _lifecycle = true;\n",
      b"                    if (cls == \"Breed\" || cls == \"Transform\") _lifecycle = true;\n",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
-     SHIMEJI, None, "host validator refused the emitted breeding classes"),
-    ("convert-widen: a social class declares windows instead of social",
+     SHIMEJI, None, "class-breeding: TICK_OUTPUT_INVALID: image set 'A': the host's validator refuses the emitted document: animation 3 class BreedMove needs feature 'lifecycle'"),
+    # N-shimeji-1106-19: since 98d687d ConvertPack runs the host's validator over what it emitted and refuses with TICK_OUTPUT_INVALID
+    # before the self-test reads the document, so the check fails on that refusal; the fragment names its rule.
+    ("convert-widen: a social class declares windows instead of social (N-shimeji-1106-19)",
      os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
      b"                    if (Array.IndexOf(ShimejiFormatValidator.SocialClasses, cls) >= 0) _social = true;\n",
      b"                    if (Array.IndexOf(ShimejiFormatValidator.SocialClasses, cls) >= 0) _windows = true;\n",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
-     SHIMEJI, None, "host validator refused the emitted Interact-only member"),
-    ("convert-widen: a window class does not declare windows",
+     SHIMEJI, None, "class-social: TICK_OUTPUT_INVALID: image set 'A': the host's validator refuses the emitted document: animation 2 social needs feature 'social'"),
+    # N-shimeji-1106-19: since 98d687d ConvertPack runs the host's validator over what it emitted and refuses with TICK_OUTPUT_INVALID
+    # before the self-test reads the document, so the check fails on that refusal; the fragment names its rule.
+    ("convert-widen: a window class does not declare windows (N-shimeji-1106-19)",
      os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
      b"                    if (Array.IndexOf(ShimejiFormatValidator.WindowClasses, cls) >= 0) _windows = true;\n",
      b"                    if (Array.IndexOf(ShimejiFormatValidator.WindowClasses, cls) >= 0) _windows = false;\n",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
-     SHIMEJI, None, "host validator refused the emitted window classes"),
-    ("convert-widen: a literal Scan characteristic declares no social",
+     SHIMEJI, None, "class-windows: TICK_OUTPUT_INVALID: image set 'A': the host's validator refuses the emitted document: animation 8 class WalkWithIE needs feature 'windows'"),
+    # N-shimeji-1106-19: since 98d687d ConvertPack runs the host's validator over what it emitted and refuses with TICK_OUTPUT_INVALID
+    # before the self-test reads the document, so the check fails on that refusal; the fragment names its rule.
+    ("convert-widen: a literal Scan characteristic declares no social (N-shimeji-1106-19)",
      os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
      b"                if (scripted || pieces.Contains(\"Scan\")) _social = true;\n",
      b"                if (scripted) _social = true;\n",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
-     SHIMEJI, None, "host validator refused the emitted ComplexJump Characteristics Scan"),
+     SHIMEJI, None, "class-complex: TICK_OUTPUT_INVALID: image set 'A': the host's validator refuses the emitted document: animation 2 Characteristics Scan needs feature 'social'"),
     # Hotspots and offers: each mutant drops or bends one lowering; the hotspot and offer cases name it.
     ("convert-widen: a hotspot's behaviour is dropped",
      os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
@@ -19417,25 +19433,29 @@ CASES = (
      b"                string kind = JavaEqualsIgnoreCase(shape, \"Rectangle\") ? \"ellipse\" : JavaEqualsIgnoreCase(shape, \"Ellipse\") ? \"rect\" : null;\n",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
      SHIMEJI, None, "hotspot shape is not the source's Rectangle or Ellipse"),
-    ("convert-widen: a member with hotspots declares no 'hotspots'",
+    # N-shimeji-1106-19: since 98d687d ConvertPack runs the host's validator over what it emitted and refuses with TICK_OUTPUT_INVALID
+    # before the self-test reads the document, so the check fails on that refusal; the fragment names its rule.
+    ("convert-widen: a member with hotspots declares no 'hotspots' (N-shimeji-1106-19)",
      os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
      b"                    if (conditions != null) _hotspots = true;\n",
      b"                    if (conditions == null) _hotspots = true;\n",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
-     SHIMEJI, None, "host validator refused the emitted hotspot member"),
+     SHIMEJI, None, "hotspot-lowering: TICK_OUTPUT_INVALID: image set 'A': the host's validator refuses the emitted document: animation 4 hotspots needs feature 'hotspots'"),
     ("convert-widen: a literal Affordance's offer is dropped",
      os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
      b"                if (offers != null) act.Add(offers);\n",
      b"                if (offers == null) act.Add(offers);\n",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
      SHIMEJI, None, "class-broadcast: Call lost its offer"),
-    ("convert-widen: an offering member declares no 'social'",
+    # N-shimeji-1106-19: since 98d687d ConvertPack runs the host's validator over what it emitted and refuses with TICK_OUTPUT_INVALID
+    # before the self-test reads the document, so the check fails on that refusal; the fragment names its rule.
+    ("convert-widen: an offering member declares no 'social' (N-shimeji-1106-19)",
      os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
      b"                        offers = E(\"offers\", E(\"offer\", new XAttribute(\"value\", attribute.RawValue)));\n"
      b"                        _social = true;\n",
      b"                        offers = E(\"offers\", E(\"offer\", new XAttribute(\"value\", attribute.RawValue)));\n",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
-     SHIMEJI, None, "host validator refused the emitted deprecated Broadcast aliases"),
+     SHIMEJI, None, "class-broadcast: TICK_OUTPUT_INVALID: image set 'A': the host's validator refuses the emitted document: animation 8 social needs feature 'social'"),
     ("convert-widen: an Affordance binding onto an offering action is written anyway",
      os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
      b"                    if (own != null && own.Cache == ShimejiSourceCache.Literal && !JavaBlank(own.RawValue))\n",
@@ -19443,24 +19463,28 @@ CASES = (
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
      SHIMEJI, None, "conversion accepted an input requiring refusal: TICK_AFFORDANCE_BINDING Affordance"),
     # Toggles: the header switch, the behaviour's name for it, and the id limit.
-    ("convert-widen: the header toggles are not written",
+    # N-shimeji-1106-19: since 98d687d ConvertPack runs the host's validator over what it emitted and refuses with TICK_OUTPUT_INVALID
+    # before the self-test reads the document, so the check fails on that refusal; the fragment names its rule.
+    ("convert-widen: the header toggles are not written (N-shimeji-1106-19)",
      os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
      b"                if (_toggles.Count > 0)\n",
      b"                if (_toggles.Count > 64)\n",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
-     SHIMEJI, None, "host validator refused the emitted toggle member"),
+     SHIMEJI, None, "toggle-lowering: TICK_OUTPUT_INVALID: image set 'A': the host's validator refuses the emitted document: animation 12 names toggle 'Idle', which header/toggles does not declare"),
     ("convert-widen: a Toggleable behaviour does not name its toggle",
      os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
      b"                            behaviour.Add(new XAttribute(\"toggle\", name));\n",
      b"",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
      SHIMEJI, None, "Toggleable behaviour lost its toggle"),
-    ("convert-widen: a toggle id over 64 characters is written",
+    # N-shimeji-1106-19: since 98d687d ConvertPack runs the host's validator over what it emitted and refuses with TICK_OUTPUT_INVALID
+    # before the self-test reads the document, so the check fails on that refusal; the fragment names its rule.
+    ("convert-widen: a toggle id over 64 characters is written (N-shimeji-1106-19)",
      os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
      b"                            if (name.Length > 64)\n",
      b"                            if (name.Length > 65)\n",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
-     SHIMEJI, None, "conversion accepted an input requiring refusal: TICK_TOGGLE_ID_LIMIT"),
+     SHIMEJI, None, "toggle-id-refusal: wrong refusal: TICK_OUTPUT_INVALID: image set 'A': the host's validator refuses the emitted document: header/toggles has a missing, over-long or repeated toggle id"),
 
     # ---- lane feature/shimeji-convert-corpus ----
     # Real packs through the tick emitter: the two review fixes of the widening lane (CW1, CW2), then the corpus
@@ -19503,12 +19527,14 @@ CASES = (
      b"                    if (sourceName == null) _engineNames.Add(sourceName, key);\n",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
      SHIMEJI, None, "route behaviours do not carry the host's engine names"),
-    ("convert-corpus: an English Fall beside a renamed Japanese one is accepted",
+    # N-shimeji-1106-19: since 98d687d ConvertPack runs the host's validator over what it emitted and refuses with TICK_OUTPUT_INVALID
+    # before the self-test reads the document, so the check fails on that refusal; the fragment names its rule.
+    ("convert-corpus: an English Fall beside a renamed Japanese one is accepted (N-shimeji-1106-19)",
      os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
      b"                    if (_engineNames.ContainsValue(key) && _roots.ContainsKey(key))\n",
      b"                    if (_engineNames.ContainsValue(key) && _roots.ContainsKey(key + \"-\"))\n",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
-     SHIMEJI, None, "conversion accepted an input requiring refusal: TICK_ENGINE_NAME_COLLISION"),
+     SHIMEJI, None, "japanese-engine-name-refusal: wrong refusal: TICK_OUTPUT_INVALID: image set 'A': the host's validator refuses the emitted document: animation 11 needs a name unique among the route's behaviours (got 'Fall')"),
     ("convert-corpus: a scripted behaviour name in a renaming member is accepted",
      os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
      b"                if (attribute.Cache != ShimejiSourceCache.Literal)\n"
@@ -19841,12 +19867,14 @@ CASES = (
      b"                string[] candidates = { \"img/\" + _member + \"/sound/\" + relative, \"sound/\" + _member + \"/\" + relative, \"sound/\" + relative };\n",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
      SHIMEJI, None, "the source's resolution order (sound/ before img/<set>/sound/) was not kept"),
-    ("convert-corpus: a member with clips declares no 'wav'",
+    # N-shimeji-1106-19: since 98d687d ConvertPack runs the host's validator over what it emitted and refuses with TICK_OUTPUT_INVALID
+    # before the self-test reads the document, so the check fails on that refusal; the fragment names its rule.
+    ("convert-corpus: a member with clips declares no 'wav' (N-shimeji-1106-19)",
      os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
      b"                if (clips.Count > 0) features += \" wav\";\n",
      b"                if (clips.Count < 0) features += \" wav\";\n",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
-     SHIMEJI, None, "host validator refused the emitted sounded member"),
+     SHIMEJI, None, "sound-lowering: TICK_OUTPUT_INVALID: image set 'A': the host's validator refuses the emitted document: sound '/tone.wav' format needs feature 'wav'"),
     ("convert-corpus: a pose's Volume is dropped",
      os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
      b"                            if (volume != 0) pose.Add(new XAttribute(\"volume\", volume.ToString(\"R\", Invariant)));\n",
@@ -19859,12 +19887,14 @@ CASES = (
      b"                else if (DesktopAICompanion.Mp3Format.LooksLikeMp3(bytes, out reason) && false)\n",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
      SHIMEJI, None, "TICK_SOUND_FORMAT: clip '/fake.wav'"),
-    ("convert-corpus: a WAVE the host's rule rejects is carried anyway",
+    # N-shimeji-1106-19: since 98d687d ConvertPack runs the host's validator over what it emitted and refuses with TICK_OUTPUT_INVALID
+    # before the self-test reads the document, so the check fails on that refusal; the fragment names its rule.
+    ("convert-corpus: a WAVE the host's rule rejects is carried anyway (N-shimeji-1106-19)",
      os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
      b"                    if (!DesktopAICompanion.WavFormat.IsDecodableWave(bytes, out reason))\n",
      b"                    if (!DesktopAICompanion.WavFormat.IsDecodableWave(bytes, out reason) && reason == \"never\")\n",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
-     SHIMEJI, None, "TICK_SOUND_WAV: clip '/cut.wav' is truncated"),
+     SHIMEJI, None, "sound-refusal: wrong refusal: TICK_OUTPUT_INVALID: image set 'A': the host's validator refuses the emitted document: Sound '/cut.wav' is declared format=\"wav\" but is truncated"),
     ("convert-corpus: a clip over the host's per-clip limit is not refused by name",
      os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
      b"                int perClip = DesktopAICompanion.CompanionXmlValidator.MaximumAudioBytesFor(new XmlData.SoundNode { Format = \"wav\" });\n",
@@ -22280,6 +22310,32 @@ CASES = (
      b'&& clip.Name.StartsWith(sound, StringComparison.Ordinal) && clips.IsRunning(clip) && clip.Volume == 0f)',
      CORETESTS_CSPROJ, CORETESTS_DLL,
      CORETESTS, None, 'Tick sound Mute: a named Sound stops the initiator\'s running clips by prefix, at any volume, wherever they play: A named Mute did not stop the initiator\'s running clip at a volume other than 0 dB'),
+    # ---- burndown/w3-tests-harness-1 ----
+    # Mutation harnesses and their tooling. "bd-w3-tests-harness-1:" for one --only.
+    # N-audit-1106-395: the diagnostics harness starts the invariant script with no bound again, so a stalled
+    # powershell.exe hangs the run with the mutant in the source tree.
+    ('bd-w3-tests-harness-1: the diagnostics invariant run has no timeout (N-audit-1106-395)',
+     MUTATE_DIAGNOSTICS_PY,
+     b'                           cwd=ROOT, capture_output=True, timeout=GATE_TIMEOUT, env=windows_powershell_env())\n',
+     b'                           cwd=ROOT, capture_output=True, env=windows_powershell_env())\n',
+     None, None,
+     MUTATION_UNITTESTS, None, 'test_a_stalled_invariant_script_reads_broken'),
+    # N-audit-1106-347: on a degraded baseline the hardening harness counts the baseline's own doc-count line as a hit
+    # again, so its DOC DRIFT case reads FIRED whatever its mutation did.
+    ('bd-w3-tests-harness-1: a degraded baseline fires a case on its own failure line (N-audit-1106-347)',
+     os.path.join(REPO, "tests", "mutate-hardening-guards.py"),
+     b'               if expect in l and not l.strip().startswith("PASS:") and l.strip() not in baseline_failures]\n',
+     b'               if expect in l and not l.strip().startswith("PASS:")]\n',
+     None, None,
+     MUTATION_UNITTESTS, None, 'test_a_degraded_baseline_does_not_fire_a_case_on_its_own_failure_line'),
+    # N-audit-1106-344: the diagnostics harness's --check-patterns stops counting a case that does not match once.
+    ('bd-w3-tests-harness-1: the diagnostics pattern check passes a case that matches nothing (N-audit-1106-344)',
+     MUTATE_DIAGNOSTICS_PY,
+     b'            print("  NO-OP (pattern matched %d times)  %s" % (count, name))\n'
+     b'            bad += 1\n',
+     b'            print("  NO-OP (pattern matched %d times)  %s" % (count, name))\n',
+     None, None,
+     MUTATION_UNITTESTS, None, 'test_check_patterns_counts_every_case_and_runs_nothing'),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

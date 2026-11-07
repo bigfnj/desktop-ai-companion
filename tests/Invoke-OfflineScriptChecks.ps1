@@ -19,6 +19,11 @@
     (added 2026-11-02) creates and removes a scratch key under HKCU\Software and never opens the real tray records. No
     MSI is executed and no native binary is built or launched.
 
+    The mutation tooling's own checks joined on 2026-11-07 (N-audit-1106-344, N-release-180-02): the agentflow and
+    diagnostics harnesses' --check-patterns, the installer-shutdown and tolerant-note runners' --self-test, and the shard
+    controller's -SelfTest, remainder and TEMP-budget checks, each in a child judged by its exit code. They read the
+    repository and build nothing; the TEMP-budget check creates and removes synthetic folders under TEMP.
+
     The four installer checks signal failure by throwing, so they run in this process inside a try/catch. The privacy
     self-test is `#requires -Version 7`, which Windows PowerShell refuses to run in-process, so it always runs in a
     pwsh child and is judged by its exit code; a missing pwsh is a FAILURE that says so, never a skip. Every check runs
@@ -137,6 +142,60 @@ else {
             $failures.Add('Shimeji parity pack generator self-test did not print exactly one MAKE-PACKS SELF-TEST PASS line')
         }
     }
+}
+
+# The mutation tooling's own checks (N-audit-1106-344, N-release-180-02, lane burndown/w3-tests-harness-1). Each ran only
+# when someone remembered it: the two harnesses' --check-patterns (a case whose pattern matches nothing guards nothing
+# and shows only as NO-OP in a whole run), the two native mutation runners' --self-test, and the shard controller's three
+# synthetic checks. Measured 2026-11-07, each in a fresh process: 0.4 to 3.2 s apiece. None builds, mutates or starts the
+# app; the shard checks start no child and touch no worktree. Every one is judged by its EXIT CODE, with Continue for the
+# call because a native stderr line is a terminating error under Stop while this script's output is redirected (RA-346).
+# A missing python or pwsh is a FAILURE that says so, never a skip. Test-IsolatedDotnetEnvironment.ps1 is not here:
+# build.yml's "Check test environment and artifact cleanup safety" step runs it.
+$repoTests = $PSScriptRoot
+$mutationPython = @(
+    @('mutate-agentflow.py', '--check-patterns'),
+    @('mutate-diagnostics.py', '--check-patterns'),
+    @('run_installer_shutdown_mutations.py', '--self-test'),
+    @('run_codex_tolerant_note_mutations.py', '--self-test'))
+$mutationPwsh = @(
+    @('..\tools\agentbroker\Invoke-MutationShards.ps1', '-SelfTest'),
+    @('Test-MutationShardRemainder.ps1', ''),
+    @('Test-MutationTempBudget.ps1', ''))
+$python = @(Get-Command -Name 'python' -CommandType Application -ErrorAction SilentlyContinue) | Select-Object -First 1
+foreach ($check in $mutationPython) {
+    $label = ($check[0] + ' ' + $check[1])
+    Write-Host "=== $label"
+    $ran++
+    if ($null -eq $python) { $failures.Add("${label}: it needs Python 3, and python is not on PATH, so it did not run"); continue }
+    $checkExit = $null
+    $savedPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & $python.Source -X utf8 (Join-Path $repoTests $check[0]) $check[1] 2>&1 | ForEach-Object { Write-Host "$_" }
+        $checkExit = $LASTEXITCODE
+    }
+    catch { $failures.Add("$label could not be started: " + $_.Exception.Message) }
+    finally { $ErrorActionPreference = $savedPreference }
+    if ($null -ne $checkExit -and $checkExit -ne 0) { $failures.Add("$label (exit $checkExit)") }
+}
+foreach ($check in $mutationPwsh) {
+    $label = ((Split-Path -Leaf $check[0]) + ' ' + $check[1]).Trim()
+    Write-Host "=== $label (in PowerShell 7)"
+    $ran++
+    if ($null -eq $pwsh) { $failures.Add("${label}: it needs PowerShell 7, and pwsh is not on PATH, so it did not run"); continue }
+    $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $repoTests $check[0]))
+    if ($check[1]) { $arguments += $check[1] }
+    $checkExit = $null
+    $savedPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & $pwsh.Source @arguments 2>&1 | ForEach-Object { Write-Host "$_" }
+        $checkExit = $LASTEXITCODE
+    }
+    catch { $failures.Add("$label could not be started: " + $_.Exception.Message) }
+    finally { $ErrorActionPreference = $savedPreference }
+    if ($null -ne $checkExit -and $checkExit -ne 0) { $failures.Add("$label (exit $checkExit)") }
 }
 
 if ($failures.Count -gt 0) {
