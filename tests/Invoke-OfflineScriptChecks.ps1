@@ -24,8 +24,10 @@
     pwsh child and is judged by its exit code; a missing pwsh is a FAILURE that says so, never a skip. Every check runs
     whatever the one before it did, and the failures are thrown together at the end, which fails a CI step and is
     collected by the gate like its other .ps1 steps. The parity comparer runs through Python and must both exit zero
-    and print its exact SELF-TEST PASS line. -ParityOnly runs that check alone; -PythonPath selects an interpreter
-    explicitly (otherwise python on PATH), so the same runner can be checked without the installer fixtures.
+    and print its exact SELF-TEST PASS line. The synthetic pack generator also runs its self-test and must exit zero
+    with exactly one MAKE-PACKS SELF-TEST PASS line. The selected Python must have Pillow; absence is a failure,
+    never an install or a skip. -ParityOnly runs these two checks alone; -PythonPath selects an interpreter explicitly
+    (otherwise python on PATH), so the same runner can be checked without the installer fixtures.
 
 .EXAMPLE
     .\tests\Invoke-OfflineScriptChecks.ps1
@@ -100,6 +102,39 @@ else {
         if ($parityExit -ne 0) { $failures.Add("Shimeji parity comparer self-test failed (exit $parityExit)") }
         if (@($parityOutput | Where-Object { [string]$_ -ceq 'SELF-TEST PASS' }).Count -ne 1) {
             $failures.Add('Shimeji parity comparer self-test did not print exactly one SELF-TEST PASS line')
+        }
+    }
+}
+
+Write-Host '=== Shimeji parity pack generator --self-test'
+$ran++
+if ($null -eq $python) {
+    $failures.Add('Shimeji parity pack generator self-test: Python was not found, so it did not run')
+}
+else {
+    $generatorExit = $null
+    $generatorOutput = @()
+    $savedPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $pillowOutput = @(& $python.Source -B -c 'from PIL import Image, ImageDraw' 2>&1)
+        $pillowExit = $LASTEXITCODE
+        if ($pillowExit -ne 0) {
+            foreach ($line in $pillowOutput) { Write-Host "$line" }
+            $failures.Add('Shimeji parity pack generator self-test needs Pillow in the selected Python; it did not run. Select an interpreter with Pillow using -PythonPath.')
+        }
+        else {
+            $generatorOutput = @(& $python.Source -B (Join-Path $PSScriptRoot '..\tools\ShimejiParity\scenarios\make_packs.py') --self-test 2>&1)
+            $generatorExit = $LASTEXITCODE
+            foreach ($line in $generatorOutput) { Write-Host "$line" }
+        }
+    }
+    catch { $failures.Add('Shimeji parity pack generator self-test could not be started: ' + $_.Exception.Message) }
+    finally { $ErrorActionPreference = $savedPreference }
+    if ($null -ne $generatorExit) {
+        if ($generatorExit -ne 0) { $failures.Add("Shimeji parity pack generator self-test failed (exit $generatorExit)") }
+        if (@($generatorOutput | Where-Object { [string]$_ -ceq 'MAKE-PACKS SELF-TEST PASS' }).Count -ne 1) {
+            $failures.Add('Shimeji parity pack generator self-test did not print exactly one MAKE-PACKS SELF-TEST PASS line')
         }
     }
 }

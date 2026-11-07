@@ -1199,6 +1199,22 @@ OUTPUT_MANIFEST = ".make-packs-manifest.json"
 OUTPUT_SCHEMA = "shimeji-parity-pack-output/1"
 
 
+def write_output_manifest(out, paths, in_progress=False):
+    """Replace the journal atomically: an interrupted write must leave the previous ownership readable."""
+    document = {"schema": OUTPUT_SCHEMA, "paths": sorted(paths)}
+    if in_progress:
+        document["state"] = "building"
+    descriptor, temporary = tempfile.mkstemp(prefix=OUTPUT_MANIFEST + ".", suffix=".tmp", dir=out)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as stream:
+            stream.write(json.dumps(document, indent=1, sort_keys=True) + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, out / OUTPUT_MANIFEST)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
+
 def generated_paths(out):
     """Enumerate the managed namespaces completely before any deletion, without traversing links."""
     paths = set()
@@ -1232,7 +1248,8 @@ def require_owned_output(out):
     if manifest.is_symlink() or (manifest.exists() and getattr(manifest.lstat(), "st_file_attributes", 0) & 0x400):
         raise ValueError("PACK_GENERATOR_LINKED_OUTPUT: " + OUTPUT_MANIFEST)
     if actual and not manifest.exists():
-        raise ValueError("PACK_GENERATOR_UNMANAGED_OUTPUT: populated packs or S-*.json output has no ownership manifest")
+        raise ValueError("PACK_GENERATOR_UNMANAGED_OUTPUT: populated packs or S-*.json output has no ownership manifest; "
+                         "use an empty output folder, or move those existing files elsewhere before retrying")
     if manifest.exists():
         ownership = json.loads(manifest.read_text(encoding="utf-8"))
         if (not isinstance(ownership, dict) or ownership.get("schema") != OUTPUT_SCHEMA
@@ -1242,6 +1259,8 @@ def require_owned_output(out):
         unknown = actual - set(ownership["paths"])
         if unknown:
             raise ValueError("PACK_GENERATOR_UNOWNED_OUTPUT: " + sorted(unknown)[0])
+        return set(ownership["paths"])
+    return set()
 
 
 def main(out):
@@ -1251,24 +1270,60 @@ def main(out):
     # history (N-audit-1106-275). Ownership must be checked FIRST: a caller's custom pack or scenario has the same
     # shape as ours and must never be inferred to be disposable from its name alone. Retired paths from a previous
     # generator version remain removable because that version recorded them in its manifest.
-    require_owned_output(out)
-    packs = out / "packs"
-    if packs.exists():
-        shutil.rmtree(packs)
-    for previous in out.glob("S-*.json"):
-        previous.unlink()
-    for name, build in PACKS.items():
-        build(out / "packs" / name)
-    for s in SCENARIOS:
-        doc = dict(BASE)
-        doc.update(s)
-        (out / f"{s['id']}.json").write_text(json.dumps(doc, indent=1, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
-    (out / OUTPUT_MANIFEST).write_text(json.dumps({"schema": OUTPUT_SCHEMA, "paths": sorted(generated_paths(out))},
-                                                indent=1, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
+    owned = require_owned_output(out)
+    # Journal before ANY builder or cleanup. Builders run in private staging, so even a new builder which makes
+    # directories and then raises cannot leave unowned files in the destination. Only after staging succeeds can
+    # we know every exact future path; journal those together with retired old paths BEFORE deleting or copying.
+    # A pack-name wildcard would wrongly claim a caller's additions after an interruption.
+    # Keep ONLY old ownership here. A caller can create even a planned scenario filename while staging runs;
+    # claiming that name now would make a refused run silently adopt it for deletion on the following run.
+    write_output_manifest(out, owned, in_progress=True)
+    with tempfile.TemporaryDirectory(prefix="parity-pack-stage-") as temporary:
+        staged = Path(temporary)
+        for name, build in PACKS.items():
+            build(staged / "packs" / name)
+        for s in SCENARIOS:
+            doc = dict(BASE)
+            doc.update(s)
+            (staged / f"{s['id']}.json").write_text(json.dumps(doc, indent=1, sort_keys=True) + "\n",
+                                                  encoding="utf-8", newline="\n")
+        staged_paths = generated_paths(staged)
+        # A caller could have added output while the builders ran. Planned names alone do not license deleting
+        # those files: only paths from the ownership we read before starting belong to the previous generation.
+        unknown = generated_paths(out) - owned
+        if unknown:
+            raise ValueError("PACK_GENERATOR_UNOWNED_OUTPUT: " + sorted(unknown)[0])
+        write_output_manifest(out, owned | staged_paths, in_progress=True)
+        packs = out / "packs"
+        if packs.exists():
+            shutil.rmtree(packs)
+        for previous in out.glob("S-*.json"):
+            previous.unlink()
+        shutil.copytree(staged / "packs", packs)
+        for scenario in staged.glob("S-*.json"):
+            shutil.copyfile(scenario, out / scenario.name)
+        actual = generated_paths(out)
+        unknown = actual - staged_paths
+        if unknown:
+            raise ValueError("PACK_GENERATOR_UNOWNED_OUTPUT: " + sorted(unknown)[0])
+        write_output_manifest(out, actual)
     print(f"wrote {len(PACKS)} pack(s) and {len(SCENARIOS)} scenario(s) to {out}")
 
 
 def self_test():
+    # Ownership and recovery depend on paths and writer ordering, not the whole directed corpus. These two synthetic
+    # packs exercise sprites, configuration, raw text and sound writers while keeping the gate check small.
+    saved = dict(PACKS)
+    try:
+        PACKS.clear()
+        PACKS.update({"slice-stand-walk": pack_stand_walk, "lower-sound": pack_lower_sound})
+        return _self_test_output()
+    finally:
+        PACKS.clear()
+        PACKS.update(saved)
+
+
+def _self_test_output():
     """A reused destination must supply exactly the same parity inputs as a fresh one."""
     import contextlib
     import io
@@ -1283,12 +1338,21 @@ def self_test():
 
     def refuse_unchanged(root, prefix, label):
         before = {p.relative_to(root).as_posix(): p.read_bytes() for p in root.rglob("*") if p.is_file()}
+        first = next(iter(PACKS))
+        saved_builder = PACKS[first]
+
+        def unexpected_builder(path):
+            raise AssertionError(label + ": unowned output reached a builder instead of refusing at inspection")
+
         try:
+            PACKS[first] = unexpected_builder
             main(root)
         except ValueError as error:
             require(str(error).startswith(prefix), label + ": wrong refusal: " + str(error))
         else:
             raise AssertionError(label + ": custom output was not refused")
+        finally:
+            PACKS[first] = saved_builder
         after = {p.relative_to(root).as_posix(): p.read_bytes() for p in root.rglob("*") if p.is_file()}
         require(before == after, label + ": refusal changed caller files")
 
@@ -1313,7 +1377,14 @@ def self_test():
         keep = reused / "notes.txt"
         keep.write_bytes(b"caller notes")
         with contextlib.redirect_stdout(io.StringIO()):
-            main(reused)
+            try:
+                main(reused)
+            except Exception:
+                # The final inventory/copy can notice a missed cleanup before the assertions below. Regeneration
+                # still has to succeed, and these exact retired paths identify which cleanup was omitted.
+                require(not stale_frame.exists(), "PACK_GENERATOR_STALE_MEMBER: regeneration left a retired member")
+                require(not old_scenario.exists(), "PACK_GENERATOR_STALE_SCENARIO: regeneration left a retired scenario")
+                raise
         require(not stale_frame.exists(), "PACK_GENERATOR_STALE_MEMBER: retired member survived regeneration")
         require(not old_pack.exists(), "PACK_GENERATOR_STALE_PACK: retired pack survived regeneration")
         require(not old_scenario.exists(), "PACK_GENERATOR_STALE_SCENARIO: retired scenario survived regeneration")
@@ -1321,6 +1392,158 @@ def self_test():
         require(keep.read_bytes() == b"caller notes", "PACK_GENERATOR_NOTES: unrelated output-root file changed")
         require((reused / OUTPUT_MANIFEST).read_bytes() == (clean / OUTPUT_MANIFEST).read_bytes(),
                 "PACK_GENERATOR_MANIFEST: fresh and reused ownership differ")
+
+        # An interruption during cleanup must retain the old version's exact retired paths. Recording only this
+        # version's planned roots would make the surviving retired files look like caller data on the next run.
+        interrupted_cleanup = Path(temporary) / "interrupted-cleanup"
+        shutil.copytree(clean, interrupted_cleanup)
+        retired = interrupted_cleanup / "packs" / "retired-pack" / "old.txt"
+        retired.parent.mkdir()
+        retired.write_bytes(b"old owned data")
+        write_output_manifest(interrupted_cleanup, generated_paths(interrupted_cleanup))
+        remove_tree = shutil.rmtree
+
+        def stop_cleanup(path, *args, **kwargs):
+            if Path(path) == interrupted_cleanup / "packs":
+                journal = json.loads((interrupted_cleanup / OUTPUT_MANIFEST).read_text(encoding="utf-8"))
+                require(journal.get("state") == "building", "PACK_GENERATOR_PROVISIONAL_BEFORE_CLEANUP")
+                require(retired.relative_to(interrupted_cleanup).as_posix() in journal["paths"],
+                        "PACK_GENERATOR_RETIRED_OWNERSHIP: cleanup forgot an old owned path")
+                remove_tree(Path(path) / next(iter(PACKS)))
+                raise KeyboardInterrupt("synthetic cleanup interruption")
+            return remove_tree(path, *args, **kwargs)
+
+        try:
+            shutil.rmtree = stop_cleanup
+            try:
+                main(interrupted_cleanup)
+            except KeyboardInterrupt:
+                pass
+            else:
+                raise AssertionError("PACK_GENERATOR_CLEANUP_CONTROL: interruption was not reached")
+        finally:
+            shutil.rmtree = remove_tree
+        with contextlib.redirect_stdout(io.StringIO()):
+            main(interrupted_cleanup)
+        require(inventory(interrupted_cleanup) == inventory(clean), "PACK_GENERATOR_CLEANUP_RECOVERY")
+
+        # An interruption while staged files are copied needs the complete future inventory, not only pack roots.
+        interrupted_copy = Path(temporary) / "interrupted-copy"
+        copy_tree = shutil.copytree
+
+        def stop_copy(source, destination, *args, **kwargs):
+            if Path(destination) == interrupted_copy / "packs":
+                name = next(iter(PACKS))
+                copy_tree(Path(source) / name, Path(destination) / name)
+                raise KeyboardInterrupt("synthetic copy interruption")
+            return copy_tree(source, destination, *args, **kwargs)
+
+        try:
+            shutil.copytree = stop_copy
+            try:
+                main(interrupted_copy)
+            except KeyboardInterrupt:
+                pass
+            else:
+                raise AssertionError("PACK_GENERATOR_COPY_CONTROL: interruption was not reached")
+        finally:
+            shutil.copytree = copy_tree
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                main(interrupted_copy)
+        except Exception as error:
+            raise AssertionError("PACK_GENERATOR_COPY_RECOVERY: " + str(error)) from error
+        require(inventory(interrupted_copy) == inventory(clean), "PACK_GENERATOR_COPY_HISTORY")
+
+        # Builders do not have to use a special writer API: raw mkdir/write failures in a newly added pack stay
+        # private to staging. RuntimeError and KeyboardInterrupt both leave a destination the next main can use.
+        added_pack = "selftest-new-pack"
+        expected_new = Path(temporary) / "expected-new"
+
+        def build_new(root):
+            write_documents(root / "img" / "New" / "conf", [], [])
+
+        try:
+            PACKS[added_pack] = build_new
+            with contextlib.redirect_stdout(io.StringIO()):
+                main(expected_new)
+            for failure in (RuntimeError, KeyboardInterrupt):
+                interrupted = Path(temporary) / failure.__name__
+                if failure is KeyboardInterrupt:
+                    shutil.copytree(clean, interrupted)
+
+                def fail_new(root):
+                    require((interrupted / OUTPUT_MANIFEST).is_file(), "PACK_GENERATOR_PROVISIONAL_BEFORE_BUILD")
+                    journal = json.loads((interrupted / OUTPUT_MANIFEST).read_text(encoding="utf-8"))
+                    require(journal.get("state") == "building", "PACK_GENERATOR_PROVISIONAL_BEFORE_BUILD")
+                    (root / "img").mkdir(parents=True)
+                    (root / "img" / "partial.txt").write_bytes(b"partial new pack")
+                    raise failure("synthetic builder interruption")
+
+                PACKS[added_pack] = fail_new
+                try:
+                    main(interrupted)
+                except failure:
+                    pass
+                else:
+                    raise AssertionError("PACK_GENERATOR_BUILD_CONTROL: interruption was not reached")
+                PACKS[added_pack] = build_new
+                # A caller's addition inside the newly created pack is not part of its provisional ownership.
+                custom_interrupted = Path(temporary) / (failure.__name__ + "-custom")
+                shutil.copytree(interrupted, custom_interrupted)
+                caller = custom_interrupted / "packs" / added_pack / "img" / "New" / "caller.txt"
+                caller.parent.mkdir(parents=True, exist_ok=True)
+                caller.write_bytes(b"caller data after interruption")
+                refuse_unchanged(custom_interrupted, "PACK_GENERATOR_UNOWNED_OUTPUT:",
+                                 "PACK_GENERATOR_INTERRUPTED_CUSTOM_PRESERVED")
+                try:
+                    with contextlib.redirect_stdout(io.StringIO()):
+                        main(interrupted)
+                except Exception as error:
+                    raise AssertionError("PACK_GENERATOR_INTERRUPTED_RECOVERY: " + failure.__name__ + ": " + str(error)) from error
+                require(inventory(interrupted) == inventory(expected_new), "PACK_GENERATOR_INTERRUPTED_HISTORY")
+                require((interrupted / OUTPUT_MANIFEST).read_bytes() == (expected_new / OUTPUT_MANIFEST).read_bytes(),
+                        "PACK_GENERATOR_INTERRUPTED_MANIFEST")
+
+            # Caller files arriving during staging or after the copy may not become generator-owned.
+            for stage, label in (("before-write", "PACK_GENERATOR_LATE_CLAIM_PRESERVED"),
+                                 ("planned-scenario", "PACK_GENERATOR_PLANNED_CALLER_PRESERVED"),
+                                 ("at-completion", "PACK_GENERATOR_LATE_OUTPUT_PRESERVED")):
+                destination = Path(temporary) / stage
+                caller = (destination / (SCENARIOS[0]["id"] + ".json") if stage == "planned-scenario"
+                          else destination / "packs" / added_pack / "img" / "New" / "conf" / (
+                              "actions.xml" if stage == "before-write" else "caller.txt"))
+
+                def late_caller(root):
+                    build_new(root)
+                    if stage in ("before-write", "planned-scenario"):
+                        caller.parent.mkdir(parents=True, exist_ok=True)
+                        caller.write_bytes(b"caller data during generation")
+
+                def late_copy(source, target, *args, **kwargs):
+                    result = copy_tree(source, target, *args, **kwargs)
+                    if stage == "at-completion" and Path(target) == destination / "packs":
+                        caller.parent.mkdir(parents=True, exist_ok=True)
+                        caller.write_bytes(b"caller data during generation")
+                    return result
+
+                PACKS[added_pack] = late_caller
+                try:
+                    shutil.copytree = late_copy
+                    main(destination)
+                except ValueError as error:
+                    require(str(error).startswith("PACK_GENERATOR_UNOWNED_OUTPUT:"), label + ": wrong refusal")
+                else:
+                    raise AssertionError(label + ": caller data was claimed as generated output")
+                finally:
+                    shutil.copytree = copy_tree
+                require(caller.read_bytes() == b"caller data during generation", label + ": caller data changed")
+                journal = json.loads((destination / OUTPUT_MANIFEST).read_text(encoding="utf-8"))
+                require(caller.relative_to(destination).as_posix() not in journal["paths"], label + ": caller data was journalled")
+                PACKS[added_pack] = build_new
+                refuse_unchanged(destination, "PACK_GENERATOR_UNOWNED_OUTPUT:", label)
+        finally:
+            del PACKS[added_pack]
 
         unmanaged = Path(temporary) / "unmanaged"
         custom = unmanaged / "packs" / "caller-pack" / "custom.xml"
