@@ -143,12 +143,16 @@ A service you did not declare hands back a **refusing stand-in** rather than thr
 `ModulePermissions.Companions`, `GetCompanionManager` returns a manager whose every verb returns false with a reason. So
 check return values; do not assume success.
 
-**Some flags are ENFORCED and some are only DISCLOSED, and you need to know which yours is.** Four are
+**Some flags are ENFORCED and some are only DISCLOSED, and you need to know which yours is.** Five are
 enforced, all through one predicate (`CompanionHost.ModuleDeclares`): `Audio` gates `PlaySound`, `Voice` gates
-your speech responder being offered a line, `Network` gates `OpenLink`, and `Companions` gates
-`GetCompanionManager`. The rest — `Speech`, `Animation`, `ScreenContext`, `Hotkey`, `Storage`, `Microphone`,
-`SystemAudio`, `AgentTranscripts`, `InputSynthesis`, `InputMonitoring`, `LaunchProcess` — are **disclosure
-only**. Nothing stops you using those capabilities without declaring them.
+your speech responder being offered a line, `Network` gates `OpenLink`, `Companions` gates
+`GetCompanionManager`, and `ClaudeCodeSignIn` (host 1.8.0) gates the Claude Code sign-in token the host keeps for
+every module the user allows (`IHostCredentials`). That last one needs more than the declaration: the user must also
+allow it for your module in the Modules pane. Declared without that grant you are told `ConsentRequired`, undeclared
+`Denied`, and either way nothing is read or written. The rest are **disclosure only**: `Speech`, `Animation`,
+`ScreenContext`, `Hotkey`, `Storage`, `Microphone`, `SystemAudio`, `AgentTranscripts`, `InputSynthesis`,
+`InputMonitoring`, `LaunchProcess`, `MicrophoneUsage`. Nothing stops you using those capabilities without declaring
+them.
 
 That is deliberate, not an oversight. A module is an ordinary in-process assembly running with the user's
 full privileges; there is no sandbox and pretending otherwise would be security theatre (see
@@ -163,7 +167,9 @@ thing that would make this system worthless.
 | `AgentTranscripts` | **1.1.5** | you read the transcripts a coding agent writes about its own session |
 | `InputSynthesis` | **1.1.5** | you synthesize keyboard or mouse input into the OS |
 | `InputMonitoring` | **1.2.5** | you watch keyboard or mouse activity the user did not direct at the pet (a low-level hook, polled key state, raw input, an idle timer). No shipped module does; `PluginApi.cs` names the blocked work it waits for |
-| `LaunchProcess` | **1.2.5** | you start a child process you chose (an engine, a converter, a downloaded tool). AI Brain, Remembrance and Companion Studio declare it. Shell-opening a path or URL the user asked for is deliberately not this |
+| `LaunchProcess` | **1.2.5** | you start a child process you chose (an engine, a converter, a downloaded tool). AgentBroker, AI Brain, Companion Studio and Remembrance declare it. Shell-opening a path or URL the user asked for is deliberately not this |
+| `MicrophoneUsage` | **1.6.0** | you see when another application is using the microphone, and when each last started and stopped, from the record Windows keeps for its own microphone indicator. No audio; Remembrance and Reminder declare it. Not `Microphone`, which says you record |
+| `ClaudeCodeSignIn` | **1.8.0** | you read, replace or remove the one Claude Code sign-in token the host keeps for the modules the user allows. Enforced, and only after the user's grant (above); AI Brain and Remembrance declare it |
 
 > ⚠️ **`AgentTranscripts` covers the most sensitive read in this application.** Claude Code's
 > `%USERPROFILE%\.claude\projects\<slug>\<session>.jsonl` and Codex's `%USERPROFILE%\.codex\sessions\...`
@@ -188,11 +194,14 @@ floor in an update leaves those users on the version they have.
 
 **Use `1.0.0` unless you have a reason not to.** The 1.0.0 rebase flattened every floor, because a mandatory
 clean install means no host older than that exists to refuse anything. The shipped modules that raised it since
-each did so for a member they call, and the module's own `MinHostVersion` comment says which: AgentFlow `1.2.0`,
-Fortunes and Remembrance `1.4.0` (the settings primitives), AI Brain `1.5.0` (`ICompanionStandDown`), Reminder
-`1.1.6` (`FullWidth`/`PinTop`); Remembrance and Reminder move to `1.6.0` with `ITrayQuestions`; AI Brain and
-Remembrance to `1.8.0` with `IHostCredentials` (and AI Brain's `SettingField.VisibleWhen`). This paragraph used
-to say that only AI Brain had moved, to `1.1.0`, long after it stopped being true, which is how a list in a document
+each did so for a member they call, and the module's own comments say which, beside `MinHostVersion` or in its
+changelog: AgentFlow `1.2.0`, Fortunes and Remembrance `1.4.0` (the settings primitives), AI Brain `1.5.0`
+(`ICompanionStandDown`), Reminder `1.1.6` (`FullWidth`/`PinTop`); Remembrance and Reminder move to `1.6.0` with
+`ITrayQuestions`; AgentBroker to `1.6.1` with `OptionsPane.NotifyInfoChanged` (recorded in
+[`VERSIONING.md`](VERSIONING.md), not in the module); Fortunes to `1.7.0` with `ICatalogListing`; AI Brain and
+Remembrance to `1.8.0` with `IHostCredentials` (and AI Brain's `SettingField.VisibleWhen`); Companion Studio to
+`1.10.0` with `ICompanionPackPreview.SpawnPackPreview` and `CompanionTypeInfo.PackId`/`PackMember`. This paragraph
+used to say that only AI Brain had moved, to `1.1.0`, long after it stopped being true, which is how a list in a document
 goes stale: read the modules, not this list, before you rely on it. Pre-rebase numbers (1.4.x from before the rebase, 1.9.x) can be
 **above** the current host and are refused, so a version copied out of an older doc or an older module is worse
 than leaving the field out entirely. See [`VERSIONING.md`](VERSIONING.md).
@@ -472,7 +481,7 @@ touches `modules/<Id>/` needs a republish commit.**
 | ModuleKit | `src/DesktopAICompanion.ModuleKit/` |
 | The loader | `src/dotNet/Plugins/ModuleHost.cs` |
 | The host bridge (real `IHost`) | `src/dotNet/Plugins/CompanionHost.cs` |
-| Existing modules | `modules/Fortunes`, `modules/AiBrain`, `modules/PetStudio`, `modules/TestModule` |
+| Existing modules | `modules/<Name>/`, one folder each; `modules-dist/modules.json` lists the ones that ship (`modules/TestModule` is a test fixture and does not) |
 | Module self-tests | `src/dotNet/Plugins/*ModuleSelfTest.cs` |
 | Template | `templates/desktop-ai-companion-module/` (its project file is `SampleModule.templateproj`; the folder's README says why) |
 | Packaging | `packaging/New-ModulePublish.ps1` |
