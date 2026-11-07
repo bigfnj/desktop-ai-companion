@@ -22059,6 +22059,39 @@ CASES = (
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "aibrain bd-w4: the composite asks nothing of a cloud whose probe was answered with a redirect for its models"),
+    # ---- burndown/w5-aibrain-1 ----
+    # AI Brain's fifth-wave item (aibrain 1.7.1), graded by --module-selftest=aibrain's "aibrain bd-w5:" checks
+    # (engine/AiEngineProbe.BurndownW5.cs). Named "bd-w5-aibrain-1: ..." so --only=bd-w5-aibrain-1: runs the lane.
+    # N-bd-w4-aibrain-1-01: Test connection answered "Not reachable at <url>" for a base URL that answers with a redirect,
+    # sending the user to the network instead of the URL, and the redirect's own line named no cause.
+    ("bd-w5-aibrain-1: Test connection says a base URL that redirects is not reachable again (N-bd-w4-aibrain-1-01)",
+     os.path.join(REPO, "modules", "AiBrain", "AiBrainModule.cs"),
+     b"                        return ProbeRefusalLine(backend, normalized);\n",
+     b"                        return \"\\u2717 Not reachable at \" + normalized;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "aibrain bd-w5: Test connection on the Cloud provider card names a base URL that answers with a redirect as HTTP 301"),
+    ("bd-w5-aibrain-1: the not-reachable line passes over the redirect the probe kept (N-bd-w4-aibrain-1-01)",
+     os.path.join(REPO, "modules", "AiBrain", "AiBrainModule.cs"),
+     b"            if (answered != null) return DescribeHttpFailure(answered, endpoint);\n",
+     b"            if (answered != null && answered.StatusCode < 300) return DescribeHttpFailure(answered, endpoint);\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "aibrain bd-w5: Test connection on the Cloud provider card names a base URL that answers with a redirect as HTTP 301"),
+    ("bd-w5-aibrain-1: a redirect's pane line names no cause again (N-bd-w4-aibrain-1-01)",
+     os.path.join(REPO, "modules", "AiBrain", "AiBrainModule.cs"),
+     b"                    if (ex.StatusCode >= 300 && ex.StatusCode <= 399)\n",
+     b"                    if (ex.StatusCode >= 300 && ex.StatusCode < 300)\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "aibrain bd-w5: a redirect's pane line says the base URL redirects and to check it"),
+    ("bd-w5-aibrain-1: the redirect's line reaches a 4xx (the range runs past 399)",
+     os.path.join(REPO, "modules", "AiBrain", "AiBrainModule.cs"),
+     b"                    if (ex.StatusCode >= 300 && ex.StatusCode <= 399)\n",
+     b"                    if (ex.StatusCode >= 300 && ex.StatusCode <= 499)\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "WITNESS aibrain bd-w5: a 400 and a 502 keep their own lines, not the redirect's"),
     # ---- burndown/w3-host-1 ----
     # Named "bd-w3-host-1:" so one --only=bd-w3-host-1: run covers the lane.
     # N-shimeji-1106-04: the soak's tick-companion step plays no clip (its sounds held, as for a fullscreen window), so the
