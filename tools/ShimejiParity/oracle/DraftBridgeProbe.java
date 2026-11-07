@@ -58,10 +58,13 @@ public final class DraftBridgeProbe {
         require(on.reads == off.reads, "no-extra-lazy-variable-evaluation");
         // Query the exact JDK-8 Script/JSR-223 path, with a bound-variable positive control. A developer's newer
         // Java runtime or a list of assumed Nashorn globals cannot decide which converter names are reserved.
-        require("number".equals(new Script("typeof unusedWitness", false).get(controlled)), "global-type-positive-control");
+        // Keep the earlier lazy-variable witness unused: the type probe has its own bound-variable control.
+        VariableMap globalProbe = new VariableMap();
+        globalProbe.put("typeWitness", new Unused());
+        require("number".equals(new Script("typeof typeWitness", false).get(globalProbe)), "global-type-positive-control");
         Map<String, Object> globalTypes = new LinkedHashMap<String, Object>();
         for (String name : new String[] { "engine", "context", "arguments" }) {
-            Object type = new Script("typeof " + name, false).get(controlled);
+            Object type = new Script("typeof " + name, false).get(globalProbe);
             require(type instanceof String, "global-type-" + name);
             globalTypes.put(name, type);
         }
