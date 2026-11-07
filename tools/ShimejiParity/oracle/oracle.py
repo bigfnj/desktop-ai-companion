@@ -1018,6 +1018,41 @@ def review_self_test(args, labels):
         expect_refusal(lambda: copied_failures(fixture_args), "SYNTHETIC_CURRENT_BUILD_REACHED", "V1_FAILURE_POSITIVE_WITNESS")
         labels.append("v1-failures-refuses-nonpassing-and-empty-evidence-before-judging")
 
+        # Exercise v1_run itself, including its recorded child stderr and physical footer. The driver refuses an
+        # inactive input target at dispatch; that is invalid scenario input, not a runtime disagreement. Other
+        # refusals and source errors must retain their existing statuses, and trace/1 still uses an aborted footer.
+        input_root = root / "inactive-input"
+        pack = input_root / "pack"
+        pack.mkdir(parents=True)
+        (pack / "synthetic.txt").write_bytes(b"synthetic input-classification witness")
+        scenario = input_root / "S-input-classification.json"
+        write_json(scenario, {"id": scenario.stem, "pack": "pack", "ticks": 1, "rng": {"kind": "none"}, "dpiScale": 1})
+        input_compare = SimpleNamespace(validate_scenario=lambda *unused: None,
+                                        pack_preflight=lambda path: [("synthetic.txt", pack / "synthetic.txt")],
+                                        pack_sha256=lambda *unused: sha((pack / "synthetic.txt").read_bytes()))
+        for index, (footer_status, stderr, expected) in enumerate((
+                ("aborted", "V1_REFUSAL V1_INPUT_TARGET_ABSENT m2", "scenario-invalid"),
+                ("aborted", "V1_REFUSAL V1_OTHER_DRIVER_REFUSAL m2", "aborted"),
+                ("aborted", "java.lang.IllegalStateException: V1_INPUT_TARGET_ABSENT m2", "aborted"),
+                ("aborted", "V1_REFUSAL V1_INPUT_TARGET_ABSENT_OTHER m2", "aborted"),
+                ("error", "V1_REFUSAL V1_INPUT_TARGET_ABSENT m2", "error"),
+                ("error", "java.lang.IllegalStateException: synthetic source error", "error"))):
+            def input_command(argv, *unused, **unused_keywords):
+                trace = Path(argv[-1])
+                header = json.loads(Path(argv[-3]).read_text(encoding="utf-8"))
+                trace.write_text(json.dumps(header) + "\n" + json.dumps({"type": "footer", "ticks": 1,
+                                 "status": footer_status, "states": 0, "events": 0, "draws": 0}) + "\n", encoding="utf-8")
+                return {"exit_code": 1, "timed_out": False, "stdout": "", "stderr": stderr}
+
+            copied_run = FunctionType(v1_run.__code__, dict(globals(), command=input_command), "v1_run")
+            row = copied_run(fixture_args, input_compare, scenario, input_root / str(index), "synthetic-classpath", root, {}, True)
+            assert row["status"] == expected, "V1_" + "INACTIVE_INPUT_WITNESS " + expected + " became " + row["status"]
+            physical = Path(row["trace"])
+            assert json.loads(physical.read_text(encoding="utf-8").splitlines()[-1])["status"] == footer_status, (
+                "V1_" + "INACTIVE_INPUT_WITNESS physical footer changed")
+            assert row["trace_sha256"] == sha(physical.read_bytes()), "V1_" + "INACTIVE_INPUT_WITNESS trace hash changed"
+        labels.append("v1-entry-point-classifies-only-inactive-input-targets-as-scenario-invalid")
+
 
 def png(red, green, blue):
     def chunk(kind, payload):
@@ -1256,6 +1291,9 @@ def mutate(args):
     legs.append(("bd-codex-parity: bridge-bound-variable-values", [(
         '            or result.get("boundGlobalTypes") != expected_bound_types\n            ' + 'or result.get("boundCustomValueObserved") != expected_bound_values\n', '')],
         "BRIDGE_BINDINGS_WITNESS"))
+    legs.append(("bd-codex-parity: inactive-input-classification", [(
+        'if status == "aborted" and detail.startswith("V1_REFUSAL ' + 'V1_INPUT_TARGET_ABSENT "):', 'if False:')],
+        "V1_INACTIVE_INPUT_WITNESS"))
     if args.only:
         legs = [leg for leg in legs if args.only in leg[0]]
         if not legs:
@@ -1707,6 +1745,10 @@ def v1_run(args, compare, scenario_path, root, classpath, runner, build, observe
         stderr = [line.strip() for line in record["stderr"].splitlines() if line.strip()]
         refusal = [line for line in stderr if line.startswith("V1_REFUSAL ")]
         detail = refusal[-1] if refusal else (stderr[0] if stderr else detail)
+        # This one recognized driver refusal is invalid scenario input. Preserve the physical trace/1 aborted
+        # footer, and keep unrelated driver refusals and source errors distinct from input validation failures.
+        if status == "aborted" and detail.startswith("V1_REFUSAL V1_INPUT_TARGET_ABSENT "):
+            status = "scenario-invalid"
     return {"scenario": doc["id"], "status": status, "detail": detail[:400], "trace": str(trace),
             "trace_sha256": sha(trace.read_bytes()) if trace.is_file() else None, "exit_code": record["exit_code"],
             "timed_out": record["timed_out"], "observe": observe}
