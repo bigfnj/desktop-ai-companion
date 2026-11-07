@@ -221,71 +221,60 @@ namespace DesktopAICompanion.Plugins
         /// that really registers passes all three. "Returns a handle" could not fail (N-audit-1106-024): a refusal and
         /// an exception both return a non-null no-op, so a registrar that never registered anything passed. A null or
         /// empty combo, and one that does not parse, degrade to the no-op. SKIPPED only when Win32 says another
-        /// application already holds the test combo, or when no message window can be made in this context.
+        /// application already holds the test combo.
+        ///
+        /// NO CATCH HERE (N-audit-1106-231). The smoke used to end in two catches, PlatformNotSupportedException and
+        /// InvalidOperationException, each a SKIP, with a comment saying the narrowing made a NullReferenceException
+        /// inside RegisterHotkey visible. Nothing reached them: RegisterHotkey catches every exception from the listener
+        /// itself (a message window that cannot be made included) and answers the no-op with the exception named in
+        /// its refusal, which the live-registration check below reports as a FAIL; and nothing else here throws
+        /// either type. A throw outside the registrar reaches Run's catch, an EXC line and a failed run.
         /// </summary>
         private static bool HotkeyRegistrarSmoke(StringBuilder sb)
         {
+            var host = new CompanionHost(null);   // RegisterHotkey does not touch StartUp
+            bool ok = true;
+            const string combo = "Ctrl+Alt+F24";
+            int error;
+            string refusal;
+            IDisposable held = host.RegisterHotkey(combo, delegate { }, out error, out refusal);
             try
             {
-                var host = new CompanionHost(null);   // RegisterHotkey does not touch StartUp
-                bool ok = true;
-                const string combo = "Ctrl+Alt+F24";
-                int error;
-                string refusal;
-                IDisposable held = host.RegisterHotkey(combo, delegate { }, out error, out refusal);
-                try
+                if (!CompanionHost.IsLiveHotkey(held) && error == Ai.HotkeyListener.ErrorHotkeyAlreadyRegistered)
                 {
-                    if (!CompanionHost.IsLiveHotkey(held) && error == Ai.HotkeyListener.ErrorHotkeyAlreadyRegistered)
-                    {
-                        sb.AppendLine("SKIP: hotkey registrar smoke: another application holds " + combo + " (" + refusal + ")");
-                        return true;
-                    }
-                    ok &= Check(sb, "hotkey registrar registers a valid combo as a live registration, not the no-op (" + (refusal ?? "registered") + ")",
-                        CompanionHost.IsLiveHotkey(held));
-                    int secondError;
-                    string secondRefusal;
-                    using (IDisposable second = host.RegisterHotkey(combo, delegate { }, out secondError, out secondRefusal))
-                        ok &= Check(sb, "hotkey registrar refuses a second registration of a combo the first still holds, and says why ("
-                                        + (secondRefusal ?? "it registered") + ")",
-                            !CompanionHost.IsLiveHotkey(second) && secondError == Ai.HotkeyListener.ErrorHotkeyAlreadyRegistered
-                            && secondRefusal != null && secondRefusal.Contains(combo));
+                    sb.AppendLine("SKIP: hotkey registrar smoke: another application holds " + combo + " (" + refusal + ")");
+                    return true;
                 }
-                finally { held.Dispose(); }
-                int againError;
-                string againRefusal;
-                using (IDisposable again = host.RegisterHotkey(combo, delegate { }, out againError, out againRefusal))
-                    ok &= Check(sb, "hotkey registrar's disposed handle releases the combo, so it registers again (" + (againRefusal ?? "registered") + ")",
-                        CompanionHost.IsLiveHotkey(again));
-                int parseError;
-                string parseRefusal;
-                using (IDisposable unparsed = host.RegisterHotkey("F24", delegate { }, out parseError, out parseRefusal))
-                    ok &= Check(sb, "hotkey registrar answers a combo that does not parse with the no-op, and says why (" + (parseRefusal ?? "no reason") + ")",
-                        unparsed != null && !CompanionHost.IsLiveHotkey(unparsed) && parseRefusal != null && parseRefusal.Contains("does not parse"));
+                ok &= Check(sb, "hotkey registrar registers a valid combo as a live registration, not the no-op (" + (refusal ?? "registered") + ")",
+                    CompanionHost.IsLiveHotkey(held));
+                int secondError;
+                string secondRefusal;
+                using (IDisposable second = host.RegisterHotkey(combo, delegate { }, out secondError, out secondRefusal))
+                    ok &= Check(sb, "hotkey registrar refuses a second registration of a combo the first still holds, and says why ("
+                                    + (secondRefusal ?? "it registered") + ")",
+                        !CompanionHost.IsLiveHotkey(second) && secondError == Ai.HotkeyListener.ErrorHotkeyAlreadyRegistered
+                        && secondRefusal != null && secondRefusal.Contains(combo));
+            }
+            finally { held.Dispose(); }
+            int againError;
+            string againRefusal;
+            using (IDisposable again = host.RegisterHotkey(combo, delegate { }, out againError, out againRefusal))
+                ok &= Check(sb, "hotkey registrar's disposed handle releases the combo, so it registers again (" + (againRefusal ?? "registered") + ")",
+                    CompanionHost.IsLiveHotkey(again));
+            int parseError;
+            string parseRefusal;
+            using (IDisposable unparsed = host.RegisterHotkey("F24", delegate { }, out parseError, out parseRefusal))
+                ok &= Check(sb, "hotkey registrar answers a combo that does not parse with the no-op, and says why (" + (parseRefusal ?? "no reason") + ")",
+                    unparsed != null && !CompanionHost.IsLiveHotkey(unparsed) && parseRefusal != null && parseRefusal.Contains("does not parse"));
 
-                // The empty combo. This used to be invoked and then reported as passing with a
-                // literal true, so `b == null` and `b != null` BOTH reached the PASS -- while the
-                // assertion's name claimed both halves had been checked. The contract is a graceful
-                // no-op HANDLE rather than null, so that a caller can dispose unconditionally.
-                IDisposable b = host.RegisterHotkey("", delegate { });
-                ok &= Check(sb, "hotkey registrar returns a safe handle for an EMPTY combo", b != null);
-                if (b != null) b.Dispose();
-                return ok;
-            }
-            catch (PlatformNotSupportedException ex)
-            {
-                // Narrowed from catch-all. `catch (Exception)` here converted ANY regression inside
-                // RegisterHotkey -- a NullReferenceException being the obvious one -- into
-                // "unavailable in this context", i.e. a skip that reads as a pass. The genuine
-                // environmental reason this can be unavailable is a context with no message window
-                // or no window station, which surfaces as one of the two types caught here.
-                sb.AppendLine("SKIP: hotkey registrar smoke unavailable (" + ex.GetType().Name + ")");
-                return true;
-            }
-            catch (InvalidOperationException ex)
-            {
-                sb.AppendLine("SKIP: hotkey registrar smoke unavailable (" + ex.GetType().Name + ")");
-                return true;
-            }
+            // The empty combo. This used to be invoked and then reported as passing with a
+            // literal true, so `b == null` and `b != null` BOTH reached the PASS -- while the
+            // assertion's name claimed both halves had been checked. The contract is a graceful
+            // no-op HANDLE rather than null, so that a caller can dispose unconditionally.
+            IDisposable b = host.RegisterHotkey("", delegate { });
+            ok &= Check(sb, "hotkey registrar returns a safe handle for an EMPTY combo", b != null);
+            if (b != null) b.Dispose();
+            return ok;
         }
 
         private static IModule FindModule(ModuleHost loader, string id)

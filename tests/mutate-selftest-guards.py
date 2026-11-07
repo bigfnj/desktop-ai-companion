@@ -22353,6 +22353,16 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--module-host-selftest", "dp-module-host-selftest.txt",
      "w4-host-1: rollback: ...and the failed module's CredentialChanged handler is forgotten"),
+    # N-audit-1106-231: the smoke's catches are gone because RegisterHotkey answers any exception from the listener
+    # with the no-op. This proves the corrected comment: a listener that throws (here a NullReferenceException, the
+    # case the old comment named) is a FAIL of the live-registration check, never a SKIP.
+    ('bd-w4-host-1: the hotkey listener throws a NullReferenceException (N-audit-1106-231)',
+     os.path.join(REPO, "src", "dotNet", "Ai", "HotkeyListener.cs"),
+     b'            CreateHandle(new CreateParams());\n',
+     b'            throw new NullReferenceException();\n',
+     HOST_CSPROJ, EXE,
+     "--aibrain-selftest", "dp-aibrain-selftest.txt",
+     "hotkey registrar registers a valid combo as a live registration, not the no-op"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
