@@ -112,6 +112,45 @@ namespace DesktopAICompanion.FortunesModule
                 }
                 ok &= Check(sb, "600 seeded draws from a six-line bag never repeat a line back to back (99 seams)", backToBack == 0);
 
+                // N-audit-1106-215: a contextual line is drawn from the bag too. Through the module's own choice
+                // (ChooseFortune), with a stand-in for the picker's answer, so no model, screen or coin is needed.
+                // (a) The bag's LAST line spoken contextually: before, the next random draw handed it straight
+                // back, every seed. (b) A line still in the bag spoken contextually after one random draw: the
+                // next four random draws must be the other four, so the six lines are one sweep; before, that
+                // line was still in the bag and came up in those four for most seeds.
+                bool contextualNotEchoed = true, contextualCountsInSweep = true;
+                for (int seed = 0; seed < 64; seed++)
+                {
+                    var echo = new FortuneProvider(bagEntries, new FortuneSettings());
+                    echo.SeedForDiagnostics(seed);
+                    var drawn = new HashSet<string>(StringComparer.Ordinal);
+                    for (int draw = 0; draw < 5; draw++) drawn.Add(echo.Pick());
+                    string lastInBag = null;
+                    foreach (FortuneEntry e in bagEntries) if (!drawn.Contains(e.Text)) lastInBag = e.Text;
+                    string spokenEcho = FortunesModule.ChooseFortune(echo, null, delegate { return lastInBag; });
+                    if (spokenEcho != lastInBag || lastInBag == null || echo.Pick() == lastInBag) contextualNotEchoed = false;
+
+                    var sweep = new FortuneProvider(bagEntries, new FortuneSettings());
+                    sweep.SeedForDiagnostics(seed);
+                    var seen = new HashSet<string>(StringComparer.Ordinal) { sweep.Pick() };
+                    string stillInBag = null;
+                    foreach (FortuneEntry e in bagEntries) if (stillInBag == null && !seen.Contains(e.Text)) stillInBag = e.Text;
+                    seen.Add(FortunesModule.ChooseFortune(sweep, null, delegate { return stillInBag; }));
+                    for (int draw = 0; draw < 4; draw++)
+                        if (!seen.Add(sweep.Pick())) contextualCountsInSweep = false;
+                }
+                ok &= Check(sb, "a line the contextual picker spoke is not the next random draw (64 seeds, N-audit-1106-215)", contextualNotEchoed);
+                ok &= Check(sb, "a line the contextual picker spoke leaves the shuffle bag, so the bag's other lines come first (64 seeds, N-audit-1106-215)",
+                    contextualCountsInSweep);
+                // WITNESS: with no contextual answer the choice is the random draw, and the bag still sweeps.
+                var fallback = new FortuneProvider(bagEntries, new FortuneSettings());
+                fallback.SeedForDiagnostics(7);
+                var fallbackSweep = new HashSet<string>(StringComparer.Ordinal);
+                for (int draw = 0; draw < 6; draw++)
+                    fallbackSweep.Add(FortunesModule.ChooseFortune(fallback, null, draw % 2 == 0 ? null : (Func<string>)delegate { return null; }));
+                ok &= Check(sb, "WITNESS with no contextual answer the random draw speaks, one full sweep in six",
+                    fallbackSweep.Count == 6);
+
                 // Content-level migration: a settings file written before the four tone controls were
                 // collapsed must land on the level that preserves the user's evident intent. Getting this
                 // wrong silently changes what the pet is allowed to say, in either direction.
@@ -535,6 +574,36 @@ namespace DesktopAICompanion.FortunesModule
                 {
                     try { File.Delete(staleReportPath); } catch { }
                 }
+                // N-cxr-w2-04: two runs sharing one TEMP, as two flags run by hand share it. Each names its report
+                // for the same sub-test with SubReportName; the other run's report is planted mid-flight, and this
+                // run's clear and fold must neither delete it nor show its lines. With one fixed name for both
+                // (the shape before), the clear deleted the other run's report and the fold showed one run's
+                // lines under the other's verdict.
+                string mine = SubReportName("dp-fortunes-probe-report");
+                string theirs = SubReportName("dp-fortunes-probe-report");
+                string minePath = SubReportPath(mine);
+                string theirsPath = SubReportPath(theirs);
+                try
+                {
+                    File.WriteAllText(theirsPath, "OTHER RUN line, its sub-test still running\n");
+                    var mineFold = new StringBuilder();
+                    bool mineCleared = ClearReport(mineFold, mine);
+                    bool theirsSurvivedClear = File.Exists(theirsPath);
+                    File.WriteAllText(minePath, "this run's own line\n");
+                    bool mineFolded = AppendReport(mineFold, mine);
+                    string mineText = mineFold.ToString();
+                    ok &= Check(sb, "two runs sharing TEMP name a sub-test's report apart, so one run's clear and fold leave the other's alone (N-cxr-w2-04)",
+                        !string.Equals(mine, theirs, StringComparison.OrdinalIgnoreCase) &&
+                        mineCleared && theirsSurvivedClear && mineFolded && File.Exists(theirsPath) &&
+                        mineText.IndexOf("OTHER RUN", StringComparison.Ordinal) < 0);
+                    ok &= Check(sb, "WITNESS this run's own sub-report is folded, then removed from TEMP",
+                        mineText.IndexOf("this run's own line", StringComparison.Ordinal) >= 0 && !File.Exists(minePath));
+                }
+                finally
+                {
+                    try { File.Delete(minePath); } catch { }
+                    try { File.Delete(theirsPath); } catch { }
+                }
 
                 // A host with NO settings store (F121). The convention runner's host is one; its Init used to
                 // start an embed of the whole corpus into the TEMP fallback root on every run.
@@ -650,13 +719,15 @@ namespace DesktopAICompanion.FortunesModule
                 ok &= AutoIndexChecks(sb);
                 ok &= FolderWatchChecks(sb);
 
-                // The engine's full self-test suite, running in the module's context.
-                ok &= ClearReport(sb, "dp-filter-selftest.txt");
-                bool filter = FortuneProvider.FilterSelfTest();
+                // The engine's full self-test suite, running in the module's context. Its report is named for
+                // this run (SubReportName, N-cxr-w2-04), so a second run in the same TEMP cannot clear or fold it.
+                string filterReport = SubReportName("dp-filter-selftest");
+                ok &= ClearReport(sb, filterReport);
+                bool filter = FortuneProvider.FilterSelfTest(SubReportPath(filterReport));
                 ok &= Check(sb, "engine FilterSelfTest (dedup/classifier/parser/ingestion/importer/embedded-taxonomy)", filter);
                 // Its per-case lines used to go to a temp file nothing read, so a failing sub-suite reached the
                 // gate as this one verdict and nothing else (F120). Folded in the way the smart reports are.
-                ok &= AppendReport(sb, "dp-filter-selftest.txt");
+                ok &= AppendReport(sb, filterReport);
 
                 // --- smart layer: proves ONNX loads + runs inside the module's own load context ---
                 ok &= Check(sb, "the module payload carries bge-small beside Fortunes.dll (the smart checks below need it)", Embedder.ModelPresent);
@@ -665,9 +736,10 @@ namespace DesktopAICompanion.FortunesModule
                     // Embedder.SelfTest loads the ONNX model + embeds hardcoded strings and checks
                     // cos(code,code) > cos(code,weather) - the definitive proof that native onnxruntime.dll
                     // resolved and ran in the module's AssemblyLoadContext.
-                    ok &= ClearReport(sb, "dp-embed-selftest.txt");
-                    ok &= Check(sb, "Embedder loads ONNX + embeds in the module ALC", Embedder.SelfTest());
-                    ok &= AppendReport(sb, "dp-embed-selftest.txt");
+                    string embedReport = SubReportName("dp-embed-selftest");
+                    ok &= ClearReport(sb, embedReport);
+                    ok &= Check(sb, "Embedder loads ONNX + embeds in the module ALC", Embedder.SelfTest(SubReportPath(embedReport)));
+                    ok &= AppendReport(sb, embedReport);
 
                     // SmartFortunes warm/pick over the injected pool exercises the rebinds: VectorCache
                     // (AtomicFile) + CrossSessionLock, all in-module. In its OWN scratch cache directory:
@@ -685,9 +757,10 @@ namespace DesktopAICompanion.FortunesModule
                     // same line twice running, and a second Warm supersedes the first. (The reported bug it
                     // guards was ~3 distinct lines out of thousands.) It had had no caller since the engine
                     // moved into this module, so that regression went unwatched.
-                    ok &= ClearReport(sb, "dp-smart-selftest.txt");
-                    ok &= Check(sb, "SmartFortunes.SelfTest (contextual picks + pick variety)", SmartFortunes.SelfTest());
-                    ok &= AppendReport(sb, "dp-smart-selftest.txt");
+                    string smartReport = SubReportName("dp-smart-selftest");
+                    ok &= ClearReport(sb, smartReport);
+                    ok &= Check(sb, "SmartFortunes.SelfTest (contextual picks + pick variety)", SmartFortunes.SelfTest(SubReportPath(smartReport)));
+                    ok &= AppendReport(sb, smartReport);
                 }
                 else
                 {
@@ -713,11 +786,12 @@ namespace DesktopAICompanion.FortunesModule
         {
             var sb = new StringBuilder();
             bool ok;
-            bool cleared = ClearReport(sb, "dp-smart-progress-selftest.txt");
-            try { ok = SmartFortunes.ProgressiveSelfTest(); }
+            string progressReport = SubReportName("dp-smart-progress-selftest");
+            bool cleared = ClearReport(sb, progressReport);
+            try { ok = SmartFortunes.ProgressiveSelfTest(SubReportPath(progressReport)); }
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message); }
             Check(sb, "SmartFortunes.ProgressiveSelfTest (cold-cache progressive warm)", ok);
-            bool folded = AppendReport(sb, "dp-smart-progress-selftest.txt");
+            bool folded = AppendReport(sb, progressReport);
             detail = sb.ToString();
             return ok && cleared && folded;
         }
@@ -1567,16 +1641,26 @@ namespace DesktopAICompanion.FortunesModule
         /// <para>THIS RUN'S REPORT OR A FAIL (N-audit-1106-210). The names are fixed and nothing deleted them, so a
         /// sub-test that could not write its report had the PREVIOUS run's folded under this run's verdict, and a
         /// missing report returned in silence. <see cref="ClearReport"/> now deletes each one before its sub-test
-        /// runs, and a report that is then absent, or cannot be read, is a FAIL line and a false return. Two runs
-        /// sharing one TEMP can still meet here, as every self-test marker in this repo can (they are all fixed
-        /// names in %TEMP%); the gate and the harnesses give each run its own TEMP for that reason.</para>
+        /// runs, and a report that is then absent, or cannot be read, is a FAIL line and a false return.</para>
+        ///
+        /// <para>EACH RUN'S OWN NAME (N-cxr-w2-04). The names were fixed ("dp-filter-selftest.txt"), so two runs
+        /// sharing one TEMP (a direct --module-selftest=fortunes beside a direct --fortunes-engine-selftest; the
+        /// PowerShell runners give each run its own TEMP, a flag run by hand does not) cleared and folded the
+        /// same files: one run deleted the other's report before it was read, or folded the other's lines as its
+        /// own. Every caller now names its report with <see cref="SubReportName"/>, so the two runs never share
+        /// a file. Serialising the clear, run and read across processes was the other way; it makes one run
+        /// wait on the other, and a run that hangs holds every later one, for a file only this process reads.
+        /// The file is deleted once folded: the probe's own output now carries its lines, and a per-run name
+        /// left behind would collect in %TEMP% one set per run. A delete that fails says so on its own line,
+        /// which is not a FAIL (the fold, which is what the verdict needs, has happened).</para>
         /// </summary>
         private static bool AppendReport(StringBuilder sb, string fileName)
         {
             string text;
+            string path;
             try
             {
-                string path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), fileName);
+                path = SubReportPath(fileName);
                 if (!System.IO.File.Exists(path))
                 {
                     sb.AppendLine("      FAIL: " + fileName + " was not written by this run, so its cases are not shown");
@@ -1594,12 +1678,31 @@ namespace DesktopAICompanion.FortunesModule
                 if (line.Length == 0) continue;
                 sb.AppendLine((IsSubReportFailure(line) ? "      FAIL: " : "      ") + line);
             }
+            try { System.IO.File.Delete(path); }
+            catch (Exception ex) { sb.AppendLine("      (" + fileName + " was folded but not removed: " + ex.GetType().Name + ")"); }
             return true;
+        }
+
+        /// <summary>A name for one sub-test's report that no other run picks: the sub-test's stem, then a fresh
+        /// token (N-cxr-w2-04; see <see cref="AppendReport"/>). Twelve hex digits of a new GUID keep the name
+        /// short, since the runners' TEMP is already deep, and two runs drawing the same twelve are not a
+        /// case worth a longer path.</summary>
+        private static string SubReportName(string stem)
+        {
+            return stem + "-" + Guid.NewGuid().ToString("N").Substring(0, 12) + ".txt";
+        }
+
+        /// <summary>Where a sub-report named by <see cref="SubReportName"/> is written: the run's TEMP.</summary>
+        private static string SubReportPath(string fileName)
+        {
+            return System.IO.Path.Combine(System.IO.Path.GetTempPath(), fileName);
         }
 
         /// <summary>Delete a sub-test's report before the sub-test runs, so the one <see cref="AppendReport"/> folds
         /// is this run's (N-audit-1106-210). A report that will not delete is a FAIL line and a false return: it
-        /// would be folded as this run's if the sub-test then failed to write.</summary>
+        /// would be folded as this run's if the sub-test then failed to write. Kept beside the per-run names
+        /// (N-cxr-w2-04), which leave it nothing to find today: it is what keeps the "this run's report or a
+        /// FAIL" rule true for any name, not only a name no earlier run could have used.</summary>
         private static bool ClearReport(StringBuilder sb, string fileName)
         {
             try

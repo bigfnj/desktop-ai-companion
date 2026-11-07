@@ -191,6 +191,30 @@ namespace DesktopAICompanion.Ai
             return _poolE[i].Text;
         }
 
+        /// <summary>
+        /// Record a line the OTHER speech path spoke (the contextual picker), so this bag treats it as drawn
+        /// (N-audit-1106-215): it leaves the bag if it is still in it, and it becomes the previous line the
+        /// refill guard keeps off the next bag's first draw. The picker was already told about random draws
+        /// (SmartFortunes.NoteExternallyShown), but nothing told the bag about smart picks, so the next random
+        /// draw could hand back the line just spoken, and a line spoken by the picker still came round again in
+        /// the same bag. A line not in this pool (a picker built over an earlier pool) changes nothing.
+        ///
+        /// <para>A linear look-up, once per spoken line: the pool is deduplicated by text, so the first match
+        /// is the only one, and a text-to-index map kept beside the pool for every provider would cost memory
+        /// on every rebuild to save microseconds on a speech event.</para>
+        /// </summary>
+        internal void NoteExternallyShown(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return;
+            for (int i = 0; i < _poolE.Count; i++)
+            {
+                if (!string.Equals(_poolE[i].Text, text, StringComparison.Ordinal)) continue;
+                _bag.Remove(i);   // the bag holds each index at most once
+                _last = i;
+                return;
+            }
+        }
+
         // Refill the shuffle-bag with a fresh Fisher-Yates permutation of [0, n). Pick() draws from the
         // tail, so the element handed out first is _bag[n-1]; when it equals the previous pick we swap it
         // to the front, keeping the "never repeat the immediately previous line" guarantee across the seam
@@ -288,9 +312,11 @@ namespace DesktopAICompanion.Ai
         /// Diagnostic (`--filter-selftest`): exhaustively prove hard content/source selection and
         /// validate current, legacy, malformed, and mixed-schema tagged data.
         /// </summary>
-        public static bool FilterSelfTest()
+        public static bool FilterSelfTest(string reportPath)
         {
-            string outp = Path.Combine(Path.GetTempPath(), "dp-filter-selftest.txt");
+            // The report's path is the caller's: the engine probe names it for its own run, so two runs
+            // sharing one TEMP never write, clear or read each other's (N-cxr-w2-04).
+            string outp = reportPath;
             var sb = new StringBuilder();
             bool ok = true;
             try

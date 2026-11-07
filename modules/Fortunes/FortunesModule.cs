@@ -140,6 +140,11 @@ namespace DesktopAICompanion.FortunesModule
                                  //        (N-audit-1106-211). The engine probe clears each sub-test's report
                                  //        before the sub-test runs and fails on one that is then missing, so an
                                  //        earlier run's report is never folded as this run's (N-audit-1106-210).
+                                 //        Each run names its sub-reports itself and removes them once folded, so
+                                 //        two self-test runs sharing one TEMP no longer clear or fold each other's
+                                 //        (N-cxr-w2-04). A line the contextual picker speaks leaves the random
+                                 //        draw's shuffle bag, so the next random line is never that one and the bag
+                                 //        still shows every other line before it comes round (N-audit-1106-215).
                                  // 1.2.1: a pack import whose replace fails and whose backup cannot be put back is
                                  //        counted as a rollback failure, and the batch says its rollback could not be
                                  //        fully verified instead of "all earlier changes were rolled back"
@@ -1166,36 +1171,58 @@ namespace DesktopAICompanion.FortunesModule
             ICompanion pet = subject ?? _lastPet;
             if (pet != null && !host.IsCompanionAlive(pet)) pet = null;
 
-            string f = null;
             // Roughly a third of the time draw from the whole pool even when smart is ready, so a rarely-
             // changing foreground window doesn't lock the pet onto the same handful of context matches.
             bool goRandom = _rand.Next(3) == 0;
             SmartFortunes picker = _smart;
+            Func<string> contextual = null;
             if (!goRandom && picker != null && picker.Ready)
-            {
-                try
+                contextual = delegate
                 {
                     ScreenContext ctx = pet != null ? host.CaptureScreenContext(pet) : null;
-                    if (ctx != null) f = picker.Pick(ctx.WindowTitle, ctx.ProcessName);
-                }
-                catch { f = null; }
-            }
-            if (string.IsNullOrWhiteSpace(f))
-            {
-                f = provider.Pick();
-                // This line came from the whole-pool random draw, not the smart picker's own recent
-                // tracking, so tell the picker about it -- otherwise the two speech paths keep separate
-                // histories and can echo each other's last line.
-                if (!string.IsNullOrWhiteSpace(f) && picker != null)
-                {
-                    try { picker.NoteExternallyShown(f); } catch { }
-                }
-            }
+                    return ctx != null ? picker.Pick(ctx.WindowTitle, ctx.ProcessName) : null;
+                };
+            string f = ChooseFortune(provider, picker, contextual);
             if (string.IsNullOrWhiteSpace(f)) return false;
             // One pet says it. SayAll only when the host could not name a subject at all, which keeps a
             // legacy host working rather than silently dropping the line.
             if (pet != null) host.Say(pet, f); else host.SayAll(f);
             return true;
+        }
+
+        /// <summary>
+        /// The line a fortune trigger speaks: the contextual pick when <paramref name="contextual"/> is given and
+        /// answers, else the whole-pool random draw. Whichever path chose it, the OTHER path is told, so the two
+        /// keep one history. A random line goes to the picker's recent list (its next pick will not echo it); a
+        /// contextual line comes out of the provider's shuffle bag and becomes its previous line, so the next
+        /// random draw cannot hand it straight back and the bag still shows every other line before it comes
+        /// round again (N-audit-1106-215). Only the first half was here: the two paths shared history in one
+        /// direction. Pulled out of SpeakFortune so the probe can drive both paths without a model, a screen
+        /// or the one-in-three coin.
+        /// </summary>
+        internal static string ChooseFortune(FortuneProvider provider, SmartFortunes picker, Func<string> contextual)
+        {
+            if (provider == null) return null;
+            string f = null;
+            if (contextual != null)
+            {
+                try { f = contextual(); }
+                catch { f = null; }
+            }
+            if (!string.IsNullOrWhiteSpace(f))
+            {
+                provider.NoteExternallyShown(f);
+                return f;
+            }
+            f = provider.Pick();
+            // This line came from the whole-pool random draw, not the smart picker's own recent
+            // tracking, so tell the picker about it -- otherwise the two speech paths keep separate
+            // histories and can echo each other's last line.
+            if (!string.IsNullOrWhiteSpace(f) && picker != null)
+            {
+                try { picker.NoteExternallyShown(f); } catch { }
+            }
+            return f;
         }
 
         private static FortuneSettings LoadFortuneSettings(IHost host)
