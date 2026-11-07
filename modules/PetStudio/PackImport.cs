@@ -367,6 +367,38 @@ namespace DesktopAICompanion.PetStudioModule
             return prior;
         }
 
+        /// <summary>What "Install pack" says when the pack on screen changed while its replace question was open.</summary>
+        internal const string PackChangedUnderQuestion =
+            "Nothing was installed: another pack was loaded while the replace question was open. Install pack installs the pack shown now.";
+
+        /// <summary>
+        /// "Install pack" from the click to the outcome, with the replace question and the pack shown afterwards
+        /// injected, so the self-test drives the order without a dialog (SelectSkin's picker is injected the same way).
+        /// <paramref name="pack"/> and <paramref name="packTitle"/> are what the window showed at the CLICK, and they
+        /// are what is installed, with the replace map read for THAT pack's id. The question is modal and pumps
+        /// messages, so a pack import already in flight can land under it and replace the window's pack; until
+        /// 1.4.1 the window read its pack field again after the answer and installed the NEW pack's members with
+        /// the PREVIOUS pack's replace map, writing them over the previous pack's installed ids (N-audit-1106-047).
+        /// So after a yes, <paramref name="shownAfter"/> must still answer the same object, or nothing is
+        /// installed and the outcome says why. Rejected: installing the captured pack anyway, which would replace an
+        /// install the author can no longer see on screen and report it under the other pack's report.
+        /// </summary>
+        internal static PackInstallOutcome InstallPackAsked(PackConversionResult pack, string packTitle, ICompanionManager pets,
+            Func<string, bool> confirmReplace, Func<PackConversionResult> shownAfter)
+        {
+            if (!CanInstall(pack, pets != null))
+                return new PackInstallOutcome { Message = "Nothing was installed: the converter did not accept the whole pack." };
+            Dictionary<string, string> prior = PriorInstall(pets, pack.PackId);
+            if (prior.Count > 0)
+            {
+                if (confirmReplace == null || !confirmReplace(ReplaceQuestion(packTitle, prior)))
+                    return new PackInstallOutcome { Message = "Install pack cancelled: the pack installed before is unchanged, and nothing was installed." };
+                if (shownAfter == null || !ReferenceEquals(shownAfter(), pack))
+                    return new PackInstallOutcome { Message = PackChangedUnderQuestion };
+            }
+            return InstallPack(pack, packTitle, pets, prior.Count > 0 ? prior : null);
+        }
+
         /// <summary>The question "Install pack" asks before replacing an earlier install of the same pack. Pure.</summary>
         internal static string ReplaceQuestion(string packTitle, IReadOnlyDictionary<string, string> prior)
         {
@@ -447,7 +479,8 @@ namespace DesktopAICompanion.PetStudioModule
                 if (!ok)
                 {
                     outcome.FailedKey = member.SourceKey;
-                    outcome.Message = PartialInstallMessage(member.SourceKey, id, error, outcome, result.MainMember, HiddenKeys(result));
+                    outcome.Message = PartialInstallMessage(member.SourceKey, id, error, outcome, result.MainMember, HiddenKeys(result),
+                        replacing ? replace : null);
                     return outcome;
                 }
                 outcome.InstalledKeys.Add(member.SourceKey);
@@ -518,12 +551,31 @@ namespace DesktopAICompanion.PetStudioModule
         /// <summary>"Stopped installing the pack at 'B' (as 'p-b'): reason. Already installed: 'A' as 'p-a'. ..." and what
         /// Add a companion lists now: only the visible members already installed, each on its own, since it drops only
         /// hidden members (review item 3: this said the pack "cannot be added yet", which a visible member contradicts).
-        /// Pure.</summary>
+        /// Pure.
+        ///
+        /// A REPLACE that stops (<paramref name="replace"/>, the earlier install by member key) is worded on its own
+        /// (N-audit-1106-310): until 1.4.1 it said the main member was not installed and that the members written so
+        /// far were listed "without the rest of the pack", while the earlier install's main member and the rest of the
+        /// pack were still installed. The host writes each document atomically (CompanionHost.InstallType), so a
+        /// member not yet written again, the one that failed included, is still the earlier install's.</summary>
         internal static string PartialInstallMessage(string failedKey, string failedId, string error, PackInstallOutcome outcome, string mainKey,
-            ICollection<string> hiddenKeys)
+            ICollection<string> hiddenKeys, IReadOnlyDictionary<string, string> replace)
         {
-            string text = "Stopped installing the pack at '" + failedKey + "' (as '" + failedId + "'): " +
-                (string.IsNullOrWhiteSpace(error) ? "the host refused it." : error.Trim());
+            string reason = string.IsNullOrWhiteSpace(error) ? "the host refused it." : error.Trim();
+            if (replace != null && replace.Count > 0)
+            {
+                string replacing = "Stopped replacing the installed pack at '" + failedKey + "' (as '" + failedId + "'): " + reason;
+                var written = new List<string>();
+                for (int i = 0; i < outcome.InstalledKeys.Count; i++)
+                    written.Add("'" + outcome.InstalledKeys[i] + "' as '" + outcome.InstalledIds[i] + "'");
+                replacing += written.Count == 0 ? " Nothing was written yet." : " Written now: " + string.Join(", ", written) + ".";
+                List<string> before = replace.Where(p => !outcome.InstalledKeys.Contains(p.Key)).OrderBy(p => p.Key, StringComparer.Ordinal)
+                    .Select(p => "'" + p.Key + "' as '" + p.Value + "'").ToList();
+                if (before.Count > 0) replacing += " Still as the earlier install left them: " + string.Join(", ", before) + ".";
+                if (!replace.ContainsKey(mainKey)) replacing += " The main member is not installed yet.";
+                return replacing + " Install pack again to finish: it replaces these under the same ids.";
+            }
+            string text = "Stopped installing the pack at '" + failedKey + "' (as '" + failedId + "'): " + reason;
             if (outcome.InstalledKeys.Count == 0) return text + " Nothing was installed.";
             var parts = new List<string>();
             var addable = new List<string>();
@@ -632,6 +684,38 @@ namespace DesktopAICompanion.PetStudioModule
                 : "Pack '" + title + "' not accepted" + (string.IsNullOrWhiteSpace(result.Error) ? "" : ": " + result.Error.Trim().TrimEnd('.')) + ". ";
             if (options == null || !options.RecoverMissingNext) return verdict;
             return verdict + "Converted with recovery: " + DroppedByRecovery(result) + " dropped next entry(s), each listed in the pack report. ";
+        }
+
+        /// <summary>
+        /// The status for a refused member's row: the pack prefix, then that the member was refused and has no document.
+        /// The member's own error is said ONCE (N-shimeji-1106-14): the converter files a refused member's error among
+        /// the pack's errors as "Image set 'X': error", so when it is the pack's first error the prefix already carries
+        /// it, and until 1.4.1 the row appended it again in brackets. Another member's error stays in brackets. Pure.
+        /// </summary>
+        internal static string RefusedMemberStatus(PackConversionResult result, PackConversionOptions options, string title,
+            PackMemberConversionResult member)
+        {
+            string prefix = StatusPrefix(result, options, title);
+            string key = member == null ? "" : member.SourceKey;
+            string error = (member == null || member.Error == null ? "no document was prepared" : member.Error).Trim().TrimEnd('.');
+            bool said = error.Length > 0 && prefix.IndexOf(error, StringComparison.Ordinal) >= 0;
+            return prefix + "'" + key + "' was refused" + (said ? "" : " (" + error + ")") +
+                ". It has no document to open; its notes are under Import loss.";
+        }
+
+        /// <summary>Whether <paramref name="path"/> is <paramref name="root"/> or a folder under it, comparing full paths and
+        /// ignoring case as Windows does. False for a null or malformed path. Pure.</summary>
+        internal static bool LivesUnder(string path, string root)
+        {
+            if (string.IsNullOrEmpty(path) || string.IsNullOrEmpty(root)) return false;
+            try
+            {
+                string p = Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                string r = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                return string.Equals(p, r, StringComparison.OrdinalIgnoreCase)
+                    || p.StartsWith(r + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+            }
+            catch (Exception) { return false; }
         }
 
         /// <summary>The pack report's summary: the verdict, the pack id when there is one, then the converter's errors and

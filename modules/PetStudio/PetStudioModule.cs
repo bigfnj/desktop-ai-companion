@@ -26,7 +26,18 @@ namespace DesktopAICompanion.PetStudioModule
         {
             Id = "petstudio",
             Name = "Companion Studio",
-            Version = "1.4.0",   // 1.4.0: converts far more Shimeji packs: Japanese-vocabulary documents, anonymous nested and
+            Version = "1.4.1",   // 1.4.1: the 2026-11-06 audit burn-down. Install pack installs the pack it was clicked
+                                 //        on, with that pack's replace map, and nothing when another pack landed under its
+                                 //        question; it and Preview pack wait for an import in flight. Its outcome stays in
+                                 //        the pack report. A replace that stops part way says the earlier install is still
+                                 //        installed; a refused member's error is said once; a refused member picked during
+                                 //        an analysis shows nothing of the member before; Re-analyze keeps the pack prefix;
+                                 //        "Import with recovery" is withdrawn when its folder goes; a window closed during
+                                 //        detection converts nothing; opening restores a minimized window. This version
+                                 //        also carries the converter fixes it source-links from earlier burn-down waves
+                                 //        (N-audit-1106-398 direction collapse, N-audit-1106-016 bundle containment), since
+                                 //        its payload changed with them.
+                                 // 1.4.0: converts far more Shimeji packs: Japanese-vocabulary documents, anonymous nested and
                                  //        instant embedded actions, hotspots and affordance offers, Toggleable behaviours, custom
                                  //        variables, ${} and #{} expressions, and the attributes and children the original program
                                  //        ignores. Pose sounds become named WAV clips (feature 'wav'), each checked by name against
@@ -471,6 +482,10 @@ namespace DesktopAICompanion.PetStudioModule
             {
                 if (_window != null && _window.IsLoaded)
                 {
+                    // Activate does not restore a minimized WPF window, so until 1.4.1 the pane said "Companion Studio is
+                    // open." over a window still on the taskbar (N-audit-1106-311). Normal, not the state before it was
+                    // minimized: WPF keeps no RestoreBounds state to return to, and Normal is what the taskbar click gives.
+                    if (_window.WindowState == System.Windows.WindowState.Minimized) _window.WindowState = System.Windows.WindowState.Normal;
                     _window.Activate();
                     return true;
                 }

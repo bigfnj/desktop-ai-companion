@@ -3931,8 +3931,10 @@ CASES = (
     (
         "host-pack-abi: a refused member leaves the previous document in the editor",
         PETSTUDIO_WINDOW,
-        b"                ClearPackDocument();\n                SetStatus(PackStatusPrefix() + \"'\" + member.SourceKey",
-        b"                SetStatus(PackStatusPrefix() + \"'\" + member.SourceKey",
+        # Re-pointed by burndown/w3-studio-1 (N-shimeji-1106-14): the refused row's status is PackImport.RefusedMemberStatus
+        # now. Same intent: the clear before it goes.
+        b"                ClearPackDocument();\n                SetStatus(PackImport.RefusedMemberStatus(",
+        b"                SetStatus(PackImport.RefusedMemberStatus(",
         "host-pack-abi: picking another pack member forgets the saved path",
     ),
     (
@@ -3959,8 +3961,9 @@ CASES = (
     (
         "host-pack-abi: an empty pack document can still be saved",
         PETSTUDIO_WINDOW,
-        b"            _openedPath = null;\n            _saveButton.IsEnabled = false;\n            _map.Children.Clear();\n",
-        b"            _openedPath = null;\n            _saveButton.IsEnabled = true;\n            _map.Children.Clear();\n",
+        # Re-pointed by burndown/w3-studio-1 (N-audit-1106-316 added the Preview button and report clears between them).
+        b"            _openedPath = null;\n            _saveButton.IsEnabled = false;\n            _previewButton.IsEnabled = false;\n",
+        b"            _openedPath = null;\n            _saveButton.IsEnabled = true;\n            _previewButton.IsEnabled = false;\n",
         "host-pack-abi: an empty pack document has no text, no file it came from and nothing to save",
     ),
     # ---- lane feature/shimeji-host-wav ----
@@ -4205,6 +4208,76 @@ CASES = (
         b'            "test_mutation_runner_restore",\n',
         b"",
         "w2-tests-scripts-1: run_mutation_capture_checks.py names every",
+    ),
+    # ---- burndown/w3-studio-1 ----
+    # N-audit-1106-047: Install pack no longer refuses while an import holds the window.
+    (
+        "bd-w3-studio-1: Install pack runs while an import holds the window (N-audit-1106-047)",
+        os.path.join(REPO, "modules", "PetStudio", "PetStudioWindow.cs"),
+        b"            // would install (N-audit-1106-047). Refused here, before the replace question, as Open and the imports refuse.\n"
+        b"            if (_importing) { SetStatus(StillConverting); return; }\n",
+        b"            // would install (N-audit-1106-047). Refused here, before the replace question, as Open and the imports refuse.\n",
+        "w3-studio-1: Install pack and Preview pack refuse",
+    ),
+    # N-audit-1106-047: Install pack hands InstallPackAsked the fields, not the pack captured at its click.
+    (
+        "bd-w3-studio-1: Install pack installs the field, not the pack it was clicked on (N-audit-1106-047)",
+        os.path.join(REPO, "modules", "PetStudio", "PetStudioWindow.cs"),
+        b"            PackInstallOutcome outcome = PackImport.InstallPackAsked(pack, title, _pets,\n",
+        b"            PackInstallOutcome outcome = PackImport.InstallPackAsked(_pack, _packTitle, _pets,\n",
+        "w3-studio-1: Install pack installs the pack captured",
+    ),
+    # N-audit-1106-317: a partial install's outcome is left to the status bar alone again.
+    (
+        "bd-w3-studio-1: a partial install's outcome is not kept in the pack report (N-audit-1106-317)",
+        os.path.join(REPO, "modules", "PetStudio", "PetStudioWindow.cs"),
+        b"            if ((outcome.Complete || outcome.FailedKey != null) && ReferenceEquals(_pack, pack))\n",
+        b"            if (outcome.Complete && ReferenceEquals(_pack, pack))\n",
+        "w3-studio-1: Install pack's outcome is kept in the pack",
+    ),
+    # N-audit-1106-316: clearing for a refused member no longer overtakes the analysis in flight.
+    (
+        "bd-w3-studio-1: a refused member's clear lets the analysis in flight render (N-audit-1106-316)",
+        os.path.join(REPO, "modules", "PetStudio", "PetStudioWindow.cs"),
+        b"            // verdict rendered over its cleared view (N-audit-1106-316).\n"
+        b"            Interlocked.Increment(ref _analyzeGeneration);\n",
+        b"            // verdict rendered over its cleared view (N-audit-1106-316).\n",
+        "w3-studio-1: an emptied pack document drops the analysis",
+    ),
+    # N-audit-1106-315: Re-analyze passes an empty prefix again.
+    (
+        "bd-w3-studio-1: Re-analyze drops the pack prefix again (N-audit-1106-315)",
+        os.path.join(REPO, "modules", "PetStudio", "PetStudioWindow.cs"),
+        b"        private void Analyze() { BeginAnalyze(PackStatusPrefix()); }\n",
+        b"        private void Analyze() { BeginAnalyze(\"\"); }\n",
+        "w3-studio-1: Re-analyze keeps the pack prefix",
+    ),
+    # N-audit-1106-312: the zip import deletes the tree under the pack report and leaves its recovery offered.
+    (
+        "bd-w3-studio-1: the zip import leaves recovery offered over a deleted tree (N-audit-1106-312)",
+        os.path.join(REPO, "modules", "PetStudio", "PetStudioWindow.cs"),
+        b"                if (PackImport.LivesUnder(_packRoot, previous)) WithdrawPackRecovery();\n",
+        b"",
+        "w3-studio-1: Import with recovery is withdrawn before",
+    ),
+    # N-audit-1106-314: a window closed during detection converts its skin anyway.
+    (
+        "bd-w3-studio-1: a window closed during detection converts anyway (N-audit-1106-314)",
+        os.path.join(REPO, "modules", "PetStudio", "PetStudioWindow.cs"),
+        b"                    return found;\n"
+        b"                });\n"
+        b"                if (_closed) return;\n",
+        b"                    return found;\n"
+        b"                });\n",
+        "w3-studio-1: a window closed during skin detection",
+    ),
+    # N-audit-1106-311: opening the studio only activates a minimized window again.
+    (
+        "bd-w3-studio-1: opening the studio leaves a minimized window minimized (N-audit-1106-311)",
+        os.path.join(REPO, "modules", "PetStudio", "PetStudioModule.cs"),
+        b"                    if (_window.WindowState == System.Windows.WindowState.Minimized) _window.WindowState = System.Windows.WindowState.Normal;\n",
+        b"",
+        "w3-studio-1: opening the studio restores a minimized",
     ),
 )
 

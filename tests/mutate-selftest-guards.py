@@ -21184,6 +21184,41 @@ CASES = (
      b'     None),\n',
      None, None,
      MUTATION_UNITTESTS, None, 'test_every_installer_variant_names_the_check_it_must_fail'),
+    # ---- burndown/w3-studio-1 ----
+    # N-audit-1106-047: Install pack reads the pack shown AFTER its replace question again, so a pack that landed under the
+    # question is installed with the previous pack's replace map, over the previous pack's ids.
+    ("bd-w3-studio-1: Install pack installs the pack shown after its question again (N-audit-1106-047)",
+     os.path.join(REPO, "modules", "PetStudio", "PackImport.cs"),
+     b"                if (shownAfter == null || !ReferenceEquals(shownAfter(), pack))\n"
+     b"                    return new PackInstallOutcome { Message = PackChangedUnderQuestion };\n",
+     b"                if (shownAfter != null) pack = shownAfter();\n",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "audit-1106-047: a pack that landed under the replace question installs nothing"),
+    # N-audit-1106-310: a replace that stops part way is worded as a first install, "the main member was not installed".
+    ("bd-w3-studio-1: a stopped replace is worded as a first install again (N-audit-1106-310)",
+     os.path.join(REPO, "modules", "PetStudio", "PackImport.cs"),
+     b"                        replacing ? replace : null);\n",
+     b"                        null);\n",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "audit-1106-310: a replace that stops says the earlier install"),
+    # N-shimeji-1106-14: a refused member's error is appended in brackets though the pack prefix already says it.
+    ("bd-w3-studio-1: a refused member's error is said twice again (N-shimeji-1106-14)",
+     os.path.join(REPO, "modules", "PetStudio", "PackImport.cs"),
+     b"            bool said = error.Length > 0 && prefix.IndexOf(error, StringComparison.Ordinal) >= 0;\n",
+     b"            bool said = false;\n",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "shimeji-1106-14: a refused member's error is said once"),
+    # N-audit-1106-312: the rule that withdraws "Import with recovery" takes a sibling folder sharing the tree's prefix.
+    ("bd-w3-studio-1: LivesUnder takes a sibling sharing the tree's prefix (N-audit-1106-312)",
+     os.path.join(REPO, "modules", "PetStudio", "PackImport.cs"),
+     b"                    || p.StartsWith(r + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);\n",
+     b"                    || p.StartsWith(r, StringComparison.OrdinalIgnoreCase);\n",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "audit-1106-312: a pack root inside the extraction tree"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

@@ -87,6 +87,9 @@ namespace DesktopAICompanion.PetStudioModule
         private string _packTitle;
         private UIElement _packSection;
         private readonly TextBlock _packSummary = new TextBlock { TextWrapping = TextWrapping.Wrap };
+        // The summary as LoadPackReport wrote it, so Install pack can add its outcome below it once rather than once per
+        // click (N-audit-1106-317).
+        private string _packSummaryBase = "";
         private readonly ListBox _packMembers = new ListBox { MaxHeight = 150, Margin = new Thickness(0, 4, 0, 0) };
         private readonly Button _installPackButton = new Button { Content = "Install pack", Padding = new Thickness(10, 3, 10, 3), IsEnabled = false };
         private readonly Button _previewPackButton = new Button { Content = "Preview pack", Padding = new Thickness(10, 3, 10, 3), IsEnabled = false, Margin = new Thickness(6, 0, 0, 0) };
@@ -871,6 +874,11 @@ namespace DesktopAICompanion.PetStudioModule
                 RememberSkinDir(Path.GetDirectoryName(dlg.FileName));   // the zip's own folder (F162), never the extraction tree
                 BeginOrphanSweep();
                 string previous = _extractedTemp;   // captured BEFORE the field moves on, so the pool thread deletes the right tree
+                // The pack report on screen may have been converted from that tree. It stays (its members are in memory, so
+                // Install pack and Preview pack still work), but "Import with recovery" converts its folder again, and this
+                // import deletes that folder whether it then succeeds, fails or is cancelled. Until 1.4.1 the button stayed,
+                // re-converted a folder that was gone and reported the converter's reason for that (N-audit-1106-312).
+                if (PackImport.LivesUnder(_packRoot, previous)) WithdrawPackRecovery();
                 string zipPath = dlg.FileName;
                 _importTitle = Path.GetFileNameWithoutExtension(zipPath);   // a pack at the archive's top takes the zip's name
                 string destination = Path.Combine(Path.GetTempPath(), "petstudio-shimeji-" + Guid.NewGuid().ToString("N"));
@@ -1142,9 +1150,15 @@ namespace DesktopAICompanion.PetStudioModule
                 // anywhere in this method: everything after the awaits is UI-affine and depends on
                 // resuming on the captured context.
                 string bundleRoot = await Task.Run(() => FindBundleRoot(root));
+                // A window closed while the skin was being found converts nothing for it: after EACH await that precedes a
+                // conversion, as ImportPackAsync tests after its own. Until 1.4.1 only LoadConvertedIntoEditor tested
+                // _closed, AFTER the sprite sheet build, the ffmpeg per clip or the dwebp per sprite had run for a window
+                // that was gone, and a multi-skin archive put its picker up over it (N-audit-1106-314).
+                if (_closed) return;
                 if (bundleRoot != null)
                 {
                     string bundleName = await Task.Run(() => ReadBundleName(bundleRoot));
+                    if (_closed) return;
                     // Task.Run, with the `out` captured into a local: BundleConverter walks every sprite,
                     // composites a sheet and base64-encodes it, which is seconds of work, not milliseconds.
                     SetStatus("Converting…");
@@ -1170,6 +1184,7 @@ namespace DesktopAICompanion.PetStudioModule
                     note = n;
                     return found;
                 });
+                if (_closed) return;
                 if (skins == null || skins.Count == 0)
                 {
                     HideImportLoss();
@@ -1381,6 +1396,14 @@ namespace DesktopAICompanion.PetStudioModule
         {
             if (_importing) { SetStatus(StillConverting); return; }
             if (_pack == null || _packRoot == null || !PackImport.OffersRecovery(_pack, _packOptions)) return;
+            // The folder can also go by a route this window does not own (the user, a temp cleaner): say so, rather than
+            // hand the converter a missing folder and report its reason (N-audit-1106-312).
+            if (!Directory.Exists(_packRoot))
+            {
+                WithdrawPackRecovery();
+                SetStatus(PackFolderGone);
+                return;
+            }
             PackConversionOptions recovering = PackImport.WithRecovery(_packOptions);
             string packRoot = _packRoot, title = _packTitle;
             _importing = true;
@@ -1408,6 +1431,17 @@ namespace DesktopAICompanion.PetStudioModule
                 LoadPackReport(result, recovering, title);
             }
             finally { _importing = false; }
+        }
+
+        private const string PackFolderGone =
+            "The folder this pack was converted from is gone, so it cannot be converted again with recovery. Import the pack again to use it.";
+
+        /// <summary>Take "Import with recovery" away from the pack report, whose source folder is going or gone; the rest
+        /// of the report stays, since its members are in memory (N-audit-1106-312).</summary>
+        private void WithdrawPackRecovery()
+        {
+            _packRoot = null;
+            _recoverPackButton.Visibility = Visibility.Collapsed;
         }
 
         /// <summary>
@@ -1557,7 +1591,8 @@ namespace DesktopAICompanion.PetStudioModule
             _openedPath = null;                         // Save prompts for a path, as after a single import
             _path.Text = "Imported pack: " + title;
             string recoveryNote = PackImport.RecoveryNote(result, options);
-            _packSummary.Text = PackImport.Summary(result, title) + (recoveryNote == null ? "" : "\n" + recoveryNote);
+            _packSummaryBase = PackImport.Summary(result, title) + (recoveryNote == null ? "" : "\n" + recoveryNote);
+            _packSummary.Text = _packSummaryBase;
             _recoverPackButton.Visibility = PackImport.OffersRecovery(result, options) ? Visibility.Visible : Visibility.Collapsed;
             // The document that was open is not this pack's. Until this, a pack whose main member was refused, or that
             // had no members at all, left it in the editor under "Imported pack: X", Save still offered (review item 4).
@@ -1609,9 +1644,7 @@ namespace DesktopAICompanion.PetStudioModule
             {
                 // No document: the previous member's must not stay in the editor, savable, under this row.
                 ClearPackDocument();
-                SetStatus(PackStatusPrefix() + "'" + member.SourceKey + "' was refused (" +
-                    (member.Error ?? "no document was prepared").Trim().TrimEnd('.') +
-                    "). It has no document to open; its notes are under Import loss.");
+                SetStatus(PackImport.RefusedMemberStatus(_pack, _packOptions, _packTitle, member));
                 return;
             }
             _editor.IsReadOnly = true;
@@ -1628,10 +1661,20 @@ namespace DesktopAICompanion.PetStudioModule
         /// nothing to save, no file it came from, and no analysis of a document that is not there.</summary>
         private void ClearPackDocument()
         {
+            // FIRST, as the Closed handler does: the analysis of the member shown before is a result this clear overtook,
+            // and its queued rerun would analyze the empty editor. Until 1.4.1 neither was dropped, so a refused member
+            // picked while another member's analysis was in flight got that member's map, report, Preview button and
+            // verdict rendered over its cleared view (N-audit-1106-316).
+            Interlocked.Increment(ref _analyzeGeneration);
+            _analyzeRerun = false;
+            _analyzeRerunPrefix = null;
+            _reanalyzeTimer.Stop();
             _editor.IsReadOnly = true;
             SetEditorText("");
             _openedPath = null;
             _saveButton.IsEnabled = false;
+            _previewButton.IsEnabled = false;
+            _reportText.Text = "";
             _map.Children.Clear();
             _chipsById.Clear();
             ResetDetail();
@@ -1645,6 +1688,7 @@ namespace DesktopAICompanion.PetStudioModule
             _packTitle = null;
             _packMembers.Items.Clear();
             _packSummary.Text = "";
+            _packSummaryBase = "";
             if (_packSection != null) _packSection.Visibility = Visibility.Collapsed;
             _installPackButton.IsEnabled = false;
             _previewPackButton.IsEnabled = false;
@@ -1661,24 +1705,26 @@ namespace DesktopAICompanion.PetStudioModule
         /// install, so a second click cannot install a second copy of the same pack.</summary>
         private void InstallPackClicked()
         {
-            if (!PackImport.CanInstall(_pack, _pets != null))
-            {
-                SetStatus("Nothing was installed: the converter did not accept the whole pack.");
-                return;
-            }
-            Dictionary<string, string> prior = PackImport.PriorInstall(_pets, _pack.PackId);
-            if (prior.Count > 0)
-            {
-                MessageBoxResult answer = MessageBox.Show(this, PackImport.ReplaceQuestion(_packTitle, prior), "Install pack",
-                    MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel);
-                if (answer != MessageBoxResult.OK)
+            // Not while an import or Import with recovery holds the window: what it lands replaces the pack this click
+            // would install (N-audit-1106-047). Refused here, before the replace question, as Open and the imports refuse.
+            if (_importing) { SetStatus(StillConverting); return; }
+            // The pack and title AT THE CLICK, installed with the replace map read for that pack; PackImport.InstallPackAsked
+            // installs nothing when the question was answered over a different pack (the question pumps messages).
+            PackConversionResult pack = _pack;
+            string title = _packTitle;
+            PackInstallOutcome outcome = PackImport.InstallPackAsked(pack, title, _pets,
+                delegate (string question)
                 {
-                    SetStatus("Install pack cancelled: the pack installed before is unchanged, and nothing was installed.");
-                    return;
-                }
-            }
-            PackInstallOutcome outcome = PackImport.InstallPack(_pack, _packTitle, _pets, prior.Count > 0 ? prior : null);
+                    return MessageBox.Show(this, question, "Install pack", MessageBoxButton.OKCancel, MessageBoxImage.Question,
+                        MessageBoxResult.Cancel) == MessageBoxResult.OK;
+                },
+                delegate { return _pack; });
             SetStatus(outcome.Message);
+            // And in the pack report, when anything was written: the status bar is the next analysis verdict's, and a
+            // member analysis still in flight overwrote a partial install's list of what went in and under which ids
+            // (N-audit-1106-317). The report keeps it until another pack or document replaces the report.
+            if ((outcome.Complete || outcome.FailedKey != null) && ReferenceEquals(_pack, pack))
+                _packSummary.Text = _packSummaryBase + "\n" + (outcome.Complete ? "✓ " : "✗ ") + outcome.Message;
             if (outcome.Complete) _installPackButton.IsEnabled = false;
         }
 
@@ -1690,6 +1736,8 @@ namespace DesktopAICompanion.PetStudioModule
         /// </summary>
         private void PreviewPack()
         {
+            // As Install pack refuses (N-audit-1106-047): an import in flight is about to replace the pack shown.
+            if (_importing) { SetStatus(StillConverting); return; }
             if (_pack == null || _pets == null || !_pack.Accepted) return;
             RemovePreview();
             string error;
@@ -1870,7 +1918,10 @@ namespace DesktopAICompanion.PetStudioModule
 
         // ---- analysis + rendering ----
 
-        private void Analyze() { BeginAnalyze(""); }
+        // Re-analyze and the edit timer. In pack mode the verdict follows the pack prefix like every other pack-mode
+        // status (PackStatusPrefix is "" outside one); until 1.4.1 Re-analyze passed "" and erased "Converted with
+        // recovery: N dropped" from the status bar (N-audit-1106-315).
+        private void Analyze() { BeginAnalyze(PackStatusPrefix()); }
 
         /// <summary>
         /// Analyze the editor's text on a pool thread and render the result on this one.
