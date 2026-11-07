@@ -22336,6 +22336,16 @@ CASES = (
      b'            print("  NO-OP (pattern matched %d times)  %s" % (count, name))\n',
      None, None,
      MUTATION_UNITTESTS, None, 'test_check_patterns_counts_every_case_and_runs_nothing'),
+    # ---- burndown/w4-converter-1 ----
+    # Converter entries of burn-down wave 4. "bd-w4-converter-1:" for one --only.
+    # N-cxr-w1-03 / N-bd-converter-1-01: bundle containment checks the path text only again, so a junction inside the
+    # bundle (its sprites folder, or a folder its filePattern names) reads sprites from outside it.
+    ("bd-w4-converter-1: a junction inside a bundle is followed outside it (N-cxr-w1-03)",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Shimeji", "WebPLoader.cs"),
+     b"                    && (File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)\n",
+     b"                    && current == null)\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "bundle containment: a sprites folder that is a link was followed outside the bundle"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
