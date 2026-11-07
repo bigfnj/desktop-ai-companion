@@ -5805,6 +5805,22 @@ $p2MapChildAt = $p2MapCaller.IndexOf('& powershell.exe -NoLogo -NoProfile -NonIn
 $p2MapJudgeAt = $p2MapCaller.IndexOf('Assert-MapReaderResult $childExit $output', [StringComparison]::Ordinal)
 Assert-True ($p2MapSelfTestAt -ge 0 -and $p2MapChildAt -gt $p2MapSelfTestAt -and $p2MapJudgeAt -gt $p2MapChildAt -and $p2MapCaller -cmatch '\$env:PSModulePath=\$originalModulePath') 'bd-codex-parity-2: caller self-check precedes child execution and actual-result grading, with module-path restoration'
 
+# ---- burndown/codex-parity-2-review ----
+# Success-only cleanup belongs to the caller: the direct lane verifier may retain its requested evidence.
+$p2ReviewCleanup = Get-MethodBody $p2MapCaller 'function Remove-MapReaderScratch(' @("`nTest-MapReaderResult")
+Assert-True ($p2ReviewCleanup.Length -gt 0) 'bd-codex-parity-2-review: Invoke-Checks.ps1 cleanup method was read'
+$p2ReviewConfinement = 'if ([IO.Path]::GetDirectoryName($full).TrimEnd(''\'') -ine $expectedParent -or'
+$p2ReviewNameGuard = '[IO.Path]::GetFileName($full) -cnotmatch ''^mr-[0-9a-f]{12}$'') { throw ''MAP_READERS_CLEANUP_UNSAFE_PATH'' }'
+$p2ReviewGuardAt = $p2ReviewCleanup.IndexOf($p2ReviewConfinement, [StringComparison]::Ordinal)
+$p2ReviewDeleteAt = $p2ReviewCleanup.IndexOf('Remove-Item -LiteralPath $full -Recurse -Force -ErrorAction Stop', [StringComparison]::Ordinal)
+$p2ReviewAbsentAt = $p2ReviewCleanup.IndexOf('if (Test-Path -LiteralPath $full) { throw ''MAP_READERS_CLEANUP_FAILED'' }', [StringComparison]::Ordinal)
+Assert-True ($p2ReviewGuardAt -ge 0 -and $p2ReviewCleanup.Contains($p2ReviewNameGuard) -and $p2ReviewDeleteAt -gt $p2ReviewGuardAt -and $p2ReviewAbsentAt -gt $p2ReviewDeleteAt -and @([regex]::Matches($p2ReviewCleanup, 'Remove-Item -LiteralPath')).Count -eq 1 -and $p2ReviewConfinement.Replace('-ine', '-ieq') -cne $p2ReviewConfinement) 'bd-codex-parity-2-review: Invoke-Checks.ps1 confines and executes cleanup before proving absence (WITNESS: the inverted parent comparison differs)'
+$p2ReviewCreateAt = $p2MapCaller.IndexOf('[IO.Directory]::CreateDirectory($callerScratch)', [StringComparison]::Ordinal)
+$p2ReviewPassAt = $p2MapCaller.IndexOf('$readerPassed=$true', [StringComparison]::Ordinal)
+$p2ReviewRemoveAt = $p2MapCaller.IndexOf('Remove-MapReaderScratch $callerScratch $callerScratchParent', [StringComparison]::Ordinal)
+$p2ReviewSuccessOnly = 'if \(\$readerPassed\)\s*\{\s*try \{ Remove-MapReaderScratch \$callerScratch \$callerScratchParent \}'
+Assert-True ($p2ReviewCreateAt -ge 0 -and $p2ReviewCreateAt -lt $p2MapChildAt -and $p2MapCaller.Contains('-ScratchRoot $callerScratch 2>&1') -and $p2ReviewPassAt -gt $p2MapJudgeAt -and $p2ReviewRemoveAt -gt $p2ReviewPassAt -and $p2MapCaller -cmatch $p2ReviewSuccessOnly -and $p2MapCaller.Contains('else { Write-Host (''Map reader failure evidence retained: '' + $callerScratch) }') -and 'if ($true) { try { Remove-MapReaderScratch $callerScratch $callerScratchParent }' -cnotmatch $p2ReviewSuccessOnly) 'bd-codex-parity-2-review: Invoke-Checks.ps1 owns scratch and cleans only after the actual pass (WITNESS: unconditional cleanup differs)'
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever

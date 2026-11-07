@@ -4227,6 +4227,14 @@ CASES = (
      b'Test-MapReaderResult\nif ($SelfTestOnly)',
      b'# Test-MapReaderResult omitted.\nif ($SelfTestOnly)',
      'bd-codex-parity-2: caller self-check precedes child execution and actual-result grading'),
+
+    # ---- burndown/codex-parity-2-review ----
+    ('bd-codex-parity-2-review: cleanup method disappears', os.path.join(REPO, 'tools', 'ShimejiConvert.ValidationProbe', 'Invoke-Checks.ps1'), b'function Remove-MapReaderScratch(', b'function MissingReaderScratch(', 'bd-codex-parity-2-review: Invoke-Checks.ps1 cleanup method was read'),
+    ('bd-codex-parity-2-review: cleanup parent guard inverts', os.path.join(REPO, 'tools', 'ShimejiConvert.ValidationProbe', 'Invoke-Checks.ps1'), b"if ([IO.Path]::GetDirectoryName($full).TrimEnd('\\') -ine $expectedParent -or", b"if ([IO.Path]::GetDirectoryName($full).TrimEnd('\\') -ieq $expectedParent -or", 'bd-codex-parity-2-review: Invoke-Checks.ps1 confines and executes cleanup before proving absence'),
+    ('bd-codex-parity-2-review: cleanup deletion becomes an echo', os.path.join(REPO, 'tools', 'ShimejiConvert.ValidationProbe', 'Invoke-Checks.ps1'), b'Remove-Item -LiteralPath $full -Recurse -Force -ErrorAction Stop', b"Write-Host 'delete skipped'", 'bd-codex-parity-2-review: Invoke-Checks.ps1 confines and executes cleanup before proving absence'),
+    ('bd-codex-parity-2-review: cleanup loses actual success flag', os.path.join(REPO, 'tools', 'ShimejiConvert.ValidationProbe', 'Invoke-Checks.ps1'), b'$readerPassed=$true', b'$readerPassed=$false', 'bd-codex-parity-2-review: Invoke-Checks.ps1 owns scratch and cleans only after the actual pass'),
+    ('bd-codex-parity-2-review: cleanup becomes unconditional', os.path.join(REPO, 'tools', 'ShimejiConvert.ValidationProbe', 'Invoke-Checks.ps1'), b'if ($readerPassed) {', b'if ($true) {', 'bd-codex-parity-2-review: Invoke-Checks.ps1 owns scratch and cleans only after the actual pass'),
+    ('bd-codex-parity-2-review: cleanup call becomes an echo', os.path.join(REPO, 'tools', 'ShimejiConvert.ValidationProbe', 'Invoke-Checks.ps1'), b'Remove-MapReaderScratch $callerScratch $callerScratchParent', b"Write-Host 'cleanup skipped'", 'bd-codex-parity-2-review: Invoke-Checks.ps1 owns scratch and cleans only after the actual pass'),
 )
 
 

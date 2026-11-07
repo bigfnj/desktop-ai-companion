@@ -28,6 +28,19 @@ function Test-MapReaderResult {
     }
     Write-Host 'MAP READERS CALLER SELFTEST PASS'
 }
+function Remove-MapReaderScratch([string]$Path, [string]$Parent) {
+    # Delete only the caller-owned child, never its parent or a linked tree supplied by a child process.
+    $full=[IO.Path]::GetFullPath($Path)
+    $expectedParent=[IO.Path]::GetFullPath($Parent).TrimEnd('\')
+    if ([IO.Path]::GetDirectoryName($full).TrimEnd('\') -ine $expectedParent -or
+        [IO.Path]::GetFileName($full) -cnotmatch '^mr-[0-9a-f]{12}$') { throw 'MAP_READERS_CLEANUP_UNSAFE_PATH' }
+    if (Test-Path -LiteralPath $full) {
+        if (((Get-Item -LiteralPath $full -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+            @(Get-ChildItem -LiteralPath $full -Force -Recurse | Where-Object { ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 }).Count -ne 0) { throw 'MAP_READERS_CLEANUP_LINKED_PATH' }
+        Remove-Item -LiteralPath $full -Recurse -Force -ErrorAction Stop
+    }
+    if (Test-Path -LiteralPath $full) { throw 'MAP_READERS_CLEANUP_FAILED' }
+}
 Test-MapReaderResult
 if ($SelfTestOnly) { return }
 
@@ -35,6 +48,12 @@ if ($SelfTestOnly) { return }
 # a caller's gate, and prevent a pwsh caller from handing 7-only module manifests to Windows PowerShell5.1.
 $originalModulePath=$env:PSModulePath
 $originalPreference=$ErrorActionPreference
+$callerScratchParent=[IO.Path]::GetFullPath($ScratchRoot)
+# Keep this owner name short: the verifier and its image fixtures create their own nested scratch paths.
+$callerScratch=Join-Path $callerScratchParent ('mr-' + [Guid]::NewGuid().ToString('N').Substring(0, 12))
+if (Test-Path -LiteralPath $callerScratch) { throw 'MAP_READERS_SCRATCH_ALREADY_EXISTS' }
+[IO.Directory]::CreateDirectory($callerScratch) | Out-Null
+$readerPassed=$false
 try {
     $windowsPaths=@(($env:PSModulePath -split ';') | Where-Object { $_ -and $_ -match '(?i)windowspowershell' })
     foreach ($defaultPath in @((Join-Path $env:ProgramFiles 'WindowsPowerShell\Modules'),
@@ -43,13 +62,20 @@ try {
     }
     $env:PSModulePath=$windowsPaths -join ';'
     $ErrorActionPreference='Continue'
-    $output=@(& powershell.exe -NoLogo -NoProfile -NonInteractive -File (Join-Path $PSScriptRoot 'verify-map-readers.ps1') -ScratchRoot $ScratchRoot 2>&1)
+    $output=@(& powershell.exe -NoLogo -NoProfile -NonInteractive -File (Join-Path $PSScriptRoot 'verify-map-readers.ps1') -ScratchRoot $callerScratch 2>&1)
     $childExit=$LASTEXITCODE
     $ErrorActionPreference=$originalPreference
     foreach ($line in $output) { Write-Host ([string]$line) }
     Assert-MapReaderResult $childExit $output
+    $readerPassed=$true
 }
 finally {
     $ErrorActionPreference=$originalPreference
     $env:PSModulePath=$originalModulePath
+    if ($readerPassed) {
+        try { Remove-MapReaderScratch $callerScratch $callerScratchParent }
+        catch { Write-Host ('Map reader cleanup failed; evidence retained: ' + $callerScratch); throw }
+        Write-Host 'MAP READERS CLEANUP PASS'
+    }
+    else { Write-Host ('Map reader failure evidence retained: ' + $callerScratch) }
 }
