@@ -10,11 +10,20 @@ namespace DesktopAICompanion.BlinkingLed
     ///
     /// Ported from the standalone BlinkingLED tray app. What it actually does is worth stating precisely,
     /// because the short description ("blinks the keyboard light") understates it: this synthesizes a real
-    /// keyboard event through the Win32 <c>SendInput</c> API. Scroll Lock is chosen because it is inert -- no
-    /// application receives a meaningful keystroke and nothing is ever typed anywhere -- but the event does go
-    /// through the OS input queue, so Windows counts it as user input and the system idle timer resets. That
-    /// is the point of the tool, and it is why the module says "presses a key that does nothing" rather than
-    /// claiming it only touches the LED.
+    /// keyboard event through the Win32 <c>SendInput</c> API. The event goes through the OS input queue, so
+    /// Windows counts it as user input and the system idle timer resets. That is the point of the tool, and
+    /// it is why the Readme says the module presses Scroll Lock rather than claiming it only touches the LED.
+    ///
+    /// <para>
+    /// Scroll Lock is chosen because it types nothing (no character reaches any window) and most programs
+    /// ignore it. It is NOT inert, though this comment called it inert, and the Readme said no application
+    /// acts on it, until 1.0.9 (N-audit-1106-130). The foreground window receives the key-down and key-up
+    /// like any other; a program that binds Scroll Lock as a hotkey can act on the synthesized press as on a
+    /// real one; and the key's toggle STATE is read by programs that honour it. Excel is the common case:
+    /// while Scroll Lock is on, the arrow keys scroll the sheet instead of moving the active cell. Here the
+    /// state is on for the whole lit phase of every blink (<see cref="DurationsFor"/>'s "on" duration, a
+    /// quarter of each cycle on Normal), so the Readme names Excel rather than promising that nothing notices.
+    /// </para>
     ///
     /// <para>
     /// <c>SendInput</c> rather than <c>SendKeys.SendWait</c>, which is what the original PowerShell script
