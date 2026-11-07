@@ -347,9 +347,15 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             private bool _lifecycle, _social, _windows, _hotspots, _expressions, _variables;
             // Embedded audio assets by canonical Sound identity, in first-use order. Runtime clips additionally use
             // the pose's volume (TickClip): two volumes share these bytes but have independent playback state.
-            private sealed class SoundClip { public string Id, PackPath, SourceName; public byte[] Bytes; public bool Used; }
+            private sealed class SoundClip { public string Id, SourceName; public byte[] Bytes; public bool Used; }
             private readonly Dictionary<string, SoundClip> _clips = new Dictionary<string, SoundClip>(StringComparer.Ordinal);
             private readonly List<SoundClip> _clipOrder = new List<SoundClip>();
+            // Source identity predates asset deduplication: only paths of played source spellings enter its manifest.
+            // A composite-only alias must not acquire Used merely because another spelling shares its bytes.
+            private sealed class SoundSource { public string Name, PackPath; public SoundClip Clip; public bool Used; }
+            private readonly Dictionary<string, SoundSource> _soundSources = new Dictionary<string, SoundSource>(StringComparer.Ordinal);
+            private sealed class MuteSound { public ShimejiSourceAttribute Attribute; public ShimejiSourceElement Owner; public string Prefix; }
+            private readonly List<MuteSound> _muteSounds = new List<MuteSound>();
             // PD-1: the next entries recovery dropped, one item each (PreparedMember.Dropped).
             private readonly List<ResidueItem> _dropped = new List<ResidueItem>();
             // Decision 64: whether this call selected recovery of a next entry naming no root behaviour (EmitNextEntries).
@@ -466,6 +472,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     RootBehaviour root = _roots[name];
                     EmitBehaviour(root.Source, root.Condition, root.Id);
                 }
+                ValidateMuteSounds();
                 XElement route = Node(1, "route", E("route"));
                 foreach (string name in _rootOrder)
                 {
@@ -953,6 +960,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                         if (conditions != null)
                         {
                             clip.Used = true;
+                            _soundSources[soundText].Used = true;
                             pose.Add(new XAttribute("sound", clip.Id));
                             if (volume != 0) pose.Add(new XAttribute("volume", volume.ToString("R", Invariant)));
                         }
@@ -1226,7 +1234,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 paths.Add(_source.Behaviors.PackRelativePath.Replace('\\', '/'));
                 // The information document is a source input too: it decides the schema engine names are read in.
                 if (_source.Information != null) paths.Add(_source.Information.PackRelativePath.Replace('\\', '/'));
-                foreach (SoundClip clip in _clipOrder.Where(c => c.Used)) paths.Add(clip.PackPath);
+                foreach (SoundSource sound in _soundSources.Values.Where(s => s.Used)) paths.Add(sound.PackPath);
                 foreach (Frame frame in _frames) paths.Add(frame.Image);
                 var manifest = new StringBuilder();
                 foreach (string relative in paths)
@@ -1286,10 +1294,13 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 if (attribute.Name == "Sound" && _readerAction != null
                     && Value(_readerAction, "Class") == "com.group_finity.mascot.action.Mute")
                 {
-                    // MuteNamed matches ordinal clip-id prefixes, so its literal prefix must use the same identity
-                    // spelling as pose clips. A computed prefix cannot be normalized by this format's expression API.
+                    // Check after every action and binding has been emitted: later poses can introduce aliases whose
+                    // source prefix match differs from the canonical one. Scripts remain exact when ids are unchanged.
                     if (attribute.Cache != ShimejiSourceCache.Literal)
-                        Fail(owner, "TICK_SOUND_MUTE_SCRIPTED: a computed Mute Sound cannot be normalized to clip ids");
+                    {
+                        _muteSounds.Add(new MuteSound { Attribute = attribute, Owner = owner });
+                        return ScriptParameter(tag, attribute.Name, attribute, owner);
+                    }
                     string normalized = SoundId(attribute.RawValue);
                     // A directory prefix must keep its boundary: "dir/" must not also match "directory/".
                     if (normalized.Length > 0 && (attribute.RawValue.EndsWith("/", StringComparison.Ordinal)
@@ -1297,6 +1308,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                         normalized += "/";
                     if (normalized != attribute.RawValue && _scriptNames.Contains("Sound"))
                         Fail(owner, "TICK_SOUND_MUTE_OBSERVED: a script reads Sound, whose Mute prefix needs normalization");
+                    _muteSounds.Add(new MuteSound { Attribute = attribute, Owner = owner, Prefix = normalized });
                     return E(tag, new XAttribute("name", attribute.Name), new XAttribute("value", normalized), new XAttribute("cache", "none"));
                 }
                 if (Array.IndexOf(BehaviourParameters, attribute.Name) >= 0)
@@ -1448,21 +1460,24 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             /// Main.java:478-484). The format is decided from the BYTES, never the name: a RIFF/WAVE the host decodes
             /// (WavFormat, the host's own rule) becomes a named clip; MP3 bytes refuse as the source refuses them; a
             /// WAVE the host's rule rejects (two corpus clips have a bad header field) refuses by name, unrepaired.
-            /// Separator/case aliases share one embedded asset, and a literal Mute uses the same canonical prefix.
+            /// Separator/case aliases share one embedded asset; Mute prefix match sets must remain source-exact.
             /// Volume remains on the pose: the host's runtime cache keys (image set, id, volume), not bytes alone.
             /// </summary>
             private SoundClip Clip(string soundText, ShimejiSourceElement pose)
             {
                 SoundClip clip;
                 string id = SoundId(soundText);
-                if (_clips.TryGetValue(id, out clip)) return clip;
+                SoundSource prior;
+                if (_soundSources.TryGetValue(soundText, out prior)) return prior.Clip;
                 if (id.Length < 1 || id.Length > 64)
                     Fail(pose, "TICK_SOUND_ID_LIMIT: a normalized Sound id must be 1 to 64 characters in this format");
                 // Paths.get(".", "sound", Sound) joins the text under the folder, a leading separator included, and the
                 // file system resolves its dot segments as Windows does ("sound/../../x" is outside the install). A
                 // candidate that leaves the pack is somewhere this conversion cannot see, so it is passed over as absent;
                 // the last, which the source takes without looking, must be inside.
-                string relative = soundText.TrimStart('/', '\\').Replace('\\', '/');
+                // Paths.get drops repeated and trailing separators. Preserve case for probing and the old source
+                // manifest, while resolving every new spelling before sharing an already loaded canonical asset.
+                string relative = SoundRelative(soundText);
                 if (relative.Length == 0 || relative.IndexOf(':') >= 0)
                     Fail(pose, "TICK_SOUND_PATH: Sound '" + soundText + "' does not name a file inside the pack");
                 string[] candidates = { "sound/" + relative, "sound/" + _member + "/" + relative, "img/" + _member + "/sound/" + relative };
@@ -1486,6 +1501,11 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 string chosen = Path.GetRelativePath(Path.GetFullPath(_pack), path).Replace('\\', '/');
                 if (!File.Exists(path))
                     Fail(pose, "TICK_SOUND_MISSING: Sound '" + soundText + "' names no clip in sound/, sound/<image set>/ or img/<image set>/sound/, so the source refuses this image set");
+                if (_clips.TryGetValue(id, out clip))
+                {
+                    _soundSources.Add(soundText, new SoundSource { Name = soundText, PackPath = chosen, Clip = clip });
+                    return clip;
+                }
                 byte[] bytes = File.ReadAllBytes(path);
                 string reason;
                 if (DesktopAICompanion.WavFormat.HasWaveHeader(bytes))
@@ -1506,15 +1526,40 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     Fail(pose, "TICK_SOUND_MP3: clip '" + soundText + "' holds MP3 audio, which the source's javax.sound cannot open, so the source refuses this image set");
                 else
                     Fail(pose, "TICK_SOUND_FORMAT: clip '" + soundText + "' is neither a RIFF/WAVE nor MP3; the host plays WAV clips");
-                clip = new SoundClip { Id = id, PackPath = chosen, SourceName = soundText, Bytes = bytes };
+                clip = new SoundClip { Id = id, SourceName = soundText, Bytes = bytes };
                 _clips.Add(id, clip);
                 _clipOrder.Add(clip);
+                _soundSources.Add(soundText, new SoundSource { Name = soundText, PackPath = chosen, Clip = clip });
                 return clip;
+            }
+
+            private void ValidateMuteSounds()
+            {
+                foreach (MuteSound mute in _muteSounds)
+                    foreach (SoundSource sound in _soundSources.Values.Where(s => s.Used))
+                    {
+                        if (mute.Attribute.Cache != ShimejiSourceCache.Literal)
+                        {
+                            if (sound.Name != sound.Clip.Id)
+                                Fail(mute.Owner, "TICK_SOUND_MUTE_SCRIPTED: a computed Mute Sound cannot be normalized to clip ids");
+                        }
+                        // The source's cache keeps the authored Sound spelling and matches its prefix ordinally.
+                        // In particular, '/' is not an empty prefix and case folding must not add another match.
+                        else if (sound.Name.StartsWith(mute.Attribute.RawValue, StringComparison.Ordinal)
+                            != sound.Clip.Id.StartsWith(mute.Prefix, StringComparison.Ordinal))
+                            Fail(mute.Owner, "TICK_SOUND_MUTE_MATCH: canonical clip ids change the source match set of Mute Sound '"
+                                + mute.Attribute.RawValue + "'");
+                    }
+            }
+
+            private static string SoundRelative(string text)
+            {
+                return string.Join("/", text.Replace('\\', '/').Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries));
             }
 
             private static string SoundId(string text)
             {
-                return string.Join("/", text.Replace('\\', '/').Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries)).ToLowerInvariant();
+                return SoundRelative(text).ToLowerInvariant();
             }
 
             /// <summary>A pose's Volume, the clip's gain in dB (AnimationBuilder.java:105, Float.parseFloat, default 0).

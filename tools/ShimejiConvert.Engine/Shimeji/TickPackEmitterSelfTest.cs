@@ -5,6 +5,7 @@ using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Xml.Linq;
@@ -82,6 +83,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "sound-identity", Run = (Action)SoundIdentity },
                 new { Name = "sound-resolution", Run = (Action)SoundResolution },
                 new { Name = "sound-mute-refusal", Run = (Action)SoundMuteRefusal },
+                new { Name = "sound-mute-match-sets", Run = (Action)SoundMuteMatchSets },
+                new { Name = "sound-scripted-mute", Run = (Action)SoundScriptedMute },
+                new { Name = "sound-alias-order", Run = (Action)SoundAliasOrder },
+                new { Name = "sound-source-identity", Run = (Action)SoundSourceIdentity },
                 new { Name = "sprite-read-diagnostics", Run = (Action)SpriteReadDiagnostics },
                 new { Name = "sound-refusal", Run = (Action)SoundRefusal },
                 new { Name = "configuration-spelling", Run = (Action)ConfigurationSpelling },
@@ -2182,14 +2187,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 source[1].SetAttributeValue("Volume", 0);
                 source[2].SetAttributeValue("Sound", "tone.wav");
                 source[2].SetAttributeValue("Volume", "-6");
-                actions.Root.Element("ActionList").Add(Embedded("HushAlias", "Mute", A("Sound", "//TO")));
-                actions.Root.Element("ActionList").Add(S("Action", A("Name", "HushByReference"), A("Type", "Sequence"),
-                    S("ActionReference", A("Name", "HushAlias"), A("Sound", "/TO"))));
                 fixture.Actions(actions);
-                XDocument behaviors = BuildBehaviors();
-                behaviors.Root.Element("BehaviorList").Add(S("Behavior", A("Name", "HushByBehavior"), A("Action", "HushAlias"),
-                    A("Frequency", 0), A("Hidden", "true"), A("Sound", "\\TO")));
-                fixture.Behaviors(behaviors);
                 XDocument document = fixture.Convert();
                 XElement[] assets = document.Root.Element(Ns + "sounds").Elements(Ns + "sound").ToArray();
                 Require(assets.Length == 1 && (string)assets[0].Attribute("id") == "tone.wav",
@@ -2201,6 +2199,21 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     && (string)poses[0].Attribute("volume") == "-6" && poses[1].Attribute("volume") == null
                     && (string)poses[2].Attribute("volume") == "-6",
                     "sound identity: WITNESS one asset must retain separate runtime volumes");
+            }
+            using (var fixture = new Fixture())
+            {
+                WriteBytes(fixture, "sound/tone.wav", Wave(200, 1));
+                XDocument actions = SoundActions("/Tone.wav", null, null);
+                actions.Root.Element("ActionList").Add(Embedded("HushAlias", "Mute", A("Sound", "/To")));
+                actions.Root.Element("ActionList").Add(S("Action", A("Name", "HushByReference"), A("Type", "Sequence"),
+                    S("ActionReference", A("Name", "HushAlias"), A("Sound", "/To"))));
+                fixture.Actions(actions);
+                XDocument behaviors = BuildBehaviors();
+                behaviors.Root.Element("BehaviorList").Add(S("Behavior", A("Name", "HushByBehavior"), A("Action", "HushAlias"),
+                    A("Frequency", 0), A("Hidden", "true"), A("Sound", "/To")));
+                fixture.Behaviors(behaviors);
+                XDocument document = fixture.Convert();
+                XElement[] poses = NamedNode(document, "Stand").Element(Ns + "act").Descendants(Ns + "pose").ToArray();
                 string prefix = Bound(NamedNode(document, "HushAlias").Element(Ns + "act"), "param", "Sound");
                 Require(prefix == "to" && ((string)poses[0].Attribute("sound")).StartsWith(prefix, StringComparison.Ordinal),
                     "sound identity: Mute must use the canonical ordinal clip prefix");
@@ -2212,8 +2225,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             {
                 WriteBytes(fixture, "sound/dir/tone.wav", Wave(100, 1));
                 WriteBytes(fixture, "sound/directory/tone.wav", Wave(100, 2));
-                XDocument actions = SoundActions("dir/tone.wav", null, "directory/tone.wav");
-                actions.Root.Element("ActionList").Add(Embedded("HushDirectory", "Mute", A("Sound", "\\DIR\\")));
+                XDocument actions = SoundActions("DIR\\tone.wav", null, "directory/tone.wav");
+                actions.Root.Element("ActionList").Add(Embedded("HushDirectory", "Mute", A("Sound", "DIR\\")));
                 fixture.Actions(actions);
                 XDocument document = fixture.Convert();
                 string prefix = Bound(NamedNode(document, "HushDirectory").Element(Ns + "act"), "param", "Sound");
@@ -2274,13 +2287,138 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             foreach (bool observed in new[] { false, true })
                 using (var fixture = new Fixture())
                 {
-                    XDocument actions = BuildActions();
-                    XElement mute = Embedded("HushAlias", "Mute", A("Sound", observed ? "/TO" : "${'/TO'}"));
-                    if (observed) mute.SetAttributeValue("Condition", "${Sound == '/TO'}");
+                    WriteBytes(fixture, "sound/tone.wav", Wave(100, 1));
+                    XDocument actions = SoundActions("/tone.wav", null, null);
+                    XElement mute = Embedded("HushAlias", "Mute", A("Sound", observed ? "/to" : "${'/TO'}"));
+                    if (observed) mute.SetAttributeValue("Condition", "${Sound == '/to'}");
                     actions.Root.Element("ActionList").Add(mute);
                     fixture.Actions(actions);
                     Refusal(fixture, observed ? "TICK_SOUND_MUTE_OBSERVED" : "TICK_SOUND_MUTE_SCRIPTED");
                 }
+        }
+
+        private static void SoundMuteMatchSets()
+        {
+            // A Mute is ordinal over authored clip names. Case and leading separators can each distinguish names
+            // that become one canonical asset; a single host prefix cannot preserve a partial alias match.
+            foreach (string[] row in new[] {
+                new[] { "Bgm.wav", "bgm_hit.wav", "Bgm" },
+                new[] { "Bgm.wav", "bgm_hit.wav", "bgm" },
+                new[] { "/tone.wav", "tone.wav", "/" },
+                new[] { "/tone.wav", "tone.wav", "tone" },
+                new[] { "Bgm.wav", "bgm.wav", "Bgm" } })
+                foreach (int route in new[] { 0, 1, 2 })
+                    using (var fixture = new Fixture())
+                    {
+                        WriteBytes(fixture, "sound/" + row[0].TrimStart('/'), Wave(100, 1));
+                        WriteBytes(fixture, "sound/" + row[1], Wave(100, 2));
+                        XDocument actions = SoundActions(row[0], null, row[1]);
+                        XElement mute = Embedded("HushMatch", "Mute", route == 0 ? A("Sound", row[2]) : null);
+                        actions.Root.Element("ActionList").AddFirst(mute);
+                        if (route == 1)
+                            actions.Root.Element("ActionList").Add(S("Action", A("Name", "HushReference"), A("Type", "Sequence"),
+                                S("ActionReference", A("Name", "HushMatch"), A("Sound", row[2]))));
+                        if (route == 2)
+                        {
+                            XDocument behaviors = BuildBehaviors();
+                            behaviors.Root.Element("BehaviorList").Add(S("Behavior", A("Name", "HushBehavior"), A("Action", "HushMatch"),
+                                A("Frequency", 0), A("Hidden", "true"), A("Sound", row[2])));
+                            fixture.Behaviors(behaviors);
+                        }
+                        fixture.Actions(actions);
+                        Refusal(fixture, "TICK_SOUND_MUTE_MATCH: canonical clip ids change the source match set of Mute Sound '" + row[2] + "'");
+                        Require(!Directory.Exists(fixture.Output), "sound mute match sets: refusal wrote output");
+                    }
+            using (var fixture = new Fixture())
+            {
+                WriteBytes(fixture, "sound/Bgm.wav", Wave(100, 1));
+                XDocument actions = SoundActions("Bgm.wav", null, null);
+                actions.Root.Element("ActionList").Add(Embedded("HushSafe", "Mute", A("Sound", "Bgm")));
+                fixture.Actions(actions);
+                Require(Bound(NamedNode(fixture.Convert(), "HushSafe").Element(Ns + "act"), "param", "Sound") == "bgm",
+                    "sound mute match sets: WITNESS a source-exact normalized match must convert");
+            }
+        }
+
+        private static void SoundScriptedMute()
+        {
+            using (var fixture = new Fixture())
+            {
+                WriteBytes(fixture, "sound/voice1.wav", Wave(100, 1));
+                WriteBytes(fixture, "sound/voice2.wav", Wave(100, 2));
+                XDocument actions = SoundActions("voice1.wav", null, "voice2.wav");
+                actions.Root.Element("ActionList").AddFirst(Embedded("HushScript", "Mute", A("Sound", "${'voice'}")));
+                actions.Root.Element("ActionList").Add(S("Action", A("Name", "HushScriptReference"), A("Type", "Sequence"),
+                    S("ActionReference", A("Name", "HushScript"), A("Sound", "${'voice'}"))));
+                // An unplayed composite alias does not create a runtime clip whose id a Mute could observe.
+                XElement unplayed = Pose("/p.png", 1);
+                unplayed.SetAttributeValue("Sound", "/VOICE1.wav");
+                actions.Root.Element("ActionList").Elements("Action").Single(a => (string)a.Attribute("Name") == "Composite")
+                    .AddFirst(S("Animation", unplayed));
+                fixture.Actions(actions);
+                XDocument behaviors = BuildBehaviors();
+                behaviors.Root.Element("BehaviorList").Add(S("Behavior", A("Name", "HushScriptBehavior"), A("Action", "HushScript"),
+                    A("Frequency", 0), A("Hidden", "true"), A("Sound", "${'voice'}")));
+                fixture.Behaviors(behaviors);
+                XDocument document = fixture.Convert();
+                Validate(document, "scripted Mute canonical clips");
+                XElement[] binds = document.Descendants().Where(e => (e.Name == Ns + "param" || e.Name == Ns + "bind")
+                    && (string)e.Attribute("name") == "Sound").ToArray();
+                Require(binds.Length == 3 && binds.All(e => (string)e.Attribute("value") == "'voice'" && (string)e.Attribute("cache") == "action"),
+                    "sound scripted mute: unchanged clip ids must preserve computed params and bindings");
+            }
+        }
+
+        private static void SoundAliasOrder()
+        {
+            foreach (bool trailingFirst in new[] { true, false })
+                using (var fixture = new Fixture())
+                {
+                    byte[] audio = Wave(100, 1);
+                    WriteBytes(fixture, "sound/a.wav", audio);
+                    fixture.Actions(SoundActions(trailingFirst ? "a.wav/" : "a.wav", null, trailingFirst ? "a.wav" : "a.wav/"));
+                    XDocument document = fixture.Convert();
+                    XElement[] assets = document.Root.Element(Ns + "sounds").Elements(Ns + "sound").ToArray();
+                    Require(assets.Length == 1 && (string)assets[0].Attribute("id") == "a.wav"
+                        && Convert.FromBase64String(assets[0].Element(Ns + "base64").Value).SequenceEqual(audio),
+                        "sound alias order: trailing-separator aliases must resolve in either order");
+                }
+        }
+
+        private static void SoundSourceIdentity()
+        {
+            foreach (bool compositeOnly in new[] { false, true })
+                using (var fixture = new Fixture())
+                {
+                    WriteBytes(fixture, "sound/tone.wav", Wave(100, 1));
+                    XDocument actions = SoundActions(compositeOnly ? "tone.wav" : "Tone.wav", null, compositeOnly ? null : "tone.wav");
+                    XElement compositePose = Pose("/p.png", 1);
+                    compositePose.SetAttributeValue("Sound", "Tone.wav");
+                    actions.Root.Element("ActionList").Elements("Action").Single(a => (string)a.Attribute("Name") == "Composite")
+                        .AddFirst(S("Animation", compositePose));
+                    fixture.Actions(actions);
+                    // Independently reproduce the pre-deduplication manifest: exact resolved path spellings of
+                    // played clips only, plus config and sprite inputs, sorted ordinally. No emitter helpers are used.
+                    var paths = new SortedSet<string>(StringComparer.Ordinal) {
+                        "conf/actions.xml", "conf/behaviors.xml", "img/A/p.png", "img/A/q.png", "sound/tone.wav" };
+                    if (!compositeOnly) paths.Add("sound/Tone.wav");
+                    var manifest = new StringBuilder();
+                    foreach (string path in paths)
+                        manifest.Append(IdentityHash(File.ReadAllBytes(Path.Combine(fixture.Pack, path.Replace('/', Path.DirectorySeparatorChar)))))
+                            .Append("  ").Append(path).Append('\n');
+                    string expected = "shimeji-" + IdentityHash(Encoding.UTF8.GetBytes("shimeji-source-pack/1\nA\n"
+                        + IdentityHash(Encoding.UTF8.GetBytes(manifest.ToString())))).Substring(0, 24);
+                    string actual = (string)fixture.Convert("A").Root.Element(Ns + "header").Element(Ns + "pack").Attribute("id");
+                    Require(actual == expected, compositeOnly
+                        ? "sound source identity: composite-only spelling must stay outside the old manifest"
+                        : "sound source identity: all played case spellings must retain the old pack id");
+                }
+        }
+
+        private static string IdentityHash(byte[] bytes)
+        {
+            using (SHA256 sha = SHA256.Create())
+                return BitConverter.ToString(sha.ComputeHash(bytes)).Replace("-", "").ToLowerInvariant();
         }
 
         private static void SpriteReadDiagnostics()
