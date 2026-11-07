@@ -109,6 +109,15 @@ namespace DesktopAICompanion.Shimeji
                     "a window sits at its anchor minus the image anchor (" + (standForm == null ? "none" : standForm.Bounds.ToString()) + ")");
                 check(standForm != null && standForm.Visible, "a companion showing an image has a visible window");
 
+                // The speech bubble points at the companion wherever its window is (N-audit-1106-022): at the window's
+                // top, with the mouth inside its width on the side the companion faces. Two companions at two places, so
+                // an anchor that stays put (it sat near the screen origin, from fields only the classic engine set)
+                // cannot pass both.
+                FormCompanion throwForm = host.FormOf(breeder);
+                check(SpeechOver(standForm, stander) && SpeechOver(throwForm, breeder),
+                    "the speech bubble anchors over each tick companion's window, on the side it faces ("
+                    + SpeechText(standForm) + "; " + SpeechText(throwForm) + ")");
+
                 host.Step();   // step 2: Breed's penultimate tick requests a birth; SelfDestruct's disposes
                 FormCompanion popForm = host.FormOf(popper);
                 check(popper.Disposing && popForm != null && !popForm.Visible, "SelfDestruct hides its window at once");
@@ -138,6 +147,18 @@ namespace DesktopAICompanion.Shimeji
                 breedForm.LeftPressForSelfTest();
                 host.Step();
                 check(breeder.Behaviour != null && breeder.Behaviour.Name == "Dragged", "a left press on a window enters Dragged at the next step");
+
+                // A right press with the debug window open (N-audit-1106-021): a tick window pokes and opens no classic
+                // debug menu, whose lookups into the tick companion's EMPTY classic animation set threw
+                // KeyNotFoundException out of the handler. WITNESS: a classic window over the same empty set does open the
+                // menu, to the stand-in (never on the desktop), without throwing. Neither press reaches a poke: no app runs.
+                string tickMenu = RightPressWithDebugOpen(breedForm);
+                check(tickMenu == "poked", "a right press on a tick window with the debug window open pokes and opens no debug menu (" + tickMenu + ")");
+                using (var classic = new FormCompanion(new Animations(sprites), sprites))
+                {
+                    string classicMenu = RightPressWithDebugOpen(classic);
+                    check(classicMenu == "menu", "WITNESS: a right press on a classic window with the debug window open opens the debug menu (" + classicMenu + ")");
+                }
 
                 // A fullscreen window on the companion's monitor hides its window while the companion keeps running, and
                 // the window is back at the first step after the monitor frees.
@@ -947,6 +968,45 @@ namespace DesktopAICompanion.Shimeji
         {
             foreach (TickMascot m in world.Mascots) if (m.Sid.Contains(".b")) return m;
             return null;
+        }
+
+        /// <summary>Whether a window's speech anchor sits over it: at its top, inside its width, on the side its companion
+        /// faces (the mouth is a third in from that side, DesktopGeometry.GetSpriteSpeechAnchor).</summary>
+        private static bool SpeechOver(FormCompanion form, TickMascot m)
+        {
+            if (form == null || m == null) return false;
+            SpriteSpeechAnchor a = form.SpeechAnchorForSelfTest;
+            double centre = form.Left + form.Width / 2.0;
+            return Math.Abs(a.Top - form.Top) < 1.0 && a.X > form.Left && a.X < form.Right
+                   && (m.LookRight ? a.X > centre : a.X < centre);
+        }
+
+        private static string SpeechText(FormCompanion form)
+        {
+            if (form == null) return "no window";
+            SpriteSpeechAnchor a = form.SpeechAnchorForSelfTest;
+            return "anchor " + Math.Round(a.X) + "," + Math.Round(a.Top) + " window " + form.Bounds;
+        }
+
+        /// <summary>A right press through the window's real handler with the debug window standing open, and the debug menu
+        /// handed to a stand-in instead of shown. "menu" when the menu was built, "poked" when it was not, or the type of
+        /// whatever the handler threw.</summary>
+        private static string RightPressWithDebugOpen(FormCompanion form)
+        {
+            bool opened = false;
+            form.DebugActiveForSelfTest = () => true;
+            form.DebugMenuShownForSelfTest = menu => opened = true;   // the form disposes it (FormCompanion.Designer.cs)
+            try
+            {
+                form.RightPressForSelfTest();
+                return opened ? "menu" : "poked";
+            }
+            catch (Exception e) { return "threw " + e.GetType().Name; }
+            finally
+            {
+                form.DebugActiveForSelfTest = null;
+                form.DebugMenuShownForSelfTest = null;
+            }
         }
 
         // ---- the synthetic type: Stand (shows frame 0 for 3 ticks, then nothing for 2), Throw (Breed), Pop

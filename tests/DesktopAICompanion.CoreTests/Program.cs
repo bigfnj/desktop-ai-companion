@@ -78,6 +78,7 @@ namespace DesktopAICompanion
                 Run("SafeScript random draws and Math", TestSafeScriptRandomAndMath);
                 Run("SafeScript refusals and faults", TestSafeScriptRefusalsAndFaults);
                 Run("SafeScript JS edge semantics", TestSafeScriptJsEdges);
+                Run("SafeScript bounds what evaluations build", TestSafeScriptEvaluationBounds);
                 Run("Tick engine selection draws once over every root condition", TestTickSelection);
                 Run("Tick engine caches are lazy and kept by kind", TestTickCaches);
                 Run("Tick engine action clock", TestTickActionClock);

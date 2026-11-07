@@ -340,7 +340,7 @@ namespace DesktopAICompanion
         /// the window (an image-less pose, a disposed companion). Left and Top move BEFORE the frame is pushed, because
         /// an alpha pet's push draws at the window's current position.
         /// </summary>
-        internal void RenderTick(Image frame, int left, int top, int width, int height, bool visible, double opacity = 1.0)
+        internal void RenderTick(Image frame, int left, int top, int width, int height, bool visible, double opacity = 1.0, bool lookRight = false)
         {
             // The fullscreen rule (SMOKETEST's watchlist: nothing visible over a fullscreen game): a tick companion on a
             // monitor a fullscreen window owns hides and keeps running, as a classic one pinned there does. It does not
@@ -366,6 +366,15 @@ namespace DesktopAICompanion
             }
             Left = left;
             Top = top;
+            // The speech bubble anchors at the classic engine's position and facing (GetSpeechAnchor), which nothing on
+            // the tick path set: every tick companion's bubble sat near the screen origin, and the follow below re-pinned
+            // it there each tick (N-audit-1106-022). The window's top-left IS the companion's position here (no OffsetY:
+            // the engine already placed the image), and the facing is the mascot's. Set before the frame is pushed, so
+            // the follow reads this tick's values.
+            PositionX = left;
+            PositionY = top;
+            OffsetY = 0.0;
+            IsMovingLeft = !lookRight;
             if (petOpacity != opacity) SetPetOpacity(opacity);
             RenderCurrentFrame(frame);
             if (!Visible) Visible = true;
@@ -433,6 +442,12 @@ namespace DesktopAICompanion
         internal Image TickFrameForSelfTest
         {
             get { return Xml != null && Xml.UsesAlpha ? lastLayeredFrame : pictureBox1.Image; }
+        }
+
+        /// <summary>Self-test: where this window's speech bubble points, as Say and the follow compute it.</summary>
+        internal SpriteSpeechAnchor SpeechAnchorForSelfTest
+        {
+            get { return GetSpeechAnchor(); }
         }
 
         /// <summary>Self-test: a left-button press through the real handler, as a click on the window delivers it.</summary>
@@ -2507,14 +2522,14 @@ namespace DesktopAICompanion
 				IsDragging = true;                   // Flag it as dragging pet
                 SetNewAnimation(Animations.AnimationDrag);  // Set the dragging animation (if present)
             }
-            else if (e.Button == MouseButtons.Right && !StartUp.IsDebugActive())
+            else if (e.Button == MouseButtons.Right && !RightPressOpensDebugMenu())
             {
                 // Poking the sheep (right-click) -> a fortune. Pass THIS pet: it is the one the user clicked,
                 // and the host cannot recover that afterwards (it used to fall back to the first pet on
                 // screen, so poking pet #5 was reported as pet #1).
                 if (Program.Mainthread != null) Program.Mainthread.OnPetPoked(this);
             }
-            else if(e.Button == MouseButtons.Right && StartUp.IsDebugActive())
+            else if (e.Button == MouseButtons.Right)
             {
                 ContextMenuStrip cm = new ContextMenuStrip();
                 cm.Items.Add("ID." + CurrentAnimation.ID + " - " + CurrentAnimation.Name).Enabled = false;
@@ -2528,7 +2543,7 @@ namespace DesktopAICompanion
                 List<TNextAnimation> list = Animations.GetNextAnimations(CurrentAnimation.ID, true, false, false);
                 foreach (TNextAnimation ani in list)
                 {
-                    ToolStripItem menu = menuNext.DropDownItems.Add("ID." + ani.ID + " - " + Animations.SheepAnimations[ani.ID].Name + "\t (Prob: " + ani.Probability + ") only:" + ani.only.ToString());
+                    ToolStripItem menu = menuNext.DropDownItems.Add("ID." + ani.ID + " - " + DebugMenuName(ani.ID) + "\t (Prob: " + ani.Probability + ") only:" + ani.only.ToString());
                     menu.Click += (ms, me) => { SetNewAnimation(ani.ID); };
                 }
                 if (list.Count == 0) menuNext.Enabled = false;
@@ -2536,7 +2551,7 @@ namespace DesktopAICompanion
                 list = Animations.GetNextAnimations(CurrentAnimation.ID, false, true, false);
                 foreach (TNextAnimation ani in list)
                 {
-                    ToolStripItem menu = menuBorder.DropDownItems.Add("ID." + ani.ID + " - " + Animations.SheepAnimations[ani.ID].Name + "\t (Prob: " + ani.Probability + ") only: " + ani.only.ToString());
+                    ToolStripItem menu = menuBorder.DropDownItems.Add("ID." + ani.ID + " - " + DebugMenuName(ani.ID) + "\t (Prob: " + ani.Probability + ") only: " + ani.only.ToString());
                     menu.Click += (ms, me) => { SetNewAnimation(ani.ID); };
                 }
                 if (list.Count == 0) menuBorder.Enabled = false;
@@ -2544,7 +2559,7 @@ namespace DesktopAICompanion
                 list = Animations.GetNextAnimations(CurrentAnimation.ID, false, false, true);
                 foreach (TNextAnimation ani in list)
                 {
-                    ToolStripItem menu = menuGravity.DropDownItems.Add("ID." + ani.ID + " - " + Animations.SheepAnimations[ani.ID].Name + "\t (Prob: " + ani.Probability + ") only:" + ani.only.ToString());
+                    ToolStripItem menu = menuGravity.DropDownItems.Add("ID." + ani.ID + " - " + DebugMenuName(ani.ID) + "\t (Prob: " + ani.Probability + ") only:" + ani.only.ToString());
                     menu.Click += (ms, me) =>{ SetNewAnimation(ani.ID); };
                 }
                 if (list.Count == 0) menuGravity.Enabled = false;
@@ -2552,7 +2567,7 @@ namespace DesktopAICompanion
                 List<TSpawn> listS = Animations.GetNextSpawns();
                 foreach (TSpawn spa in listS)
                 {
-                    ToolStripItem menu = menuSpawn.DropDownItems.Add("ID." + spa.Next + " - " + Animations.SheepAnimations[spa.Next].Name + "\t (Prob: " + spa.Probability + ")");
+                    ToolStripItem menu = menuSpawn.DropDownItems.Add("ID." + spa.Next + " - " + DebugMenuName(spa.Next) + "\t (Prob: " + spa.Probability + ")");
                     menu.Click += (ms, me) => 
                     {
                         //Top = ScreenBounds.Y + spa.Start.Y.GetValue(DisplayIndex);
@@ -2575,8 +2590,50 @@ namespace DesktopAICompanion
 
                 if (_debugMenu != null) { try { _debugMenu.Dispose(); } catch { } }
                 _debugMenu = cm;
+                if (DebugMenuShownForSelfTest != null) { DebugMenuShownForSelfTest(cm); return; }
                 cm.Show(pictureBox1, new Point(0, this.Top > 500 ? 0 : this.Height));
             }
+        }
+
+        /// <summary>
+        /// Whether a right press opens the classic debug menu (the debug window is open) rather than poking.
+        ///
+        /// Never for a tick-driven window (N-audit-1106-021). The menu's Next/Border/Gravity/Spawns entries drive the
+        /// classic engine, which a tick window does not run, and its Animations is EMPTY by design (StartUp.TryStageRuntime
+        /// stages a tick companion with no classic animations, because its windows still take one). So the menu looked up
+        /// CurrentAnimation.ID 0 in that empty set and threw KeyNotFoundException out of this mouse handler. A tick
+        /// companion's right press is the poke whether the debug window is open or not, which is what it already was with
+        /// the window closed. A tick-aware debug menu was the other way out; it would show the engine's behaviour names
+        /// and drive nothing, so it is not built.
+        /// </summary>
+        private bool RightPressOpensDebugMenu()
+        {
+            if (TickHost != null) return false;
+            return DebugActiveForSelfTest != null ? DebugActiveForSelfTest() : StartUp.IsDebugActive();
+        }
+
+        /// <summary>An animation's name for the debug menu, or "(missing)" for an id the pet does not declare. The menu
+        /// indexed SheepAnimations directly, so a next or spawn naming an id the set lacks threw out of the mouse handler
+        /// instead of listing it (N-audit-1106-021).</summary>
+        private string DebugMenuName(int id)
+        {
+            TAnimation animation;
+            return Animations != null && Animations.SheepAnimations != null && Animations.SheepAnimations.TryGetValue(id, out animation)
+                ? animation.Name : "(missing)";
+        }
+
+        /// <summary>The window self-test's stand-in for the debug window being open (which needs the running app). Null in
+        /// production.</summary>
+        internal Func<bool> DebugActiveForSelfTest;
+
+        /// <summary>The window self-test's stand-in for showing the debug menu: called with the built menu INSTEAD of
+        /// showing it, so a self-test that reaches the menu puts nothing on the desktop. Null in production.</summary>
+        internal Action<ContextMenuStrip> DebugMenuShownForSelfTest;
+
+        /// <summary>Self-test: a right-button press through the real handler, as a click on the window delivers it.</summary>
+        internal void RightPressForSelfTest()
+        {
+            PictureBox1_MouseDown(pictureBox1, new MouseEventArgs(MouseButtons.Right, 1, 0, 0, 0));
         }
 
             /// <summary>

@@ -215,10 +215,13 @@ namespace DesktopAICompanion.Plugins
         }
 
         /// <summary>
-        /// Best-effort check of the host's real RegisterHotkey (CompanionHost wraps the proven HotkeyListener).
-        /// Verifies the wrapping's lifecycle without fragile input injection: a valid combo returns a
-        /// disposable that disposes cleanly, and a null/empty combo degrades to a disposable no-op. Skips
-        /// (passes) if creating a message window / RegisterHotKey isn't available in this context.
+        /// Check of the host's real RegisterHotkey (CompanionHost wraps the proven HotkeyListener), without fragile
+        /// input injection. A valid combo comes back as a LIVE registration, Windows then refuses a second registration
+        /// of it while the first is held, and disposing the first releases it so it registers again: only a registrar
+        /// that really registers passes all three. "Returns a handle" could not fail (N-audit-1106-024): a refusal and
+        /// an exception both return a non-null no-op, so a registrar that never registered anything passed. A null or
+        /// empty combo, and one that does not parse, degrade to the no-op. SKIPPED only when Win32 says another
+        /// application already holds the test combo, or when no message window can be made in this context.
         /// </summary>
         private static bool HotkeyRegistrarSmoke(StringBuilder sb)
         {
@@ -226,8 +229,38 @@ namespace DesktopAICompanion.Plugins
             {
                 var host = new CompanionHost(null);   // RegisterHotkey does not touch StartUp
                 bool ok = true;
-                using (IDisposable a = host.RegisterHotkey("Ctrl+Alt+F24", delegate { }))
-                    ok &= Check(sb, "hotkey registrar returns a handle for a valid combo", a != null);
+                const string combo = "Ctrl+Alt+F24";
+                int error;
+                string refusal;
+                IDisposable held = host.RegisterHotkey(combo, delegate { }, out error, out refusal);
+                try
+                {
+                    if (!CompanionHost.IsLiveHotkey(held) && error == Ai.HotkeyListener.ErrorHotkeyAlreadyRegistered)
+                    {
+                        sb.AppendLine("SKIP: hotkey registrar smoke: another application holds " + combo + " (" + refusal + ")");
+                        return true;
+                    }
+                    ok &= Check(sb, "hotkey registrar registers a valid combo as a live registration, not the no-op (" + (refusal ?? "registered") + ")",
+                        CompanionHost.IsLiveHotkey(held));
+                    int secondError;
+                    string secondRefusal;
+                    using (IDisposable second = host.RegisterHotkey(combo, delegate { }, out secondError, out secondRefusal))
+                        ok &= Check(sb, "hotkey registrar refuses a second registration of a combo the first still holds, and says why ("
+                                        + (secondRefusal ?? "it registered") + ")",
+                            !CompanionHost.IsLiveHotkey(second) && secondError == Ai.HotkeyListener.ErrorHotkeyAlreadyRegistered
+                            && secondRefusal != null && secondRefusal.Contains(combo));
+                }
+                finally { held.Dispose(); }
+                int againError;
+                string againRefusal;
+                using (IDisposable again = host.RegisterHotkey(combo, delegate { }, out againError, out againRefusal))
+                    ok &= Check(sb, "hotkey registrar's disposed handle releases the combo, so it registers again (" + (againRefusal ?? "registered") + ")",
+                        CompanionHost.IsLiveHotkey(again));
+                int parseError;
+                string parseRefusal;
+                using (IDisposable unparsed = host.RegisterHotkey("F24", delegate { }, out parseError, out parseRefusal))
+                    ok &= Check(sb, "hotkey registrar answers a combo that does not parse with the no-op, and says why (" + (parseRefusal ?? "no reason") + ")",
+                        unparsed != null && !CompanionHost.IsLiveHotkey(unparsed) && parseRefusal != null && parseRefusal.Contains("does not parse"));
 
                 // The empty combo. This used to be invoked and then reported as passing with a
                 // literal true, so `b == null` and `b != null` BOTH reached the PASS -- while the

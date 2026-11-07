@@ -24,6 +24,20 @@ namespace DesktopAICompanion
         public const int MaximumTokens = 1024;
         public const int MaximumDepth = 32;
 
+        // The three limits above bound the work of a PARSE; these two bound what EVALUATIONS can build up
+        // (N-audit-1106-026). A value outlives its evaluation only in mascot.variables, so an expression evaluated every
+        // tick could grow memory without limit: mascot.variables['s'] = mascot.variables['s'] + mascot.variables['s']
+        // doubles a string per tick (past a gigabyte within thirty ticks), and a key built from Math.random() adds a name
+        // per tick. Both are refused as a ScriptFault (the expression yields null and is reported), not truncated, so a
+        // pack never runs on a value it did not compute. The source runtime has no such limits. Together they hold one
+        // companion's variables to about 4 MB (256 names, each name and each string value at most 4096 UTF-16 chars).
+
+        /// <summary>The longest string an evaluation may build: no longer than the longest expression may be.</summary>
+        public const int MaximumStringLength = 4096;
+
+        /// <summary>The most names one companion's mascot.variables may hold. Rewriting a name it holds is always allowed.</summary>
+        public const int MaximumVariables = 256;
+
         /// <summary>Parse <paramref name="source"/>. Bare names other than the reserved ones (mascot, Math, true,
         /// false, null) must be accepted by <paramref name="scope"/> (an action's parameters and locals, or the
         /// behaviour-selection constants); a null scope accepts none.</summary>
@@ -611,7 +625,7 @@ namespace DesktopAICompanion
                 {
                     case "+":
                         if (l.Kind == ScriptValueKind.String || r.Kind == ScriptValueKind.String)
-                            return ScriptValue.FromString(l.ToDisplayString() + r.ToDisplayString());
+                            return Concatenate(run, l.ToDisplayString(), r.ToDisplayString());
                         return ScriptValue.FromNumber(l.ToNumber() + r.ToNumber());
                     case "-": return ScriptValue.FromNumber(l.ToNumber() - r.ToNumber());
                     case "*": return ScriptValue.FromNumber(l.ToNumber() * r.ToNumber());
@@ -627,6 +641,16 @@ namespace DesktopAICompanion
                     case "!==": return ScriptValue.FromBool(!ScriptValue.StrictEquals(l, r));
                 }
                 return run.Fail("unknown operator " + _op);
+            }
+
+            // The one operation that makes a value longer than its operands, so the one place a string's length is
+            // bounded (MaximumStringLength, N-audit-1106-026). Measured before the concatenation is built.
+            private static ScriptValue Concatenate(ScriptRun run, string left, string right)
+            {
+                long length = (long)left.Length + right.Length;
+                if (length > MaximumStringLength)
+                    return run.Fail("+ would build a string of " + length + " characters; the limit is " + MaximumStringLength);
+                return ScriptValue.FromString(left + right);
             }
 
             // JS %: the remainder of TRUNCATED division, so it takes the dividend's sign (-7 % 3 is -1, -6 % 3 is -0).
@@ -936,6 +960,10 @@ namespace DesktopAICompanion
                 ScriptValue value = _value.Eval(run);
                 ScriptValue previous;
                 bool had = run.Context.TryGetVariable(key, out previous);
+                // A NEW name past MaximumVariables is refused, after both operands ran as the source order has them; a
+                // name already held is rewritten as ever (N-audit-1106-026).
+                if (!had && run.Context.VariableCount >= MaximumVariables)
+                    return run.Fail("mascot.variables already holds " + MaximumVariables + " names; a new name is refused");
                 run.Context.SetVariable(key, value);
                 if (!_isPutCall) return value;
                 return had ? previous : ScriptValue.Null;
@@ -1230,6 +1258,8 @@ namespace DesktopAICompanion
         bool IsOnBorder(ScriptBorderId border, double x, double y);
         bool TryGetVariable(string key, out ScriptValue value);
         void SetVariable(string key, ScriptValue value);
+        /// <summary>How many names the companion's mascot.variables holds (bounded by SafeScript.MaximumVariables).</summary>
+        int VariableCount { get; }
         /// <summary>One draw in [0, 1) for the Math.random() at <paramref name="site"/> (its character offset).</summary>
         double Random(int site);
         void ReportFault(string source, string message);

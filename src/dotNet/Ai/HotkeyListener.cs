@@ -42,11 +42,23 @@ namespace DesktopAICompanion.Ai
         public bool Register(string hotkey)
         {
             Unregister();
+            LastError = 0;
             uint mods, vk;
             if (!TryParse(hotkey, out mods, out vk)) return false;
             _registered = RegisterHotKey(Handle, HotkeyId, mods | MOD_NOREPEAT, vk);
+            // Read at once: the next P/Invoke may overwrite it. The host logs it and the registrar's self-test tells a
+            // combo another application holds from a registrar that never registers (N-audit-1106-013, -024).
+            if (!_registered) LastError = Marshal.GetLastWin32Error();
             return _registered;
         }
+
+        /// <summary>The Win32 error the last <see cref="Register"/> refusal reported (1409 when another window already
+        /// holds the combo), or 0 after a success or a combo that did not parse.</summary>
+        public int LastError { get; private set; }
+
+        /// <summary>ERROR_HOTKEY_ALREADY_REGISTERED: RegisterHotKey's answer when any window, in any process, holds the
+        /// combo.</summary>
+        public const int ErrorHotkeyAlreadyRegistered = 1409;
 
         public void Unregister()
         {

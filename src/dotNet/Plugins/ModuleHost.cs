@@ -93,7 +93,23 @@ namespace DesktopAICompanion.Plugins
                     }
                     alc = new ModuleLoadContext(dll);
                     Assembly asm = alc.LoadFromAssemblyPath(dll);
-                    Type moduleType = asm.GetTypes().FirstOrDefault(t => !t.IsAbstract && typeof(IModule).IsAssignableFrom(t));
+                    // A partial type load stays fail-closed (F342): the module is refused whole, below, before Init. What
+                    // changed is the ORDER (N-audit-1106-025). GetTypes threw before the MinHostVersion gate could run, so a
+                    // too-new module whose assembly holds any type implementing a contract interface this host lacks (the
+                    // usual shape of "needs a newer host") was refused as a ReflectionTypeLoadException with
+                    // NeedsNewerHost false, and the pane offered no "needs a newer app" answer. The IModule type is looked
+                    // up in the types that DID load only to read its requirement; whatever the gate says, the module
+                    // never runs.
+                    Type[] types;
+                    ReflectionTypeLoadException partialLoad = null;
+                    try { types = asm.GetTypes(); }
+                    catch (ReflectionTypeLoadException ex)
+                    {
+                        partialLoad = ex;
+                        types = ex.Types ?? new Type[0];
+                    }
+                    Type moduleType = types.FirstOrDefault(t => t != null && !t.IsAbstract && typeof(IModule).IsAssignableFrom(t));
+                    if (moduleType == null && partialLoad != null) throw partialLoad;
                     if (moduleType == null)
                     {
                         Fail(dir, "no type implementing IModule", log);
@@ -133,6 +149,9 @@ namespace DesktopAICompanion.Plugins
                         alc.Unload();
                         continue;
                     }
+                    // The gate is satisfied, so the partial load is the module's own fault: refused whole, as before, with
+                    // the loader's reason (the catch below names the exception and unloads).
+                    if (partialLoad != null) throw partialLoad;
 
                     // Attribute everything registered inside Init to this module. The finally is the
                     // whole point: a module that throws from Init must not leave the next one's panes

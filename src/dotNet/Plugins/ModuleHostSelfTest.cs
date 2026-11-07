@@ -121,6 +121,7 @@ namespace DesktopAICompanion.Plugins
                 ok &= EmptiedUnprobeableMarker(sb);
                 ok &= InitRollback(sb, modulesRoot);
                 ok &= RefusalKeyedByFolder(sb, modulesRoot, scratch);
+                ok &= TooNewPartialLoad(sb, scratch);
                 ok &= SelfTestFinder(sb);
                 ok &= ResponderChainDeclines(sb);
                 ok &= ModuleDllDiscovery(sb);
@@ -713,6 +714,115 @@ namespace DesktopAICompanion.Plugins
                     sb.AppendLine("NOTE: scratch left for the next sweep (" + releaseDetail + ")");
             }
             return ok;
+        }
+
+        /// <summary>
+        /// A too-new module whose assembly holds a type implementing a contract interface THIS host lacks (N-audit-1106-025).
+        /// GetTypes throws ReflectionTypeLoadException for such an assembly, and it ran before the MinHostVersion gate, so
+        /// the module was refused as a load error with NeedsNewerHost false. Now it is refused as needing a newer host.
+        /// WITNESS: the same fixture declaring a floor the host satisfies is still refused whole, as the load error,
+        /// before Init (F342's fail-closed rule).
+        ///
+        /// The fixture is emitted here rather than built, because no csproj can compile a reference to an interface the
+        /// contracts do not have: a stand-in "DesktopAICompanion.Contracts" (same name and version as the real one)
+        /// declares the missing interface, the fixture's double implements it, and at load the reference binds to the
+        /// REAL contracts, which lack it, exactly as a module built against a newer host's contracts does.
+        /// </summary>
+        private static bool TooNewPartialLoad(StringBuilder sb, string scratch)
+        {
+            string root = SelfTestScratch.Create("module-partial-load");
+            bool ok = true;
+            try
+            {
+                WritePartialLoadFixture(Path.Combine(root, "futuremodule"), "futuremodule", "9999.0.0");
+                WritePartialLoadFixture(Path.Combine(root, "brokenmodule"), "brokenmodule", "1.0.0");
+                var host = new RecordingHost { HostVersionValue = "1.5.0", StorageRoot = scratch };
+                using (var loader = new ModuleHost())
+                {
+                    int loaded = loader.LoadFrom(root, host, s => sb.AppendLine("  " + s));
+                    ModuleLoadFailure future = null, broken = null;
+                    foreach (ModuleLoadFailure f in loader.Failures)
+                    {
+                        if (f.Id == "futuremodule") future = f;
+                        if (f.Id == "brokenmodule") broken = f;
+                    }
+                    ok &= Check(sb, "partial load: a too-new module with a type implementing a contract this host lacks is refused as needing a newer host ("
+                                    + (future == null ? "no failure" : future.Reason) + ")",
+                        future != null && future.NeedsNewerHost && future.Reason.Contains("9999.0.0"));
+                    ok &= Check(sb, "WITNESS partial load: the same assembly with a satisfied floor is refused whole as the load error, before Init ("
+                                    + (broken == null ? "no failure" : broken.Reason) + ")",
+                        loaded == 0 && broken != null && !broken.NeedsNewerHost && broken.Reason.Contains("ReflectionTypeLoadException")
+                        && host.TrayItems.Count == 0 && host.OptionsPanes.Count == 0);
+                }
+            }
+            catch (Exception ex)
+            {
+                ok = false;
+                sb.AppendLine("EXC (partial load): " + ex.GetType().Name + ": " + ex.Message);
+            }
+            finally
+            {
+                string releaseDetail;
+                if (!SelfTestScratch.TryRelease(root, out releaseDetail))
+                    sb.AppendLine("NOTE: scratch left for the next sweep (" + releaseDetail + ")");
+            }
+            return ok;
+        }
+
+        /// <summary>Emit <c>&lt;folder&gt;\&lt;id&gt;.dll</c>: an IModule declaring <paramref name="minHostVersion"/>, and a
+        /// double implementing an interface the real contracts lack (see <see cref="TooNewPartialLoad"/>).</summary>
+        private static void WritePartialLoadFixture(string folder, string id, string minHostVersion)
+        {
+            Directory.CreateDirectory(folder);
+            AssemblyName contracts = typeof(IModule).Assembly.GetName();
+            var standIn = new System.Reflection.Emit.PersistedAssemblyBuilder(
+                new AssemblyName(contracts.Name) { Version = contracts.Version }, typeof(object).Assembly);
+            System.Reflection.Emit.TypeBuilder lacking = standIn.DefineDynamicModule(contracts.Name).DefineType(
+                "DesktopAICompanion.Modules.IContractThisHostLacks",
+                TypeAttributes.Public | TypeAttributes.Interface | TypeAttributes.Abstract);
+            Type lackingType = lacking.CreateType();
+
+            var fixture = new System.Reflection.Emit.PersistedAssemblyBuilder(new AssemblyName(id), typeof(object).Assembly);
+            System.Reflection.Emit.ModuleBuilder module = fixture.DefineDynamicModule(id);
+
+            System.Reflection.Emit.TypeBuilder dbl = module.DefineType(id + ".DoubleOfALaterContract",
+                TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Sealed, typeof(object));
+            dbl.AddInterfaceImplementation(lackingType);
+            dbl.DefineDefaultConstructor(MethodAttributes.Public);
+            dbl.CreateType();
+
+            System.Reflection.Emit.TypeBuilder mod = module.DefineType(id + ".FixtureModule",
+                TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Sealed, typeof(object));
+            mod.AddInterfaceImplementation(typeof(IModule));
+            mod.DefineDefaultConstructor(MethodAttributes.Public);
+            const MethodAttributes implementation = MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.Final
+                                                    | MethodAttributes.HideBySig | MethodAttributes.NewSlot;
+            System.Reflection.Emit.MethodBuilder getInfo = mod.DefineMethod("get_Info", implementation | MethodAttributes.SpecialName,
+                typeof(ModuleInfo), Type.EmptyTypes);
+            System.Reflection.Emit.ILGenerator il = getInfo.GetILGenerator();
+            il.Emit(System.Reflection.Emit.OpCodes.Newobj, typeof(ModuleInfo).GetConstructor(Type.EmptyTypes));
+            foreach (KeyValuePair<string, string> p in new[]
+                     {
+                         new KeyValuePair<string, string>("Id", id), new KeyValuePair<string, string>("Name", id),
+                         new KeyValuePair<string, string>("Version", "1.0.0"), new KeyValuePair<string, string>("MinHostVersion", minHostVersion),
+                     })
+            {
+                il.Emit(System.Reflection.Emit.OpCodes.Dup);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldstr, p.Value);
+                il.Emit(System.Reflection.Emit.OpCodes.Callvirt, typeof(ModuleInfo).GetProperty(p.Key).GetSetMethod());
+            }
+            il.Emit(System.Reflection.Emit.OpCodes.Ret);
+            mod.DefineMethodOverride(getInfo, typeof(IModule).GetProperty("Info").GetGetMethod());
+            mod.DefineProperty("Info", PropertyAttributes.None, typeof(ModuleInfo), null).SetGetMethod(getInfo);
+            System.Reflection.Emit.MethodBuilder init = mod.DefineMethod("Init", implementation, typeof(void), new[] { typeof(IHost) });
+            init.GetILGenerator().Emit(System.Reflection.Emit.OpCodes.Ret);
+            mod.DefineMethodOverride(init, typeof(IModule).GetMethod("Init"));
+            System.Reflection.Emit.MethodBuilder shutdown = mod.DefineMethod("Shutdown", implementation, typeof(void), Type.EmptyTypes);
+            shutdown.GetILGenerator().Emit(System.Reflection.Emit.OpCodes.Ret);
+            mod.DefineMethodOverride(shutdown, typeof(IModule).GetMethod("Shutdown"));
+            mod.CreateType();
+
+            fixture.Save(Path.Combine(folder, id + ".dll"));
         }
 
         /// <summary>

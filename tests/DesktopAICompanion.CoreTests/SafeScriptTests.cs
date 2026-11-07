@@ -50,6 +50,7 @@ namespace DesktopAICompanion
             }
             public bool TryGetVariable(string key, out ScriptValue value) { return Vars.TryGetValue(key, out value); }
             public void SetVariable(string key, ScriptValue value) { Vars[key] = value; }
+            public int VariableCount { get { return Vars.Count; } }
             public double Random(int site) { DrawSites.Add(site); return Draws.Count > 0 ? Draws.Dequeue() : 0.5; }
             public void ReportFault(string source, string message) { Faults.Add(message); }
         }
@@ -145,6 +146,47 @@ namespace DesktopAICompanion
             AssertTrue(ParseError("TargetY + 1", scope).Contains("unknown name 'TargetY'"), "An out-of-scope name is not refused by name.");
             AssertEqual(ScriptValueKind.Null, Eval("Speed", c, scope).Kind, "A scoped name with no value is not null.");
             AssertEqual(1, c.Faults.Count, "A scoped name with no value was not reported as a fault exactly once.");
+        }
+
+        /// <summary>N-audit-1106-026: what evaluations build is bounded, not only what a parse costs. A string doubled through
+        /// mascot.variables every tick, or a new name every tick, used to grow without limit; both now fault at a fixed cap
+        /// and leave the stored state as it was. WITNESSES: a string of exactly the cap, and rewriting a name at the
+        /// name cap, still work.</summary>
+        private static void TestSafeScriptEvaluationBounds()
+        {
+            var c = new FakeScriptContext();
+            int cap = SafeScript.MaximumStringLength;
+            c.Vars["s"] = ScriptValue.FromString(new string('a', cap - 1));
+            AssertEqual(cap, Eval("mascot.variables['s'] + 'b'", c).Text.Length, "WITNESS: a string of exactly the cap was refused.");
+            AssertEqual(0, c.Faults.Count, "WITNESS: a string of exactly the cap was reported as a fault.");
+            c.Vars["s"] = ScriptValue.FromString(new string('a', cap));
+            AssertEqual(ScriptValueKind.Null, Eval("mascot.variables['s'] + 'b'", c).Kind, "A string one past the cap was built.");
+            AssertTrue(c.Faults.Count == 1 && c.Faults[0].Contains("limit is " + cap), "A string past the cap was not reported as a fault naming the limit.");
+
+            c.Faults.Clear();
+            c.Vars["s"] = ScriptValue.FromString("ab");
+            ScriptProgram doubling = ParseOrFail("mascot.variables['s'] = mascot.variables['s'] + mascot.variables['s']");
+            for (int tick = 0; tick < 40; tick++) doubling.Evaluate(c);
+            AssertTrue(c.Vars["s"].Text.Length <= cap && c.Vars["s"].Text.Length >= cap / 2,
+                "A string doubled every tick was not held at the cap (" + c.Vars["s"].Text.Length + " characters).");
+            AssertTrue(c.Faults.Count > 0, "A string doubled past the cap was not reported.");
+
+            var names = new FakeScriptContext();
+            ScriptProgram fresh = ParseOrFail("mascot.variables['k' + n] = 1", name => name == "n");
+            for (int i = 0; i < SafeScript.MaximumVariables; i++)
+            {
+                names.Names["n"] = ScriptValue.FromNumber(i);
+                fresh.Evaluate(names);
+            }
+            AssertEqual(SafeScript.MaximumVariables, names.Vars.Count, "Names up to the cap were not all stored.");
+            AssertEqual(0, names.Faults.Count, "WITNESS: names up to the cap were reported as faults.");
+            names.Names["n"] = ScriptValue.FromNumber(SafeScript.MaximumVariables);
+            fresh.Evaluate(names);
+            AssertTrue(names.Vars.Count == SafeScript.MaximumVariables && !names.Vars.ContainsKey("k" + SafeScript.MaximumVariables),
+                "A name past the cap was stored (" + names.Vars.Count + " names).");
+            AssertTrue(names.Faults.Count == 1 && names.Faults[0].Contains("a new name is refused"), "A name past the cap was not reported as a fault.");
+            names.Names["n"] = ScriptValue.FromNumber(3);
+            AssertEqual(1.0, fresh.Evaluate(names).Number, "WITNESS: rewriting a name already held was refused at the cap.");
         }
 
         private static void TestSafeScriptRandomAndMath()

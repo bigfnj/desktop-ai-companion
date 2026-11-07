@@ -5094,8 +5094,8 @@ Assert-True ($hrtModuleCheck.Length -gt 0 -and $hrtScan.Length -gt 0 -and $hrtSp
     'host-runtime: EvaluateModuleUpdateCheck, BlockedMonitors, DefaultSpeaker and PickDropSubject were all found')
 Assert-True ($hrtModuleCheck -cmatch 'ModuleUpdateScan\.FindUpdates\(\s*catalog, modules, Application\.ProductVersion, needsNewerApp\);') (
     'host-runtime: the weekly module check asks FindUpdates with the running host version, so it announces only what this host can run')
-Assert-True ($hrtScan -cmatch 'decider\.Offer\(hWnd, Rectangle\.FromLTRB\(r\.Left, r\.Top, r\.Right, r\.Bottom\), ExtendedStyle\(hWnd\)\);') (
-    "host-runtime: the fullscreen enumeration offers each window's extended style, so a click-through overlay passes to the window beneath")
+Assert-True ($hrtScan -cmatch 'decider\.Offer\(hWnd, Rectangle\.FromLTRB\(r\.Left, r\.Top, r\.Right, r\.Bottom\), ExtendedStyle\(hWnd\), IsFramedMaximised\(hWnd\)\);') (
+    "host-runtime: the fullscreen enumeration offers each window's extended style and whether it is a framed maximized window, so a click-through overlay passes to the window beneath and a maximized window is never fullscreen")
 $hrtBusyAt = $hrtDrop.IndexOf('if (!pet.IsBusy) eligible.Add(pet);')
 $hrtInViewAt = $hrtDrop.IndexOf('eligible = InViewOrAll(eligible, IsInView);')
 $hrtRoundRobinAt = $hrtDrop.IndexOf('dropSubjectCursor = (dropSubjectCursor + 1) % eligible.Count;')
