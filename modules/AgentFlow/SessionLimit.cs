@@ -436,6 +436,14 @@ namespace DesktopAICompanion.AgentFlow
             return true;
         }
 
+        /// <summary>Make the next <see cref="DueToRead"/> true whatever the interval says (N-audit-1106-094): the tick
+        /// calls this while VS Code's port is not answering, so the first tick that finds it again reads the panels.
+        /// Only when to read moves; who was asked, and what was said, stay as they were.</summary>
+        internal void ReadOnNextLook()
+        {
+            _lastRead = DateTimeOffset.MinValue;
+        }
+
         internal LimitPlan Plan(IList<PanelUsage> panels, DateTimeOffset now, int threshold)
         {
             var plan = new LimitPlan();

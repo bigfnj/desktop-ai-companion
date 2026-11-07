@@ -82,6 +82,11 @@ namespace DesktopAICompanion.AgentFlow
         /// <summary>UI thread. The tray row's text from the last panel read; empty until there is one.</summary>
         private string _limitTray = "";
 
+        /// <summary>The pane rows and the tray row once VS Code's port has stopped answering (N-audit-1106-094): the
+        /// tick writes these in place of the last reading, which nothing can refresh until the port is back.</summary>
+        internal const string LimitNotAnsweringLine = "Not read: VS Code is not answering.";
+        internal const string LimitNotAnsweringTray = "Session limit: not read (VS Code is not answering)";
+
         /// <summary>
         /// The tray row, evaluated on every menu open (the owner's request of 2026-10-16: "in our tray menu can we add a
         /// line Session Limit: 12%"). A snapshot of the last read, like every tray text a module can give.
@@ -153,14 +158,25 @@ namespace DesktopAICompanion.AgentFlow
                     results.Add(PanelNote(panel, result));
                 }
                 string reading = SessionLimit.Describe(session, now, LimitZone);
-                if (results.Count > 0)
-                    outcome.Log.Add("session limit " + reading + ": asked " + plan.SendTo.Count.ToString(CultureInfo.InvariantCulture)
-                                    + " working panel(s) to pause and resume (" + string.Join(", ", results.ToArray()) + ")");
+                // The panels ASKED, not the panels planned (N-audit-1106-106). The loop above stops at its last look, so a
+                // step cut short by the switch, the mode or shutdown said it had asked panels it never typed into, and with
+                // none asked the notice said "I asked 1 working session" beside a log line saying none was working.
+                int asked = results.Count;
+                int notAsked = plan.SendTo.Count - asked;
+                string stopped = notAsked > 0
+                    ? "; stopped before " + notAsked.ToString(CultureInfo.InvariantCulture)
+                      + " more: pausing was switched off, the mode stopped acting, or AgentFlow began shutting down"
+                    : "";
+                if (asked > 0)
+                    outcome.Log.Add("session limit " + reading + ": asked " + asked.ToString(CultureInfo.InvariantCulture)
+                                    + " working panel(s) to pause and resume (" + string.Join(", ", results.ToArray()) + ")" + stopped);
+                else if (notAsked > 0)
+                    outcome.Log.Add("session limit " + reading + ": asked no panel" + stopped);
                 if (plan.NoticeSession)
                 {
                     _limitWatch.NoticedSession(resetsAt);
-                    outcome.Notice = SessionNotice(session, accepted, plan.SendTo.Count, OutsideVsCode(live), now);
-                    if (results.Count == 0)
+                    outcome.Notice = SessionNotice(session, accepted, asked, notAsked, OutsideVsCode(live), now);
+                    if (plan.SendTo.Count == 0)
                         outcome.Log.Add("session limit " + reading + ": no Claude Code panel was working, so nothing was asked");
                 }
             }
@@ -178,20 +194,32 @@ namespace DesktopAICompanion.AgentFlow
             return outcome;
         }
 
-        /// <summary>The companion's sentence when the session limit crosses the threshold. Pure, for the self-test.</summary>
+        /// <summary>The companion's sentence when the session limit crosses the threshold, with nobody left unasked. Pure,
+        /// for the self-test.</summary>
         internal static string SessionNotice(LimitReading session, int accepted, int asked, int outside, DateTimeOffset now)
+        {
+            return SessionNotice(session, accepted, asked, 0, outside, now);
+        }
+
+        /// <summary>As above; <paramref name="notAsked"/> working sessions were planned and not asked, because the step's
+        /// last look stopped it (N-audit-1106-106). When the notice is heard at all, that was the pause switch: Log and Off
+        /// deliver no notice, and shutdown drops it.</summary>
+        internal static string SessionNotice(LimitReading session, int accepted, int asked, int notAsked, int outside, DateTimeOffset now)
         {
             string head = "Your Claude session limit is at " + SessionLimit.Whole(session.Percent) + " % and resets "
                           + (session.ResetIsEstimate ? "by about " : "at ")
                           + TimeZoneInfo.ConvertTime(session.ResetsAt.Value, LimitZone ?? TimeZoneInfo.Local)
                               .ToString("HH:mm", CultureInfo.InvariantCulture) + ".";
             string body;
-            if (asked == 0) body = " No Claude Code session in VS Code was working, so I asked nobody to pause.";
+            if (asked == 0 && notAsked > 0) body = " Pausing was switched off before I asked any working session.";
+            else if (asked == 0) body = " No Claude Code session in VS Code was working, so I asked nobody to pause.";
             else if (accepted == asked)
                 body = " I asked " + Count(asked, "working session") + " to stop at a safe point and resume after the reset.";
             else
                 body = " I asked " + Count(asked, "working session") + " to stop at a safe point and resume after the reset; "
                        + (asked - accepted).ToString(CultureInfo.InvariantCulture) + " did not take the message yet.";
+            if (asked > 0 && notAsked > 0)
+                body += " Pausing was switched off before I asked " + Count(notAsked, "more working session") + ".";
             if (outside > 0)
                 body += " " + Count(outside, "Claude session") + " outside VS Code " + (outside == 1 ? "is" : "are")
                         + " yours to pause: AgentFlow cannot type there.";

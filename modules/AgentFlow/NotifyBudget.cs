@@ -79,6 +79,15 @@ namespace DesktopAICompanion.AgentFlow
         /// <summary>True while the death-loop guard is holding notifications back.</summary>
         public bool IsPaused(DateTime nowUtc) { return nowUtc < _pausedUntilUtc; }
 
+        /// <summary>Why a notice is held while <see cref="IsPaused"/>: the transcript path's refusal and the screen path's
+        /// held-back line say it in the same words (N-audit-1106-098). Null when not paused.</summary>
+        public string PausedReason(DateTime nowUtc)
+        {
+            if (!IsPaused(nowUtc)) return null;
+            return "death-loop guard is paused until "
+                   + _pausedUntilUtc.ToString("HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture) + "Z";
+        }
+
         /// <summary>
         /// Enter the pause directly, for tests about what the pause SUPPRESSES.
         ///
@@ -131,11 +140,10 @@ namespace DesktopAICompanion.AgentFlow
                 refusal = "not blocked";
                 return false;
             }
-            if (IsPaused(nowUtc))
+            string paused = PausedReason(nowUtc);
+            if (paused != null)
             {
-                refusal = "death-loop guard is paused until "
-                          + _pausedUntilUtc.ToString("HH:mm:ss",
-                                System.Globalization.CultureInfo.InvariantCulture) + "Z";
+                refusal = paused;
                 return false;
             }
             string key = KeyFor(detection);

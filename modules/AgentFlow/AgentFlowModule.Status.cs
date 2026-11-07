@@ -102,6 +102,25 @@ namespace DesktopAICompanion.AgentFlow
         /// </summary>
         internal static string SessionsLine(List<Detection> results)
         {
+            return SessionsLine(results, true, true);
+        }
+
+        /// <summary>
+        /// As above, saying which agent was not counted (N-audit-1106-107). A Watch switch that is off means the scan never
+        /// read that agent's transcripts, so "None active" or a count without it was not a fact about it; the Codex usage
+        /// row beside this one already said "Not read: Watch Codex is off." for the same situation. Pure.
+        /// </summary>
+        internal static string SessionsLine(List<Detection> results, bool watchClaude, bool watchCodex)
+        {
+            if (!watchClaude && !watchCodex) return "Not watched: Watch Claude Code and Watch Codex are both off.";
+            string line = CountedSessionsLine(results);
+            if (!watchClaude) line += " Claude Code not counted: Watch Claude Code is off.";
+            if (!watchCodex) line += " Codex not counted: Watch Codex is off.";
+            return line;
+        }
+
+        private static string CountedSessionsLine(List<Detection> results)
+        {
             if (results == null || results.Count == 0)
                 return "None active in the last " + ((int)(ActiveWindowSeconds / 60)).ToString(CultureInfo.InvariantCulture) + " minutes.";
             var order = new List<string>();

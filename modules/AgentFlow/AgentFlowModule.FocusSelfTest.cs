@@ -623,6 +623,18 @@ namespace DesktopAICompanion.AgentFlow
                         && ticket.Failed.Count == 0
                         && CountLoggedContaining(host.LoggedLines, FocusGuardUnconfirmedNote(CdpApprover.AgentCodex)) == 1
                         && CountLoggedContaining(host.LoggedLines, "could not be installed") == 0);
+                    // N-audit-1106-101: the once-per-panel set forgets a panel that has closed. The sweep's ticket lists
+                    // both panels; a later sweep that lists neither (both closed) must leave nothing held.
+                    int heldOpen = module.GuardDegradedHeldForSelfTest;
+                    probe.Check("WITNESS (N-audit-1106-101) the sweep's ticket lists every agent panel it found, and the unconfirmed "
+                                + "panel is held while it is listed (" + string.Join(",", ticket.Listed.ToArray()) + "; "
+                                + heldOpen.ToString(CultureInfo.InvariantCulture) + " held)",
+                        ticket.Listed.Count == 2 && ticket.Listed.Contains("A") && ticket.Listed.Contains("C") && heldOpen == 1);
+                    module.LogFocusGuardOutcome(new FocusGuardTicket { LeaseMs = 60000 });
+                    probe.Check("(N-audit-1106-101) a panel reported as not protected is forgotten once no sweep lists it ("
+                                + heldOpen.ToString(CultureInfo.InvariantCulture) + " then "
+                                + module.GuardDegradedHeldForSelfTest.ToString(CultureInfo.InvariantCulture) + " held)",
+                        module.GuardDegradedHeldForSelfTest == 0);
                 }
             }
             return true;

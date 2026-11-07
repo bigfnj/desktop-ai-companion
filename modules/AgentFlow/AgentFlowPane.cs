@@ -442,9 +442,10 @@ namespace DesktopAICompanion.AgentFlow
             // never consulted and a pet the user owns but has not spawned could not be chosen at
             // all. Reported against v1.2.4: "agentflow pet does not see pearl", with Hornet on
             // screen. The on-screen ones are added first so the likely choice stays near the top.
-            foreach (CompanionTypeInfo type in InstalledPets())
+            IReadOnlyList<CompanionTypeInfo> installed = InstalledPets();
+            foreach (CompanionTypeInfo type in installed)
             {
-                string display = PetDisplay(type);
+                string display = PetRow(type, installed);
                 if (display.Length > 0 && display != PetAnimations.AnyPet
                     && !choices.Contains(display))
                     choices.Add(display);
@@ -526,6 +527,27 @@ namespace DesktopAICompanion.AgentFlow
         }
 
         /// <summary>
+        /// The dropdown row for an installed pet: its display name, with its type id after it when another installed pet
+        /// shows the same name (N-audit-1106-109). The display name is the animations.xml header's, and nothing makes it
+        /// unique, so two pets called the same were one row: only the first could be chosen, and a stored choice of the
+        /// second came back as the first on the next Apply, because PetTypeIdFor answered the first match. A unique name
+        /// keeps its plain row, so nothing changes for the usual install. Pure, over the list the caller fetched once
+        /// (F042: every fetch is a header read per pet).
+        /// </summary>
+        internal static string PetRow(CompanionTypeInfo type, IReadOnlyList<CompanionTypeInfo> installed)
+        {
+            string display = PetDisplay(type);
+            if (display.Length == 0 || installed == null) return display;
+            foreach (CompanionTypeInfo other in installed)
+            {
+                if (other == null || string.Equals(other.TypeId, type.TypeId, StringComparison.OrdinalIgnoreCase)) continue;
+                if (string.Equals(PetDisplay(other), display, StringComparison.OrdinalIgnoreCase))
+                    return display + " (" + type.TypeId + ")";
+            }
+            return display;
+        }
+
+        /// <summary>
         /// The row for a chosen pet that is no longer installed: its id, marked (RA-041). The
         /// "keep a previously chosen pet" rule in PetChoices used PetDisplayFor, which only ever
         /// yields the displays the installed loop had already listed, so the rule could never add a
@@ -554,9 +576,12 @@ namespace DesktopAICompanion.AgentFlow
         {
             if (string.IsNullOrEmpty(display) || display == PetAnimations.AnyPet)
                 return PetAnimations.AnyPet;
-            foreach (CompanionTypeInfo type in InstalledPets())
+            // By the ROW, which is unique among installed pets (N-audit-1106-109), not by the display name, which is not.
+            IReadOnlyList<CompanionTypeInfo> installed = InstalledPets();
+            foreach (CompanionTypeInfo type in installed)
             {
-                if (string.Equals(PetDisplay(type), display, StringComparison.OrdinalIgnoreCase)
+                if (type == null) continue;
+                if (string.Equals(PetRow(type, installed), display, StringComparison.OrdinalIgnoreCase)
                     || string.Equals(type.TypeId, display, StringComparison.OrdinalIgnoreCase))
                     return type.TypeId ?? PetAnimations.AnyPet;
             }
@@ -572,9 +597,10 @@ namespace DesktopAICompanion.AgentFlow
         {
             if (string.IsNullOrEmpty(typeId) || typeId == PetAnimations.AnyPet)
                 return PetAnimations.AnyPet;
-            foreach (CompanionTypeInfo type in InstalledPets())
-                if (string.Equals(type.TypeId, typeId, StringComparison.OrdinalIgnoreCase))
-                    return PetDisplay(type);
+            IReadOnlyList<CompanionTypeInfo> installed = InstalledPets();
+            foreach (CompanionTypeInfo type in installed)
+                if (type != null && string.Equals(type.TypeId, typeId, StringComparison.OrdinalIgnoreCase))
+                    return PetRow(type, installed);
             return PetAnimations.AnyPet;
         }
 

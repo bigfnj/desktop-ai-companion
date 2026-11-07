@@ -359,6 +359,15 @@ namespace DesktopAICompanion.AgentFlow
                             afterOff != null && afterOff.Notice != null);
                         probe.Check("WITNESS the last look: with the switch turned off the step types into no panel",
                             late.LastSendExpression == null);
+                        // N-audit-1106-106: none asked is not "nobody was working", and not "I asked 1".
+                        string offLog = afterOff != null ? string.Join(" | ", afterOff.Log.ToArray()) : "";
+                        probe.Check("session limit: (N-audit-1106-106) a step stopped before its first panel says so, and claims no "
+                                    + "panel asked and no idle panel (" + offLog + ")",
+                            afterOff != null && afterOff.Notice != null
+                            && afterOff.Notice.IndexOf("Pausing was switched off before I asked any working session.", StringComparison.Ordinal) > 0
+                            && afterOff.Notice.IndexOf("I asked 1", StringComparison.Ordinal) < 0
+                            && offLog.IndexOf("asked no panel; stopped before 1 more", StringComparison.Ordinal) > 0
+                            && offLog.IndexOf("no Claude Code panel was working", StringComparison.Ordinal) < 0);
                     }
 
                     // N-audit-1106-007: Log mode ("never speaks, never presses") with the switch still ON from Notify. The
@@ -384,6 +393,44 @@ namespace DesktopAICompanion.AgentFlow
                         !LimitMayType(true, AgentMode.Log) && !LimitMayType(true, AgentMode.Off)
                         && LimitMayType(true, AgentMode.Notify) && LimitMayType(true, AgentMode.AutoApprove)
                         && !LimitMayType(false, AgentMode.Notify));
+
+                    // N-audit-1106-106: two working panels planned, the switch unticked as the first message goes in. The
+                    // log and the notice counted the panels PLANNED, so they said two were asked when one was.
+                    module.SetMode(AgentMode.Notify);
+                    module.SavePaneValues(new Dictionary<string, string> { { SettingPauseAtLimit, "true" } });
+                    string cutJson = eventJson.Replace(r, now.AddHours(20).ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture))
+                                              .Replace(at, now.AddHours(17).ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture));
+                    int sends = 0;
+                    AgentFlowModule unticking = module;
+                    Func<string, string> page = expression =>
+                    {
+                        if (expression.IndexOf("new KeyboardEvent(", StringComparison.Ordinal) >= 0)
+                        {
+                            sends++;
+                            unticking._settings.Set(SettingPauseAtLimit, "false");   // the user unticks it now
+                            return "sent";
+                        }
+                        if (expression.IndexOf("not-accepted", StringComparison.Ordinal) >= 0) return "accepted";
+                        return cutJson;
+                    };
+                    var cutFirst = new FakeCdpServer.Target { Id = "CUTPANEL1", Url = "vscode-webview://u?" + CdpApprover.ClaudeTargetMarker, Evaluator = page };
+                    var cutSecond = new FakeCdpServer.Target { Id = "CUTPANEL2", Url = "vscode-webview://t?" + CdpApprover.ClaudeTargetMarker, Evaluator = page };
+                    using (var server = new FakeCdpServer(new[] { cutFirst, cutSecond }))
+                    {
+                        LimitClock = () => now.AddHours(17).AddMinutes(1);
+                        LimitOutcome cut = module.WatchSessionLimit(server.Port, true, 90, null);
+                        string cutLog = cut != null ? string.Join(" | ", cut.Log.ToArray()) : "";
+                        probe.Check("WITNESS session limit: (N-audit-1106-106) both panels were due and the step typed into one before the "
+                                    + "switch went off (" + sends.ToString(CultureInfo.InvariantCulture) + " send(s))",
+                            sends == 1 && cut != null && cut.Notice != null);
+                        probe.Check("session limit: (N-audit-1106-106) the log and the notice count the one panel asked, not the two "
+                                    + "planned, and say the step stopped (" + cutLog + ")",
+                            cut != null && cut.Notice != null
+                            && cutLog.IndexOf(": asked 1 working panel(s)", StringComparison.Ordinal) > 0
+                            && cutLog.IndexOf("stopped before 1 more", StringComparison.Ordinal) > 0
+                            && cut.Notice.IndexOf("I asked 1 working session to stop", StringComparison.Ordinal) > 0
+                            && cut.Notice.IndexOf("Pausing was switched off before I asked 1 more working session.", StringComparison.Ordinal) > 0);
+                    }
                     module.Shutdown();
                 }
             }

@@ -5652,8 +5652,8 @@ staging files and the lock file stay silent, as temp. The rollback line (-03) ha
 drives it: a folder holding the second pack's name makes the commit fail after the first pack landed.
 
 **AgentFlow's inline tick is a seam, not a mode (N-agentflow-enhancements-01).** `RunTickInlineForSelfTest` and
-`TickClockForSelfTest` are set by `SelfCheckTickBeat` alone; everywhere else the worker runs on the pool and the beat
-reads `Environment.TickCount64`, as before.
+`TickClockForSelfTest` are set by `SelfCheckTickBeat` and, since N-audit-1106-094, `SelfCheckLimitWhenPortGone`, and by
+no other code; everywhere else the worker runs on the pool and the beat reads `Environment.TickCount64`, as before.
 
 **Reminder: the Do Not Disturb half is unverified (N-tray-questions-03).** `QUNS_QUIET_TIME` is Windows' quiet period
 after setup or a feature update, and the comments now say so. The pane's label "Stay quiet while presenting or in Do Not

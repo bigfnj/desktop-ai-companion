@@ -202,7 +202,22 @@ namespace DesktopAICompanion.AgentFlow
                                  //        on or off from the options pane now does what the tray row does: it clears
                                  //        a stand-down, so off and on again is a retry as the stand-down message says,
                                  //        and the status waits for a fresh check before showing green
-                                 //        (N-audit-1106-099, -100).
+                                 //        (N-audit-1106-099, -100). While VS Code is not answering, the Status card,
+                                 //        the Session limit card and the tray say the session limit was not read
+                                 //        instead of keeping the last figure, and the first check after it answers
+                                 //        again reads the panels at once (N-audit-1106-094). Unticking "for all
+                                 //        projects" or "Allow similar commands" now reaches a check already under way,
+                                 //        at the next prompt it decides (N-audit-1106-095). A screen notice held back
+                                 //        by the automatic pause after five notices in ten minutes is said in the log
+                                 //        (N-audit-1106-098). The tray's "Auto-approve is on" names the wider row you
+                                 //        ticked instead of promising single-call approvals only (N-audit-1106-102).
+                                 //        The session-limit log line and notice count the panels actually asked, and
+                                 //        say so when pausing was switched off part way (N-audit-1106-106). The Status
+                                 //        card's sessions row says which agent was not counted when its Watch box is
+                                 //        off (N-audit-1106-107). Two installed pets with the same name are two rows
+                                 //        in the pet dropdown, each with its id, and either can be chosen and kept
+                                 //        (N-audit-1106-109). Panels that closed no longer stay in the focus guard's
+                                 //        once-per-panel memory (N-audit-1106-101).
                                  // 1.12.3: agent cards no longer take focus while you work elsewhere (the owner's
                                  //        report of 2026-11-02; built with Codex's audit and review rounds, and a live
                                  //        re-test after the first version missed a Codex approval card taking focus as
@@ -665,6 +680,7 @@ namespace DesktopAICompanion.AgentFlow
             _budget.SetCooldownSeconds(CooldownSeconds);
             _pressBudget.SetPressLimit(PressLimit);
             _pressArmed = AutoApprove;
+            MirrorWiderOptIns();
 
             // Captured here because Init runs on the host's UI thread. The scan runs on a worker
             // and must never touch IHost from there -- every service on that interface is
@@ -1055,6 +1071,9 @@ namespace DesktopAICompanion.AgentFlow
                     // re-read the switch until then (F026).
                     var pass = new SweepPass(cdpPort, mayPress, allProjects, similar, _pressBudget, StillArmed);
                     pass.GuardFocus = guardTicket;
+                    // ...and the two wider-grant opt-ins get the same last look (N-audit-1106-095).
+                    pass.AllProjectsNow = StillAllProjects;
+                    pass.SimilarNow = StillSimilar;
                     // Owned from before the first install can land, so Shutdown and the off path see it (round 5).
                     if (guardTicket != null) _focusGuardOn = true;
                     ScreenPrompt found = null;
@@ -1104,6 +1123,13 @@ namespace DesktopAICompanion.AgentFlow
                     try { limit = WatchSessionLimit(cdpPort, pauseAtLimit, pauseAtPercent, results ?? _lastScanResults); }
                     catch (Exception exception) { limit = new LimitOutcome(); limit.Log.Add("the session-limit watch could not finish (" + exception.GetType().Name + ")"); }
                 }
+                else
+                {
+                    // No port, no reading, and the rows say so on the UI thread below (N-audit-1106-094). So the first
+                    // tick that finds the port again reads the panels at once instead of up to a minute later: the
+                    // rows would otherwise go on saying VS Code is not answering beside a green connection row.
+                    _limitWatch.ReadOnNextLook();
+                }
 
                 // Posted unconditionally, unlike the detections. A scan that threw left
                 // results null, and the port state used to be inside that guard -- so one
@@ -1132,7 +1158,18 @@ namespace DesktopAICompanion.AgentFlow
                         _panelReadable = panelUp;
                         // The Status card (1.7.0): when this tick reported, and no panel census once the port is gone.
                         _lastCheckedAt = DateTimeOffset.Now;
-                        if (!portUp) _panelsLine = "";
+                        if (!portUp)
+                        {
+                            _panelsLine = "";
+                            // ...and no session-limit figure either (N-audit-1106-094). These two were left alone, so the
+                            // Status card, the Session limit card and the tray went on showing the last figure and its
+                            // reset beside a red connection row, for as long as VS Code stayed away and past that reset.
+                            // Said as not read, the way the panel row and the Off row say it, rather than kept with a
+                            // "last read at" stamp: a percentage from before a reset that has since passed is wrong, not
+                            // old, and the panel census beside it already set this precedent in 1.7.0.
+                            _limitLine = LimitNotAnsweringLine;
+                            _limitTray = LimitNotAnsweringTray;
+                        }
                         // Immediately after the flags and before anything else this tick, so a
                         // capability change is logged ahead of whatever it caused or prevented.
                         LogCapabilityChange();
@@ -1580,7 +1617,16 @@ namespace DesktopAICompanion.AgentFlow
         /// cooldown budget for a good reason: a prompt is either there or it is not, so there is no
         /// rate to limit, only a repeat to avoid.
         ///
-        /// Honours the pause, because a user who silenced the companion meant all of it -- and
+        /// Honours NotifyBudget's pause, which is the DEATH-LOOP guard and nothing else: no user
+        /// action pauses this module, so the old reason here ("a user who silenced the companion
+        /// meant all of it") described a pause that does not exist (N-audit-1106-098). The guard
+        /// closes on its own when the transcript path delivers five notices inside ten minutes, and
+        /// stays closed for thirty. This path honours it because the loop that trips it on the
+        /// transcripts is the same loop on screen -- a prompt answered and back again -- and this
+        /// path has no cooldown of its own, only the once-per-prompt guard that the screen going
+        /// quiet re-arms. A screen notice it holds is said in the log, once per prompt, in the
+        /// transcript path's words, so a silence the user asks about has a line behind it.
+        ///
         /// CHECKS THE PAUSE BEFORE SPENDING THE ONE-SHOT. Marking the prompt announced and then
         /// returning burned the single announcement this prompt will ever get on a tick that
         /// delivered nothing, so a prompt that appeared during a pause stayed silent for the rest
@@ -1591,7 +1637,12 @@ namespace DesktopAICompanion.AgentFlow
             if (seen == null) { _announcedScreenPrompt = null; _lastScreenHeldBack = null; return; }   // screen quiet: re-arm
             if (_host == null || _shuttingDown) return;
             if (string.Equals(seen.Signature, _announcedScreenPrompt, StringComparison.Ordinal)) return;
-            if (_budget != null && _budget.IsPaused(DateTime.UtcNow)) return;
+            string paused = _budget != null ? _budget.PausedReason(DateTime.UtcNow) : null;
+            if (paused != null)
+            {
+                LogScreenHeldBack("held back a screen notice about " + seen.Subject + ": " + paused);
+                return;
+            }
 
             // The same three channels as the transcript notice, and the same rule about the one-shot
             // (RA-025, RA-026). This honoured speech alone, so a user with the chime on and speech off
@@ -1602,12 +1653,7 @@ namespace DesktopAICompanion.AgentFlow
             Delivery delivery = Deliver(seen.Notice ?? ("Something is waiting for you: " + seen.Subject + "."));
             if (delivery.Wanted && !delivery.Delivered)
             {
-                string heldBack = "held back a screen notice about " + seen.Subject + ": " + delivery.Undelivered;
-                if (!string.Equals(heldBack, _lastScreenHeldBack, StringComparison.Ordinal))
-                {
-                    _lastScreenHeldBack = heldBack;
-                    Log(heldBack);
-                }
+                LogScreenHeldBack("held back a screen notice about " + seen.Subject + ": " + delivery.Undelivered);
                 return;
             }
             _lastScreenHeldBack = null;
@@ -1615,6 +1661,15 @@ namespace DesktopAICompanion.AgentFlow
             Log(seen.Notice
                 ?? ("a prompt is waiting on screen for " + seen.Subject
                     + " and nothing pressed it"));
+        }
+
+        /// <summary>A held screen notice, written once per distinct line: the pause and a channel with nobody to
+        /// hear it each hold a standing prompt every tick until it clears (N-audit-1106-098 added the pause).</summary>
+        private void LogScreenHeldBack(string heldBack)
+        {
+            if (string.Equals(heldBack, _lastScreenHeldBack, StringComparison.Ordinal)) return;
+            _lastScreenHeldBack = heldBack;
+            Log(heldBack);
         }
 
         /// <summary>The last "held back a screen notice" line written, so a prompt that stands with nobody
@@ -1961,7 +2016,8 @@ namespace DesktopAICompanion.AgentFlow
             _status = DescribeStatus(results.Count, blocked, stoodDown, waitingApps, waitingUnnamed);
             _lastSessions = results.Count;
             _lastStoodDown = stoodDown;
-            _sessionsLine = SessionsLine(results);   // the Status card's row (1.7.0)
+            // The Status card's row (1.7.0), saying which agent the scan was told not to read (N-audit-1106-107).
+            _sessionsLine = SessionsLine(results, WatchClaude, WatchCodex);
             // ...and its Codex usage row (1.10.0), from the same scan: the figures ride in the rollouts, so no port is needed.
             _codexLine = CodexStatusLine(results, WatchCodex, LimitClock(), PauseAtLimit, PauseAtPercent);
 
@@ -2468,6 +2524,9 @@ namespace DesktopAICompanion.AgentFlow
                 }
                 _settings.Set(entry.Key, entry.Value);
             }
+            // The two wider-grant boxes are written by the generic Set above, so their mirrors follow here, for a sweep
+            // already in flight to see at its last look (N-audit-1106-095).
+            MirrorWiderOptIns();
             bool ok = _settings.Save();
             // A changed cooldown has to reach the live budget, or the setting appears to do nothing
             // until the next launch. Mutate it IN PLACE: replacing the object here also replaced
@@ -2601,12 +2660,20 @@ namespace DesktopAICompanion.AgentFlow
         /// <summary>Panels already reported as not protected, so the degraded line is said once per panel (UI thread).</summary>
         private readonly HashSet<string> _guardDegradedSaid = new HashSet<string>(StringComparer.Ordinal);
 
+        /// <summary>How many panels the degraded-line guard holds, for the self-test: a bound nothing observes is not a bound.</summary>
+        internal int GuardDegradedHeldForSelfTest { get { return _guardDegradedSaid.Count; } }
+
         /// <summary>The degraded-install line (1.12.3): once per panel whose guard could not be installed, apart from a
         /// panel that is simply not ready; said again only after that panel was guarded in between (UI thread).</summary>
         internal void LogFocusGuardOutcome(FocusGuardTicket ticket)
         {
             if (ticket == null) return;
             foreach (string targetId in ticket.Installed) _guardDegradedSaid.Remove(targetId);
+            // A panel the sweep no longer lists has closed, and a CDP target id is never reused, so its entry could only
+            // ever be dead weight (N-audit-1106-101): this set grew by one per degraded panel for the life of the module,
+            // unlike PressBudget, whose EndSweep drops an unlisted panel's counts the same way. A sweep that listed
+            // nothing (port gone) forgets them all, which costs at most one repeated line for a panel still degraded.
+            _guardDegradedSaid.IntersectWith(ticket.Listed);
             foreach (KeyValuePair<string, string> failed in ticket.Failed)
                 if (_guardDegradedSaid.Add(failed.Key)) Log(FocusGuardDegradedNote(failed.Value));
             foreach (KeyValuePair<string, string> unknown in ticket.Unconfirmed)
@@ -2777,6 +2844,28 @@ namespace DesktopAICompanion.AgentFlow
         }
 
         /// <summary>
+        /// The two wider-grant opt-ins as of the last time the pane wrote them (N-audit-1106-095), for the same reason
+        /// <see cref="_pressArmed"/> mirrors the mode: the tick snapshots ApproveForAllProjects and ApproveSimilarCommands
+        /// on the UI thread before a sweep several round trips long, and the worker may not read the settings
+        /// dictionary. StillArmed re-checked only the mode, so a user who unticked "for all projects" while a prompt
+        /// was being read still had the rule-saving row pressed, and every Codex queue follow-up of that sweep took the
+        /// allow-similar row the same way. Written at Init and on every pane Save, the only writers of these two keys.
+        /// </summary>
+        private volatile bool _allProjectsWanted, _similarWanted;
+
+        private void MirrorWiderOptIns()
+        {
+            _allProjectsWanted = ApproveForAllProjects;
+            _similarWanted = ApproveSimilarCommands;
+        }
+
+        /// <summary>Is the for-all-projects row still wanted, right now? Read on the worker at each card's decision.</summary>
+        internal bool StillAllProjects() { return _allProjectsWanted; }
+
+        /// <summary>Is Codex's allow-similar row still wanted, right now? Read on the worker at each card's decision.</summary>
+        internal bool StillSimilar() { return _similarWanted; }
+
+        /// <summary>
         /// THE ONE WRITER of the mode, and of the flag that mirrors it (R-005). Three sites wrote
         /// `_settings.Set(SettingMode, ...)` and each remembered `_pressArmed` by hand a few lines
         /// later; the self-test pins those three, and a fourth writer that forgot -- a hotkey, a host
@@ -2808,12 +2897,14 @@ namespace DesktopAICompanion.AgentFlow
 
         /// <summary>Self-test seam (N-agentflow-enhancements-01): the monotonic milliseconds OnTick decides the
         /// transcript beat by, in place of Environment.TickCount64, so a test can step a minute in a few
-        /// milliseconds. Null, which everything but SelfCheckTickBeat leaves it, is the real clock.</summary>
+        /// milliseconds. Null, which everything but SelfCheckTickBeat and SelfCheckLimitWhenPortGone leaves it, is the
+        /// real clock.</summary>
         internal Func<long> TickClockForSelfTest;
 
         /// <summary>Self-test seam (N-agentflow-enhancements-01): run OnTick's worker on the calling thread instead
         /// of the pool, so one tick is one whole body that has finished when OnTick returns. Only SelfCheckTickBeat
-        /// sets it, over a transcript fixture, with the port probe pointed at an argv.json that does not exist.</summary>
+        /// (over a transcript fixture) and SelfCheckLimitWhenPortGone (N-audit-1106-094) set it, each with the port
+        /// probe pointed at an argv.json that does not exist.</summary>
         internal bool RunTickInlineForSelfTest;
 
         /// <summary>
@@ -2963,6 +3054,11 @@ namespace DesktopAICompanion.AgentFlow
             /// log writes each press on its own line.</summary>
             public readonly List<string> PressNotes = new List<string>();
 
+            /// <summary>The two wider-grant opt-ins as of NOW (N-audit-1106-095), asked at each card's decision; null is
+            /// "as snapshotted". Each can only narrow the tick's snapshot, never widen it: a box ticked mid-sweep takes
+            /// effect at the next tick, a box unticked mid-sweep takes effect at the next card.</summary>
+            public Func<bool> AllProjectsNow, SimilarNow;
+
             public SweepPass(int port, bool mayPress, bool allProjects, bool similar,
                              PressBudget budget, Func<bool> stillArmed)
             {
@@ -2983,7 +3079,13 @@ namespace DesktopAICompanion.AgentFlow
                 if (_budget != null && view != null) _budget.NoteSeen(view.TargetId, PressSignature(view));
                 string note;
                 if (_mayPress)
-                    note = Decide(_port, view, _budget, _allProjects, _similar, _stillArmed, out pressed);
+                {
+                    // The opt-ins at the last look, as the switch is (N-audit-1106-095): Decide chooses the row from
+                    // these and clicks with no round trip in between.
+                    bool allProjects = _allProjects && (AllProjectsNow == null || AllProjectsNow());
+                    bool similar = _similar && (SimilarNow == null || SimilarNow());
+                    note = Decide(_port, view, _budget, allProjects, similar, _stillArmed, out pressed);
+                }
                 else
                     note = "a prompt is waiting for " + ScreenSubject(view)
                            + "; auto-approve is off, so it was left alone";
@@ -3594,9 +3696,26 @@ namespace DesktopAICompanion.AgentFlow
             if (_host != null && _host.SpeechEnabled && AnyCompanionCanSpeak())
             {
                 _host.SayAll(next
-                    ? "Auto-approve is on. I will only press single-call approvals."
+                    ? AutoApproveOnSpeech(ApproveForAllProjects, ApproveSimilarCommands)
                     : "I will stop approving prompts.");
             }
+        }
+
+        /// <summary>
+        /// What the tray toggle says when auto-approve comes on (N-audit-1106-102). It said "I will only press
+        /// single-call approvals" whatever the two opt-in boxes held, so a user who had ticked "for all projects" heard
+        /// that promise and the next Bash prompt saved a permission rule. Same split as the pane's press card
+        /// (PressCardText, RA-043): the plain promise only when neither box is ticked. Pure, for the self-test.
+        /// </summary>
+        internal static string AutoApproveOnSpeech(bool allProjects, bool similar)
+        {
+            if (!allProjects && !similar) return "Auto-approve is on. I will only press single-call approvals.";
+            if (allProjects && similar)
+                return "Auto-approve is on. I will press single-call approvals, and Claude's for all projects row, which "
+                       + "saves a rule, or Codex's Allow similar commands row where a prompt offers one, because you ticked them.";
+            return "Auto-approve is on. I will press single-call approvals, and "
+                   + (allProjects ? "Claude's for all projects row, which saves a rule," : "Codex's Allow similar commands row")
+                   + " where a prompt offers it, because you ticked it.";
         }
 
         /// <summary>
@@ -3808,6 +3927,7 @@ namespace DesktopAICompanion.AgentFlow
                         SelfCheckCodexQueue,
                         SelfCheckFocusHold,
                         SelfCheckTickBeat,
+                        SelfCheckLimitWhenPortGone,
                         SelfCheckPendingEditsSurvivePetChange,
                         SelfCheckCacheBound,
                     };
@@ -5103,9 +5223,19 @@ namespace DesktopAICompanion.AgentFlow
                         }
                         else
                         {
-                            probe.Check("the real file already asks for a port, so the round trip "
-                                        + "restores that value rather than removing it",
-                                VsCodeSetup.ReadPort(VsCodeSetup.WithPort(restored, had)) == had);
+                            // The file already asks for a port, which is every machine AgentFlow was enabled on. This
+                            // branch used to re-apply WithPort to WithoutPort's output and read back the port it had
+                            // just written, so it asserted nothing about Disable (N-audit-1106-103). Disable is judged
+                            // on the real file itself: the key gone, the file still JSONC, every comment kept. Then the
+                            // byte-for-byte round trip above, from the file as Disable leaves it.
+                            string disabled = VsCodeSetup.WithoutPort(original);
+                            probe.Check("(N-audit-1106-103) Disable on the real file, which already asks for a port, removes the "
+                                        + "key, leaves the file parsing and keeps every comment",
+                                disabled != null && VsCodeSetup.ReadPort(disabled) == 0 && ParsesAsJsonc(disabled)
+                                && CountOccurrences(disabled, "//") == CountOccurrences(original, "//"));
+                            probe.Check("(N-audit-1106-103) ...and from there, enable-then-disable returns it BYTE FOR BYTE",
+                                disabled != null && string.Equals(
+                                    VsCodeSetup.WithoutPort(VsCodeSetup.WithPort(disabled, 9321)), disabled, StringComparison.Ordinal));
                         }
                     }
                 }
@@ -6045,6 +6175,33 @@ namespace DesktopAICompanion.AgentFlow
                     pressedOn && pressing.PressedAny && pressing.Unpressed.Count == 0);
             }
 
+            // N-audit-1106-095: the wider-grant opt-ins get the switch's last look. The tick snapshots both before a
+            // sweep several round trips long; a box unticked while the prompt is read must decide THIS card.
+            const string WiderJson = "{\"tool\":\"Bash\",\"header\":\"ls\",\"ext\":\"\",\"options\":[\"Yes\","
+                                     + "\"Yes, allow ls for all projects\",\"No\"]}";
+            using (var wider = new FakeCdpServer(new[]
+            {
+                new FakeCdpServer.Target { Id = "claude-1", Url = claudeUrl, EvaluateResult = WiderJson, ClickResult = "clicked" },
+            }))
+            {
+                PromptView offered = CdpApprover.Parse("claude-1", WiderJson);
+                offered.Agent = CdpApprover.AgentClaude;
+                var unticked = new SweepPass(wider.Port, true, true, false, new PressBudget(), () => true) { AllProjectsNow = () => false };
+                bool pressedUnticked;
+                string narrowed = unticked.Handle(offered, out pressedUnticked) ?? "";
+                probe.Check("(N-audit-1106-095) a for-all-projects box unticked while the prompt was read is honoured at the last "
+                            + "look: the one-call row is pressed, not the rule-saving one (" + narrowed + ")",
+                    pressedUnticked && narrowed.IndexOf("pressing option 1,", StringComparison.Ordinal) >= 0
+                    && narrowed.IndexOf("ALL PROJECTS", StringComparison.Ordinal) < 0);
+                var held = new SweepPass(wider.Port, true, true, false, new PressBudget(), () => true) { AllProjectsNow = () => true };
+                bool pressedHeld;
+                string widened = held.Handle(offered, out pressedHeld) ?? "";
+                probe.Check("WITNESS (N-audit-1106-095) ...and with the box still ticked the same prompt presses the for-all-projects "
+                            + "row (" + widened + ")",
+                    pressedHeld && widened.IndexOf("pressing option 2,", StringComparison.Ordinal) >= 0
+                    && widened.IndexOf("ALL PROJECTS", StringComparison.Ordinal) >= 0);
+            }
+
             // An expression that threw comes back with exceptionDetails. Evaluate must read that as no
             // answer rather than as a prompt -- a broken reader must never look like a live card --
             // and the sweep then reports the same "could not see" note as any other blind pass.
@@ -6393,15 +6550,23 @@ namespace DesktopAICompanion.AgentFlow
             probe.Check("WITNESS a different prompt is not the loop and is still pressed",
                 budget.TryPress(PromptSignature("Edit"), t0.AddSeconds(50), out refusal));
 
-            // The prompt going away is what success looks like; it clears the suspicion.
+            // The prompt going away is what success looks like; it clears the suspicion. Modelled the way the sweep
+            // does it since 1.11.0 (N-audit-1106-104): Handle marks the card seen and presses it, the sweep ends, and
+            // the NEXT sweep reads the panel without that card, which is what EndSweep drops. This called
+            // NotePromptCleared, which nothing in the shipped module calls, so it stayed green whatever EndSweep did.
             var cleared = new PressBudget();
+            var clearedPanel = new List<string> { "panel-1" };
             for (int i = 0; i < PressBudget.MaxIdenticalPresses; i++)
             {
-                cleared.TryPress(same, t0.AddSeconds(i), out refusal);
-                cleared.NotePromptCleared();
+                cleared.NoteSeen("panel-1", same);
+                cleared.TryPress("panel-1", same, t0.AddSeconds(i), out refusal);
+                cleared.EndSweep(clearedPanel, clearedPanel);   // the press's own sweep: the card was read, so it stays
+                cleared.EndSweep(clearedPanel, clearedPanel);   // the next sweep reads the panel and the card is gone
             }
-            probe.Check("WITNESS a prompt that goes away each time never trips the repeat cap",
-                cleared.TryPress(same, t0.AddSeconds(30), out refusal));
+            cleared.NoteSeen("panel-1", same);
+            probe.Check("WITNESS (N-audit-1106-104) a prompt that goes away each time never trips the repeat cap, through the "
+                        + "sweep's own EndSweep",
+                cleared.TryPress("panel-1", same, t0.AddSeconds(30), out refusal) && cleared.RepeatsHeld == 1);
 
             // ---- the rate limit, which is now the USER'S NUMBER ----------------------
             // Default first, because that is what decides whether the module interferes with
@@ -6489,18 +6654,23 @@ namespace DesktopAICompanion.AgentFlow
             // off on 2026-09-22.
             //
             // The signature is still label-based, deliberately -- the reader keeps command text
-            // out of PromptView on purpose. What changed is that a CONFIRMED click now clears the
-            // repeat counter, so the collision no longer accumulates. That is asserted here.
+            // out of PromptView on purpose. What tells the cards apart is the CARD in the signature (RA-023, BUG-017):
+            // each request renders in its own element, so each signs with its own id, and the sweep's EndSweep drops a
+            // card that has gone. This witness used to model a confirmed click as NotePromptCleared, which no shipped
+            // code has called since RA-049 (N-audit-1106-104); it now drives what PressSignature and the sweep do.
             var distinct = new PressBudget();
             string compound = PressBudget.Signature("Bash", new[] { "Yes", "No" });
+            var distinctPanel = new List<string> { "panel-1" };
             int through = 0;
             for (int i = 0; i < PressBudget.MaxIdenticalPresses + 4; i++)
             {
-                if (distinct.TryPress(compound, t0.AddSeconds(i * 10), out refusal)) through++;
-                distinct.NotePromptCleared();   // what a confirmed click now reports
+                string card = PressBudget.Signature("Bash", new[] { "Yes", "No" }, "", "card-" + i.ToString(CultureInfo.InvariantCulture));
+                distinct.NoteSeen("panel-1", card);
+                if (distinct.TryPress("panel-1", card, t0.AddSeconds(i * 10), out refusal)) through++;
+                distinct.EndSweep(distinctPanel, distinctPanel);
             }
-            probe.Check("WITNESS a run of compound-command prompts, which all sign alike, is not "
-                        + "mistaken for one stuck prompt once each click is confirmed",
+            probe.Check("WITNESS (N-audit-1106-104) a run of compound-command prompts, which all sign alike by their labels, is "
+                        + "not mistaken for one stuck prompt: each is its own card element",
                 through == PressBudget.MaxIdenticalPresses + 4);
 
             // And the guard still works for the thing it is FOR: clicks that never land.
@@ -8471,6 +8641,16 @@ namespace DesktopAICompanion.AgentFlow
                 int beforePaused = Spoken();
                 module.AnnounceScreenPrompt(third);
                 probe.Check("WITNESS a paused companion says nothing", Spoken() == beforePaused);
+                // N-audit-1106-098: the pause is the automatic death-loop guard, which the user never asked for, and this
+                // path held a screen notice under it with no line in the log. Twice, as two ticks would.
+                module.AnnounceScreenPrompt(third);
+                probe.Check("(N-audit-1106-098) a screen notice held by the death-loop pause is said in the log once, with the "
+                            + "pause's reason in the transcript path's words ("
+                            + CountLoggedContaining(host.LoggedLines, "held back a screen notice about a Codex command: death-loop guard is paused until")
+                                .ToString(CultureInfo.InvariantCulture) + " line(s))",
+                    CountLoggedContaining(host.LoggedLines,
+                        "held back a screen notice about a Codex command: death-loop guard is paused until") == 1
+                    && Spoken() == beforePaused);
 
                 module._budget.PauseForSelfTest(DateTime.MinValue);
                 module.AnnounceScreenPrompt(third);
@@ -9579,6 +9759,55 @@ namespace DesktopAICompanion.AgentFlow
                     !module.ApproveForAllProjects);
                 module.Shutdown();
             }
+
+            // N-audit-1106-095: the sweep's last look reads two volatile mirrors, so they have to follow the boxes. Seeded
+            // ON before Init (Init mirrors them), then unticked through the pane's Save, which is the only writer.
+            var mirrorHost = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+            using (var storage =
+                       new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-ap-mirror"))
+            {
+                mirrorHost.UseStorage("agentflow", storage);
+                mirrorHost.SettingsFor("agentflow").Set(SettingMode, AgentMode.Off);   // no scan at Init
+                mirrorHost.SettingsFor("agentflow").Set(SettingApproveAllProjects, "true");
+                mirrorHost.SettingsFor("agentflow").Set(SettingApproveSimilar, "true");
+                var module = new AgentFlowModule();
+                module.Init(mirrorHost);
+                bool atInit = module.StillAllProjects() && module.StillSimilar();
+                module.SavePaneValues(new Dictionary<string, string>
+                    { { SettingApproveAllProjects, "false" }, { SettingApproveSimilar, "false" } });
+                probe.Check("WITNESS (N-audit-1106-095) the sweep's last look starts from the stored boxes",
+                    atInit);
+                probe.Check("(N-audit-1106-095) ...and unticking them on the pane reaches it at once, for a sweep already in flight",
+                    !module.StillAllProjects() && !module.StillSimilar());
+                module.Shutdown();
+            }
+
+            // N-audit-1106-102: the tray toggle's spoken promise follows the boxes, as the pane's press card does.
+            var speechHost = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+            using (var storage =
+                       new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-ap-speech"))
+            {
+                AgentFlowModule module = SpeakingModule(speechHost, storage, AgentMode.Notify);
+                module._settings.Set(SettingApproveAllProjects, "true");
+                module.ToggleAutoApproveFromTray();   // Notify -> auto-approve, with the box ticked
+                string said = speechHost.SaidLines.Count > 0 ? speechHost.SaidLines[speechHost.SaidLines.Count - 1] : "";
+                probe.Check("(N-audit-1106-102) switching auto-approve on from the tray with the all-projects box ticked says it will "
+                            + "press that row, not that it only presses single-call approvals (" + said + ")",
+                    said == AutoApproveOnSpeech(true, false) && said.IndexOf("saves a rule", StringComparison.Ordinal) > 0
+                    && said.IndexOf("only press", StringComparison.Ordinal) < 0);
+                module.ToggleAutoApproveFromTray();   // off again
+                module._settings.Set(SettingApproveAllProjects, "false");
+                module.ToggleAutoApproveFromTray();
+                said = speechHost.SaidLines.Count > 0 ? speechHost.SaidLines[speechHost.SaidLines.Count - 1] : "";
+                probe.Check("WITNESS (N-audit-1106-102) ...and with neither box ticked it still makes the single-call promise (" + said + ")",
+                    said == "Auto-approve is on. I will only press single-call approvals.");
+                probe.Check("WITNESS (N-audit-1106-102) the Codex box alone, and both boxes, are named too",
+                    AutoApproveOnSpeech(false, true).IndexOf("Allow similar commands", StringComparison.Ordinal) > 0
+                    && AutoApproveOnSpeech(false, true).IndexOf("only press", StringComparison.Ordinal) < 0
+                    && AutoApproveOnSpeech(true, true).IndexOf("for all projects", StringComparison.Ordinal) > 0
+                    && AutoApproveOnSpeech(true, true).IndexOf("Allow similar commands", StringComparison.Ordinal) > 0);
+                module.Shutdown();
+            }
             return true;
         }
         /// <summary>
@@ -9724,6 +9953,33 @@ namespace DesktopAICompanion.AgentFlow
                 var none = new List<string>(module.PetChoicesForSelfTest());
                 probe.Check("WITNESS with no pet on screen the installed ones are offered",
                     none.Count == 3 && none.Contains("Pearl"));
+
+                // N-audit-1106-109: two installed pets whose animations.xml headers give the same name. Keyed by that name,
+                // only the first could be chosen, and a stored choice of the second came back as the first on Apply.
+                host.CompanionManager = new FakePets(
+                    new[] { "twin-one", "Twin", "twin-two", "Twin", "pink_sheep", "Pearl" },
+                    new[] { "twin-two" });
+                var twins = new List<string>(module.PetChoicesForSelfTest());
+                probe.Check("(N-audit-1106-109) two installed pets with the same name are two rows, each naming its pet ("
+                            + string.Join(", ", twins.ToArray()) + ")",
+                    twins.Contains("Twin (twin-one)") && twins.Contains("Twin (twin-two)") && !twins.Contains("Twin")
+                    && twins.Contains("Pearl"));
+                module._settings.Set(SettingAnimPet, "twin-two");
+                module._settings.Save();
+                IReadOnlyDictionary<string, string> shownTwin = Shown(pane);
+                pane.Save(new Dictionary<string, string> { { SettingAnimPet, shownTwin[SettingAnimPet] } });
+                probe.Check("(N-audit-1106-109) ...and a stored choice of the second is shown as itself and survives Apply (shown '"
+                            + shownTwin[SettingAnimPet] + "', stored '" + module._settings.Get(SettingAnimPet, "") + "')",
+                    shownTwin[SettingAnimPet] == "Twin (twin-two)" && module._settings.Get(SettingAnimPet, "") == "twin-two");
+                probe.Check("WITNESS (N-audit-1106-109) a name no other installed pet shares keeps its plain row",
+                    PetRow(new CompanionTypeInfo { TypeId = "pink_sheep", DisplayName = "Pearl" },
+                           new List<CompanionTypeInfo>
+                           {
+                               new CompanionTypeInfo { TypeId = "pink_sheep", DisplayName = "Pearl" },
+                               new CompanionTypeInfo { TypeId = "twin-one", DisplayName = "Twin" },
+                           }) == "Pearl");
+                module._settings.Set(SettingAnimPet, "");
+                module._settings.Save();
 
                 module.Shutdown();
             }
@@ -10012,7 +10268,7 @@ namespace DesktopAICompanion.AgentFlow
                 BlockedDetector.Evaluate(empty, rules, 30, now).Outcome
                     == DetectionOutcome.AdapterSuspect);
 
-            probe.Check("the OLDEST outstanding call is the blocker",
+            probe.Check("the OLDEST outstanding call is the blocker, listed between two newer ones (N-audit-1106-105)",
                 OldestIsChosen(rules, now));
 
             probe.Check("status text counts what is waiting",
@@ -10064,6 +10320,9 @@ namespace DesktopAICompanion.AgentFlow
                 SessionId = "s", SawAnyCall = true, LastWriteUtc = now.AddSeconds(-120),
                 Mode = "default",
             };
+            // The oldest BETWEEN two newer calls (N-audit-1106-105). Listed last, as it was, a detector that took the
+            // last-listed call passed, and in a real transcript the last-listed call is the newest. Here taking the
+            // first, taking the last and inverting the comparison each pick a different wrong call.
             session.Outstanding.Add(new OutstandingCall
             {
                 Id = "new", Tool = "Read", Command = null,
@@ -10073,6 +10332,11 @@ namespace DesktopAICompanion.AgentFlow
             {
                 Id = "old", Tool = "Bash", Command = "curl https://x",
                 StartedUtc = now.AddSeconds(-300), Mode = "default",
+            });
+            session.Outstanding.Add(new OutstandingCall
+            {
+                Id = "newer", Tool = "Read", Command = null,
+                StartedUtc = now.AddSeconds(-60), Mode = "default",
             });
             Detection detection = BlockedDetector.Evaluate(session, rules, 30, now);
             return detection.Call != null && detection.Call.Id == "old";
