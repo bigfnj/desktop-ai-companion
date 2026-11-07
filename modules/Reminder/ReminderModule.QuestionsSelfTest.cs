@@ -407,7 +407,7 @@ namespace DesktopAICompanion.ReminderModule
                     Id = "cal1", Label = "Work",
                     Source = new AggregateCalendarSource.StubSource(new[] { new CalendarEvent { Id = "m1", Start = t0 } }, null),
                 },
-            }).Fetch(), marks);
+            }).Fetch(), marks, t0);
             check("join mark: the prune keeps the mark of a meeting still in the feed and drops one whose meeting is gone",
                 marks.Contains("cal1|m1@join") && !marks.Contains("cal1|gone@join"));
             var loadingMarks = new HashSet<string>(new[] { "cal1|m1@join" }, StringComparer.Ordinal);
@@ -418,7 +418,7 @@ namespace DesktopAICompanion.ReminderModule
                     Id = "cal1", Label = "Work",
                     Source = new AggregateCalendarSource.StubSource(Array.Empty<CalendarEvent>(), "Loading the calendar…"),
                 },
-            }).Fetch(), loadingMarks);
+            }).Fetch(), loadingMarks, t0);
             check("join mark: a slot still loading keeps its marks, so a restart inside the window does not ask again",
                 loadingMarks.Contains("cal1|m1@join"));
         }

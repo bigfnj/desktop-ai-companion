@@ -368,6 +368,26 @@ namespace DesktopAICompanion.ReminderModule
 
         // --- one meeting, two copies ------------------------------------------------------------------
 
+        /// <summary>How long past its start a Zoom slot mark is kept while the slot cannot vouch for it (N-audit-1106-043,
+        /// see PruneFiredAgainstFeed). A mark stops mattering three minutes past the start; a day leaves room for a
+        /// clock set back and costs at most a day's meetings in the set.</summary>
+        internal static readonly TimeSpan SpentZoomMarkAge = TimeSpan.FromDays(1);
+
+        /// <summary>True when <paramref name="eventId"/> ("cal5|meetingNumber@startMinuteUtc", the spelling
+        /// <see cref="ZoomMeetingsSource.EventId"/> gives, which <see cref="ZoomAliasPairs"/> reuses) names a start more
+        /// than <see cref="SpentZoomMarkAge"/> before <paramref name="now"/>. An id that does not end in that round-trip
+        /// UTC minute is not judged by age at all, so it stays under the keep rule.</summary>
+        internal static bool IsSpentZoomMark(string eventId, DateTimeOffset now)
+        {
+            if (string.IsNullOrEmpty(eventId)) return false;
+            int at = eventId.LastIndexOf('@');
+            if (at < 0) return false;
+            DateTime start;
+            if (!DateTime.TryParseExact(eventId.Substring(at + 1), "o", CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out start)
+                || start.Kind != DateTimeKind.Utc) return false;
+            return new DateTimeOffset(start) + SpentZoomMarkAge < now;
+        }
+
         /// <summary>
         /// The id the Zoom slot gives (or would give) each calendar meeting that carries a Zoom join link: calendar
         /// event id -> "cal5|meetingNumber@startMinuteUtc", the same spelling <see cref="ZoomMeetingsSource.EventId"/>
