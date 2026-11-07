@@ -2788,6 +2788,29 @@ CASES = (
         "",
         "(N-fulltier-1107-03) a message to an existing Claude project is named",
     ),
+    (
+        "bd-w3-agentflow-1: a click that did not land carries the pressing reason again (N-audit-1106-096)",
+        MODULE,
+        '                   + ": " + (pressed ? decision.Reason : NotPressedReason(decision, outcome))\n',
+        '                   + ": " + decision.Reason\n',
+        "(N-audit-1106-096) a click that did not land says it did not press",
+    ),
+    (
+        "bd-w3-agentflow-1: the pane's auto-approve switch forgets nothing again (N-audit-1106-099, -100)",
+        MODULE,
+        "                    if (AgentMode.Presses(Mode) != pressedBefore) PressingSwitched();\n",
+        "                    if (false) PressingSwitched();\n",
+        ("(N-audit-1106-100) switching it on from the pane discards the last probe too",
+         "(N-audit-1106-099) switching it on from the pane clears a stand-down",
+         "(N-audit-1106-099) ...and so does switching it off from the pane"),
+    ),
+    (
+        "bd-w3-agentflow-1: every pane Save counts as an auto-approve switch (N-audit-1106-099, -100)",
+        MODULE,
+        "                    if (AgentMode.Presses(Mode) != pressedBefore) PressingSwitched();\n",
+        "                    if (true) PressingSwitched();\n",
+        "(N-audit-1106-099, -100) a pane Save that leaves the mode where it was forgets nothing",
+    ),
 )
 
 

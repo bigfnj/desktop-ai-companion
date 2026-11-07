@@ -192,7 +192,12 @@ namespace DesktopAICompanion.AgentFlow
                                  //        for the Status card and the tray. The log names the Claude Project message
                                  //        prompt that Claude Code 2.1.319 added (as a new project and its message, or a
                                  //        message to a project) instead of calling it an unrecognised prompt
-                                 //        (N-fulltier-1107-03).
+                                 //        (N-fulltier-1107-03). A click that did not land logs "did not press option
+                                 //        N" instead of "pressing option N" (N-audit-1106-096). Switching auto-approve
+                                 //        on or off from the options pane now does what the tray row does: it clears
+                                 //        a stand-down, so off and on again is a retry as the stand-down message says,
+                                 //        and the status waits for a fresh check before showing green
+                                 //        (N-audit-1106-099, -100).
                                  // 1.12.3: agent cards no longer take focus while you work elsewhere (the owner's
                                  //        report of 2026-11-02; built with Codex's audit and review rounds, and a live
                                  //        re-test after the first version missed a Codex approval card taking focus as
@@ -1264,7 +1269,27 @@ namespace DesktopAICompanion.AgentFlow
             // fingerprint in the signature is what tells the 1.4.0 collision apart now, and the
             // sweep that finds nothing is the one clear left. See PressBudget.NotePromptCleared.
             return "auto-approve " + outcome + " for " + DescribeSubject(view)
-                   + ": " + decision.Reason + (focusNote != null ? "; " + focusNote : "");
+                   + ": " + (pressed ? decision.Reason : NotPressedReason(decision, outcome))
+                   + (focusNote != null ? "; " + focusNote : "");
+        }
+
+        /// <summary>
+        /// The classifier's reason for a click that did NOT land: gone, moved or disabled (N-audit-1106-096).
+        /// Every reason a press can carry opens "pressing option N", so this note used to say a row was
+        /// pressed -- and, with an opt-in, that a rule was saved -- when nothing was clicked. It now says
+        /// "did not press option N (outcome)" and keeps the rest of the reason, which describes the option
+        /// rather than an action. A reason in a shape not seen yet keeps only the first half, so no wording
+        /// that claims a press can come through it.
+        /// </summary>
+        internal static string NotPressedReason(PromptDecision decision, string outcome)
+        {
+            string option = "option " + (decision.Index + 1).ToString(CultureInfo.InvariantCulture);
+            string said = "did not press " + option + " (" + outcome + ")";
+            string reason = decision.Reason ?? "";
+            string pressing = "pressing " + option;
+            return reason.StartsWith(pressing, StringComparison.Ordinal)
+                ? said + reason.Substring(pressing.Length)
+                : said;
         }
 
         /// <summary>
@@ -2415,7 +2440,16 @@ namespace DesktopAICompanion.AgentFlow
                 // is what fits in a pane and the id is what survives a reword.
                 if (entry.Key == SettingMode)
                 {
+                    bool pressedBefore = AgentMode.Presses(Mode);
                     SetMode(AgentMode.FromDisplay(entry.Value));
+                    // The pane's radio is the same switch as the tray's row, so moving it into or out
+                    // of auto-approve does what the tray does (N-audit-1106-099, -100): every stand-down
+                    // message tells the user that switching auto-approve off and on is how to try
+                    // again, and a probe from before the switch is no evidence about now. Only on a
+                    // change: Apply sends the mode with every Save, and an unrelated edit must neither
+                    // clear a stand-down nor turn a green row amber. Not inside SetMode, which the
+                    // self-test also calls to stage a mode without meaning "the user switched".
+                    if (AgentMode.Presses(Mode) != pressedBefore) PressingSwitched();
                     continue;
                 }
                 // Same split: the dropdown shows "Pearl", the setting stores the type id the
@@ -3545,7 +3579,27 @@ namespace DesktopAICompanion.AgentFlow
             if (!_settings.Save())
                 Log("the tray's auto-approve pick was not persisted (mode " + Mode + "), so it reverts at the next launch");
             Log("auto-approve turned " + (next ? "ON" : "OFF") + " from the tray");
+            PressingSwitched();
 
+            // Said out loud, because pressing buttons on someone's behalf is not a silent
+            // setting and the tray label is only visible while the menu is open. INTENT only:
+            // capability is the tray dot's job and the pane's, and one line of speech cannot
+            // report a fact that was just invalidated on the line above.
+            if (_host != null && _host.SpeechEnabled && AnyCompanionCanSpeak())
+            {
+                _host.SayAll(next
+                    ? "Auto-approve is on. I will only press single-call approvals."
+                    : "I will stop approving prompts.");
+            }
+        }
+
+        /// <summary>
+        /// What auto-approve switching on or off means beyond the mode itself, from the tray's row
+        /// or the pane's radio alike (one method since N-audit-1106-099, -100, when the pane was
+        /// found doing neither half).
+        /// </summary>
+        private void PressingSwitched()
+        {
             // Forget what the last probe said. Whatever was true before the switch moved is
             // not evidence about now. NOT because the port is probed only while auto-approve is
             // on -- that premise went in 1.3.1, when probing started following Scans(Mode), so
@@ -3559,17 +3613,6 @@ namespace DesktopAICompanion.AgentFlow
             _panelReadable = false;
             // The switch moving is the user saying "try again", which clears a stand-down.
             _resetPressBudget = true;
-
-            // Said out loud, because pressing buttons on someone's behalf is not a silent
-            // setting and the tray label is only visible while the menu is open. INTENT only:
-            // capability is the tray dot's job and the pane's, and one line of speech cannot
-            // report a fact that was just invalidated on the line above.
-            if (_host != null && _host.SpeechEnabled && AnyCompanionCanSpeak())
-            {
-                _host.SayAll(next
-                    ? "Auto-approve is on. I will only press single-call approvals."
-                    : "I will stop approving prompts.");
-            }
         }
 
         internal void SetEnabledFromTray(bool enabled)
@@ -5355,6 +5398,34 @@ namespace DesktopAICompanion.AgentFlow
                     && module.AutoApproveState == ApproveState.CannotSee);
                 module.ToggleAutoApproveFromTray();
 
+                // The PANE's radio is the same switch (N-audit-1106-099, -100). It cleared neither the
+                // last probe nor a stand-down, although every stand-down message says switching
+                // auto-approve off and on is how to try again. An off -> on round trip through the
+                // pane, then a Save that leaves the mode where it is, which must forget nothing.
+                module._portAnswering = true;
+                module._panelReadable = true;
+                module._resetPressBudget = false;
+                pane.Save(new Dictionary<string, string>
+                    { { SettingMode, AgentMode.ToDisplay(AgentMode.AutoApprove) } });
+                probe.Check("WITNESS (N-audit-1106-100) switching it on from the pane discards the last probe too",
+                    module.AutoApprove && !module._portAnswering && !module._panelReadable
+                    && module.AutoApproveState == ApproveState.CannotSee);
+                probe.Check("WITNESS (N-audit-1106-099) switching it on from the pane clears a stand-down",
+                    module._resetPressBudget);
+                module._resetPressBudget = false;
+                pane.Save(new Dictionary<string, string>
+                    { { SettingMode, AgentMode.ToDisplay(AgentMode.Notify) } });
+                probe.Check("WITNESS (N-audit-1106-099) ...and so does switching it off from the pane",
+                    !module.AutoApprove && module._resetPressBudget);
+                module._resetPressBudget = false;
+                module._portAnswering = true;
+                pane.Save(new Dictionary<string, string>
+                    { { SettingMode, AgentMode.ToDisplay(AgentMode.Notify) } });
+                probe.Check("(N-audit-1106-099, -100) a pane Save that leaves the mode where it was forgets nothing",
+                    !module._resetPressBudget && module._portAnswering);
+                module._portAnswering = false;
+                module._resetPressBudget = true;   // as the tray's last toggle above left it, for what follows
+
                 // The tray has to OFFER it, carry the same text as the helper, and sit in its
                 // own group so the host draws a separator between watching and PRESSING.
                 TrayItem row = null;
@@ -6068,6 +6139,18 @@ namespace DesktopAICompanion.AgentFlow
             probe.Check("WITNESS an unreachable editor is reported, not called success",
                 pressed != null && pressed.IndexOf("gone", StringComparison.Ordinal) >= 0
                 && pressed.IndexOf("approve-once", StringComparison.Ordinal) >= 0);
+            // ...and its note does not say a row was pressed (N-audit-1106-096). The classifier's reason
+            // opens "pressing option 1", which a click that did not land used to carry into the log.
+            probe.Check("WITNESS (N-audit-1106-096) a click that did not land says it did not press, never 'pressing'",
+                pressed != null && pressed.IndexOf("did not press option 1 (gone), recognised as", StringComparison.Ordinal) >= 0
+                && pressed.IndexOf("pressing", StringComparison.Ordinal) < 0);
+            // The opt-in shape too: a wider row the user asked for must not read as a rule saved.
+            var notSaved = new PromptDecision { Index = 1, Reason = "pressing option 2, which SAVES A RULE FOR ALL PROJECTS (you asked for this); declined the one-call row" };
+            probe.Check("(N-audit-1106-096) an opt-in press that did not land keeps what the row is, not that it was pressed",
+                NotPressedReason(notSaved, "moved") == "did not press option 2 (moved), which SAVES A RULE FOR ALL PROJECTS "
+                    + "(you asked for this); declined the one-call row"
+                && NotPressedReason(new PromptDecision { Index = 0, Reason = "pressing something new" }, "disabled")
+                   == "did not press option 1 (disabled)");
 
             // ---- what got approved, said safely --------------------------------------
             // The first real prompt this module ever pressed logged itself as "an unnamed
