@@ -304,6 +304,14 @@ _FIXTURES = [
     ('R("div",{className:S5.permissionRequestHeader,children:["Do you want to proceed with ",'
      'F("strong",{children:J.toolName}),"?"]})',
      "do you want to proceed with <value>?", True),
+    # A ternary of two TEMPLATE literals with the runtime value interpolated inside each, the
+    # shape 2.1.319 added for its Claude Project message prompt (N-fulltier-1107-03). The
+    # interpolation stays in the fragment as text, so the table's keys have to stop before it.
+    ('F("div",{className:S5.permissionRequestHeader,children:Q.isNew?`Create the Claude Project '
+     '\u201c${Q.name}\u201d and send this message?`:`Send this message to the Claude Project '
+     '\u201c${Q.name}\u201d?`})',
+     "<value>create the claude project \u201c${q.name}\u201d and send this message?send this "
+     "message to the claude project \u201c${q.name}\u201d?", False),
 ]
 
 
@@ -339,6 +347,16 @@ def selftest():
           plan.candidates == ["continue planning", "accept this plan?"])
     check("...and the run-together reconstruction is NOT what decides coverage",
           table.describe(plan.rendered) is None and plan.verdict(table)[0])
+
+    # The Claude Project message prompt (N-fulltier-1107-03): both template branches come out as
+    # separate candidates with the interpolation still in them, and the TABLE names each one. The
+    # audit failed 1 of 15 on 2.1.319 without the two rows; this keeps that answer when no bundle
+    # is installed, and fails if either row goes.
+    project = shapes(_FIXTURES[5][0])[0]
+    check("WITNESS (N-fulltier-1107-03) both branches of the Claude Project message header are named",
+          len(project.candidates) == 2 and project.verdict(table)[0]
+          and [table.describe(c) for c in project.candidates]
+          == ["a new project and its message", "a message to a project"])
 
     # The shell template must be recognised through the reconstruction, and must not
     # swallow its neighbours -- the same pair the C# self-test asserts.

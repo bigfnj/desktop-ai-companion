@@ -2772,6 +2772,22 @@ CASES = (
         ("(N-audit-1106-007) the tick's snapshot takes the mode with the switch",
          "(N-audit-1106-007) in Log mode, with the switch on, the step types into no panel"),
     ),
+    # ---- burndown/w3-agentflow-1 ----
+    (
+        "bd-w3-agentflow-1: the create-a-Claude-project header row is gone (N-fulltier-1107-03)",
+        MODULE,
+        '            new KeyValuePair<string, string>("create the claude project", "a new project and its message"),\n',
+        "",
+        "(N-fulltier-1107-03) a message that creates a Claude project is named",
+    ),
+    (
+        "bd-w3-agentflow-1: the send-to-a-Claude-project header row is gone (N-fulltier-1107-03)",
+        MODULE,
+        '            new KeyValuePair<string, string>("send this message to the claude project",\n'
+        '                                             "a message to a project"),\n',
+        "",
+        "(N-fulltier-1107-03) a message to an existing Claude project is named",
+    ),
 )
 
 

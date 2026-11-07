@@ -189,7 +189,10 @@ namespace DesktopAICompanion.AgentFlow
                                  //        longer plays the notification sound or the animation for a waiting prompt, and
                                  //        the session-limit watch no longer types pause messages into Claude Code panels
                                  //        in Log mode; the pane already greyed all three there. It still reads the panels
-                                 //        for the Status card and the tray.
+                                 //        for the Status card and the tray. The log names the Claude Project message
+                                 //        prompt that Claude Code 2.1.319 added (as a new project and its message, or a
+                                 //        message to a project) instead of calling it an unrecognised prompt
+                                 //        (N-fulltier-1107-03).
                                  // 1.12.3: agent cards no longer take focus while you work elsewhere (the owner's
                                  //        report of 2026-11-02; built with Codex's audit and review rounds, and a live
                                  //        re-test after the first version missed a Codex approval card taking focus as
@@ -1353,6 +1356,17 @@ namespace DesktopAICompanion.AgentFlow
             // bundle. A shape the table cannot name is a shape the log gets wrong,
             // whatever the reason it renders.
             new KeyValuePair<string, string>("no questions provided", "a question"),
+
+            // The Claude Project message prompt, new in bundle 2.1.319 and found by
+            // agentflow_headers.py --audit (N-fulltier-1107-03). One render site with two
+            // branches, a template literal each, and the project's NAME interpolated in curly
+            // quotes after the static half. So the keys stop before the name: the name is the
+            // user's own text, it varies, and an allowlist that echoed it would be the leak this
+            // table exists to prevent. Two answers rather than one because the first branch also
+            // creates the project, which is worth knowing from a log line.
+            new KeyValuePair<string, string>("create the claude project", "a new project and its message"),
+            new KeyValuePair<string, string>("send this message to the claude project",
+                                             "a message to a project"),
         };
 
         /// <summary>
@@ -6124,6 +6138,15 @@ namespace DesktopAICompanion.AgentFlow
             // row cannot be removed again on the same reasoning that left it out.
             probe.Check("WITNESS even the degenerate question header is named",
                 DescribeSubject(Header("No questions provided", "")) == "a question");
+            // Also found by the audit, on bundle 2.1.319 (N-fulltier-1107-03). The project's name
+            // sits after the static half in curly quotes, so each branch is asserted WITH a name in
+            // place: an exact answer is also the proof that none of the name came through.
+            probe.Check("WITNESS (N-fulltier-1107-03) a message that creates a Claude project is named",
+                DescribeSubject(Header("Create the Claude Project " + ProjectQuoteOpen + "Quarterly plans"
+                    + ProjectQuoteClose + " and send this message?", "")) == "a new project and its message");
+            probe.Check("WITNESS (N-fulltier-1107-03) a message to an existing Claude project is named",
+                DescribeSubject(Header("Send this message to the Claude Project " + ProjectQuoteOpen
+                    + "Quarterly plans" + ProjectQuoteClose + "?", "")) == "a message to a project");
             probe.Check("a tool named in the header still wins, and is not overridden",
                 DescribeSubject(Tool("Bash")) == "Bash");
 
@@ -6208,6 +6231,11 @@ namespace DesktopAICompanion.AgentFlow
                 TargetId = "t1", ToolName = "", UnsafeHeader = header, PathExtension = extension,
             };
         }
+
+        /// <summary>The curly quotes the 2.1.319 bundle puts around a Claude Project's name
+        /// (N-fulltier-1107-03), written as escapes so no editor can straighten them.</summary>
+        private const string ProjectQuoteOpen = "\u201C";
+        private const string ProjectQuoteClose = "\u201D";
 
         /// <summary>A prompt that does name its tool, the way the generic shape does.</summary>
         private static PromptView Tool(string tool)
