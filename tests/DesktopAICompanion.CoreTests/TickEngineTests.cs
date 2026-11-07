@@ -571,5 +571,119 @@ namespace DesktopAICompanion
             AssertTrue(log.Events.Contains("m1 behaviour Stand>Fall forced"), "A floor action started off the floor did not lose the ground and enter Fall: " + string.Join("; ", log.Events));
             AssertEqual(640, m.Anchor.X, "Losing the ground moved the companion.");
         }
+
+        /// <summary>A type whose Short plays one tick and then hands to <paramref name="chain"/> behaviours whose action
+        /// cannot start (a Stay of Duration 0), each handing to the next through its own replacing list, the last to Stand;
+        /// or, when <paramref name="chain"/> is 0, to one such behaviour whose list names only itself.</summary>
+        private static TickType TickHandOffChain(int chain)
+        {
+            var route = new List<XmlData.NextNode> { TEdge(10, 0), TEdge(11, 1) };
+            var nodes = new List<XmlData.AnimationNode>
+            {
+                TBeh(10, "Short", "Short", 0, false, TEdge(100, 1)),
+                TBeh(11, "Stand", "Stand", 1, null),
+                TAct(30, "Stand", "Stay", null, new[] { TParam("Duration", "100") }, TPose(0, 1)),
+                TAct(31, "Short", "Stay", null, new[] { TParam("Duration", "1") }, TPose(0, 1)),
+                TAct(32, "Never", "Stay", null, new[] { TParam("Duration", "0") }, TPose(0, 1)),
+            };
+            int count = Math.Max(1, chain);
+            for (int i = 0; i < count; i++)
+            {
+                int next = chain == 0 ? 100 : (i + 1 < chain ? 101 + i : 11);
+                route.Add(TEdge(100 + i, 0));
+                nodes.Add(TBeh(100 + i, "N" + i, "Never", 0, false, TEdge(next, 1)));
+            }
+            nodes.Insert(0, TRoute(route.ToArray()));
+            return TickType.Compile("Alpha", TickDoc(nodes.ToArray()));
+        }
+
+        private static void TestTickHexLiterals()
+        {
+            // Variable.parseConstant reads a constant or a parameter's literal value with Double.parseDouble, which reads
+            // Java's hexadecimal floating literals; the value must be the one Java rounds to, not the string.
+            var cases = new[]
+            {
+                new KeyValuePair<string, double>("0x1.8p1", 3.0),
+                new KeyValuePair<string, double>("-0x1p-2", -0.25),
+                new KeyValuePair<string, double>(" 0x.8p1f ", 1.0),
+                new KeyValuePair<string, double>("0X1P+3D", 8.0),
+                new KeyValuePair<string, double>("0x0.0001p0", 1.0 / 65536),
+                new KeyValuePair<string, double>("0x1.fffffffffffffp1023", double.MaxValue),
+                new KeyValuePair<string, double>("0x1p1024", double.PositiveInfinity),
+                new KeyValuePair<string, double>("0x1p-1074", double.Epsilon),
+            };
+            foreach (KeyValuePair<string, double> c in cases)
+            {
+                ScriptValue v = TickType.ParseLiteral(c.Key);
+                AssertTrue(v.Kind == ScriptValueKind.Number && v.Number.Equals(c.Value),
+                    "A hexadecimal floating literal did not read as Java reads it: '" + c.Key + "' gave " + v.Kind + " "
+                    + v.Number.ToString("R", System.Globalization.CultureInfo.InvariantCulture));
+            }
+            // Rounding to nearest, ties to even: halfway between 2 - 2^-52 (odd) and 2 rounds up to 2; halfway between 1
+            // and 1 + 2^-52 stays at 1 (even), and a digit past the halfway point carries it up; at the bottom, exactly
+            // half the smallest subnormal is 0 and anything more is the smallest subnormal.
+            var rounding = new[]
+            {
+                new KeyValuePair<string, double>("0x1.fffffffffffff8p0", 2.0),
+                new KeyValuePair<string, double>("0x1.00000000000008p0", 1.0),
+                new KeyValuePair<string, double>("0x1.000000000000080000001p0", 1.0 + Math.Pow(2, -52)),
+                new KeyValuePair<string, double>("0x1p-1075", 0.0),
+                new KeyValuePair<string, double>("0x1.8p-1075", double.Epsilon),
+            };
+            foreach (KeyValuePair<string, double> c in rounding)
+            {
+                ScriptValue v = TickType.ParseLiteral(c.Key);
+                AssertTrue(v.Kind == ScriptValueKind.Number && v.Number.Equals(c.Value),
+                    "A hexadecimal floating literal was not rounded to nearest, ties to even: '" + c.Key + "' gave "
+                    + v.Number.ToString("R", System.Globalization.CultureInfo.InvariantCulture));
+            }
+            AssertTrue(double.IsNegative(TickType.ParseLiteral("-0x0p0").Number), "A negative hexadecimal zero lost its sign.");
+            // WITNESS: no binary exponent is not a number in Java either, so these stay strings; decimals read as before.
+            foreach (string s in new[] { "0x10", "0x1.8", "0xp1", "0x1p", "0x1.8p1x", "0x1..8p1" })
+                AssertTrue(TickType.ParseLiteral(s).Kind == ScriptValueKind.String,
+                    "WITNESS a malformed hexadecimal literal read as a number: '" + s + "'");
+            AssertTrue(TickType.ParseLiteral("1.5f").Number == 1.5 && TickType.ParseLiteral("2e3").Number == 2000,
+                "WITNESS a decimal literal no longer read as before.");
+        }
+
+        private static void TestTickHandOffBound()
+        {
+            // UserBehavior.init hands a behaviour whose action cannot start straight to the next, one call inside the
+            // other. Past TickBehaviour.MaximumHandOffs the companion cannot be alive: it ends with 'error', reported, at
+            // the step it happened, instead of recursing until the stack overflows and takes the app with it.
+            TickType over = TickHandOffChain(TickBehaviour.MaximumHandOffs + 1);
+            var log = new TickLog();
+            TickWorld w = TickWorldOf(log, null, over);
+            TickMascot m = w.CreateAtStart("m1", over, new TickPoint(640, 680), false, "Short");
+            w.StepOnce();   // Short plays its one tick
+            w.StepOnce();   // Short ends: every N hands on at once
+            AssertTrue(m.Disposing && log.Events.Contains("m1 dispose-request error") && log.Faults.Count == 1
+                    && log.Faults[0].StartsWith("m1: no behaviour could start: " + TickBehaviour.MaximumHandOffs + " behaviours in a row", StringComparison.Ordinal),
+                "A chain of behaviours that cannot start, longer than the hand-off bound, did not end its companion with 'error', reported: "
+                + string.Join("; ", log.Faults));
+            AssertEqual(0, m.HandOffDepth, "The hand-off count was not given back after the bound ended the chain.");
+
+            // A companion whose every candidate cannot start (N0's list names only N0): the case that overflowed the stack.
+            TickType loop = TickHandOffChain(0);
+            var loopLog = new TickLog();
+            TickWorld lw = TickWorldOf(loopLog, null, loop);
+            TickMascot looping = lw.CreateAtStart("m1", loop, new TickPoint(640, 680), false, "Short");
+            lw.StepOnce();
+            lw.StepOnce();
+            AssertTrue(looping.Disposing && loopLog.Faults.Count == 1 && loopLog.Faults[0].Contains("no behaviour could start"),
+                "A companion whose every candidate cannot start was not ended, reported: " + string.Join("; ", loopLog.Faults));
+
+            // WITNESS: a chain exactly at the bound still lands in Stand, alive, with nothing reported.
+            TickType at = TickHandOffChain(TickBehaviour.MaximumHandOffs);
+            var atLog = new TickLog();
+            TickWorld aw = TickWorldOf(atLog, null, at);
+            TickMascot landed = aw.CreateAtStart("m1", at, new TickPoint(640, 680), false, "Short");
+            aw.StepOnce();
+            aw.StepOnce();
+            AssertTrue(!landed.Disposing && landed.Behaviour != null && landed.Behaviour.Name == "Stand" && atLog.Faults.Count == 0
+                    && landed.HandOffDepth == 0,
+                "WITNESS a chain of behaviours that cannot start, as long as the hand-off bound, did not land in Stand: "
+                + string.Join("; ", atLog.Faults));
+        }
     }
 }

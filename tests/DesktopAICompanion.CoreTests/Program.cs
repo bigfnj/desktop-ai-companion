@@ -93,6 +93,8 @@ namespace DesktopAICompanion
                 Run("Tick engine: offers are blank as Java's trim judges them", TestTickOfferBlank);
                 Run("Tick engine: parity startup adds the start companions without a step", TestTickStartupPriming);
                 Run("Tick engine: a start companion whose first behaviour cannot be built is reported and never joins", TestTickStartCannotBuild);
+                Run("Tick engine: behaviours that cannot start hand on a bounded number of times, then end the companion", TestTickHandOffBound);
+                Run("Tick literals: a hexadecimal floating literal reads as Double.parseDouble reads it", TestTickHexLiterals);
                 Run("Tick clock: the host steps on the source's 40 ms wall clock, whatever its timer's period", TestTickClockPacer);
                 Run("Tick instant Look and Offset apply at initialisation", TestTickLookAndOffset);
                 Run("Tick instant Mute and BringToFront", TestTickMuteAndFront);
@@ -115,6 +117,7 @@ namespace DesktopAICompanion
                 Run("Tick bordered action: a re-init whose scripted BorderType turns blank keeps the border it had", TestTickBorderKeptOnBlankReinit);
                 Run("Tick arrival: a pack's startup behaviour runs once the drop-in's Fall lands", TestTickArrivalBehaviour);
                 Run("Tick host faults: a repeated fault is logged three times, then once as suppressed", TestTickFaultThrottle);
+                Run("Tick host faults: a changing value is one fault, and one type cannot spend another's distinct limit", TestTickFaultThrottleIdentity);
                 Run("Tick motion Turn: faces LookRight and plays only on a change", TestTickMotionTurn);
                 Run("Tick motion Turn: without LookRight it flips every tick", TestTickMotionTurnFlips);
                 Run("Tick motion Turn: an instance that has turned plays again when re-initialised", TestTickMotionTurnReinit);

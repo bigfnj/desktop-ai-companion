@@ -325,8 +325,14 @@ namespace DesktopAICompanion.Shimeji
                 FormCompanion form;
                 if (!_forms.TryGetValue(m, out form))
                 {
-                    TickHostType t;
-                    if (!_typesByName.TryGetValue(m.Type.Name, out t)) continue;
+                    // A companion already ending (a birth activated and ended in the same step's first tick) leaves at the
+                    // next step: a window, a slot in the app's pet list and a registry reference opened now would only be
+                    // closed again then.
+                    if (m.Disposing) continue;
+                    // By the TickType object the companion runs, never by its name: after a reload stages the name again,
+                    // a companion still running the old type would get a window of the new one.
+                    TickHostType t = HostTypeOf(m.Type);
+                    if (t == null) continue;
                     form = _openForm(t);
                     if (form == null)
                     {
@@ -339,10 +345,28 @@ namespace DesktopAICompanion.Shimeji
                     form.AttachTick(this, m);
                     _forms[m] = form;
                 }
-                Render(m, form);
+                try
+                {
+                    Render(m, form);
+                }
+                catch (Exception e)
+                {
+                    // One companion that cannot be drawn ends, reported, as TickMascot.Tick ends one that cannot step, and
+                    // the others are drawn. Escaping here threw out of the tick timer's handler, where nothing catches it.
+                    _world.ReportFault(m, "its frame could not be drawn: " + e.GetType().Name + ": " + e.Message);
+                    m.Dispose("error");
+                    try { form.RenderTick(null, 0, 0, 0, 0, false); } catch { }
+                }
             }
             UpdateHolds();
+            // The clock stops with the last companion: with none active or pending, a 10 ms poll and a 40 ms world step
+            // (the window walk, every screen, the cursor) bought nothing for the rest of the session. Spawn starts it again.
+            if (_world.Mascots.Count == 0 && _world.Pending.Count == 0) _timer.Stop();
         }
+
+        /// <summary>Whether the tick clock is running (the window self-test asks; Spawn starts it, the last companion's
+        /// leaving stops it).</summary>
+        internal bool ClockRunning { get { return _timer.Enabled; } }
 
         private void Render(TickMascot m, FormCompanion form)
         {
@@ -351,8 +375,11 @@ namespace DesktopAICompanion.Shimeji
                 m.BringToFrontRequested = false;
                 form.ApplyTopMost(true);
             }
-            TickHostType t;
-            if (!m.Visible || m.Pose == null || !_typesByName.TryGetValue((m.PoseType ?? m.Type).Name, out t))
+            // The sheet of the TickType object that holds the pose (HostTypeOf), never the one staged under its name now:
+            // after a reload stages the name again, a companion still running the old type was drawn from the NEW sheet
+            // with the OLD pose's frame and region, and a frame or region the new sheet lacks threw.
+            TickHostType t = m.Visible && m.Pose != null ? HostTypeOf(m.PoseType ?? m.Type) : null;
+            if (t == null)
             {
                 form.RenderTick(null, 0, 0, 0, 0, false);
                 return;

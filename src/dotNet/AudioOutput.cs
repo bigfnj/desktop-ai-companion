@@ -137,6 +137,33 @@ namespace DesktopAICompanion
         /// </summary>
         internal Func<Guid, IWavePlayer> OpenOutput = delegate (Guid device) { return new DirectSoundOut(device, 100); };
 
+        /// <summary>Start with a mixer and NO device: every play path runs as in the app (decode, level, owner, live
+        /// input) into a mixer nothing reads, so a self-test can drive the production composition without a sound.
+        /// Self-tests only; <see cref="Dispose"/> tears it down as it tears down a real output.</summary>
+        internal void StartSilentForTest()
+        {
+            lock (_sync)
+            {
+                if (_disposed || _started) return;
+                _mixer = new MixingSampleProvider(MixFormat) { ReadFully = true };
+                _mixer.MixerInputEnded += OnMixerInputEnded;
+                _started = true;
+            }
+        }
+
+        /// <summary>The level the first live input of this owner plays at, or -1 when it has none. Self-tests only.</summary>
+        internal double LiveVolumeForTest(string owner)
+        {
+            string key = owner ?? "";
+            lock (_liveSync)
+                foreach (KeyValuePair<ISampleProvider, LiveInput> p in _live)
+                {
+                    var scaled = p.Key as VolumeSampleProvider;
+                    if (scaled != null && string.Equals(p.Value.Owner, key, StringComparison.OrdinalIgnoreCase)) return scaled.Volume;
+                }
+            return -1;
+        }
+
         /// <summary>Playback devices as (device GUID string, friendly name); the first is the default.</summary>
         public static IReadOnlyList<KeyValuePair<string, string>> EnumerateDevices()
         {

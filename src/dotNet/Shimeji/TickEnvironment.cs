@@ -418,30 +418,50 @@ namespace DesktopAICompanion.Shimeji
     /// Repeated identical engine faults for the host's log (TickHost.Fault), logged a few times and then once as
     /// suppressed. A behaviour condition that is not a boolean is reported at every selection, and a Transform that cannot
     /// enter its behaviour at every attempt; logged each time, either fills the rotating diagnostic log within minutes and
-    /// pushes out the launch's own record. A fault is the same when its type and message are; companions of one type
-    /// share the count. Parity traces are not throttled: they record every fault.
+    /// pushes out the launch's own record. A fault is the same when its type and message are, the runtime value a message
+    /// ends with in parentheses left out (<see cref="Identity"/>); companions of one type share the count, and each type
+    /// has its own distinct limit. Parity traces are not throttled: they record every fault.
     /// </summary>
     internal sealed class TickFaultThrottle
     {
         public const int Repeats = 3, DistinctLimit = 256;
         private readonly Dictionary<string, int> _counts = new Dictionary<string, int>(StringComparer.Ordinal);
-        private bool _distinctLimitReported;
+        private readonly Dictionary<string, int> _distinctByType = new Dictionary<string, int>(StringComparer.Ordinal);
+        private readonly HashSet<string> _distinctLimitReported = new HashSet<string>(StringComparer.Ordinal);
 
         /// <summary>The text to log for this fault, or null to log nothing.</summary>
         public string Next(string typeName, string message)
         {
-            string key = (typeName ?? "") + "\n" + (message ?? "");
-            int n;
-            if (!_counts.TryGetValue(key, out n) && _counts.Count >= DistinctLimit)
+            string type = typeName ?? "";
+            string key = type + "\n" + Identity(message ?? "");
+            int n, distinct;
+            _distinctByType.TryGetValue(type, out distinct);
+            // The limit is each type's own. One shared limit let a single companion whose condition yields a changing value
+            // spend every slot in seconds, after which no NEW fault of ANY tick companion reached the log until a restart.
+            if (!_counts.TryGetValue(key, out n) && distinct >= DistinctLimit)
             {
-                if (_distinctLimitReported) return null;
-                _distinctLimitReported = true;
-                return "more than " + DistinctLimit + " different faults; new ones are not logged until the app restarts";
+                if (!_distinctLimitReported.Add(type)) return null;
+                return "more than " + DistinctLimit + " different faults of this type; new ones are not logged until the app restarts";
             }
+            if (n == 0) _distinctByType[type] = distinct + 1;
             _counts[key] = ++n;
             if (n <= Repeats) return message;
             if (n == Repeats + 1) return message + " (repeated; this fault of this type is not logged again)";
             return null;
+        }
+
+        /// <summary>
+        /// What makes two faults the same: the message without the runtime value it ends with in parentheses. The engine's
+        /// "is not a number (v)" and "is not a boolean (v)" faults, and a Transform or a birth that wraps one, end with the
+        /// value that was read, so a condition that yields a different non-boolean at every selection was a new fault every
+        /// time and was logged every time. The first lines logged still carry the value. A message that does not end with
+        /// one is its own identity; an exception's message naming a parameter, "(Parameter 'index')", folds the same way.
+        /// </summary>
+        internal static string Identity(string message)
+        {
+            if (!message.EndsWith(")", StringComparison.Ordinal)) return message;
+            int open = message.IndexOf(" (", StringComparison.Ordinal);
+            return open < 0 ? message : message.Substring(0, open) + " (...)";
         }
     }
 }

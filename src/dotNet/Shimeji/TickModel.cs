@@ -520,7 +520,8 @@ namespace DesktopAICompanion.Shimeji
         private static readonly Func<string, bool> AnyName = delegate { return true; };
 
         /// <summary>
-        /// Variable.parseConstant: "true" and "false" are booleans, anything Double.parseDouble reads is a number, and
+        /// Variable.parseConstant: "true" and "false" are booleans, anything Double.parseDouble reads is a number (a
+        /// hexadecimal floating literal such as 0x1.8p1 included), and
         /// everything else is the string itself, "null" included (the source's null result is overwritten by the
         /// number attempt, so a literal "null" ends up the string "null").
         /// </summary>
@@ -534,9 +535,9 @@ namespace DesktopAICompanion.Shimeji
             return ScriptValue.FromString(source);
         }
 
-        /// <summary>The decimal subset of Java's Double.parseDouble: surrounding whitespace, a sign, NaN, Infinity,
-        /// digits with an optional fraction and exponent, and an optional f/F/d/D suffix. Hexadecimal floating literals
-        /// are not read (no converted pack uses one) and stay strings.</summary>
+        /// <summary>Java's Double.parseDouble: surrounding whitespace, a sign, NaN, Infinity, digits with an optional
+        /// fraction and exponent, or a hexadecimal floating literal (<see cref="TryParseJavaHex"/>), and an optional
+        /// f/F/d/D suffix.</summary>
         public static bool TryParseJavaDouble(string source, out double value)
         {
             value = 0;
@@ -553,6 +554,8 @@ namespace DesktopAICompanion.Shimeji
                 return true;
             }
             if (unsigned.Length == 0) return false;
+            if (unsigned.Length > 1 && unsigned[0] == '0' && (unsigned[1] == 'x' || unsigned[1] == 'X'))
+                return TryParseJavaHex(unsigned, body[0] == '-', out value);
             int i = 0, digits = 0;
             while (i < unsigned.Length && char.IsDigit(unsigned[i]) && unsigned[i] < 128) { i++; digits++; }
             if (i < unsigned.Length && unsigned[i] == '.')
@@ -571,6 +574,82 @@ namespace DesktopAICompanion.Shimeji
             }
             if (i != unsigned.Length) return false;
             return double.TryParse(body, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
+        }
+
+        /// <summary>
+        /// Java's HexFloatingPointLiteral, as Double.parseDouble reads one (the sign and the suffix already taken off):
+        /// 0x or 0X, hex digits with an optional point (at least one digit), then a binary exponent that is NOT optional,
+        /// p or P with an optional sign and decimal digits. "0x1.8p1" is 3.0 and "0x10" is not a number. The value is
+        /// rounded to the nearest double, ties to even, through the subnormal range, as Java rounds it. .NET reads no
+        /// such literal, so the significand is gathered here: its first 57 to 60 significant bits exactly, and whether
+        /// any digit after them is not zero (enough for a correct rounding to 53 bits), then rounded by hand and scaled.
+        /// </summary>
+        private static bool TryParseJavaHex(string unsigned, bool negative, out double value)
+        {
+            value = 0;
+            ulong significand = 0;
+            long exponent = 0;   // the binary exponent the gathered digits are scaled by
+            bool point = false, any = false, sticky = false;
+            int i = 2;
+            for (; i < unsigned.Length; i++)
+            {
+                char c = unsigned[i];
+                if (c == '.')
+                {
+                    if (point) return false;
+                    point = true;
+                    continue;
+                }
+                int d = c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1;
+                if (d < 0) break;
+                any = true;
+                if ((significand >> 56) == 0)
+                {
+                    significand = (significand << 4) | (uint)d;
+                    if (point) exponent -= 4;
+                }
+                else
+                {
+                    if (d != 0) sticky = true;
+                    if (!point) exponent += 4;
+                }
+            }
+            if (!any || i >= unsigned.Length || (unsigned[i] != 'p' && unsigned[i] != 'P')) return false;
+            i++;
+            bool down = false;
+            if (i < unsigned.Length && (unsigned[i] == '+' || unsigned[i] == '-')) down = unsigned[i++] == '-';
+            long written = 0;
+            int expDigits = 0;
+            for (; i < unsigned.Length && unsigned[i] >= '0' && unsigned[i] <= '9'; i++, expDigits++)
+                if (written < 100000) written = written * 10 + (unsigned[i] - '0');   // far past any double either way
+            if (expDigits == 0 || i != unsigned.Length) return false;
+            exponent += down ? -written : written;
+
+            double magnitude;
+            if (significand == 0) magnitude = 0.0;
+            else
+            {
+                int length = 0;
+                for (ulong v = significand; v != 0; v >>= 1) length++;
+                long top = exponent + length - 1;   // the value is in [2^top, 2^(top + 1))
+                // Bits the double keeps: 53, fewer below 2^-1022 (subnormal), none at all below 2^-1075.
+                long keep = top >= -1022 ? 53 : top + 1075;
+                if (top > 1023) magnitude = double.PositiveInfinity;
+                else if (keep < 0) magnitude = 0.0;   // under half the smallest subnormal
+                else if (length <= keep) magnitude = Math.ScaleB(significand, (int)exponent);   // exact
+                else
+                {
+                    int drop = length - (int)keep;   // 1 to 60
+                    ulong kept = significand >> drop;
+                    ulong rest = significand & ((1UL << drop) - 1);
+                    ulong half = 1UL << (drop - 1);
+                    if (rest > half || (rest == half && (sticky || (kept & 1) == 1))) kept++;
+                    // A carry to 2^53 is still exact, and past 2^1024 ScaleB answers infinity, as Java rounds there too.
+                    magnitude = Math.ScaleB(kept, (int)(exponent + drop));
+                }
+            }
+            value = negative ? -magnitude : magnitude;
+            return true;
         }
     }
 }

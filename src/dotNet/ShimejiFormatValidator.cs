@@ -406,7 +406,8 @@ namespace DesktopAICompanion
                 throw new InvalidDataException("A companion with behaviours needs exactly one <route> node (found " + routes + ").");
             // A next-list entry is a behaviour of its own (BehaviorBuilder 102-120) and shares its name with the root
             // behaviour whose list it continues into: when it ends, the source looks the next list up by that name, and
-            // a name with no root behaviour ends the companion there. So an off-route behaviour must carry a root name.
+            // a name with no root behaviour throws out of the source's tick thread there, which stops every companion,
+            // not only this one (grimoire/06 section 4.2). So an off-route behaviour must carry a root name.
             foreach (XmlData.AnimationNode a in offRoute)
                 if (!behaviourByName.ContainsKey(a.Behaviour.Name))
                     throw new InvalidDataException("animation " + a.Id + " is off the route and named '" + a.Behaviour.Name

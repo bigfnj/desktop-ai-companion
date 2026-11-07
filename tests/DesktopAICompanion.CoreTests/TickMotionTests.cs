@@ -270,6 +270,35 @@ namespace DesktopAICompanion
                 "A fault counted before the distinct limit stopped counting after it.");
         }
 
+        private static void TestTickFaultThrottleIdentity()
+        {
+            // A condition that yields a different non-boolean at every selection: one fault, logged three times with its
+            // value and once as suppressed, however many values it reads.
+            var throttle = new TickFaultThrottle();
+            var lines = new List<string>();
+            for (int i = 0; i < 300; i++) lines.Add(throttle.Next("Alpha", "the condition of 'Sit' is not a boolean (0." + i + ")"));
+            int logged = lines.FindAll(l => l != null).Count;
+            AssertTrue(logged == TickFaultThrottle.Repeats + 1 && lines[0] == "the condition of 'Sit' is not a boolean (0.0)"
+                    && lines[TickFaultThrottle.Repeats] != null && lines[TickFaultThrottle.Repeats].Contains("not logged again"),
+                "A fault whose message ends with a changing value was counted as a new fault each time (" + logged + " lines logged): "
+                + (lines[TickFaultThrottle.Repeats] ?? "null"));
+            AssertEqual("the condition of 'Sit' is not a boolean (...)", TickFaultThrottle.Identity("the condition of 'Sit' is not a boolean (0.5)"),
+                "A fault's identity kept the value it ends with.");
+            // WITNESS: a message with no value at its end is its own identity.
+            AssertEqual("Transform into Beta: no behaviour named 'Ghost' in Beta",
+                TickFaultThrottle.Identity("Transform into Beta: no behaviour named 'Ghost' in Beta"),
+                "WITNESS a fault message with no trailing value was changed by its identity.");
+
+            // One type past its distinct limit: it says so once and goes quiet, and another type's NEW fault still logs.
+            var many = new TickFaultThrottle();
+            for (int i = 0; i < TickFaultThrottle.DistinctLimit; i++) many.Next("Alpha", "fault " + i);
+            string limit = many.Next("Alpha", "one more");
+            AssertTrue(limit != null && limit.Contains("not logged until the app restarts") && many.Next("Alpha", "and another") == null,
+                "WITNESS past its distinct limit a type did not say so once and then stop: " + (limit ?? "null"));
+            AssertEqual("a new fault of another type", many.Next("Beta", "a new fault of another type"),
+                "One type spending its distinct limit silenced a new fault of another type.");
+        }
+
         private static void TestTickBorderKeptOnBlankReinit()
         {
             // BorderedAction.init (BorderedAction.java:39-51) sets a border only when the type names one and never clears
