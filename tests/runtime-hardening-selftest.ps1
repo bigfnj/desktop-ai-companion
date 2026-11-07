@@ -5521,6 +5521,52 @@ Assert-True ($rbTranscriber -cmatch 'JobObjectLimitKillOnJobClose = 0x00002000;'
     $rbTranscriber -cmatch 'limits\.BasicLimitInformation\.LimitFlags = JobObjectLimitKillOnJobClose;') (
     'remembrance-1: the whisper job ends its processes when its last handle closes')
 
+# ---- burndown/w2-packaging-ci-1 ----
+# THE RELEASE TESTS THE BUILD IT PUBLISHES (N-audit-1106-034). release.yml built, signed and published on a v* tag without
+# running one test, and nothing tied it to a green build.yml run. Sliced per step like the RA-002 check under the
+# burn/scripts-pack anchor, comment lines dropped so the step's own explanation cannot satisfy it: the test step must call
+# the runners by their real invocations, carry no if: or continue-on-error that could skip or excuse it, and sit AFTER the
+# MSI step and BEFORE the step that hashes the assets (an ORDER, so a test step moved below the upload fails here).
+$w2pReleaseSteps = @([regex]::Split((Get-Content -LiteralPath (Join-Path $repoRoot '.github\workflows\release.yml') -Raw),
+    '(?m)^      - name:') | Select-Object -Skip 1 | ForEach-Object { $_ -replace '(?m)^[ \t]*#.*$', '' })
+$w2pStepAt = @{}
+$w2pStepHits = 0
+for ($w2pIndex = 0; $w2pIndex -lt $w2pReleaseSteps.Count; $w2pIndex++) {
+    foreach ($w2pName in @('Install WiX and build the MSI', 'Remove the signing certificate from the runner',
+                           'Test the build being released', 'Assemble release assets and checksums')) {
+        if ($w2pReleaseSteps[$w2pIndex] -cmatch ('\A ' + [regex]::Escape($w2pName) + '\r?\n')) { $w2pStepAt[$w2pName] = $w2pIndex; $w2pStepHits++ }
+    }
+}
+# Once EACH: a second step reusing a name would let the ORDER below judge whichever copy came last.
+Assert-True ($w2pStepAt.Count -eq 4 -and $w2pStepHits -eq 4) (
+    "w2-packaging-ci-1: release.yml's MSI, scrub, test and assemble steps were located once each (found $($w2pStepAt.Count) in $w2pStepHits)")
+$w2pTestStep = $w2pReleaseSteps[$w2pStepAt['Test the build being released']]
+Assert-True (($w2pTestStep -cmatch '(?m)^          try \{ \$output = @\(& \.\\tests\\Invoke-SelfTests\.ps1 -ExecutablePath \$exe -OutputRoot \$outputRoot\) \}') -and
+    ($w2pTestStep -cmatch "(?m)^            & '\.\\tests\\DesktopAICompanion\.CoreTests\\bin\\Release\\DesktopAICompanion\.CoreTests\.exe'") -and
+    ($w2pTestStep -cmatch "'tests\\Test-ModuleSelfTests\.ps1'") -and ($w2pTestStep -cmatch "'tests\\runtime-hardening-selftest\.ps1'") -and
+    ($w2pTestStep -cmatch '(?m)^            throw "\$\(\$failures\.Count\) failure\(s\) in the build being released')) (
+    'w2-packaging-ci-1: release test step runs core tests, self-tests, module self-tests and invariants, and throws on a failure')
+Assert-True ($w2pReleaseSteps[$w2pStepAt['Remove the signing certificate from the runner']] -cmatch '(?m)^        if: ') (
+    'w2-packaging-ci-1: WITNESS the step-key pattern matches the scrub step''s if:')
+Assert-True ($w2pTestStep -cnotmatch '(?m)^        (if|continue-on-error): ') (
+    'w2-packaging-ci-1: release test step has no if: or continue-on-error to skip or excuse it')
+Assert-True ($w2pStepAt['Install WiX and build the MSI'] -lt $w2pStepAt['Test the build being released'] -and
+    $w2pStepAt['Remove the signing certificate from the runner'] -lt $w2pStepAt['Test the build being released'] -and
+    $w2pStepAt['Test the build being released'] -lt $w2pStepAt['Assemble release assets and checksums']) (
+    'w2-packaging-ci-1: release tests run after the MSI and the key scrub, before any asset is hashed or published')
+
+# THE SETUP UI'S REPAIR FORCE-COPIES (N-audit-1106-035). The REINSTALLMODE Property row is only a default: the stock
+# VerifyReadyDlg Repair button publishes ReinstallMode=ecmus at Ordering 1 and closes at 3, so the override must be a
+# second ReinstallMode publish at 2 whose value carries the a. packaging\Test-MsiSurface.ps1 judges the BUILT table; this
+# is the source half, which the local gate reaches without building an MSI. Parsed as XML, not regexed.
+$w2pWxs = [xml](Get-Content -LiteralPath (Join-Path $repoRoot 'installer\DesktopAICompanion.wxs') -Raw)
+$w2pWxsNs = New-Object System.Xml.XmlNamespaceManager($w2pWxs.NameTable)
+$w2pWxsNs.AddNamespace('w', 'http://wixtoolset.org/schemas/v4/wxs')
+$w2pRepairPublish = @($w2pWxs.SelectNodes("//w:UI/w:Publish[@Dialog='VerifyReadyDlg' and @Control='Repair' and @Event='ReinstallMode']", $w2pWxsNs))
+Assert-True ($w2pRepairPublish.Count -eq 1 -and $w2pRepairPublish[0].GetAttribute('Value') -clike '*a*' -and
+    $w2pRepairPublish[0].GetAttribute('Order') -ceq '2' -and $w2pRepairPublish[0].GetAttribute('Condition') -ceq 'OutOfDiskSpace <> 1') (
+    "w2-packaging-ci-1: the setup UI's Repair button publishes a force-copy ReinstallMode at Order 2 (found $($w2pRepairPublish.Count))")
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever

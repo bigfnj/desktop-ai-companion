@@ -4002,6 +4002,47 @@ CASES = (
         b"                    limits.BasicLimitInformation.LimitFlags = 0;\n",
         "remembrance-1: the whisper job ends its processes when its last handle closes",
     ),
+    # ---- burndown/w2-packaging-ci-1 ----
+    # N-audit-1106-034: the release stops running the self-tests, may be excused by continue-on-error, or tests only
+    # after the assets are already hashed (the step moved above the MSI, the ORDER leg, by a regex move of the step).
+    (
+        "bd-w2-packaging-ci-1: release.yml no longer runs the self-tests (N-audit-1106-034)",
+        RELEASE_YML,
+        b"          try { $output = @(& .\\tests\\Invoke-SelfTests.ps1 -ExecutablePath $exe -OutputRoot $outputRoot) }\n",
+        b"          try { $output = @() }\n",
+        "w2-packaging-ci-1: release test step runs core tests",
+    ),
+    (
+        "bd-w2-packaging-ci-1: the release test step may fail without failing the job (N-audit-1106-034)",
+        RELEASE_YML,
+        b"      - name: Test the build being released\n        shell: pwsh\n",
+        b"      - name: Test the build being released\n        continue-on-error: true\n        shell: pwsh\n",
+        "w2-packaging-ci-1: release test step has no if: or continue-on-error",
+    ),
+    (
+        "bd-w2-packaging-ci-1: the release tests run before the MSI exists (N-audit-1106-034)",
+        RELEASE_YML,
+        re.compile(rb"(?s)(      - name: Install WiX and build the MSI\r?\n.*?)"
+                   rb"(      - name: Test the build being released\r?\n.*?)"
+                   rb"(      - name: Assemble release assets and checksums)"),
+        rb"\2\1\3",
+        "w2-packaging-ci-1: release tests run after the MSI and the key scrub",
+    ),
+    # N-audit-1106-035: the setup UI's Repair override is gone (ecmus again), or sits after the stock EndDialog.
+    (
+        "bd-w2-packaging-ci-1: the UI Repair override publishes ecmus (N-audit-1106-035)",
+        os.path.join(REPO, "installer", "DesktopAICompanion.wxs"),
+        b'      <Publish Dialog="VerifyReadyDlg" Control="Repair" Event="ReinstallMode" Value="amus" Order="2"\n',
+        b'      <Publish Dialog="VerifyReadyDlg" Control="Repair" Event="ReinstallMode" Value="ecmus" Order="2"\n',
+        "w2-packaging-ci-1: the setup UI's Repair button publishes",
+    ),
+    (
+        "bd-w2-packaging-ci-1: the UI Repair override is ordered after EndDialog (N-audit-1106-035)",
+        os.path.join(REPO, "installer", "DesktopAICompanion.wxs"),
+        b'      <Publish Dialog="VerifyReadyDlg" Control="Repair" Event="ReinstallMode" Value="amus" Order="2"\n',
+        b'      <Publish Dialog="VerifyReadyDlg" Control="Repair" Event="ReinstallMode" Value="amus" Order="4"\n',
+        "w2-packaging-ci-1: the setup UI's Repair button publishes",
+    ),
 )
 
 
