@@ -158,7 +158,7 @@ SCENARIOS = [
      "pack": "packs/slice-transform", "ticks": 80,
      "mascots": [{"sid": "m1", "imageSet": "Egg", "behavior": "Laid", "anchor": [640, 680], "lookRight": False}],
      "rng": {"kind": "tape", "values": [0.5] * 64}},
-    {"id": "S-slice-breed-01", "description": "Alpha breeds one .Ball 40 px in front of it, which rolls; Alpha then stands",
+    {"id": "S-slice-breed-01", "description": "Alpha breeds one .Ball 40 px behind it, which rolls; Alpha then stands",
      "pack": "packs/slice-breed", "ticks": 80,
      "mascots": [{"sid": "m1", "imageSet": "Alpha", "behavior": "Throw", "anchor": [640, 680], "lookRight": False}],
      "rng": {"kind": "tape", "values": [0.5] * 64}},

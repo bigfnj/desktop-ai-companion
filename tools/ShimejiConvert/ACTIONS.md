@@ -49,31 +49,75 @@ into Studio, but the import UI and its installation transaction are separate wor
 
 | Source action | Converter stage | Supported | Evidence available |
 |---|---|---|---|
-| Stay | Literal lowering | pending | Host execution: S-slice-stand-walk-01 |
-| Move | Literal lowering | pending | Host execution: S-slice-stand-walk-01 |
+| Stay | Literal lowering | pending | Historical packet exact: S-slice-stand-walk-01 |
+| Move | Literal lowering | pending | Historical packet exact: S-slice-stand-walk-01 |
 | Animate | Literal lowering | pending | Synthetic converter checks |
 | Sequence, Select | Literal lowering | pending | Synthetic graph and binding checks |
-| Embedded Breed | Literal lowering | pending | Host execution: S-slice-breed-01 |
-| Embedded Transform | Literal lowering | pending | Host execution: S-slice-transform-01 |
+| Embedded Breed | Literal lowering | pending | Historical packet exact: S-slice-breed-01; two nonexact edge cases below |
+| Embedded Transform | Literal lowering | pending | Historical packet exact: S-slice-transform-01; blank-behavior case nonexact below |
 | Embedded Fall, Dragged | Reserved definitions retained | pending | Present in slice packs; action semantics unexercised |
-| Embedded Jump | lowered; host trace complete; oracle comparison pending | pending | S-jump-arc-01, S-jump-flat-01, S-jump-reaim-01 |
-| Embedded MoveWithTurn | lowered; host trace complete; oracle comparison pending | pending | S-move-withturn-01 |
-| Embedded Regist | lowered; host trace complete; oracle comparison pending | pending | S-input-regist-02 |
-| Embedded BreedMove, BreedJump, BreedFall | lowered; host trace complete; oracle comparison pending | pending | S-breedmove-interval-01, S-breedmove-interval-02, S-breedmove-turn-01, S-breedjump-interval-01, S-breedjump-interval-02, S-breedfall-interval-01, S-breedfall-interval-02 |
-| Embedded ScanMove | lowered; host trace complete; oracle comparison pending | pending | S-scan-first-01, S-scan-loss-01 |
-| Embedded ScanInteract | lowered; host trace complete; oracle comparison pending | pending | S-scan-reacquire-01 |
-| Embedded Interact | lowered; host traces complete but end both Huddle companions at tick 0 (a start companion has no manager); oracle comparison pending | pending | S-interact-arrive-01, S-interact-shared-01 |
-| Embedded WalkWithIE | lowered; host trace complete; oracle comparison pending | pending | S-window-carry-on-01, S-window-carry-off-01, S-window-throwing-off-01 |
-| Embedded ThrowIE | lowered; host trace complete; oracle comparison pending | pending | S-window-throw-on-01, S-window-throw-off-01 |
-| Embedded MinimizeIE | lowered; host trace complete; oracle comparison pending | pending | S-window-minimize-on-01, S-window-minimize-off-01 |
-| Animation Hotspot (shape, origin, size, behaviour) | lowered; host trace complete; oracle comparison pending | pending | S-input-hotspot-01 |
-| Literal Affordance (`<offers>`) | lowered; host trace complete; oracle comparison pending | pending | S-scan-first-01, S-scan-loss-01, S-scan-reacquire-01 |
+| Embedded Jump | lowered; historical packet comparison below | pending | S-jump-arc-01, S-jump-flat-01, S-jump-reaim-01 |
+| Embedded MoveWithTurn | lowered; historical packet comparison below | pending | S-move-withturn-01 |
+| Embedded Regist | lowered; historical packet comparison below | pending | S-input-regist-02 |
+| Embedded BreedMove, BreedJump, BreedFall | lowered; historical packet comparison below | pending | S-breedmove-interval-01, S-breedmove-interval-02, S-breedmove-turn-01, S-breedjump-interval-01, S-breedjump-interval-02, S-breedfall-interval-01, S-breedfall-interval-02 |
+| Embedded ScanMove | lowered; historical packet comparison below | pending | S-scan-first-01, S-scan-loss-01 |
+| Embedded ScanInteract | lowered; historical packet comparison below | pending | S-scan-reacquire-01 |
+| Embedded Interact | lowered; historical packet exact, including interaction after arrival | pending | S-interact-arrive-01, S-interact-shared-01 |
+| Embedded WalkWithIE | lowered; historical packet comparison below | pending | S-window-carry-on-01, S-window-carry-off-01, S-window-throwing-off-01 |
+| Embedded ThrowIE | lowered; historical packet comparison below | pending | S-window-throw-on-01, S-window-throw-off-01 |
+| Embedded MinimizeIE | lowered; historical packet comparison below | pending | S-window-minimize-on-01, S-window-minimize-off-01 |
+| Animation Hotspot (shape, origin, size, behaviour) | lowered; historical packet comparison below | pending | S-input-hotspot-01 |
+| Literal Affordance (`<offers>`) | lowered; historical packet comparison below | pending | S-scan-first-01, S-scan-loss-01, S-scan-reacquire-01 |
 | Toggleable behaviours (header `<toggles>`, behaviour `toggle`) | lowered; synthetic converter checks only | pending | No directed scenario yet |
 | Embedded Look, Turn, Offset, Mute, BringToFront, SelfDestruct, ScanJump, ComplexMove, ComplexJump, FallWithIE, JumpWithIE, Broadcast, BroadcastStay, BroadcastMove, BroadcastJump | lowered; synthetic converter checks only | pending | No directed scenario yet |
-| `${}` / `#{}` parameters and bindings | lowered; host trace complete; oracle comparison pending | pending | S-vars-cache-01 |
-| Scripted action Condition (cached parameter, guard when) | lowered; host trace complete; oracle comparison pending | pending | S-vars-transform-01 |
+| `${}` / `#{}` parameters and bindings | lowered; historical packet comparison below | pending | S-vars-cache-01 |
+| Scripted action Condition (cached parameter, guard when) | lowered; historical packet comparison below | pending | S-vars-transform-01 |
 | Scripted Animation Condition (cached parameter, variant when) | lowered; synthetic converter checks only | pending | No directed scenario yet |
 | Scripted Behavior and `<Condition>` selection conditions | lowered; synthetic converter checks only | pending | No directed scenario yet |
+
+The 2026-11-07 comparison used all 58 scenarios with historical `host-cw` packets. Fresh oracle runs used
+JDK 1.8.0_504, the pinned source archive, and the private patched oracle artifact below. All 58 runs completed;
+document witnesses and the trace-on/off observation proof passed. The comparer reported 52 `exact` and six `fail`.
+Every named scenario in a row marked "historical packet comparison below" was exact except these six cases:
+
+| Scenario | Raw verdict | Observed difference |
+|---|---|---|
+| S-breed-blankbehavior-01 | fail: event-mismatch | Error-message wording at tick 10; both then refuse attempt 1 with null child and reason `error`. |
+| S-transform-blankbehavior-01 | fail: event-mismatch | Error-message wording at tick 6 after the same transform to Beta with an empty behavior. |
+| S-cap-at-01 | fail: event-mismatch | At tick 6, attempt 16, oracle initializes a child while host refuses with reason `cap`. Host admits 15 children plus the parent, as `policy:birth-cap` specifies. |
+| S-window-carry-off-01 | fail: missing-event | Oracle records 70 window moves; host suppresses them and reaches its next behavior at tick 70. |
+| S-window-minimize-off-01 | fail: missing-event | Oracle minimizes at tick 6; host suppresses it. Both select the next behavior at tick 7. |
+| S-window-throw-off-01 | fail: missing-event | Oracle records ten window moves; host suppresses them and selects its next behavior at tick 11. |
+
+No tolerance or exception changed those six raw failures into passes. The window results demonstrate suppressed
+host effects with `windowActions=false` while `throwing=true`; the oracle retains those effects. The separate
+`throwing=false` case ends Carry during initialization and matches historically. The policy's source/host flag
+correspondence remains to be clarified before using it to classify the three failures as allowed differences.
+The two blank-behavior cases remain nonexact even though their other events agree.
+
+Each Interact case records 58 `interact` events over ticks 3 through 31 in both paired traces. The arrival case adds
+the third companion to the targets at tick 31; the shared-target case preserves manager order and excludes the
+out-of-range fourth companion. Both cases enter Huddled at tick 31. This packet exercises interaction beyond
+initialization; the older tick-0 termination note does not describe these paired traces.
+
+These are historical host 1.10.0 comparisons, not current-host verification or a supported-family verdict.
+Every paired scenario and scenario-specific pack hash matched. The host header's `commit` is a version string,
+not a source commit; the executable was neither located nor rerun, so the comparer reports its witness as
+`shape-only`. The oracle witness is `artifact-bound`. The input snapshot was generated at 184fbe0; it retains
+the original S-slice-breed-01 description to preserve these scenario hashes.
+
+| Evidence | SHA-256 |
+|---|---|
+| Pinned source archive | cf9e72f74d93f45e9f70a4f69cb1e56ffaedd38af2c5e5413482944f78faccff |
+| Executed oracle artifact | 33eae68b85ceec6c0a456539d0d91c3434a2a4781322755cc4da10628fcf9d5f |
+| Historical host executable, header claim only | 0f7785bb1c0d4caf58c9491a74c00a0315c737d5ded050edf1fcef9083f582ca |
+| Private oracle results (`oracle-selected/v1-da86559a/results.json`) | 313659dee2435fe200e8c7ea09e405b490c7a519a0035a43b57ff4d00dde75ed |
+| Private per-case comparison record (`historical-comparison-results.json`) | 73da9250c00d229103f592ceb530cff3e1e96101e38da9682419132ecdae97af |
+
+The last two records and their synthetic traces remain in the lane's private evidence directory
+`D:/.ai-work/worktrees/_temp/temp/bd-codex-parity` for coordinator review. The comparison record includes each
+scenario hash, pack hash, trace path, header build hashes, raw findings and binding verdict. Classes whose rows
+say "No directed scenario yet" still need those inputs and controlled comparisons.
 
 The command targets the headless parity runner. It does not infer egg roles or startup metadata and does not
 replace the classic conversion commands or Studio import. A `${...}` or `#{...}` value lowers to its body with
