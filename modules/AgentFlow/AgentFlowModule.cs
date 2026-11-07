@@ -105,12 +105,17 @@ namespace DesktopAICompanion.AgentFlow
         internal const int DefaultCheckSeconds = 10;
 
         /// <summary>
-        /// How often the transcripts are read, whatever the check interval: ten seconds, the tick they were read
-        /// on before the interval became a setting. The transcript half waits 30 s by default before it says
-        /// anything, so reading it every second would repeat the same answer thirty times, and the read sweeps
-        /// both agents' folders, about 53 ms a tick measured in .NET on 2026-09-21 (the 1.3.0 note above). A
-        /// tick reads them when this much has passed since the last read, less <see cref="TranscriptSlack"/>, so
-        /// a ten-second timer that fires a few milliseconds early still reads on every tick.
+        /// The least time between two transcript reads: ten seconds, the tick they were read on before the
+        /// interval became a setting. The transcript half waits 30 s by default before it says anything, so
+        /// reading it every second would repeat the same answer thirty times, and the read sweeps both agents'
+        /// folders, about 53 ms a tick measured in .NET on 2026-09-21 (the 1.3.0 note above). A tick reads them
+        /// when this much has passed since the last read, less <see cref="TranscriptSlack"/>, so a ten-second
+        /// timer that fires a few milliseconds early still reads on every tick.
+        ///
+        /// NOT "every ten seconds whatever the check interval", which this comment used to say
+        /// (N-audit-1106-097). Reads happen only ON a check tick, so the real period is the first multiple of
+        /// the check interval at or above 9.5 s (<see cref="TranscriptsDue"/>): every tick from 10 s up to the
+        /// 30 s maximum, every second tick from 5 s to 9 s (10-18 s), every third at 4 s (12 s), and so on.
         /// </summary>
         internal static readonly TimeSpan TranscriptEvery = TimeSpan.FromSeconds(10);
         internal static readonly TimeSpan TranscriptSlack = TimeSpan.FromMilliseconds(500);
@@ -189,7 +194,15 @@ namespace DesktopAICompanion.AgentFlow
                                  //        longer plays the notification sound or the animation for a waiting prompt, and
                                  //        the session-limit watch no longer types pause messages into Claude Code panels
                                  //        in Log mode; the pane already greyed all three there. It still reads the panels
-                                 //        for the Status card and the tray.
+                                 //        for the Status card and the tray. The log names the Claude Project message
+                                 //        prompt that Claude Code 2.1.319 added (as a new project and its message, or a
+                                 //        message to a project) instead of calling it an unrecognised prompt
+                                 //        (N-fulltier-1107-03). A click that did not land logs "did not press option
+                                 //        N" instead of "pressing option N" (N-audit-1106-096). Switching auto-approve
+                                 //        on or off from the options pane now does what the tray row does: it clears
+                                 //        a stand-down, so off and on again is a retry as the stand-down message says,
+                                 //        and the status waits for a fresh check before showing green
+                                 //        (N-audit-1106-099, -100).
                                  // 1.12.3: agent cards no longer take focus while you work elsewhere (the owner's
                                  //        report of 2026-11-02; built with Codex's audit and review rounds, and a live
                                  //        re-test after the first version missed a Codex approval card taking focus as
@@ -908,7 +921,8 @@ namespace DesktopAICompanion.AgentFlow
             if (Interlocked.CompareExchange(ref _scanning, 1, 0) != 0) return;
             ScanEverStartedForSelfTest = true;
 
-            // The transcripts on their own ten-second beat, the panels on the user's (1.11.0). Decided here,
+            // The transcripts at most once per ten seconds, on a check tick (see TranscriptEvery for the real
+            // period), the panels on the user's beat (1.11.0). Decided here,
             // on the UI thread and past the guard, so a tick that never ran a worker does not count as a read.
             long nowMs = TickClockForSelfTest != null ? TickClockForSelfTest() : Environment.TickCount64;
             bool readTranscripts = TranscriptsDue(_lastTranscriptReadMs, nowMs);
@@ -1261,7 +1275,27 @@ namespace DesktopAICompanion.AgentFlow
             // fingerprint in the signature is what tells the 1.4.0 collision apart now, and the
             // sweep that finds nothing is the one clear left. See PressBudget.NotePromptCleared.
             return "auto-approve " + outcome + " for " + DescribeSubject(view)
-                   + ": " + decision.Reason + (focusNote != null ? "; " + focusNote : "");
+                   + ": " + (pressed ? decision.Reason : NotPressedReason(decision, outcome))
+                   + (focusNote != null ? "; " + focusNote : "");
+        }
+
+        /// <summary>
+        /// The classifier's reason for a click that did NOT land: gone, moved or disabled (N-audit-1106-096).
+        /// Every reason a press can carry opens "pressing option N", so this note used to say a row was
+        /// pressed -- and, with an opt-in, that a rule was saved -- when nothing was clicked. It now says
+        /// "did not press option N (outcome)" and keeps the rest of the reason, which describes the option
+        /// rather than an action. A reason in a shape not seen yet keeps only the first half, so no wording
+        /// that claims a press can come through it.
+        /// </summary>
+        internal static string NotPressedReason(PromptDecision decision, string outcome)
+        {
+            string option = "option " + (decision.Index + 1).ToString(CultureInfo.InvariantCulture);
+            string said = "did not press " + option + " (" + outcome + ")";
+            string reason = decision.Reason ?? "";
+            string pressing = "pressing " + option;
+            return reason.StartsWith(pressing, StringComparison.Ordinal)
+                ? said + reason.Substring(pressing.Length)
+                : said;
         }
 
         /// <summary>
@@ -1353,6 +1387,17 @@ namespace DesktopAICompanion.AgentFlow
             // bundle. A shape the table cannot name is a shape the log gets wrong,
             // whatever the reason it renders.
             new KeyValuePair<string, string>("no questions provided", "a question"),
+
+            // The Claude Project message prompt, new in bundle 2.1.319 and found by
+            // agentflow_headers.py --audit (N-fulltier-1107-03). One render site with two
+            // branches, a template literal each, and the project's NAME interpolated in curly
+            // quotes after the static half. So the keys stop before the name: the name is the
+            // user's own text, it varies, and an allowlist that echoed it would be the leak this
+            // table exists to prevent. Two answers rather than one because the first branch also
+            // creates the project, which is worth knowing from a log line.
+            new KeyValuePair<string, string>("create the claude project", "a new project and its message"),
+            new KeyValuePair<string, string>("send this message to the claude project",
+                                             "a message to a project"),
         };
 
         /// <summary>
@@ -2401,7 +2446,16 @@ namespace DesktopAICompanion.AgentFlow
                 // is what fits in a pane and the id is what survives a reword.
                 if (entry.Key == SettingMode)
                 {
+                    bool pressedBefore = AgentMode.Presses(Mode);
                     SetMode(AgentMode.FromDisplay(entry.Value));
+                    // The pane's radio is the same switch as the tray's row, so moving it into or out
+                    // of auto-approve does what the tray does (N-audit-1106-099, -100): every stand-down
+                    // message tells the user that switching auto-approve off and on is how to try
+                    // again, and a probe from before the switch is no evidence about now. Only on a
+                    // change: Apply sends the mode with every Save, and an unrelated edit must neither
+                    // clear a stand-down nor turn a green row amber. Not inside SetMode, which the
+                    // self-test also calls to stage a mode without meaning "the user switched".
+                    if (AgentMode.Presses(Mode) != pressedBefore) PressingSwitched();
                     continue;
                 }
                 // Same split: the dropdown shows "Pearl", the setting stores the type id the
@@ -3531,7 +3585,27 @@ namespace DesktopAICompanion.AgentFlow
             if (!_settings.Save())
                 Log("the tray's auto-approve pick was not persisted (mode " + Mode + "), so it reverts at the next launch");
             Log("auto-approve turned " + (next ? "ON" : "OFF") + " from the tray");
+            PressingSwitched();
 
+            // Said out loud, because pressing buttons on someone's behalf is not a silent
+            // setting and the tray label is only visible while the menu is open. INTENT only:
+            // capability is the tray dot's job and the pane's, and one line of speech cannot
+            // report a fact that was just invalidated on the line above.
+            if (_host != null && _host.SpeechEnabled && AnyCompanionCanSpeak())
+            {
+                _host.SayAll(next
+                    ? "Auto-approve is on. I will only press single-call approvals."
+                    : "I will stop approving prompts.");
+            }
+        }
+
+        /// <summary>
+        /// What auto-approve switching on or off means beyond the mode itself, from the tray's row
+        /// or the pane's radio alike (one method since N-audit-1106-099, -100, when the pane was
+        /// found doing neither half).
+        /// </summary>
+        private void PressingSwitched()
+        {
             // Forget what the last probe said. Whatever was true before the switch moved is
             // not evidence about now. NOT because the port is probed only while auto-approve is
             // on -- that premise went in 1.3.1, when probing started following Scans(Mode), so
@@ -3545,17 +3619,6 @@ namespace DesktopAICompanion.AgentFlow
             _panelReadable = false;
             // The switch moving is the user saying "try again", which clears a stand-down.
             _resetPressBudget = true;
-
-            // Said out loud, because pressing buttons on someone's behalf is not a silent
-            // setting and the tray label is only visible while the menu is open. INTENT only:
-            // capability is the tray dot's job and the pane's, and one line of speech cannot
-            // report a fact that was just invalidated on the line above.
-            if (_host != null && _host.SpeechEnabled && AnyCompanionCanSpeak())
-            {
-                _host.SayAll(next
-                    ? "Auto-approve is on. I will only press single-call approvals."
-                    : "I will stop approving prompts.");
-            }
         }
 
         internal void SetEnabledFromTray(bool enabled)
@@ -5341,6 +5404,34 @@ namespace DesktopAICompanion.AgentFlow
                     && module.AutoApproveState == ApproveState.CannotSee);
                 module.ToggleAutoApproveFromTray();
 
+                // The PANE's radio is the same switch (N-audit-1106-099, -100). It cleared neither the
+                // last probe nor a stand-down, although every stand-down message says switching
+                // auto-approve off and on is how to try again. An off -> on round trip through the
+                // pane, then a Save that leaves the mode where it is, which must forget nothing.
+                module._portAnswering = true;
+                module._panelReadable = true;
+                module._resetPressBudget = false;
+                pane.Save(new Dictionary<string, string>
+                    { { SettingMode, AgentMode.ToDisplay(AgentMode.AutoApprove) } });
+                probe.Check("WITNESS (N-audit-1106-100) switching it on from the pane discards the last probe too",
+                    module.AutoApprove && !module._portAnswering && !module._panelReadable
+                    && module.AutoApproveState == ApproveState.CannotSee);
+                probe.Check("WITNESS (N-audit-1106-099) switching it on from the pane clears a stand-down",
+                    module._resetPressBudget);
+                module._resetPressBudget = false;
+                pane.Save(new Dictionary<string, string>
+                    { { SettingMode, AgentMode.ToDisplay(AgentMode.Notify) } });
+                probe.Check("WITNESS (N-audit-1106-099) ...and so does switching it off from the pane",
+                    !module.AutoApprove && module._resetPressBudget);
+                module._resetPressBudget = false;
+                module._portAnswering = true;
+                pane.Save(new Dictionary<string, string>
+                    { { SettingMode, AgentMode.ToDisplay(AgentMode.Notify) } });
+                probe.Check("(N-audit-1106-099, -100) a pane Save that leaves the mode where it was forgets nothing",
+                    !module._resetPressBudget && module._portAnswering);
+                module._portAnswering = false;
+                module._resetPressBudget = true;   // as the tray's last toggle above left it, for what follows
+
                 // The tray has to OFFER it, carry the same text as the helper, and sit in its
                 // own group so the host draws a separator between watching and PRESSING.
                 TrayItem row = null;
@@ -6054,6 +6145,18 @@ namespace DesktopAICompanion.AgentFlow
             probe.Check("WITNESS an unreachable editor is reported, not called success",
                 pressed != null && pressed.IndexOf("gone", StringComparison.Ordinal) >= 0
                 && pressed.IndexOf("approve-once", StringComparison.Ordinal) >= 0);
+            // ...and its note does not say a row was pressed (N-audit-1106-096). The classifier's reason
+            // opens "pressing option 1", which a click that did not land used to carry into the log.
+            probe.Check("WITNESS (N-audit-1106-096) a click that did not land says it did not press, never 'pressing'",
+                pressed != null && pressed.IndexOf("did not press option 1 (gone), recognised as", StringComparison.Ordinal) >= 0
+                && pressed.IndexOf("pressing", StringComparison.Ordinal) < 0);
+            // The opt-in shape too: a wider row the user asked for must not read as a rule saved.
+            var notSaved = new PromptDecision { Index = 1, Reason = "pressing option 2, which SAVES A RULE FOR ALL PROJECTS (you asked for this); declined the one-call row" };
+            probe.Check("(N-audit-1106-096) an opt-in press that did not land keeps what the row is, not that it was pressed",
+                NotPressedReason(notSaved, "moved") == "did not press option 2 (moved), which SAVES A RULE FOR ALL PROJECTS "
+                    + "(you asked for this); declined the one-call row"
+                && NotPressedReason(new PromptDecision { Index = 0, Reason = "pressing something new" }, "disabled")
+                   == "did not press option 1 (disabled)");
 
             // ---- what got approved, said safely --------------------------------------
             // The first real prompt this module ever pressed logged itself as "an unnamed
@@ -6124,6 +6227,15 @@ namespace DesktopAICompanion.AgentFlow
             // row cannot be removed again on the same reasoning that left it out.
             probe.Check("WITNESS even the degenerate question header is named",
                 DescribeSubject(Header("No questions provided", "")) == "a question");
+            // Also found by the audit, on bundle 2.1.319 (N-fulltier-1107-03). The project's name
+            // sits after the static half in curly quotes, so each branch is asserted WITH a name in
+            // place: an exact answer is also the proof that none of the name came through.
+            probe.Check("WITNESS (N-fulltier-1107-03) a message that creates a Claude project is named",
+                DescribeSubject(Header("Create the Claude Project " + ProjectQuoteOpen + "Quarterly plans"
+                    + ProjectQuoteClose + " and send this message?", "")) == "a new project and its message");
+            probe.Check("WITNESS (N-fulltier-1107-03) a message to an existing Claude project is named",
+                DescribeSubject(Header("Send this message to the Claude Project " + ProjectQuoteOpen
+                    + "Quarterly plans" + ProjectQuoteClose + "?", "")) == "a message to a project");
             probe.Check("a tool named in the header still wins, and is not overridden",
                 DescribeSubject(Tool("Bash")) == "Bash");
 
@@ -6208,6 +6320,11 @@ namespace DesktopAICompanion.AgentFlow
                 TargetId = "t1", ToolName = "", UnsafeHeader = header, PathExtension = extension,
             };
         }
+
+        /// <summary>The curly quotes the 2.1.319 bundle puts around a Claude Project's name
+        /// (N-fulltier-1107-03), written as escapes so no editor can straighten them.</summary>
+        private const string ProjectQuoteOpen = "\u201C";
+        private const string ProjectQuoteClose = "\u201D";
 
         /// <summary>A prompt that does name its tool, the way the generic shape does.</summary>
         private static PromptView Tool(string tool)
