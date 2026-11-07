@@ -1616,10 +1616,12 @@ CASES = (
      "an audition's preparation warms nothing"),
 
     # F104: the fallover's local model comes from the id again.
+    # Re-pointed by burndown/w3-aibrain-1 (N-audit-1106-128): the local leg left the catch, one indent level out, so a
+    # chat the primary's down probe passes over reaches it too.
     ("aibrain: a fallover picks the local model by id again",
      os.path.join(REPO, "modules", "AiBrain", "engine", "FallbackBackend.cs"),
-     b"                string localModel = HasImage(messages) ? _localVisionModel : _localTextModel;",
-     b"                string localModel = LocalModelFor(model);",
+     b"            string localModel = HasImage(messages) ? _localVisionModel : _localTextModel;",
+     b"            string localModel = LocalModelFor(model);",
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "a text fallover with one cloud model for both slots lands on the local TEXT model"),
@@ -10433,9 +10435,10 @@ CASES = (
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      'a remark through a CLI brain carries the model the CLI answered on'),
 
+    # Re-pointed by burndown/w3-aibrain-1 (N-audit-1106-128): the local leg left the catch, one indent level out.
     ("cli-model-effort: round 3: AI Brain: a fallover is said to have run on the cloud's model",
      os.path.join(REPO, "modules", "AiBrain", "engine", "FallbackBackend.cs"),
-     b"                Volatile.Write(ref _lastServedModel, localModel);\n",
+     b"            Volatile.Write(ref _lastServedModel, localModel);\n",
      b"",
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
@@ -21184,6 +21187,45 @@ CASES = (
      b'     None),\n',
      None, None,
      MUTATION_UNITTESTS, None, 'test_every_installer_variant_names_the_check_it_must_fail'),
+    # ---- burndown/w3-aibrain-1 ----
+    # AI Brain's third-wave items of the 2026-11-06 full audit (aibrain 1.7.1), graded by --module-selftest=aibrain's
+    # "aibrain audit-1106 w3:" checks (engine/AiEngineProbe.Audit1106Wave3.cs). Named "bd-w3-aibrain-1: ..." so
+    # --only=bd-w3-aibrain-1: runs the lane.
+    ("bd-w3-aibrain-1: Init no longer sweeps the OCR scratch images (N-audit-1106-126)",
+     AIBRAIN_MODULE,
+     b"            _ocrScratchSweep = Task.Run(delegate { return AiBrain.SweepStaleOcrScratch(ocrScratch); });\n",
+     b"            _ocrScratchSweep = Task.FromResult(0);\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "aibrain audit-1106 w3: Init sweeps an OCR scratch image older than an hour"),
+    ("bd-w3-aibrain-1: the OCR scratch sweep loses its one-hour floor (N-audit-1106-126)",
+     AIBRAIN_ENGINE,
+     b"                        if (File.GetLastWriteTimeUtc(path) > cutoff) continue;\n",
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "WITNESS aibrain audit-1106 w3: the sweep keeps an image younger than an hour"),
+    ("bd-w3-aibrain-1: the composite sends a remark to a cloud its probe saw down again (N-audit-1106-128)",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "FallbackBackend.cs"),
+     b"            if (!PrimarySkipped())\n",
+     b"            if (true)\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "aibrain audit-1106 w3: while the cloud's last probe got no answer a remark goes straight to the local model"),
+    ("bd-w3-aibrain-1: the auto-start launches ollama serve without OLLAMA_HOST again (N-audit-1106-129)",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "OllamaClient.cs"),
+     b"            if (host != null) psi.Environment[\"OLLAMA_HOST\"] = host;\n",
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "aibrain audit-1106 w3: auto-start tells ollama serve to listen on the endpoint's own host and port"),
+    ("bd-w3-aibrain-1: the auto-start narrows an OLLAMA_HOST that listens everywhere (N-audit-1106-129)",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "OllamaClient.cs"),
+     b"            return everywhere && listens == port;\n",
+     b"            return false;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "WITNESS aibrain audit-1106 w3: an inherited OLLAMA_HOST that already listens everywhere on the endpoint's port is kept"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
