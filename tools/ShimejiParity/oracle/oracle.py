@@ -582,6 +582,7 @@ def self_test(args):
     v1_self_test(args, labels)
     burndown_self_test(args, labels)
     review_self_test(args, labels)
+    synthetic_input_self_test(args, labels)
     return {"status": "pass", "witnesses": labels, "network_requests": 0}
 
 
@@ -1054,6 +1055,88 @@ def review_self_test(args, labels):
         labels.append("v1-entry-point-classifies-only-inactive-input-targets-as-scenario-invalid")
 
 
+def synthetic_input_self_test(args, labels):
+    """Interrupted generation is refused by the real consumers, before source or compiler access."""
+    with tempfile.TemporaryDirectory(prefix="oracle-input-set-", dir=args.temp_root) as folder:
+        root = Path(folder)
+        inputs = root / "inputs"
+        pack = inputs / "packs" / "synthetic"
+        pack.mkdir(parents=True)
+        payload = pack / "payload.txt"
+        payload.write_bytes(b"synthetic managed input")
+        scenario = inputs / "S-synthetic-input.json"
+        write_json(scenario, {})
+        owned = ["packs", "packs/synthetic", "packs/synthetic/payload.txt", scenario.name]
+        manifest = inputs / SHARED_OUTPUT_MANIFEST
+
+        def journal():
+            write_json(manifest, dict(schema=SHARED_OUTPUT_SCHEMA, state="ready", paths=owned))
+
+        def reached_source(*unused):
+            raise Refusal("SYNTHETIC_INPUT_SOURCE_REACHED")
+
+        fixture_args = SimpleNamespace(shared_root=inputs, output_root=root / "evidence", only=None)
+        copied_shared = FunctionType(shared.__code__, dict(globals(), check_source=reached_source), "shared")
+        here = root / "tool"
+        here.mkdir()
+        for name in ("oracle.py", V1_RUNNER):
+            (here / name).write_bytes(b"synthetic input consumer witness")
+        copied_v1 = FunctionType(v1.__code__, dict(globals(), HERE=here, check_source=reached_source), "v1")
+        stub_compare = SimpleNamespace(validate_scenario=reached_source)
+        consumers = (
+            (lambda: copied_shared(fixture_args), "SYNTHETIC_SHARED_WIRING_WITNESS"),
+            (lambda: copied_v1(fixture_args), "SYNTHETIC_V1_WIRING_WITNESS"),
+            (lambda: v1_scenarios(fixture_args), "SYNTHETIC_SELECTION_WIRING_WITNESS"),
+            (lambda: v1_run(fixture_args, stub_compare, scenario, root, "", root, {}), "SYNTHETIC_RUN_WIRING_WITNESS"))
+
+        # Positive controls cover both completed journal versions and custom, unmanifested fixtures.
+        for state in ("ready", None, "unmanifested"):
+            if state == "unmanifested":
+                manifest.unlink()
+            else:
+                document = {"schema": SHARED_OUTPUT_SCHEMA, "paths": owned}
+                if state is not None:
+                    document["state"] = state
+                write_json(manifest, document)
+            validate_shared_output(inputs)
+            assert v1_scenarios(fixture_args) == [scenario], "SYNTHETIC_INPUT_POSITIVE_WITNESS scenario selection changed"
+            for consumer, witness in (consumers[0], consumers[1], consumers[3]):
+                expect_refusal(consumer, "SYNTHETIC_INPUT_SOURCE_REACHED", witness + " positive control")
+
+        journal()
+        document = json.loads(manifest.read_text(encoding="utf-8"))
+        document["state"] = "building"
+        write_json(manifest, document)
+        expect_refusal(lambda: validate_shared_output(inputs), "SYNTHETIC_INPUT_BUILDING", "SYNTHETIC_BUILDING_WITNESS")
+        for consumer, witness in consumers:
+            expect_refusal(consumer, "SYNTHETIC_INPUT_BUILDING", witness)
+        journal()
+        payload.unlink()
+        expect_refusal(lambda: validate_shared_output(inputs), "SYNTHETIC_INPUT_INCOMPLETE missing packs/synthetic/payload.txt",
+                       "SYNTHETIC_MISSING_PATH_WITNESS")
+        payload.write_bytes(b"synthetic managed input")
+        extra = inputs / "S-unlisted.json"
+        write_json(extra, {})
+        before = extra.read_bytes()
+        expect_refusal(lambda: validate_shared_output(inputs), "SYNTHETIC_INPUT_INCOMPLETE unlisted S-unlisted.json",
+                       "SYNTHETIC_EXTRA_PATH_WITNESS")
+        assert extra.read_bytes() == before, "SYNTHETIC_EXTRA_PRESERVED_WITNESS"
+        extra.unlink()
+        for broken, witness in (
+                ({"schema": "other", "paths": owned}, "SYNTHETIC_MANIFEST_SCHEMA_WITNESS"),
+                ({"schema": SHARED_OUTPUT_SCHEMA, "state": "unknown", "paths": owned}, "SYNTHETIC_MANIFEST_STATE_WITNESS"),
+                ({"schema": SHARED_OUTPUT_SCHEMA, "paths": ["../escape"]}, "SYNTHETIC_MANIFEST_PATH_WITNESS"),
+                ({"schema": SHARED_OUTPUT_SCHEMA, "paths": [1]}, "SYNTHETIC_MANIFEST_PATHS_WITNESS"),
+                ({"schema": SHARED_OUTPUT_SCHEMA, "paths": owned + [owned[0]]}, "SYNTHETIC_MANIFEST_REPEATED_WITNESS")):
+            write_json(manifest, broken)
+            expect_refusal(lambda: validate_shared_output(inputs), "SYNTHETIC_INPUT_MANIFEST_INVALID", witness)
+        manifest.write_text("{", encoding="utf-8")
+        expect_refusal(lambda: validate_shared_output(inputs), "SYNTHETIC_INPUT_MANIFEST_INVALID", "SYNTHETIC_MANIFEST_JSON_WITNESS")
+        journal()
+        validate_shared_output(inputs)
+        labels.append("managed-synthetic-inputs-complete-building-partial-and-custom-consumer-controls")
+
+
 def png(red, green, blue):
     def chunk(kind, payload):
         return struct.pack(">I", len(payload)) + kind + payload + struct.pack(">I", zlib.crc32(kind + payload) & 0xffffffff)
@@ -1294,6 +1377,31 @@ def mutate(args):
     legs.append(("bd-codex-parity: inactive-input-classification", [(
         'if status == "aborted" and detail.startswith("V1_REFUSAL ' + 'V1_INPUT_TARGET_ABSENT "):', 'if False:')],
         "V1_INACTIVE_INPUT_WITNESS"))
+    # ---- burndown/codex-parity-2 ----
+    legs.extend([
+        ("bd-codex-parity-2: input-building", [('if document.get("state") ' + '== "building":', 'if False:')],
+         "SYNTHETIC_BUILDING_WITNESS"),
+        ("bd-codex-parity-2: input-inventory", [('if missing ' + 'or extra:', 'if False:')],
+         "SYNTHETIC_MISSING_PATH_WITNESS"),
+        ("bd-codex-parity-2: input-schema", [('if not isinstance(document, dict) or document.get("schema") ' + '!= SHARED_OUTPUT_SCHEMA:', 'if False:')],
+         "SYNTHETIC_MANIFEST_SCHEMA_WITNESS"),
+        ("bd-codex-parity-2: input-state", [('if "state" in document and document["state"] ' + '!= "ready":', 'if False:')],
+         "SYNTHETIC_MANIFEST_STATE_WITNESS"),
+        ("bd-codex-parity-2: input-paths", [('if not isinstance(paths, list) or not all(isinstance(path, str) ' + 'for path in paths):', 'if False:')],
+         "SYNTHETIC_MANIFEST_PATHS_WITNESS"),
+        ("bd-codex-parity-2: input-path-spelling", [('if (not managed or parsed.is_absolute() or ".." in parsed.parts or ":" in relative\n                    '
+                                                  + 'or "\\\\" in relative or parsed.as_posix() != relative):', 'if False:')],
+         "SYNTHETIC_MANIFEST_PATH_WITNESS"),
+        ("bd-codex-parity-2: input-path-duplicates", [('if len(expected) ' + '!= len(paths):', 'if False:')],
+         "SYNTHETIC_MANIFEST_REPEATED_WITNESS"),
+        ("bd-codex-parity-2: shared-input-wiring", [('    validate_shared_output(args.shared_root)\n    source = ' + 'check_source(args)',
+                                                   '    source = check_source(args)')], "SYNTHETIC_SHARED_WIRING_WITNESS"),
+        ("bd-codex-parity-2: v1-input-wiring", [('        phase = "synthetic-input-set"\n        ' + 'validate_shared_output(args.shared_root)\n', '')],
+         "SYNTHETIC_V1_WIRING_WITNESS"),
+        ("bd-codex-parity-2: selection-input-wiring", [('def v1_scenarios(args):\n    ' + 'validate_shared_output(args.shared_root)\n',
+                                                      'def v1_scenarios(args):\n')], "SYNTHETIC_SELECTION_WIRING_WITNESS"),
+        ("bd-codex-parity-2: run-input-wiring", [('    validate_shared_output(scenario_path.parent)\n    raw = ' + 'scenario_path.read_bytes()',
+                                                '    raw = scenario_path.read_bytes()')], "SYNTHETIC_RUN_WIRING_WITNESS")])
     if args.only:
         legs = [leg for leg in legs if args.only in leg[0]]
         if not legs:
@@ -1436,8 +1544,79 @@ def failures(args):
     return result
 
 
+SHARED_OUTPUT_MANIFEST = ".make-packs-manifest.json"
+SHARED_OUTPUT_SCHEMA = "shimeji-parity-pack-output/1"
+
+
+def validate_shared_output(root):
+    """A generator journal owns the whole synthetic input set, not just the selected scenario's files."""
+    root = Path(root)
+    manifest = root / SHARED_OUTPUT_MANIFEST
+    if not manifest.exists() and not manifest.is_symlink():
+        # Independently authored synthetic fixtures have no generator journal and remain valid inputs.
+        return
+
+    def linked(path):
+        return path.is_symlink() or getattr(path.lstat(), "st_file_attributes", 0) & 0x400
+
+    try:
+        if linked(manifest):
+            raise Refusal("SYNTHETIC_INPUT_MANIFEST_INVALID linked manifest")
+        document = json.loads(manifest.read_text(encoding="utf-8"))
+        if not isinstance(document, dict) or document.get("schema") != SHARED_OUTPUT_SCHEMA:
+            raise Refusal("SYNTHETIC_INPUT_MANIFEST_INVALID schema")
+        if document.get("state") == "building":
+            raise Refusal("SYNTHETIC_INPUT_BUILDING regenerate the interrupted synthetic input set")
+        # Earlier completed journals omitted state. They remain usable only after the same complete-inventory check.
+        if "state" in document and document["state"] != "ready":
+            raise Refusal("SYNTHETIC_INPUT_MANIFEST_INVALID state")
+        paths = document.get("paths")
+        if not isinstance(paths, list) or not all(isinstance(path, str) for path in paths):
+            raise Refusal("SYNTHETIC_INPUT_MANIFEST_INVALID paths")
+        expected = set(paths)
+        for relative in paths:
+            parsed = PurePosixPath(relative)
+            managed = (relative == "packs" or relative.startswith("packs/")
+                       or ("/" not in relative and relative.startswith("S-") and relative.endswith(".json")))
+            if (not managed or parsed.is_absolute() or ".." in parsed.parts or ":" in relative
+                    or "\\" in relative or parsed.as_posix() != relative):
+                raise Refusal("SYNTHETIC_INPUT_MANIFEST_INVALID path " + relative)
+        if len(expected) != len(paths):
+            raise Refusal("SYNTHETIC_INPUT_MANIFEST_INVALID repeated path")
+        actual = set()
+
+        def remember(path):
+            relative = path.relative_to(root).as_posix()
+            if linked(path):
+                raise Refusal("SYNTHETIC_INPUT_MANIFEST_INVALID linked input " + relative)
+            actual.add(relative)
+
+        def unreadable(error):
+            raise Refusal("SYNTHETIC_INPUT_MANIFEST_INVALID unreadable input " + str(error)) from error
+
+        packs = root / "packs"
+        if packs.exists() or packs.is_symlink():
+            remember(packs)
+            if not packs.is_dir():
+                raise Refusal("SYNTHETIC_INPUT_MANIFEST_INVALID packs is not a directory")
+            for folder, directories, files in os.walk(packs, followlinks=False, onerror=unreadable):
+                for name in directories + files:
+                    remember(Path(folder) / name)
+        for scenario in root.glob("S-*.json"):
+            remember(scenario)
+            if not scenario.is_file():
+                raise Refusal("SYNTHETIC_INPUT_MANIFEST_INVALID scenario is not a file")
+        missing, extra = expected - actual, actual - expected
+        if missing or extra:
+            detail = "missing " + sorted(missing)[0] if missing else "unlisted " + sorted(extra)[0]
+            raise Refusal("SYNTHETIC_INPUT_INCOMPLETE " + detail)
+    except (OSError, UnicodeError, json.JSONDecodeError) as failure:
+        raise Refusal("SYNTHETIC_INPUT_MANIFEST_INVALID " + str(failure)) from failure
+
+
 def shared(args):
     """Additional provisional witnesses using the peer's exact synthetic inputs."""
+    validate_shared_output(args.shared_root)
     source = check_source(args)
     root = args.output_root / ("shared-" + uuid.uuid4().hex[:8])
     scenarios = []
@@ -1630,6 +1809,7 @@ def require_v1_results(requested, rows):
 
 
 def v1_scenarios(args):
+    validate_shared_output(args.shared_root)
     paths = sorted(args.shared_root.glob("S-*.json"))
     if args.only:
         paths = [path for path in paths if any(item in path.stem for item in args.only.split(","))]
@@ -1714,6 +1894,7 @@ def v1_copy_pack(files, workdir):
 
 
 def v1_run(args, compare, scenario_path, root, classpath, runner, build, observe=True):
+    validate_shared_output(scenario_path.parent)
     raw = scenario_path.read_bytes()
     doc = json.loads(raw.decode("utf-8"))
     compare.validate_scenario(doc)
@@ -2028,6 +2209,8 @@ def v1(args):
     try:
         if args.shared_root is None:
             raise Refusal("V1_NO_SCENARIOS pass --shared-root naming generated synthetic scenarios")
+        phase = "synthetic-input-set"
+        validate_shared_output(args.shared_root)
         phase = "source-integrity"
         check_source(args)
         compare = comparer()
