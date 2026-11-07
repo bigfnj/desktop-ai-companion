@@ -20584,6 +20584,64 @@ CASES = (
      b"                string path = ContainedPath(spritesDir, \"\", out reason) == null ? null : Path.Combine(spritesDir, (image ?? \"\").TrimStart('/'));\n",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
      SHIMEJI, None, "bundle containment: a ../ filePattern was followed outside the bundle"),
+    # ---- burndown/remembrance-1 ----
+    # The 2026-11-06 audit's Remembrance entries, each the defect as it stood put back. Named "bd-remembrance-1: ..." so
+    # --only=bd-remembrance-1: runs exactly these.
+
+    # N-audit-1106-040: a failed re-run on a capture's own WAV overwrites the transcript beside it with the stub again.
+    ("bd-remembrance-1: a failed re-transcription overwrites the transcript beside the WAV (N-audit-1106-040)",
+     TRANSCRIBER,
+     b"            if (didTranscribe || !keep) WriteText(transcriptPath, text);\n",
+     b"            WriteText(transcriptPath, text);\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a failed re-transcription leaves the transcript already beside the WAV untouched"),
+
+    # N-audit-1106-040, the other half: the stub written before the run lands on a real transcript.
+    ("bd-remembrance-1: the pre-run stub is written over a real transcript (N-audit-1106-040)",
+     TRANSCRIBER,
+     b"            if (!keep) WriteText(transcriptPath, header + PendingBody(InterruptedReason, false));\n",
+     b"            WriteText(transcriptPath, header + PendingBody(InterruptedReason, false));\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a re-transcription puts no stub over a real transcript while it runs"),
+
+    # N-audit-1106-040: a stub of ours counts as a transcript, so a newer failure's reason never replaces it.
+    ("bd-remembrance-1: a stub is kept as if it were a transcript (N-audit-1106-040)",
+     TRANSCRIBER,
+     b"                return !string.IsNullOrWhiteSpace(text) && !IsPendingStub(text);\n",
+     b"                return !string.IsNullOrWhiteSpace(text);\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a stub from an earlier failure is replaced by the newer failure's"),
+
+    # N-audit-1106-041: nothing is on disk while whisper-cli runs, so a run the exit cuts short leaves no transcript.
+    ("bd-remembrance-1: no stub is on disk while whisper-cli runs (N-audit-1106-041)",
+     TRANSCRIBER,
+     b"            if (!keep) WriteText(transcriptPath, header + PendingBody(InterruptedReason, false));\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a stub is on disk WHILE whisper-cli runs"),
+
+    # N-audit-1106-038: the shutdown save leaves recording.wav with no transcript beside it again.
+    ("bd-remembrance-1: the shutdown save writes no stub transcript (N-audit-1106-038)",
+     REMEMBRANCE_MODULE,
+     b"                    Transcriber.WriteStub(paths.Transcript, meetingName, attendees, paths.StartedAt, Transcriber.AppClosedReason);\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a recording saved at app exit gets a stub transcript saying it was never transcribed"),
+
+    # N-audit-1106-276: the rename of an old by-date capture leaves its follow-up behind under the old name again.
+    ("bd-remembrance-1: the rename leaves an old capture's follow-up behind (N-audit-1106-276)",
+     os.path.join(REPO, "modules", "Remembrance", "CaptureStore.Rename.cs"),
+     b"            { \".transcript.txt\", LegacySummarySuffix, SummarySuffix, AudioRecorder.SystemScratchSuffix, AudioRecorder.MicScratchSuffix, \".wav\",\n"
+     b"              FollowUp.FileSuffix };\n",
+     b"            { \".transcript.txt\", LegacySummarySuffix, SummarySuffix, AudioRecorder.SystemScratchSuffix, AudioRecorder.MicScratchSuffix, \".wav\" };\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "rename: a follow-up beside an old-named summary moves with its capture"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
