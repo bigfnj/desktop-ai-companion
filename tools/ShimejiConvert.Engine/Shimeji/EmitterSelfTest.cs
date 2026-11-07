@@ -1955,6 +1955,46 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                                 + "the pet straight back up into the border it just left");
                     }
                 }
+
+                // ---- A JUMP DRAWN WITH THE REST POSE'S ART STAYS A JUMP (Codex finding C01) ----
+                // An embedded Jump declares its launch on the action, so its poses read Velocity="0,0": drawn with
+                // the Stand pose's own art it matched Stand frame for frame and velocity for velocity, and the
+                // direction collapse merged it into the stationary pose. The jump vanished while the residue still
+                // named it converted. LeapUnseen is the residue's other half: a jump whose only pose has no image
+                // never becomes an animation, so the report must not call it converted either.
+                ShimejiConfig twins = ShimejiParser.ParseActionsXml(JumpRestTwinActionsXml);
+                SpriteSheet twinSheet;
+                string twinError;
+                if (!SpriteSheetBuilder.Build(
+                        Emit.PetEmitter.PosesToComposite(twins), loadFlat, false, out twinSheet, out twinError))
+                {
+                    failures.Add("jump-and-rest twin fixture failed to composite: " + twinError);
+                }
+                else
+                {
+                    ConversionResult tr = PetEmitter.Emit(twins, twinSheet, loadFlat, "TwinSkin");
+                    XmlData.AnimationNode tStand = FindAnimationNamed(tr, "Stand");
+                    XmlData.AnimationNode tJump = FindAnimationNamed(tr, "Jumping");
+                    if (tJump == null)
+                        failures.Add("jump and rest twins: the embedded Jump 'Jumping' was merged into its byte-identical "
+                            + "stationary sibling and emitted no animation");
+                    else if (ParseIntOrZero(tJump.Start != null ? tJump.Start.Y : null) >= 0)
+                        failures.Add("jump and rest twins: 'Jumping' was emitted without its launch (start y="
+                            + (tJump.Start != null ? tJump.Start.Y : "(none)") + ")");
+                    // WITNESS: the rest pose is still emitted and still holds still, so the check above is about the
+                    // jump, not about a fixture in which nothing is merged at all.
+                    if (tStand == null || ParseIntOrZero(tStand.Start != null ? tStand.Start.Y : null) != 0)
+                        failures.Add("WITNESS: jump and rest twins: the stationary 'Stand' is missing or moves vertically");
+                    string jumpNote = null;
+                    if (tr.Residue != null)
+                        foreach (string n in tr.Residue.Notes)
+                            if (n.StartsWith("Jumping IS converted", StringComparison.Ordinal)) { jumpNote = n; break; }
+                    if (jumpNote == null || jumpNote.IndexOf("Converted for this skin: Jumping", StringComparison.Ordinal) < 0)
+                        failures.Add("WITNESS: jump and rest twins: the residue's jump note does not name the emitted 'Jumping'");
+                    else if (jumpNote.IndexOf("LeapUnseen", StringComparison.Ordinal) >= 0)
+                        failures.Add("jump and rest twins: the residue names 'LeapUnseen' as a converted jump, but its only "
+                            + "pose has no image and no animation was emitted for it");
+                }
             }
             catch (Exception ex) { failures.Add("no-locomotion fixtures threw: " + ex.Message); }
             finally
@@ -2502,6 +2542,30 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         <Pose Image=""/n4.png"" ImageAnchor=""20,60"" Velocity=""2,0"" Duration=""4"" />
         <Pose Image=""/n3.png"" ImageAnchor=""20,60"" Velocity=""2,0"" Duration=""4"" />
       </Animation>
+    </Action>
+    <Action Name=""Falling"" Type=""Embedded"" Class=""com.group_finity.mascot.action.Fall"" Gravity=""2"">
+      <Animation><Pose Image=""/n2.png"" ImageAnchor=""20,60"" Velocity=""0,2"" Duration=""4"" /></Animation>
+    </Action>
+  </ActionList>
+</Mascot>";
+
+        /// <summary>A Stay pose and an embedded Jump drawn with the same single pose (same image, anchor, velocity
+        /// and duration), so only the Jump class tells them apart; and LeapUnseen, an embedded Jump whose one pose
+        /// names no image.</summary>
+        private const string JumpRestTwinActionsXml =
+@"<?xml version=""1.0"" encoding=""UTF-8"" ?>
+<Mascot xmlns=""http://www.group-finity.com/Mascot"">
+  <ActionList>
+    <Action Name=""Stand"" Type=""Stay"" BorderType=""Floor"">
+      <Animation><Pose Image=""/n1.png"" ImageAnchor=""20,60"" Velocity=""0,0"" Duration=""250"" /></Animation>
+    </Action>
+    <Action Name=""Jumping"" Type=""Embedded"" Class=""com.group_finity.mascot.action.Jump""
+            VelocityParam=""14"" BorderType=""Floor"">
+      <Animation><Pose Image=""/n1.png"" ImageAnchor=""20,60"" Velocity=""0,0"" Duration=""250"" /></Animation>
+    </Action>
+    <Action Name=""LeapUnseen"" Type=""Embedded"" Class=""com.group_finity.mascot.action.Jump""
+            VelocityParam=""14"" BorderType=""Floor"">
+      <Animation><Pose ImageAnchor=""20,60"" Velocity=""0,0"" Duration=""4"" /></Animation>
     </Action>
     <Action Name=""Falling"" Type=""Embedded"" Class=""com.group_finity.mascot.action.Fall"" Gravity=""2"">
       <Animation><Pose Image=""/n2.png"" ImageAnchor=""20,60"" Velocity=""0,2"" Duration=""4"" /></Animation>
