@@ -129,7 +129,7 @@ CASES = (
     ("bd-codex-parity-2-review: later disposal is not earlier input proof", "R2 disposed targets",
      'last_seen < event["tick"] <= previous', 'last_seen < event["tick"]'),
     ("bd-codex-parity-2-review: later state contradicts selected disposal", "R2 disposed targets",
-     'last_seen < event["tick"] <= previous', 'event["tick"] <= previous'),
+     'if disposed_at is not None and ticks[-1] >= disposed_at:', 'if False:'),
     ("bd-codex-parity-2-review: valid peer proof precedes truncation", "R2 truncated peer proof",
      'if not has_footer and not defer_run_failure:', 'if not has_footer:'),
     ("bd-codex-parity-2-review: truncated trace is never positive proof", "R2 truncated peer proof",
@@ -146,6 +146,23 @@ CASES = (
     ("bd-codex-parity-2-review: remaining footer still binds scenario ticks", "R2 truncated validation",
      'if known_ticks and (any(ticks != known_ticks[0] for ticks in known_ticks)',
      'if False and (any(ticks != known_ticks[0] for ticks in known_ticks)'),
+    # ---- burndown/codex-parity2-final ----
+    ("bd-codex-parity2-final: interrupted final snapshot stays truncated", "F3 interrupted snapshot",
+     'unfinished_snapshot = footer is None and ticks[-1] == observed_end - 1', 'unfinished_snapshot = False'),
+    ("bd-codex-parity2-final: earlier missing population stays malformed", "F3 interrupted snapshot",
+     'unfinished_snapshot = footer is None and ticks[-1] == observed_end - 1', 'unfinished_snapshot = footer is None'),
+    ("bd-codex-parity2-final: real footer requires complete snapshot", "F3 interrupted snapshot",
+     'unfinished_snapshot = footer is None and ticks[-1] == observed_end - 1',
+     'unfinished_snapshot = ticks[-1] == observed_end - 1'),
+    ("bd-codex-parity2-final: interrupted tail still validates velocity", "F3 interrupted snapshot",
+     'if r["velocity"] != want:', 'if r["velocity"] != want and not unfinished_snapshot:'),
+    ("bd-codex-parity2-final: disposed lifecycle cannot pass identical traces", "F3 disposal lifecycle",
+     'if disposed_at is not None and ticks[-1] >= disposed_at:', 'if False:'),
+    ("bd-codex-parity2-final: dispose request is not removal", "F3 disposal lifecycle",
+     'disposed = {(e["sid"], e["tick"]) for e in events if e["kind"] == "dispose"}',
+     'disposed = {(e["sid"], e["tick"]) for e in events if e["kind"] in ("dispose", "dispose-request")}'),
+    ("bd-codex-parity2-final: later event proves snapshot ended", "F3 interrupted snapshot",
+     ' and not any(e["tick"] > observed_end for e in events)', ''),
 )
 
 

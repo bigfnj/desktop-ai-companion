@@ -316,8 +316,17 @@ def load_trace(source, expected_runtime=None, defer_run_failure=False):
         ticks = [r["tick"] for r in rows]
         if ticks != list(range(ticks[0], ticks[-1] + 1)):
             malformed(f"{sid_}'s state lines have a gap ({ticks[0]}..{ticks[-1]}, {len(ticks)} lines)")
-        if ticks[-1] < observed_end and (sid_, ticks[-1] + 1) not in disposed:
+        # Without a footer, the last snapshot may end between two companions' state lines. Only that final
+        # one-tick tail is inconclusive unless a later event proves that snapshot already finished.
+        unfinished_snapshot = footer is None and ticks[-1] == observed_end - 1 and not any(e["tick"] > observed_end for e in events)
+        if ticks[-1] < observed_end and not unfinished_snapshot and (sid_, ticks[-1] + 1) not in disposed:
             malformed(f"{sid_} stops at tick {ticks[-1]} of {observed_end} with no dispose event at tick {ticks[-1] + 1}")
+        # dispose means actual queue removal, not dispose-request. Failed tentative children can reuse their
+        # provisional sid and emit requests, but never join the add queue (CONTRACT sections 3 and 4).
+        disposed_at = min((tick for disposed_sid, tick in disposed if disposed_sid == sid_), default=None)
+        if disposed_at is not None and ticks[-1] >= disposed_at:
+            first = next(row for row in rows if row["tick"] >= disposed_at)
+            malformed(f"tick {first['tick']}, {sid_}: state at or after dispose tick {disposed_at}")
         prev = None
         for r in rows:
             want = [0, 0] if prev is None else [r["anchor"][0] - prev["anchor"][0], r["anchor"][1] - prev["anchor"][1]]
@@ -818,7 +827,7 @@ BURNDOWN_CHECKS = ("N269 source pin", "N269 unbound report", "N270 typed state",
                    "P2 partial input proof", "P2 physical input CLI", "P2 script pending", "P2 script precedence",
                    "P2 script independent failures", "P2 script refusal before draw", "P2 script pending CLI",
                    "R2 zero-state runs", "R2 zero-state validation", "R2 disposed targets",
-                   "R2 truncated peer proof", "R2 truncated validation")
+                   "R2 truncated peer proof", "R2 truncated validation", "F3 interrupted snapshot", "F3 disposal lifecycle")
 
 
 def _case_require(value, name, detail):
@@ -1205,7 +1214,7 @@ def _r2_check(name):
                     else:
                         trace[1:-1] = [row for row in trace[1:-1] if row.get("kind") != "dispose"]
                     _refoot(trace)
-                require(compare(oracle, host, scenario=scenario), "aborted",
+                require(compare(oracle, host, scenario=scenario), "malformed",
                         "WITNESS " + contradicted_runtime + " state at/after disposal contradicts removal: " + str(last_tick))
         oracle, host, scenario = _input_reference(4, "m1.b1")
         for trace in (oracle, host):
@@ -1281,8 +1290,96 @@ def _r2_check(name):
         raise ValueError("unknown parity review check " + name)
 
 
+def _final_check(name):
+    def require(report, expected, detail, verdict="unjudgeable"):
+        _case_require(report["verdict"] == verdict and report["class"] == expected, name,
+                      detail + ": " + repr((report["verdict"], report["class"])))
+
+    def interrupted(trace, tick):
+        stop = next(index for index, row in enumerate(trace) if row.get("type") == "state"
+                    and row["tick"] == tick and row["sid"] == "m1.b1")
+        trace[:] = trace[:stop]  # m1's final state is present; the second companion's is not.
+
+    if name == "F3 interrupted snapshot":
+        for runtime in ("oracle", "host"):
+            oracle, host = _reference()
+            scenario = _scenario()
+            cut = oracle if runtime == "oracle" else host
+            interrupted(cut, 3)
+            for supplied in (None, scenario):
+                require(compare(oracle, host, scenario=supplied), "truncated", runtime + " final snapshot cut between state rows")
+            o, h = copy.deepcopy((oracle, host))
+            later = o if runtime == "oracle" else h
+            later.append(_ev(4, "m1", "error", message="next tick was reached"))
+            for supplied in (None, scenario):
+                report = compare(o, h, scenario=supplied)
+                require(report, "malformed", "WITNESS later event proves the incomplete snapshot already ended")
+                _case_require("with no dispose event at tick 3" in report["findings"][0]["message"], name,
+                              "later-event witness did not reach the missing population check")
+            o, h = copy.deepcopy((oracle, host))
+            early = o if runtime == "oracle" else h
+            early[:] = [row for row in early if not (row.get("type") == "state"
+                       and row["tick"] == 2 and row["sid"] == "m1.b1")]
+            for supplied in (None, scenario):
+                require(compare(o, h, scenario=supplied), "malformed", "WITNESS earlier missing population remains malformed")
+            for status in ("aborted", "complete"):
+                o, h = copy.deepcopy((oracle, host))
+                declared = o if runtime == "oracle" else h
+                declared.append({"type": "footer", "status": status, "ticks": 3, "draws": 0, "states": 0, "events": 0})
+                _refoot(declared)
+                require(compare(o, h), "malformed", "WITNESS real footer retains complete snapshot rule: " + status)
+            o, h = copy.deepcopy((oracle, host))
+            bad = o if runtime == "oracle" else h
+            _where(bad, 2, "m1.b1")[0]["velocity"] = [999, 0]
+            require(compare(o, h), "malformed", "WITNESS interrupted tail still checks its recorded velocity")
+            oracle, host = _reference()
+            scenario = _scenario()
+            scenario["input"].append({"tick": 2, "sid": "m1.b1", "click": "left"})
+            cut, valid = (oracle, host) if runtime == "oracle" else (host, oracle)
+            interrupted(cut, 2)
+            _cut_reference(valid, 2)
+            require(compare(oracle, host, scenario=scenario), "scenario-invalid", runtime + " interrupted peer cannot hide valid input proof")
+            require(compare(oracle, host), "truncated", "WITNESS interrupted peer without scenario remains truncated")
+        oracle, host = _reference()
+        for trace in (oracle, host):
+            interrupted(trace, 3)
+        require(compare(oracle, host, scenario=_scenario()), "truncated", "WITNESS both interrupted snapshots remain truncated")
+    elif name == "F3 disposal lifecycle":
+        for runtime in ("both", "oracle", "host"):
+            for tick in (2, 4):
+                oracle, host = _reference()
+                for side, trace in (("oracle", oracle), ("host", host)):
+                    if runtime in (side, "both"):
+                        trace.insert(-1, _ev(tick, "m1", "dispose"))
+                        _resort(trace)
+                        _refoot(trace)
+                report = compare(oracle, host)
+                require(report, "malformed", runtime + " state at/after own dispose")
+                _case_require("state at or after dispose tick" in report["findings"][0]["message"], name,
+                              "the lifecycle refusal was hidden by another check")
+        oracle, host = _reference()
+        require(compare(oracle, host), None, "WITNESS dispose-request and disposing state before removal are valid", "exact")
+        # A tentative child's behavior, RNG and dispose-request events are not removal. Its refused sid is
+        # deliberately reused by the next successful child, which must still have valid later state lines.
+        oracle, host = _reference({"kind": "tape", "values": [0.5, 0.5]})
+        for trace in (oracle, host):
+            next(row for row in trace if row.get("kind") == "rng-draw")["occurrence"] = 2
+            next(row for row in trace if row.get("kind") == "birth-request")["attempt"] = 2
+            trace[2:2] = [_ev(1, "m1.b1", "behavior", **{"from": None, "to": "Failed", "cause": "forced"}),
+                          _ev(1, "m1.b1", "rng-draw", site="builtin:behavior-select", occurrence=1,
+                              value=0.5, purpose="tentative child"),
+                          _ev(1, "m1.b1", "dispose-request", reason="failed birth"),
+                          _ev(1, "m1", "birth-refused", child=None, attempt=1, reason="error")]
+            _refoot(trace)
+        require(compare(oracle, host), None, "WITNESS refused tentative sid reuse with request is not disposal", "exact")
+    else:
+        raise ValueError("unknown final comparer check " + name)
+
+
 def burndown_check(name):
     """Focused public-comparer witnesses, also callable by the small source-mutation runner."""
+    if name.startswith("F3 "):
+        return _final_check(name)
     if name.startswith("R2 "):
         return _r2_check(name)
     if name.startswith("P2 "):
