@@ -78,9 +78,22 @@ namespace DesktopAICompanion.ReminderModule
 
         private static DateTimeOffset TodayOrTomorrowAt(DateTimeOffset now, int hhmm)
         {
-            DateTime dt = now.LocalDateTime.Date.AddMinutes(hhmm);
-            DateTimeOffset when = new DateTimeOffset(dt, TimeZoneInfo.Local.GetUtcOffset(dt));
-            return when <= now ? when.AddDays(1) : when;
+            return TodayOrTomorrowAt(now, hhmm, TimeZoneInfo.Local);
+        }
+
+        // Tomorrow's time carries TOMORROW's offset (N-audit-1106-293). It was today's instant plus 24 hours
+        // (when.AddDays(1) keeps today's offset), so "at 09:00" set on the evening before a DST change fired at 08:00
+        // or 10:00 on the wall clock. The zone is a parameter so the self-check can cross a change on any machine.
+        internal static DateTimeOffset TodayOrTomorrowAt(DateTimeOffset now, int hhmm, TimeZoneInfo zone)
+        {
+            DateTime today = TimeZoneInfo.ConvertTime(now, zone).DateTime.Date;
+            DateTimeOffset when = WallClockIn(today.AddMinutes(hhmm), zone);
+            return when <= now ? WallClockIn(today.AddDays(1).AddMinutes(hhmm), zone) : when;
+        }
+
+        private static DateTimeOffset WallClockIn(DateTime wall, TimeZoneInfo zone)
+        {
+            return new DateTimeOffset(wall, zone.GetUtcOffset(wall));
         }
 
         private static string FirstWord(string s, out string rest)
@@ -170,6 +183,26 @@ namespace DesktopAICompanion.ReminderModule
             refuse("gibberish here", now, "no schedule");
             refuse("daily 25:00 Late", now, "hour out of range");
             refuse("at +9:00 Signed", localNow, "a sign is not a time (F203)");
+
+            // N-audit-1106-293: a roll to tomorrow across a DST change keeps the wall-clock time. A synthetic zone (UTC-8,
+            // an hour of daylight time from the second Sunday of March to the first Sunday of November, 02:00), so the
+            // check means the same on a machine whose own zone has no DST. 2026-11-01 and 2026-03-08 are the changes.
+            var change = TimeZoneInfo.AdjustmentRule.CreateAdjustmentRule(new DateTime(2000, 1, 1), new DateTime(2099, 12, 31),
+                TimeSpan.FromHours(1),
+                TimeZoneInfo.TransitionTime.CreateFloatingDateRule(new DateTime(1, 1, 1, 2, 0, 0), 3, 2, DayOfWeek.Sunday),
+                TimeZoneInfo.TransitionTime.CreateFloatingDateRule(new DateTime(1, 1, 1, 2, 0, 0), 11, 1, DayOfWeek.Sunday));
+            TimeZoneInfo dstZone = TimeZoneInfo.CreateCustomTimeZone("reminder-dst-check", TimeSpan.FromHours(-8),
+                "DST check", "DST check standard", "DST check daylight", new[] { change });
+            Func<DateTime, DateTimeOffset> wall = dt => new DateTimeOffset(dt, dstZone.GetUtcOffset(dt));
+            Action<string, DateTime, int, DateTime> rolls = (name, at, hhmm, expected) =>
+            {
+                DateTimeOffset got = TodayOrTomorrowAt(wall(at), hhmm, dstZone);
+                DateTime gotWall = TimeZoneInfo.ConvertTime(got, dstZone).DateTime;
+                if (gotWall != expected) failed.Add(name + " fired at " + gotWall.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture));
+            };
+            rolls("'at 09:00' set the evening before daylight time ends", new DateTime(2026, 10, 31, 20, 0, 0), 540, new DateTime(2026, 11, 1, 9, 0, 0));
+            rolls("'at 09:00' set the evening before daylight time starts", new DateTime(2026, 3, 7, 20, 0, 0), 540, new DateTime(2026, 3, 8, 9, 0, 0));
+            rolls("WITNESS 'at 09:00' set the evening before an ordinary day", new DateTime(2026, 8, 26, 20, 0, 0), 540, new DateTime(2026, 8, 27, 9, 0, 0));
 
             var sb = new System.Text.StringBuilder();
             foreach (string f in failed) sb.AppendLine("FAIL: " + f);

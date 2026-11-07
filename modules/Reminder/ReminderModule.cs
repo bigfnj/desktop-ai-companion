@@ -65,7 +65,15 @@ namespace DesktopAICompanion.ReminderModule
         {
             Id = Id,
             Name = "Reminder",
-            Version = "1.3.0",  // 1.3.0: Calendar 5 becomes the Zoom slot (the owner, 2026-11-03): the meetings the user
+            Version = "1.3.1",  // 1.3.1: burn-down wave 2 (lane w2-reminder-1). The Outlook and Zoom feeds keep a meeting
+                                //        until it ENDS, as the .ics feed already did, so meeting.current, the Join entry
+                                //        and Remembrance's record offer no longer go blank two minutes into it; an
+                                //        all-day event is never meeting.current (N-audit-1106-042). A Zoom slot mark a
+                                //        day past its start is pruned even while the slot errors, so a signed-out or
+                                //        warning Zoom slot no longer grows the fired set for good (N-audit-1106-043).
+                                //        'at 09:00' rolled to tomorrow across a DST change fires at 09:00, not an
+                                //        hour off (N-audit-1106-293).
+                                // 1.3.0: Calendar 5 becomes the Zoom slot (the owner, 2026-11-03): the meetings the user
                                 //        HOSTS in Zoom, read from Zoom's REST API after a browser sign-in to a Zoom
                                 //        app the user creates (OAuth with PKCE, a loopback redirect, no secret; the
                                 //        refresh token sealed with DPAPI in this module's folder). A meeting that is
@@ -378,12 +386,13 @@ namespace DesktopAICompanion.ReminderModule
 
                 IReadOnlyList<CalendarEvent> events = snap.Events ?? (IReadOnlyList<CalendarEvent>)Array.Empty<CalendarEvent>();
 
-                bool changed = PruneFiredAgainstFeed(snap, _fired);
+                // Read before the prune, which needs it to age out the Zoom slot's spent marks (N-audit-1106-043).
+                DateTimeOffset now = ReminderClock();
+                bool changed = PruneFiredAgainstFeed(snap, _fired, now);
                 // A meeting both the Zoom slot and a calendar carry is one meeting: what either copy has fired counts
                 // for the other, so the copies merging or parting never announce it twice (1.3.0).
                 if (MirrorTwinFired(snap, _fired)) changed = true;
 
-                DateTimeOffset now = ReminderClock();
                 PublishMeetingContext(now, events);
                 // Skip announcing WITHOUT marking fired (so an event still fires once the window ends if it is
                 // still inside its lead time): during quiet hours, while Windows says now is a bad time to
@@ -1359,14 +1368,17 @@ namespace DesktopAICompanion.ReminderModule
         }
 
         // The event happening now (or within five minutes of starting); the most recently started when several
-        // overlap. Honours the announce filter, so a declined meeting is never published as "current".
+        // overlap. Honours the announce filter, so a declined meeting is never published as "current". Not an
+        // all-day event: a day off or an offsite is not a meeting to name a recording after, and since the Outlook
+        // and Zoom windows keep an event until it ENDS (N-audit-1106-042) today's all-day event is in the feed all
+        // day, where before 1.3.1 Outlook dropped it two minutes past midnight. The join question skips it the same way.
         private CalendarEvent CurrentMeeting(DateTimeOffset now, IReadOnlyList<CalendarEvent> events)
         {
             if (events == null) return null;
             CalendarEvent best = null;
             foreach (CalendarEvent e in events)
             {
-                if (e == null || !PassesFilter(e)) continue;
+                if (e == null || !PassesFilter(e) || e.AllDay) continue;
                 DateTimeOffset end = e.End ?? e.Start.AddMinutes(60);
                 if (now < e.Start.AddMinutes(-5) || now > end) continue;
                 if (best == null || e.Start > best.Start) best = e;
@@ -1722,8 +1734,21 @@ namespace DesktopAICompanion.ReminderModule
         /// claims -- a legacy pre-1.3.0 id, or a slot since turned Off -- is dropped, as it was whenever the
         /// aggregate was healthy. A snapshot with no per-slot health prunes nothing: nothing in it can vouch for
         /// an id (RA-177).
+        ///
+        /// One exception to "an unvouched id is kept", for the Zoom slot only (N-audit-1106-043): an id of that slot
+        /// whose event is not in this feed and whose start minute, which the Zoom spelling carries
+        /// (<see cref="ZoomMeetingsSource.EventId"/>), is more than <see cref="SpentZoomMarkAge"/> before
+        /// <paramref name="now"/> is dropped even while the slot errors. The keep rule left F204 open there: Zoom sits in
+        /// a steady warning for as long as a series' occurrences cannot be read, and an error for as long as it is
+        /// signed out, while MirrorTwinFired adds a cal5 mark for every calendar meeting with a Zoom link, so the set grew
+        /// by one id per lead per such meeting for good. The age makes it safe without the slot's word: an id that
+        /// spells its start minute can only be due up to three minutes past that start (a lead's one-minute grace,
+        /// the join question's window), so a mark a day past it can never stop anything again. Only the Zoom slot,
+        /// because only there is the spelling the source's own; another slot's id is whatever its feed calls the
+        /// event. An id still in the feed (a twin, or the alias of a calendar copy still there) is kept, or the
+        /// mirror would put it back each tick and the tick would rewrite the settings file each time.
         /// </summary>
-        internal static bool PruneFiredAgainstFeed(CalendarSnapshot snap, HashSet<string> fired)
+        internal static bool PruneFiredAgainstFeed(CalendarSnapshot snap, HashSet<string> fired, DateTimeOffset now)
         {
             if (snap == null || fired == null || fired.Count == 0) return false;
 
@@ -1751,13 +1776,17 @@ namespace DesktopAICompanion.ReminderModule
                 // Those checks now run through a one-slot aggregate, and this branch prunes nothing.
                 return false;
             }
+            string zoomSlot = SlotId(ZoomSlot);
             return fired.RemoveWhere(id =>
             {
                 string slot = SlotOf(id);
                 bool healthy;
                 if (slot == null || !slots.TryGetValue(slot, out healthy)) return true;   // no slot claims it; none can re-fire it
-                if (!healthy) return false;                                               // errored or loading: cannot vouch, keep
-                return !feedIds.Contains(ReminderScheduler.EventIdOf(id));
+                string eventId = ReminderScheduler.EventIdOf(id);
+                if (!healthy)                                                             // errored or loading: cannot vouch, keep,
+                    return string.Equals(slot, zoomSlot, StringComparison.Ordinal)        // unless a Zoom mark long spent (043)
+                        && !feedIds.Contains(eventId) && IsSpentZoomMark(eventId, now);
+                return !feedIds.Contains(eventId);
             }) > 0;
         }
 
@@ -1855,6 +1884,7 @@ namespace DesktopAICompanion.ReminderModule
                 new { Name = "PersonalReminder", Run = (SelfCheckDelegate)PersonalReminder.SelfCheck },
                 new { Name = "PersonalReminderParser", Run = (SelfCheckDelegate)PersonalReminderParser.SelfCheck },
                 new { Name = "IcsUrlSource", Run = (SelfCheckDelegate)IcsUrlSource.SelfCheck },
+                new { Name = "OutlookComSource", Run = (SelfCheckDelegate)OutlookComSource.SelfCheck },
             };
 
             foreach (var suite in suites)
@@ -1917,18 +1947,20 @@ namespace DesktopAICompanion.ReminderModule
                         Source = new AggregateCalendarSource.StubSource(evs, string.IsNullOrEmpty(err) ? null : err),
                     },
                 }).Fetch();
+            // The prune's clock. These ids carry no start minute, so nothing here is aged out; any instant serves.
+            var pruneAt = new DateTimeOffset(2026, 1, 5, 9, 0, 0, TimeSpan.Zero);
             Func<HashSet<string>> firedOf = () =>
                 new HashSet<string>(new[] { "cal1|uid@15", "cal1|other@5" }, StringComparer.Ordinal);
 
             // The exact shape of the first tick of every launch.
             HashSet<string> f1 = firedOf();
             bool pruned1 = PruneFiredAgainstFeed(
-                snapOf("Loading the calendar…", Array.Empty<CalendarEvent>()), f1);
+                snapOf("Loading the calendar…", Array.Empty<CalendarEvent>()), f1, pruneAt);
             check("a still-loading feed prunes nothing (pruned=" + pruned1 + " count=" + f1.Count + ")", !pruned1 && f1.Count == 2);
 
             // A feed that failed outright, for the same reason: this is not evidence the calendar is empty.
             HashSet<string> f2 = firedOf();
-            PruneFiredAgainstFeed(snapOf("the server said 503", Array.Empty<CalendarEvent>()), f2);
+            PruneFiredAgainstFeed(snapOf("the server said 503", Array.Empty<CalendarEvent>()), f2, pruneAt);
             check("a failed feed prunes nothing", f2.Count == 2);
 
             // A PARTIAL failure still carries the healthy slot's events, and the FAILED slot's ids must survive:
@@ -1947,31 +1979,31 @@ namespace DesktopAICompanion.ReminderModule
                     Id = "cal2", Label = "Work",
                     Source = new AggregateCalendarSource.StubSource(Array.Empty<CalendarEvent>(), "unreachable"),
                 },
-            }).Fetch(), f3);
+            }).Fetch(), f3, pruneAt);
             check("a partial failure keeps ids the failed slot cannot vouch for", f3.Count == 2);
 
             // And the case the prune EXISTS for still works, or this would be a fix that removed the feature.
             HashSet<string> f4 = firedOf();
             bool pruned4 = PruneFiredAgainstFeed(
-                snapOf("", new[] { new CalendarEvent { Id = "uid" } }), f4);
+                snapOf("", new[] { new CalendarEvent { Id = "uid" } }), f4, pruneAt);
             check("a loaded feed still drops an id whose event is gone",
                 pruned4 && f4.Count == 1 && f4.Contains("cal1|uid@15"));
 
             // A calendar that loaded and is genuinely empty: every id is stale and all of them go.
             HashSet<string> f5 = firedOf();
             check("a loaded but empty calendar drops everything",
-                PruneFiredAgainstFeed(snapOf("", Array.Empty<CalendarEvent>()), f5) && f5.Count == 0);
+                PruneFiredAgainstFeed(snapOf("", Array.Empty<CalendarEvent>()), f5, pruneAt) && f5.Count == 0);
 
             // Nothing to do is not a change, or CheckDue would write the settings file on every tick.
             check("an unchanged set reports no change",
                 !PruneFiredAgainstFeed(snapOf("", new[] { new CalendarEvent { Id = "uid" },
-                                                          new CalendarEvent { Id = "other" } }), firedOf()));
+                                                          new CalendarEvent { Id = "other" } }), firedOf(), pruneAt));
 
             // A snapshot with no per-slot health at all -- no shipped source produces one -- prunes nothing,
             // whatever its Error says: nothing in it can vouch for an id (RA-177).
             HashSet<string> f6 = firedOf();
             check("a snapshot without per-slot health prunes nothing, even a healthy-looking one",
-                !PruneFiredAgainstFeed(new CalendarSnapshot { Events = Array.Empty<CalendarEvent>(), Error = null }, f6) && f6.Count == 2);
+                !PruneFiredAgainstFeed(new CalendarSnapshot { Events = Array.Empty<CalendarEvent>(), Error = null }, f6, pruneAt) && f6.Count == 2);
 
             IReadOnlyList<string> defaults = ParseAnimationCandidates(DefaultReactAnimations);
             // PROPERTIES, NOT THE LITERAL STRING. These three used to assert Count == 4,
@@ -2546,7 +2578,7 @@ namespace DesktopAICompanion.ReminderModule
             });
             CalendarSnapshot mixedSnap = mixed.Fetch();
             var f7 = new HashSet<string>(new[] { "cal1|x@15", "cal1|gone@15", "cal2|y@5", "legacy@5" }, StringComparer.Ordinal);
-            bool pruned7 = PruneFiredAgainstFeed(mixedSnap, f7);
+            bool pruned7 = PruneFiredAgainstFeed(mixedSnap, f7, monday);
             check("a healthy slot's stale id is dropped even while another slot errors, so the set stays bounded",
                 pruned7 && !f7.Contains("cal1|gone@15"));
             check("WITNESS the erroring slot's id is kept: it cannot vouch for its calendar", f7.Contains("cal2|y@5"));
@@ -2570,7 +2602,7 @@ namespace DesktopAICompanion.ReminderModule
                 },
             });
             var f8 = new HashSet<string>(new[] { "cal1|uid@15", "cal2|old@5" }, StringComparer.Ordinal);
-            PruneFiredAgainstFeed(loadingBeside.Fetch(), f8);
+            PruneFiredAgainstFeed(loadingBeside.Fetch(), f8, monday);
             check("a slot still loading keeps its ids while its loaded neighbour is pruned (the re-nag fix holds per slot)",
                 f8.Contains("cal1|uid@15") && !f8.Contains("cal2|old@5"));
 

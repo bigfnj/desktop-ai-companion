@@ -640,6 +640,16 @@ namespace DesktopAICompanion.ReminderModule
                 atCap.Error == null && atCap.Events.Count == 2000);
             check("zoom meetings: one past the occurrence cap is a warning naming what was left out",
                 pastCap.Events.Count == 2000 && pastCap.Error != null && pastCap.Error.Contains("1 were left out"));
+            // N-audit-1106-042: the window is on the END. A meeting ten minutes into its hour is the one the user is in.
+            CalendarSnapshot inProgress = ZoomMeetingsSource.Expand(new List<ZoomMeetingsSource.ZoomMeeting>
+            {
+                new ZoomMeetingsSource.ZoomMeeting { Id = "70000000001", Type = ZoomMeetingsSource.Scheduled, Topic = "Under way", StartUtc = now.AddMinutes(-10), DurationMinutes = 60 },
+                new ZoomMeetingsSource.ZoomMeeting { Id = "70000000002", Type = ZoomMeetingsSource.Scheduled, Topic = "Over", StartUtc = now.AddMinutes(-10), DurationMinutes = 5 },
+            }, null, now);
+            check("zoom meetings: a meeting that started ten minutes ago and has not ended stays in the feed",
+                inProgress.Events.Any(e => e.Title == "Under way" && e.End == now.AddMinutes(50)));
+            check("zoom meetings: WITNESS a meeting that ended five minutes ago is left out",
+                inProgress.Events.Count == 1 && !inProgress.Events.Any(e => e.Title == "Over"));
             check("zoom meetings: a meeting time's id is spelled to the minute in UTC, the spelling a calendar invite's alias uses",
                 ZoomMeetingsSource.EventId("91234567890", new DateTimeOffset(2026, 3, 10, 10, 0, 42, TimeSpan.FromHours(-5)))
                 == "91234567890@2026-03-10T15:00:00.0000000Z");
@@ -788,7 +798,7 @@ namespace DesktopAICompanion.ReminderModule
             // One tick's fired-mark handling, in CheckDue's order: prune, mirror, spend what is due, mirror again.
             Func<CalendarSnapshot, HashSet<string>, int> tick = delegate(CalendarSnapshot snap, HashSet<string> marks)
             {
-                PruneFiredAgainstFeed(snap, marks);
+                PruneFiredAgainstFeed(snap, marks, due);
                 MirrorTwinFired(snap, marks);
                 IReadOnlyList<DueReminder> spent = ReminderScheduler.DueNowMulti(snap.Events, due, leads, marks);
                 foreach (DueReminder d in spent) marks.Add(d.FiredId);
@@ -824,7 +834,7 @@ namespace DesktopAICompanion.ReminderModule
             // A meeting the user is only invited to: the Zoom slot never has it, and the alias mark must not churn.
             var invited = new HashSet<string>(StringComparer.Ordinal);
             tick(snapshot(true, "none"), invited);
-            bool prunedAgain = PruneFiredAgainstFeed(snapshot(true, "none"), invited);
+            bool prunedAgain = PruneFiredAgainstFeed(snapshot(true, "none"), invited, due);
             bool mirroredAgain = MirrorTwinFired(snapshot(true, "none"), invited);
             check("zoom twins: a calendar meeting the Zoom slot does not have keeps its alias mark steady, so the tick does not rewrite settings",
                 invited.Contains("cal1|o1@5") && invited.Contains(zoomAgg + "@5") && !prunedAgain && !mirroredAgain);
@@ -833,6 +843,52 @@ namespace DesktopAICompanion.ReminderModule
                 {
                     new AggregateCalendarSource.Slot { Id = "cal1", Label = "Work", Source = new AggregateCalendarSource.StubSource(new[] { outlookCopy }, null) },
                 }).Fetch(), new HashSet<string>(new[] { "cal1|o1@5" }, StringComparer.Ordinal)));
+            CheckZoomSpentMarks(check);
+        }
+
+        // N-audit-1106-043: the Zoom slot in a steady error (signed out, or a warning that does not clear) and a calendar
+        // copy that fires and then leaves. The F204 keep rule held both the mirrored mark and the slot's own marks for as
+        // long as the error lasted; the start minute in a Zoom id now ages them out, and nothing else changes.
+        private static void CheckZoomSpentMarks(Action<string, bool> check)
+        {
+            var start = new DateTimeOffset(2026, 3, 10, 15, 0, 0, TimeSpan.Zero);
+            DateTimeOffset later = start.AddDays(2);
+            var meeting = new CalendarEvent { Id = "o1", Title = "Design Review", Start = start, Description = "https://acme.zoom.us/j/91234567890?pwd=x" };
+            // A three-day offsite with a standing Zoom link: started two days ago, still in the calendar.
+            var offsite = new CalendarEvent { Id = "o2", Title = "Offsite", Start = start, End = later.AddDays(1), Description = "https://acme.zoom.us/j/93333333333" };
+            Func<CalendarEvent[], CalendarSnapshot> snapshot = delegate(CalendarEvent[] calendar)
+            {
+                return new AggregateCalendarSource(new[]
+                {
+                    new AggregateCalendarSource.Slot { Id = "cal1", Label = "Work", Source = new AggregateCalendarSource.StubSource(calendar, null) },
+                    new AggregateCalendarSource.Slot { Id = "cal2", Label = "Home", Source = new AggregateCalendarSource.StubSource(new CalendarEvent[0], "unreachable") },
+                    new AggregateCalendarSource.Slot { Id = "cal5", Label = "", YieldsToOthers = true,
+                        Source = new AggregateCalendarSource.StubSource(new CalendarEvent[0], "Sign in to Zoom again") },
+                }).Fetch();
+            };
+            string mirrored = "cal5|" + ZoomMeetingsSource.EventId("91234567890", start) + "@5";
+            string offsiteAlias = "cal5|" + ZoomMeetingsSource.EventId("93333333333", start) + "@5";
+            string recent = "cal5|" + ZoomMeetingsSource.EventId("92222222222", later.AddHours(-1)) + "@5";
+            string otherSlot = "cal2|" + ZoomMeetingsSource.EventId("94444444444", start) + "@5";
+
+            // The calendar copy fires at its lead with the Zoom slot already erroring: the mark is mirrored into cal5.
+            var marks = new HashSet<string>(new[] { "cal1|o1@5", "cal1|o2@5", recent, otherSlot }, StringComparer.Ordinal);
+            MirrorTwinFired(snapshot(new[] { meeting, offsite }), marks);
+            check("zoom spent marks: WITNESS a calendar copy's mark is mirrored into the erroring Zoom slot",
+                marks.Contains(mirrored) && marks.Contains(offsiteAlias));
+
+            // Two days on: the meeting has left the calendar, the offsite has not, and Zoom still errors.
+            CalendarSnapshot after = snapshot(new[] { offsite });
+            PruneFiredAgainstFeed(after, marks, later);
+            check("zoom spent marks: a mirrored mark a day past its start goes while the Zoom slot errors, so the set stays bounded",
+                !marks.Contains(mirrored) && !marks.Contains("cal1|o1@5"));
+            check("zoom spent marks: WITNESS a Zoom mark an hour old is kept while the slot cannot vouch for it", marks.Contains(recent));
+            check("zoom spent marks: another slot's mark is still kept while it errors, whatever its id spells", marks.Contains(otherSlot));
+            check("zoom spent marks: a long-spent alias whose calendar copy is still in the feed is kept, so the mirror and the prune stay steady",
+                marks.Contains(offsiteAlias) && !MirrorTwinFired(after, marks) && !PruneFiredAgainstFeed(after, marks, later));
+            check("zoom spent marks: an id without a round-trip UTC minute is never judged by age",
+                !IsSpentZoomMark("cal5|91234567890", later) && !IsSpentZoomMark("cal5|91234567890@2026-03-10T15:00:00", later)
+                && IsSpentZoomMark("cal5|" + ZoomMeetingsSource.EventId("91234567890", start), later));
         }
 
         // ---- the module: the card, the move out of slot 5, the source, a sign-in end to end -------------------

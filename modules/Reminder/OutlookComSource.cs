@@ -61,11 +61,7 @@ namespace DesktopAICompanion.ReminderModule
                 // turn on IncludeRecurrences, THEN Restrict to the window. Dates in the current locale format.
                 itemList.IncludeRecurrences = true;
                 itemList.Sort("[Start]");
-                DateTime fromLocal = now.LocalDateTime - WindowBack;
-                DateTime toLocal = now.LocalDateTime + WindowForward;
-                string filter = "[Start] >= '" + fromLocal.ToString("g", CultureInfo.CurrentCulture) +
-                    "' AND [Start] <= '" + toLocal.ToString("g", CultureInfo.CurrentCulture) + "'";
-                restricted = itemList.Restrict(filter);
+                restricted = itemList.Restrict(RestrictFilter(now.LocalDateTime - WindowBack, now.LocalDateTime + WindowForward, CultureInfo.CurrentCulture));
                 dynamic range = restricted;
 
                 var events = new List<CalendarEvent>();
@@ -113,6 +109,40 @@ namespace DesktopAICompanion.ReminderModule
                 // Release everything we took, in reverse. Never Quit(): that would close the user's Outlook.
                 Release(restricted); Release(items); Release(folder); Release(ns); Release(app);
             }
+        }
+
+        /// <summary>
+        /// The Items.Restrict filter for the window: every appointment that has not ENDED by <paramref name="fromLocal"/>
+        /// and starts by <paramref name="toLocal"/>. It was "[Start] >= from", which dropped a meeting two minutes after
+        /// it began: meeting.current, the Join tray entry and Remembrance's record offer all read the meeting the user
+        /// is in from this list, so each went blank a few minutes into every Outlook meeting (N-audit-1106-042). Nothing
+        /// announces twice for being kept: a lead fires only up to a minute past the start and the join question only
+        /// three, both against the fired set. Dates in the locale format Outlook parses, which is why the culture is a
+        /// parameter rather than read here: the self-check pins the shape under the invariant culture.
+        /// </summary>
+        internal static string RestrictFilter(DateTime fromLocal, DateTime toLocal, CultureInfo culture)
+        {
+            return "[End] >= '" + fromLocal.ToString("g", culture) +
+                "' AND [Start] <= '" + toLocal.ToString("g", culture) + "'";
+        }
+
+        // SelfCheck, not SelfTest: see the note in AggregateCalendarSource. ReminderModule.SelfTest aggregates. The COM
+        // read itself needs a running Outlook and is not reachable here; the window it asks Outlook for is.
+        internal static bool SelfCheck(out string detail)
+        {
+            var now = new DateTime(2026, 3, 10, 22, 0, 0, DateTimeKind.Local);
+            string filter = RestrictFilter(now - WindowBack, now + WindowForward, CultureInfo.InvariantCulture);
+            string from = (now - WindowBack).ToString("g", CultureInfo.InvariantCulture);
+            string to = (now + WindowForward).ToString("g", CultureInfo.InvariantCulture);
+            bool onEnd = filter.Contains("[End] >= '" + from + "'", StringComparison.Ordinal);
+            bool startBound = filter.Contains("[Start] <= '" + to + "'", StringComparison.Ordinal);
+            bool noStartFloor = !filter.Contains("[Start] >= ", StringComparison.Ordinal);
+            bool ok = onEnd && startBound && noStartFloor;
+            detail = (ok ? "PASS: " : "FAIL: ")
+                + (onEnd ? "[ok] " : "[X] ") + "a meeting that started before the window and has not ended is asked for (on [End]); "
+                + (startBound ? "[ok] " : "[X] ") + "WITNESS the window still ends 48 hours out (on [Start]); "
+                + (noStartFloor ? "[ok] " : "[X] ") + "no floor on [Start] drops a meeting the user is in; filter: " + filter;
+            return ok;
         }
 
         // The meeting's invited roster from AppointmentItem.Recipients (1-based COM collection). Each recipient

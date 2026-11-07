@@ -159,6 +159,9 @@ namespace DesktopAICompanion.ReminderModule
                 int count = 0;
                 // GetOccurrences yields ascending occurrences (recurrence + timezones already resolved); stop
                 // once we pass the window end, and cap the count so a pathological recurrence can't run away.
+                // It yields every occurrence that has not ENDED by fromUtc, not only those starting after it, so a
+                // meeting the user is in stays in the feed until it ends, as the Outlook and Zoom windows now do
+                // (N-audit-1106-042). SelfCheck's "started ten minutes ago" pins that, should a library update change it.
                 foreach (Occurrence occ in calendar.GetOccurrences(new CalDateTime(fromUtc, "UTC")))
                 {
                     if (++count > MaximumOccurrences) break;
@@ -291,6 +294,18 @@ namespace DesktopAICompanion.ReminderModule
                 "DTEND:20260311T093000Z",
                 "SUMMARY:Listed twice",
                 "END:VEVENT",
+                "BEGIN:VEVENT",
+                "UID:ongoing@test",
+                "DTSTART:20260310T215000Z",
+                "DTEND:20260310T225000Z",
+                "SUMMARY:Started ten minutes ago",
+                "END:VEVENT",
+                "BEGIN:VEVENT",
+                "UID:ended@test",
+                "DTSTART:20260310T210000Z",
+                "DTEND:20260310T213000Z",
+                "SUMMARY:Over half an hour ago",
+                "END:VEVENT",
                 "END:VCALENDAR",
             });
 
@@ -312,8 +327,15 @@ namespace DesktopAICompanion.ReminderModule
             ok &= Check(sb, "an all-day event is flagged (" + allDay.Count + ")", allDay.Count == 1 && allDay[0].AllDay);
             ok &= Check(sb, "an event past the 48-hour window is left out", WithUid(snap, "far@test").Count == 0);
             ok &= Check(sb, "a duplicate listing is one event", WithUid(snap, "dup@test").Count == 1);
+            // N-audit-1106-042: the window is on the END. A meeting that started ten minutes ago is still the one the
+            // user is in, so meeting.current, the Join entry and Remembrance's record offer need it; one that ended
+            // half an hour ago is not. Ical.Net already answered this way at 1.3.0; the check holds it there.
+            List<CalendarEvent> ongoing = WithUid(snap, "ongoing@test");
+            ok &= Check(sb, "a meeting that started ten minutes ago and has not ended stays in the feed (" + ongoing.Count + ")",
+                ongoing.Count == 1 && ongoing[0].End == new DateTimeOffset(2026, 3, 10, 22, 50, 0, TimeSpan.Zero));
+            ok &= Check(sb, "WITNESS a meeting that ended before the window is left out", WithUid(snap, "ended@test").Count == 0);
             ok &= Check(sb, "nothing else arrived (" + (snap.Events == null ? -1 : snap.Events.Count) + ")",
-                snap.Events != null && snap.Events.Count == 3);
+                snap.Events != null && snap.Events.Count == 4);
 
             CalendarSnapshot empty = ParseIcs("   ", now);
             ok &= Check(sb, "an empty feed is an error snapshot, not an exception",
