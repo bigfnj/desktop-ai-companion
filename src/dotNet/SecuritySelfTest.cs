@@ -315,6 +315,10 @@ namespace DesktopAICompanion
             byte[] hugePngHeader = BuildPngHeader(8192, 8192);
             byte[] onePixelPngHeader = BuildPngHeader(1, 1);
 
+            // Each case names the refusal it expects (N-audit-1106-027). Every icon error starts "pet icon"
+            // and says "ICO", so a check that accepted any message holding "ICO" could not tell which rule
+            // refused: with the entry-count bound removed, the old 22-byte fixture was refused as a
+            // truncated directory and the count check still passed.
             CheckRejectedIcon(
                 defaultXml,
                 BuildIcon(
@@ -322,19 +326,29 @@ namespace DesktopAICompanion
                     new[] { 1 },
                     new[] { hugePngHeader },
                     null),
+                "directory/payload dimension mismatch",
                 "ICO embedded dimensions cannot exceed their directory declaration",
                 ref failures,
                 output);
 
-            byte[] excessiveEntries = new byte[22];
-            excessiveEntries[2] = 1;
-            WriteLittleEndianUInt16(
-                excessiveEntries,
-                4,
-                CompanionXmlValidator.MaximumIconEntries + 1);
+            // One entry past the bound, each a whole, in-range, non-overlapping 1x1 payload, so the count
+            // rule is the only preflight rule that can refuse it (no truncated directory, no bad range).
+            int excessiveCount = CompanionXmlValidator.MaximumIconEntries + 1;
+            var excessiveSizes = new int[excessiveCount];
+            var excessivePayloads = new byte[excessiveCount][];
+            for (int index = 0; index < excessiveCount; index++)
+            {
+                excessiveSizes[index] = 1;
+                excessivePayloads[index] = onePixelPngHeader;
+            }
             CheckRejectedIcon(
                 defaultXml,
-                excessiveEntries,
+                BuildIcon(
+                    excessiveSizes,
+                    excessiveSizes,
+                    excessivePayloads,
+                    null),
+                "excessive ICO directory entry count",
                 "ICO entry count is bounded before decoding",
                 ref failures,
                 output);
@@ -347,6 +361,7 @@ namespace DesktopAICompanion
                     new[] { 1, 1 },
                     new[] { onePixelPngHeader, onePixelPngHeader },
                     new[] { sharedOffset, sharedOffset }),
+                "overlapping ICO payloads",
                 "overlapping ICO payloads are rejected before decoding",
                 ref failures,
                 output);
@@ -358,6 +373,7 @@ namespace DesktopAICompanion
                     new[] { 1 },
                     new[] { onePixelPngHeader },
                     new[] { 4096 }),
+                "out-of-range ICO payload",
                 "out-of-range ICO payloads are rejected before decoding",
                 ref failures,
                 output);
@@ -366,6 +382,7 @@ namespace DesktopAICompanion
         private static void CheckRejectedIcon(
             string defaultXml,
             byte[] icon,
+            string expectedRefusal,
             string name,
             ref int failures,
             TextWriter output)
@@ -389,8 +406,8 @@ namespace DesktopAICompanion
                     out error) &&
                 !string.IsNullOrWhiteSpace(error) &&
                 error.IndexOf(
-                    "ICO",
-                    StringComparison.OrdinalIgnoreCase) >= 0,
+                    expectedRefusal,
+                    StringComparison.Ordinal) >= 0,
                 name + FormatError(error),
                 ref failures,
                 output);

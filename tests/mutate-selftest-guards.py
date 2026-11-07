@@ -20842,6 +20842,22 @@ CASES = (
      b'            if (embedded && !runsClass(cls) && Array.IndexOf(EmbeddedClasses, cls) < 0)\n',
      HOST_CSPROJ, EXE,
      SECURITY, None, 'a class outside the list is refused by the list where every class is said to run'),
+
+    # ---- burndown/w2-host-1 ----
+    # N-audit-1106-027: each ICO preflight check names its own refusal. With the entry-count bound gone, the old
+    # 22-byte fixture was refused as a truncated directory and the check that accepted any "ICO" message passed.
+    ('bd-w2-host-1: the ICO entry-count bound is removed',
+     os.path.join(REPO, "src", "dotNet", "CompanionXmlValidator.cs"),
+     b'            if (count < 1 || count > MaximumIconEntries)\n',
+     b'            if (count < 1)\n',
+     HOST_CSPROJ, EXE,
+     SECURITY, None, 'ICO entry count is bounded before decoding'),
+    ('bd-w2-host-1: the ICO overlapping-payload rule is removed',
+     os.path.join(REPO, "src", "dotNet", "CompanionXmlValidator.cs"),
+     b'                    if (payloadOffset < ranges[previous].End &&\n',
+     b'                    if (false && payloadOffset < ranges[previous].End &&\n',
+     HOST_CSPROJ, EXE,
+     SECURITY, None, 'overlapping ICO payloads are rejected before decoding'),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
