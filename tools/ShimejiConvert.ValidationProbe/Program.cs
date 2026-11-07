@@ -282,17 +282,66 @@ internal static class Program
         act.Elements(Ns + "variants").Remove();
         act.Add(new XElement(Ns + "variants", new XElement(Ns + "variant", new XAttribute("when", "false"),
             new XElement(Ns + "pose", new XAttribute("frame", -1), new XAttribute("ticks", 1), new XAttribute("dx", 0), new XAttribute("dy", 0)))));
+        XElement placeholderFeatures = placeholder.Root.Element(Ns + "header").Element(Ns + "features");
+        if (!placeholderFeatures.Value.Split(' ').Contains(CompanionFormatFeatures.Expressions))
+            placeholderFeatures.Value += " " + CompanionFormatFeatures.Expressions;
         string nodeId = act.Parent.Attribute("id").Value;
         JsonNode placeholderMap = JsonNode.Parse(map);
         foreach (string mapped in placeholderMap["poses"].AsObject().Select(p => p.Key).Where(k => k.StartsWith(nodeId + ":", StringComparison.Ordinal)).ToArray())
             placeholderMap["poses"].AsObject().Remove(mapped);
         string placeholderJson = placeholderMap.ToJsonString();
+        XDocument exactPlaceholder = new XDocument(placeholder);
+        results.Add(Check("witness-map-decision68-placeholder-xml", mapPath, placeholder.ToString(), true));
         results.Add(CheckMap("witness-map-decision68-placeholder", mapPath, placeholder, placeholderJson, true));
+        XDocument interactPlaceholder = new XDocument(exactPlaceholder);
+        XElement interactAct = interactPlaceholder.Descendants(Ns + "act").First();
+        interactAct.SetAttributeValue("type", "Embedded");
+        interactAct.SetAttributeValue("class", "Interact");
+        XElement interactFeatures = interactPlaceholder.Root.Element(Ns + "header").Element(Ns + "features");
+        if (!interactFeatures.Value.Split(' ').Contains(CompanionFormatFeatures.Social))
+            interactFeatures.Value += " " + CompanionFormatFeatures.Social;
+        results.Add(Check("witness-map-decision68-interact-placeholder-xml", mapPath, interactPlaceholder.ToString(), true));
+        results.Add(CheckMap("witness-map-decision68-interact-placeholder", mapPath, interactPlaceholder, placeholderJson, true));
         act.SetAttributeValue("type", "Stay");
         results.Add(CheckMap("control-map-false-stay-unmapped", mapPath, placeholder, placeholderJson, false, "missing emitted pose"));
         act.SetAttributeValue("type", "Embedded");
         act.SetAttributeValue("class", "MoveWithTurn");
         results.Add(CheckMap("control-map-false-turn-unmapped", mapPath, placeholder, placeholderJson, false, "missing emitted pose"));
+
+        // Each candidate changes one conjunct of the exact decision-68 shape. XML acceptance separately proves
+        // that the map refusal protects an emitted pose, rather than passing because the XML is invalid.
+        Action<string, Action<XElement>> shapeControl = (suffix, mutate) =>
+        {
+            XDocument candidate = new XDocument(exactPlaceholder);
+            XElement candidateAct = candidate.Descendants(Ns + "act").First();
+            mutate(candidateAct);
+            results.Add(Check("witness-map-placeholder-" + suffix + "-xml", mapPath, candidate.ToString(), true));
+            results.Add(CheckMap("control-map-placeholder-" + suffix + "-unmapped", mapPath, candidate, placeholderJson, false, "missing emitted pose"));
+        };
+        shapeControl("two-variants", candidate =>
+        {
+            XElement variants = candidate.Element(Ns + "variants");
+            variants.Add(new XElement(variants.Element(Ns + "variant")));
+        });
+        shapeControl("two-poses", candidate =>
+        {
+            XElement variant = candidate.Element(Ns + "variants").Element(Ns + "variant");
+            variant.Add(new XElement(variant.Element(Ns + "pose")));
+        });
+        XElement visiblePose = document.Descendants(Ns + "pose").First(p => Attribute(p, "frame", -1) >= 0);
+        shapeControl("real-frame", candidate =>
+        {
+            // Keep the visible pose's geometry so a loosened placeholder rule cannot merely reject later for
+            // an unrelated frame/anchor discrepancy. Only frame changes among the placeholder predicates.
+            XElement pose = candidate.Descendants(Ns + "pose").First();
+            pose.ReplaceAttributes(visiblePose.Attributes().Select(attribute => new XAttribute(attribute)));
+            pose.SetAttributeValue("ticks", 1);
+            pose.SetAttributeValue("dx", 0);
+            pose.SetAttributeValue("dy", 0);
+        });
+        shapeControl("ticks", candidate => candidate.Descendants(Ns + "pose").First().SetAttributeValue("ticks", 2));
+        shapeControl("dx", candidate => candidate.Descendants(Ns + "pose").First().SetAttributeValue("dx", 1));
+        shapeControl("dy", candidate => candidate.Descendants(Ns + "pose").First().SetAttributeValue("dy", 1));
     }
 
     private static void CheckGeometry(string path, XDocument document, List<object> results)
