@@ -65,7 +65,11 @@ namespace DesktopAICompanion.ReminderModule
         {
             Id = Id,
             Name = "Reminder",
-            Version = "1.3.0",  // 1.3.0: Calendar 5 becomes the Zoom slot (the owner, 2026-11-03): the meetings the user
+            Version = "1.3.1",  // 1.3.1: burn-down wave 2 (lane w2-reminder-1). The Outlook and Zoom feeds keep a meeting
+                                //        until it ENDS, as the .ics feed already did, so meeting.current, the Join entry
+                                //        and Remembrance's record offer no longer go blank two minutes into it; an
+                                //        all-day event is never meeting.current (N-audit-1106-042).
+                                // 1.3.0: Calendar 5 becomes the Zoom slot (the owner, 2026-11-03): the meetings the user
                                 //        HOSTS in Zoom, read from Zoom's REST API after a browser sign-in to a Zoom
                                 //        app the user creates (OAuth with PKCE, a loopback redirect, no secret; the
                                 //        refresh token sealed with DPAPI in this module's folder). A meeting that is
@@ -1359,14 +1363,17 @@ namespace DesktopAICompanion.ReminderModule
         }
 
         // The event happening now (or within five minutes of starting); the most recently started when several
-        // overlap. Honours the announce filter, so a declined meeting is never published as "current".
+        // overlap. Honours the announce filter, so a declined meeting is never published as "current". Not an
+        // all-day event: a day off or an offsite is not a meeting to name a recording after, and since the Outlook
+        // and Zoom windows keep an event until it ENDS (N-audit-1106-042) today's all-day event is in the feed all
+        // day, where before 1.3.1 Outlook dropped it two minutes past midnight. The join question skips it the same way.
         private CalendarEvent CurrentMeeting(DateTimeOffset now, IReadOnlyList<CalendarEvent> events)
         {
             if (events == null) return null;
             CalendarEvent best = null;
             foreach (CalendarEvent e in events)
             {
-                if (e == null || !PassesFilter(e)) continue;
+                if (e == null || !PassesFilter(e) || e.AllDay) continue;
                 DateTimeOffset end = e.End ?? e.Start.AddMinutes(60);
                 if (now < e.Start.AddMinutes(-5) || now > end) continue;
                 if (best == null || e.Start > best.Start) best = e;
@@ -1855,6 +1862,7 @@ namespace DesktopAICompanion.ReminderModule
                 new { Name = "PersonalReminder", Run = (SelfCheckDelegate)PersonalReminder.SelfCheck },
                 new { Name = "PersonalReminderParser", Run = (SelfCheckDelegate)PersonalReminderParser.SelfCheck },
                 new { Name = "IcsUrlSource", Run = (SelfCheckDelegate)IcsUrlSource.SelfCheck },
+                new { Name = "OutlookComSource", Run = (SelfCheckDelegate)OutlookComSource.SelfCheck },
             };
 
             foreach (var suite in suites)

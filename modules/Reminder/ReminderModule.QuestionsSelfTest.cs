@@ -285,6 +285,31 @@ namespace DesktopAICompanion.ReminderModule
             CheckJoinAndRecord(check, clock, t0);
             CheckOneOffQuestion(check, clock, t0);
             CheckRecurringQuestion(check, clock, t0);
+            CheckMeetingInProgress(check, clock, t0);
+        }
+
+        // ---- the meeting the user is in (N-audit-1106-042): the sources keep it until it ENDS, so meeting.current must
+        // carry it ten minutes in, and an all-day event, which the window now also keeps all day, must not become it ----
+        private static void CheckMeetingInProgress(Action<string, bool> check, TestClock clock, DateTimeOffset t0)
+        {
+            clock.Now = t0.AddMinutes(10);
+            using (var rig = new QuestionRig(null))
+            {
+                var midnight = new DateTimeOffset(t0.Year, t0.Month, t0.Day, 0, 0, 0, t0.Offset);
+                var offsite = new CalendarEvent { Id = "day1", Title = "Offsite", Start = midnight, End = midnight.AddDays(1), AllDay = true };
+                rig.Feed(offsite);
+                rig.Tick();
+                string allDayOnly;
+                rig.Host.PublishedContext.TryGetValue(MeetingContextKey, out allDayOnly);
+                check("meeting.current: an all-day event the feed keeps all day is not published as the meeting under way",
+                    string.IsNullOrEmpty(allDayOnly));
+                rig.Feed(offsite, MeetingAt("m10", t0));
+                rig.Tick();
+                string current;
+                rig.Host.PublishedContext.TryGetValue(MeetingContextKey, out current);
+                check("WITNESS meeting.current: a meeting ten minutes in, beside the all-day event, is published",
+                    current != null && current.Contains("\"name\":\"Standup\""));
+            }
         }
 
         // ---- what does not need a tick: the declarations, the lead line, the card text, the personal line ----

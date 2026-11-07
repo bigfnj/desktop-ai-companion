@@ -640,6 +640,16 @@ namespace DesktopAICompanion.ReminderModule
                 atCap.Error == null && atCap.Events.Count == 2000);
             check("zoom meetings: one past the occurrence cap is a warning naming what was left out",
                 pastCap.Events.Count == 2000 && pastCap.Error != null && pastCap.Error.Contains("1 were left out"));
+            // N-audit-1106-042: the window is on the END. A meeting ten minutes into its hour is the one the user is in.
+            CalendarSnapshot inProgress = ZoomMeetingsSource.Expand(new List<ZoomMeetingsSource.ZoomMeeting>
+            {
+                new ZoomMeetingsSource.ZoomMeeting { Id = "70000000001", Type = ZoomMeetingsSource.Scheduled, Topic = "Under way", StartUtc = now.AddMinutes(-10), DurationMinutes = 60 },
+                new ZoomMeetingsSource.ZoomMeeting { Id = "70000000002", Type = ZoomMeetingsSource.Scheduled, Topic = "Over", StartUtc = now.AddMinutes(-10), DurationMinutes = 5 },
+            }, null, now);
+            check("zoom meetings: a meeting that started ten minutes ago and has not ended stays in the feed",
+                inProgress.Events.Any(e => e.Title == "Under way" && e.End == now.AddMinutes(50)));
+            check("zoom meetings: WITNESS a meeting that ended five minutes ago is left out",
+                inProgress.Events.Count == 1 && !inProgress.Events.Any(e => e.Title == "Over"));
             check("zoom meetings: a meeting time's id is spelled to the minute in UTC, the spelling a calendar invite's alias uses",
                 ZoomMeetingsSource.EventId("91234567890", new DateTimeOffset(2026, 3, 10, 10, 0, 42, TimeSpan.FromHours(-5)))
                 == "91234567890@2026-03-10T15:00:00.0000000Z");

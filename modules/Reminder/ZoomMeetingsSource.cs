@@ -508,7 +508,13 @@ namespace DesktopAICompanion.ReminderModule
             {
                 if (start == null) return;
                 DateTimeOffset s = start.Value.ToUniversalTime();
-                if (s < from || s >= to) return;
+                // On the END, not the start (N-audit-1106-042): "s < from" dropped a meeting two minutes after it began,
+                // and meeting.current, the Join tray entry and Remembrance's record offer read the meeting the user is in
+                // from this list, so all three went blank a few minutes into every Zoom meeting. Zoom's type=upcoming
+                // list carries live meetings; it was this window that left them out. A meeting with no duration is kept
+                // for the hour CurrentMeeting and BestJoinable assume for an event with no end.
+                DateTimeOffset reach = s.AddMinutes(minutes > 0 ? minutes : 60);
+                if (reach < from || s >= to) return;
                 string id = EventId(m.Id, s);
                 if (!ids.Add(id)) return;
                 if (events.Count >= MaximumOccurrences) { overflow++; return; }
