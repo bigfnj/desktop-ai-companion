@@ -70,6 +70,8 @@ shared protocol's pose index, source image identities, reference keys or semanti
 `Shared -SharedRoot '<generated-scenarios-folder>'` accepts only scenarios declaring no controlled RNG. It
 refuses tape RNG because its unchanged-runtime driver cannot intercept draws. Accepted runs record private
 scenario and pack hashes and compare provisional step records. They do not produce a shared-protocol verdict.
+Each document's id must equal its selected fixed filename stem and pass the V1 leaf-name and output-containment
+checks before a run directory or pack copy is created.
 
 ## Draft seams
 
@@ -117,6 +119,9 @@ captioned top-level window is not modelled or probed, so this case is a declared
 binds: the record, the JAR, the private patch, `edit-spec.json` and the helpers in `draft/`; a missing record or field,
 a changed JAR, a tampered patch or a stale specification or helper is refused by name. The header's `build` carries
 the source archive hash, the patch hash, the JDK version, every library and the runner (`deps`) and the JAR hash.
+The private draft's `lib/` and `conf/` files must also match the source inventory verified against the pinned archive,
+with no missing or extra resource files. An incomplete directory scan is a refusal. The producer and comparer read
+the same source-archive pin from `source-pin.json`.
 
 `V1ScenarioRunner.java` is original driver code compiled beside the draft JAR. It installs its controller before any
 environment class initialises, replaces the native factory before any companion exists (scenario-fed desktop,
@@ -148,8 +153,13 @@ merge.
 Each scenario gets one status: `complete`, or a distinct failure (`truncated`, `timeout`, `error`, or the comparer's
 trace-check class). A requested scenario without a result fails the action (`V1_SCENARIO_SKIPPED`). The named proof
 scenario `S-input-drag-01`, which must be directed (`none` or `tape`), is run again with observation off; both runs
-must complete and its final tick (an empty one included), draw and event totals must equal the traced run's (CONTRACT
-section 5). Without that scenario the proof is reported unavailable and the action is incomplete. Draws from a script `Math.random` are refused (`V1_RNG_SCRIPT_SITE_UNATTRIBUTED`) until
+must complete and its final tick (an empty one included), draw and event totals, and ordered event digest must equal
+the traced run's (CONTRACT section 5). Both modes hash compact UTF-8 event records followed by LF after input-event
+insertion, in final emission order; the footer records `eventSequenceSha256`. The proof also recomputes the digest
+from the trace's written event lines. Without that scenario the proof is
+reported unavailable and the action is incomplete. A failed producer check writes `results.json` and `v1-latest.json`
+with status `fail` and the `failed_check` phase before raising, provided the evidence directory is writable.
+Draws from a script `Math.random` are refused (`V1_RNG_SCRIPT_SITE_UNATTRIBUTED`) until
 the contract's script site names are attributed. Scan sites report their result through `DraftParityHooks.scanned`
 (the `wrap-assigned-value` spec operation, which refuses any call outside the hooks class) and Interact reports the
 start of its step. A runner refusal (Mute, or a sounding pose with sounds on, whose events have no seam yet) ends the
@@ -187,12 +197,13 @@ Its mutation changes only a private wrapper copy. `Test-OraclePaths.ps1` starts 
 locations, checks every resolved root, exercises both repository refusals, and kills a native-CWD regression. Both
 PowerShell checks remove their own fixtures and verify the tracked wrapper was unchanged.
 
-Two additional focused checks use an explicitly supplied Python interpreter:
+Focused checks use an explicitly supplied Python interpreter:
 
 ```powershell
 & '<python-executable>' -I -B .\verify_windows.py --cache-root $oracle.CacheRoot --output-root $oracle.OutputRoot --jdk-root $oracle.JdkRoot --mutate
 & '<python-executable>' -I -B .\verify_vocabulary.py --cache-root $oracle.CacheRoot --converter-parser '<converter-parser-file>'
 & '<python-executable>' -I -B .\verify_pose_geometry.py --cache-root $oracle.CacheRoot --output-root $oracle.OutputRoot --jdk-root $oracle.JdkRoot --mutate
+& '<python-executable>' -I -B .\verify_event_digest.py --repo '<checkout>' --temp-root '<private-temporary-directory>' --jdk-root $oracle.JdkRoot
 ```
 
 `verify_windows.py` builds only the original helper/probe sources over the private draft runtime, then runs headless
@@ -201,6 +212,10 @@ named execution failure. It creates no display or native window and sends no inp
 `verify_vocabulary.py` compares sorted vocabulary facts with the verified private schema files. The repository holds
 the canonicalization code and hashes, never properties-file contents. Its difference guard is mutation-tested in
 memory. Canonical bytes are ordinal key, NUL, XML read name and LF, encoded as UTF-8 without a BOM.
+
+`verify_event_digest.py` compiles only the original trace writer and a synthetic probe on JDK 8. It checks the
+written UTF-8/LF bytes, reordered and changed event sequences, an empty sequence and finalization. Its dropped-event
+mutation must rebuild a changed class and fail the named byte witness. Private builds are removed afterward.
 
 `verify_pose_geometry.py` executes unchanged `Mascot` getters and `apply()` from the verified rebuilt JAR.
 Its private test substitutes only the sound-setting dependency of `Main`, allocates a mascot without its native

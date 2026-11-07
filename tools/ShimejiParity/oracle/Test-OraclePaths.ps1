@@ -118,7 +118,7 @@ try {
         $oraclePathResults.Add([pscustomobject]@{ Case = $case; Status = 'REFUSED'; Witness = $expected })
     }
     if ($Mutate) {
-        foreach ($leaf in @('Invoke-Oracle.ps1', 'oracle.py')) {
+        foreach ($leaf in @('Invoke-Oracle.ps1', 'oracle.py', 'source-pin.json')) {
             $copy = Join-Path $oraclePrivateCode $leaf
             [IO.File]::WriteAllBytes($copy, [IO.File]::ReadAllBytes((Join-Path $PSScriptRoot $leaf)))
             $oraclePathFiles.Add($copy)

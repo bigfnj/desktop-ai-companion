@@ -4,7 +4,7 @@ param(
     [Parameter(Mandatory = $true)]
     [ValidateSet('Preflight', 'Fetch', 'Build', 'Compare', 'Probe', 'Check', 'Draft', 'Bridge', 'Failures', 'Shared', 'SelfTest', 'Mutate', 'V1', 'V1Failures')]
     [string]$Action,
-    # V1 only: a comma-separated list of scenario id substrings to run; all S-*.json under SharedRoot otherwise.
+    # V1 scenario substrings, or one Mutate case-label substring. Unset runs the action's full selection.
     [string]$Only,
     [string]$CacheRoot = $env:SHIMEJI_ORACLE_CACHE,
     [string]$OutputRoot,
