@@ -260,6 +260,26 @@ internal static class ClaudeObservationChecks
             "Claude observation: exact-pinned idle submission still reaches only the fake provider");
     }
 
+    internal static async Task RunBusyCausesAsync(Action<bool, string> check)
+    {
+        var source = new ObservationSource { Version = Pin21306.Version, Hash = Pin21306.Sha256 };
+        ClaudeNativeCandidate pinned;
+        await using (var provider = new ClaudeNativeProvider(source))
+            pinned = (await provider.DiscoverAsync(default)).Single();
+        var target = new CandidateProvider(pinned);
+        await using var adapter = new ClaudeNativeAdapter(target, true);
+        var session = (await adapter.DiscoverAsync(Guid.NewGuid(), default)).Single();
+        foreach (var (status, reason) in new (string? Status, string Reason)[] {
+            ("busy", "native_recipient_busy"), ("shell", "native_recipient_busy"),
+            ("waiting", "native_recipient_awaiting_approval"), (null, "native_recipient_activity_unknown") })
+        {
+            target.Current = pinned with { Status = status };
+            var result = await adapter.SubmitAsync(Message(session.Address), default);
+            check(result is { Outcome: AdapterAdmission.DeferredNotSubmitted } && result.Reason == reason && target.Submissions == 0,
+                "CLAUDE_BUSY_CAUSE: fresh " + (status ?? "unknown") + " activity defers with its truthful cause before credentials or input");
+        }
+    }
+
     private static BrokerMessage Message(SessionAddress recipient)
         => new(Guid.NewGuid(), Guid.NewGuid(), null, new(Guid.NewGuid(), "synthetic-sender", Guid.NewGuid()),
             recipient, "Synthetic observation refusal witness.", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddMinutes(1));

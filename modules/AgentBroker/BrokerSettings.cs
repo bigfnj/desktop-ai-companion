@@ -1,12 +1,13 @@
 using System.Globalization;
 using DesktopAICompanion.Modules;
+using AgentBroker.CodexDesktopAdapter;
 
 namespace DesktopAICompanion.AgentBroker;
 
 internal sealed record BrokerSettings(bool Enabled, string Name, int LoopbackPort, int LanPort,
     bool EnableLan, bool NoAuthLoopback, bool CodexDiscovery, bool ClaudeDiscovery,
     bool CodexPeerMessages, bool ClaudePeerCredentials, int MessageLifetimeHours = 24,
-    bool CodexUpdateTolerantDelivery = true, bool ClaudeUpdateTolerantDelivery = true)
+    bool CodexUpdateTolerantDelivery = true, bool ClaudeUpdateTolerantDelivery = true, string AdditionalCodexHome = "")
 {
     internal static BrokerSettings Read(IModuleSettings settings) => new(
         settings.GetBool("enabled", false), settings.Get("name", Environment.MachineName),
@@ -21,11 +22,11 @@ internal sealed record BrokerSettings(bool Enabled, string Name, int LoopbackPor
         // On by default (the owner's decision of 2026-11-02): an Anthropic-signed Claude Code build that is not exactly
         // pinned is woken once Claude wake is on, so an update every few days does not make every Claude row
         // observation-only until a re-pin ships. Off is the strict mode, exact pins only.
-        settings.GetBool("claudeUpdateTolerantDelivery", true));
+        settings.GetBool("claudeUpdateTolerantDelivery", true), settings.Get("additionalCodexHome", ""));
 
     internal bool Valid => Name.Length is > 0 and <= 80 && !string.IsNullOrWhiteSpace(Name) &&
         !Name.Any(char.IsControl) && LoopbackPort is >= 1 and <= 65535 && LanPort is >= 1 and <= 65535 &&
-        (!EnableLan || LoopbackPort != LanPort) && MessageLifetimeHours is >= 1 and <= 24;
+        (!EnableLan || LoopbackPort != LanPort) && MessageLifetimeHours is >= 1 and <= 24 && CodexHomePaths.IsValidOptional(AdditionalCodexHome);
 
     internal Dictionary<string, string> Values() => new(StringComparer.Ordinal)
     {
@@ -37,7 +38,8 @@ internal sealed record BrokerSettings(bool Enabled, string Name, int LoopbackPor
         ["claudePeerCredentials"] = Bool(ClaudePeerCredentials),
         ["codexUpdateTolerantDelivery"] = Bool(CodexUpdateTolerantDelivery),
         ["claudeUpdateTolerantDelivery"] = Bool(ClaudeUpdateTolerantDelivery),
-        ["messageLifetimeHours"] = MessageLifetimeHours.ToString(CultureInfo.InvariantCulture)
+        ["messageLifetimeHours"] = MessageLifetimeHours.ToString(CultureInfo.InvariantCulture),
+        ["additionalCodexHome"] = AdditionalCodexHome
     };
 
     internal static bool TryEdit(BrokerSettings current, IReadOnlyDictionary<string, string> edit,
@@ -60,7 +62,7 @@ internal sealed record BrokerSettings(bool Enabled, string Name, int LoopbackPor
             !bool.TryParse(values["claudeUpdateTolerantDelivery"], out bool claudeUpdateTolerant)) return false;
         result = new(enabled, values["name"].Trim(), local, lan, enableLan, noAuth,
             codexDiscovery, claudeDiscovery, codexMessages, claudeCredentials, messageLifetimeHours, codexUpdateTolerant,
-            claudeUpdateTolerant);
+            claudeUpdateTolerant, values["additionalCodexHome"].Trim());
         return result.Valid;
     }
 

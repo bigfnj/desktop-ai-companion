@@ -12,6 +12,7 @@
     <AssemblyName>AgentBroker.Worker</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="..\..\shared\AgentBroker\CodexApprovalObservation.cs" Link="Shared\CodexApprovalObservation.cs" />
     <InternalsVisibleTo Include="AgentBroker.Adapter.Tests" />
     <InternalsVisibleTo Include="AgentBroker.Network.Tests" />
     <ProjectReference Include="../../src/AgentBroker.Core/AgentBroker.Core.csproj" />

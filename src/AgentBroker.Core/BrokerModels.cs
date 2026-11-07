@@ -53,6 +53,8 @@ public sealed record NoticeDrops(int SenderUnavailable, int StoreFull, int Queue
 public sealed class BrokerException(string code, string message) : Exception(message)
 {
     public string Code { get; } = code;
+    // Local diagnostic only. It does not change Code, durable receipts, routing, or federation records.
+    public AvailabilityDiagnostic? Availability { get; init; }
 }
 
 // MaximumMessages bounds the messages that still carry their text. An acknowledged message this broker sent keeps

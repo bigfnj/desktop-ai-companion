@@ -17,6 +17,7 @@ internal static class EngineBindingReportChecks
         await AdapterAsync(check);
         await RuntimeAsync(check);
         SerializationChecks(check);
+        await EngineObservationOrderChecks.RunAsync(check);
     }
 
     private static async Task AdapterAsync(Action<bool, string> check)
@@ -245,7 +246,7 @@ internal static class EngineBindingReportChecks
             : Task.FromResult<DesktopOwnerBinding?>(conversationId == Thread ? Binding : null);
         public Task<DesktopSubmissionResult> SubmitAsync(DesktopOwnerBinding binding, Guid messageId, string text, CancellationToken token)
         {
-            if (DeferNext) { DeferNext = false; return Task.FromResult(new DesktopSubmissionResult(DesktopSubmissionOutcome.DeferredNotSubmitted)); }
+            if (DeferNext) { DeferNext = false; return Task.FromResult(new DesktopSubmissionResult(DesktopSubmissionOutcome.DeferredNotSubmitted, ErrorCode: "native_context_busy")); }
             Interlocked.Increment(ref submissions);
             return Task.FromResult(new DesktopSubmissionResult(DesktopSubmissionOutcome.Accepted));
         }

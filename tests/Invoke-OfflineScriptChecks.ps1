@@ -1,9 +1,9 @@
 #requires -Version 5
 <#
 .SYNOPSIS
-    Run the script-level checks that need no compiler, no install, no elevation and no network, and collect every
+    Run script checks with no product build, install, elevation, network or real input, and collect every
     failure: the installer's fake-caller, path-safety, checker-timeout and log-observation checks, the tray icon record
-    cleanup check, and the public-commit privacy self-test.
+    cleanup check, the public-commit privacy self-test and mutation-tooling self-tests.
 
 .DESCRIPTION
     N-installer-tests-02 (lane feature/followups, 2026-10-29). These five ran only by hand, so the reparse-tag,
@@ -17,7 +17,8 @@
     timeout check kills after 2.5 s, create and remove a synthetic git repository under build\privacy-selftest\, and
     read the Desktop and local application data folder PATHS without opening anything in them. Test-TrayIconRecords.ps1
     (added 2026-11-02) creates and removes a scratch key under HKCU\Software and never opens the real tray records. No
-    MSI is executed and no native binary is built or launched.
+    MSI is executed and no native binary is built or launched. The mutation TEMP-budget test compiles the existing
+    small C# fixture method with Add-Type; mutation restoration tests use disposable sources and fake builds.
 
     The four installer checks signal failure by throwing, so they run in this process inside a try/catch. The privacy
     self-test is `#requires -Version 7`, which Windows PowerShell refuses to run in-process, so it always runs in a
@@ -29,7 +30,7 @@
     .\tests\Invoke-OfflineScriptChecks.ps1
 #>
 [CmdletBinding()]
-param()
+param([string]$PythonExecutable = '')
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -47,29 +48,69 @@ foreach ($name in @('Test-InstallerMsiCallerSafety.ps1', 'Test-InstallerNativeCh
     catch { $failures.Add($name + ': ' + $_.Exception.Message) }
 }
 
-Write-Host '=== Test-PublicCommitPrivacy.ps1 -SelfTest (in PowerShell 7)'
-$ran++
 $pwsh = @(Get-Command -Name 'pwsh' -CommandType Application -ErrorAction SilentlyContinue) | Select-Object -First 1
-if ($null -eq $pwsh) {
-    $failures.Add('Test-PublicCommitPrivacy.ps1 -SelfTest: it needs PowerShell 7, and pwsh is not on PATH, so it did not run')
+function Invoke-CheckedChild([string]$Name, [string]$Executable, [string[]]$Arguments, [string]$Summary) {
+    Write-Host "=== $Name"
+    $script:ran++
+    if ([string]::IsNullOrWhiteSpace($Executable)) {
+        $script:failures.Add($Name + ': required interpreter unavailable; did not run')
+        return
+    }
+    $childExit = $null
+    $output = @()
+    $savedPreference = $ErrorActionPreference
+    # Native stderr is nonterminating here on Windows PowerShell too, so its exit code remains available.
+    $ErrorActionPreference = 'Continue'
+    try {
+        $output = @(& $Executable @Arguments)
+        $childExit = $LASTEXITCODE
+    }
+    catch { $script:failures.Add($Name + ': could not start: ' + $_.Exception.GetType().Name) }
+    finally { $ErrorActionPreference = $savedPreference }
+    foreach ($line in $output) { Write-Host "$line" }
+    if ($null -eq $childExit -or $childExit -ne 0) { $script:failures.Add("$Name (exit $childExit)") }
+    elseif (@($output | Where-Object { "$_" -match $Summary }).Count -ne 1) {
+        $script:failures.Add($Name + ': missing or ambiguous passing summary; did not prove the check ran')
+    }
 }
-else {
-    # Judged by its EXIT CODE alone. Under Windows PowerShell a native stderr line is a terminating error while Stop is
-    # set and this script's output is redirected (RA-346), as it is in a gate run detached to a log, so with Stop the
-    # verdict's wording would depend on how the gate was started. Continue for this one call; restored after it.
-    $privacyExit = $null
+
+$pwshPath = if ($null -eq $pwsh) { '' } else { $pwsh.Source }
+if ([string]::IsNullOrWhiteSpace($PythonExecutable)) {
+    $PythonExecutable = [Environment]::GetEnvironmentVariable('TOOLBOX_PYTHON', 'Process')
+    if ([string]::IsNullOrWhiteSpace($PythonExecutable)) {
+        $python = @(Get-Command -Name 'python' -CommandType Application -ErrorAction SilentlyContinue) | Select-Object -First 1
+        $PythonExecutable = if ($null -eq $python) { '' } else { $python.Source }
+    }
+}
+if (-not [string]::IsNullOrWhiteSpace($PythonExecutable)) {
     $savedPreference = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     try {
-        & $pwsh.Source -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'Test-PublicCommitPrivacy.ps1') -SelfTest
-        $privacyExit = $LASTEXITCODE
+        & $PythonExecutable -B -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)'
+        if ($LASTEXITCODE -ne 0) { $PythonExecutable = '' }
     }
-    catch { $failures.Add('Test-PublicCommitPrivacy.ps1 -SelfTest could not be started: ' + $_.Exception.Message) }
+    catch { $PythonExecutable = '' }
     finally { $ErrorActionPreference = $savedPreference }
-    if ($null -ne $privacyExit -and $privacyExit -ne 0) { $failures.Add("Test-PublicCommitPrivacy.ps1 -SelfTest (exit $privacyExit)") }
 }
+
+$powerShellChecks = @(
+    @{ Name = 'Test-PublicCommitPrivacy.ps1'; Path = (Join-Path $PSScriptRoot 'Test-PublicCommitPrivacy.ps1'); Args = @('-SelfTest'); Summary = '^Public privacy self-test passed: [1-9][0-9]* cases ' },
+    @{ Name = 'Inspect-CodexMcpExposure.ps1'; Path = (Join-Path $PSScriptRoot '..\tools\agentbroker\Inspect-CodexMcpExposure.ps1'); Args = @('-SelfTest'); Summary = '^PASS: [1-9][0-9]* exposure classification controls; no client or endpoint invoked\.$' },
+    @{ Name = 'Invoke-MutationShards.ps1'; Path = (Join-Path $PSScriptRoot '..\tools\agentbroker\Invoke-MutationShards.ps1'); Args = @('-SelfTest'); Summary = '^SelfTestChecks=[1-9][0-9]*$' },
+    @{ Name = 'Test-MutationShardRemainder.ps1'; Path = (Join-Path $PSScriptRoot 'Test-MutationShardRemainder.ps1'); Args = @(); Summary = '^RemainderSyntheticChecks=[1-9][0-9]*$' },
+    @{ Name = 'Test-MutationTempBudget.ps1'; Path = (Join-Path $PSScriptRoot 'Test-MutationTempBudget.ps1'); Args = @(); Summary = '^Checks=[1-9][0-9]*$' },
+    @{ Name = 'Test-IsolatedDotnetEnvironment.ps1'; Path = (Join-Path $PSScriptRoot 'Test-IsolatedDotnetEnvironment.ps1'); Args = @(); Summary = '^\{"Result":"PASS","Checks":[1-9][0-9]*,' },
+    @{ Name = 'Test-OfflineScriptCheckDispatch.ps1'; Path = (Join-Path $PSScriptRoot 'Test-OfflineScriptCheckDispatch.ps1'); Args = @('-PythonExecutable', $PythonExecutable); Summary = '^OfflineDispatchChecks=[1-9][0-9]*$' }
+)
+foreach ($check in $powerShellChecks) {
+    Invoke-CheckedChild $check.Name $pwshPath (@('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $check.Path) + $check.Args) $check.Summary
+}
+Invoke-CheckedChild 'run_installer_shutdown_mutations.py --self-test' $PythonExecutable `
+    @('-B', '-X', 'utf8', (Join-Path $PSScriptRoot 'run_installer_shutdown_mutations.py'), '--self-test') '^PASS [1-9][0-9]* restoration cases '
+Invoke-CheckedChild 'Test-MutationHarnessRestoration.py' $PythonExecutable `
+    @('-B', '-X', 'utf8', (Join-Path $PSScriptRoot 'Test-MutationHarnessRestoration.py')) '^MutationRestorationChecks=[1-9][0-9]*$'
 
 if ($failures.Count -gt 0) {
     throw ("$($failures.Count) of $ran offline script check(s) failed: " + ($failures -join ' | '))
 }
-Write-Host "PASS: $ran offline script checks (installer fake callers and paths, tray icon records, privacy self-test)."
+Write-Host "PASS: $ran offline script checks (installer, tray, privacy and mutation tooling)."

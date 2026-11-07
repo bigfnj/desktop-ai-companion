@@ -108,17 +108,17 @@ internal static class CompactReceiptChecks
         MessageReceipt Busy() => new(message, MessageStatus.Accepted, clock.GetUtcNow(), DeliveryObservations.BusyReason);
         var busy = new AdapterResult(AdapterAdmission.DeferredNotSubmitted, DeliveryObservations.BusyReason);
         var first = clock.GetUtcNow();
-        observations.Record(message, busy, _ => true);
+        observations.Record(message, busy);
         clock.Advance(TimeSpan.FromMinutes(5));
-        observations.Record(message, busy, _ => true);
+        observations.Record(message, busy);
         check(observations.BusySince(Busy()) == first, "BUSY_SINCE_KEPT: later busy answers keep the first one's time");
         check(observations.SeenBusy(recipient), "BUSY_ROW_FRESH: a recipient that answered busy just now is seen busy");
         clock.Advance(DeliveryObservations.BusyFreshFor);
         check(!observations.SeenBusy(recipient), "BUSY_ROW_FRESHNESS: a busy answer older than 30 seconds no longer counts");
-        observations.Record(message, new(AdapterAdmission.DeferredNotSubmitted, "native_owner_unavailable"), _ => true);
+        observations.Record(message, new(AdapterAdmission.DeferredNotSubmitted, "native_owner_unavailable"));
         clock.Advance(TimeSpan.FromSeconds(1));
         var restarted = clock.GetUtcNow();
-        observations.Record(message, busy, _ => true);
+        observations.Record(message, busy);
         check(observations.BusySince(Busy()) == restarted, "BUSY_RUN_RESTARTS: another answer ends the busy run, so the next busy answer starts a new one");
         check(observations.BusySince(Busy() with { Status = MessageStatus.Submitted }) is null &&
             observations.BusySince(Busy() with { Reason = "native_owner_unavailable" }) is null,

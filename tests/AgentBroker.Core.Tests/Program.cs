@@ -35,6 +35,24 @@ BrokerMessage Message(BrokerSession from, BrokerSession to) => new(Guid.NewGuid(
 
 try
 {
+    if (args.SequenceEqual(["--availability-diagnostics-only"]))
+    {
+        passed += AvailabilityDiagnosticChecks.Run(root);
+        Console.WriteLine($"AgentBroker availability diagnostics smoke: {passed} assertions passed.");
+        return 0;
+    }
+    if (args.SequenceEqual(["--native-recovery-only"]))
+    {
+        passed += NativeRecoveryChecks.Run(root);
+        Console.WriteLine($"AgentBroker native recovery smoke: {passed} assertions passed.");
+        return 0;
+    }
+    if (args.SequenceEqual(["--pending-inbox-only"]))
+    {
+        passed += PendingInboxChecks.Run(root);
+        Console.WriteLine($"AgentBroker pending-inbox smoke: {passed} assertions passed.");
+        return 0;
+    }
     if (args.SequenceEqual(["--reply-lifetime-only"]))
     {
         passed += ReplyLifetimeChecks.Run(root);
@@ -173,6 +191,9 @@ try
     passed += DeliveryOrderChecks.Run(root);
     passed += PeerReceiptChecks.Run(root);
     passed += AcceptedIncomingChecks.Run(root);
+    passed += PendingInboxChecks.Run(root);
+    passed += NativeRecoveryChecks.Run(root);
+    passed += AvailabilityDiagnosticChecks.Run(root);
     passed += TombstoneSharingChecks.Run(root);
     using (var receipts = new BrokerStore(Path.Combine(root, "explicit-receipts"), clock: clock))
     {

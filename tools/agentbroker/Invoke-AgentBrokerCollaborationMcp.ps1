@@ -3,7 +3,7 @@
 .SYNOPSIS
 Validate one ordinary workspace JSON MCP request. Only -Execute sends it to loopback.
 .DESCRIPTION
-Fixed stateless endpoint/protocol; no credentials, proxy, redirects, cookies or native IPC.
+Fixed stateless loopback host/protocol; LoopbackPort defaults to 7432. No credentials, proxy, redirects, cookies or native IPC.
 Allowed tools are the small collaboration set below. Addresses for sending, reading, waiting and
 acknowledging must be generic mcp:<GUID> sessions, with one exception: send's sender may be the
 calling Codex agent's own native row, codex: plus the canonical lowercase GUID in CODEX_THREAD_ID,
@@ -32,10 +32,16 @@ Codex one only in the routing sense above.
 pwsh -NoProfile -File tools/agentbroker/Invoke-AgentBrokerCollaborationMcp.ps1 -RequestFile artifacts/collaboration/request.json
 #>
 [CmdletBinding()]
-param([Parameter(Mandatory)][string]$RequestFile, [switch]$Execute)
+param([Parameter(Mandatory)][string]$RequestFile, [switch]$Execute, [int]$LoopbackPort = 7432)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+# A redirected console may inherit a legacy code page. The one-JSON output contract is always UTF-8.
+[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
 function Refuse-Mcp([string]$Code) { $e = [IO.IOException]::new('Collaboration request refused.'); $e.Data['McpCode'] = $Code; throw $e }
+function Get-McpLoopbackEndpoint([int]$Port = 7432) {
+    if ($Port -lt 1 -or $Port -gt 65535) { Refuse-Mcp 'invalid_loopback_port' }
+    return 'http://127.0.0.1:' + $Port.ToString([Globalization.CultureInfo]::InvariantCulture) + '/mcp'
+}
 function Convert-StrictMcpJson([string]$Text) {
     $options = [Text.Json.JsonDocumentOptions]::new(); $options.MaxDepth = 32
     $doc = [Text.Json.JsonDocument]::Parse($Text, $options)
@@ -144,8 +150,9 @@ function Confirm-CollaborationRequest($Request, [string]$CodexThreadId = '') {
     return [pscustomobject]@{ Method = $method; Tool = $tool; ExecuteAllowed = ($tool -cne 'reply_to_message')
         NativeSender = $nativeSender; OriginalMessageId = $originalMessageId }
 }
-# A tool's value, from structured content or the one JSON text block, written to the pipeline (an array's items one
+# A tool's value, from structured content or the first JSON text block, written to the pipeline (an array's items one
 # by one), so a caller collects it with @(...). A tool error refuses; nothing of its text is kept.
+# Later content blocks are advisory and never replace or concatenate with the payload.
 function Get-McpToolValue($Result) {
     if ($Result -isnot [Collections.IDictionary]) { Refuse-Mcp 'lookup_shape' }
     if (@($Result.Keys) -ccontains 'isError' -and $Result['isError'] -eq $true) { Refuse-Mcp 'lookup_failed' }
@@ -156,7 +163,7 @@ function Get-McpToolValue($Result) {
     }
     $content = @(Get-McpField $Result 'content')
     if ($content.Count -eq 0) { return }
-    if ($content.Count -ne 1 -or (Get-McpField $content[0] 'type') -cne 'text' -or (Get-McpField $content[0] 'text') -isnot [string]) { Refuse-Mcp 'lookup_shape' }
+    if ((Get-McpField $content[0] 'type') -cne 'text' -or (Get-McpField $content[0] 'text') -isnot [string]) { Refuse-Mcp 'lookup_shape' }
     return Convert-StrictMcpJson $content[0]['text']
 }
 # Capabilities arrive as the enum's names ("Receive, WakeIdle, Reply, NativeIdleGuard") or as its number; an unknown
@@ -262,12 +269,30 @@ function Convert-McpReply([byte[]]$Bytes, [string]$MediaType, [string]$ExpectedI
     if (@($matches[0].Keys) -ccontains 'error') { return [ordered]@{ Status = 'mcp_error'; ErrorCode = [int](Get-McpField $matches[0]['error'] 'code') } }
     return [ordered]@{ Status = 'mcp_result'; Result = (Get-McpField $matches[0] 'result') }
 }
+function Convert-McpToolOutput($Result) {
+    $texts = @()
+    if ($Result -isnot [Collections.IDictionary]) { Refuse-Mcp 'response_shape' }
+    if (@($Result.Keys) -ccontains 'content') {
+        foreach ($block in $Result['content']) {
+            if ($block -is [Collections.IDictionary] -and $block['type'] -ceq 'text' -and $block['text'] -is [string]) { $texts += $block['text'] }
+        }
+    }
+    $value = $null
+    if ($texts.Count -gt 0) {
+        $document = $null
+        try { $document = [Text.Json.JsonDocument]::Parse([string]$texts[0]); $value = ConvertFrom-McpJsonElement $document.RootElement }
+        catch [Text.Json.JsonException] { $value = [string]$texts[0] }
+        finally { if ($null -ne $document) { $document.Dispose() } }
+    } elseif (@($Result.Keys) -ccontains 'structuredContent') { $value = $Result['structuredContent'] }
+    $failed = @($Result.Keys) -ccontains 'isError' -and $Result['isError'] -eq $true
+    return [ordered]@{ Status = $(if ($failed) { 'tool_error' } else { 'ok' }); DispatchState = 'confirmed'; Result = $value; Advisories = @($texts | Select-Object -Skip 1) }
+}
 # One tool call the helper makes itself, before the request it was given: the same fixed loopback endpoint, client and
 # response limits, under the lookups' shared deadline. Writes the tool's value; an HTTP, RPC or tool error refuses.
-function Invoke-McpLookup([Net.Http.HttpClient]$Client, [string]$Tool, $Arguments, [string]$Id, [Threading.CancellationToken]$Token) {
+function Invoke-McpLookup([Net.Http.HttpClient]$Client, [string]$Tool, $Arguments, [string]$Id, [Threading.CancellationToken]$Token, [int]$LoopbackPort = 7432) {
     $call = [ordered]@{ jsonrpc = '2.0'; id = $Id; method = 'tools/call'; params = [ordered]@{ name = $Tool; arguments = $Arguments } }
     $body = [Text.UTF8Encoding]::new($false).GetBytes((ConvertTo-Json -InputObject $call -Depth 8 -Compress))
-    $message = [Net.Http.HttpRequestMessage]::new([Net.Http.HttpMethod]::Post, 'http://127.0.0.1:7432/mcp'); $response = $null
+    $message = [Net.Http.HttpRequestMessage]::new([Net.Http.HttpMethod]::Post, (Get-McpLoopbackEndpoint $LoopbackPort)); $response = $null
     try {
         $message.Headers.Add('MCP-Protocol-Version', '2025-11-25'); $message.Headers.Accept.ParseAdd('application/json'); $message.Headers.Accept.ParseAdd('text/event-stream')
         $message.Content = [Net.Http.ByteArrayContent]::new($body); $message.Content.Headers.ContentType = [Net.Http.Headers.MediaTypeHeaderValue]::new('application/json')
@@ -286,7 +311,10 @@ function Invoke-CheckedRequest($Checked, [scriptblock]$LookupCall, [scriptblock]
     if ($null -ne $Checked.OriginalMessageId) { Confirm-GenericOriginalSender $Checked.OriginalMessageId $LookupCall }
     & $SendRequest
 }
+$script:requestDispatched = $false
+$script:requestExitCode = 0
 try {
+    $endpoint = Get-McpLoopbackEndpoint $LoopbackPort
     $repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..')); $path = Assert-McpRequestPath $RequestFile $repo; Confirm-McpRequestComponents $path
     $file = [IO.File]::Open($path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
     try { $bytes = Read-McpBytes $file 131072 ([Threading.CancellationToken]::None) } finally { $file.Dispose() }
@@ -297,24 +325,33 @@ try {
     $handler = [Net.Http.HttpClientHandler]::new(); $handler.UseProxy = $false; $handler.AllowAutoRedirect = $false; $handler.UseCookies = $false; $handler.UseDefaultCredentials = $false
     $client = [Net.Http.HttpClient]::new($handler); $lookupDeadline = [Threading.CancellationTokenSource]::new([timespan]::FromSeconds(15)); $script:lookupSerial = 0
     try {
-        $lookupCall = { param([string]$LookupTool, $LookupArguments) $script:lookupSerial++; Invoke-McpLookup $client $LookupTool $LookupArguments ('collab-lookup-' + $script:lookupSerial) $lookupDeadline.Token }
+        $lookupCall = { param([string]$LookupTool, $LookupArguments) $script:lookupSerial++; Invoke-McpLookup $client $LookupTool $LookupArguments ('collab-lookup-' + $script:lookupSerial) $lookupDeadline.Token $LoopbackPort }
         # The request file's own bytes, unchanged, so a retry keeps its messageId and sender.
         $sendRequest = {
             $deadline = [Threading.CancellationTokenSource]::new([timespan]::FromSeconds((Get-McpRequestSeconds $validated.Tool))); $response = $null; $message = $null
             try {
-                $message = [Net.Http.HttpRequestMessage]::new([Net.Http.HttpMethod]::Post, 'http://127.0.0.1:7432/mcp'); $message.Headers.Add('MCP-Protocol-Version', '2025-11-25'); $message.Headers.Accept.ParseAdd('application/json'); $message.Headers.Accept.ParseAdd('text/event-stream')
+                $message = [Net.Http.HttpRequestMessage]::new([Net.Http.HttpMethod]::Post, $endpoint); $message.Headers.Add('MCP-Protocol-Version', '2025-11-25'); $message.Headers.Accept.ParseAdd('application/json'); $message.Headers.Accept.ParseAdd('text/event-stream')
                 $message.Content = [Net.Http.ByteArrayContent]::new($bytes); $message.Content.Headers.ContentType = [Net.Http.Headers.MediaTypeHeaderValue]::new('application/json')
+                $script:requestDispatched = $true
                 $response = $client.SendAsync($message, [Net.Http.HttpCompletionOption]::ResponseHeadersRead, $deadline.Token).GetAwaiter().GetResult()
-                if (-not $response.IsSuccessStatusCode) { [ordered]@{ Status = 'http_error'; HttpStatus = [int]$response.StatusCode } | ConvertTo-Json -Compress; return }
+                if (-not $response.IsSuccessStatusCode) { $script:requestExitCode = 12; [ordered]@{ Status = 'http_error'; HttpStatus = [int]$response.StatusCode; DispatchState = 'unknown'; NextAction = 'Use the worker --mcp-call client for the saved endpoint and authentication; inspect any existing receipt before resending.' } | ConvertTo-Json -Compress; return }
                 if ([int]$response.StatusCode -in @(202, 204) -and $validated.Method -ceq 'notifications/initialized') { [ordered]@{ Status = 'notification_accepted' } | ConvertTo-Json -Compress; return }
                 if ($response.Content.Headers.ContentLength -gt 524288) { Refuse-Mcp 'body_limit' }
                 $stream = $response.Content.ReadAsStream(); try { $reply = Read-McpBytes $stream 524288 $deadline.Token } finally { $stream.Dispose() }
-                Convert-McpReply $reply $response.Content.Headers.ContentType.MediaType ([string]$request['id']) | ConvertTo-Json -Depth 32
+                $decoded = Convert-McpReply $reply $response.Content.Headers.ContentType.MediaType ([string]$request['id'])
+                if ($decoded.Status -ceq 'mcp_error') { $script:requestExitCode = 11; $decoded | ConvertTo-Json -Depth 32 -Compress; return }
+                if ($validated.Method -ceq 'tools/call') {
+                    $decoded = Convert-McpToolOutput $decoded.Result
+                    if ($decoded.Status -ceq 'tool_error') { $script:requestExitCode = 10 }
+                }
+                $decoded | ConvertTo-Json -Depth 32 -Compress
             } finally { if ($null -ne $response) { $response.Dispose() }; if ($null -ne $message) { $message.Dispose() }; $deadline.Dispose() }
         }
         Invoke-CheckedRequest $validated $lookupCall $sendRequest
     } finally { $lookupDeadline.Dispose(); $client.Dispose() }
+    if ($script:requestExitCode -ne 0) { exit $script:requestExitCode }
 } catch {
     $code = 'request_refused'; if ($_.Exception.Data.Contains('McpCode')) { $code = [string]$_.Exception.Data['McpCode'] }
-    [ordered]@{ Status = 'refused'; Code = $code } | ConvertTo-Json -Compress; exit 1
+    if ($script:requestDispatched) { [ordered]@{ Status = 'transport_error'; Code = $code; DispatchState = 'unknown'; NextAction = 'Inspect the receipt before retrying with the identical stable message ID and payload.' } | ConvertTo-Json -Compress; exit 69 }
+    [ordered]@{ Status = 'refused'; Code = $code; DispatchState = 'not_dispatched' } | ConvertTo-Json -Compress; exit 2
 }

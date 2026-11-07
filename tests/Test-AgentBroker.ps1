@@ -68,6 +68,17 @@ if ($collaborationExit -ne 0 -or $collaborationSummary.Count -ne 1) {
     throw "AgentBroker collaboration helper validation failed (exit $collaborationExit)."
 }
 $collaborationChecks = [int]([regex]::Match([string]$collaborationSummary[0], '^PASS: ([0-9]+)').Groups[1].Value)
+# Real helper children and an owned ephemeral loopback server exercise main's exit/output plumbing.
+# This is separate from the AST-loaded pure functions above, which cannot see main's process exit.
+Write-Host '=== AgentBroker collaboration helper process contract'
+$collaborationProcessOutput = @(& pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Test-AgentBrokerCollaborationMcpProcess.ps1'))
+$collaborationProcessExit = $LASTEXITCODE
+foreach ($line in $collaborationProcessOutput) { Write-Host $line }
+$collaborationProcessSummary = @($collaborationProcessOutput | Where-Object { "$_" -match '^PASS: ([1-9][0-9]*) process collaboration MCP checks;' })
+if ($collaborationProcessExit -ne 0 -or $collaborationProcessSummary.Count -ne 1) {
+    throw "AgentBroker collaboration helper process contract failed (exit $collaborationProcessExit)."
+}
+$collaborationProcessChecks = [int]([regex]::Match([string]$collaborationProcessSummary[0], '^PASS: ([0-9]+)').Groups[1].Value)
 # The re-pin helper's fixture checks (broker-b's hand-back, lane feature/agentbroker-backlog-d). The helper supports
 # Windows PowerShell 5.1, so it runs in a powershell.exe child whichever edition runs this script. It reads and writes
 # only its own temporary fixture directory. A failed check, a missing summary line or a nonzero exit fails here.
@@ -152,4 +163,4 @@ foreach ($harness in $harnesses) {
     catch { $failures.Add($harness.Name + ': ' + $_.Exception.Message) }
 }
 if ($failures.Count -gt 0) { throw ('AgentBroker checks failed: ' + ($failures -join '; ')) }
-Write-Host ("AgentBroker deterministic harnesses PASS: $($harnesses.Count) harnesses, $assertions assertions; Claude connection helper $connectChecks checks; collaboration helper $collaborationChecks checks; re-pin helper $repinChecks checks (PowerShell 7: $repin7Checks); scheduled re-pin check $repinCheckChecks checks.")
+Write-Host ("AgentBroker deterministic harnesses PASS: $($harnesses.Count) harnesses, $assertions assertions; Claude connection helper $connectChecks checks; collaboration helper $collaborationChecks checks (process: $collaborationProcessChecks); re-pin helper $repinChecks checks (PowerShell 7: $repin7Checks); scheduled re-pin check $repinCheckChecks checks.")

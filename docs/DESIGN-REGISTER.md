@@ -7259,6 +7259,31 @@ reader could take either for a defect; both are deliberate.
 sender's receipt); `acknowledge_message` is not (the recipient's own). Refused: a flat new shape, and leaving
 `reply_to_message` out, which would have kept one sender tool echoing its own text.
 
+#### AgentBroker 1.8.0 recovery campaign
+
+The [validation and disposition ledger](agentbroker-180-validation.md) records the 13 original backlog IDs, implementation,
+named killing controls, seven integrated harness results, actual installed upgrade and remaining acceptance limits.
+It preserves the unnumbered historical MSI/manual/native-provenance records; it does not close unrelated host or Shimeji work.
+
+The owner chose exact-incarnation delivery with report-only native recovery. Do not acknowledge or reply as a predecessor,
+redirect old mail to a successor, or retain replies for an absent native recipient. A fresh verified native replacement can
+refuse an unsubmitted old-address message with `recipient_replaced`; deliberate continuation uses its current address and a new ID.
+Arrival cursors, local pending counts and recovery hints do not widen those rights. Delivered continues to mean receipt,
+not completed work. Retain required content before acknowledging.
+
+The owner accepted the supported custom-title bridge: the opt-in Claude hook checks its exact native identity before
+forwarding documented custom title metadata. Generated names remain outside that source; native labels remain the fallback.
+Titles and TTL-limited declarations are untrusted local hints, not authenticated chat ownership or activity.
+
+Root's engineering decision preserves the local-only delivery-derived Busy overlay, `busySince` and engine extras.
+Native directory `Activity` retains existing federation semantics; this is not a new owner-approved disclosure rule.
+Off-pin Codex Desktop publisher-trust/update-tolerant delivery already existed and is separately CLOSED-VERIFIED in the ledger.
+Signature trust does not remove the opt-in, capability checks, native idle guard or exact-owner verification.
+
+Two owner questions remain unanswered and remain in [BACKLOG.md](../BACKLOG.md): whether aggregate visible approval status
+completes the request for a recipient-specific approval signal, and whether manual Desktop reopening/vendor limits complete
+the original automatic-wake priority. No answer is inferred from an installed query, URI support or a synthetic test.
+
 #### feature/reminder-zoom-slot
 
 Reminder 1.3.0. The owner, 2026-11-03: "replace calendar 5 with a dedicated Zoom slot", and then: "I don't think we

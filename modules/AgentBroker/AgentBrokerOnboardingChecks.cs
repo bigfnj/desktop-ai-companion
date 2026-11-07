@@ -75,6 +75,17 @@ public sealed partial class AgentBrokerModule
             System.Text.Json.JsonSerializer.Serialize(worker) + ",\"args\":[\"--mcp-stdio\",\"--data\"," + System.Text.Json.JsonSerializer.Serialize(data) + "]}}";
         check(Inspect("codex", () => new(0, codexStdio, "")) is { State: ClientConfiguration.Configured, Scope: "", Transport: "stdio" },
             "onboarding: the exact Codex stdio entry is configured, and Codex reports no scope");
+        string codexRequirements = codexStdio.Replace("\"enabled\":true", "\"enabled\":true,\"disabled_reason\":\"requirements\"", StringComparison.Ordinal);
+        check(Inspect("codex", () => new(0, codexRequirements, "")) is
+            { State: ClientConfiguration.PolicyBlocked, Health: "disabled_by_requirements" },
+            "CODEX_DISABLED_REQUIREMENTS: effective requirements block overrides enabled configuration");
+        var unknownReason = Inspect("codex", () => new(0, codexRequirements.Replace("requirements", privateMarker, StringComparison.Ordinal), ""));
+        check(unknownReason is { State: ClientConfiguration.Disabled, Health: "disabled_reason_reported" } &&
+            !unknownReason.ToString().Contains(privateMarker, StringComparison.Ordinal),
+            "CODEX_DISABLED_UNKNOWN: an unfamiliar disabled reason stays disabled and private");
+        check(Inspect("codex", () => new(0, codexRequirements.Replace("\"requirements\"", "17", StringComparison.Ordinal), "")).State == ClientConfiguration.Unrecognized &&
+            Inspect("codex", () => new(0, codexStdio.Replace("\"enabled\":true", "\"enabled\":\"yes\"", StringComparison.Ordinal), "")).State == ClientConfiguration.Unrecognized,
+            "CODEX_DISABLED_SHAPE: malformed enablement and reason fields cannot report configured");
         check(Inspect("codex", () => new(0, codexStdio.Replace("\"enabled\":true", "\"enabled\":false", StringComparison.Ordinal), "")).State == ClientConfiguration.Disabled &&
             Inspect("codex", () => new(0, "{\"transport\":{\"type\":\"streamable_http\",\"url\":\"" + endpoint + "\"}}", "")).State == ClientConfiguration.Configured &&
             Inspect("codex", () => new(0, "{\"transport\":{\"type\":\"streamable_http\",\"url\":\"http://127.0.0.1:1/mcp\"}}", "")).State == ClientConfiguration.DifferentEntry &&

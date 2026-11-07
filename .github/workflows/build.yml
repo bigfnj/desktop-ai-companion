@@ -38,9 +38,13 @@ jobs:
       - name: Check test environment and artifact cleanup safety
         shell: pwsh
         run: |
-          .\tests\Test-IsolatedDotnetEnvironment.ps1
           .\tests\Test-GateCacheCleanup.ps1
           .\tests\Test-CompletedWorkerBinaryCleanup.ps1
+
+      - name: Set up Python for offline tooling self-tests
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1   # v6
+        with:
+          python-version: '3.11'
 
       - name: Validate native installer shutdown
         shell: pwsh
@@ -49,7 +53,7 @@ jobs:
           .\installer\build-scoped-shutdown.ps1 -Tests -VerifyReproducibility
           .\tests\Test-InstallerShutdown.ps1 -SkipBuild
           # The checks that need no compiler, install, elevation or network: the installer's fake callers, path
-          # safety, checker timeout and log observation, and the privacy self-test (N-installer-tests-02). The same
+          # safety, checker timeout and log observation, privacy and mutation-tooling self-tests. The same
           # runner tests\run-gate.ps1 calls; it throws on any failure, which fails this step.
           .\tests\Invoke-OfflineScriptChecks.ps1
 

@@ -138,6 +138,25 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
         return observed;
     }
 
+    public Task PrepareDeliveryAsync(CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+        // This provider belongs only to delivery. Preparing it neither enumerates rows nor resets discovery's state.
+        // SubmitAsync still verifies the profiles afresh before input.
+        profileTrust = DesktopRouterTrust.Unverified;
+        profileUnavailable = false;
+        if (enableDelivery)
+        {
+            try { verifyProfilesForDiscovery(); profileTrust = DesktopRouterTrust.ExactPinned; }
+            catch (DesktopAdapterException error)
+            { profileTrust = VerifyProfilesByPublisher(error, diagnostics: null, verifyByPublisherForDiscovery); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            { profileUnavailable = true; }
+        }
+        token.ThrowIfCancellationRequested();
+        return Task.CompletedTask;
+    }
+
     private static AdapterDiscoveryDiagnostic ObservationDiagnostic() => new("codex_observation_only",
             "Codex sessions on a publisher-signed build that is not exactly reviewed are listed read-only; delivery is refused.");
 
@@ -289,7 +308,7 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
     // renewed on every other pass at best, and with 10-second passes and pauses that exceeds the 30-second lease
     // (reproduced offline by CODEX_RECONNECT_BETWEEN_PASSES). The new connection is fully verified as before, and the
     // failed one is still discarded first: a connection a request failed on is never reused. Only code under the
-    // adapter's gate (every caller of this provider holds it) reads or writes these two fields; the task touches neither.
+    // owning role's gate reads or writes these fields; discovery and delivery use separate providers.
     private Task<ICodexOwnerConnection>? reconnecting;
     private CancellationTokenSource? reconnectBudget;
 

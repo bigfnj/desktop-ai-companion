@@ -26,6 +26,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\DesktopAICompanion.Contracts\DesktopAICompanion.Contracts.csproj" Private="false" />
     <ProjectReference Include="..\..\src\DesktopAICompanion.ModuleKit\DesktopAICompanion.ModuleKit.csproj" />
+    <Compile Include="..\..\shared\AgentBroker\CodexApprovalObservation.cs" Link="Shared\CodexApprovalObservation.cs" />
   </ItemGroup>
 
   <!-- Tray icon, read at Init via EmbeddedResources.LoadBytes (matches on the trailing file name). -->

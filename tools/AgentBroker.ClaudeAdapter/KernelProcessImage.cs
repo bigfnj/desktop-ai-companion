@@ -84,9 +84,19 @@ public sealed class KernelProcessImage : IDisposable, INativeImageProcess
 
 internal sealed class WindowsKernelProcessOperations : IKernelProcessOperations
 {
+    internal delegate bool TokenOpen(SafeProcessHandle process, uint access, out SafeAccessTokenHandle token);
+    internal delegate bool TokenQuery(SafeAccessTokenHandle token, int informationClass, out uint information, uint bytes, out uint returned);
     internal static readonly WindowsKernelProcessOperations Instance = new();
+    private readonly TokenOpen openToken;
+    private readonly TokenQuery queryToken;
 
-    private WindowsKernelProcessOperations() { }
+    private WindowsKernelProcessOperations() : this(OpenProcessToken, GetTokenInformation) { }
+
+    internal WindowsKernelProcessOperations(TokenOpen openToken, TokenQuery queryToken)
+    {
+        this.openToken = openToken ?? throw new ArgumentNullException(nameof(openToken));
+        this.queryToken = queryToken ?? throw new ArgumentNullException(nameof(queryToken));
+    }
 
     public SafeProcessHandle Open(int processId, uint access)
     {
@@ -126,10 +136,11 @@ internal sealed class WindowsKernelProcessOperations : IKernelProcessOperations
     public bool IsElevated(SafeProcessHandle process)
     {
         // Unknown elevation is not an unelevated process. Error 5 also lets discovery count and skip the session.
-        if (!OpenProcessToken(process, 0x0008, out var token)) throw new Win32Exception(5);
+        bool opened = openToken(process, 0x0008, out var token);
         using (token)
         {
-            if (!GetTokenInformation(token, 20, out uint elevated, sizeof(uint), out uint returned) || returned != sizeof(uint))
+            if (!opened) throw new Win32Exception(5);
+            if (!queryToken(token, 20, out uint elevated, sizeof(uint), out uint returned) || returned != sizeof(uint))
                 throw new Win32Exception(5); // TokenElevation is a single DWORD, queried from the retained process's token.
             return elevated != 0;
         }

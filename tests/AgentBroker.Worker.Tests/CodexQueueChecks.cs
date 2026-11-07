@@ -129,8 +129,14 @@ internal static class CodexQueueChecks
         var response = await RpcAsync(client, "tools/call", new { name, arguments });
         var result = response.GetProperty("result");
         if (result.TryGetProperty("isError", out var error) && error.GetBoolean()) throw new IOException("Synthetic MCP tool failed: " + name);
-        string text = result.GetProperty("content").EnumerateArray().Single(item => item.GetProperty("type").GetString() == "text")
-            .GetProperty("text").GetString() ?? throw new IOException("Synthetic MCP content was empty.");
+        var content = result.GetProperty("content");
+        if (content.ValueKind != JsonValueKind.Array || content.GetArrayLength() == 0 ||
+            content[0].ValueKind != JsonValueKind.Object ||
+            !content[0].TryGetProperty("type", out var type) || type.ValueKind != JsonValueKind.String || type.GetString() != "text" ||
+            !content[0].TryGetProperty("text", out var payload) || payload.ValueKind != JsonValueKind.String)
+            throw new IOException("Synthetic MCP first result block changed: " + name);
+        // Pending/recovery advisories follow the unchanged typed payload at content[0].
+        string text = payload.GetString()!;
         return JsonSerializer.Deserialize<T>(text, Json) ?? throw new IOException("Synthetic MCP payload was null.");
     }
 

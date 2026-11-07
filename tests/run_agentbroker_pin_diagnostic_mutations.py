@@ -29,6 +29,7 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 import subprocess
 import sys
 import time
@@ -764,7 +765,13 @@ def sha256(raw: bytes) -> str:
 def refuse_links(path: Path) -> None:
     """Check only this explicit path and its parents, never a directory tree."""
     for item in (path, *path.parents):
-        if item.is_symlink() or (hasattr(item, "is_junction") and item.is_junction()):
+        try:
+            metadata = item.lstat()
+        except FileNotFoundError:
+            continue
+        # is_junction arrived in Python 3.12. The Windows reparse flag also covers junctions on
+        # supported 3.10/3.11 interpreters and tags other than a symbolic link or a mount point.
+        if stat.S_ISLNK(metadata.st_mode) or getattr(metadata, "st_file_attributes", 0) & 0x400:
             raise RuntimeError("Linked mutation/evidence path refused: " + str(item))
 
 
@@ -772,6 +779,34 @@ def read_source(relative: str) -> bytes:
     path = ROOT / relative
     refuse_links(path)
     return path.read_bytes()
+
+
+def restore_owned_sources(root: Path, original: dict[str, bytes], current: dict[str, bytes]) -> None:
+    """Restore every owned file before reporting conflicts, without recreating absent sources.
+
+    These checks catch a path replaced since the initial capture, but are not an atomic defence
+    against a hostile concurrent rename. Run mutation harnesses in their reserved worktree.
+    """
+    left = []
+    for relative, raw_original in original.items():
+        path = root / relative
+        try:
+            refuse_links(path)
+            raw = path.read_bytes()
+        except (OSError, RuntimeError) as error:
+            left.append(relative + " (unreadable or linked: " + type(error).__name__ + ")")
+            continue
+        if raw not in (raw_original, current[relative]):
+            left.append(relative + " (differs from original and owned mutation)")
+            continue
+        try:
+            if raw != raw_original:
+                refuse_links(path)
+                path.write_bytes(raw_original)
+        except (OSError, RuntimeError) as error:
+            left.append(relative + " (could not be restored: " + type(error).__name__ + ")")
+    if left:
+        raise RuntimeError("Source not restored; manual recovery required: " + "; ".join(left))
 
 
 def replace_exact(raw: bytes, before: str, after: str, expected_count: int = 1) -> bytes:
@@ -820,21 +855,13 @@ class Runner:
             expected = witness.replacement_counts[index] if witness.replacement_counts else 1
             changed = replace_exact(changed, before, after, expected)
         self.owned_current[relative] = changed
+        refuse_links(ROOT / relative)
         (ROOT / relative).write_bytes(changed)
 
     def restore(self) -> None:
-        conflicts = []
-        for relative, original in self.original.items():
-            current = read_source(relative)
-            if current not in (original, self.owned_current[relative]):
-                conflicts.append(relative)
-                continue  # Never overwrite a concurrent edit by somebody else.
-            if current != original:
-                (ROOT / relative).write_bytes(original)
-            self.owned_current[relative] = original
-        if conflicts:
-            raise RuntimeError("Concurrent source edits prevent automatic restoration: " + ", ".join(conflicts))
+        restore_owned_sources(ROOT, self.original, self.owned_current)
         self.expect_restored()
+        self.owned_current = dict(self.original)
 
     @staticmethod
     def stop_owned_tree(process: subprocess.Popen) -> None:

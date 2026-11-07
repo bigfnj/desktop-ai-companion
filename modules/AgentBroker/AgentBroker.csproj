@@ -20,6 +20,8 @@
     <Compile Include="..\..\tools\AgentBroker.Worker\ControlProtocol.cs" Link="Protocol\ControlProtocol.cs" />
     <Compile Include="..\..\tools\AgentBroker.Worker\FirewallSetupProtocol.cs" Link="Protocol\FirewallSetupProtocol.cs" />
     <Compile Include="..\..\tools\AgentBroker.Worker\ControlPipeSecurity.cs" Link="Protocol\ControlPipeSecurity.cs" />
+    <Compile Include="..\..\tools\AgentBroker.CodexDesktopAdapter\CodexHomePaths.cs" Link="Protocol\CodexHomePaths.cs" />
+    <Compile Include="..\..\shared\AgentBroker\CodexApprovalObservation.cs" Link="Shared\CodexApprovalObservation.cs" />
     <EmbeddedResource Include="Resources\agentbroker.png" />
     <!-- These inputs ship in a separate process, outside the host's assembly graph. -->
     <ModulePayloadProject Include="..\..\tools\AgentBroker.Worker\AgentBroker.Worker.csproj" />

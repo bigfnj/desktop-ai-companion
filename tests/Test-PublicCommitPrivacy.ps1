@@ -18,6 +18,9 @@
     _ . $ - can), so the profile root itself is found, and a longer name that merely starts
     with this one is not.
 
+    Index mode reads one Git blob at a time, with a 256 MiB per-file limit. A larger file refuses the
+    check explicitly. The total size of the selected batch is not held in one array or string.
+
     -Range scans the commits of a revision range instead of the index: every added line of
     every commit (so a value added and later removed is still found), each commit message,
     and the author and committer lines. A merge is diffed against its first parent, so a line
@@ -85,32 +88,55 @@ function Get-PrivacyIdentifiers([string[]]$Explicit, [string]$Employer, [string]
     return ,$identifiers.ToArray()
 }
 
+function ConvertTo-PrivacyNfc([string]$Value) {
+    try { return $Value.Normalize([Text.NormalizationForm]::FormC) }
+    catch [ArgumentException] { throw 'The privacy check cannot normalize malformed Unicode text.' }
+}
+
 function Get-PrivacyNeedles([string[]]$Identifiers, [string]$UserName) {
     # Identifiers are fixed strings; the user name only ever as a profile path. Test-PrivacyText alone compares them,
     # case-insensitively, in BOTH modes (see Get-IndexedPrivacyOffenders).
     # Fixed strings cannot say where a name ENDS, and a trailing separator on each needle missed the profile root
     # itself, at the end of a line or before a quote (Codex review 2026-11-02), while dropping the separator would
-    # match a longer name too. So the profile rule is a .NET pattern: a separator, Users, one or more separators (the
-    # doubled-backslash form too), the name, and then a boundary: the name must not go on with a letter, mark or
+    # match a longer name too. So a .NET pattern locates a separator, Users, one or more separators (the
+    # doubled-backslash form too), and the name; the matcher checks the next scalar. It must not go on with a letter, mark or
     # number of any script, a connector such as _, or . $ - (Codex recheck 2026-11-02: an ASCII-only class let an
     # accented, CJK or combining-mark continuation end the name, so a different, longer name matched). A single
     # trailing dot is allowed before it, as Win32 drops one and a sentence ends with one, but a dot that continues a
     # name does not end it. The prefix is required, so the bare word never matches.
     $fixed = New-Object 'Collections.Generic.List[string]'
-    foreach ($value in $Identifiers) { if (-not $fixed.Contains($value)) { $fixed.Add($value) } }
+    foreach ($value in $Identifiers) {
+        $normalized = ConvertTo-PrivacyNfc $value
+        if (-not $fixed.Contains($normalized)) { $fixed.Add($normalized) }
+    }
     $profileRoot = ''
     if (-not [string]::IsNullOrEmpty($UserName)) {
-        $profileRoot = '[\\/]Users[\\/]+' + [regex]::Escape($UserName) + '\.?(?![\p{L}\p{M}\p{N}\p{Pc}.$-])'
+        $profileRoot = '[\\/]Users[\\/]+' + [regex]::Escape((ConvertTo-PrivacyNfc $UserName))
     }
     return [pscustomobject]@{ Fixed = $fixed.ToArray(); Profile = $profileRoot }
 }
 
 function Test-PrivacyText([string]$Text, [psobject]$Needles) {
+    $Text = ConvertTo-PrivacyNfc $Text
     foreach ($needle in $Needles.Fixed) {
         if ($Text.IndexOf($needle, [StringComparison]::OrdinalIgnoreCase) -ge 0) { return $true }
     }
-    if ($Needles.Profile -and [regex]::IsMatch($Text, $Needles.Profile,
-            [Text.RegularExpressions.RegexOptions]'IgnoreCase, CultureInvariant')) { return $true }
+    if ($Needles.Profile) {
+        foreach ($candidate in [regex]::Matches($Text, $Needles.Profile,
+                [Text.RegularExpressions.RegexOptions]'IgnoreCase, CultureInvariant')) {
+            $next = $candidate.Index + $candidate.Length
+            if ($next -lt $Text.Length -and $Text[$next] -eq '.') { $next++ }
+            if ($next -eq $Text.Length) { return $true }
+            # CharUnicodeInfo reads the scalar at this UTF-16 index, including a surrogate pair. A regex
+            # category class sees only its high surrogate and would mistake a supplementary letter for a boundary.
+            $category = [Globalization.CharUnicodeInfo]::GetUnicodeCategory($Text, $next)
+            $continues = $Text[$next] -in @('.', '$', '-') -or $category -in @(
+                'UppercaseLetter', 'LowercaseLetter', 'TitlecaseLetter', 'ModifierLetter', 'OtherLetter',
+                'NonSpacingMark', 'SpacingCombiningMark', 'EnclosingMark', 'DecimalDigitNumber',
+                'LetterNumber', 'OtherNumber', 'ConnectorPunctuation')
+            if (-not $continues) { return $true }
+        }
+    }
     return $false
 }
 
@@ -270,8 +296,48 @@ function Get-IndexedPrivacyOffenders([psobject]$Needles, [string]$Repository = $
     }
 }
 
-# Read the named blobs with one git cat-file --batch and return the ones Test-PrivacyText matches. Each blob is
-# decoded as the range mode decodes its patch (UTF-8, invalid bytes replaced) and dropped once judged.
+# Read one exact cat-file response at a time. The aggregate batch has no array-size limit; a single text file
+# is bounded before allocation. UTF-8 is decoded only after its complete payload arrives, so a split multibyte
+# sequence or combining sequence has the same normalization and matching semantics as the range mode.
+function Read-IndexedBlobText([IO.Stream]$Stream, [string]$Blob,
+        [Threading.CancellationToken]$CancellationToken, [long]$MaximumBlobBytes = 256MB) {
+    $headerBytes = [byte[]]::new(128)
+    $single = [byte[]]::new(1)
+    $headerLength = 0
+    while ($true) {
+        $read = $Stream.ReadAsync($single, 0, 1, $CancellationToken).GetAwaiter().GetResult()
+        if ($read -ne 1) { throw 'Could not read an indexed text file header. No matching contents were printed.' }
+        if ($single[0] -eq 10) { break }
+        if ($headerLength -eq $headerBytes.Length -or $single[0] -gt 127) {
+            throw 'An indexed text file header was invalid. No matching contents were printed.'
+        }
+        $headerBytes[$headerLength++] = $single[0]
+    }
+    $header = [Text.Encoding]::ASCII.GetString($headerBytes, 0, $headerLength).Split(' ')
+    $size = 0L
+    if ($header.Count -ne 3 -or $header[0] -cne $Blob -or $header[1] -cne 'blob' -or
+        $header[2] -cnotmatch '^(0|[1-9][0-9]*)$' -or
+        -not [long]::TryParse($header[2], [Globalization.NumberStyles]::None,
+            [Globalization.CultureInfo]::InvariantCulture, [ref]$size)) {
+        throw 'An indexed text file header was invalid. No matching contents were printed.'
+    }
+    if ($size -gt $MaximumBlobBytes -or $size -gt [int]::MaxValue) {
+        throw 'An indexed text file exceeds the privacy check per-file limit. No matching contents were printed.'
+    }
+    $bytes = [byte[]]::new([int]$size)
+    $position = 0
+    while ($position -lt $bytes.Length) {
+        $read = $Stream.ReadAsync($bytes, $position, [Math]::Min(65536, $bytes.Length - $position),
+            $CancellationToken).GetAwaiter().GetResult()
+        if ($read -eq 0) { throw 'An indexed text file payload was incomplete. No matching contents were printed.' }
+        $position += $read
+    }
+    if ($Stream.ReadAsync($single, 0, 1, $CancellationToken).GetAwaiter().GetResult() -ne 1 -or $single[0] -ne 10) {
+        throw 'An indexed text file terminator was invalid. No matching contents were printed.'
+    }
+    return ([Text.UTF8Encoding]::new($false, $false)).GetString($bytes)
+}
+
 function Get-MatchingIndexedBlobs([string[]]$Blobs, [psobject]$Needles, [string]$Repository) {
     $start = [Diagnostics.ProcessStartInfo]::new('git')
     $start.UseShellExecute = $false
@@ -282,47 +348,54 @@ function Get-MatchingIndexedBlobs([string[]]$Blobs, [psobject]$Needles, [string]
     foreach ($argument in @('-c', 'core.fsmonitor=false', '-C', $Repository, 'cat-file', '--batch')) {
         $start.ArgumentList.Add($argument)
     }
+    return ,(Invoke-IndexedBlobProcess $start $Blobs $Needles)
+}
+
+# The process I/O has its own boundary so the self-test can exercise real failed and blocked children without
+# substituting Git behavior or waiting a full production deadline. Production always uses the 60-second default.
+function Invoke-IndexedBlobProcess([Diagnostics.ProcessStartInfo]$Start, [string[]]$Blobs, [psobject]$Needles,
+        [ValidateRange(1, 60000)][int]$TimeoutMilliseconds = 60000) {
     $process = [Diagnostics.Process]::new()
-    $process.StartInfo = $start
-    $buffer = [IO.MemoryStream]::new()
+    $process.StartInfo = $Start
+    $deadline = [Threading.CancellationTokenSource]::new($TimeoutMilliseconds)
+    $timer = [Diagnostics.Stopwatch]::StartNew()
+    $started = $false
+    $matched = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     try {
         [void]$process.Start()
-        # Both outputs drain while the request is written, so neither side can block the other.
-        $copy = $process.StandardOutput.BaseStream.CopyToAsync($buffer)
+        $started = $true
         $stderr = $process.StandardError.ReadToEndAsync()
-        $request = [Text.Encoding]::ASCII.GetBytes(($Blobs -join "`n") + "`n")
-        $write = $process.StandardInput.BaseStream.WriteAsync($request, 0, $request.Length)
-        $inTime = $write.Wait(60000)
-        if ($inTime) {
-            $process.StandardInput.Close()
-            $inTime = $process.WaitForExit(60000)
+        foreach ($blob in $Blobs) {
+            # One request, then one response: stdin cannot fill while stdout waits to be drained.
+            $request = [Text.Encoding]::ASCII.GetBytes($blob + "`n")
+            [void]$process.StandardInput.BaseStream.WriteAsync($request, 0, $request.Length, $deadline.Token).GetAwaiter().GetResult()
+            [void]$process.StandardInput.BaseStream.FlushAsync($deadline.Token).GetAwaiter().GetResult()
+            $text = Read-IndexedBlobText $process.StandardOutput.BaseStream $blob $deadline.Token
+            if (Test-PrivacyText $text $Needles) { [void]$matched.Add($blob) }
+            $text = $null
         }
-        if (-not $inTime) {
-            $process.Kill()
-            $process.WaitForExit()
+        $process.StandardInput.Close()
+        $extra = [byte[]]::new(1)
+        if ($process.StandardOutput.BaseStream.ReadAsync($extra, 0, 1, $deadline.Token).GetAwaiter().GetResult() -ne 0) {
+            throw 'Unexpected indexed text file response data. No matching contents were printed.'
+        }
+        if (-not $process.WaitForExit([int][Math]::Max(1, $TimeoutMilliseconds - $timer.ElapsedMilliseconds))) {
             throw 'The privacy check exceeded its 60-second git bound.'
         }
-        [void]$copy.GetAwaiter().GetResult()
         [void]$stderr.GetAwaiter().GetResult()
         if ($process.ExitCode -ne 0) { throw 'Could not read the indexed text files. No matching contents were printed.' }
     }
-    finally { $process.Dispose() }
-    $bytes = $buffer.GetBuffer()
-    $length = [int]$buffer.Length
-    $decoder = [Text.UTF8Encoding]::new($false, $false)
-    $matched = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
-    $position = 0
-    foreach ($blob in $Blobs) {
-        # Each answer is "<oid> blob <size>" LF, the bytes, LF; anything else is refused, never guessed at.
-        $end = [Array]::IndexOf($bytes, [byte]10, $position, $length - $position)
-        $header = if ($end -lt 0) { @() } else { [Text.Encoding]::ASCII.GetString($bytes, $position, $end - $position).Split(' ') }
-        if ($header.Count -ne 3 -or $header[0] -cne $blob -or $header[1] -cne 'blob' -or
-            ($end + 1 + [long]$header[2]) -gt $length) {
-            throw 'Could not read an indexed text file. No matching contents were printed.'
+    catch {
+        if ($deadline.IsCancellationRequested) { throw 'The privacy check exceeded its 60-second git bound.' }
+        throw
+    }
+    finally {
+        if ($started -and -not $process.HasExited) {
+            $process.Kill()
+            if (-not $process.WaitForExit(5000)) { throw 'The privacy check could not stop its owned Git child.' }
         }
-        $size = [int]$header[2]
-        if (Test-PrivacyText ($decoder.GetString($bytes, $end + 1, $size)) $Needles) { [void]$matched.Add($blob) }
-        $position = $end + 1 + $size + 1
+        $deadline.Dispose()
+        $process.Dispose()
     }
     return ,$matched
 }
@@ -388,6 +461,10 @@ if ($SelfTest) {
         @(('/c/Users/ExampleProfile' + [char]0x5F20 + '/cache'), $false, 'a longer name ending in a CJK letter'),
         @(('"C:\Users\ExampleProfile' + [char]0x0301 + '"'), $false, 'a longer name ending in a combining mark'),
         @(('C:\Users\ExampleProfile' + [char]0x0663), $false, 'a longer name ending in a non-ASCII digit'),
+        @(('C:\Users\ExampleProfile' + [char]::ConvertFromUtf32(0x10400)), $false, 'a longer name ending in a supplementary letter'),
+        @(('C:\Users\ExampleProfile.' + [char]::ConvertFromUtf32(0x10400)), $false, 'a dotted longer name ending in a supplementary letter'),
+        @(('C:\Users\ExampleProfile' + [char]::ConvertFromUtf32(0x1D7CE)), $false, 'a longer name ending in a supplementary digit'),
+        @(('C:\Users\ExampleProfile' + [char]::ConvertFromUtf32(0x1F600)), $true, 'a profile root before a supplementary symbol'),
         @('Built for CONTOSO by its team', $true, 'an explicit identifier, any case'),
         @('nothing here identifies anyone', $false, 'unrelated text')
     )) {
@@ -406,6 +483,112 @@ if ($SelfTest) {
         if ((Test-PrivacyText $case[0] $accentNeedles) -ne $case[1]) { throw ('Public privacy matcher self-test failed: ' + $case[2] + '.') }
         $count++
     }
+    $decomposedName = 'Le' + [char]0x0301 + 'a'
+    $composedIdentifier = 'Syntheti' + [char]0x00E9 + 'c'
+    $decomposedIdentifier = 'Synthetie' + [char]0x0301 + 'c'
+    $composedNeedles = Get-PrivacyNeedles @($composedIdentifier) $accentName
+    $decomposedNeedles = Get-PrivacyNeedles @($decomposedIdentifier) $decomposedName
+    foreach ($normalizedNeedles in @($composedNeedles, $decomposedNeedles)) {
+        foreach ($normalizedText in @($composedIdentifier, $decomposedIdentifier,
+                ('C:\Users\' + $accentName), ('C:\Users\' + $decomposedName))) {
+            if (-not (Test-PrivacyText $normalizedText $normalizedNeedles)) {
+                throw 'Public privacy NFC self-test failed: canonically equivalent identifiers or profile names did not match.'
+            }
+            $count++
+        }
+        if (Test-PrivacyText ('C:\Users\' + $decomposedName + 'x') $normalizedNeedles) {
+            throw 'Public privacy NFC self-test failed: normalization matched a different longer profile name.'
+        }
+        $count++
+    }
+    foreach ($invalidUnicode in @(
+            { ConvertTo-PrivacyNfc ([string][char]0xD800) },
+            { Get-PrivacyNeedles @([string][char]0xD800) 'SyntheticProfile' },
+            { Get-PrivacyNeedles @('SyntheticIdentifier') ([string][char]0xD800) },
+            { Test-PrivacyText ([string][char]0xD800) $needles })) {
+        $refusal = ''
+        try { [void](& $invalidUnicode) } catch { $refusal = $_.Exception.Message }
+        if ($refusal -cne 'The privacy check cannot normalize malformed Unicode text.') {
+            throw 'Public privacy Unicode self-test failed: malformed UTF-16 was not refused with a fixed diagnostic.'
+        }
+        $count++
+    }
+    Write-Host 'PASS: privacy Unicode scalar boundaries, NFC in both directions, and malformed UTF-16 refusal'
+    if (-not ('PrivacyChunkedStream' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
+public sealed class PrivacyChunkedStream : MemoryStream {
+    private readonly int maximumRead;
+    public PrivacyChunkedStream(byte[] value, int maximumRead) : base(value, false) { this.maximumRead = maximumRead; }
+    public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken token) {
+        token.ThrowIfCancellationRequested();
+        return base.ReadAsync(buffer, offset, Math.Min(count, maximumRead), token);
+    }
+}
+'@
+    }
+    function Blob-Frame([string]$Value) {
+        $payload = [Text.Encoding]::UTF8.GetBytes($Value)
+        $header = [Text.Encoding]::ASCII.GetBytes('abc blob ' + $payload.Length + [char]10)
+        return ,([byte[]](@($header) + @($payload) + @(10)))
+    }
+    function Frame-Refuses([string]$Name, [string]$Response, [string]$Expected, [long]$Maximum = 256MB) {
+        $stream = [PrivacyChunkedStream]::new([Text.Encoding]::UTF8.GetBytes($Response), 1)
+        $refusal = ''
+        try { [void](Read-IndexedBlobText $stream 'abc' ([Threading.CancellationToken]::None) $Maximum) }
+        catch { $refusal = $_.Exception.Message }
+        finally { $stream.Dispose() }
+        if ($refusal -cne $Expected) { throw ('Public privacy blob-frame self-test failed: ' + $Name + '.') }
+        $script:count++
+    }
+    $frameText = 'C:\Users\' + $decomposedName + [char]::ConvertFromUtf32(0x1F600)
+    $frames = [byte[]]((Blob-Frame $frameText) + (Blob-Frame '') + (Blob-Frame 'neutral'))
+    foreach ($chunkSize in @(1, 3, 65536)) {
+        $stream = [PrivacyChunkedStream]::new($frames, $chunkSize)
+        try {
+            $first = Read-IndexedBlobText $stream 'abc' ([Threading.CancellationToken]::None)
+            $empty = Read-IndexedBlobText $stream 'abc' ([Threading.CancellationToken]::None)
+            $last = Read-IndexedBlobText $stream 'abc' ([Threading.CancellationToken]::None)
+            if ($first -cne $frameText -or $empty -cne '' -or $last -cne 'neutral' -or
+                -not (Test-PrivacyText $first $accentNeedles) -or $stream.Position -ne $frames.Length) {
+                throw 'Public privacy blob-frame self-test failed: split UTF-8, empty payload, or sequential frames changed.'
+            }
+            $count++
+        }
+        finally { $stream.Dispose() }
+    }
+    $lf = [string][char]10
+    $headerFailure = 'An indexed text file header was invalid. No matching contents were printed.'
+    foreach ($case in @(
+            @('wrong object id', ('other blob 0' + $lf + $lf)),
+            @('wrong object type', ('abc tree 0' + $lf + $lf)),
+            @('negative size', ('abc blob -1' + $lf)),
+            @('nondecimal size', ('abc blob 1x' + $lf)),
+            @('noncanonical size', ('abc blob 01' + $lf)),
+            @('overflowing size', ('abc blob 9223372036854775808' + $lf)),
+            @('overlong header', (('a' * 129) + $lf)),
+            @('non-ASCII header', ('abc bl' + [char]0x00E9 + 'b 0' + $lf)))) {
+        Frame-Refuses $case[0] $case[1] $headerFailure
+    }
+    Frame-Refuses 'missing header newline' 'abc blob 0' 'Could not read an indexed text file header. No matching contents were printed.'
+    Frame-Refuses 'short payload' ('abc blob 3' + $lf + 'ab') 'An indexed text file payload was incomplete. No matching contents were printed.'
+    Frame-Refuses 'missing terminator' ('abc blob 3' + $lf + 'abc') 'An indexed text file terminator was invalid. No matching contents were printed.'
+    Frame-Refuses 'wrong terminator' ('abc blob 3' + $lf + 'abcX') 'An indexed text file terminator was invalid. No matching contents were printed.'
+    Frame-Refuses 'size checked before allocation' ('abc blob 5' + $lf) 'An indexed text file exceeds the privacy check per-file limit. No matching contents were printed.' 4
+    Frame-Refuses 'oversized blob' ('abc blob 268435457' + $lf) 'An indexed text file exceeds the privacy check per-file limit. No matching contents were printed.'
+    $canceled = [Threading.CancellationTokenSource]::new()
+    $canceled.Cancel()
+    $stream = [PrivacyChunkedStream]::new((Blob-Frame 'neutral'), 1)
+    $cancelObserved = $false
+    try { [void](Read-IndexedBlobText $stream 'abc' $canceled.Token) }
+    catch { $cancelObserved = $_.Exception.InnerException -is [OperationCanceledException] -or $_.Exception -is [OperationCanceledException] }
+    finally { $stream.Dispose(); $canceled.Dispose() }
+    if (-not $cancelObserved) { throw 'Public privacy blob-frame self-test failed: a canceled read did not stop.' }
+    $count++
+    Write-Host 'PASS: privacy bounded blob frames, split UTF-8, framing refusals, and canceled reads'
     # Range mode, then the default index mode, each on a synthetic repository this self-test creates and
     # removes under build\.
     $fixtureRoot = Join-Path $repoRoot ('build\privacy-selftest\' + [Guid]::NewGuid().ToString('N'))
@@ -414,6 +597,48 @@ if ($SelfTest) {
     [void][IO.Directory]::CreateDirectory($synthetic)
     [void][IO.Directory]::CreateDirectory($indexRepo)
     try {
+        function Child-Start([string]$Command) {
+            $start = [Diagnostics.ProcessStartInfo]::new((Join-Path $PSHOME ('pwsh' + $(if ($IsWindows) { '.exe' } else { '' }))))
+            $start.UseShellExecute = $false
+            $start.CreateNoWindow = $true
+            $start.RedirectStandardInput = $true
+            $start.RedirectStandardOutput = $true
+            $start.RedirectStandardError = $true
+            foreach ($argument in @('-NoProfile', '-NonInteractive', '-Command', $Command)) { $start.ArgumentList.Add($argument) }
+            return $start
+        }
+        foreach ($childCase in @(
+                @('failed child', '[Console]::Error.WriteLine("synthetic-private-content"); exit 23',
+                    'Could not read the indexed text files. No matching contents were printed.'),
+                @('unexpected output', '[Console]::Out.Write("synthetic-private-content")',
+                    'Unexpected indexed text file response data. No matching contents were printed.'))) {
+            $refusal = ''
+            try { [void](Invoke-IndexedBlobProcess (Child-Start $childCase[1]) @() $needles 5000) }
+            catch { $refusal = $_.Exception.Message }
+            if ($refusal -cne $childCase[2]) {
+                throw ('Public privacy process self-test failed: ' + $childCase[0] + ' did not produce its fixed refusal.')
+            }
+            $count++
+        }
+        $ready = Join-Path $fixtureRoot 'blocked-child-ready.txt'
+        $blockedCommand = '[IO.File]::WriteAllText(''{0}'',[string]$PID); [Console]::Out.Write(''abc blob 4'' + [char]10 + ''ab''); [Console]::Out.Flush(); Start-Sleep -Seconds 12' -f $ready.Replace("'", "''")
+        $refusal = ''
+        $blockedTimer = [Diagnostics.Stopwatch]::StartNew()
+        try { [void](Invoke-IndexedBlobProcess (Child-Start $blockedCommand) @('abc') $needles 5000) }
+        catch { $refusal = $_.Exception.Message }
+        if ($refusal -cne 'The privacy check exceeded its 60-second git bound.' -or
+            -not [IO.File]::Exists($ready) -or $blockedTimer.ElapsedMilliseconds -gt 10000) {
+            throw 'Public privacy process self-test failed: an admitted child blocked inside a payload did not time out.'
+        }
+        $childAlive = $false
+        try {
+            $ownedChild = [Diagnostics.Process]::GetProcessById([int][IO.File]::ReadAllText($ready))
+            try { $childAlive = -not $ownedChild.HasExited } finally { $ownedChild.Dispose() }
+        }
+        catch [ArgumentException] { }
+        if ($childAlive) { throw 'Public privacy process self-test failed: its timed-out child remained alive.' }
+        $count++
+        Write-Host 'PASS: privacy failed child, unexpected output, and blocked-child timeout with process cleanup'
         function Step([string[]]$Arguments, [string]$Repository = $synthetic) {
             $done = Invoke-IndexedGit $Arguments $Repository
             if ($done.ExitCode -ne 0) { throw ('Synthetic repository step failed: git ' + ($Arguments -join ' ')) }
@@ -561,10 +786,17 @@ if ($SelfTest) {
             @('src/LongerAccented.txt', ('home=C:\Users\ExampleProfile' + [char]0x00E9), 'clean'),
             @('src/LongerCjk.txt', ('cache at /c/Users/ExampleProfile' + [char]0x5F20 + '/source'), 'clean'),
             @('src/LongerMark.txt', ('home="C:\Users\ExampleProfile' + [char]0x0301 + '"'), 'clean'),
+            @('src/LongerSupplementary.txt', ('home=C:\Users\ExampleProfile' + [char]::ConvertFromUtf32(0x10400)), 'clean'),
+            @('src/SymbolBoundary.txt', ('home=C:\Users\ExampleProfile' + [char]::ConvertFromUtf32(0x1F600)), 'found'),
             @('src/AccentRoot.txt', ('home=C:\Users\' + $accentName), 'clean'),
             @('src/AccentUpper.txt', ('home="C:\Users\L' + [char]0x00C9 + 'A"'), 'clean'),
+            @('src/AccentNfd.txt', ('home=C:\Users\' + $decomposedName), 'clean'),
             @('src/AccentLonger.txt', ('home=/c/Users/' + $accentName + 'x'), 'clean'),
             @('src/AccentLongerAccented.txt', ('home=C:\Users\' + $accentName + [char]0x00E9), 'clean'),
+            @('src/IdentifierNfc.txt', $composedIdentifier, 'clean'),
+            @('src/IdentifierNfd.txt', $decomposedIdentifier, 'clean'),
+            @('src/Late.txt', (('x' * (1MB + 3)) + 'Contoso'), 'found'),
+            @('src/LargeClean.txt', ('y' * (1MB + 7)), 'clean'),
             @('src/Role.txt', 'ExampleProfile can open the panel', 'clean'),
             @('src/Clean.txt', 'nothing here identifies anyone', 'clean'),
             @('config/LOCAL.ENV', 'owner=Contoso', 'protected'),
@@ -601,7 +833,8 @@ if ($SelfTest) {
         $count++
         # The non-ASCII user name in the index (Codex recheck 2026-11-02): git grep -i missed its upper-case root here.
         $accentGrep = Get-IndexedPrivacyOffenders $accentNeedles $indexRepo
-        if ((@($accentGrep.Offenders) -join '|') -cne 'src/AccentRoot.txt|src/AccentUpper.txt') {
+        $accentExpected = 'src/AccentNfd.txt|src/AccentRoot.txt|src/AccentUpper.txt'
+        if ((@($accentGrep.Offenders) -join '|') -cne $accentExpected) {
             throw ('Public privacy index self-test failed: the index mode did not report exactly the non-ASCII profile root in both cases, and neither longer name: ' +
                 (@($accentGrep.Offenders) -join ', '))
         }
@@ -629,7 +862,9 @@ if ($SelfTest) {
         # root commit's lines.
         [void](Step @('config', 'log.showRoot', 'true') $indexRepo)
         [void](Step ($identity + @('commit', '-q', '-m', 'commit the index fixture')) $indexRepo)
-        foreach ($pair in @(@($needles, $variantExpected), @($accentNeedles, 'src/AccentRoot.txt|src/AccentUpper.txt'))) {
+        $normalizedExpected = $accentExpected + '|src/IdentifierNfc.txt|src/IdentifierNfd.txt'
+        foreach ($pair in @(@($needles, $variantExpected), @($accentNeedles, $accentExpected),
+                @($composedNeedles, $normalizedExpected), @($decomposedNeedles, $normalizedExpected))) {
             $indexSeen = (@((Get-IndexPrivacyFindings $pair[0] $indexRepo).Offenders | Sort-Object -CaseSensitive)) -join '|'
             $rangeSeen = (@((Get-RangePrivacyFindings 'HEAD' $pair[0] $indexRepo).Findings | ForEach-Object { $_.Path } |
                 Sort-Object -Unique -CaseSensitive)) -join '|'

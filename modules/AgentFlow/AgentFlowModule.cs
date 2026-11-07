@@ -185,7 +185,8 @@ namespace DesktopAICompanion.AgentFlow
         {
             Id = "agentflow",
             Name = "AgentFlow",
-            Version = "1.12.3",  // 1.12.3: agent cards no longer take focus while you work elsewhere (the owner's
+            Version = "1.12.4",  // 1.12.4: publish bounded aggregate Codex approval observations through the local host context.
+                                // 1.12.3: agent cards no longer take focus while you work elsewhere (the owner's
                                  //        report of 2026-11-02; built with Codex's audit and review rounds, and a live
                                  //        re-test after the first version missed a Codex approval card taking focus as
                                  //        it appeared). In auto-approve, a standing guard installed on every sweep keeps
@@ -636,6 +637,7 @@ namespace DesktopAICompanion.AgentFlow
         public void Init(IHost host)
         {
             _host = host;
+            ClearBrokerApprovalObservation();
             // Null when the convention self-test host is driving us, and that is not hypothetical:
             // ModuleConventionSelfTest returns null from both GetSettings and GetStorage on purpose.
             _settings = host.GetSettings(Info.Id) ?? new MemoryModuleSettings();
@@ -705,6 +707,7 @@ namespace DesktopAICompanion.AgentFlow
         public void Shutdown()
         {
             BeginShutdown();
+            ClearBrokerApprovalObservation();
             // The standing focus guard leaves with the module (1.12.3): every panel's originals back exactly.
             if (_focusGuardOn)
             {
@@ -1014,6 +1017,7 @@ namespace DesktopAICompanion.AgentFlow
                 // One note per press this tick (1.11.0), each logged on its own line: a press is an action
                 // taken on the user's behalf, and several in one sweep are several actions.
                 List<string> pressNotes = null;
+                int? visibleCodexApprovalCount = null;
                 if (mayLook)
                 {
                     if (_resetPressBudget) { _resetPressBudget = false; _pressBudget.Reset(); }
@@ -1033,6 +1037,7 @@ namespace DesktopAICompanion.AgentFlow
                         // Every prompt the pass read and left alone: since 1.11.0 the sweep reads every panel
                         // whatever it pressed, so this is every unpressed prompt on screen.
                         found = ScreenPrompt.Combine(pass.Unpressed);
+                        if (!sawBlind && pass.CodexPromptCountKnown) visibleCodexApprovalCount = pass.VisibleCodexApprovalCount;
                     }
                     catch (Exception)
                     {
@@ -1091,12 +1096,15 @@ namespace DesktopAICompanion.AgentFlow
                     List<string> forPressNotes = pressNotes;
                     LimitOutcome forLimit = limit;
                     FocusGuardTicket forGuard = guardTicket;
+                    int? forCodexCount = visibleCodexApprovalCount;
+                    DateTimeOffset forCodexObservedAt = DateTimeOffset.UtcNow;
                     PostToUi(() =>
                     {
                         // The instance may have been torn down between the worker finishing and
                         // this running; with no SynchronizationContext it runs INLINE on that
                         // worker, so there is not even a message pump to drop it.
                         if (_shuttingDown) return;
+                        PublishBrokerApprovalCount(forCodexCount, forCodexObservedAt);
                         _portAnswering = portUp;
                         _panelReadable = panelUp;
                         // The Status card (1.7.0): when this tick reported, and no panel census once the port is gone.
@@ -1271,6 +1279,7 @@ namespace DesktopAICompanion.AgentFlow
         {
             var census = new SweepCensus();
             string note = CdpApprover.Sweep(port, pass.Handle, timeoutMs, out sawPanel, out sawBlind, census, pass.GuardFocus);
+            pass.CompletePromptObservation(census.Complete);
             if (budget == null) return note;
             budget.EndSweep(census.Listed, census.Read);
             return note;
@@ -2872,6 +2881,10 @@ namespace DesktopAICompanion.AgentFlow
         /// </summary>
         internal sealed class SweepPass
         {
+            private readonly HashSet<(string Target, string Card)> codexPromptCards = new HashSet<(string, string)>();
+            internal int VisibleCodexApprovalCount => codexPromptCards.Count;
+            internal bool CodexPromptCountKnown { get; private set; } = true;
+            internal void CompletePromptObservation(bool complete) { CodexPromptCountKnown &= complete; }
             private readonly int _port;
             private readonly bool _mayPress, _allProjects, _similar;
             private readonly PressBudget _budget;
@@ -2917,6 +2930,11 @@ namespace DesktopAICompanion.AgentFlow
                     note = "a prompt is waiting for " + ScreenSubject(view)
                            + "; auto-approve is off, so it was left alone";
                 if (pressed) PressNotes.Add(note ?? "pressed a prompt");
+                if (!pressed && view != null && string.Equals(view.Agent, CdpApprover.AgentCodex, StringComparison.Ordinal))
+                {
+                    if (string.IsNullOrEmpty(view.TargetId) || string.IsNullOrEmpty(view.CardId)) CodexPromptCountKnown = false;
+                    else codexPromptCards.Add((view.TargetId, view.CardId));
+                }
                 if (pressed) PressedAny = true;
                 // A card still settling is not announced YET (BUG-017): the next sweep reads it again, and it
                 // is said then if it is still unpressed. The note still goes to the log, so nothing is hidden.
@@ -3703,6 +3721,7 @@ namespace DesktopAICompanion.AgentFlow
                         SelfCheckScanEquivalence,
                         SelfCheckWatchSection,
                         SelfCheckScreenPrompt,
+                        SelfCheckBrokerObservation,
                         SelfCheckSavedSettingsReachInit,
                         SelfCheckShortSessionId,
                         SelfCheckAnimatesChosenPet,

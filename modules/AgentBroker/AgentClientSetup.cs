@@ -177,9 +177,21 @@ internal sealed class AgentClientSetup(IAgentClientCommand command)
                 ? MatchesCodex(json, worker, ["--mcp-stdio", "--data", directory])
                 : type == "streamable_http" && transport.TryGetProperty("url", out var url) && IsThisBrokersEndpoint(url.GetString(), endpoint);
             string kind = type == "stdio" ? "stdio" : type == "streamable_http" ? "http" : "other";
-            bool disabled = root.TryGetProperty("enabled", out var enabled) && enabled.ValueKind == JsonValueKind.False;
-            var state = !exact ? ClientConfiguration.DifferentEntry : disabled ? ClientConfiguration.Disabled : ClientConfiguration.Configured;
-            return new(state, "", kind, "", CheckedUtc: now);
+            if (root.TryGetProperty("enabled", out var enabled) && enabled.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                return new(ClientConfiguration.Unrecognized, CheckedUtc: now);
+            string? reason = null;
+            if (root.TryGetProperty("disabled_reason", out var reported) && reported.ValueKind != JsonValueKind.Null)
+            {
+                if (reported.ValueKind != JsonValueKind.String || string.IsNullOrEmpty(reported.GetString()))
+                    return new(ClientConfiguration.Unrecognized, CheckedUtc: now);
+                reason = reported.GetString();
+            }
+            bool disabled = enabled.ValueKind == JsonValueKind.False || reason is not null;
+            bool requirements = reason == "requirements";
+            var state = !exact ? ClientConfiguration.DifferentEntry : requirements ? ClientConfiguration.PolicyBlocked
+                : disabled ? ClientConfiguration.Disabled : ClientConfiguration.Configured;
+            string health = reason is null ? "" : requirements ? "disabled_by_requirements" : "disabled_reason_reported";
+            return new(state, "", kind, health, CheckedUtc: now);
         }
         catch (Exception error) when (error is JsonException or KeyNotFoundException or InvalidOperationException)
         { return new(ClientConfiguration.Unrecognized, CheckedUtc: now); }

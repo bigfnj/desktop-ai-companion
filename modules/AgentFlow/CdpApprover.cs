@@ -91,6 +91,8 @@ namespace DesktopAICompanion.AgentFlow
     {
         public readonly List<string> Listed = new List<string>();
         public readonly List<string> Read = new List<string>();
+        // A failed target listing or a partially read pass cannot establish an observed zero.
+        public bool Complete;
     }
 
     /// <summary>
@@ -606,6 +608,7 @@ namespace DesktopAICompanion.AgentFlow
         {
             sawPanel = false;
             sawBlind = false;
+            if (census != null) census.Complete = false;
             // The sweep's own clock, for the time it may spend following queues (1.12.0, FollowQueue).
             System.Diagnostics.Stopwatch clock = System.Diagnostics.Stopwatch.StartNew();
 
@@ -616,8 +619,13 @@ namespace DesktopAICompanion.AgentFlow
             // document twice, once per agent, so a sweep made three HTTP requests where the
             // HttpClient comment below counted two, and the two reads could disagree if a webview
             // opened between them.
-            List<KeyValuePair<string, string>> work = AgentTargets(port, timeoutMs);
-            if (work.Count == 0) return null;
+            bool targetsComplete;
+            List<KeyValuePair<string, string>> work = AgentTargets(port, timeoutMs, out targetsComplete);
+            if (work.Count == 0)
+            {
+                if (census != null) census.Complete = targetsComplete;
+                return null;
+            }
             // After the empty-list return, which lists nothing either way.
             if (census != null)
                 foreach (KeyValuePair<string, string> listed in work) census.Listed.Add(listed.Key);
@@ -743,6 +751,8 @@ namespace DesktopAICompanion.AgentFlow
             // this, and green has to mean a panel was read on THIS pass.
             sawPanel = sawReadable;
             sawBlind = sawUnreadableCard;
+            if (census != null)
+                census.Complete = targetsComplete && !sawUnreadableCard && census.Listed.TrueForAll(census.Read.Contains);
             // Press notes are returned ALONE. A press is logged every time it happens, and dragging
             // the standing refusals along with them would log those every time too (F029); they are
             // returned on the first tick that presses nothing. The module logs each press on its own
@@ -1073,6 +1083,13 @@ namespace DesktopAICompanion.AgentFlow
         /// </summary>
         internal static List<KeyValuePair<string, string>> AgentTargets(int port, int timeoutMs)
         {
+            bool complete;
+            return AgentTargets(port, timeoutMs, out complete);
+        }
+
+        private static List<KeyValuePair<string, string>> AgentTargets(int port, int timeoutMs, out bool complete)
+        {
+            complete = false;
             var claude = new List<KeyValuePair<string, string>>();
             var codex = new List<KeyValuePair<string, string>>();
             string json = HttpGet(Endpoint(port, "/json/list"), timeoutMs);
@@ -1082,16 +1099,21 @@ namespace DesktopAICompanion.AgentFlow
                 using (JsonDocument document = JsonDocument.Parse(json))
                 {
                     if (document.RootElement.ValueKind != JsonValueKind.Array) return claude;
+                    bool validRows = true;
                     foreach (JsonElement item in document.RootElement.EnumerateArray())
                     {
+                        if (item.ValueKind != JsonValueKind.Object) { validRows = false; continue; }
                         string id = Str(item, "id");
-                        if (id.Length == 0) continue;
+                        JsonElement rawUrl;
+                        if (id.Length == 0 || !item.TryGetProperty("url", out rawUrl) || rawUrl.ValueKind != JsonValueKind.String)
+                        { validRows = false; continue; }
                         string url = Str(item, "url");
                         if (url.IndexOf(ClaudeTargetMarker, StringComparison.OrdinalIgnoreCase) >= 0)
                             claude.Add(new KeyValuePair<string, string>(id, AgentClaude));
                         else if (url.IndexOf(CodexTargetMarker, StringComparison.OrdinalIgnoreCase) >= 0)
                             codex.Add(new KeyValuePair<string, string>(id, AgentCodex));
                     }
+                    complete = validRows;
                 }
             }
             catch (JsonException) { }

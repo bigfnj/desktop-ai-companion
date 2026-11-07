@@ -232,17 +232,21 @@ internal sealed class DiscoveryReuse
 {
     private readonly object gate = new();
     private string? verified;
+    private long generation;
 
     internal int Verify(IReadOnlyList<CodeOwnedEngine> engines, Func<int> verify)
     {
         string key = KeyOf(engines);
-        lock (gate) { if (verified == key) return engines.Count; }
+        long started;
+        lock (gate) { if (verified == key) return engines.Count; started = generation; }
         int count = verify();
-        lock (gate) verified = engines.Count > 0 ? key : null;
+        // Fresh submission can invalidate discovery while this expensive verification is outside the lock. An older
+        // in-flight success must not publish after that invalidation; the next discovery has to verify again.
+        lock (gate) { if (generation == started) verified = engines.Count > 0 ? key : null; }
         return count;
     }
 
-    internal void Forget() { lock (gate) verified = null; }
+    internal void Forget() { lock (gate) { verified = null; generation++; } }
 
     internal static string KeyOf(IReadOnlyList<CodeOwnedEngine> engines) => string.Join("\n", engines
         .Select(engine => $"{engine.Image}|{engine.CreationFileTime}|{engine.ParentImage}|{engine.ParentCreationFileTime}|{engine.SameUser}")

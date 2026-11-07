@@ -17,11 +17,17 @@ internal static class InstructionsChecks
         // First contact (2026-10-29): the identity line comes right after the opening sentence, before any flow.
         string[] lines = BrokerInstructions.Text.Split('\n');
         check(lines.Length > 2 && lines[1].StartsWith("Your address: call whoami first", StringComparison.Ordinal) &&
-            lines[1].Contains("do not register a mailbox or poll", StringComparison.Ordinal),
-            "CARD_WHOAMI_FIRST: the card's first instruction is whoami, and a native row means no mailbox and no polling");
-        check(BrokerInstructions.Text.Contains("on recipient_unavailable, list_sessions again and resend", StringComparison.Ordinal) &&
+            lines[1].Contains("idle wake needs no mailbox or heartbeat", StringComparison.Ordinal) &&
+            lines[1].Contains("While active, fetch read_inbox_page on that address", StringComparison.Ordinal),
+            "CARD_WHOAMI_FIRST: native idle wake needs no mailbox or heartbeat and active work can fetch its exact inbox");
+        check(BrokerInstructions.Text.Contains("On recipient_unavailable, refresh list_sessions", StringComparison.Ordinal) &&
             BrokerInstructions.Text.Contains("at remainingReplies 0, continue with send and the same conversationId", StringComparison.Ordinal),
             "CARD_CHURN_AND_BUDGET: the card says how to recover from a changed incarnation and from a spent reply budget");
+        int retain = BrokerInstructions.Text.IndexOf("retain content", StringComparison.Ordinal);
+        int acknowledge = BrokerInstructions.Text.IndexOf("acknowledge_message (Delivered)", StringComparison.Ordinal);
+        check(BrokerInstructions.Text.Contains("read_native_recovery is report-only", StringComparison.Ordinal) &&
+            retain >= 0 && acknowledge > retain,
+            "CARD_RECOVERY_AND_RETENTION: recovery grants no predecessor rights and content is retained before acknowledgement");
         // Codex 01a1855c's review of 47adf9a: an observation-only native row cannot take replies, so the no-mailbox guidance
         // must depend on Receive and WakeIdle, and Codex (which whoami never resolves) must be told how to find its row.
         check(lines[1].Contains("If your row has Receive and WakeIdle, send as it", StringComparison.Ordinal) &&
@@ -73,11 +79,13 @@ internal static class InstructionsChecks
             var messages = Shape(tools["wait_for_messages"]);
             var replyShape = Shape(tools["wait_for_reply"]);
             var whoami = Shape(tools["whoami"]);
+            var inbox = Shape(tools["read_inbox_page"]);
             check(whoami.Properties.Length == 0 && whoami.Required.Length == 0, "the whoami tool schema takes no parameters");
             check(send.Properties.SequenceEqual(new[] { "conversationId", "messageId", "recipient", "sender", "text", "ttlMinutes" }) &&
                 send.Required.SequenceEqual(new[] { "messageId", "recipient", "sender", "text" }) &&
                 messages.Properties.SequenceEqual(new[] { "limit", "session", "timeoutSeconds" }) && messages.Required.SequenceEqual(new[] { "session" }) &&
-                replyShape.Properties.SequenceEqual(new[] { "messageId", "timeoutSeconds" }) && replyShape.Required.SequenceEqual(new[] { "messageId" }),
+                inbox.Properties.SequenceEqual(new[] { "cursor", "limit", "session" }) && inbox.Required.SequenceEqual(new[] { "session" }) &&
+                replyShape.Properties.SequenceEqual(new[] { "messageId", "timeoutSeconds", "unacknowledgedOnly" }) && replyShape.Required.SequenceEqual(new[] { "messageId" }),
                 "the send and wait tool schemas publish exactly their parameters and required fields");
         }
         finally

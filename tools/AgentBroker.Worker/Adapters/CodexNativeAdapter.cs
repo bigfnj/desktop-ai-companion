@@ -27,6 +27,9 @@ public interface ICodexNativeProvider : IAsyncDisposable
     CodexDeliveryAuthority Authorize(DesktopOwnerBinding binding)
         => IsDeliveryAuthorized(binding) ? CodexDeliveryAuthority.ExactPinned : CodexDeliveryAuthority.None;
     Task<IReadOnlyList<DesktopDirectorySession>> ObserveAsync(CancellationToken token);
+    // An independently owned submission provider prepares its own verification state without touching discovery's
+    // connection or pass diagnostics. The actual submission still performs its fresh checks before model input.
+    Task PrepareDeliveryAsync(CancellationToken token) => Task.CompletedTask;
     Task<DesktopOwnerBinding?> ResolveOwnerAsync(Guid conversationId, CancellationToken token);
     Task<DesktopSubmissionResult> SubmitAsync(DesktopOwnerBinding binding, Guid messageId, string text, CancellationToken token);
 }
@@ -35,6 +38,8 @@ public interface ICodexNativeProvider : IAsyncDisposable
 public sealed class CodexNativeAdapter : ILocalAgentAdapter
 {
     private readonly ICodexNativeProvider provider;
+    private readonly ICodexNativeProvider deliveryProvider;
+    private readonly bool independentDelivery;
     private readonly bool enableDelivery;
     private readonly bool updateTolerant;
     private readonly TimeProvider clock;
@@ -57,7 +62,11 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
     internal Task EngineObservation { get; private set; } = Task.CompletedTask;
     public EngineBinding? EngineBindingOf(SessionAddress address) => engineByRow.GetValueOrDefault(address);
     private readonly SemaphoreSlim gate = new(1, 1);
+    private readonly SemaphoreSlim deliveryGate;
     private readonly Dictionary<SessionAddress, DesktopOwnerBinding> bindings = [];
+    private sealed record BindingObservation(DesktopOwnerBinding Binding, CodexDeliveryAuthority Authority);
+    // Discovery alone writes this immutable snapshot. Delivery never reads discovery's mutable provider state.
+    private volatile IReadOnlyDictionary<SessionAddress, BindingObservation> publishedBindings = new Dictionary<SessionAddress, BindingObservation>();
     // Conversations whose owner lookup failed or ran out of time on the last pass that reached them. They are looked up
     // last on the next pass, so one slow conversation cannot again hold up the renewal of every one after it.
     private readonly HashSet<Guid> slowLookups = [];
@@ -68,21 +77,42 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
     // capabilities and its queue refuses as it did before 1.6.1.
     internal static readonly TimeSpan VerificationPendingBound = TimeSpan.FromMinutes(5);
     private int skippedLastPass;
-    private bool disposed;
+    private int staleLastPass, missingLastPass, invalidLastPass;
+    private volatile bool disposed;
     public string Id => "codex-native";
     // A pass that skipped conversations says so on every pass that does (a degraded pass is never silent).
-    public IReadOnlyList<AdapterDiscoveryDiagnostic> DiscoveryDiagnostics => skippedLastPass == 0 ? provider.DiscoveryDiagnostics
-        : [.. provider.DiscoveryDiagnostics, new("codex_owner_lookup_skipped", skippedLastPass + " Codex conversation" +
-            (skippedLastPass == 1 ? " was" : "s were") + " not renewed this pass: the owner lookup did not finish in time or failed.")];
+    public IReadOnlyList<AdapterDiscoveryDiagnostic> DiscoveryDiagnostics
+    {
+        get
+        {
+            var result = new List<AdapterDiscoveryDiagnostic>();
+            if (skippedLastPass != 0) result.Add(new("codex_owner_lookup_skipped", skippedLastPass + " Codex conversation" +
+                (skippedLastPass == 1 ? " was" : "s were") + " not renewed this pass: the owner lookup did not finish in time or failed."));
+            if (staleLastPass != 0) result.Add(new("codex_directory_observation_stale", staleLastPass + " directory observations were outside the allowed time window; no row was renewed from them."));
+            if (missingLastPass != 0) result.Add(new("codex_owner_not_found", missingLastPass + " conversations had no current owner; no row was renewed from an earlier binding."));
+            if (invalidLastPass != 0) result.Add(new("codex_owner_binding_invalid", invalidLastPass + " directory or owner bindings failed validation; no row was renewed from them."));
+            result.AddRange(provider.DiscoveryDiagnostics);
+            return result;
+        }
+    }
 
     public CodexNativeAdapter(bool enableDelivery = false, bool updateTolerantDelivery = false)
+        : this(enableDelivery, updateTolerantDelivery, null) { }
+
+    public CodexNativeAdapter(bool enableDelivery, bool updateTolerantDelivery, IReadOnlyList<string>? additionalCodexHomes)
         : this(new CodexNativeProvider(enableDelivery, updateTolerantDelivery), enableDelivery, updateTolerantDelivery: updateTolerantDelivery,
-            engineBindings: WindowsCodexEngineBindingSource.Instance) { }
+            engineBindings: additionalCodexHomes is null ? WindowsCodexEngineBindingSource.Instance : new WindowsCodexEngineBindingSource(additionalCodexHomes),
+            deliveryProvider: new CodexNativeProvider(enableDelivery, updateTolerantDelivery)) { }
 
     public CodexNativeAdapter(ICodexNativeProvider provider, bool enableDelivery = false, TimeProvider? clock = null,
-        bool updateTolerantDelivery = false, ICodexEngineBindingSource? engineBindings = null)
+        bool updateTolerantDelivery = false, ICodexEngineBindingSource? engineBindings = null,
+        ICodexNativeProvider? deliveryProvider = null)
     {
         this.provider = provider; this.enableDelivery = enableDelivery; this.clock = clock ?? TimeProvider.System;
+        this.deliveryProvider = deliveryProvider ?? provider;
+        independentDelivery = !ReferenceEquals(provider, this.deliveryProvider);
+        // Existing injected providers may deliberately model both roles. Production always owns separate providers.
+        deliveryGate = independentDelivery ? new(1, 1) : gate;
         this.engineBindings = engineBindings;
         // Strict exact pins stay the default; update tolerance is a separate opt-in on top of delivery.
         updateTolerant = enableDelivery && updateTolerantDelivery;
@@ -100,6 +130,7 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
             var found = new Dictionary<SessionAddress, DesktopOwnerBinding>();
             var sessions = new List<BrokerSession>();
             var carried = new List<DesktopOwnerBinding>();
+            int stale = 0, missing = 0, invalid = 0;
             // skipped: not renewed this pass; slow: the lookups that themselves timed out or failed. A conversation merely not
             // reached before the deadline keeps its place, mark included: it used to lose a mark it had, so a conversation
             // whose lookup times out on every pass went first again on the pass after one that did not reach it, and ended
@@ -116,8 +147,9 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
             var ordered = rows.DistinctBy(r => r.ConversationId).OrderBy(r => slowLookups.Contains(r.ConversationId)).ToArray();
             foreach (var row in ordered)
             {
-                if (row.ConversationId == Guid.Empty || row.LastSeenAt > clock.GetUtcNow().AddSeconds(5) ||
-                    row.LastSeenAt <= clock.GetUtcNow().AddMinutes(-2)) continue;
+                if (row.ConversationId == Guid.Empty) { invalid++; continue; }
+                if (row.LastSeenAt > clock.GetUtcNow().AddSeconds(5) ||
+                    row.LastSeenAt <= clock.GetUtcNow().AddMinutes(-2)) { stale++; continue; }
                 // Past the pass deadline nothing more is looked up; what was resolved is still returned and renewed.
                 if (token.IsCancellationRequested) { NotReached(row.ConversationId); continue; }
                 DesktopOwnerBinding? binding;
@@ -138,7 +170,8 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
                 catch (Exception error) when (error is OperationCanceledException or IOException or
                     DesktopAdapterException { Code: "owner_discovery_rejected" })
                 { skipped.Add(row.ConversationId); slow.Add(row.ConversationId); continue; }
-                if (!ValidBinding(binding, row.ConversationId)) continue;
+                if (binding is null) { missing++; continue; }
+                if (!ValidBinding(binding, row.ConversationId)) { invalid++; continue; }
                 var address = new SessionAddress(brokerId, "codex:" + row.ConversationId.ToString("D"), binding!.NativeSessionIncarnation);
                 found.Add(address, binding);
                 bool guarded = enableDelivery && provider.NativeIdleGuard && binding.SupportsUntrustedAppInput && provider.IsDeliveryAuthorized(binding) &&
@@ -177,21 +210,23 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
                     skipped.Contains(thread)) pendingNow.Add(pair.Key, pair.Value);
             pendingSince.Clear(); foreach (var pair in pendingNow) pendingSince.Add(pair.Key, pair.Value);
             bindings.Clear(); foreach (var pair in found) bindings.Add(pair.Key, pair.Value);
+            publishedBindings = found.ToDictionary(pair => pair.Key, pair => new BindingObservation(pair.Value, provider.Authorize(pair.Value)));
             slowLookups.Clear(); slowLookups.UnionWith(slow);
             skippedLastPass = skipped.Count;
+            staleLastPass = stale; missingLastPass = missing; invalidLastPass = invalid;
             // Reporting cannot prevent a successfully resolved binding from being saved. Empty passes still report
             // publisher verification; a note never grants delivery authority.
             provider.CompleteDiscovery(carried, updateTolerant);
             // Report only: each listed row's thread writer lock, observed after every capability and address above was decided,
             // in the background and kept beside the rows, never in them, so it can neither change one nor delay the pass.
-            // found also holds a conversation this pass skipped (its lookup ran out of time) with its earlier binding: its row
-            // stays registered and deliverable, so it keeps its observation as an unreached row does (review of d9c2967, item 8).
+            // A skipped conversation keeps its old observation while its binding is retained, but its lease is not renewed.
             BeginEngineObservation(sessions.Select(session => session.Address).ToArray(), found.Keys.ToArray());
             return sessions;
         }
         catch (DesktopAdapterException error)
         {
             bindings.Clear();
+            publishedBindings = new Dictionary<SessionAddress, BindingObservation>();
             throw new AdapterDiscoveryException(DescribeDiscoveryFailure(error), error);
         }
         finally { gate.Release(); }
@@ -206,44 +241,46 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
 
     public async Task<AdapterResult> SubmitAsync(BrokerMessage message, PeerSenderInfo? sender, CancellationToken token)
     {
-        await gate.WaitAsync(token);
+        await deliveryGate.WaitAsync(token);
         try
         {
             ObjectDisposedException.ThrowIf(disposed, this);
             // Under update tolerance an unmet guard reaches the binding check below and refuses with its reason. A guard that
             // is down only because the broker's own check could not complete defers below instead
             // (N-agentbroker-refusal-transience-01).
-            if (!enableDelivery || !provider.NativeIdleGuard && !updateTolerant && !provider.VerificationPending)
+            if (!enableDelivery)
                 return new(AdapterAdmission.Refused, "native_delivery_disabled");
             string formatted = PeerMessageFormatter.Format(message, sender);
             if (Encoding.UTF8.GetByteCount(formatted) > 32 * 1024) return new(AdapterAdmission.Refused, "native_message_too_large");
-            if (!bindings.TryGetValue(message.Recipient, out var previous)) return Deferred("native_session_unavailable");
+            if (!publishedBindings.TryGetValue(message.Recipient, out var seen)) return Deferred("native_session_unavailable");
+            var previous = seen.Binding;
+            var observedAuthority = independentDelivery ? seen.Authority : provider.Authorize(previous);
             // A publisher signature permits observation only. Refuse before owner rediscovery, transport or model input.
             if (previous.RouterTrust != DesktopRouterTrust.ExactPinned && !updateTolerant)
                 return new(AdapterAdmission.Refused, "codex_observation_only");
-            // A check the broker could not complete is not a verdict (live case 2026-10-29 10:22: a busy chat refused
-            // unsupported_capability under heavy disk load), and it is not this delivery's to repair: the message defers at
-            // once, WITHOUT connecting, and the discovery loop owns the reconnect. Reconnecting here re-verified the router
-            // synchronously under this adapter's lock, so a discovery pass waiting on the lock outlived its deadline and every
-            // Codex row lapsed: the flicker N-agentbroker-native-flicker-01 removed (independent review of 1.6.0, P2-1).
-            if (Pending(previous)) return Deferred("native_verification_unavailable");
+            // A discovery check that did not complete is not delivery authority. Wait for a verified discovery snapshot;
+            // the independently owned delivery connection never grants an old observation fresh directory authority.
+            if (observedAuthority == CodexDeliveryAuthority.VerificationUnavailable) return Deferred("native_verification_unavailable");
             // The opt-in policy refuses an unmet publisher, protocol or capability check just as early.
-            if (updateTolerant && Refusal(previous) is { } unmet) return new(AdapterAdmission.Refused, unmet);
+            if (updateTolerant && Refusal(observedAuthority, previous) is { } unmet) return new(AdapterAdmission.Refused, unmet);
             DesktopOwnerBinding? current;
-            try { current = await provider.ResolveOwnerAsync(previous.ConversationId, token); }
+            try
+            {
+                if (independentDelivery) await deliveryProvider.PrepareDeliveryAsync(token);
+                else if (!deliveryProvider.NativeIdleGuard && !updateTolerant && !deliveryProvider.VerificationPending)
+                    return new(AdapterAdmission.Refused, "native_delivery_disabled");
+                current = await deliveryProvider.ResolveOwnerAsync(previous.ConversationId, token);
+            }
             catch (Exception ex) when (ex is DesktopAdapterException or IOException or OperationCanceledException)
             { return Deferred("native_owner_unavailable"); } // No model-input method has been called.
             if (!ValidBinding(current, previous.ConversationId) || current!.NativeSessionIncarnation != message.Recipient.Incarnation)
                 return Deferred("native_owner_changed");
-            // No "still pending" deferral here (A-broker-09): with this lock held nothing changes the provider's check state
-            // between the Pending(previous) test above and this point, a lookup that succeeded leaves the owner connection up,
-            // and every binding reaching the lookup passed that test, so Pending(current) cannot be true. The pending case
-            // defers above, and the fresh check at submission defers through the provider (native_verification_unavailable).
-            if (!provider.IsDeliveryAuthorized(current))
-                return new(AdapterAdmission.Refused, updateTolerant ? Refusal(current) ?? "unsupported_capability" : "native_client_profile_unverified");
-            if (Refusal(current) is { } changed) return new(AdapterAdmission.Refused, changed);
-            // Binding.Incarnation is a connection lease; stable broker identity uses the native tuple.
-            bindings[message.Recipient] = current;
+            // An independent delivery provider may have found its own verification incomplete during preparation.
+            if (Pending(current, deliveryProvider)) return Deferred("native_verification_unavailable");
+            if (!deliveryProvider.IsDeliveryAuthorized(current))
+                return new(AdapterAdmission.Refused, updateTolerant ? Refusal(current, deliveryProvider) ?? "unsupported_capability" : "native_client_profile_unverified");
+            if (Refusal(current, deliveryProvider) is { } changed) return new(AdapterAdmission.Refused, changed);
+            // Binding.Incarnation belongs to this delivery connection. The native tuple above must still match discovery.
             // Report only: the latest discovery observation of this row, for the attempt's receipt (its ObservedAt says when it
             // was made). Not a fresh query: one costs about 0.1 s plus a process snapshot, and it would sit between the owner
             // re-check above and the write below, widening the window those fresh checks exist to close (review of 25a0c65,
@@ -251,7 +288,7 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
             var observed = EngineBindingOf(message.Recipient);
             try
             {
-                var result = await provider.SubmitAsync(current, message.Id, formatted, token);
+                var result = await deliveryProvider.SubmitAsync(current, message.Id, formatted, token);
                 return Observed(result.Outcome switch
                 {
                     DesktopSubmissionOutcome.Accepted => new(AdapterAdmission.Submitted, "native_admission_unconfirmed"),
@@ -260,7 +297,9 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
                         "owner_unavailable" => "native_owner_unavailable",
                         // The provider's fresh engine check at submission could not complete; nothing was written.
                         "native_verification_unavailable" => "native_verification_unavailable",
-                        _ => "native_context_busy",
+                        "native_context_busy" => "native_context_busy",
+                        "native_receipt_capacity_reconnect" => "native_receipt_capacity_reconnect",
+                        _ => "native_not_submitted",
                     }),
                     DesktopSubmissionOutcome.Rejected => new(AdapterAdmission.Refused, "native_admission_refused"),
                     _ => new(AdapterAdmission.Uncertain, UncertainReason(result.ErrorCode)),
@@ -271,7 +310,7 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
             catch (Exception ex) when (ex is DesktopAdapterException or IOException or OperationCanceledException)
             { return Observed(new(AdapterAdmission.Uncertain, RaisedReason(ex)), observed); }
         }
-        finally { gate.Release(); }
+        finally { deliveryGate.Release(); }
     }
 
     private static Guid ThreadOf(SessionAddress address) => Guid.ParseExact(address.SessionId["codex:".Length..], "D");
@@ -357,7 +396,8 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
         _ => "native_submission_uncertain",
     };
 
-    private bool Pending(DesktopOwnerBinding binding) => provider.Authorize(binding) == CodexDeliveryAuthority.VerificationUnavailable;
+    private bool Pending(DesktopOwnerBinding binding, ICodexNativeProvider? authority = null) =>
+        (authority ?? provider).Authorize(binding) == CodexDeliveryAuthority.VerificationUnavailable;
 
     // A publisher-signed owner stays observable without the native capability; an exact one never lacks it.
     private static bool ValidBinding(DesktopOwnerBinding? binding, Guid thread) => binding is not null && binding.ConversationId == thread &&
@@ -367,7 +407,8 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
 
     // Null when this adapter admits the binding. Both the provider's verdict and the binding's own router trust
     // must agree, so a provider that reports the exact path cannot lend it to a publisher-signed router.
-    private string? Refusal(DesktopOwnerBinding binding) => provider.Authorize(binding) switch
+    private string? Refusal(DesktopOwnerBinding binding, ICodexNativeProvider? authority = null) => Refusal((authority ?? provider).Authorize(binding), binding);
+    private string? Refusal(CodexDeliveryAuthority authority, DesktopOwnerBinding binding) => authority switch
     {
         CodexDeliveryAuthority.ExactPinned when binding.RouterTrust == DesktopRouterTrust.ExactPinned => null,
         CodexDeliveryAuthority.UpdateTolerant when updateTolerant && binding.RouterTrust != DesktopRouterTrust.Unverified => null,
@@ -422,10 +463,11 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
     public async ValueTask DisposeAsync()
     {
         await gate.WaitAsync();
+        if (independentDelivery) await deliveryGate.WaitAsync();
         try
         {
             if (disposed) return;
-            disposed = true; bindings.Clear();
+            disposed = true; bindings.Clear(); publishedBindings = new Dictionary<SessionAddress, BindingObservation>();
             // The background observation stops at its next thread (each query is about 0.1 s), and is waited for so nothing
             // queries a lock after disposal.
             engineStop.Cancel();
@@ -434,8 +476,15 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
             try { await EngineObservation.WaitAsync(EngineObservationBudget + EngineDisposeMargin); }
             catch (TimeoutException) { System.Diagnostics.Trace.TraceWarning("AgentBroker: a Codex engine observation outlived disposal's wait."); }
             catch (Exception) { }
-            await provider.DisposeAsync();
+            var failures = new List<Exception>();
+            try { await provider.DisposeAsync(); }
+            catch (Exception error) { failures.Add(error); }
+            if (independentDelivery)
+                try { await deliveryProvider.DisposeAsync(); }
+                catch (Exception error) { failures.Add(error); }
+            if (failures.Count == 1) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failures[0]).Throw();
+            if (failures.Count > 1) throw new AggregateException("Codex adapter shutdown failed.", failures);
         }
-        finally { gate.Release(); }
+        finally { if (independentDelivery) deliveryGate.Release(); gate.Release(); }
     }
 }

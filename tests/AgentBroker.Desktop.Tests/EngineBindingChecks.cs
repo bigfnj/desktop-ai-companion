@@ -10,6 +10,58 @@ internal static class EngineBindingChecks
         ClassifierChecks(check);
         PathChecks(check);
         EngineSelectionChecks(check);
+        AdditionalHomeChecks(check);
+    }
+
+    private static void AdditionalHomeChecks(Action<bool, string> check)
+    {
+        Console.WriteLine("WITNESS: CODEX_HOME_PRODUCT_EXECUTED");
+        string home = Path.Combine(Path.GetTempPath(), "agentbroker-additional-home");
+        string defaultHome = Path.Combine(Path.GetTempPath(), "agentbroker-default-home");
+        var normalized = CodexHomePaths.NormalizeAdditional([home + Path.DirectorySeparatorChar, home.ToUpperInvariant()]);
+        check(normalized.SequenceEqual([Path.GetFullPath(home)]) && CodexHomePaths.IsValidOptional(""),
+            "HOME_EXPLICIT_NORMALIZED: explicit local homes are normalized and deduplicated; no additional home preserves the default");
+        foreach (string invalid in new[] { "relative", @"\\server\share\codex", @"\\?\C:\codex", @"C:\x\..\codex",
+            @"C:\x\.\codex", @"C:\codex:stream", "C:\\bad\npath", @"C:\" + new string('x', 510) })
+            check(!CodexHomePaths.IsValidOptional(invalid),
+                "HOME_LOCAL_ABSOLUTE: relative, network, device, traversal, stream, control and oversized paths are refused");
+        bool tooMany = false;
+        try { CodexHomePaths.NormalizeAdditional(Enumerable.Repeat(home, 5)); } catch (ArgumentException) { tooMany = true; }
+        check(tooMany, "HOME_BOUND: more than four supplied additional homes is refused even when duplicate");
+        var held = new WriterLockObservation(WriterLockState.Queried, [new(41, 100)]);
+        CodexEngine[] engines = [new(41, 100, CodexEngineHost.Code)];
+        check(CodexEngineBinding.ClassifyHomes([WriterLockObservation.Missing, held], engines).Bound,
+            "HOME_ADDITIONAL_BOUND: a holder in the configured home can bind while the default home is absent");
+        check(CodexEngineBinding.ClassifyHomes([held, held], engines) is { Bound: false, Reason: "ambiguous_homes" },
+            "HOME_AMBIGUOUS: two occupied homes never choose one as the conversation owner");
+        check(CodexEngineBinding.ClassifyHomes([held, WriterLockObservation.Reparse], engines).Reason == "lock_path_reparse" &&
+            CodexEngineBinding.ClassifyHomes([held, WriterLockObservation.Failed], engines).Reason == "query_failed",
+            "HOME_UNAVAILABLE: an unsafe or unreadable configured home cannot be reported as a unique known owner");
+        string[] homes = [defaultHome, home];
+        var seen = new List<string>();
+        int snapshots = 0;
+        Guid first = Guid.Parse("01234567-89ab-4cde-8f01-23456789abcd");
+        Guid second = Guid.Parse("01234567-89ab-4cde-8f01-23456789abce");
+        var now = DateTimeOffset.Parse("2026-11-06T12:00:00Z");
+        var found = WindowsCodexEngineBindingSource.ObserveAtHomes([first, second], homes,
+            path => { seen.Add(path); return path.StartsWith(home + Path.DirectorySeparatorChar, StringComparison.Ordinal) ? held : WriterLockObservation.Missing; },
+            () => { snapshots++; return new(engines, new HashSet<uint>()); }, () => now, default);
+        string[] expected = [CodexEngineBinding.LockPath(defaultHome, first), CodexEngineBinding.LockPath(home, first),
+            CodexEngineBinding.LockPath(defaultHome, second), CodexEngineBinding.LockPath(home, second)];
+        check(found.Count == 2 && found.Values.All(value => value.Bound && value.ObservedAt == now) && snapshots == 1 && seen.SequenceEqual(expected),
+            "HOME_ACTUAL_SCAN: each thread queries every explicit home while sharing one engine snapshot");
+        int emptySnapshots = 0;
+        var absent = WindowsCodexEngineBindingSource.ObserveAtHomes([first], homes, _ => WriterLockObservation.Missing,
+            () => { emptySnapshots++; return new(engines, new HashSet<uint>()); }, () => now, default);
+        check(absent[first] is { Bound: false, Reason: "lock_missing" } && emptySnapshots == 0,
+            "HOME_EMPTY_SCAN: an entirely missing lock stays missing and needs no engine snapshot");
+        using var cancellation = new CancellationTokenSource();
+        int incompleteSnapshots = 0;
+        var incomplete = WindowsCodexEngineBindingSource.ObserveAtHomes([first], homes,
+            _ => { cancellation.Cancel(); return held; },
+            () => { incompleteSnapshots++; return new(engines, new HashSet<uint>()); }, () => now, cancellation.Token);
+        check(incomplete.Count == 0 && incompleteSnapshots == 0,
+            "HOME_SCAN_BUDGET: cancellation during a home's scan never publishes a partial unique binding");
     }
 
     private static void ClassifierChecks(Action<bool, string> check)

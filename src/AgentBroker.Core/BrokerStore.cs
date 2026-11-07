@@ -11,7 +11,7 @@ namespace AgentBroker.Core;
 /// Each mutation writes a replacement before publishing in-memory state. No message text is logged.
 /// An acknowledged message this broker sent keeps a tombstone without its text (see Tombstoned).
 /// </summary>
-public sealed class BrokerStore : IDisposable
+public sealed partial class BrokerStore : IDisposable
 {
     public sealed class PeerAuthorization
     {
@@ -132,6 +132,8 @@ public sealed class BrokerStore : IDisposable
             // with their text. The commit below moves them to tombstones before anything else can read them.
             bool upgraded = recovered.Any(Tombstoned);
             if (!existed || upgraded || !recovered.SequenceEqual(state.Messages)) Commit(state with { Messages = recovered });
+            // An inbox cursor belongs to this store opening. Retained full records already preserve acceptance order.
+            (inboxSequences, inboxHighWater) = PrepareInboxSequences(state.Messages);
             owed = RebuildOwed();
         }
         catch (JsonException ex) { ownership.Dispose(); throw new InvalidDataException("Broker state is malformed. It was preserved for recovery.", ex); }
@@ -168,8 +170,9 @@ public sealed class BrokerStore : IDisposable
                 EvictRetained(displaced) is null) Fail("session_limit");
             // A new incarnation supersedes only the same exact vendor session ID, never a title/cwd match.
             foreach (var previous in displaced)
-                Forget(previous);
+                Forget(previous, "registration_replaced");
             sessions[session.Address] = session;
+            ClearForgotten(session.Address);
             if (session.Adapter == "mcp") mailboxActivity[session.Address] = Now;
             else mailboxActivity.Remove(session.Address);
         }
@@ -232,7 +235,7 @@ public sealed class BrokerStore : IDisposable
 
     public void Disconnect(SessionAddress address)
     {
-        lock (gate) { EnsureOpen(); Forget(address); }
+        lock (gate) { EnsureOpen(); Forget(address, "disconnected"); }
     }
 
     /// <summary>A present session, or a retained generic MCP mailbox. Native sessions only while live.</summary>
@@ -257,7 +260,7 @@ public sealed class BrokerStore : IDisposable
         {
             EnsureOpen();
             if (overlay is null || overlay.Address is null) Fail("invalid_session");
-            if (!sessions.TryGetValue(overlay!.Address, out var current) || !Retained(current)) Fail("recipient_unavailable");
+            if (!sessions.TryGetValue(overlay!.Address, out var current) || !Retained(current)) FailAvailability("recipient_unavailable", overlay.Address, "caller_recipient");
             if (!Enum.IsDefined(overlay.Activity) || overlay.Activity is SessionActivity.Away or SessionActivity.Disconnected)
                 Fail("invalid_session");
             sessions[overlay.Address] = current! with { IsPrivate = overlay.IsPrivate, Activity = overlay.Activity };
@@ -353,7 +356,11 @@ public sealed class BrokerStore : IDisposable
     }
 
     /// <param name="authenticatedBroker">Identity from the transport, never a field trusted from a payload.</param>
-    public MessageReceipt Accept(BrokerMessage message, Guid authenticatedBroker)
+    public MessageReceipt Accept(BrokerMessage message, Guid authenticatedBroker) =>
+        AcceptWithSubjects(message, authenticatedBroker, "caller_sender", "peer_recipient");
+
+    // Subject labels change diagnostics only; admission, idempotence and exact-address routing stay shared.
+    private MessageReceipt AcceptWithSubjects(BrokerMessage message, Guid authenticatedBroker, string senderSubject, string recipientSubject)
     {
         lock (gate)
         {
@@ -390,12 +397,12 @@ public sealed class BrokerStore : IDisposable
             if (message.Recipient.BrokerId != state.BrokerId && !state.Peers.Any(p => p.BrokerId == message.Recipient.BrokerId))
                 Fail("unpaired_peer");
             // A retained generic mailbox (lapsed presence) still sends and receives; native sessions must be live.
-            if (authenticatedBroker == state.BrokerId && !Addressable(message.Sender)) Fail("sender_unavailable");
+            if (authenticatedBroker == state.BrokerId && !Addressable(message.Sender)) FailAvailability("sender_unavailable", message.Sender, senderSubject);
             if (authenticatedBroker == state.BrokerId && message.ReplyTo is not null &&
                 !sessions[message.Sender].Capabilities.HasFlag(SessionCapabilities.Reply)) Fail("sender_cannot_reply");
             if (message.Recipient.BrokerId == state.BrokerId)
             {
-                if (!sessions.TryGetValue(message.Recipient, out var target) || !Addressable(message.Recipient)) Fail("recipient_unavailable");
+                if (!sessions.TryGetValue(message.Recipient, out var target) || !Addressable(message.Recipient)) FailAvailability("recipient_unavailable", message.Recipient, recipientSubject);
                 if (authenticatedBroker != state.BrokerId && target!.IsPrivate) Fail("private_session");
                 if (!target!.Capabilities.HasFlag(SessionCapabilities.Receive)) Fail("recipient_cannot_receive");
             }
@@ -449,12 +456,13 @@ public sealed class BrokerStore : IDisposable
                     Fail("message_id_collision");
                 // Reentrant admission rechecks transport authority and returns/ages the same receipt.
                 // As with Accept retries, a disconnected old incarnation does not create a delivery.
-                return Accept(reply, authenticatedBroker);
+                return AcceptWithSubjects(reply, authenticatedBroker, "stored_request_recipient", "stored_request_sender");
             }
             if (parent.RemainingReplies <= 0) Fail("invalid_reply");
             var now = Now;
-            return Accept(new(messageId, parent.ConversationId, parent.Id, parent.Recipient, parent.Sender,
-                text, now, now.AddMinutes(limits.DefaultMessageLifetimeMinutes), parent.RemainingReplies - 1), authenticatedBroker);
+            return AcceptWithSubjects(new(messageId, parent.ConversationId, parent.Id, parent.Recipient, parent.Sender,
+                text, now, now.AddMinutes(limits.DefaultMessageLifetimeMinutes), parent.RemainingReplies - 1), authenticatedBroker,
+                "stored_request_recipient", "stored_request_sender");
         }
     }
 
@@ -539,8 +547,15 @@ public sealed class BrokerStore : IDisposable
             for (int i = 0; i < messages.Count; i++)
             {
                 var r = messages[i];
-                if (r.Status != MessageStatus.Accepted || r.Message.Recipient.BrokerId != state.BrokerId ||
-                    !sessions.TryGetValue(r.Message.Recipient, out var target) || !Live(target.Address)) continue;
+                if (r.Status != MessageStatus.Accepted || r.Message.Recipient.BrokerId != state.BrokerId) continue;
+                // A discovery-verified successor ends only a never-submitted predecessor's queued delivery.
+                // A lease lapse alone is inconclusive; submitted or uncertain native input is never replayed.
+                if (NativeReplacement(r.Message.Recipient) is not null)
+                {
+                    messages[i] = r with { Status = MessageStatus.Refused, Reason = "recipient_replaced", UpdatedAt = Now };
+                    continue;
+                }
+                if (!sessions.TryGetValue(r.Message.Recipient, out var target) || !Live(target.Address)) continue;
                 string? refusal = r.Message.Sender.BrokerId != state.BrokerId && target.IsPrivate ? "private_session" :
                     !target.Capabilities.HasFlag(SessionCapabilities.Receive) ? "recipient_cannot_receive" : null;
                 if (refusal is not null) messages[i] = r with { Status = MessageStatus.Refused, Reason = refusal, UpdatedAt = Now };
@@ -699,9 +714,14 @@ public sealed class BrokerStore : IDisposable
     // recipient_receipt and the sender's notice said its recipient refused a message that had expired unread
     // (N-agentbroker-peer-expired-01).
     public MessageReceipt RecordPeerReceipt(Guid messageId, SessionAddress recipient, Guid peerBroker, MessageStatus remoteStatus)
+        => RecordPeerReceipt(messageId, recipient, peerBroker, remoteStatus, null);
+
+    public MessageReceipt RecordPeerReceipt(Guid messageId, SessionAddress recipient, Guid peerBroker, MessageStatus remoteStatus,
+        string? remoteReason)
         => remoteStatus == MessageStatus.Expired
             ? RecordReceipt(messageId, recipient, peerBroker, MessageStatus.Refused, "peer_expired")
-            : RecordReceipt(messageId, recipient, peerBroker, remoteStatus, "recipient_receipt");
+            : RecordReceipt(messageId, recipient, peerBroker, remoteStatus,
+                remoteStatus == MessageStatus.Refused ? PeerReceiptPolicy.KnownRefusalReason(remoteReason) ?? "recipient_receipt" : "recipient_receipt");
 
     private MessageReceipt RecordReceipt(Guid messageId, SessionAddress recipient, Guid authenticatedBroker, MessageStatus outcome, string reason)
     {
@@ -711,7 +731,8 @@ public sealed class BrokerStore : IDisposable
             if (recipient.BrokerId != authenticatedBroker) Fail("recipient_mismatch");
             if (authenticatedBroker != state.BrokerId && !state.Peers.Any(p => p.BrokerId == authenticatedBroker)) Fail("unpaired_peer");
             if (authenticatedBroker == state.BrokerId &&
-                (!Addressable(recipient) || !sessions[recipient].Capabilities.HasFlag(SessionCapabilities.Receive))) Fail("recipient_unavailable");
+                (!Addressable(recipient) || !sessions[recipient].Capabilities.HasFlag(SessionCapabilities.Receive)))
+                FailAvailability("recipient_unavailable", recipient, "caller_recipient");
             if (outcome is not (MessageStatus.Delivered or MessageStatus.Held or MessageStatus.Refused)) Fail("invalid_outcome");
             var messages = state.Messages.ToList();
             int index = messages.FindIndex(r => r.Message.Id == messageId);
@@ -750,7 +771,8 @@ public sealed class BrokerStore : IDisposable
     {
         // A lapsed native lease or an ended retention goes. A disconnected activity with a live lease
         // stays until that lease lapses, exactly as before mailboxes existed.
-        foreach (var key in sessions.Where(p => p.Value.LeaseUntil <= Now && !Retained(p.Value)).Select(p => p.Key).ToArray()) Forget(key);
+        foreach (var row in sessions.Values.Where(session => session.LeaseUntil <= Now && !Retained(session)).ToArray())
+            Forget(row.Address, EndedSessionCause(row));
         while (sessions.Values.Count(Retained) > BrokerLimits.MaximumRetainedMailboxes && EvictRetained([]) is not null) { }
     }
     // The oldest retained mailbox with nothing outstanding goes first, then the oldest retained one; a
@@ -762,10 +784,15 @@ public sealed class BrokerStore : IDisposable
             .OrderBy(s => state.Messages.Any(r => r.Message.Recipient == s.Address && IsOutstanding(r.Status) && r.Message.ExpiresAt > Now))
             .ThenBy(s => mailboxActivity[s.Address]).FirstOrDefault();
         if (victim is null) return null;
-        Forget(victim.Address);
+        Forget(victim.Address, "mailbox_capacity_evicted");
         return victim.Address;
     }
-    private void Forget(SessionAddress address) { sessions.Remove(address); mailboxActivity.Remove(address); }
+    private void Forget(SessionAddress address, string cause)
+    {
+        if (sessions.Remove(address)) RememberForgotten(address, cause);
+        mailboxActivity.Remove(address);
+        if (nativeProofs.TryGetValue(address.SessionId, out var proof) && proof.Address == address) nativeProofs.Remove(address.SessionId);
+    }
     private static TaskCompletionSource NewSignal() => new(TaskCreationOptions.RunContinuationsAsynchronously);
     private List<MessageReceipt> Expire(List<MessageReceipt> messages) => messages
         .Where(r => r.Message.ExpiresAt > Now - RecordGrace)
@@ -853,6 +880,8 @@ public sealed class BrokerStore : IDisposable
             AppendTombstones(added);
             next = next with { Messages = next.Messages.Where(receipt => !Tombstoned(receipt)).ToList() };
         }
+        // Prepare privately, before IO. Publish these ordinals only after the durable snapshot replacement succeeds.
+        var inbox = PrepareInboxSequences(next.Messages);
         var temporary = path + ".next";
         try
         {
@@ -860,6 +889,7 @@ public sealed class BrokerStore : IDisposable
             { JsonSerializer.Serialize(stream, next, Json); stream.Flush(true); }
             ReplaceFile(temporary, path);
             state = next;
+            (inboxSequences, inboxHighWater) = inbox;
             if (owing is not null) owed = owing;
             if (dropped is not null) noticeDrops = dropped;
             foreach (var id in owedRefusal.Keys.Where(id => !owed.ContainsKey(id)).ToArray()) owedRefusal.Remove(id);
@@ -1049,6 +1079,11 @@ public sealed class BrokerStore : IDisposable
               "The broker cannot tell whether the recipient read it. A native claude: or codex: session is woken only while idle, and a " +
               "generic mcp: mailbox is read only while its owner polls; check with the recipient before sending it again."
             : ended.Reason == "recipient_receipt" ? "was refused by its recipient."
+            : ended.Reason == "recipient_replaced"
+                ? "was refused before delivery because native discovery observed a new incarnation of that exact session. " +
+                  (NativeReplacement(m.Recipient) is { } replacement
+                      ? $"Current discovered address: {replacement.BrokerId}/{replacement.SessionId}/{replacement.Incarnation}. " : "") +
+                  "Refresh list_sessions and choose its complete address before an explicit resend with a fresh messageId."
             : ended.Reason == "peer_expired"
                 ? $"expired at the recipient's paired broker: it reached its {span} delivery deadline there without a Delivered " +
                   "receipt (peer_expired). The broker cannot tell whether the recipient read it."

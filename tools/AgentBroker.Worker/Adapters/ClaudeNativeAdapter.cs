@@ -122,7 +122,12 @@ public sealed class ClaudeNativeAdapter : ILocalAgentAdapter
             // An unpinned build is trusted for the image discovery attested, never for whatever the refresh found since.
             if (!fresh.CanDeliver && !string.Equals(fresh.Target.ImageSha256, previous.Target.ImageSha256, StringComparison.OrdinalIgnoreCase))
                 return new(AdapterAdmission.Refused, "claude_image_changed");
-            if (fresh.Status != "idle") return Deferred("native_recipient_not_idle");
+            if (fresh.Status != "idle") return Deferred(fresh.Status switch
+            {
+                "busy" or "shell" => "native_recipient_busy",
+                "waiting" => "native_recipient_awaiting_approval",
+                _ => "native_recipient_activity_unknown",
+            });
             // Immediate metadata refresh occurred before any credential handling. The native gate is
             // authoritative for actual mode/settings and the idle snapshot can race with GUI activity.
             var native = new NativeMessage(message.Id, fresh.Target.SessionId, PeerMessageFormatter.Format(message, sender), RecipientMode.Unknown,

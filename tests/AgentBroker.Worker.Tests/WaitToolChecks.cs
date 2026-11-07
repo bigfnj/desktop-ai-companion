@@ -145,6 +145,13 @@ internal static class WaitToolChecks
         var both = await tools.WaitForReply(question, default, timeoutSeconds: 0);
         check(both.Select(receipt => receipt.Message.Id).ToHashSet().SetEquals(new[] { answer, second }),
             "wait_for_reply returns every reply to the original message");
+        tools.AcknowledgeMessage(answer, sender.Address, MessageStatus.Delivered);
+        var pendingAnswer = await tools.WaitForReply(question, default, timeoutSeconds: 0, unacknowledgedOnly: true);
+        check(pendingAnswer.Count == 1 && pendingAnswer[0].Message.Id == second,
+            "REPLY_WAIT_PENDING: acknowledged history does not hide the next unacknowledged answer");
+        tools.AcknowledgeMessage(second, sender.Address, MessageStatus.Delivered);
+        check((await tools.WaitForReply(question, default, timeoutSeconds: 0, unacknowledgedOnly: true)).Count == 0,
+            "REPLY_WAIT_ACKNOWLEDGED: filtered waits do not immediately return old acknowledged answers");
         fixture.Context.Items["agentbroker.identity"] = Guid.NewGuid();
         bool foreign = false;
         try { await tools.WaitForReply(question, default, timeoutSeconds: 0); }

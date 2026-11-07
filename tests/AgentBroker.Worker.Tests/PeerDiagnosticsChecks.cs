@@ -14,12 +14,18 @@ internal static class PeerDiagnosticsChecks
 {
     internal static async Task RunAsync(Action<bool, string> check)
     {
+        Console.WriteLine("WITNESS: PEER_DIAGNOSTICS_EXECUTED");
         string scratch = Path.Combine(AppContext.BaseDirectory, "scratch", "peer-diagnostics-" + Guid.NewGuid().ToString("N"));
-        await VerifyOutcomesAndWire(scratch, check);
-        await VerifyPeerCap(scratch, check);
-        await VerifyAuthorizationChanges(scratch, check);
-        await VerifyBudgetAndLateResults(scratch, check);
-        await VerifyCallerCancellation(scratch, check);
+        try
+        {
+            await VerifyOutcomesAndWire(scratch, check);
+            await VerifyClockAuthorization(scratch, check);
+            await VerifyPeerCap(scratch, check);
+            await VerifyAuthorizationChanges(scratch, check);
+            await VerifyBudgetAndLateResults(scratch, check);
+            await VerifyCallerCancellation(scratch, check);
+        }
+        finally { if (Directory.Exists(scratch)) Directory.Delete(scratch, true); }
     }
 
     private static PeerTrust AddPeer(BrokerStore store, int ordinal)
@@ -55,12 +61,21 @@ internal static class PeerDiagnosticsChecks
             6 => Task.FromResult(new PeerDirectory(Guid.NewGuid(), [])),
             _ => Task.FromException<PeerDirectory>(new HttpRequestException("Synthetic HTTP failure.", null, HttpStatusCode.ServiceUnavailable)),
         });
+        int clockReads = 0;
+        federation.ReadClocks = () =>
+        {
+            int generation = ++clockReads;
+            return peers.Select(peer => new PeerClockView(peer.BrokerId, "observed", generation, 1, .1,
+                DateTimeOffset.UtcNow, 0, false)).ToArray();
+        };
         await using var runtime = new BrokerRuntime(store, federation, []);
         byte[] before = File.ReadAllBytes(Path.Combine(data, "broker-state.json"));
         var rows = await PeerDiagnostics.CollectAsync(runtime, default);
         var byPeer = rows.ToDictionary(row => row.BrokerId);
         check(rows.Length == peers.Length && federation.Calls == peers.Length,
             "peer diagnostics checks each saved peer exactly once without relying on public broker info");
+        check(clockReads == 1 && rows.All(row => row.Clock?.OffsetSeconds == 1),
+            "PEER_CLOCK_BATCH_SNAPSHOT: one diagnostics result uses a single clock snapshot for every saved peer");
         var empty = byPeer[peers[0].BrokerId];
         check(empty is { Success: true, Code: "ok", ReturnedSessionCount: 0, AuthenticationStatus: "confirmed", CheckedAtUtc: not null },
             "peer diagnostics marks an authenticated empty directory as confirmed success with zero returned sessions");
@@ -115,6 +130,24 @@ internal static class PeerDiagnosticsChecks
                 rows.All(row => peers.Any(peer => peer.BrokerId == row.BrokerId) && row.Success && row.ReturnedSessionCount == 0) &&
                 store.Peers().Count == 33,
             "peer diagnostics caps one management request at 32 peers even when the synthetic store permits more");
+    }
+
+    private static async Task VerifyClockAuthorization(string scratch, Action<bool, string> check)
+    {
+        using var store = new BrokerStore(Path.Combine(scratch, "clock-publish-revoke"));
+        var peer = AddPeer(store, 0);
+        await using var federation = new DiagnosticFederation((_, _) =>
+            Task.FromException<PeerDirectory>(new IOException("Synthetic failed lookup.")));
+        federation.ReadClocks = () =>
+        {
+            var earlier = new PeerClockView(peer.BrokerId, "observed", 20, 1, .1, DateTimeOffset.UtcNow, 0, true);
+            store.RevokePeer(peer.BrokerId); store.AuthorizePeer(peer);
+            return [earlier];
+        };
+        await using var runtime = new BrokerRuntime(store, federation, []);
+        var row = (await PeerDiagnostics.CollectAsync(runtime, default)).Single();
+        check(row is { Success: false, Code: "trust_changed", AuthenticationStatus: "not_confirmed", Clock: null },
+            "PEER_CLOCK_FAILED_ROW_RECHECK: a failed directory lookup cannot publish a cached clock across revoke and identical re-pairing");
     }
 
     private static async Task VerifyAuthorizationChanges(string scratch, Action<bool, string> check)
@@ -229,6 +262,8 @@ internal static class PeerDiagnosticsChecks
         internal int Calls => Volatile.Read(ref calls);
         internal int Active => Volatile.Read(ref active);
         internal int PeakConcurrent => Volatile.Read(ref peak);
+        internal Func<IReadOnlyList<PeerClockView>> ReadClocks { get; set; } = () => [];
+        public IReadOnlyList<PeerClockView> ClockObservations => ReadClocks();
         public IReadOnlyList<BrokerAdvertisement> Discovered => [];
         public IReadOnlyList<PairingOffer> PairingOffers => [];
         public BrokerAdvertisement LocalAdvertisement => new(Guid.NewGuid(), "Synthetic diagnostics", "https://127.0.0.1:18000/", new string('A', 64), DateTimeOffset.UtcNow);

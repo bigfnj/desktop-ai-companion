@@ -20,6 +20,11 @@ async Task Until(Func<bool> condition)
     using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
     while (!condition()) await Task.Delay(5, timeout.Token);
 }
+if (args.SequenceEqual(new[] { "--discovery-invalidation-only" }))
+{
+    try { await DiscoveryInvalidationChecks.RunAsync(Check); Console.WriteLine($"AgentBroker discovery invalidation checks passed: {passed}"); return 0; }
+    catch (Exception error) { Console.Error.WriteLine(error); Console.WriteLine("RESULT=FAIL"); return 1; }
+}
 if (args.SequenceEqual(new[] { "--desktop-package-profile-only" }))
 {
     try
@@ -608,6 +613,7 @@ if (!args.SequenceEqual(new[] { "--existing-tests-only" })) await CodexObservati
 if (!args.SequenceEqual(new[] { "--existing-tests-only" })) PinDocumentChecks.Run(Check);
 // The report-only engine binding (lane broker-163).
 if (!args.SequenceEqual(new[] { "--existing-tests-only" })) EngineBindingChecks.Run(Check);
+if (!args.SequenceEqual(new[] { "--existing-tests-only" })) await DiscoveryInvalidationChecks.RunAsync(Check);
 
 // O-agentbroker-02 (2026-10-29): discovery reuses a success only for the exact same running engine processes.
 {

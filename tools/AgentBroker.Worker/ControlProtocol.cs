@@ -41,6 +41,10 @@ public sealed record LanProfileView(string Category, string Rule, int RuleProfil
     DateTimeOffset? LastInboundUtc);
 // Delivery notices the store dropped since the worker started, by why they could not be admitted (counts only).
 public sealed record NoticeDropView(int SenderUnavailable, int StoreFull, int QueueFull, DateTimeOffset? LastUtc);
+// Local clock comparison from an authenticated paired HTTPS response, never a federation or expiry field.
+public sealed record PeerClockView(Guid BrokerId, string State, double? OffsetSeconds, double? UncertaintySeconds,
+    double? RoundTripSeconds, DateTimeOffset? CheckedUtc, double? AgeSeconds, bool Warning);
+public sealed record ApprovalPromptView(string State, int? VisiblePromptCount, DateTimeOffset? ObservedAtUtc);
 public sealed record BrokerSnapshot(Guid BrokerId, string Name, string LoopbackEndpoint, string? LanEndpoint,
     PeerView[] Discovered, PeerView[] Paired, PairingView[] PairingOffers, SessionView[] Sessions,
     IReadOnlyDictionary<string, string> AdapterErrors, string? CertificateSha256 = null, McpStatusView? Mcp = null,
@@ -48,12 +52,17 @@ public sealed record BrokerSnapshot(Guid BrokerId, string Name, string LoopbackE
     // Absent while nothing was dropped, so that snapshot is exactly the one before this field existed.
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] NoticeDropView? DroppedNotices = null,
     // Count-only notes about some of an adapter's sessions (lane broker-163), absent while there are none.
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyDictionary<string, string>? AdapterNotes = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyDictionary<string, string>? AdapterNotes = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] PeerClockView[]? PeerClocks = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ApprovalPromptView? ApprovalPrompts = null);
 public sealed record ControlRequest(string Operation, Guid Id = default, PeerView? Peer = null,
-    string? SessionId = null, bool Value = false);
+    string? SessionId = null, bool Value = false,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? ApprovalPromptCount = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] DateTimeOffset? ApprovalObservedAtUtc = null);
 public sealed record LocalConnection(string McpEndpoint, string? BearerToken);
 public sealed record PeerDiagnosticView(Guid BrokerId, string Endpoint, string CertificateSha256,
-    bool Success, string Code, int? ReturnedSessionCount, string AuthenticationStatus, DateTimeOffset? CheckedAtUtc);
+    bool Success, string Code, int? ReturnedSessionCount, string AuthenticationStatus, DateTimeOffset? CheckedAtUtc,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] PeerClockView? Clock = null);
 public sealed record ControlResponse(bool Success, string Code, BrokerSnapshot? Snapshot = null,
     LocalConnection? Connection = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] PeerDiagnosticView[]? PeerDiagnostics = null);

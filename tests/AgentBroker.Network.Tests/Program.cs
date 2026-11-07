@@ -23,6 +23,12 @@ string scratch = Path.Combine(AppContext.BaseDirectory, "scratch", Guid.NewGuid(
 Directory.CreateDirectory(scratch);
 try
 {
+    if (args.Contains("--paired-admission-only"))
+    {
+        Console.WriteLine("WITNESS: AUTHENTICATED_PAIRED_ADMISSION_EXECUTED");
+        await PairedAdmissionChecks.RunAsync(scratch, Identity, Check);
+        Console.WriteLine($"RESULT=PASS assertions={assertions}"); return 0;
+    }
     if (args.Contains("--paired-reconnect-only"))
     {
         Console.WriteLine("RECONNECT_WORKER_SHA256=" + Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(typeof(PeerFederation).Assembly.Location))));
@@ -192,6 +198,7 @@ try
     using (var identity = BrokerIdentity.LoadOrCreate(restartPath, persisted.BrokerId))
         Check(persisted.BrokerId == brokerId && identity.Fingerprint == fingerprint && persisted.Peers().Single() == peerB, "restart preserves broker identity and explicit certificate-pinned trust");
     await PairedReconnectChecks.RunAsync(scratch, Identity, Check);
+    await PairedAdmissionChecks.RunAsync(scratch, Identity, Check);
     Console.WriteLine($"RESULT=PASS assertions={assertions}");
     return 0;
 }
@@ -244,6 +251,12 @@ sealed class Node : IAsyncDisposable
         });
         var app = builder.Build(); var probe = new PairingProbe();
         app.Use(async (context, next) => {
+            if (context.Request.Path.StartsWithSegments("/federation") && probe.BeforeResponse is { } beforeResponse)
+                context.Response.OnStarting(() => beforeResponse(context));
+            if (context.Request.Path == "/federation/messages" && probe.BeforeMessages is { } beforeMessages &&
+                await beforeMessages(context)) return;
+            if (context.Request.Path.StartsWithSegments("/federation/receipts") && probe.BeforeReceipt is { } beforeReceipt &&
+                await beforeReceipt(context)) return;
             if (context.Request.Path == "/broker/info")
             {
                 Interlocked.Increment(ref probe.InfoRequests);
@@ -297,6 +310,9 @@ sealed class Node : IAsyncDisposable
 
 sealed class PairingProbe
 {
+    public Func<HttpContext, Task<bool>>? BeforeMessages;
+    public Func<HttpContext, Task<bool>>? BeforeReceipt;
+    public Func<HttpContext, Task>? BeforeResponse;
     public Func<HttpContext, Task<bool>>? BeforeInfo;
     public int InfoRequests;
     public Func<Task>? BeforeDirectory;

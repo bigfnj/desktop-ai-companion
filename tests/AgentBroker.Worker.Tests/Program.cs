@@ -13,8 +13,48 @@ using System.Text.Json;
 int assertions = 0;
 void Check(bool value, string name)
 { if (!value) throw new InvalidOperationException(name); assertions++; Console.WriteLine("PASS: " + name); }
+if (args.Length == 1 && args[0] == "--claude-title-hook-only")
+{
+    try { await ClaudeTitleHookChecks.RunAsync(Check); Console.WriteLine($"RESULT=PASS assertions={assertions}"); return 0; }
+    catch (Exception error) { Console.Error.WriteLine(error); Console.WriteLine("RESULT=FAIL"); return 1; }
+}
+if (args.Length == 1 && args[0] == "--adapter-safety-only")
+{
+    try { await AdapterSafetyChecks.RunAsync(Check); Console.WriteLine($"RESULT=PASS assertions={assertions}"); return 0; }
+    catch (Exception error) { Console.Error.WriteLine(error); Console.WriteLine("RESULT=FAIL"); return 1; }
+}
+if (args.Length == 1 && args[0] == "--mcp-call-client-only")
+{
+    try
+    {
+        await McpCallClientChecks.RunAsync(Check);
+        Console.WriteLine($"RESULT=PASS assertions={assertions}");
+        return 0;
+    }
+    catch (Exception error) { Console.Error.WriteLine(error); Console.WriteLine("RESULT=FAIL"); return 1; }
+}
+if (args.Length == 1 && args[0] == "--recovery-guidance-only")
+{
+    try { await RecoveryGuidanceChecks.RunAsync(Check); Console.WriteLine($"RESULT=PASS assertions={assertions}"); return 0; }
+    catch (Exception ex) { Console.Error.WriteLine(ex); Console.WriteLine("RESULT=FAIL"); return 1; }
+}
+if (args.Length == 1 && args[0] == "--observation-pruning-only")
+{
+    try
+    {
+        ObservationPruningChecks.Run(Check);
+        Console.WriteLine($"RESULT=PASS assertions={assertions}");
+        return 0;
+    }
+    catch (Exception error) { Console.Error.WriteLine(error); Console.WriteLine("RESULT=FAIL"); return 1; }
+}
 // O-agentbroker-02: a measurement, not a check. Driven one fresh process at a time by tests/Measure-AgentBrokerCoordination.ps1.
 if (args.Length >= 1 && args[0] == "--coordination-benchmark") return await CoordinationBenchmark.RunAsync(args[1..]);
+if (args.SequenceEqual(["--native-recovery-compatibility"]))
+{
+    try { NativeRecoveryCompatibilityChecks.Run(Check); Console.WriteLine($"RESULT=PASS assertions={assertions}"); return 0; }
+    catch (Exception ex) { Console.Error.WriteLine(ex); Console.WriteLine("RESULT=FAIL"); return 1; }
+}
 if (args.Length == 1 && args[0] == "--claude-public-discovery-observation")
 {
     try
@@ -57,9 +97,24 @@ if (args.Length == 1 && args[0] == "--polling-lease-only")
     }
     catch (Exception ex) { Console.Error.WriteLine(ex); Console.WriteLine("RESULT=FAIL"); return 1; }
 }
+if (args.Length == 1 && args[0] == "--peer-observations-only")
+{
+    try { PeerObservationChecks.Run(Check); Console.WriteLine($"RESULT=PASS assertions={assertions}"); return 0; }
+    catch (Exception ex) { Console.Error.WriteLine(ex); Console.WriteLine("RESULT=FAIL"); return 1; }
+}
+if (args.Length == 1 && args[0] == "--engine-observation-order-only")
+{
+    try { await EngineObservationOrderChecks.RunAsync(Check); Console.WriteLine($"RESULT=PASS assertions={assertions}"); return 0; }
+    catch (Exception ex) { Console.Error.WriteLine(ex); Console.WriteLine("RESULT=FAIL"); return 1; }
+}
+if (args.Length == 1 && args[0] == "--local-snapshot-mapping-only")
+{
+    try { await LocalSnapshotMappingChecks.RunAsync(Check); Console.WriteLine($"RESULT=PASS assertions={assertions}"); return 0; }
+    catch (Exception ex) { Console.Error.WriteLine(ex); Console.WriteLine("RESULT=FAIL"); return 1; }
+}
 if (args.Length == 1 && args[0] is "--mailbox-only" or "--wait-tools-only" or "--send-only" or "--instructions-only" or
     "--inbox-attribution-only" or "--lan-profile-only" or "--receipt-wait-only" or "--first-contact-only" or "--send-advisory-only" or "--peer-forward-only" or
-    "--compact-receipts-only" or "--engine-binding-report-only")
+    "--compact-receipts-only" or "--engine-binding-report-only" or "--pending-inbox-only" or "--native-recovery-only" or "--metadata-only")
 {
     try
     {
@@ -75,6 +130,9 @@ if (args.Length == 1 && args[0] is "--mailbox-only" or "--wait-tools-only" or "-
         if (args[0] == "--instructions-only") await InstructionsChecks.RunAsync(Check);
         if (args[0] == "--compact-receipts-only") await CompactReceiptChecks.RunAsync(Check);
         if (args[0] == "--engine-binding-report-only") await EngineBindingReportChecks.RunAsync(Check);
+        if (args[0] == "--pending-inbox-only") await PendingInboxToolChecks.RunAsync(Check);
+        if (args[0] == "--native-recovery-only") await NativeRecoveryToolChecks.RunAsync(Check);
+        if (args[0] == "--metadata-only") await MetadataChecks.RunAsync(Check);
         Console.WriteLine($"RESULT=PASS assertions={assertions}");
         return 0;
     }
@@ -306,6 +364,8 @@ try
     await ControlPipeChecks.RunAsync(Check);
     await RuntimeLifecycleChecks.RunAsync(Check);
     await PeerDiagnosticsChecks.RunAsync(Check);
+    await McpCallClientChecks.RunAsync(Check);
+    await ClaudeTitleHookChecks.RunAsync(Check);
     await ClaudeObservationChecks.RunAsync(Check);
     await PaginationChecks.RunAsync(Check);
     await McpActivityChecks.RunAsync(Check);
@@ -323,14 +383,23 @@ try
         // Agent-to-agent bus: durable mailboxes, blocking waits, field-compared send, the instructions card.
         await MailboxChecks.RunAsync(Check);
         await WaitToolChecks.RunAsync(Check);
+        await PendingInboxToolChecks.RunAsync(Check);
+        await RecoveryGuidanceChecks.RunAsync(Check);
+        await NativeRecoveryToolChecks.RunAsync(Check);
+        await MetadataChecks.RunAsync(Check);
+        NativeRecoveryCompatibilityChecks.Run(Check);
         await ReceiptWaitChecks.RunAsync(Check);
         await FirstContactChecks.RunAsync(Check);
         await SendAdvisoryChecks.RunAsync(Check);
         await PeerForwardChecks.RunAsync(Check);
+        PeerObservationChecks.Run(Check);
+        await LocalSnapshotMappingChecks.RunAsync(Check);
+        await EngineObservationOrderChecks.RunAsync(Check);
         await SendToolChecks.RunAsync(Check);
         await InstructionsChecks.RunAsync(Check);
         // Compact sender receipts that tell their age and since when their recipient was seen busy (lane broker-163).
         await CompactReceiptChecks.RunAsync(Check);
+        ObservationPruningChecks.Run(Check);
         // The report-only Codex engine binding on rows and receipts (lane broker-163).
         await EngineBindingReportChecks.RunAsync(Check);
         // Client inbox attribution and the LAN network profile (lane feature/agentbroker-backlog-a).
@@ -404,9 +473,10 @@ try
         Check(initialize.GetProperty("result").TryGetProperty("protocolVersion", out _), "official MCP HTTP transport negotiates initialization");
         var tools = await Rpc(client, "tools/list", new { });
         var names = tools.GetProperty("result").GetProperty("tools").EnumerateArray().Select(t => t.GetProperty("name").GetString()).ToArray();
-        Check(names.Length == 12 && new[] { "list_sessions", "whoami", "register_agent", "send", "send_message", "wait_for_messages", "wait_for_reply",
-                "wait_for_receipt", "read_inbox", "acknowledge_message", "get_message_receipt", "reply_to_message" }.All(names.Contains),
-            "MCP publishes exactly the twelve real broker operations");
+        Check(names.Length == 16 && new[] { "list_sessions", "whoami", "register_agent", "send", "send_message", "wait_for_messages", "wait_for_reply",
+                "wait_for_receipt", "read_inbox", "read_inbox_page", "read_native_recovery", "set_session_declaration", "set_session_title",
+                "acknowledge_message", "get_message_receipt", "reply_to_message" }.All(names.Contains),
+            "MCP publishes exactly the sixteen real broker operations");
         var stdioInput = new System.IO.Pipelines.Pipe();
         var stdioOutput = new System.IO.Pipelines.Pipe();
         using (var bridgeInput = stdioInput.Reader.AsStream())
@@ -417,7 +487,7 @@ try
             await stdioInput.Writer.WriteAsync("{\"jsonrpc\":\"2.0\",\"id\":77,\"method\":\"tools/list\",\"params\":{}}\n"u8.ToArray());
             string line = await bridgeReader.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(10)) ?? throw new IOException("Missing stdio response.");
             using var reply = JsonDocument.Parse(line);
-            Check(reply.RootElement.GetProperty("id").GetInt32() == 77 && reply.RootElement.GetProperty("result").GetProperty("tools").GetArrayLength() == 12,
+            Check(reply.RootElement.GetProperty("id").GetInt32() == 77 && reply.RootElement.GetProperty("result").GetProperty("tools").GetArrayLength() == 16,
                 "stdio bridge discovers authenticated broker tools without persisting a token");
             Check(!line.Contains(connection.BearerToken!, StringComparison.Ordinal), "stdio output never exposes the local bearer token");
             await stdioInput.Writer.CompleteAsync();

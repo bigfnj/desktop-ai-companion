@@ -178,6 +178,13 @@ public sealed partial class AgentBrokerModule
                 shown.Contains("Same name", StringComparison.Ordinal) && shown.Contains("Saved trust", StringComparison.Ordinal) &&
                 shown.Contains("reachability is unknown", StringComparison.Ordinal),
                 "pairing list: identical broker names retain both endpoints and distinguish saved trust from reachability");
+            Apply(paired with { PeerClocks = [new(peer.BrokerId, "observed", 20, 1.1, .2, DateTimeOffset.UtcNow, 1, true),
+                new(Guid.NewGuid(), "observed", 999, 1.1, .2, DateTimeOffset.UtcNow, 1, true)] });
+            string withClock = pane.Load()["pairedBrokers"];
+            check(withClock.Contains("+20.0 s", StringComparison.Ordinal) && !withClock.Contains("+999.0 s", StringComparison.Ordinal) &&
+                withClock.Contains("Check time settings on both PCs", StringComparison.Ordinal),
+                "PEER_CLOCK_MATCHED_PANE: the actual paired-brokers field shows only the matching paired identity's clock observation");
+            Apply(paired);
             int notifications = 0; pane.InfoChanged += () => notifications++;
             var moved = other with { Endpoint = "https://192.0.2.22:7433/" };
             Apply(view with { Paired = [peer, moved] });
@@ -205,7 +212,7 @@ public sealed partial class AgentBrokerModule
                 BrokerId = new Guid(index + 1, 0, 0, new byte[8]), Name = "Peer" + index.ToString("D2"),
                 Endpoint = "https://192.0.2." + (index + 1) + ":7433/" }).ToArray() });
             shown = pane.Load()["pairedBrokers"];
-            check(shown.Split('\n').Length == 34 && shown.Contains("Peer31", StringComparison.Ordinal) &&
+            check(shown.Split('\n').Length == 66 && shown.Contains("Peer31", StringComparison.Ordinal) &&
                 !shown.Contains("Peer32", StringComparison.Ordinal) && shown.Contains("Showing 32 of 35", StringComparison.Ordinal),
                 "pairing list: lists thirty-two actual peers and states the bounded display when more exist");
             module.ApplyStatus(new(false, false, "worker_unresponsive"));

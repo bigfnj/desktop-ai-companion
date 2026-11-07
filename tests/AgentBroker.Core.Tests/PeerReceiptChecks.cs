@@ -47,6 +47,24 @@ internal static class PeerReceiptChecks
         Check(declined.Status == MessageStatus.Refused && declined.Reason == "recipient_receipt" &&
             NoticeAbout(refused) is { } refusedNotice && refusedNotice.Contains("was refused by its recipient", StringComparison.Ordinal),
             "PEER_REFUSED_UNCHANGED: a remote recipient's own refusal still reads as refused by its recipient");
+        foreach (string reason in new[] { "recipient_replaced", "recipient_unavailable", "recipient_cannot_receive", "private_session", "recipient_queue_full", "message_limit" })
+        {
+            var message = Forwarded("Synthetic known peer refusal.");
+            Check(store.RecordPeerReceipt(message.Id, remote, peerId, MessageStatus.Refused, reason).Reason == reason,
+                "PEER_KNOWN_REASON: only recognized refusal metadata survives receipt reconciliation");
+        }
+        foreach (string? reason in new[] { "unknown_future_code", "bad\nprivate_reason", "RECIPIENT_REPLACED", new string('x', 81), null })
+        {
+            var message = Forwarded("Synthetic unrecognized peer refusal.");
+            Check(store.RecordPeerReceipt(message.Id, remote, peerId, MessageStatus.Refused, reason).Reason == "recipient_receipt",
+                "PEER_UNKNOWN_REASON: malformed or unrecognized peer text never becomes receipt metadata");
+        }
+        var expiredWithReason = Forwarded("Synthetic expired peer metadata.");
+        Check(store.RecordPeerReceipt(expiredWithReason.Id, remote, peerId, MessageStatus.Expired, "recipient_replaced").Reason == "peer_expired",
+            "PEER_EXPIRED_REASON_PRIORITY: expiry keeps its special meaning regardless of supplied refusal metadata");
+        var deliveredWithReason = Forwarded("Synthetic successful peer metadata.");
+        Check(store.RecordPeerReceipt(deliveredWithReason.Id, remote, peerId, MessageStatus.Delivered, "recipient_replaced").Reason == "recipient_receipt",
+            "PEER_REASON_STATUS_SCOPE: refusal metadata never decorates a successful receipt");
         return passed;
     }
 

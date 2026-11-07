@@ -11,6 +11,7 @@ internal static class RuntimeLifecycleChecks
 {
     internal static async Task RunAsync(Action<bool, string> check)
     {
+        await AdapterSafetyChecks.RunAsync(check);
         string scratch = Path.Combine(AppContext.BaseDirectory, "scratch", "runtime-" + Guid.NewGuid().ToString("N"));
         using (var store = new BrokerStore(Path.Combine(scratch, "directory")))
         {

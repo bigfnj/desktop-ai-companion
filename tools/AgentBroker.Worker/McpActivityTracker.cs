@@ -1,3 +1,4 @@
+using AgentBroker.Core;
 using AgentBroker.Protocol;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
@@ -74,7 +75,7 @@ internal sealed class McpActivityTracker
     }
 }
 
-internal sealed class McpActivityFilters(McpActivityTracker tracker, Guid brokerId)
+internal sealed class McpActivityFilters(McpActivityTracker tracker, Guid brokerId, BrokerRuntime? runtime = null)
 {
     private const string ObservationKey = "agentbroker.mcp-observation";
 
@@ -114,6 +115,8 @@ internal sealed class McpActivityFilters(McpActivityTracker tracker, Guid broker
 
     public McpMessageFilter Outgoing() => next => async (context, token) =>
     {
+        if (context.JsonRpcMessage is JsonRpcResponse response && LocalContext(context) is { } local)
+            BrokerRecoveryGuidance.AppendError(response.Result, local);
         await next(context, token).ConfigureAwait(false);
         if (!token.IsCancellationRequested && context.JsonRpcMessage is JsonRpcResponse &&
             LocalContext(context) is { } http && !http.RequestAborted.IsCancellationRequested &&
@@ -135,6 +138,8 @@ internal sealed class McpActivityFilters(McpActivityTracker tracker, Guid broker
 
     public McpRequestFilter<CallToolRequestParams, CallToolResult> CallTool() => next => async (context, token) =>
     {
+        if (LocalContext(context) is { } requestContext)
+            requestContext.Items[BrokerRecoveryGuidance.OperationKey] = context.Params?.Name;
         var result = await next(context, token).ConfigureAwait(false);
         if (result.IsError is not true)
         {
@@ -146,6 +151,11 @@ internal sealed class McpActivityFilters(McpActivityTracker tracker, Guid broker
                 LocalContext(context) is { } http && http.Items.TryGetValue(ObservationKey, out var value) &&
                 value is Observation observation && observation.Operation == McpObservedOperation.CallTool)
                 observation.Registration = ("mcp:" + clientId.ToString("D"), incarnation);
+            if (runtime is not null && LocalContext(context) is { } local)
+            {
+                BrokerRecoveryGuidance.AppendReceipt(result, local);
+                McpInboxHints.Append(result, local, runtime);
+            }
         }
         return result;
     };

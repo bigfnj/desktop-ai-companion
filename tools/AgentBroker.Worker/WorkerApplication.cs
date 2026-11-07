@@ -85,7 +85,7 @@ public sealed class WorkerApplication : IAsyncDisposable
             builder.Services.AddSingleton(runtime);
             builder.Services.AddHttpContextAccessor();
             var mcpActivity = new McpActivityTracker();
-            var mcpFilters = new McpActivityFilters(mcpActivity, store.BrokerId);
+            var mcpFilters = new McpActivityFilters(mcpActivity, store.BrokerId, runtime);
             // The instructions card reaches HTTP clients directly and Codex through the verbatim stdio bridge.
             builder.Services.AddMcpServer(server => server.ServerInstructions = BrokerInstructions.Text).WithHttpTransport(transport =>
                 transport.SessionMode = HttpServerSessionMode.Stateless).WithTools<BrokerTools>()
@@ -124,7 +124,7 @@ public sealed class WorkerApplication : IAsyncDisposable
     {
         var adapters = new List<ILocalAgentAdapter>();
         if (options.EnableCodexNativeDiscovery) adapters.Add(new CodexNativeAdapter(options.EnableCodexPeerMessages,
-            options.EnableCodexUpdateTolerantDelivery));
+            options.EnableCodexUpdateTolerantDelivery, options.AdditionalCodexHomes));
         if (options.EnableClaudeNativeDiscovery) adapters.Add(new ClaudeNativeAdapter(options.EnableClaudePeerCredentials,
             options.EnableClaudeUpdateTolerantDelivery));
         return adapters;

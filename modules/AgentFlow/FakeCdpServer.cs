@@ -44,6 +44,8 @@ namespace DesktopAICompanion.AgentFlow
         private int _evaluateCount;
         private int _attachCount;
         private int _listCount;
+        internal string VersionReplyOverride;
+        internal string TargetListReplyOverride;
 
         internal sealed class Target
         {
@@ -149,6 +151,7 @@ namespace DesktopAICompanion.AgentFlow
 
             if (string.Equals(path, "/json/version", StringComparison.Ordinal))
             {
+                if (VersionReplyOverride != null) { Write(context, VersionReplyOverride); return; }
                 Write(context, "{\"webSocketDebuggerUrl\":\"ws://127.0.0.1:"
                     + Port.ToString(CultureInfo.InvariantCulture) + "/devtools/browser/fake\"}");
                 return;
@@ -156,6 +159,7 @@ namespace DesktopAICompanion.AgentFlow
 
             if (string.Equals(path, "/json/list", StringComparison.Ordinal))
             {
+                if (TargetListReplyOverride != null) { Write(context, TargetListReplyOverride); return; }
                 var sb = new StringBuilder("[");
                 lock (_lock)
                 {

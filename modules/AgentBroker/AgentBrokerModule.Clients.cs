@@ -106,13 +106,17 @@ public sealed partial class AgentBrokerModule
             ClientConfiguration.CliMissing => client == "claude"
                 ? "\u2717 Configuration: the Claude Code CLI was not found. The companion starts claude.exe from PATH or the standard user install, never a script shim such as claude.cmd."
                 : "\u2717 Configuration: the Codex CLI was not found. The companion starts codex.exe from PATH, never a script shim such as codex.cmd.",
-            ClientConfiguration.PolicyBlocked => "\u2717 Configuration: blocked by managed policy (" + exit + "). Ask the policy owner to approve this exact local server.",
+            ClientConfiguration.PolicyBlocked => inspection.Health == "disabled_by_requirements"
+                ? "\u2717 Configuration: Codex reports this entry disabled by requirements. Ask the policy owner to permit this exact local server, then start a fresh chat."
+                : "\u2717 Configuration: blocked by managed policy (" + exit + "). Ask the policy owner to approve this exact local server.",
             ClientConfiguration.Absent => "\u2717 Configuration: absent. Use Connect " + (client == "claude" ? "Claude" : "Codex") + " MCP to add it for this user.",
             ClientConfiguration.DifferentEntry => "\u2717 Configuration: an entry named " + AgentClientSetup.ServerName +
                 " exists but does not point at this broker. Review it in " + name + "'s MCP settings; AgentBroker never replaces it.",
             ClientConfiguration.Disabled => client == "claude"
                 ? "\u2717 Configuration: this broker's entry exists, but Claude Code reports it rejected or disabled in its settings."
-                : "\u2717 Configuration: this broker's entry exists, but it is disabled in Codex (enabled = false).",
+                : inspection.Health == "disabled_reason_reported"
+                    ? "\u2717 Configuration: Codex reports this entry disabled. Review its MCP settings and disabled reason; no setting was changed."
+                    : "\u2717 Configuration: this broker's entry exists, but it is disabled in Codex (enabled = false).",
             ClientConfiguration.Unrecognized => "\u26A0 Configuration: " + name + "'s report was not in a recognized form, so this CLI version is unsupported here. Nothing was changed.",
             ClientConfiguration.Configured => "\u2713 Configuration: the exact entry for this broker, " + ScopeText(inspection!.Scope) + ", " +
                 (inspection.Transport == "http" ? "local HTTP" : "stdio bridge") + ". Checked " + Age(inspection.CheckedUtc, McpNow()) + ".",

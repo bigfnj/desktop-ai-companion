@@ -6,9 +6,32 @@ using System.Text.Json;
 
 namespace AgentBroker.Worker;
 
-/// <summary>Local administration never shares the LAN listener or its trust domain.</summary>
-public sealed class LocalControlServer(WorkerApplication worker) : IAsyncDisposable
+// Tests replace the application boundary while retaining the actual control handler and snapshot mapping.
+internal interface ILocalControlWorker
 {
+    WorkerOptions Options { get; }
+    BrokerRuntime Runtime { get; }
+    WebApplication Application { get; }
+    string LocalAccessToken { get; }
+    McpStatusView McpStatus { get; }
+    LanProfileMonitor LanProfile { get; }
+}
+
+/// <summary>Local administration never shares the LAN listener or its trust domain.</summary>
+public sealed class LocalControlServer : IAsyncDisposable
+{
+    private readonly ILocalControlWorker worker;
+    public LocalControlServer(WorkerApplication worker) : this(new ApplicationControlWorker(worker)) { }
+    internal LocalControlServer(ILocalControlWorker worker) => this.worker = worker;
+    private sealed class ApplicationControlWorker(WorkerApplication worker) : ILocalControlWorker
+    {
+        public WorkerOptions Options => worker.Options;
+        public BrokerRuntime Runtime => worker.Runtime;
+        public WebApplication Application => worker.Application;
+        public string LocalAccessToken => worker.LocalAccessToken;
+        public McpStatusView McpStatus => worker.McpStatus;
+        public LanProfileMonitor LanProfile => worker.LanProfile;
+    }
     private readonly CancellationTokenSource stop = new();
     private Task[] listeners = [];
     public void Start()
@@ -76,6 +99,8 @@ public sealed class LocalControlServer(WorkerApplication worker) : IAsyncDisposa
                 worker.Runtime.SetSessionPreference(request.SessionId, request.Value, null); break;
             case "session-muted" when request.SessionId is not null:
                 worker.Runtime.SetSessionPreference(request.SessionId, null, request.Value); break;
+            case "approval-observation":
+                worker.Runtime.SetApprovalObservation(request.ApprovalPromptCount, request.ApprovalObservedAtUtc); break;
             case "stop": return new(true, "stopping");
             default: return new(false, "unknown_control_operation");
         }
@@ -106,7 +131,9 @@ public sealed class LocalControlServer(WorkerApplication worker) : IAsyncDisposa
             new Dictionary<string, string>(runtime.AdapterErrors, StringComparer.Ordinal),
             worker.Options.EnableLan ? runtime.Federation.LocalAdvertisement.CertificateSha256 : null, mcp, LanProfile(lanEndpoint),
             DroppedNotices(runtime.Store.DroppedNotices()),
-            runtime.AdapterNotes.Count == 0 ? null : new Dictionary<string, string>(runtime.AdapterNotes, StringComparer.Ordinal));
+            runtime.AdapterNotes.Count == 0 ? null : new Dictionary<string, string>(runtime.AdapterNotes, StringComparer.Ordinal),
+            runtime.Federation.ClockObservations is { Count: > 0 } clocks ? clocks.Take(32).ToArray() : null,
+            runtime.ApprovalObservationView is { } approval ? new ApprovalPromptView(approval.State, approval.VisiblePromptCount, approval.ObservedAtUtc) : null);
     }
 
     // Absent while none was dropped, so the snapshot is unchanged for a worker that has nothing to report.

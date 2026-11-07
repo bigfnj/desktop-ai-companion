@@ -58,15 +58,18 @@ public static class PeerDiagnostics
         catch (OperationCanceledException) when (budget.IsCancellationRequested && !token.IsCancellationRequested)
         { /* Completed and attempted checks remain distinct from peers not started within the budget. */ }
         token.ThrowIfCancellationRequested();
+        var clocks = runtime.Federation.ClockObservations;
         return peers.Select(peer =>
         {
             var result = results.GetValueOrDefault(peer.BrokerId);
             // Another peer may have used the remaining budget after this observation completed.
-            // Re-pairing or revocation in that interval must not publish an earlier confirmed result.
-            if (result?.Success == true && (authorizations[peer.BrokerId] is not { } authorization ||
-                !runtime.Store.IsPeerAuthorized(authorization))) return Failure(peer, "trust_changed");
-            return result ?? new PeerDiagnosticView(peer.BrokerId, peer.Endpoint, peer.CertificateSha256,
+            // Re-pairing or revocation in that interval must not publish an earlier result or cached clock,
+            // including a clock attached to a failed directory lookup.
+            if (authorizations[peer.BrokerId] is not { } authorization ||
+                !runtime.Store.IsPeerAuthorized(authorization)) return Failure(peer, "trust_changed");
+            result ??= new PeerDiagnosticView(peer.BrokerId, peer.Endpoint, peer.CertificateSha256,
                 false, "not_checked_budget", null, "not_checked", null);
+            return result with { Clock = clocks.FirstOrDefault(clock => clock.BrokerId == peer.BrokerId) };
         }).ToArray();
     }
 

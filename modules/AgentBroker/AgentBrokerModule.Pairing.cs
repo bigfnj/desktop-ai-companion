@@ -62,7 +62,8 @@ public sealed partial class AgentBrokerModule
                 ? Safe(endpoint.AbsoluteUri, 512) : "endpoint unavailable";
         IEnumerable<string> lines = snapshot.Paired.OrderBy(Name, StringComparer.OrdinalIgnoreCase)
             .ThenBy(peer => peer.BrokerId).ThenBy(peer => peer.CertificateSha256, StringComparer.OrdinalIgnoreCase)
-            .Take(32).Select(peer => Name(peer) + " | " + Endpoint(peer));
+            .Take(32).Select(peer => Name(peer) + " | " + Endpoint(peer) + "\n  " +
+                PeerClockText(snapshot.PeerClocks?.FirstOrDefault(clock => clock.BrokerId == peer.BrokerId)));
         string result = "Saved trust on this PC; current reachability is unknown.\n" + string.Join("\n", lines);
         return snapshot.Paired.Length > 32 ? result + "\nShowing 32 of " + snapshot.Paired.Length + " saved brokers." : result;
     }

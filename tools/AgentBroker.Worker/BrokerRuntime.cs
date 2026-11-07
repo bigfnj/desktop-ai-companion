@@ -4,7 +4,7 @@ using System.Runtime.ExceptionServices;
 
 namespace AgentBroker.Worker;
 
-public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
+public sealed partial class BrokerRuntime(BrokerStore store, IPeerFederation federation,
     IReadOnlyList<ILocalAgentAdapter> adapters, SessionPreferences? sessionPreferences = null,
     TimeProvider? clock = null, ICallerProcessResolver? callerProcesses = null) : IAsyncDisposable
 {
@@ -203,6 +203,7 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
     internal TimeSpan LoopRestartDelay { get; init; } = TimeSpan.FromSeconds(1);
     internal TimeSpan LoopRestartLimit { get; init; } = TimeSpan.FromMinutes(1);
     private readonly ConcurrentDictionary<string, int> loopFailures = new(StringComparer.Ordinal);
+    private int invalidAdapterResults;
 
     private async Task GuardAsync(string name, Func<CancellationToken, Task> run, CancellationToken stop)
     {
@@ -266,7 +267,15 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
                 // An adapter may now end a pass early with what it resolved (CodexNativeAdapter); at shutdown, nothing registers.
                 stop.ThrowIfCancellationRequested();
                 if (sessions.Count > 256) throw new BrokerException("session_limit", "Adapter directory exceeded its bound.");
-                foreach (var session in sessions) Register(session);
+                foreach (var session in sessions)
+                {
+                    Register(session);
+                    if ((adapter.Id is "claude-native" or "codex-native") && session.Adapter == adapter.Id)
+                    {
+                        store.ObserveNativeSession(session.Address, adapter.Id);
+                        observations.ObserveDirectory(session);
+                    }
+                }
                 var reported = adapter.DiscoveryDiagnostics.Take(8).ToArray();
                 var diagnostics = reported.Where(item => !item.Note).Select(item => item.ToStatusText()).Distinct().ToArray();
                 if (diagnostics.Length == 0) adapterErrors.TryRemove(adapter.Id, out _);
@@ -373,7 +382,8 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
                     _ => AdapterAdmission.Submitted,
                 // A paired broker that answers the forward itself with Expired: the same peer_expired reason and notice as
                 // the receipt loop's BrokerStore.RecordPeerReceipt (Codex 01a1855c's review of 3f6c2a3).
-                }, remote.Status == MessageStatus.Expired ? "peer_expired" : "peer_receipt");
+                }, remote.Status == MessageStatus.Expired ? "peer_expired" : remote.Status == MessageStatus.Refused
+                    ? PeerReceiptPolicy.KnownRefusalReason(remote.Reason) ?? "peer_receipt" : "peer_receipt");
             }
             else
             {
@@ -383,6 +393,9 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
                     : await adapter.SubmitAsync(receipt.Message, DescribeSender(receipt.Message.Sender), deadline.Token);
             }
         }
+        catch (AgentBroker.Worker.Federation.PeerAdmissionRefusedException refused) when
+            (receipt.Message.Recipient.BrokerId != store.BrokerId && refused.BrokerId == receipt.Message.Recipient.BrokerId)
+        { result = new(AdapterAdmission.Refused, refused.Code); }
         catch (Exception e) when (e is IOException or InvalidDataException or HttpRequestException or BrokerException or
             UnauthorizedAccessException or System.ComponentModel.Win32Exception or OperationCanceledException)
         { result = new(AdapterAdmission.Uncertain, "submission_unconfirmed"); }
@@ -396,9 +409,13 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
         // submission may have been written, so it is Uncertain like any unconfirmed one, under its own reason; the type is
         // not recorded, as it could carry a vendor message.
         catch (Exception) { result = new(AdapterAdmission.Uncertain, "submission_failed"); }
+        result = AdapterResultPolicy.Normalize(result, out bool invalidResult);
+        if (invalidResult)
+            adapterErrors["adapter_result"] = "adapter_result_invalid: " + Interlocked.Increment(ref invalidAdapterResults) +
+                " malformed adapter results; affected claims use a fixed diagnostic instead of stopping delivery.";
         // What this attempt learned about a local recipient, for the sender's receipt and the directory. Observation only.
         if (receipt.Message.Recipient.BrokerId == store.BrokerId)
-            observations.Record(receipt.Message, result, id => store.FindReceipt(id) is { Status: MessageStatus.Accepted or MessageStatus.Submitting });
+            observations.Record(receipt.Message, result);
         // A revocation may have resolved an in-flight claim while its IO was completing.
         if (store.FindReceipt(receipt.Message.Id)?.Status != MessageStatus.Submitting) return;
         try
@@ -446,7 +463,7 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
                     var remote = await federation.GetReceiptAsync(peer, message.Message.Id, deadline.Token);
                     if (remote?.Message != message.Message || remote.Status is not
                         (MessageStatus.Delivered or MessageStatus.Held or MessageStatus.Refused or MessageStatus.Expired)) continue;
-                    store.RecordPeerReceipt(message.Message.Id, message.Message.Recipient, peer.BrokerId, remote.Status);
+                    store.RecordPeerReceipt(message.Message.Id, message.Message.Recipient, peer.BrokerId, remote.Status, remote.Reason);
                 }
                 // An unreadable receipt answer is that message's failure for this pass; it used to end the receipt loop, so
                 // no outbound message to any peer got its receipt again (A-broker-02).

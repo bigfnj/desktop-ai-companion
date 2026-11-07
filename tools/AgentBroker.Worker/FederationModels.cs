@@ -1,4 +1,5 @@
 using AgentBroker.Core;
+using AgentBroker.Protocol;
 
 namespace AgentBroker.Worker;
 
@@ -11,6 +12,7 @@ public sealed record PeerDirectory(Guid BrokerId, IReadOnlyList<BrokerSession> S
 
 public interface IPeerFederation : IAsyncDisposable
 {
+    IReadOnlyList<PeerClockView> ClockObservations => [];
     IReadOnlyList<BrokerAdvertisement> Discovered { get; }
     IReadOnlyList<PairingOffer> PairingOffers { get; }
     BrokerAdvertisement LocalAdvertisement { get; }

@@ -25,7 +25,7 @@ import subprocess
 import sys
 import uuid
 
-from run_agentbroker_pin_diagnostic_mutations import Runner, refuse_links, replace_exact
+from run_agentbroker_pin_diagnostic_mutations import Runner, refuse_links, replace_exact, restore_owned_sources
 
 ROOT = Path(__file__).resolve().parents[1]
 POLICY = "installer/ScopedShutdown/ShutdownPolicy.cpp"
@@ -100,23 +100,7 @@ def restore_owned(root: Path, sources: list[str], original: dict, current: dict)
     the backups in the evidence folder stay for it. Stopping at the first such file left a later source still mutated:
     first a foreign edit (Codex 01a1855c), then an I/O error on an earlier source (Codex review 2026-11-02).
     """
-    left = []
-    for relative in sources:
-        path = root / relative
-        try:
-            raw = path.read_bytes()
-        except OSError as error:
-            left.append(relative + " (unreadable: " + type(error).__name__ + ")")
-            continue
-        if raw not in (original[relative], current[relative]):
-            left.append(relative + " (differs from original and owned mutation)")
-            continue
-        try:
-            path.write_bytes(original[relative])
-        except OSError as error:
-            left.append(relative + " (could not be restored: " + type(error).__name__ + ")")
-    if left:
-        raise RuntimeError("Source not restored; manual recovery required: " + "; ".join(left))
+    restore_owned_sources(root, {relative: original[relative] for relative in sources}, current)
 
 
 def self_test() -> int:
@@ -379,9 +363,11 @@ def main(argv: list[str] | None = None) -> int:
         healthy("before-healthy")
         for name, suite, relative, before, after, label in selected:
             path = ROOT / relative
+            refuse_links(path)
             if path.read_bytes() != original[relative]:
                 raise RuntimeError("Concurrent source change refused before mutation.")
             current[relative] = replace_exact(original[relative], before, after)
+            refuse_links(path)
             path.write_bytes(current[relative])
             stamp = built_stamp()
             build(name + "-build")
@@ -394,9 +380,7 @@ def main(argv: list[str] | None = None) -> int:
                                         "fired": fired, "exitCode": result["exitCode"]})
             if not fired:
                 raise RuntimeError("Negative witness did not fail in the focused new check: " + name)
-            if path.read_bytes() != current[relative]:
-                raise RuntimeError("Concurrent source change refused during mutation.")
-            path.write_bytes(original[relative])
+            restore_owned(ROOT, [relative], original, current)
             current[relative] = original[relative]
     except Exception as error:
         primary = str(error)

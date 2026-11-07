@@ -414,7 +414,7 @@ internal static class CodexTrustPolicyChecks
         foreach (var (native, admission, reason) in new[]
         {
             (DesktopSubmissionOutcome.Rejected, AdapterAdmission.Refused, "native_admission_refused"),
-            (DesktopSubmissionOutcome.DeferredNotSubmitted, AdapterAdmission.DeferredNotSubmitted, "native_context_busy"),
+            (DesktopSubmissionOutcome.DeferredNotSubmitted, AdapterAdmission.DeferredNotSubmitted, "native_not_submitted"),
             (DesktopSubmissionOutcome.Uncertain, AdapterAdmission.Uncertain, "native_submission_uncertain"),
         })
         {

@@ -1143,8 +1143,8 @@ namespace DesktopAICompanion.Modules
         void PublishContext(string moduleId, string key, string valueJson);
         string ReadContext(string key);
 
-        // READ AT USE, unless you must act ON the change -- and that distinction is why ContextChanged has no
-        // in-repo subscriber. Decided 2026-09-17; the reasoning is in docs/DESIGN-REGISTER.md under "Settled
+        // READ AT USE, unless you must act ON the change. Decided 2026-09-17; the reasoning is in
+        // docs/DESIGN-REGISTER.md under "Settled
         // decisions". The host RETAINS every published value for the life of the process, so ReadContext at the
         // instant you need the value cannot miss anything, needs no cached field, and needs no unsubscribe in
         // Shutdown. A SUBSCRIBER sees only changes that happen while it is attached, and a publisher may
@@ -1155,7 +1155,8 @@ namespace DesktopAICompanion.Modules
         //
         // This event is therefore for the OTHER kind of reader -- one that must do something the moment the
         // fact changes rather than the moment it is used -- including out-of-tree modules, which is why it
-        // stays on the ABI with no consumer in this repo. ModuleKit.Testing.RecordingHost raises it inline on the
+        // stays on the ABI. AgentBroker subscribes to AgentFlow's aggregate approval observation and also reads
+        // the retained value on attachment for late load; it detaches in Shutdown. ModuleKit.Testing.RecordingHost raises it inline on the
         // caller's thread, which is what the host does for a publish made on the UI thread; a publish from a worker
         // thread is posted to the UI thread here and raised at once on the worker there (N-host-runtime-02), so a
         // subscriber can be unit-tested against the shipped double for UI-thread publishes only.

@@ -21,6 +21,7 @@ public sealed partial class AgentBrokerModule
         try
         {
             AgentBrokerSupervisorChecks.RunAsync(Check).GetAwaiter().GetResult();
+            RunMetadataChecks(Check);
             RunStatusChecks(Check, dispatcher);
             RunMcpStatusChecks(Check, dispatcher);
             RunLifetimeChecks(Check, dispatcher);
@@ -28,6 +29,8 @@ public sealed partial class AgentBrokerModule
             RunFirewallChecks(Check, dispatcher);
             RunOnboardingChecks(Check, dispatcher);
             RunClientRouteChecks(Check);
+            RunDesktopChatChecks(Check, dispatcher);
+            RunPeerClockChecks(Check);
             var host = new TestHost();
             string directory = Path.Combine(Path.GetTempPath(), "agentbroker-synthetic-" + Guid.NewGuid().ToString("N"));
             host.UseStorage(Id, new TestStorage(directory));

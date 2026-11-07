@@ -16,7 +16,7 @@ public sealed partial class AgentBrokerModule : IModule
     private IModuleSettings? settingsStore;
     private OptionsPane? optionsPane;
     private (string Status, string NativeStatus, string PairingStatus, string McpStatus, string AgentInboxes, string LanAccess, string PairedBrokers,
-        string ClaudeClient, string CodexClient)? notifiedInfo;
+        string ClaudeClient, string CodexClient, string ApprovalPrompts)? notifiedInfo;
     private ITrayQuestions? questions;
     private SynchronizationContext? ui;
     private BrokerSettings settings = new(false, "AgentBroker", 7432, 7433, true, true, true, true, false, false);
@@ -41,7 +41,9 @@ public sealed partial class AgentBrokerModule : IModule
     {
         Id = "agentbroker",
         Name = "AgentBroker",
-        Version = "1.7.2",   // 1.7.2: a Codex build that is not exactly pinned but that Windows verifies as signed by its
+        Version = "1.8.0",   // 1.8.0: arrival-cursor inbox reads, report-only native recovery, exact-address declarations,
+                             //        independent discovery, delivery diagnostics and a supported one-request client.
+                             // 1.7.2: a Codex build that is not exactly pinned but that Windows verifies as signed by its
                              //        publisher (the VS Code extension, the desktop app or the VS Code router) is reported
                              //        as a note naming the build ("Publisher-verified builds: ... Update-tolerant delivery is
                              //        enabled.") instead of an adapter error, as Claude's has been since 1.7.1 (the owner's
@@ -202,6 +204,7 @@ public sealed partial class AgentBrokerModule : IModule
         if (this.host is not null) throw new InvalidOperationException("Module already initialized.");
         this.host = host;
         ui = SynchronizationContext.Current;
+        AttachApprovalObservation(host);
         questions = host as ITrayQuestions;
         settingsStore = host.GetSettings(Id) ?? new DesktopAICompanion.ModuleKit.MemoryModuleSettings();
         settings = BrokerSettings.Read(settingsStore);
@@ -209,7 +212,7 @@ public sealed partial class AgentBrokerModule : IModule
         if (storage is not null && Path.IsPathFullyQualified(storage)) dataDirectory = Path.GetFullPath(storage);
         optionsPane = BuildOptions();
         notifiedInfo = (DisplayedStatus(), NativeStatusText(), PairingDisplayText(), McpDisplay().Detail, AgentInboxDisplay().Detail, LanAccessText(), PairedBrokersDisplay(),
-            ClientDisplay("claude"), ClientDisplay("codex"));
+            ClientDisplay("claude"), ClientDisplay("codex"), ApprovalPromptText());
         host.AddOptionsPane(optionsPane);
         host.AddTrayItems([new TrayItem { Label = "AgentBroker", Group = 30, Order = 0, BuildChildren = BuildTray,
             IconPng = DesktopAICompanion.ModuleKit.EmbeddedResources.LoadBytes(typeof(AgentBrokerModule).Assembly, "agentbroker.png") }]);
@@ -221,7 +224,7 @@ public sealed partial class AgentBrokerModule : IModule
     {
         if (shutDown) return;
         shutDown = true; generation++;
-        if (host is not null) host.HostShutdown -= Shutdown;
+        if (host is not null) { host.HostShutdown -= Shutdown; DetachApprovalObservation(host); }
         run?.Cancel();
         CancelObsoletePairingQuestions(null);
         CancellationTokenSource? stopped = run;
@@ -240,6 +243,7 @@ public sealed partial class AgentBrokerModule : IModule
             new() { Id = "pairedBrokers", Label = "Paired brokers", Kind = SettingKind.Info, Group = "AgentBroker", FullWidth = true },
             new() { Id = "agentInboxes", Label = "Agent inboxes", Kind = SettingKind.Info, Group = "AgentBroker", FullWidth = true },
             new() { Id = "mcpStatus", Label = "MCP client traffic", Kind = SettingKind.Info, Group = "AgentBroker", FullWidth = true },
+            new() { Id = "approvalPrompts", Label = "Visible Codex approval prompts", Kind = SettingKind.Info, Group = "AgentBroker", FullWidth = true },
             new() { Id = "enabled", Label = "Enable AgentBroker", Kind = SettingKind.Bool, Group = "AgentBroker" },
             new() { Id = "name", Label = "Broker name", Kind = SettingKind.Text, Group = "Connections" },
             new() { Id = "loopbackPort", Label = "Local port", Kind = SettingKind.Int, Min = 1, Max = 65535, Group = "Connections" },
@@ -253,6 +257,8 @@ public sealed partial class AgentBrokerModule : IModule
             new() { Id = "pairingStatus", Label = "Pairing", Kind = SettingKind.Info, Group = "Connections" },
             new() { Id = "manualPeer", Label = "Broker invitation (optional)", Kind = SettingKind.Text, Group = "Connections", FullWidth = true },
             new() { Id = "codexDiscovery", Label = "Discover open Codex sessions", Kind = SettingKind.Bool, Group = "Coding agents" },
+            new() { Id = "additionalCodexHome", Label = "Additional Codex home to observe", Kind = SettingKind.FolderPath,
+                Group = "Coding agents", EmptyHint = "Optional; the default Codex home is already observed", EnabledWhen = "codexDiscovery=true" },
             new() { Id = "claudeDiscovery", Label = "Discover open Claude sessions", Kind = SettingKind.Bool, Group = "Coding agents" },
             new() { Id = "codexPeerMessages", Label = "Wake existing Codex sessions", Kind = SettingKind.Bool, Group = "Coding agents" },
             new() { Id = "claudePeerCredentials", Label = "Wake existing Claude sessions", Kind = SettingKind.Bool, Group = "Coding agents" },
@@ -264,7 +270,13 @@ public sealed partial class AgentBrokerModule : IModule
             new() { Id = "clientSetup", Label = "Client connection", Kind = SettingKind.Info, Group = "Coding agents" },
             new() { Id = "claudeClient", Label = "Claude Code (CLI and VS Code)", Kind = SettingKind.Info, Group = "Coding agents", FullWidth = true },
             new() { Id = "codexClient", Label = "Codex", Kind = SettingKind.Info, Group = "Coding agents", FullWidth = true },
-            new() { Id = "nativeStatus", Label = "Native adapters", Kind = SettingKind.Info, Group = "Coding agents" }
+            new() { Id = "nativeStatus", Label = "Native adapters", Kind = SettingKind.Info, Group = "Coding agents" },
+            new() { Id = "desktopChatHelp", Label = "Open an existing chat", Kind = SettingKind.Info,
+                Group = "Reopen a Codex desktop chat", FullWidth = true },
+            new() { Id = "desktopChatOrigin", Label = "Original app", Kind = SettingKind.Enum,
+                Options = [DesktopChatOriginPrompt, DesktopChatOrigin, DesktopChatVsCodeOrigin], Group = "Reopen a Codex desktop chat" },
+            new() { Id = "desktopChatThreadId", Label = "Thread ID from the chat link", Kind = SettingKind.Text,
+                Group = "Reopen a Codex desktop chat", EnabledWhen = "desktopChatOrigin=" + DesktopChatOrigin }
         ],
         Load = LoadOptions, Save = SaveOptions,
         Actions = [new PaneAction { Label = "Refresh status", Group = "AgentBroker", ReloadPaneAfter = true,
@@ -272,6 +284,8 @@ public sealed partial class AgentBrokerModule : IModule
             new PaneAction { Label = "Check client setup", Group = "Coding agents", ReloadPaneAfter = true, InvokeAsync = () => CheckClientSetupAsync() },
             new PaneAction { Label = "Connect Codex MCP", Group = "Coding agents", ReloadPaneAfter = true, InvokeAsync = () => ConnectAndCheckAsync("codex") },
             new PaneAction { Label = "Connect Claude MCP", Group = "Coding agents", ReloadPaneAfter = true, InvokeAsync = () => ConnectAndCheckAsync("claude") },
+            new PaneAction { Label = "Open existing desktop chat", Group = "Reopen a Codex desktop chat",
+                InvokeWithPendingAsync = OpenCodexDesktopChatAsync },
             new PaneAction { Label = "Allow LAN access", Group = "Connections", ReloadPaneAfter = true, InvokeAsync = AllowLanAccessAsync },
             new PaneAction { Label = "Copy broker invitation", Group = "Connections", InvokeAsync = CopyInvitationAsync },
             new PaneAction { Label = "Pair from invitation", Group = "Connections", InvokeWithPendingAsync = PairInvitationAsync }]
@@ -281,9 +295,10 @@ public sealed partial class AgentBrokerModule : IModule
     {
         var values = settings.Values();
         values["status"] = DisplayedStatus();
+        values["approvalPrompts"] = ApprovalPromptText();
         values["mcpStatus"] = McpDisplay().Detail;
         values["agentInboxes"] = AgentInboxDisplay().Detail;
-        values["messageLifetimeHelp"] = "Default for new replies; explicit message deadlines stay unchanged. Messages already received remain received after the deadline.";
+        values["messageLifetimeHelp"] = "Default for new replies and sends using ttlMinutes 0; explicit message deadlines stay unchanged. Messages already received remain received after the deadline.";
         values["pairingStatus"] = PairingDisplayText();
         values["pairedBrokers"] = PairedBrokersDisplay();
         values["lanAccess"] = LanAccessText();
@@ -296,6 +311,9 @@ public sealed partial class AgentBrokerModule : IModule
         values["nativeStatus"] = NativeStatusText();
         values["claudeClient"] = ClientDisplay("claude");
         values["codexClient"] = ClientDisplay("codex");
+        values["desktopChatHelp"] = "Choose the chat's original app and enter its thread ID from the chat link. This asks the desktop app to open that chat. Sending broker messages remains a separate action.";
+        values["desktopChatOrigin"] = DesktopChatOriginPrompt;
+        values["desktopChatThreadId"] = "";
         return values;
     }
 
@@ -318,7 +336,7 @@ public sealed partial class AgentBrokerModule : IModule
     {
         if (shutDown || optionsPane is null) return;
         var current = (DisplayedStatus(), NativeStatusText(), PairingDisplayText(), McpDisplay().Detail, AgentInboxDisplay().Detail, LanAccessText(), PairedBrokersDisplay(),
-            ClientDisplay("claude"), ClientDisplay("codex"));
+            ClientDisplay("claude"), ClientDisplay("codex"), ApprovalPromptText());
         if (notifiedInfo == current) return;
         notifiedInfo = current;
         optionsPane.NotifyInfoChanged();
@@ -373,11 +391,28 @@ public sealed partial class AgentBrokerModule : IModule
             var launch = new WorkerLaunch(Path.Combine(Path.GetDirectoryName(typeof(AgentBrokerModule).Assembly.Location)!,
                 "worker", "AgentBroker.Worker.exe"), dataDirectory, selected, parent.Id,
                 parent.StartTime.ToUniversalTime().ToFileTimeUtc());
+            string lastApprovalRaw = "";
+            Guid? lastApprovalBroker = null;
             while (!token.IsCancellationRequested)
             {
                 observation = NextObservation();
                 long requestedObservation = observation;
                 WorkerStatus state = await supervisor.RefreshAsync(launch, token).ConfigureAwait(false);
+                string approvalRaw = Volatile.Read(ref approvalObservationRaw);
+                if (state.Connected && NeedsApprovalObservationForwarding(approvalRaw, lastApprovalRaw, lastApprovalBroker, state.Snapshot))
+                {
+                    // Only the count and original observation time cross this local control pipe. A stale value stays stale.
+                    try
+                    {
+                        var approval = await control.SendAsync(dataDirectory, ApprovalControlRequest(approvalRaw), token).ConfigureAwait(false);
+                        if (approval.Success)
+                        {
+                            lastApprovalRaw = approvalRaw; lastApprovalBroker = state.Snapshot?.BrokerId;
+                            if (approval.Snapshot is not null) state = state with { Snapshot = approval.Snapshot };
+                        }
+                    }
+                    catch (Exception error) when (error is IOException or UnauthorizedAccessException or OperationCanceledException or System.Text.Json.JsonException) { }
+                }
                 Post(current, () => ApplyStatus(state, requestedObservation));
                 await Task.Delay(TimeSpan.FromSeconds(2), token).ConfigureAwait(false);
             }

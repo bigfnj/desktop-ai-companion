@@ -135,6 +135,8 @@ public static class AgentBrokerLocalInstallNative {
         if (version >= new Version(1, 3, 0)) tools.Add("wait_for_receipt");
         // 1.4.0: an agent asks the broker which native directory row is its own.
         if (version >= new Version(1, 4, 0)) tools.Add("whoami");
+        // 1.8.0: local active-turn inbox, report-only recovery, hints and optional custom titles.
+        if (version >= new Version(1, 8, 0)) tools.AddRange(new[] { "read_inbox_page", "read_native_recovery", "set_session_declaration", "set_session_title" });
         return tools.ToArray();
     }
     public static void CreateTestHardLink(string link, string existing) {
@@ -991,6 +993,13 @@ if ($SelfTest) {
         if ($whoTools.Count -ne 12 -or @(Compare-Object $whoTools ($tenTools + @('wait_for_receipt', 'whoami')) -CaseSensitive).Count -ne 0 -or
             [AgentBrokerLocalInstallNative]::ExpectedTools('1.3.0') -ccontains 'whoami') {
             throw 'A 1.4.0 package did not require whoami beside the eleven 1.3.0 MCP tools.'
+        }
+        $checks++
+        $beforeRecovery = [AgentBrokerLocalInstallNative]::ExpectedTools('1.7.2')
+        $recoveryTools = [AgentBrokerLocalInstallNative]::ExpectedTools('1.8.0')
+        if ($beforeRecovery.Count -ne 12 -or $recoveryTools.Count -ne 16 -or
+            @(Compare-Object $recoveryTools ($whoTools + @('read_inbox_page', 'read_native_recovery', 'set_session_declaration', 'set_session_title')) -CaseSensitive).Count -ne 0) {
+            throw 'PACKAGE_RECOVERY_TOOL_CONTRACT: 1.8.0 requires its four additive tools while 1.7.2 keeps twelve.'
         }
         $checks++
         $refused = $false

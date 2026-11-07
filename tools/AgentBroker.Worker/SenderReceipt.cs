@@ -16,9 +16,9 @@ namespace AgentBroker.Worker;
 /// the 16 KiB limit), null once the broker no longer holds it (an acknowledged Delivered or Refused message this
 /// workstation sent: its tombstone keeps only a hash). ReadAt is this broker's clock when the receipt was read, so the
 /// receipt tells its own age (N-broker-busy-visibility-01): ReadAt minus UpdatedAt is how long a Submitted or Held receipt
-/// has held its status, or how long ago an Accepted one was last attempted. BusySince is present only while the
-/// message is Accepted (or being attempted) because its native recipient said a turn is still running
-/// (native_context_busy): the first such answer in the current unbroken run, as this worker process saw it. EngineBinding
+/// has held its status, or how long ago an Accepted one was last attempted. BusySince describes the current native
+/// recipient's observed busy run: either a typed busy deferral or current native discovery. A Submitted message may
+/// carry the latter observation too; it is neither progress nor a task-completion signal. EngineBinding
 /// is what the native adapter observed about the recipient's engine at the message's latest attempt (report only,
 /// N-agentbroker-code-owner-provenance-01: nothing was refused or routed on it); like BusySince, process-local.
 /// </summary>

@@ -151,5 +151,7 @@ internal sealed class WorkerSupervisor(IBrokerControlClient control, IWorkerChil
         // The same for Claude (on by default, the owner's decision of 2026-11-02); off launches the worker with exact pins only.
         if (launch.Settings.ClaudeUpdateTolerantDelivery) Add("--claude-update-tolerant-delivery", Bool(true));
         Add("--message-lifetime-minutes", launch.Settings.MessageLifetimeHours * 60);
+        if (launch.Settings.AdditionalCodexHome.Length > 0)
+            Add("--codex-additional-homes", System.Text.Json.JsonSerializer.Serialize(new[] { launch.Settings.AdditionalCodexHome }));
     }
 }
