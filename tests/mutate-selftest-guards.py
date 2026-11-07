@@ -21219,6 +21219,16 @@ CASES = (
      PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
      "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
      "audit-1106-312: a pack root inside the extraction tree"),
+    # N-audit-1106-308: the looped debug chain stops building. Graded through the HOST's --petstudio-selftest, which reads only
+    # RunChecks' bool: before the fix this run wrote the FAIL line under exit 0 and RESULT=PASS (a plumbing fault).
+    ("bd-w3-studio-1: the looped debug chain stops building, graded by the host (N-audit-1106-308)",
+     BEHAVIOUR_CHAIN,
+     b"            return BuildDebugXml(sourceXml, steps, loop, false, out error);\n",
+     b"            if (loop) { error = \"mutant\"; return null; }\n"
+     b"            return BuildDebugXml(sourceXml, steps, loop, false, out error);\n",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--petstudio-selftest", "dp-petstudio-selftest.txt",
+     "a looped chain builds"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
