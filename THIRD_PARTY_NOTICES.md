@@ -1,6 +1,7 @@
 # Third-party notices
 
-This file inventories known third-party material in Desktop AI Companion 1.0.0. It is not a
+This file inventories known third-party material in Desktop AI Companion and its downloadable
+modules. It is not a
 representation that every redistribution right has been cleared. The automated rights gates were
 retired with the enterprise release pipeline and have not been replaced, so the items below are
 recorded here for manual review rather than enforced by any check.
@@ -29,6 +30,12 @@ The repository-root MIT license applies only to original contributions whose cop
 - Record the exact source revision, conversion procedure, and retained license file for
   `bge-small-en-v1.5` before distribution. Its upstream model card identifies the model as MIT, but
   the repository currently lacks a pinned provenance record for the two shipped model files.
+- Some module ZIPs carry third-party libraries with no license text beside them. `reminder.zip`
+  ships Ical.Net (MIT) and NodaTime (Apache-2.0); `remembrance.zip` ships NAudio and
+  System.Numerics.Tensors (both MIT), and `fortunes.zip` ships System.Numerics.Tensors without its
+  license either. `aibrain.zip` and `remembrance.zip` also ship the Windows SDK projection, whose terms
+  have not been reviewed. Package each license, and NodaTime's upstream `NOTICE` file if its source
+  carries one, into the module ZIP that ships the library.
 
 ## Bundled with a verified redistribution grant
 
@@ -89,61 +96,68 @@ small vetted set from shimejis-xyz, each recording its creator and source page i
 respective owners' intellectual property**, and per-skin artist copyright is unchanged; this is
 attribution, not a clearance of the underlying character IP.
 
-## Locked build inputs and runtime libraries
+## Third-party libraries that ship
 
-The runtime libraries and build-only inputs below are pinned by
-[`src/packages.lock.json`](src/packages.lock.json). `Microsoft.Net.Compilers.Toolset` and
-`Microsoft.NETFramework.ReferenceAssemblies.net48` are private build inputs and are not shipped as
-runtime files.
+Every library below is redistributed as a binary. The versions are the resolved ones; where a row
+disagrees with the pin it names, the pin is right and this file is stale.
 
-| Component | Version | License | Project |
-|---|---:|---|---|
-| Microsoft.Net.Compilers.Toolset | 4.14.0 | MIT | https://github.com/dotnet/roslyn |
-| Microsoft.NETFramework.ReferenceAssemblies.net48 | 1.0.3 | MIT | https://github.com/microsoft/dotnet |
-| Microsoft.Bcl.AsyncInterfaces | 10.0.10 | MIT | https://github.com/dotnet/dotnet |
-| Microsoft.ML.OnnxRuntime | 1.28.0 | MIT | https://github.com/microsoft/onnxruntime |
-| Microsoft.ML.OnnxRuntime.Managed | 1.28.0 | MIT | https://github.com/microsoft/onnxruntime |
-| Microsoft.Win32.Registry | 5.0.0 | MIT | https://github.com/dotnet/runtime |
-| NAudio.Core | 3.0.0-preview.6 | MIT | https://github.com/naudio/NAudio |
-| NAudio.Dmo | 3.0.0-preview.6 | MIT | https://github.com/naudio/NAudio |
-| NAudio.Midi | 3.0.0-preview.6 | MIT | https://github.com/naudio/NAudio |
-| NAudio.WinMM | 3.0.0-preview.6 | MIT | https://github.com/naudio/NAudio |
-| System.Buffers | 4.6.1 | MIT | https://github.com/dotnet/runtime |
-| System.IO.Pipelines | 10.0.10 | MIT | https://github.com/dotnet/dotnet |
-| System.Memory | 4.6.3 | MIT | https://github.com/dotnet/runtime |
-| System.Numerics.Tensors | 9.0.0 | MIT | https://github.com/dotnet/runtime |
-| System.Numerics.Vectors | 4.6.1 | MIT | https://github.com/dotnet/runtime |
-| System.Resources.Extensions | 8.0.0 | MIT | https://github.com/dotnet/runtime |
-| System.Runtime.CompilerServices.Unsafe | 6.1.2 | MIT | https://github.com/dotnet/runtime |
-| System.Security.AccessControl | 6.0.1 | MIT | https://github.com/dotnet/runtime |
-| System.Security.Permissions | 10.0.10 | MIT | https://github.com/dotnet/dotnet |
-| System.Security.Principal.Windows | 5.0.0 | MIT | https://github.com/dotnet/runtime |
-| System.Text.Encodings.Web | 10.0.10 | MIT | https://github.com/dotnet/dotnet |
-| System.Text.Json | 10.0.10 | MIT | https://github.com/dotnet/dotnet |
-| System.Threading.Tasks.Extensions | 4.6.3 | MIT | https://github.com/dotnet/runtime |
-| System.ValueTuple | 4.6.2 | MIT | https://github.com/dotnet/runtime |
+### The application payload
 
-The distributed payload retains these exact legal artifacts:
+Pinned by [`src/packages.lock.json`](src/packages.lock.json) and shipped beside the exe, in both the
+portable ZIP and the MSI, by the list in [`packaging/runtime-files.txt`](packaging/runtime-files.txt).
 
-- Build-only packages are not redistributed in the product payload; their locked NuGet hashes and
-  package-declared licenses remain in [`src/packages.lock.json`](src/packages.lock.json).
-- `ONNXRUNTIME_LICENSE.txt` and `ONNXRUNTIME_THIRD_PARTY_NOTICES.txt` are copied byte-for-byte from
-  the locked Microsoft.ML.OnnxRuntime 1.28.0 package.
-- `NAUDIO_LICENSE.txt` is retained from NAudio commit
+| Component | Version | License | Project | Pulled in by |
+|---|---:|---|---|---|
+| NAudio.Core | 3.0.0-preview.6 | MIT | https://github.com/naudio/NAudio | direct |
+| NAudio.Dmo | 3.0.0-preview.6 | MIT | https://github.com/naudio/NAudio | direct |
+| NAudio.WinMM | 3.0.0-preview.6 | MIT | https://github.com/naudio/NAudio | direct |
+| NAudio.Midi | 3.0.0-preview.6 | MIT | https://github.com/naudio/NAudio | NAudio.WinMM |
+| System.Numerics.Tensors | 9.0.0 | MIT | https://github.com/dotnet/runtime | NAudio.Core |
+
+The application is framework-dependent. The .NET 10 Desktop runtime is a prerequisite the user
+installs, not something this payload conveys, so no .NET runtime license or notice file ships with it.
+
+### Downloadable modules
+
+Module projects keep no lock file. Each package is pinned by the exact `Version` of its
+`PackageReference` in the module's `.csproj`, and the set a module actually carries is recorded in the
+`<Module>.deps.json` inside its ZIP.
+
+| Component | Version | License | Project | Module | Pulled in by |
+|---|---:|---|---|---|---|
+| Microsoft.ML.OnnxRuntime | 1.28.0 | MIT | https://github.com/microsoft/onnxruntime | Fortunes | direct |
+| Microsoft.ML.OnnxRuntime.Managed | 1.28.0 | MIT | https://github.com/microsoft/onnxruntime | Fortunes | Microsoft.ML.OnnxRuntime |
+| System.Numerics.Tensors | 9.0.0 | MIT | https://github.com/dotnet/runtime | Fortunes, Remembrance | Microsoft.ML.OnnxRuntime.Managed, NAudio.Core |
+| Ical.Net | 5.2.3 | MIT | https://github.com/ical-org/ical.net | Reminder | direct |
+| NodaTime | 3.2.2 | Apache-2.0 | https://github.com/nodatime/nodatime | Reminder | Ical.Net |
+| NAudio.Core | 3.0.0-preview.6 | MIT | https://github.com/naudio/NAudio | Remembrance | direct |
+| NAudio.Wasapi | 3.0.0-preview.6 | MIT | https://github.com/naudio/NAudio | Remembrance | direct |
+| NAudio.Midi | 3.0.0-preview.6 | MIT | https://github.com/naudio/NAudio | Remembrance | NAudio.Wasapi |
+| Windows SDK projection (`Microsoft.Windows.SDK.NET.dll`, `WinRT.Runtime.dll`) | 10.0.19041.57 | Windows SDK license terms, linked from the package metadata as https://aka.ms/WinSDKLicenseURL and not yet reviewed here | https://aka.ms/WinSDKProjectURL | AI Brain, Remembrance | the `net10.0-windows10.0.19041.0` target framework |
+
+The AgentBroker module's `worker/` folder is the one self-contained payload. It carries the .NET and
+ASP.NET Core shared frameworks and the Model Context Protocol C# SDK, whose packages are pinned by
+[`tools/AgentBroker.Worker/packages.lock.json`](tools/AgentBroker.Worker/packages.lock.json). Its
+inventory, and the license and notice files that ship beside it in `worker/licenses/`, are
+[`packaging/AgentBrokerNotices/THIRD-PARTY-NOTICES.txt`](packaging/AgentBrokerNotices/THIRD-PARTY-NOTICES.txt)
+and the files next to it. `packaging/Publish-AgentBrokerWorker.ps1` refuses to publish the worker when
+the versions recorded there disagree with that lock file or with the runtime it publishes.
+
+### License files that ship
+
+- The application payload: `LICENSE.txt`, this file, and `NAUDIO_LICENSE.txt` (kept in
+  `packaging/licenses/`), which is retained from NAudio commit
   `c89fee940ee6f8d7374d18714a6b85d8b7a18ab0`.
-- The base app uses **NAudio 3.0.0-preview.6** (`NAudio.Core`, `NAudio.WinMM`, its transitive `NAudio.Midi`,
-  and `NAudio.Dmo` for the device-selectable DirectSound output) for the host-owned audio output. The S2
-  Sound module (which bundled NAudio 2.3.0) was retired in B4, so only NAudio 3 ships now.
-- `DOTNET_RUNTIME_LICENSE.txt` is copied byte-for-byte from the locked Microsoft.Win32.Registry
-  package. The same exact license bytes are carried by the other locked .NET packages that include
-  a license file.
-- `DOTNET_10_THIRD_PARTY_NOTICES.txt`, `DOTNET_8_THIRD_PARTY_NOTICES.txt`,
-  `DOTNET_6_THIRD_PARTY_NOTICES.txt`, and `DOTNET_5_THIRD_PARTY_NOTICES.txt` retain each unique
-  third-party-notice byte set shipped by the locked .NET packages. Identical package notice files
-  are deduplicated only when their SHA-256 hashes match.
+- `fortunes.zip`: `ONNXRUNTIME_LICENSE.txt` and `ONNXRUNTIME_THIRD_PARTY_NOTICES.txt`, copied at build
+  time from the restored Microsoft.ML.OnnxRuntime package, so they cannot drift from its pinned
+  version.
+- `petstudio.zip`: `native/NOTICE-libwebp.txt`.
+- `agentbroker.zip`: `worker/licenses/`, described above.
 
-The dependency table above, together with [`src/packages.lock.json`](src/packages.lock.json), is the
-runtime inventory.
+`reminder.zip`, `remembrance.zip` and `aibrain.zip` ship no license file. That gap is recorded under
+"Unresolved redistribution items" above.
+
+These tables, with the lock and project files they name, are the runtime inventory.
 
 ## MIT license text
 

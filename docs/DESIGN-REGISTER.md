@@ -90,17 +90,19 @@ neglect.
 - **`IHost.ContextChanged` is the push half for a reader that must REACT to a change, and
   Remembrance reading `ReadContext` instead is NOT the bug.** Decided 2026-09-17, after an audit
   found the event has zero subscribers anywhere in the repo. Reminder publishes `meeting.current`
-  (`modules/Reminder/ReminderModule.cs:929`); Remembrance, the only consumer, calls
-  `ReadContext` (`modules/Remembrance/RemembranceModule.cs:175`). The two readings on the table were
+  (`modules/Reminder/ReminderModule.cs:1358`); Remembrance, the only consumer, calls
+  `ReadContext` (`modules/Remembrance/RemembranceModule.cs:960`). The two readings on the table were
   "it exists for out-of-tree modules" and "Remembrance should subscribe, so the polling is the bug".
   It is the first, and the deciding detail is that Remembrance does **not poll**: it reads once,
-  inside `StartRecording()`, at the instant the value is used. Three reasons that pull is the
+  inside `StartRecording()`, at the instant the value is used. (Its meeting-end watch, added later,
+  reads it again on each watch tick, `modules/Remembrance/RemembranceModule.Watch.cs:256` and `:272`:
+  still a read at the instant of use, still no subscription.) Three reasons that pull is the
   stronger pattern for this consumer, each readable in the code rather than argued:
   1. The host RETAINS the value. `CompanionHost._context`
-     (`src/dotNet/Plugins/CompanionHost.cs:699`) is a dictionary that outlives every raise, so a
+     (`src/dotNet/Plugins/CompanionHost.cs:1211`) is a dictionary that outlives every raise, so a
      reader arriving late still gets the current value, while a late SUBSCRIBER gets nothing until
      the next publish.
-  2. The publisher publishes **only on change** (`ReminderModule.cs:927` returns early when the
+  2. The publisher publishes **only on change** (`ReminderModule.cs:1356` returns early when the
      JSON is unchanged). One meeting publishes once, possibly an hour before the user presses
      Record, so "wait for the next event" is not a substitute for "read the value now".
   3. A subscription is one more handler `Shutdown` has to detach, and a handler that outlived
@@ -109,11 +111,12 @@ neglect.
      trade.
   So the channel's push half is for a module that must act ON THE CHANGE, which no module in this
   repo does yet, and `PluginApi.cs` now says so in the channel's own comment. **What the decision
-  leaves open** is the raise itself: `CompanionHost.PublishContext`'s raise has never run in a test
-  or under any shipped module, and that one assertion is the only part still filed in
-  [`../BACKLOG.md`](../BACKLOG.md). The shipped test double already mirrors the raise
-  (`ModuleKit.Testing.RecordingHost.PublishContext`), so an out-of-tree author can test a subscriber
-  today; it is the host's own raise that nothing exercises.
+  left open**, the raise itself, is closed and no longer filed in [`../BACKLOG.md`](../BACKLOG.md):
+  `SharedContextChannel` in `src/dotNet/Plugins/ModuleHostSelfTest.cs:1318` drives the real
+  `CompanionHost.PublishContext` raise (delivery with the key, a throwing subscriber that does not
+  stop the next one, and a late subscriber that gets nothing while a late reader gets the value).
+  The shipped test double mirrors the raise too (`ModuleKit.Testing.RecordingHost.PublishContext`),
+  so an out-of-tree author can test a subscriber.
 - **A test-observation member that only the host needs goes on the HOST's fake, never on
   `ModuleKit.Testing.RecordingHost`.** Measured cost, 2026-09-17: all seven modules that reference
   ModuleKit do so **without** `Private="false"`, on purpose, so its DLL is copied into each module
@@ -209,7 +212,7 @@ those two was true.
 
 ### Fortunes does not declare Network, and that is correct (2026-09-17)
 
-Fortunes triggers real HTTPS catalog fetches and pack downloads (`FortunesModule.cs:736` and `:777`)
+Fortunes triggers real HTTPS catalog fetches and pack downloads (`FortunesModule.cs:1756` and `:1948`)
 while its shipped consent line reads "Speech, ScreenContext, Storage". Raised by the ABI audit as a
 possible under-declaration, ranked low by it, and settled here as NOT one.
 
@@ -1651,6 +1654,11 @@ same way as F017 (`WebFetch(domain:...)`): the Python follows the documented sem
 self-test cases, and prints a note naming every paren-less rule it loaded so a figure is read with the
 caveat; the divergence is closed on the C# side (NormalizeRuleUncached or RuleRegexSource treating a
 parenthesis-less rule as `Tool(*)`, with a SelfCheck WITNESS), which is lane burn/agentflow's file.
+**Closed by `410ec90` (AgentFlow 1.4.12).** `RuleRegexSource` compiles a paren-less rule to the whole tool
+(`modules/AgentFlow/PermissionRules.cs:126-128`), the module's rule self-check pins it with WITNESS cases
+(`modules/AgentFlow/AgentFlowModule.cs:4027-4048`), and the harness's note says the two matchers agree, so
+the 21/30 is what the module computes too; [`agentflow/README.md`](agentflow/README.md) keeps the 23/30 as
+the module's figure before that commit.
 
 **The harness reads the five rule files the module reads (RA-009, 2026-09-30).** `load_rules` takes the
 three home tiers RuleLoader.cs takes (settings.json, remote-settings.json, settings.local.json), and
@@ -2209,13 +2217,17 @@ is recorded, not removed, because its signatures (HandleRef, CharSet.Auto) diffe
 `Xml.TryReadXml(xml, stageImages:false)`, the `!stageImages` branch and `Xml.ReadPngSize` have no
 production caller: PetStudio's F155, the consumer F318 grew them for, adopted the validator's RootNode
 instead. Deleting them is the register's own test-only-member rule and it crosses lanes in one commit: the
-probe block at `src/dotNet/RuntimeHardeningSelfTest.cs:1080-1107` (lane burn/host-shell), the no-stage
+probe block in `src/dotNet/RuntimeHardeningSelfTest.cs` (lane burn/host-shell), the no-stage
 clauses in `tests/runtime-hardening-selftest.ps1`'s fix/host block, the F318 case at
 `tests/mutate-selftest-guards.py` ("the no-stage loader decodes the sprite sheet anyway") and the F155
 payload beside it, which puts the overload back as its rejected shape and would stop compiling. Until then
 the words are true (RA-269: the validator's proof decode of the sheet runs once per call; what the overload
 skips is the loader's second decode and the tiling) and `ReadPngSize` says it is lenient BY CONTRACT
 because the validator has already proved the container, and that a stricter reader breaks the probe.
+**Removed the same day.** Lane burn/host-shell deleted the overload, the `!stageImages` branch,
+`ReadPngSize`, the probe block and the F318 case in `06d8c70`, so the seam this entry kept no longer exists.
+Where each stood is marked at `src/dotNet/RuntimeHardeningSelfTest.cs:1386-1388`, `src/dotNet/Xml.cs:642-643`
+and `tests/mutate-selftest-guards.py:825-826`.
 
 **Every Modules pane restart goes through the save-then-restart helper (2026-10-01, RA-248, RA-249; corrected
 2026-10-02 by lane feature/modules-update-all).** This entry used to record `Program.TryRequestRestartAfterSave`
@@ -2514,7 +2526,10 @@ documented semantics now, pinned by nine self-test cases; the C# (`modules/Agent
 is outside lane fix/scripts and is left for its owner, and the harness prints a note whenever it loads
 such a rule so a WebFetch number is read with that caveat. No such rule exists on this box, so nothing
 published moved. This is the one place the reference is deliberately ahead of the port; it is a
-divergence to close on the C# side, not to undo here.
+divergence to close on the C# side, not to undo here. **Closed by `410ec90` (AgentFlow 1.4.12):**
+`PermissionRules.RuleMatches` sends a `domain:` rule to a port of the Python's `domain_matches` before the
+regex path (`modules/AgentFlow/PermissionRules.cs:200-207`), pinned by WITNESS cases at
+`modules/AgentFlow/AgentFlowModule.cs:4051-4060`, and the harness's note says both matchers honour it.
 
 **Module zips are read through entry streams, not expanded to TEMP (F222).** Whole freshness check
 (`Test-ModulePublishFreshness.ps1`), scratch clone at the audit commit where every zip was current, fresh
@@ -3161,8 +3176,8 @@ it moved to Local provider, not back to AB2's Local server, which is Ollama's ca
 provider, and it tested whichever slot was active, so on the local model it was the local slot's only test. Greying
 Cloud provider whole off the cloud would have taken it from every local install. Each slot card's button now tests
 its own slot: Local provider's the local model (on the cloud, the fallback), Cloud provider's the cloud, refusing
-off the cloud as Refresh cloud models does. The host keys a result by card and label (`OptionsWindow.cs:1219`,
-`1800`), so the two share the label. The Remembrance hold reads the card (`localSlot`), not the settings: read from
+off the cloud as Refresh cloud models does. The host keys a result by card and label (`OptionsWindow.cs:1688`,
+`2304`), so the two share the label. The Remembrance hold reads the card (`localSlot`), not the settings: read from
 the settings it would let the new button send a chat to the local model mid-transcription while the cloud is primary.
 
 **The OCR engine is a path field, and "Choose OCR engine…" is gone (P4, which AB2 marks optional).** The 177 DIP
@@ -4455,7 +4470,7 @@ absolute path in any body or header, where the 1.5.5 control's bodies held the s
 roots` and absolute paths, and its screenshot labels the call id and the product folder), after the image-path
 study's arms b and s-off. What the call carries of the user's own still can: a screen question's front window title and
 the title of the window the companion stands on ("You are standing on the window: <title>"), the OCR text or the
-screenshot's own content (`modules/AiBrain/engine/AiBrain.cs:512-513`, `DescribeScreenContext`), and a summary's
+screenshot's own content (`modules/AiBrain/engine/AiBrain.cs:542-543`, `DescribeScreenContext`), and a summary's
 transcript; the proof's prompts named no folder, so it does not speak to them. A later Codex that renamed
 `skills.include_instructions` would send the skill-roots list again with nothing failing (BACKLOG
 N-codex-config-refusal-04). Not studied: what a Claude Code call's request carries of the module's work folder under
@@ -4620,7 +4635,7 @@ saying that changing the speed or unticking "Stop when Caps Lock is on" starts i
 made that sentence true: a pane Apply that changed the speed or unticked "Stop when Caps Lock is on" switched such an off
 back on and cleared its reason in its own Save(), as those choices end a session stop. Its review found what that did to
 the user's next Apply. The options window re-reads a pane after Apply only when the schema has an Info or Header row
-(`RefreshAfterApply`, `src/Portable/Wpf/OptionsWindow.cs:436-440` and `:487-500`), and this schema has neither, so the
+(`RefreshAfterApply`, `src/Portable/Wpf/OptionsWindow.cs:450-454` and `:520-535`), and this schema has neither, so the
 pane went on showing the off it had loaded. The next Apply from it, picking another speed or changing only the announce
 box, sent that off; `SavePaneValues` compares the submitted on/off with the disk's, which now read on, took it for the
 user's Off, cleared the reason and saved a plain off the user never picked. That is the failure this version exists to
@@ -4629,10 +4644,10 @@ announce unticked, and "Blinking LED: off" in the row). Of the review's three fi
 pane half goes. A pane Apply now writes the on/off it submitted and nothing else, so over such an off only ticking "Blink
 the Scroll Lock light" switches it on from the pane, and every other change there leaves the off and its reason as they
 were. Kept: a tray speed pick still ends it at once, since the tray menu is built afresh on every open (`BuildChildren`,
-`src/DesktopAICompanion.Contracts/PluginApi.cs:280`) and a pick never acts on a stale view; and the next start still
+`src/DesktopAICompanion.Contracts/PluginApi.cs:316`) and a pick never acts on a stale view; and the next start still
 resumes it while the box is ticked. Refused: an Info row so that the window rebuilds the pane after Apply, which would
 rest the module's rule on when a host chooses to re-read a pane, something the module ABI does not state (it names "the
-refresh after Apply" in passing, `PluginApi.cs:390`, and not when one happens), for a row that would exist only for that
+refresh after Apply" in passing, `PluginApi.cs:427`, and not when one happens), for a row that would exist only for that
 side effect; and comparing an Apply with what the pane last loaded instead of the disk, which keeps a second copy of the
 pane's state beside the disk, the kind of drift "disk wins" exists to avoid. A session stop with the box ticked never
 had the hazard: it saves nothing, so the pane loaded the saved on, and an Apply from it, however long ago it loaded,
@@ -5663,9 +5678,9 @@ five is the default. Refused: the median of the steps (a level alternating +37, 
 judged as a leak), also requiring growth in every segment (a real leak under one -37 MB swing would pass), and the median
 of several runs (one run is one process, and nothing re-runs it). Handles, GDI and USER are counts that do not swing and
 are judged as before. The judge runs on its own as `--judge-selftest` (no window, no module), which
-`tests/mutate-selftest-guards.py` grades as WINDOWSOAK-JUDGE, and every soak runs it before its first window. **Until
-`tests/module-window-soak.ps1` changes (outside this lane), its default `-Segments 2` makes the soak FAIL with "NOT
-JUDGED, a slope needs at least 4 segments and 2 ran"**: run it with `-Segments 5`.
+`tests/mutate-selftest-guards.py` grades as WINDOWSOAK-JUDGE, and every soak runs it before its first window. The
+wrapper agrees since `715071a`: `tests/module-window-soak.ps1` defaults `-Segments` to 5 and refuses fewer than 4 at
+binding time (`[ValidateRange(4, ...)]`, its param block at :49), so a plain run is judged.
 
 **Fortunes has its own module self-test limit of 300 s (N-release-150-02).** Its self-test took 187 s and 174 s under load
 on 2026-10-07 against `tests/Test-ModuleSelfTests.ps1`'s shared 180 s, and 32.4 to 34.5 s in three fresh runs on
@@ -7788,13 +7803,19 @@ as it was, since its bytes are. The WAV lane's "size limits are unchanged" above
 
 ## Known ABI gaps
 
-Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of
-these is scheduled, and neither is an oversight. (A store shared across modules for a sign-in was one, declined on
+Add the verb when the module that needs it is written — see `handoff.md`'s host contract. None of
+these is scheduled, and none is an oversight. (A store shared across modules for a sign-in was one, declined on
 2026-10-26; host 1.8.0's `IHostCredentials` holds the Claude Code sign-in, one fixed credential behind a user's grant, and
 holds nothing else: a second credential is a design of its own.)
 
 - 📌 **A module cannot draw on or near the companion.** No ABI for overlay/decoration. Nothing
   planned needs it yet; noted so it is not mistaken for an oversight if something does.
+
+- 📌 **A module cannot move a companion** ("walk to centre screen"). Deferred by decision on 2026-08-27
+  ([`BACKLOG-CLOSED.md`](BACKLOG-CLOSED.md), "Moving a companion still needs new ABI"): a companion's
+  position is driven by its animations' velocity expressions rather than set directly, so a "move to point"
+  verb would fight the engine rather than sit beside it. Making a companion react is already possible through
+  `IHost.TryPlayAnimation` and `IHost.PlayAnimationAll`.
 
 - ⬜ **A module cannot push a live value into an open tray menu.** Found while porting the standalone
   app's "Next blink" countdown, which refreshed every 250ms because that app owned its own menu. This
@@ -7816,8 +7837,9 @@ sentence cost a planning cycle: a Reminder entry asserted the ABI could not driv
 animation or move a companion, while `IHost.TryPlayAnimation` and `IHost.PlayAnimationAll` had
 existed since the emotion work and AiBrain had been using them all along. The full case is in
 [`HISTORY-post-1.0.0.md`](HISTORY-post-1.0.0.md). Genuinely-missing ABI that somebody is waiting on
-stays in [`../BACKLOG.md`](../BACKLOG.md) — moving a companion, and the pane's unapplied-value
-preview, are both there.
+is filed in [`../BACKLOG.md`](../BACKLOG.md). Moving a companion, which this paragraph used to send there,
+is the deferred gap listed above, and the pane's unapplied-value preview shipped in host 1.2.5 (`f9c84ad`)
+as `PaneAction.InvokeWithPendingAsync` (`src/DesktopAICompanion.Contracts/PluginApi.cs:514`).
 
 ---
 
@@ -7840,7 +7862,7 @@ that had to be reverted.
   The cell keeps exactly the above-anchor pixels and drops exactly the below-anchor ones. Nothing
   above the anchor is lost, and scale is 1.0 so no resampling is involved either.
 
-  That is `SpriteSheetBuilder.cs:186` doing what `:169-176` says it does: `cellH = max(AnchorY)`,
+  That is `SpriteSheetBuilder.cs:275` doing what `:257-265` says it does: `cellH = max(AnchorY)`,
   with the anchor placed on the cell's BOTTOM edge because the Shimeji `ImageAnchor` is the mascot's
   ground-contact point and the host stands a pet by putting its window's bottom edge on the floor.
   Reserving a band below the anchor is what the code used to do, and it lifted every pet off the
@@ -7977,14 +7999,19 @@ them in a commit message.
 ## Numbers in documentation
 
 **A number nobody re-measures goes stale, so make the code count it.**
-`tests/DesktopAICompanion.CoreTests/Program.cs:87` is the in-repo model: it **counts** its groups
-rather than hardcoding them, and the comment beside it records the drift that motivated it — *"the
+`tests/DesktopAICompanion.CoreTests/Program.cs:206-212` is the in-repo model: it **counts** its groups
+(`_groups`, incremented in `Run` and printed in the summary at `:193-194`) rather than hardcoding them,
+and the comment beside it records the drift that motivated it — *"the
 literal in the summary line had drifted five groups behind reality, so it reported 26 while 31 groups
 ran."*
 
 Where a document cannot count, it should describe what it counts rather than assert how many. The
 `SMOKETEST.md` invariant figure was wrong **three separate times** (61, then 82, then 84) before the
-sentence was rewritten to stop carrying a literal at all. The trap that produced the last two: a bare
+sentence was rewritten to stop carrying a literal at all. The literal has since come back to its line 4,
+and it is checked now rather than trusted: `tests/runtime-hardening-selftest.ps1` counts its own
+line-start `Assert-True` sites (`:1895`) and its last assertion fails when the figure in `SMOKETEST.md`
+differs (`:5530-5535`), the "make the code count it" rule applied to a document that cannot count. The
+trap that produced the last two wrong figures: a bare
 `grep -c 'Assert-True'` over `tests/runtime-hardening-selftest.ps1` counts the function definition
 and a comment mentioning the helper, and ten of the real call sites sit inside `foreach` loops, so
 the static site count and the runtime PASS count are different numbers and neither is the raw grep.

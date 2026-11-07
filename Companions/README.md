@@ -1,7 +1,8 @@
 # Bundled and downloadable companion definitions
 
 Each subdirectory is one companion: a bounded UTF-8 `animations.xml`, plus optional historical gallery
-artwork. There are **53** of them, and all 53 **are** published for download.
+artwork. Every one of them **is** published for download: the catalog builder lists each directory that
+holds an `animations.xml`, so this file states no count that a new companion would make wrong.
 
 `companions.json` is the runtime manifest, not a historical gallery index. It maps each directory to its
 `folder`, `author` and `lastupdate`, and `packaging/New-ContentCatalog.ps1` **hard-fails** without it

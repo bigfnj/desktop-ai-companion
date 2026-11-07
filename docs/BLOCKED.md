@@ -195,7 +195,7 @@ The entry as it stood:
 
 **Blocker: needs the owner's source review of each drafted pin and a live acceptance after publish.**
 
-What clears it: Run `pwsh -NoProfile -File tools/agentbroker/Test-AgentBrokerRepin.ps1 -Vendor Codex -OutputDirectory <new empty dir>`; review the source of each draft (Codex extension 26.1021.22027, Codex desktop 26.1021.3705.0 if installed, and the VS Code router 1.144.0, which is now off its pin too); do the live acceptance; append the pins. The Claude half was done for 2.1.310 and 2.1.312, and is open again: Claude Code 2.1.314 (installed by 2026-11-02 on both workstations) is off its pin, so every Claude row reads observation-only; the repin workflow drafted it on branch agentbroker-repin/claude-code-2.1.314-66e00df32e69 (f56da2a, one line in tools/AgentBroker.Pins/agentbroker-pins.json), not reviewed. Pins chase an update every few days; the pin-free route for Claude is N-agentbroker-claude-channel-01, and N-codex-wake-01 in BACKLOG.md tracks both directions. Update-tolerant delivery (on by default since AgentBroker 1.5.0) keeps updated Codex builds working meanwhile.
+What clears it: Run `pwsh -NoProfile -File tools/agentbroker/Test-AgentBrokerRepin.ps1 -Vendor Codex -OutputDirectory <new empty dir>`; review the source of each draft (Codex extension 26.1021.22027, Codex desktop 26.1021.3705.0 if installed, and the VS Code router 1.144.0, which is now off its pin too); do the live acceptance; append the pins. The Claude half was done for 2.1.310 and 2.1.312 and no longer blocks delivery: since AgentBroker 1.7.1 (2026-11-02), "Also wake updated Claude builds (publisher verified)", on by default, wakes a Claude Code build that is off its pin, such as 2.1.314, as a pinned one is once Windows verifies its signature, so a Claude row reads observation-only only with that switch off, and an exact Claude pin is the optional strict mode, as for Codex. The repin workflow drafted 2.1.314 on branch agentbroker-repin/claude-code-2.1.314-66e00df32e69 (f56da2a, one line in tools/AgentBroker.Pins/agentbroker-pins.json) and later builds on sibling agentbroker-repin/claude-code-* branches; none is reviewed or applied. Pins chase an update every few days; the pin-free route for Claude is N-agentbroker-claude-channel-01, and N-codex-wake-01 in BACKLOG.md tracks both directions. Update-tolerant delivery (on by default since AgentBroker 1.5.0) keeps updated Codex builds working meanwhile.
 
 The entry as it stood:
 
@@ -284,7 +284,8 @@ The entry as it stood:
   The work: the lock's packages and SHA-256s (wix, the UI and Util extensions); the version checks at
   `packaging/Install-LockedWixToolchain.ps1` :223, :487 and :533 and `packaging/WixToolchainPolicy.ps1` :360 and :510;
   the toolchain paths at `.github/workflows/build.yml:272` and `release.yml:169`; the Readme's build prerequisites
-  (:733, :745); the WiX 5 table names the MSI lifecycle test asserts (`Wix4CloseApplication`,
+  under "Building" (the "MSI builds also require WiX 5.0.2" sentence, :752, and the `DesktopAICompanion-WiX-5.0.2`
+  install path, :764); the WiX 5 table names the MSI lifecycle test asserts (`Wix4CloseApplication`,
   `Wix4FailWhenDeferred_X64`, `tests/Test-IsolatedMsiLifecycle.ps1` :159 and :249); and the native
   installation-scoped shutdown, which replaced 5.0.2's CloseApps behaviour (`docs/installer-scoped-shutdown.md`
   :50-55), re-verified against the new Util extension's action order. Acceptance: the native installer checks, the
