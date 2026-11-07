@@ -20894,6 +20894,16 @@ CASES = (
      FORTUNES_CSPROJ, FORTUNES_DLL,
      "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
      "CACHE FAIL key validation does not stop at"),
+
+    # N-audit-1106-211: the import validator decodes leniently. The old five-byte fixture was refused for having no
+    # valid row whatever the decoder did, so this survived; the full-length fixture is refused only by the decode.
+    ("bd-w2-fortunes-1: the import validator decodes a pack leniently (N-audit-1106-211)",
+     os.path.join(REPO, "modules", "Fortunes", "engine", "FortuneProvider.cs"),
+     b"                content = StrictUtf8.GetString(bytes);\n",
+     b"                content = new UTF8Encoding(false, false).GetString(bytes);\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "IMPORT FAIL a full-length line with one invalid UTF-8 byte was not refused as invalid UTF-8"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

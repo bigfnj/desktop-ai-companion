@@ -1651,10 +1651,16 @@ namespace DesktopAICompanion.Ai
             string caseRoot = CreateCase(root, "invalid-content");
             string nonText = Path.Combine(caseRoot, "not-text.bin");
             File.WriteAllText(nonText, "A valid fortune in the wrong file type.");
+            // A fortune of ordinary length with ONE byte that is not UTF-8, so only the strict decode can refuse
+            // it. The fixture was five bytes (A, space, 0xFF, space, B): no decode makes a row of 8 or more
+            // characters out of that, so a lenient decode was refused as having no valid row and this case could
+            // not notice it (N-audit-1106-211). Its refusal is asserted by its reason, and the WITNESS below
+            // imports the same line with the bad byte made valid, so the refusal is the byte's.
             string invalidUtf8 = Path.Combine(caseRoot, "invalid-utf8.txt");
-            File.WriteAllBytes(
-                invalidUtf8,
-                new byte[] { 0x41, 0x20, 0xFF, 0x20, 0x42 });
+            byte[] oneBadByte = Encoding.ASCII.GetBytes("A fortune of ordinary length with one bad byte: # here.");
+            int badByteAt = Array.IndexOf(oneBadByte, (byte)'#');
+            oneBadByte[badByteAt] = 0xFF;
+            File.WriteAllBytes(invalidUtf8, oneBadByte);
             string invalidContent = Path.Combine(caseRoot, "invalid-content.txt");
             File.WriteAllText(invalidContent, "short");
             FortuneImportBatchResult result = Import(
@@ -1664,6 +1670,30 @@ namespace DesktopAICompanion.Ai
                 CancellationToken.None);
             bool ok = result.ImportedCount == 0 && result.RejectedCount == 3;
             if (!ok) output.AppendLine("IMPORT FAIL extension/UTF-8/content rejection");
+            bool refusedAsUtf8 = false;
+            foreach (FortuneImportItemResult item in result.Items)
+                if (string.Equals(item.SourcePath, invalidUtf8, StringComparison.OrdinalIgnoreCase) &&
+                    !item.Imported && item.Error != null &&
+                    item.Error.IndexOf("not valid UTF-8", StringComparison.Ordinal) >= 0)
+                    refusedAsUtf8 = true;
+            if (!refusedAsUtf8)
+            {
+                ok = false;
+                output.AppendLine("IMPORT FAIL a full-length line with one invalid UTF-8 byte was not refused as invalid UTF-8");
+            }
+            string validTwin = Path.Combine(caseRoot, "valid-twin.txt");
+            oneBadByte[badByteAt] = (byte)'#';
+            File.WriteAllBytes(validTwin, oneBadByte);
+            FortuneImportBatchResult twin = Import(
+                new[] { validTwin },
+                Path.Combine(caseRoot, "twin-destination"),
+                null,
+                CancellationToken.None);
+            if (twin.ImportedCount != 1)
+            {
+                ok = false;
+                output.AppendLine("IMPORT FAIL WITNESS the same line with the bad byte made valid did not import");
+            }
             return ok;
         }
 
