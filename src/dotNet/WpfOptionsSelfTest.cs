@@ -1675,11 +1675,34 @@ namespace DesktopAICompanion
                         desc != null && !desc.StartsWith("✗"));
                     ok &= Check(sb, "an absent chime is still described as missing",
                         (DesktopAICompanion.Wpf.OptionsShell.DescribeNotificationSound(probeFile + ".gone") ?? "").StartsWith("✗"));
+
+                    // The PATH, not only the primitive (N-audit-1106-030). The deadline above is ProbeBounded's own;
+                    // DescribeNotificationSound, the call Preferences' Load makes, reaches it through FileExistsBounded,
+                    // and either of them made unbounded again passed every check here. So the description itself is
+                    // driven with a filesystem call that hangs: it must come back inside the bound and say the drive
+                    // did not answer.
+                    Func<string, bool> realExists = DesktopAICompanion.Wpf.OptionsShell.FileExistsProbe;
+                    try
+                    {
+                        DesktopAICompanion.Wpf.OptionsShell.FileExistsProbe =
+                            delegate (string hungPath) { System.Threading.Thread.Sleep(5000); return true; };
+                        var swDescribe = System.Diagnostics.Stopwatch.StartNew();
+                        string hung = DesktopAICompanion.Wpf.OptionsShell.DescribeNotificationSound(probeFile);
+                        swDescribe.Stop();
+                        ok &= Check(sb, "the chime description gives the settings window back when its drive hangs (took "
+                            + swDescribe.ElapsedMilliseconds + "ms)", swDescribe.ElapsedMilliseconds < 2000);
+                        ok &= Check(sb, "the chime description says its hung drive did not answer: " + (hung ?? "(null)"),
+                            hung != null && hung.EndsWith("(on a drive that did not answer)", StringComparison.Ordinal));
+                    }
+                    finally { DesktopAICompanion.Wpf.OptionsShell.FileExistsProbe = realExists; }
                 }
                 finally { try { File.Delete(probeFile); } catch { } }
 
                 // ---- THE MODULES PANE'S UPDATE ALL (feature/modules-update-all) ----
                 ok &= ModulesPaneUpdateAll(sb);
+
+                // ---- THE MODULES PANE'S INSTALL AND REINSTALL, PRESSED (N-audit-1106-031) ----
+                ok &= ModulesPaneInstallPressed(sb);
 
                 // ---- WHAT A ReloadPaneAfter REBUILD CARRIES ACROSS (feature/modules-update-all) ----
                 ok &= ActionRebuildCarries(sb);
@@ -1773,6 +1796,77 @@ namespace DesktopAICompanion
         /// question answered and recorded. Nothing reaches the network, the install, the real staging folder
         /// or the real marker. Each case is a fresh pane, so a mutation of one guard fails only its own check.
         /// </summary>
+        /// <summary>
+        /// The Modules pane's Install and Reinstall buttons, pressed against ModulesPaneProbe's fakes (N-audit-1106-031).
+        /// Until InstallModuleAsync took the download, the staging root and both markers through the pane's seams, only an
+        /// order regex in tests/runtime-hardening-selftest.ps1 covered this flow, and no button was ever pressed. Install:
+        /// the payload lands whole in modules/&lt;id&gt; (unpacked in staging and moved, F367), a pending uninstall of that
+        /// id is forgotten (F352), the restart is asked once and the status names the module. Reinstall: the installed
+        /// folder is left alone, the payload is staged and marked for the next launch, and the status says so.
+        /// </summary>
+        private static bool ModulesPaneInstallPressed(StringBuilder sb)
+        {
+            bool ok = true;
+            string root = DesktopAICompanion.Plugins.SelfTestScratch.Create("install-press");
+            SynchronizationContext previousContext = SynchronizationContext.Current;
+            SynchronizationContext.SetSynchronizationContext(
+                new System.Windows.Threading.DispatcherSynchronizationContext(System.Windows.Threading.Dispatcher.CurrentDispatcher));
+            try
+            {
+                // ---- Install: a catalog module not on disk, with a stale pending uninstall of its id ----
+                var fresh = new ModulesPaneProbe(root, "install");
+                fresh.Available("gamma", "Gamma", "1.2.0");
+                DesktopAICompanion.Plugins.PendingModuleRemovals.MarkForRemoval("gamma", fresh.RemovalMarker);
+                fresh.Build();
+                System.Windows.Controls.Button install = ModulesPaneProbe.Find(fresh.Buttons(), "Install");
+                if (install != null) ModulesPaneProbe.Press(install);
+                bool installed = PumpUntil(delegate { return fresh.Pane.StatusText.StartsWith("Gamma ", StringComparison.Ordinal); }, 20000);
+                string installedDll = Path.Combine(fresh.ModulesRoot, "gamma", "Gamma.dll");
+                string installedText = File.Exists(installedDll) ? File.ReadAllText(installedDll) : "(missing)";
+                ok &= Check(sb, "install-press: Install downloads the module and moves it whole into modules/<id>, leaving no staging folder (" +
+                    fresh.Describe() + "; installed " + installedText + ")",
+                    install != null && installed && fresh.Downloads.Count == 1 && fresh.Downloads[0] == "gamma" &&
+                    installedText == "gamma 1.2.0" &&
+                    !Directory.Exists(Path.Combine(fresh.StagingRoot, "gamma.staged")) && fresh.MarkedIds().Length == 0);
+                ok &= Check(sb, "install-press: Install forgets a pending uninstall of the id it installed (marked " +
+                    DesktopAICompanion.Plugins.PendingModuleRemovals.IsMarked("gamma", fresh.RemovalMarker) + ")",
+                    installed && !DesktopAICompanion.Plugins.PendingModuleRemovals.IsMarked("gamma", fresh.RemovalMarker));
+                ok &= Check(sb, "install-press: Install asks to restart once and names the module (" + fresh.Pane.StatusText + "; " + fresh.Describe() + ")",
+                    installed && fresh.RestartQuestions() == 1 &&
+                    fresh.Pane.StatusText == "Gamma installed. Restart when you're ready to apply it.");
+
+                // ---- Reinstall: a module on disk that failed to load, reinstalled from its catalog entry ----
+                var broken = new ModulesPaneProbe(root, "reinstall");
+                broken.FailedToLoad("delta", "Delta", "2.0.0", "Could not load file or assembly.");
+                broken.Build();
+                System.Windows.Controls.Button reinstall = ModulesPaneProbe.Find(broken.Buttons(), "Reinstall v2.0.0");
+                if (reinstall != null) ModulesPaneProbe.Press(reinstall);
+                bool staged = PumpUntil(delegate { return broken.Pane.StatusText.StartsWith("Delta ", StringComparison.Ordinal); }, 20000);
+                string kept = Path.Combine(broken.ModulesRoot, "delta", "Delta.dll");
+                string keptText = File.Exists(kept) ? File.ReadAllText(kept) : "(missing)";
+                ok &= Check(sb, "install-press: Reinstall stages the payload and marks it for the next launch, leaving the installed folder alone (" +
+                    broken.Describe() + "; installed " + keptText + ")",
+                    reinstall != null && staged && broken.Downloads.Count == 1 && broken.Downloads[0] == "delta" &&
+                    broken.StagedHolds("delta", "Delta", "2.0.0") && broken.MarkedAre("delta") && keptText == "delta damaged");
+                ok &= Check(sb, "install-press: Reinstall says it is ready and asks to restart once (" + broken.Pane.StatusText + "; " + broken.Describe() + ")",
+                    staged && broken.RestartQuestions() == 1 &&
+                    broken.Pane.StatusText == "Delta is ready to reinstall. Your settings are kept. Restart when you're ready to apply it.");
+            }
+            catch (Exception ex)
+            {
+                ok = false;
+                sb.AppendLine("FAIL: the install-press probe threw " + ex.GetType().Name + ": " + ex.Message);
+            }
+            finally
+            {
+                SynchronizationContext.SetSynchronizationContext(previousContext);
+                string releaseDetail;
+                if (!DesktopAICompanion.Plugins.SelfTestScratch.TryRelease(root, out releaseDetail))
+                    sb.AppendLine("NOTE: install-press scratch left for the next sweep (" + releaseDetail + ")");
+            }
+            return ok;
+        }
+
         private static bool ModulesPaneUpdateAll(StringBuilder sb)
         {
             bool ok = true;
@@ -3547,6 +3641,7 @@ namespace DesktopAICompanion
                     MarkForUpdate = delegate (string id) { DesktopAICompanion.Plugins.PendingModuleUpdates.MarkForUpdate(id, Marker); },
                     IsStaged = delegate (string id) { return DesktopAICompanion.Plugins.PendingModuleUpdates.IsStaged(id, Marker, StagingRoot); },
                     IsBeingRemoved = delegate (string id) { return DesktopAICompanion.Plugins.PendingModuleRemovals.IsMarked(id, RemovalMarker); },
+                    UnmarkRemoval = delegate (string id) { DesktopAICompanion.Plugins.PendingModuleRemovals.Unmark(id, RemovalMarker); },
                     LoadedInfo = delegate (string id) { ModuleInfo info; return Loaded.TryGetValue(id, out info) ? info : null; },
                     DownloadVerified = Serve,
                     AskYesNo = delegate (string text, string caption, System.Windows.MessageBoxImage icon)

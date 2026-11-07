@@ -1187,6 +1187,31 @@ CASES = [
      "                        if (tenth != (int)Math.Round(data.GetVolume() * 10.0)) ok &= data.SetVolume(tenth / 10.0);\n",
      "                        ok &= data.SetVolume(tenth / 10.0);\n",
      "wpf", "options-ui volume: an Apply that leaves the volume field alone keeps a stored volume off the 0.1 grid"),
+    # ---- burndown/w2-host-1 ----
+    # N-audit-1106-030: the chime description Preferences' Load shows waits on a sleeping drive again, through either
+    # caller of the bounded probe. "bd-w2-host-1:" for one --only.
+    ("bd-w2-host-1: FileExistsBounded calls the filesystem without its deadline", OPTIONS,
+     "            return ProbeBounded(delegate { return exists(path); }, timeoutMs);\n",
+     "            return exists(path);\n",
+     "wpf", "the chime description gives the settings window back when its drive hangs"),
+    ("bd-w2-host-1: DescribeNotificationSound asks the filesystem directly", OPTIONS,
+     "            bool? there = FileExistsBounded(path, FileProbeMs);\n",
+     "            bool? there = System.IO.File.Exists(path);\n",
+     "wpf", "the chime description says its hung drive did not answer"),
+    # N-audit-1106-031: Install and Reinstall, pressed against ModulesPaneProbe's fakes now that InstallModuleAsync takes
+    # the download, the staging root and both markers through the seams.
+    ("bd-w2-host-1: Install leaves the new module in its staging folder", MODULESPANE,
+     "                Directory.Move(stagedHere, installDir);\n",
+     "",
+     "wpf", "install-press: Install downloads the module and moves it whole into modules/<id>"),
+    ("bd-w2-host-1: Install keeps a pending uninstall of the id it installed", MODULESPANE,
+     "                try { _seams.UnmarkRemoval(module.Id); }\n",
+     "                try { }\n",
+     "wpf", "install-press: Install forgets a pending uninstall"),
+    ("bd-w2-host-1: Reinstall stages without marking it for the next launch", MODULESPANE,
+     "                            _seams.MarkForUpdate(module.Id);   // the next launch swaps the staged copy in\n",
+     "",
+     "wpf", "install-press: Reinstall stages the payload and marks it for the next launch"),
 ]
 
 

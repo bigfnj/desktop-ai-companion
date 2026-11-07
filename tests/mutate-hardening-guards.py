@@ -4011,6 +4011,46 @@ CASES = (
         b"                        session = new InferenceSession(_modelPath);\n",
         "w2-fortunes-1: the embedder builds its session with the capped options",
     ),
+    # ---- burndown/w2-host-1 ----
+    # N-audit-1106-028: a reload counts and removes born companions as chosen pets again, so it respawns them as chosen
+    # pets and persists them into the saved mix. StartUp needs a live desktop, so the count, the removal and the
+    # born-only return are pinned in source; the labels are short fragments, as the console wraps long ones.
+    (
+        "bd-w2-host-1: a reload counts born companions as pets to respawn",
+        os.path.join(REPO, "src", "dotNet", "StartUp.cs"),
+        b"                if (bornPets.Contains(pet)) born++;\n                else live++;\n",
+        b"                live++;\n",
+        "w2-host-1: a reload counts the chosen pets of the type apart",
+    ),
+    (
+        "bd-w2-host-1: a reload's removals take born companions",
+        os.path.join(REPO, "src", "dotNet", "StartUp.cs"),
+        b"                if (pet == null || bornPets.Contains(pet)) continue;\n                CompanionTypeRegistry.Entry entry;\n                string petId",
+        b"                if (pet == null) continue;\n                CompanionTypeRegistry.Entry entry;\n                string petId",
+        "w2-host-1: a reload removes only chosen pets",
+    ),
+    (
+        "bd-w2-host-1: a born-only reload goes on to the respawn and the persist",
+        os.path.join(REPO, "src", "dotNet", "StartUp.cs"),
+        b"            if (live == 0)\n            {\n                // Only born companions were up",
+        b"            if (false)\n            {\n                // Only born companions were up",
+        "w2-host-1: with only born companions up a reload stages",
+    ),
+    # N-audit-1106-029: a failed 'Use this companion' re-arms the startup spawn on top of the pets still on screen.
+    (
+        "bd-w2-host-1: a failed Use re-arms the startup spawn whatever happened",
+        os.path.join(REPO, "src", "dotNet", "StartUp.cs"),
+        b"                if (petsClosed)\n",
+        b"                if (true)\n",
+        "w2-host-1: a failed Use re-arms the startup spawn only once",
+    ),
+    (
+        "bd-w2-host-1: Use never marks the pets closed",
+        os.path.join(REPO, "src", "dotNet", "StartUp.cs"),
+        b"                petsClosed = true;\n",
+        b"",
+        "w2-host-1: Use takes the spawn timer",
+    ),
 )
 
 
