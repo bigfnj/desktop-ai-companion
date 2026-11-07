@@ -5644,6 +5644,26 @@ Assert-True ($w2Tick.Length -gt 0 -and $w2InspectArgs.Count -gt 0 -and @($w2Insp
     'w2-tests-scripts-1: every VsCodeSetup.Inspect call in the AgentFlow tick takes the copied argvPathNow (WITNESS: a live settings read is told apart)' +
     " (paths: $($w2InspectArgs -join ', '))")
 
+# THE GATE RUNS THE MUTATION HARNESSES' OWN UNIT TESTS, ALL OF THEM (N-bd-tests-harness-1-01). tests\run_mutation_capture_checks.py
+# was called by nothing, so the test_mutation_*.py modules guarded the harnesses only when somebody remembered them. ORDER in
+# run-gate.ps1: the runner is called, its exit code is read straight after, and a nonzero exit is added to $failures, all
+# before the GATE FAILED summary. And every tests\test_mutation_*.py is named in the runner's list, so a new module cannot
+# be written and left out of the gate.
+$w2GateCall = $w2Gate.IndexOf("& `$python.Source -X utf8 (Join-Path `$repoRoot 'tests\run_mutation_capture_checks.py') 2>&1", [StringComparison]::Ordinal)
+$w2GateExit = $w2Gate.IndexOf('$mutationUnitExit = $LASTEXITCODE', [StringComparison]::Ordinal)
+$w2GateAdd = $w2Gate.IndexOf('if ($null -ne $mutationUnitExit -and $mutationUnitExit -ne 0) { $failures.Add("run_mutation_capture_checks.py (exit $mutationUnitExit)") }', [StringComparison]::Ordinal)
+$w2GateSummary = $w2Gate.IndexOf('Write-Host "GATE FAILED:"', [StringComparison]::Ordinal)
+Assert-True ($w2GateCall -ge 0 -and $w2GateExit -gt $w2GateCall -and $w2GateAdd -gt $w2GateExit -and $w2GateSummary -gt $w2GateAdd -and
+    $w2Gate.Substring($w2GateCall, $w2GateExit - $w2GateCall) -cnotmatch '\$LASTEXITCODE|\r?\n\s*&') (
+    "w2-tests-scripts-1: the gate runs run_mutation_capture_checks.py and fails on its exit code before the summary (call at $w2GateCall, exit read at $w2GateExit, failure at $w2GateAdd, summary at $w2GateSummary)")
+$w2MutationRunner = Get-Content -LiteralPath (Join-Path $repoRoot 'tests\run_mutation_capture_checks.py') -Raw
+$w2MutationListed = @([regex]::Matches($w2MutationRunner, '(?m)^\s*"(test_mutation_\w+)",') | ForEach-Object { $_.Groups[1].Value })
+$w2MutationModules = @(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'tests') -Filter 'test_mutation_*.py' -File | ForEach-Object { $_.BaseName })
+$w2MutationUnlisted = @($w2MutationModules | Where-Object { $w2MutationListed -cnotcontains $_ })
+Assert-True ($w2MutationModules.Count -gt 0 -and $w2MutationUnlisted.Count -eq 0 -and @(@('test_mutation_w2_witness') | Where-Object { $w2MutationListed -cnotcontains $_ }).Count -eq 1) (
+    "w2-tests-scripts-1: run_mutation_capture_checks.py names every tests\test_mutation_*.py module ($($w2MutationModules.Count); WITNESS: an unlisted name is reported)" +
+    $(if ($w2MutationUnlisted.Count) { ' -- not run: ' + ($w2MutationUnlisted -join ', ') } else { '' }))
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever

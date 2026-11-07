@@ -15,7 +15,8 @@
 
     Two halves, and the second is the one that keeps this honest:
 
-      COVERED   must report RESULT=PASS, with at least one PASS: assertion line and NO SKIP: line.
+      COVERED   must report RESULT=PASS, with at least one PASS: assertion line of the module's own (tagged
+                [<id>]; the host's convention lines do not count) and NO SKIP: line.
                 These are the modules whose module class exposes
                 `static bool SelfTest(out string detail)`, so the host runs their own assertions.
                 All three rules are graded: a PASS carrying no assertions is a check that ran nothing,
@@ -657,9 +658,21 @@ try {
         # success", in the file built to catch exactly that. It was that. Found by an audit the same
         # night it was written.
         #
-        # An assertion line is `PASS:` with the colon, optionally behind a `[module]` tag;
-        # `RESULT=PASS` has no colon and no longer counts.
-        $assertions = @($r.Lines | Where-Object { $_ -match '^\s*(\[[^\]]*\]\s*)?PASS:' }).Count
+        # An assertion line is `PASS:` with the colon; `RESULT=PASS` has no colon and no longer counts.
+        #
+        # AND ONLY THE MODULE'S OWN, behind its `[<id>]` tag (N-audit-1106-056). The tag was optional here, so the host's
+        # untagged convention lines ("PASS: the real loader accepted the module", the Info, tray and Shutdown checks) counted
+        # as well: every module carried nine or more of them, a module SelfTest that returned true with an empty detail still
+        # printed OK with nine assertion lines, and the zero-assertion branch below was unreachable a second time. Those
+        # lines are the host's checks of the module, not the module's checks of itself, which is what this branch grades.
+        # One module reports a COUNT instead of a line per check: AgentBroker's SelfTest detail is "<N> checks passed"
+        # (modules/AgentBroker/AgentBrokerSelfTest.cs, the `detail =` line), so a tagged line in exactly that shape counts
+        # as its N. An empty detail, or one with neither shape, still counts zero.
+        $tagPattern = '^\s*\[' + [regex]::Escape($id) + '\]\s*'
+        $assertions = @($r.Lines | Where-Object { $_ -cmatch ($tagPattern + 'PASS:') }).Count
+        foreach ($summary in @($r.Lines | Where-Object { $_ -cmatch ($tagPattern + '([1-9][0-9]*) checks passed\s*$') })) {
+            $assertions += [int]([regex]::Match($summary, ($tagPattern + '([1-9][0-9]*) checks passed\s*$')).Groups[1].Value)
+        }
         # The real-input rules first and on their own: a run that sent real input, or cannot show it sent none, is a problem
         # whatever else it reports, and is never also printed as OK.
         $realInputProblem = $null

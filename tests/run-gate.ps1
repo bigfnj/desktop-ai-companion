@@ -259,6 +259,32 @@ try {
     try { & (Join-Path $repoRoot 'tests\Invoke-OfflineScriptChecks.ps1') }
     catch { $failures.Add('Invoke-OfflineScriptChecks.ps1: ' + $_.Exception.Message) }
 
+    # The mutation harnesses' OWN Python (N-bd-tests-harness-1-01; the gap N-audit-1106-372/373 name from the gate's side).
+    # tests\run_mutation_capture_checks.py runs every tests\test_mutation_*.py module: the byte capture every harness grades
+    # through, the case plan and sharding, the stale-artefact rebuilds, the diagnostics driver, and the two native runners'
+    # restore and plan rules. It ran only by hand, so a harness regression was found the next time a harness scored a
+    # mutant wrong. Synthetic files under a checkout-local scratch folder only: no build, no mutation of a repository file,
+    # no app. Judged by its EXIT CODE, with Continue for the one call, because unittest reports on stderr and under Windows
+    # PowerShell a native stderr line is a terminating error while Stop is set (RA-346). A missing python is a FAILURE that
+    # says so, never a skip. tests\mutate-selftest-guards.py grades it as MUTATION-UNITTESTS.
+    Write-Host '=== mutation-infrastructure unit tests (tests\run_mutation_capture_checks.py)' -ForegroundColor Cyan
+    $python = @(Get-Command -Name 'python' -CommandType Application -ErrorAction SilentlyContinue) | Select-Object -First 1
+    if ($null -eq $python) {
+        $failures.Add('run_mutation_capture_checks.py: it needs Python 3, and python is not on PATH, so it did not run')
+    }
+    else {
+        $mutationUnitExit = $null
+        $savedPreference = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        try {
+            & $python.Source -X utf8 (Join-Path $repoRoot 'tests\run_mutation_capture_checks.py') 2>&1 | ForEach-Object { Write-Host "$_" }
+            $mutationUnitExit = $LASTEXITCODE
+        }
+        catch { $failures.Add('run_mutation_capture_checks.py could not be started: ' + $_.Exception.Message) }
+        finally { $ErrorActionPreference = $savedPreference }
+        if ($null -ne $mutationUnitExit -and $mutationUnitExit -ne 0) { $failures.Add("run_mutation_capture_checks.py (exit $mutationUnitExit)") }
+    }
+
     Write-Host '=== catalog integrity' -ForegroundColor Cyan
     try { & (Join-Path $repoRoot 'packaging\Test-ContentCatalogIntegrity.ps1') }
     catch { $failures.Add('Test-ContentCatalogIntegrity.ps1: ' + $_.Exception.Message) }
@@ -403,7 +429,7 @@ try {
     Write-Host ("GATE PASSED (build 0 warnings, core tests, AgentBroker harnesses, harness compiles, $selfTestCount self-tests " +
         'with no skips, module self-tests' +
         $(if ($notRunByRequest.Count -gt 0) { " with $($notRunByRequest.Count) module(s)' real-input checks not run by request (listed above)" } else { '' }) +
-        ', invariants, payloads, template, shimeji verify + ' +
+        ', invariants, payloads, mutation-infrastructure unit tests, template, shimeji verify + ' +
         "selftest with $shimejiSuiteCount suites).") -ForegroundColor Green
 }
 finally {

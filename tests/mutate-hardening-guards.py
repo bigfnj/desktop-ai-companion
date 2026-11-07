@@ -4085,6 +4085,22 @@ CASES = (
         b'VsCodeSetup.Inspect(_settings.Get(SettingArgvPath, ""), 200);',
         "w2-tests-scripts-1: every VsCodeSetup.Inspect call in the AgentFlow tick",
     ),
+    # N-bd-tests-harness-1-01: the gate calls the mutation unit tests but no longer reads their exit code.
+    (
+        "bd-w2-tests-scripts-1: the gate ignores the mutation unit tests' exit code (N-bd-tests-harness-1-01)",
+        os.path.join(REPO, "tests", "run-gate.ps1"),
+        b"            $mutationUnitExit = $LASTEXITCODE\n",
+        b"            $mutationUnitExit = 0\n",
+        "w2-tests-scripts-1: the gate runs run_mutation_capture_checks.py and fails on its exit code",
+    ),
+    # N-bd-tests-harness-1-01: a test_mutation_*.py module is left out of the runner the gate calls.
+    (
+        "bd-w2-tests-scripts-1: a mutation unit-test module is left out of the gate's runner (N-bd-tests-harness-1-01)",
+        os.path.join(REPO, "tests", "run_mutation_capture_checks.py"),
+        b'            "test_mutation_runner_restore",\n',
+        b"",
+        "w2-tests-scripts-1: run_mutation_capture_checks.py names every",
+    ),
 )
 
 
