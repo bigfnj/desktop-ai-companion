@@ -105,12 +105,17 @@ namespace DesktopAICompanion.AgentFlow
         internal const int DefaultCheckSeconds = 10;
 
         /// <summary>
-        /// How often the transcripts are read, whatever the check interval: ten seconds, the tick they were read
-        /// on before the interval became a setting. The transcript half waits 30 s by default before it says
-        /// anything, so reading it every second would repeat the same answer thirty times, and the read sweeps
-        /// both agents' folders, about 53 ms a tick measured in .NET on 2026-09-21 (the 1.3.0 note above). A
-        /// tick reads them when this much has passed since the last read, less <see cref="TranscriptSlack"/>, so
-        /// a ten-second timer that fires a few milliseconds early still reads on every tick.
+        /// The least time between two transcript reads: ten seconds, the tick they were read on before the
+        /// interval became a setting. The transcript half waits 30 s by default before it says anything, so
+        /// reading it every second would repeat the same answer thirty times, and the read sweeps both agents'
+        /// folders, about 53 ms a tick measured in .NET on 2026-09-21 (the 1.3.0 note above). A tick reads them
+        /// when this much has passed since the last read, less <see cref="TranscriptSlack"/>, so a ten-second
+        /// timer that fires a few milliseconds early still reads on every tick.
+        ///
+        /// NOT "every ten seconds whatever the check interval", which this comment used to say
+        /// (N-audit-1106-097). Reads happen only ON a check tick, so the real period is the first multiple of
+        /// the check interval at or above 9.5 s (<see cref="TranscriptsDue"/>): every tick from 10 s up to the
+        /// 30 s maximum, every second tick from 5 s to 9 s (10-18 s), every third at 4 s (12 s), and so on.
         /// </summary>
         internal static readonly TimeSpan TranscriptEvery = TimeSpan.FromSeconds(10);
         internal static readonly TimeSpan TranscriptSlack = TimeSpan.FromMilliseconds(500);
@@ -916,7 +921,8 @@ namespace DesktopAICompanion.AgentFlow
             if (Interlocked.CompareExchange(ref _scanning, 1, 0) != 0) return;
             ScanEverStartedForSelfTest = true;
 
-            // The transcripts on their own ten-second beat, the panels on the user's (1.11.0). Decided here,
+            // The transcripts at most once per ten seconds, on a check tick (see TranscriptEvery for the real
+            // period), the panels on the user's beat (1.11.0). Decided here,
             // on the UI thread and past the guard, so a tick that never ran a worker does not count as a read.
             long nowMs = TickClockForSelfTest != null ? TickClockForSelfTest() : Environment.TickCount64;
             bool readTranscripts = TranscriptsDue(_lastTranscriptReadMs, nowMs);
