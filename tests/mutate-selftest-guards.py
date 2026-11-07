@@ -20512,6 +20512,16 @@ CASES = (
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "a recording saved at app exit gets a stub transcript saying it was never transcribed"),
+
+    # N-audit-1106-276: the rename of an old by-date capture leaves its follow-up behind under the old name again.
+    ("bd-remembrance-1: the rename leaves an old capture's follow-up behind (N-audit-1106-276)",
+     os.path.join(REPO, "modules", "Remembrance", "CaptureStore.Rename.cs"),
+     b"            { \".transcript.txt\", LegacySummarySuffix, SummarySuffix, AudioRecorder.SystemScratchSuffix, AudioRecorder.MicScratchSuffix, \".wav\",\n"
+     b"              FollowUp.FileSuffix };\n",
+     b"            { \".transcript.txt\", LegacySummarySuffix, SummarySuffix, AudioRecorder.SystemScratchSuffix, AudioRecorder.MicScratchSuffix, \".wav\" };\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "rename: a follow-up beside an old-named summary moves with its capture"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

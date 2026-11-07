@@ -93,6 +93,8 @@ namespace DesktopAICompanion.RemembranceModule
                                  //        (N-audit-1106-040). whisper-cli runs in a job that ends it with the app, and a
                                  //        stub is on disk while it runs (N-audit-1106-041). A recording saved as the app
                                  //        closes gets that stub too, saying it was never transcribed (N-audit-1106-038).
+                                 //        "Rename older recordings" moves an old capture's follow-up with the rest of it
+                                 //        (N-audit-1106-276).
                                  // 2.10.0: one Claude Code sign-in, shared with AI Brain (host 1.8.0's
                                  //        IHostCredentials, BACKLOG N-cli-token-02, the owner's decision of
                                  //        2026-10-29), behind the ClaudeCodeSignIn grant, so MinHostVersion rises to

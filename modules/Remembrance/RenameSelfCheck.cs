@@ -184,6 +184,18 @@ namespace DesktopAICompanion.RemembranceModule
                 && File.Exists(Path.Combine(mdDay, "2026-08-28 16-00 Retro.summary.txt"))
                 && !Directory.EnumerateFiles(mdDay, "Retro - *").Any());
 
+            // N-audit-1106-276: the follow-up "Run the follow-up" wrote beside an old-named summary moves with its capture.
+            string followUpDay = Path.Combine(scratch, "rename-follow-up", "2026-08-28");
+            Directory.CreateDirectory(followUpDay);
+            foreach (string name in new[] { "Retro - 2026-08-28 16-00-00.summary.md", "Retro - 2026-08-28 16-00-00 - follow-up.md" })
+                File.WriteAllText(Path.Combine(followUpDay, name), name);
+            RenameReport followUpReport = CaptureStore.ApplyRenames(
+                new CaptureStore(Path.GetDirectoryName(followUpDay), FolderLayout.ByDate).PlanRenames());
+            check("rename: a follow-up beside an old-named summary moves with its capture, never left under the old name (N-audit-1106-276)",
+                followUpReport.Captures == 1 && followUpReport.Files == 2
+                && File.Exists(Path.Combine(followUpDay, "2026-08-28 16-00 Retro - follow-up.md"))
+                && !Directory.EnumerateFiles(followUpDay, "Retro - *").Any());
+
             // ---- one file failing puts the capture back; nothing is overwritten ----
             string failRoot = Path.Combine(scratch, "fail");
             string failDay = Path.Combine(failRoot, "2026-08-28");

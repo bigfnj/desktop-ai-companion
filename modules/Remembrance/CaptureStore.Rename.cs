@@ -292,9 +292,13 @@ namespace DesktopAICompanion.RemembranceModule
 
         // The endings a pre-2.6.0 capture's files carry after its base name in a day folder; longest first, so a scratch
         // track is not read as "<base>.system" + ".wav". ".summary.md" too (2.9.0): "Run summary" on an old-named
-        // transcript writes "<old base>.summary.md", which must move with the rest of its capture.
+        // transcript writes "<old base>.summary.md", which must move with the rest of its capture. FollowUp.FileSuffix too
+        // (N-audit-1106-276): "Run the follow-up on the latest summary" on an old-named summary writes "<old base> -
+        // follow-up.md" beside it (FollowUp.PathFor), and a rename that moved everything else left it under the old name,
+        // splitting the capture. Last rather than in length order: no other ending is a tail of it, nor it of one.
         private static readonly string[] OldEndings =
-            { ".transcript.txt", LegacySummarySuffix, SummarySuffix, AudioRecorder.SystemScratchSuffix, AudioRecorder.MicScratchSuffix, ".wav" };
+            { ".transcript.txt", LegacySummarySuffix, SummarySuffix, AudioRecorder.SystemScratchSuffix, AudioRecorder.MicScratchSuffix, ".wav",
+              FollowUp.FileSuffix };
 
         /// <summary>
         /// Is this file one a pre-2.6.0 capture wrote under its base name? Hands back that base, case kept, and the rest of
