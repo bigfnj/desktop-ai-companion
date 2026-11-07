@@ -1701,6 +1701,9 @@ namespace DesktopAICompanion
                 ok &= ModulesUninstallColumn(sb);
                 // ---- lane feature/shimeji-host-settings ----
                 ok &= TickSwitchRows(sb);
+                // ---- burndown/options-ui-1 ----
+                ok &= ApplyRebasesTheBaseline(sb);
+                ok &= PreferencesKeepsAnOffGridVolume(sb);
             }
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message); }
 

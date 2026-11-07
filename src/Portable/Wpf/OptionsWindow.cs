@@ -793,6 +793,9 @@ namespace DesktopAICompanion.Wpf
         private bool _suppressDirty;   // true while Build() sets initial control values (so they don't count as edits)
         private bool _syncingGroup;    // true while a group header checkbox drives its children (stops the feedback loop)
         private readonly PendingCheckSet _pendingChecks = new PendingCheckSet();
+        /// <summary>Each deferred list box's re-base onto what it shows, run after a successful Save
+        /// (<see cref="RebaseOnSaved"/>): the box's "was checked" baseline is a captured local only its own closure sees.</summary>
+        private readonly List<Action> _rebaseDeferredBoxes = new List<Action>();
         private readonly List<KeyValuePair<string, TextBlock>> _infoBlocks = new List<KeyValuePair<string, TextBlock>>();
         private readonly object _infoGate = new object();
         private System.Windows.Threading.Dispatcher _infoDispatcher;
@@ -1992,6 +1995,10 @@ namespace DesktopAICompanion.Wpf
                                 else _pendingChecks.Set(lc, (string)cb.Tag, v);
                                 Dirty();
                             };
+                            // Apply flushed the stage into the module, so what the box shows is now the stored state.
+                            // Without this the baseline stayed the pre-Apply one, and ticking the box back read as "no
+                            // change" and was never sent (N-audit-1106-033).
+                            _rebaseDeferredBoxes.Add(delegate { wasChecked = cb.IsChecked == true; });
                         }
                         else
                         {
@@ -3155,7 +3162,37 @@ namespace DesktopAICompanion.Wpf
             // Staged checkbox edits go first: the module records the ids here and commits the whole batch
             // inside its own Save, so a hundred ticks cost one write instead of a hundred.
             _pendingChecks.Flush();
-            return _pane.Save(Collect());
+            Dictionary<string, string> written = Collect();
+            bool saved = _pane.Save(written);
+            if (saved) RebaseOnSaved(written);
+            return saved;
+        }
+
+        /// <summary>
+        /// After a successful Save, what was just written becomes this view's baseline (N-audit-1106-033). A pane
+        /// with no Info or Header field is not rebuilt after Apply (RefreshAfterApply), so its view kept measuring edits
+        /// against the PRE-Apply Load: a field changed, applied, and changed back read as "nothing to apply", Apply
+        /// stayed grey, and the original value could never be saved again. Re-based: <see cref="_stored"/> for the keys
+        /// Load answered (a key it did not answer stays out, as at build), <see cref="_shownAtBuild"/> for every key,
+        /// and each deferred list box's "was checked". A secret is left out of both: its box is write-only and an edit
+        /// of it is measured by whether the box holds text, never against a baseline. A rebuilt pane gets a fresh view
+        /// from Load anyway, so re-basing the old one costs nothing there.
+        /// </summary>
+        private void RebaseOnSaved(Dictionary<string, string> written)
+        {
+            var stored = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (_stored != null)
+                foreach (KeyValuePair<string, string> kv in _stored) stored[kv.Key] = kv.Value;
+            var shown = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (KeyValuePair<string, string> kv in written)
+            {
+                if (_secretIds.Contains(kv.Key)) continue;
+                shown[kv.Key] = kv.Value;
+                if (stored.ContainsKey(kv.Key)) stored[kv.Key] = kv.Value;
+            }
+            _stored = stored;
+            _shownAtBuild = shown;
+            foreach (Action rebase in _rebaseDeferredBoxes) rebase();
         }
 
         /// <summary>The values that would be sent to Save (also the self-test hook).</summary>
