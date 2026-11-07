@@ -60,7 +60,6 @@ namespace DesktopAICompanion
                 Run("Window-follow relative scaling", TestWindowFollowRelativeScaling);
                 Run("Retiring pet runtime ownership", TestRetiringPetRuntimeOwnership);
                 Run("Unicode speech and logical sprite anchoring", TestSpeechGeometryAndUnicode);
-                Run("Child-position coordinate reproduction", TestChildPositionReproduction);
                 Run("Screen dimensions and fullscreen detection", TestMetricsAndFullscreen);
                 Run("ModuleKit atomic file writes", TestModuleKitAtomicFile);
                 Run("Atomic replace fallback past MAX_PATH", TestAtomicReplaceFallbackPastMaxPath);
@@ -1709,22 +1708,11 @@ namespace DesktopAICompanion
                 "Speech anchor bottom did not use the full logical sprite height.");
         }
 
-        private static void TestChildPositionReproduction()
-        {
-            Rectangle monitor = new Rectangle(-2560, -1440, 2560, 1440);
-            Point parentVirtual = new Point(-2160, -1140);
-            Point parentLocal = DesktopGeometry.VirtualToMonitorLocal(parentVirtual, monitor);
-            Point childOffset = new Point(25, -40);
-            Point childLocal = new Point(
-                parentLocal.X + childOffset.X,
-                parentLocal.Y + childOffset.Y);
-            Point childVirtual = DesktopGeometry.MonitorLocalToVirtual(childLocal, monitor);
-
-            AssertEqual(
-                new Point(parentVirtual.X + childOffset.X, parentVirtual.Y + childOffset.Y),
-                childVirtual,
-                "Child positioning applied the monitor origin more than once.");
-        }
+        // "Child-position coordinate reproduction" stood here until N-audit-1106-336 (2026-11-07). It re-did the child
+        // arithmetic inline (parentLocal + offset, then MonitorLocalToVirtual), so it re-tested the converter pair that
+        // TestMonitorLayouts pins (on the same negative-origin monitor) and could not fail on what its label named:
+        // FormCompanion applying the monitor origin twice. FormCompanion is not compiled here, so that is now a source
+        // invariant in tests/runtime-hardening-selftest.ps1 (w3-tests-core-1), which asserts each crossing's argument.
 
         private static void TestMetricsAndFullscreen()
         {

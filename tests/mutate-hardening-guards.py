@@ -4206,6 +4206,24 @@ CASES = (
         b"",
         "w2-tests-scripts-1: run_mutation_capture_checks.py names every",
     ),
+    # ---- burndown/w3-tests-core-1 ----
+    # N-audit-1106-336: FormCompanion applies the monitor origin twice to a child, once by constructing it with its
+    # parent's VIRTUAL position (its expressions then add the origin again through PlayChild's conversion), once by
+    # converting PlayChild's local result to virtual twice. No headless test can build a FormCompanion.
+    (
+        "bd-w3-tests-core-1: a child is constructed with its parent's virtual position (N-audit-1106-336)",
+        os.path.join(REPO, "src", "dotNet", "FormCompanion.cs"),
+        b"                                    this,\n                                    parentLocal,\n",
+        b"                                    this,\n                                    parentVirtual,\n",
+        "w3-tests-core-1: a child is constructed with its parent's monitor-local position",
+    ),
+    (
+        "bd-w3-tests-core-1: PlayChild converts the child's position to virtual twice (N-audit-1106-336)",
+        os.path.join(REPO, "src", "dotNet", "FormCompanion.cs"),
+        b"Point childPosition = DesktopGeometry.MonitorLocalToVirtual(\n                    new Point(childX, childY), ScreenBounds);",
+        b"Point childPosition = DesktopGeometry.MonitorLocalToVirtual(DesktopGeometry.MonitorLocalToVirtual(\n                    new Point(childX, childY), ScreenBounds), ScreenBounds);",
+        "w3-tests-core-1: PlayChild converts the child's local position to virtual exactly once",
+    ),
 )
 
 

@@ -5787,6 +5787,31 @@ Assert-True ($w2MutationModules.Count -gt 0 -and $w2MutationUnlisted.Count -eq 0
     "w2-tests-scripts-1: run_mutation_capture_checks.py names every tests\test_mutation_*.py module ($($w2MutationModules.Count); WITNESS: an unlisted name is reported)" +
     $(if ($w2MutationUnlisted.Count) { ' -- not run: ' + ($w2MutationUnlisted -join ', ') } else { '' }))
 
+# ---- burndown/w3-tests-core-1 ----
+# A CHILD CROSSES THE MONITOR ORIGIN EXACTLY ONCE EACH WAY (N-audit-1106-336). CoreTests' "Child-position coordinate
+# reproduction" re-did the arithmetic inline and so could not fail on FormCompanion applying the origin twice; it is gone,
+# and no headless test can build a FormCompanion with its animations. The parent's virtual position becomes monitor-local
+# ONCE, and that local point is what the child is constructed with (it feeds the child's expressions through
+# CreateExpressionContext, which converts nothing); PlayChild turns the expression's local result back into a virtual
+# position ONCE. ARGUMENTS and COUNTS are asserted, each against a WITNESS of the doubled shape.
+$w3Core = Get-MethodBody $respawnPet 'private void SetNewAnimationCore(int id)' $respawnStops
+$w3Context = Get-MethodBody $respawnPet 'private IDisposable CreateExpressionContext()' $respawnStops
+Assert-True ($w3Core.Length -gt 0 -and $respawnChild.Length -gt 0 -and $w3Context.Length -gt 0) (
+    'w3-tests-core-1: SetNewAnimationCore, PlayChild and CreateExpressionContext were located in comment-stripped FormCompanion.cs')
+$w3ChildCtor = 'new FormCompanion\(\s*Animations,\s*Xml,\s*this,\s*parentLocal,'
+Assert-True ($w3Core -cmatch 'Point parentLocal = DesktopGeometry\.VirtualToMonitorLocal\(\s*parentVirtual, ScreenBounds\);' -and
+    $w3Core -cmatch $w3ChildCtor -and @([regex]::Matches($w3Core, 'new FormCompanion\(')).Count -eq 1 -and
+    $w3Core -cnotmatch 'MonitorLocalToVirtual\(' -and
+    $w3Context -cmatch 'CanonicalParentX\(\s*parentPosition\.X,' -and $w3Context -cnotmatch 'MonitorLocalToVirtual\(|VirtualToMonitorLocal\(' -and
+    'child = new FormCompanion(Animations, Xml, this, parentVirtual, !IsMovingLeft,' -cnotmatch $w3ChildCtor) (
+    "w3-tests-core-1: a child is constructed with its parent's monitor-local position, converted once (WITNESS: the virtual position does not match)")
+$w3ToVirtual = 'DesktopGeometry\.MonitorLocalToVirtual\('
+$w3Doubled = 'Point childPosition = DesktopGeometry.MonitorLocalToVirtual(DesktopGeometry.MonitorLocalToVirtual(new Point(childX, childY), ScreenBounds), ScreenBounds);'
+Assert-True (@([regex]::Matches($respawnChild, $w3ToVirtual)).Count -eq 1 -and
+    $respawnChild -cmatch 'Point childPosition = DesktopGeometry\.MonitorLocalToVirtual\(\s*new Point\(childX, childY\), ScreenBounds\);\s*Left = childPosition\.X;\s*Top = childPosition\.Y;' -and
+    $respawnChild -cnotmatch 'VirtualToMonitorLocal\(' -and @([regex]::Matches($w3Doubled, $w3ToVirtual)).Count -eq 2) (
+    "w3-tests-core-1: PlayChild converts the child's local position to virtual exactly once (WITNESS: a doubled conversion counts 2; found $(@([regex]::Matches($respawnChild, $w3ToVirtual)).Count))")
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever
