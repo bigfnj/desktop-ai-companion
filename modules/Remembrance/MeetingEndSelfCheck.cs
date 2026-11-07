@@ -1345,6 +1345,13 @@ namespace DesktopAICompanion.RemembranceModule
                     var host = new QuestionsHost();
                     now = WatchT0;
                     RemembranceModule module = start(new FakeConsentStore(), host, Path.Combine(scratch, "unplugged"));
+                    // (N-cxr-w2-01) An Options pane already open: the host refreshes its Status row only when the module
+                    // says its Info rows changed, and each refresh reads the Status line through Load. Every notification
+                    // records the Status line at that moment, which is what the open pane would show.
+                    var paneNotes = new List<string>();
+                    Action notePane = delegate { string seen = module.StatusLineForSelfTest(); lock (paneNotes) paneNotes.Add(seen); };
+                    OptionsPane openPane = host.OptionsPanes[0];
+                    openPane.InfoChanged += notePane;
                     module.StartRecordingForSelfTest();
                     ui.Drain();
                     Thread.Sleep(100);
@@ -1359,6 +1366,11 @@ namespace DesktopAICompanion.RemembranceModule
                         module.IsRecordingForSelfTest && oneGone.Contains("⚠ The microphone capture stopped")
                         && oneGone.Contains("(InvalidOperationException): nothing more is recorded from it")
                         && host.LoggedLines.Count(l => l.Contains("the microphone capture stopped")) == 1);
+                    int toldAfterOne;
+                    lock (paneNotes) toldAfterOne = paneNotes.Count(n => n.Contains("⚠ The microphone capture stopped"));
+                    check("capture death in the module: the open pane is told its Status line changed, and its refresh reads the warning (N-cxr-w2-01): " +
+                          toldAfterOne.ToString(CultureInfo.InvariantCulture) + " notification(s) carrying it",
+                        toldAfterOne == 1);
                     if (output != null) { output.StopException = new InvalidOperationException("simulated: unplugged"); output.StopRecording(); }
                     Thread.Sleep(200);
                     now = WatchT0.AddSeconds(4);
@@ -1367,6 +1379,17 @@ namespace DesktopAICompanion.RemembranceModule
                     check("capture death in the module: ...and a second death adds its own warning, the first kept (N-audit-1106-036)",
                         bothGone.Contains("⚠ The microphone capture stopped") && bothGone.Contains("⚠ The system output capture stopped")
                         && host.LoggedLines.Count(l => l.Contains("the system output capture stopped")) == 1);
+                    int toldBoth;
+                    lock (paneNotes) toldBoth = paneNotes.Count(n => n.Contains("⚠ The system output capture stopped"));
+                    now = WatchT0.AddSeconds(6);
+                    module.WatchTickForSelfTest();
+                    int toldInAll;
+                    lock (paneNotes) toldInAll = paneNotes.Count(n => n.Contains("capture stopped"));
+                    check("capture death in the module: ...the second death tells the pane again, and a tick that adds no warning tells it nothing (N-cxr-w2-01): " +
+                          toldBoth.ToString(CultureInfo.InvariantCulture) + " for the second, " +
+                          toldInAll.ToString(CultureInfo.InvariantCulture) + " in all",
+                        toldBoth == 1 && toldInAll == 2);
+                    openPane.InfoChanged -= notePane;
                     finish(module, host);
                 }
 

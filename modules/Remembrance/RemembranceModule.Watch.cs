@@ -470,6 +470,7 @@ namespace DesktopAICompanion.RemembranceModule
         private void NoteTrackFailures(AudioRecorder recorder)
         {
             if (recorder == null) return;
+            bool added = false;
             foreach (TrackWriteFailure f in recorder.WriteFailures)
             {
                 // A capture that ended (N-audit-1106-036) is worded for what happened: the device went, so nothing more is
@@ -488,8 +489,15 @@ namespace DesktopAICompanion.RemembranceModule
                     string warning = char.ToUpperInvariant(line[0]) + line.Substring(1) + ".";
                     _trackFailureLine = _trackFailureLine == null ? warning : _trackFailureLine + "  |  ⚠ " + warning;
                 }
+                added = true;
                 Log(line);
             }
+            // THE OPEN PANE IS TOLD (N-cxr-w2-01). The warning lands on the Status line, which the pane reads only through
+            // Load: an Options pane already open and settled kept showing "Recording..." for the rest of the meeting while
+            // the device that ended went unrecorded under it. Once per call that added a warning, and outside the lock:
+            // NotifyInfoChanged is callable from any thread (the save after the stop calls this on a pool thread), and the
+            // host's refresh calls Load, which reads _trackFailureLine through StatusLine.
+            if (added) NotifyInfoChanged();
         }
 
         /// <summary>The Status line's warnings this lane adds: the storage folder inside OneDrive, and a track that stopped
