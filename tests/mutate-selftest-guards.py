@@ -20497,6 +20497,14 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--aibrain-selftest", "dp-aibrain-selftest.txt",
      "hotkey registrar refuses a second registration"),
+    # N-audit-1106-025: a partial type load is refused before the MinHostVersion gate again (no IModule type found).
+    ("bd-host-1: a partial type load is refused before the host-version gate",
+     os.path.join(REPO, "src", "dotNet", "Plugins", "ModuleHost.cs"),
+     b"                        types = ex.Types ?? new Type[0];\n",
+     b"                        types = new Type[0];\n",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "partial load: a too-new module with a type implementing a contract this host lacks"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
