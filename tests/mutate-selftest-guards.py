@@ -20904,6 +20904,24 @@ CASES = (
      FORTUNES_CSPROJ, FORTUNES_DLL,
      "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
      "IMPORT FAIL a full-length line with one invalid UTF-8 byte was not refused as invalid UTF-8"),
+
+    # N-audit-1106-210: the probe's sub-report fold, each half of the fix put back. The report is not cleared before
+    # its sub-test (so an earlier run's lines are folded), or a missing report returns in silence as it did.
+    ("bd-w2-fortunes-1: a sub-report an earlier run left is not cleared (N-audit-1106-210)",
+     os.path.join(REPO, "modules", "Fortunes", "engine", "FortuneEngineProbe.cs"),
+     b"                System.IO.File.Delete(System.IO.Path.Combine(System.IO.Path.GetTempPath(), fileName));\n",
+     b"",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a sub-report an earlier run left is cleared, and one this run did not write is a FAIL"),
+    ("bd-w2-fortunes-1: a sub-report this run did not write is skipped in silence (N-audit-1106-210)",
+     os.path.join(REPO, "modules", "Fortunes", "engine", "FortuneEngineProbe.cs"),
+     b'                    sb.AppendLine("      FAIL: " + fileName + " was not written by this run, so its cases are not shown");\n'
+     b"                    return false;\n",
+     b"                    return true;\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a sub-report an earlier run left is cleared, and one this run did not write is a FAIL"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

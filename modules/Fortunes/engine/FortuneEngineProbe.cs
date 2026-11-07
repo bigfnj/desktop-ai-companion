@@ -509,6 +509,32 @@ namespace DesktopAICompanion.FortunesModule
                     !IsSubReportFailure("filter_cases=90 failures=0") &&
                     !IsSubReportFailure("warmed=True complete=True indexed=515 of 515 in 1234ms") &&
                     !IsSubReportFailure("[Program.cs - Visual Studio - writing C# code...] -> (random)"));
+                // N-audit-1106-210: a report an earlier run left is cleared before the sub-test runs, and a report
+                // the sub-test then did not write is a FAIL, not the earlier run's lines and not silence. On a
+                // throwaway name, so the real reports are not touched.
+                string staleReport = "dp-fortunes-probe-report-" + Guid.NewGuid().ToString("N") + ".txt";
+                string staleReportPath = Path.Combine(Path.GetTempPath(), staleReport);
+                try
+                {
+                    File.WriteAllText(staleReportPath, "STALE line an earlier run wrote\n");
+                    var staleFold = new StringBuilder();
+                    bool staleCleared = ClearReport(staleFold, staleReport);
+                    bool staleFolded = AppendReport(staleFold, staleReport);
+                    string staleText = staleFold.ToString();
+                    ok &= Check(sb, "a sub-report an earlier run left is cleared, and one this run did not write is a FAIL (N-audit-1106-210)",
+                        staleCleared && !staleFolded &&
+                        staleText.IndexOf("STALE line", StringComparison.Ordinal) < 0 &&
+                        staleText.IndexOf("FAIL: " + staleReport + " was not written by this run", StringComparison.Ordinal) >= 0);
+                    File.WriteAllText(staleReportPath, "fresh line this run wrote\n");
+                    var freshFold = new StringBuilder();
+                    ok &= Check(sb, "WITNESS a sub-report written after the clear is folded",
+                        AppendReport(freshFold, staleReport) &&
+                        freshFold.ToString().IndexOf("fresh line this run wrote", StringComparison.Ordinal) >= 0);
+                }
+                finally
+                {
+                    try { File.Delete(staleReportPath); } catch { }
+                }
 
                 // A host with NO settings store (F121). The convention runner's host is one; its Init used to
                 // start an embed of the whole corpus into the TEMP fallback root on every run.
@@ -625,11 +651,12 @@ namespace DesktopAICompanion.FortunesModule
                 ok &= FolderWatchChecks(sb);
 
                 // The engine's full self-test suite, running in the module's context.
+                ok &= ClearReport(sb, "dp-filter-selftest.txt");
                 bool filter = FortuneProvider.FilterSelfTest();
                 ok &= Check(sb, "engine FilterSelfTest (dedup/classifier/parser/ingestion/importer/embedded-taxonomy)", filter);
                 // Its per-case lines used to go to a temp file nothing read, so a failing sub-suite reached the
                 // gate as this one verdict and nothing else (F120). Folded in the way the smart reports are.
-                AppendReport(sb, "dp-filter-selftest.txt");
+                ok &= AppendReport(sb, "dp-filter-selftest.txt");
 
                 // --- smart layer: proves ONNX loads + runs inside the module's own load context ---
                 ok &= Check(sb, "the module payload carries bge-small beside Fortunes.dll (the smart checks below need it)", Embedder.ModelPresent);
@@ -638,8 +665,9 @@ namespace DesktopAICompanion.FortunesModule
                     // Embedder.SelfTest loads the ONNX model + embeds hardcoded strings and checks
                     // cos(code,code) > cos(code,weather) - the definitive proof that native onnxruntime.dll
                     // resolved and ran in the module's AssemblyLoadContext.
+                    ok &= ClearReport(sb, "dp-embed-selftest.txt");
                     ok &= Check(sb, "Embedder loads ONNX + embeds in the module ALC", Embedder.SelfTest());
-                    AppendReport(sb, "dp-embed-selftest.txt");
+                    ok &= AppendReport(sb, "dp-embed-selftest.txt");
 
                     // SmartFortunes warm/pick over the injected pool exercises the rebinds: VectorCache
                     // (AtomicFile) + CrossSessionLock, all in-module. In its OWN scratch cache directory:
@@ -657,8 +685,9 @@ namespace DesktopAICompanion.FortunesModule
                     // same line twice running, and a second Warm supersedes the first. (The reported bug it
                     // guards was ~3 distinct lines out of thousands.) It had had no caller since the engine
                     // moved into this module, so that regression went unwatched.
+                    ok &= ClearReport(sb, "dp-smart-selftest.txt");
                     ok &= Check(sb, "SmartFortunes.SelfTest (contextual picks + pick variety)", SmartFortunes.SelfTest());
-                    AppendReport(sb, "dp-smart-selftest.txt");
+                    ok &= AppendReport(sb, "dp-smart-selftest.txt");
                 }
                 else
                 {
@@ -684,12 +713,13 @@ namespace DesktopAICompanion.FortunesModule
         {
             var sb = new StringBuilder();
             bool ok;
+            bool cleared = ClearReport(sb, "dp-smart-progress-selftest.txt");
             try { ok = SmartFortunes.ProgressiveSelfTest(); }
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message); }
             Check(sb, "SmartFortunes.ProgressiveSelfTest (cold-cache progressive warm)", ok);
-            AppendReport(sb, "dp-smart-progress-selftest.txt");
+            bool folded = AppendReport(sb, "dp-smart-progress-selftest.txt");
             detail = sb.ToString();
-            return ok;
+            return ok && cleared && folded;
         }
 
         /// <summary>
@@ -1533,20 +1563,55 @@ namespace DesktopAICompanion.FortunesModule
         /// (<c>name=FAIL</c>, <c>SUITE FAIL case</c>, <c>EXC:</c>) is re-emitted as a <c>FAIL: </c> verdict
         /// line: the gate's failure printer and tests/mutate-selftest-guards.py read only lines that START
         /// with FAIL, so without the prefix the folded case was visible to a person and to neither tool (F120).
+        ///
+        /// <para>THIS RUN'S REPORT OR A FAIL (N-audit-1106-210). The names are fixed and nothing deleted them, so a
+        /// sub-test that could not write its report had the PREVIOUS run's folded under this run's verdict, and a
+        /// missing report returned in silence. <see cref="ClearReport"/> now deletes each one before its sub-test
+        /// runs, and a report that is then absent, or cannot be read, is a FAIL line and a false return. Two runs
+        /// sharing one TEMP can still meet here, as every self-test marker in this repo can (they are all fixed
+        /// names in %TEMP%); the gate and the harnesses give each run its own TEMP for that reason.</para>
         /// </summary>
-        private static void AppendReport(StringBuilder sb, string fileName)
+        private static bool AppendReport(StringBuilder sb, string fileName)
         {
+            string text;
             try
             {
                 string path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), fileName);
-                if (!System.IO.File.Exists(path)) return;
-                foreach (string line in System.IO.File.ReadAllText(path).Replace("\r", "").Split('\n'))
+                if (!System.IO.File.Exists(path))
                 {
-                    if (line.Length == 0) continue;
-                    sb.AppendLine((IsSubReportFailure(line) ? "      FAIL: " : "      ") + line);
+                    sb.AppendLine("      FAIL: " + fileName + " was not written by this run, so its cases are not shown");
+                    return false;
                 }
+                text = System.IO.File.ReadAllText(path);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                sb.AppendLine("      FAIL: " + fileName + " could not be read (" + ex.GetType().Name + ")");
+                return false;
+            }
+            foreach (string line in text.Replace("\r", "").Split('\n'))
+            {
+                if (line.Length == 0) continue;
+                sb.AppendLine((IsSubReportFailure(line) ? "      FAIL: " : "      ") + line);
+            }
+            return true;
+        }
+
+        /// <summary>Delete a sub-test's report before the sub-test runs, so the one <see cref="AppendReport"/> folds
+        /// is this run's (N-audit-1106-210). A report that will not delete is a FAIL line and a false return: it
+        /// would be folded as this run's if the sub-test then failed to write.</summary>
+        private static bool ClearReport(StringBuilder sb, string fileName)
+        {
+            try
+            {
+                System.IO.File.Delete(System.IO.Path.Combine(System.IO.Path.GetTempPath(), fileName));
+                return true;
+            }
+            catch (Exception ex)
+            {
+                sb.AppendLine("      FAIL: an earlier " + fileName + " could not be cleared (" + ex.GetType().Name + ")");
+                return false;
+            }
         }
 
         internal static bool IsSubReportFailure(string line)

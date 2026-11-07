@@ -137,7 +137,9 @@ namespace DesktopAICompanion.FortunesModule
                                  //        the guard it names and no other (N-audit-1106-019). The importer
                                  //        self-test's invalid UTF-8 fixture is a full-length line with one bad
                                  //        byte, refused by its reason, so a lenient decode is seen
-                                 //        (N-audit-1106-211).
+                                 //        (N-audit-1106-211). The engine probe clears each sub-test's report
+                                 //        before the sub-test runs and fails on one that is then missing, so an
+                                 //        earlier run's report is never folded as this run's (N-audit-1106-210).
                                  // 1.2.1: a pack import whose replace fails and whose backup cannot be put back is
                                  //        counted as a rollback failure, and the batch says its rollback could not be
                                  //        fully verified instead of "all earlier changes were rolled back"
