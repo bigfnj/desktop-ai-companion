@@ -1632,8 +1632,9 @@ CASES = (
     (
         "feature/remembrance-2: Transcribe a WAV file bypasses the TranscribeWav seam",
         REMEMBRANCE_MODULE,
-        b"                            TranscribeWav(wav, transcript, whisperExe, model, name, null, null, out did);\n",
-        b"                            Transcriber.Transcribe(wav, transcript, whisperExe, model, name, null, null, out did);\n",
+        # Re-pointed by burndown/remembrance-1 (N-audit-1106-040): the call now keeps the text it returns, for the reason.
+        b"                            string text = TranscribeWav(wav, transcript, whisperExe, model, name, null, null, out did);\n",
+        b"                            string text = Transcriber.Transcribe(wav, transcript, whisperExe, model, name, null, null, out did);\n",
         "WITNESS Transcribe a WAV file runs whisper-cli through the TranscribeWav seam",
     ),
 
@@ -3971,6 +3972,24 @@ CASES = (
         b"output.PlayClip(owner, audio, wav, volume)",
         b"output.PlayClip(owner, audio, false, volume)",
         "shimeji-host-wav: a tick clip reaches the audio output with the format its document declared",
+    ),
+    # ---- burndown/remembrance-1 ----
+    # N-audit-1106-041: whisper-cli is a free-standing child again, outliving the app for up to six hours.
+    (
+        "bd-remembrance-1: whisper-cli is no longer put in a kill-on-close job (N-audit-1106-041)",
+        os.path.join(REPO, "modules", "Remembrance", "Transcriber.cs"),
+        b"                using (WhisperJob job = WhisperJob.TryAttach(proc))\n",
+        b"",
+        # The fragment stops before the label's end: PowerShell wraps the thrown message at the console width, and the
+        # whole label split across two lines and scored WRONG on the run that first tried it.
+        "remembrance-1: whisper-cli is put in its kill-on-close job",
+    ),
+    (
+        "bd-remembrance-1: the whisper job is created without kill-on-close (N-audit-1106-041)",
+        os.path.join(REPO, "modules", "Remembrance", "Transcriber.cs"),
+        b"                    limits.BasicLimitInformation.LimitFlags = JobObjectLimitKillOnJobClose;\n",
+        b"                    limits.BasicLimitInformation.LimitFlags = 0;\n",
+        "remembrance-1: the whisper job ends its processes when its last handle closes",
     ),
 )
 

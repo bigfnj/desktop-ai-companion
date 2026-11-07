@@ -5503,6 +5503,24 @@ Assert-True ('output.PlayClip(owner, audio, wav, volume)' -cmatch '\.PlayClip\(o
     $hwPlay -cmatch '\.PlayClip\(owner, audio, wav, volume\)' -and $hwPlay -cnotmatch '\.PlayClip\(owner, audio, (true|false),') (
     'shimeji-host-wav: a tick clip reaches the audio output with the format its document declared (WITNESS: a constant format does not match)')
 
+# ---- burndown/remembrance-1 ----
+# WHISPER-CLI ENDS WITH THE APP (N-audit-1106-041). A self-test never spawns a child, and the property is what Windows does
+# to a job's processes when its last handle closes, so this asserts the ORDER in RunWhisper's source: the job is taken in
+# a using straight after Process.Start and before the wait, and the job carries the kill-on-close flag. A check that the
+# class merely exists would pass the regression that stops attaching it.
+$rbTranscriber = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'modules\Remembrance\Transcriber.cs') -Raw)
+$rbRun = Get-MethodBody $rbTranscriber 'private static string RunWhisper('
+Assert-True ($rbRun.Length -gt 0) 'remembrance-1: RunWhisper was located'
+$rbStart = $rbRun.IndexOf('using (Process proc = Process.Start(psi))', [StringComparison]::Ordinal)
+$rbJob = $rbRun.IndexOf('using (WhisperJob job = WhisperJob.TryAttach(proc))', [StringComparison]::Ordinal)
+$rbWait = $rbRun.IndexOf('proc.WaitForExit(', [StringComparison]::Ordinal)
+Assert-True ($rbStart -ge 0 -and $rbJob -gt $rbStart -and $rbWait -gt $rbJob -and
+    $rbRun.Substring($rbStart, $rbJob - $rbStart) -cmatch '^using \(Process proc = Process\.Start\(psi\)\)\s*$') (
+    'remembrance-1: whisper-cli is put in its kill-on-close job straight after it starts and before the wait')
+Assert-True ($rbTranscriber -cmatch 'JobObjectLimitKillOnJobClose = 0x00002000;' -and
+    $rbTranscriber -cmatch 'limits\.BasicLimitInformation\.LimitFlags = JobObjectLimitKillOnJobClose;') (
+    'remembrance-1: the whisper job ends its processes when its last handle closes')
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever

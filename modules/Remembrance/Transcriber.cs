@@ -3,7 +3,9 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 using NAudio.Wave;
 
 namespace DesktopAICompanion.RemembranceModule
@@ -24,6 +26,89 @@ namespace DesktopAICompanion.RemembranceModule
             string meetingName, IReadOnlyList<string> attendees, DateTimeOffset? recordedAt, out bool didTranscribe)
         {
             didTranscribe = false;
+            string header = Header(meetingName, attendees, recordedAt);
+
+            // A TRANSCRIPT ALREADY THERE IS NEVER TRADED FOR A STUB (N-audit-1106-040). "Transcribe a WAV file..." on a
+            // capture's own recording.wav targets that capture's own transcript, and a failed run (a timeout, a bad
+            // model) used to overwrite real words with "[Transcription pending]". Only a run that produced text replaces
+            // one; a failure leaves it as it was and the caller reads the reason from the text returned. A stub of
+            // ours is not a transcript, so it is replaced either way: the newer reason is the one worth reading.
+            bool keep = HoldsTranscript(transcriptPath);
+
+            // THE STUB GOES DOWN FIRST (N-audit-1106-041): whisper-cli can run for hours, and if the app is closed under
+            // it (the job object below then ends whisper-cli with it) the capture would otherwise be left with audio and
+            // no transcript, which nothing points at and the 72-hour purge then deletes. Written only where no real
+            // transcript stands, for the reason above.
+            if (!keep) WriteText(transcriptPath, header + PendingBody(InterruptedReason, false));
+
+            string why;
+            string body = Whisper(wavPath, whisperExe, modelPath, out didTranscribe, out why);
+            string text = didTranscribe ? header + body : header + PendingBody(why, true);
+            if (didTranscribe || !keep) WriteText(transcriptPath, text);
+            return text;
+        }
+
+        /// <summary>
+        /// The stub alone, with no whisper run: the shutdown save writes it beside the recording it had no time to
+        /// transcribe (N-audit-1106-038), so the capture folder says what the audio is waiting for and how to finish it,
+        /// in the same words as every other stub. Never over a real transcript. Best-effort; never throws.
+        /// </summary>
+        public static void WriteStub(string transcriptPath, string meetingName, IReadOnlyList<string> attendees,
+            DateTimeOffset? recordedAt, string why)
+        {
+            if (HoldsTranscript(transcriptPath)) return;
+            WriteText(transcriptPath, Header(meetingName, attendees, recordedAt) + PendingBody(why, false));
+        }
+
+        /// <summary>Why a stub written before whisper-cli started is still there: the run never finished.</summary>
+        internal const string InterruptedReason =
+            "whisper-cli was still running on this recording when it was stopped, most likely because the app closed.";
+
+        /// <summary>The shutdown save's reason (N-audit-1106-038).</summary>
+        internal const string AppClosedReason =
+            "The app closed while this recording was being saved, so it was not transcribed.";
+
+        /// <summary>The first word of every stub's body, at the start of its line. What tells a stub of ours from a
+        /// transcript: whisper-cli's -otxt output never opens a line with it.</summary>
+        internal const string PendingMarker = "[Transcription pending] ";
+
+        /// <summary>True when <paramref name="text"/> is one of our stubs: a body line opens with the marker.</summary>
+        internal static bool IsPendingStub(string text)
+        {
+            return !string.IsNullOrEmpty(text) &&
+                   (text.StartsWith(PendingMarker, StringComparison.Ordinal) ||
+                    text.IndexOf("\n" + PendingMarker, StringComparison.Ordinal) >= 0);
+        }
+
+        /// <summary>True when a transcript worth keeping is on disk at <paramref name="path"/>: a file with text in it
+        /// that is not a stub. An unreadable file counts as one, so a read failure never licenses an overwrite.</summary>
+        internal static bool HoldsTranscript(string path)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return false;
+                string text = File.ReadAllText(path);
+                return !string.IsNullOrWhiteSpace(text) && !IsPendingStub(text);
+            }
+            catch { return true; }
+        }
+
+        /// <summary>The reason a stub gives, from the text Transcribe returned: what follows the marker on its line, or
+        /// null for a transcript. The manual path puts it on the Status line when it kept an earlier transcript, which
+        /// then is the only place the reason appears.</summary>
+        internal static string PendingReason(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return null;
+            int at = text.StartsWith(PendingMarker, StringComparison.Ordinal) ? 0
+                : text.IndexOf("\n" + PendingMarker, StringComparison.Ordinal);
+            if (at < 0) return null;
+            int start = at + (at == 0 ? 0 : 1) + PendingMarker.Length;
+            int end = text.IndexOf('\n', start);
+            return (end < 0 ? text.Substring(start) : text.Substring(start, end - start)).TrimEnd('\r');
+        }
+
+        private static string Header(string meetingName, IReadOnlyList<string> attendees, DateTimeOffset? recordedAt)
+        {
             var sb = new StringBuilder();
             sb.AppendLine(string.IsNullOrWhiteSpace(meetingName) ? "Recording" : meetingName);
             // "Recorded:" is the capture's START. Until 2026-09-30 it was DateTime.Now at the moment whisper ran:
@@ -36,29 +121,36 @@ namespace DesktopAICompanion.RemembranceModule
                 sb.AppendLine("Invited (" + attendees.Count + "): " + string.Join(", ", attendees));
             sb.AppendLine(new string('-', 48));
             sb.AppendLine();
-
-            string why;
-            string body = RunWhisper(wavPath, whisperExe, modelPath, out didTranscribe, out why);
-            if (!didTranscribe)
-            {
-                sb.AppendLine("[Transcription pending] " + why);
-                // NAMES A CONTROL THAT EXISTS. This said 'use "Re-transcribe" in the Remembrance
-                // options' -- one grep hit in the whole repo, this line, because no such action was
-                // ever built. It is the only sentence a user reads on the one path where
-                // transcription has already failed, so it sent them hunting through twelve buttons
-                // for a thirteenth.
-                sb.AppendLine("Fix that, then use \"Transcribe a WAV file...\" in the Remembrance options and pick the .wav beside this file.");
-                sb.AppendLine("The audio is kept until the 72-hour purge; move it out of the folder to keep it longer.");
-            }
-            else
-            {
-                sb.Append(body);
-            }
-
-            string text = sb.ToString();
-            try { File.WriteAllText(transcriptPath, text, new UTF8Encoding(false)); } catch { }
-            return text;
+            return sb.ToString();
         }
+
+        /// <summary>The stub's body. <paramref name="fix"/> is true when the reason is a fault the user has to put right
+        /// first (whisper-cli refused or was stopped), false when nothing needs fixing (the app closed).</summary>
+        private static string PendingBody(string why, bool fix)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine(PendingMarker + why);
+            // NAMES A CONTROL THAT EXISTS. This said 'use "Re-transcribe" in the Remembrance
+            // options' -- one grep hit in the whole repo, this line, because no such action was
+            // ever built. It is the only sentence a user reads on the one path where
+            // transcription has already failed, so it sent them hunting through twelve buttons
+            // for a thirteenth.
+            sb.AppendLine((fix ? "Fix that, then use" : "Use") + " \"Transcribe a WAV file...\" in the Remembrance options and pick the .wav beside this file.");
+            sb.AppendLine("The audio is kept until the 72-hour purge; move it out of the folder to keep it longer.");
+            return sb.ToString();
+        }
+
+        private static void WriteText(string path, string text)
+        {
+            try { File.WriteAllText(path, text, new UTF8Encoding(false)); } catch { }
+        }
+
+        /// <summary>RunWhisper's shape, for the seam below.</summary>
+        internal delegate string WhisperRun(string wavPath, string whisperExe, string modelPath, out bool ok, out string why);
+
+        /// <summary>The whisper-cli run behind a delegate, so the self-test can look at the transcript file WHILE a run
+        /// is in progress and decide how the run ends, with no child process. Defaults to the real run.</summary>
+        internal static WhisperRun Whisper = RunWhisper;
 
         /// <summary>
         /// Run whisper-cli, and say WHY when it does not work.
@@ -98,7 +190,15 @@ namespace DesktopAICompanion.RemembranceModule
                 psi.ArgumentList.Add("-f"); psi.ArgumentList.Add(wavPath);
                 psi.ArgumentList.Add("-otxt");
                 psi.ArgumentList.Add("-of"); psi.ArgumentList.Add(outBase);
+                // IN A KILL-ON-CLOSE JOB (N-audit-1106-041). whisper-cli used to be a free-standing child: close the app
+                // in the middle of a two-hour recording's run and it carried on for up to MaximumWhisperTimeout, holding
+                // the CPU and writing a .whisper.txt nobody would ever collect, because the read-back below died with the
+                // app. The job's only handle is this one, so it closes when this block ends, when anything in it throws,
+                // and when the process ends however it ends, and Windows ends whisper-cli with it. AI Brain contains its
+                // OCR child the same way. Rejected: tracking the Process and killing it from Shutdown, which a crash or a
+                // task-manager kill never reaches. Best-effort like AI Brain's: a refused job leaves the old behaviour.
                 using (Process proc = Process.Start(psi))
+                using (WhisperJob job = WhisperJob.TryAttach(proc))
                 {
                     if (proc == null) { why = "Windows would not start whisper-cli."; return ""; }
                     // BOTH pipes drained CONCURRENTLY, and only then the wait.
@@ -256,6 +356,111 @@ namespace DesktopAICompanion.RemembranceModule
             return "whisper-cli exited " +
                    exitCode.ToString(System.Globalization.CultureInfo.InvariantCulture) +
                    (last.Length > 0 ? ": " + last : " without saying why.");
+        }
+
+        /// <summary>
+        /// A job object with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE holding one whisper-cli (N-audit-1106-041): AI Brain's
+        /// ProcessJob, trimmed to what this needs. Disposing it, or this process ending, closes the last handle and
+        /// Windows terminates whatever is still in the job. Null when Windows refuses any step.
+        /// </summary>
+        private sealed class WhisperJob : IDisposable
+        {
+            private const uint JobObjectLimitKillOnJobClose = 0x00002000;
+            private const int JobObjectExtendedLimitInformation = 9;
+            private IntPtr _handle;
+
+            private WhisperJob(IntPtr handle) { _handle = handle; }
+
+            internal static WhisperJob TryAttach(Process process)
+            {
+                if (process == null) return null;
+                IntPtr job = IntPtr.Zero;
+                IntPtr info = IntPtr.Zero;
+                try
+                {
+                    job = CreateJobObject(IntPtr.Zero, null);
+                    if (job == IntPtr.Zero) return null;
+                    var limits = new JobObjectExtendedLimitInformationData();
+                    limits.BasicLimitInformation.LimitFlags = JobObjectLimitKillOnJobClose;
+                    int size = Marshal.SizeOf(typeof(JobObjectExtendedLimitInformationData));
+                    info = Marshal.AllocHGlobal(size);
+                    Marshal.StructureToPtr(limits, info, false);
+                    if (!SetInformationJobObject(job, JobObjectExtendedLimitInformation, info, (uint)size) ||
+                        !AssignProcessToJobObject(job, process.Handle))
+                    {
+                        CloseHandle(job);
+                        job = IntPtr.Zero;
+                        return null;
+                    }
+                    var result = new WhisperJob(job);
+                    job = IntPtr.Zero;
+                    return result;
+                }
+                catch
+                {
+                    if (job != IntPtr.Zero) CloseHandle(job);
+                    return null;
+                }
+                finally
+                {
+                    if (info != IntPtr.Zero) Marshal.FreeHGlobal(info);
+                }
+            }
+
+            public void Dispose()
+            {
+                IntPtr handle = Interlocked.Exchange(ref _handle, IntPtr.Zero);
+                if (handle != IntPtr.Zero) CloseHandle(handle);
+            }
+
+            [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+            private static extern IntPtr CreateJobObject(IntPtr jobAttributes, string name);
+
+            [DllImport("kernel32.dll", SetLastError = true)]
+            private static extern bool SetInformationJobObject(IntPtr job, int informationClass, IntPtr information,
+                uint informationLength);
+
+            [DllImport("kernel32.dll", SetLastError = true)]
+            private static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+
+            [DllImport("kernel32.dll")]
+            private static extern bool CloseHandle(IntPtr handle);
+
+            [StructLayout(LayoutKind.Sequential)]
+            private struct IoCounters
+            {
+                public ulong ReadOperationCount;
+                public ulong WriteOperationCount;
+                public ulong OtherOperationCount;
+                public ulong ReadTransferCount;
+                public ulong WriteTransferCount;
+                public ulong OtherTransferCount;
+            }
+
+            [StructLayout(LayoutKind.Sequential)]
+            private struct JobObjectBasicLimitInformation
+            {
+                public long PerProcessUserTimeLimit;
+                public long PerJobUserTimeLimit;
+                public uint LimitFlags;
+                public UIntPtr MinimumWorkingSetSize;
+                public UIntPtr MaximumWorkingSetSize;
+                public uint ActiveProcessLimit;
+                public UIntPtr Affinity;
+                public uint PriorityClass;
+                public uint SchedulingClass;
+            }
+
+            [StructLayout(LayoutKind.Sequential)]
+            private struct JobObjectExtendedLimitInformationData
+            {
+                public JobObjectBasicLimitInformation BasicLimitInformation;
+                public IoCounters IoInfo;
+                public UIntPtr ProcessMemoryLimit;
+                public UIntPtr JobMemoryLimit;
+                public UIntPtr PeakProcessMemoryUsed;
+                public UIntPtr PeakJobMemoryUsed;
+            }
         }
     }
 }

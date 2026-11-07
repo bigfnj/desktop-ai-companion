@@ -87,7 +87,13 @@ namespace DesktopAICompanion.RemembranceModule
         {
             Id = Id,
             Name = "Remembrance",
-            Version = "2.10.0",  // 2.10.0: one Claude Code sign-in, shared with AI Brain (host 1.8.0's
+            Version = "2.10.1",  // 2.10.1: from the 2026-11-06 audit. "Transcribe a WAV file..." that fails on a
+                                 //        capture's own recording no longer overwrites the transcript beside it with a
+                                 //        stub, and the Status line gives the reason and says the earlier one is kept
+                                 //        (N-audit-1106-040). whisper-cli runs in a job that ends it with the app, and a
+                                 //        stub is on disk while it runs (N-audit-1106-041). A recording saved as the app
+                                 //        closes gets that stub too, saying it was never transcribed (N-audit-1106-038).
+                                 // 2.10.0: one Claude Code sign-in, shared with AI Brain (host 1.8.0's
                                  //        IHostCredentials, BACKLOG N-cli-token-02, the owner's decision of
                                  //        2026-10-29), behind the ClaudeCodeSignIn grant, so MinHostVersion rises to
                                  //        1.8.0; a valid token saved before moves into it on the first start. A blank
@@ -1094,6 +1100,12 @@ namespace DesktopAICompanion.RemembranceModule
                             " (both scratch tracks were empty), no recording.wav written; transcription skipped");
                         return;
                     }
+                    // THE STUB GOES DOWN BESIDE IT (N-audit-1106-038). This branch saved the audio and said so only on a
+                    // Status line that dies with the app, so the capture folder held a recording.wav and nothing else:
+                    // no word that it was never transcribed or how to do it, until the 72-hour purge took the only copy.
+                    // The stub is the one every failed transcription leaves, with no whisper run (the exit cannot wait
+                    // hours for one), so the folder itself says what the audio is waiting for.
+                    Transcriber.WriteStub(paths.Transcript, meetingName, attendees, paths.StartedAt, Transcriber.AppClosedReason);
                     _lastStatus = "Saved, not transcribed (app closed): " + paths.BaseName;
                     Log("stopped on shutdown: audio saved as " + paths.BaseName + " in " +
                         stopwatch.ElapsedMilliseconds.ToString(CultureInfo.InvariantCulture) + " ms (capture stop " +
@@ -2909,8 +2921,16 @@ namespace DesktopAICompanion.RemembranceModule
                             bool did;
                             // No start time: this is a file the user picked, and its own start is not in it
                             // (RA-166); the header says so rather than printing the clock.
-                            TranscribeWav(wav, transcript, whisperExe, model, name, null, null, out did);
-                            FinishTryIt(did ? "Transcribed: " + name : "Transcription failed: " + name,
+                            string text = TranscribeWav(wav, transcript, whisperExe, model, name, null, null, out did);
+                            // A failure names its reason here (N-audit-1106-040): when the WAV already had a transcript
+                            // beside it, Transcribe leaves that file alone rather than trade it for a stub, so the
+                            // reason is in no file at all, and the Status line says the earlier transcript is kept. What
+                            // is on disk afterwards decides that, not a guess made before the run.
+                            string reason = did ? null : Transcriber.PendingReason(text);
+                            bool kept = !did && Transcriber.HoldsTranscript(transcript);
+                            FinishTryIt(did ? "Transcribed: " + name
+                                    : "Transcription failed" + (kept ? ", the earlier transcript is kept" : "") +
+                                      (string.IsNullOrEmpty(reason) ? "" : " (" + reason + ")") + ": " + name,
                                 did ? "Transcript ready." : "Transcription failed.");
                         }
                         catch (Exception ex) { try { _host.Log(Id, "manual transcribe failed: " + ex.Message); } catch { } }
@@ -5180,6 +5200,11 @@ namespace DesktopAICompanion.RemembranceModule
                     ui.Drain();
                     check("the shutdown save is synchronous: the recording is on disk when the shutdown event returns",
                         !module.IsRecordingForSelfTest && paths != null && System.IO.File.Exists(paths.Audio));
+                    string exitStub = paths != null && System.IO.File.Exists(paths.Transcript)
+                        ? System.IO.File.ReadAllText(paths.Transcript) : "";
+                    check("a recording saved at app exit gets a stub transcript saying it was never transcribed (N-audit-1106-038)",
+                        Transcriber.IsPendingStub(exitStub) && exitStub.Contains(Transcriber.AppClosedReason)
+                        && exitStub.Contains("Transcribe a WAV file..."));
                     check("nothing is announced on the shutdown path, where no message loop is left to speak through",
                         postedDuringShutdown == 0 && host.SaidLines.Count == saidBefore);
                     check("the shutdown save logs how long the capture stop and the mix took",
@@ -5657,6 +5682,8 @@ namespace DesktopAICompanion.RemembranceModule
                 check("WITNESS a file with no known start says so instead of printing the clock",
                     Transcriber.RecordedLine(null).Contains("unknown")
                     && !Transcriber.RecordedLine(null).Contains(DateTime.Now.Year.ToString(CultureInfo.InvariantCulture)));
+
+                SelfCheckTranscriptKeeping(check, scratch, wav, startedAt);
             }
             catch (Exception ex) { check("wav length: " + ex.Message, false); }
             finally
@@ -5678,6 +5705,73 @@ namespace DesktopAICompanion.RemembranceModule
                 Transcriber.DescribeKill(TimeSpan.FromHours(4), TimeSpan.FromHours(1)).Contains("4x that."));
             check("a two-hour recording's message says the ceiling applied",
                 Transcriber.DescribeKill(Transcriber.MaximumWhisperTimeout, TimeSpan.FromHours(2)).Contains("ceiling applied"));
+        }
+
+        /// <summary>
+        /// What a whisper run leaves on disk, through Transcriber.Whisper so no child is spawned: a stub is there WHILE the
+        /// run goes (N-audit-1106-041), a run that fails never overwrites a real transcript (N-audit-1106-040), and a stub
+        /// of ours is not mistaken for one.
+        /// </summary>
+        private static void SelfCheckTranscriptKeeping(Action<string, bool> check, string scratch, string wav, DateTimeOffset startedAt)
+        {
+            Transcriber.WhisperRun savedRun = Transcriber.Whisper;
+            try
+            {
+                // ---- a failed re-run on a capture's own WAV keeps the transcript beside it (N-audit-1106-040) ----
+                string kept = System.IO.Path.Combine(scratch, "kept.transcript.txt");
+                System.IO.File.WriteAllText(kept, "Standup\nRecorded: earlier\n" + new string('-', 48) + "\n\nAlice: we ship on Friday.\n");
+                string before = System.IO.File.ReadAllText(kept);
+                string duringKept = null;
+                Transcriber.Whisper = delegate(string w, string exe, string model, out bool ok, out string why)
+                {
+                    duringKept = System.IO.File.ReadAllText(kept);
+                    ok = false;
+                    why = "simulated: whisper-cli exited 3";
+                    return "";
+                };
+                bool keptRan;
+                string keptText = Transcriber.Transcribe(wav, kept, "", "", "Standup", null, startedAt, out keptRan);
+                check("a failed re-transcription leaves the transcript already beside the WAV untouched (N-audit-1106-040)",
+                    !keptRan && System.IO.File.ReadAllText(kept) == before);
+                check("a re-transcription puts no stub over a real transcript while it runs, either",
+                    duringKept == before);
+                check("WITNESS the kept transcript's failure still hands its reason back, for the Status line",
+                    Transcriber.PendingReason(keptText) == "simulated: whisper-cli exited 3");
+
+                // ---- a stub of ours is not a transcript: a newer failure replaces it ----
+                string stale = System.IO.Path.Combine(scratch, "stale.transcript.txt");
+                Transcriber.WriteStub(stale, "Standup", null, startedAt, "simulated: the first reason");
+                Transcriber.Whisper = delegate(string w, string exe, string model, out bool ok, out string why)
+                {
+                    ok = false;
+                    why = "simulated: the second reason";
+                    return "";
+                };
+                bool staleRan;
+                Transcriber.Transcribe(wav, stale, "", "", "Standup", null, startedAt, out staleRan);
+                check("WITNESS a stub from an earlier failure is replaced by the newer failure's, so 'kept' is not 'any file'",
+                    System.IO.File.ReadAllText(stale).Contains("simulated: the second reason"));
+
+                // ---- the stub is down BEFORE whisper-cli starts (N-audit-1106-041) ----
+                string fresh = System.IO.Path.Combine(scratch, "fresh.transcript.txt");
+                string duringFresh = null;
+                Transcriber.Whisper = delegate(string w, string exe, string model, out bool ok, out string why)
+                {
+                    duringFresh = System.IO.File.Exists(fresh) ? System.IO.File.ReadAllText(fresh) : "";
+                    ok = true;
+                    why = "";
+                    return "Alice: hello.\n";
+                };
+                bool freshRan;
+                Transcriber.Transcribe(wav, fresh, "", "", "Standup", null, startedAt, out freshRan);
+                check("a stub is on disk WHILE whisper-cli runs, so a run the app's exit cuts short still leaves a transcript (N-audit-1106-041)",
+                    duringFresh != null && Transcriber.IsPendingStub(duringFresh) && duringFresh.Contains(Transcriber.InterruptedReason));
+                string freshAfter = System.IO.File.ReadAllText(fresh);
+                check("WITNESS a run that succeeds replaces that stub with the words",
+                    freshRan && freshAfter.Contains("Alice: hello.") && !Transcriber.IsPendingStub(freshAfter));
+            }
+            catch (Exception ex) { check("transcript keeping: " + ex.Message, false); }
+            finally { Transcriber.Whisper = savedRun; }
         }
 
         /// <summary>A release lookup that gets no answer gives up at its own bound (F184).</summary>
