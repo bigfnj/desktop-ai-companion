@@ -571,8 +571,16 @@ namespace DesktopAICompanion.RemembranceModule
             // load gate is what turns an older host into a refusal with a reason. Not shipped before host 1.6.0 is
             // released (docs/VERSIONING.md's sequencing rule). The self-test pins this floor beside the other two.
             MinHostVersion = "1.8.0",
-            // Network is for two user-initiated local/upstream calls: fetching whisper.cpp from its GitHub release +
-            // Hugging Face, and talking to a LOOPBACK Ollama for the summary. There is deliberately no cloud
+            // Network is for three kinds of call. "Set up Whisper for me" fetches whisper.cpp from its GitHub release
+            // and the model from Hugging Face (WhisperInstaller). A local summary, and the model list and pull of "Set
+            // up and check Ollama", go to the address in "Local Ollama address": loopback by default
+            // (OllamaSummarizer.DefaultEndpoint), but a free-text field that takes any URL, so it is local only while
+            // the user leaves it so (whether to hold it to loopback is BACKLOG N-audit-1106-037). And since 2.2.0 the
+            // module itself sends the transcript's TEXT to a cloud provider when the user picks "Cloud provider" under
+            // "Summary runs on": OpenAI, OpenRouter or any OpenAI-compatible base URL (CloudSummary), over https, or
+            // plain http only to this computer (AiEndpointPolicy.TryNormalize), with that card's "Validate" and "Refresh
+            // cloud models" calling the same host. This comment said "two user-initiated local/upstream calls" and a
+            // LOOPBACK Ollama until the 2026-11-06 audit (N-audit-1106-280). There is deliberately no cloud
             // transcription path, because a recording can be privileged or consent-regulated audio. Since 2.1.0 the
             // SUMMARY can go through a coding-agent CLI, which sends the transcript's text to its maker, when the user
             // picks one under "Summary runs on" (off by default; the owner reversed "no cloud summary path, ever" on
