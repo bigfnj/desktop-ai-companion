@@ -622,6 +622,8 @@ namespace DesktopAICompanion.Plugins
                     // A-host-04), so both are in the count the rollback check below reads as zero.
                     ok &= Check(sb, "audit-host: rollback: WITNESS a healthy Init's CredentialChanged subscription is counted (" +
                         healthy.LifecycleSubscriberCount + " subscribers)", healthy.LifecycleSubscriberCount >= 2);
+                    ok &= Check(sb, "w4-host-1: rollback: WITNESS a healthy Init's CredentialChanged handler has its module recorded (" +
+                        healthy.CredentialHandlerOwnerCount + " owners)", healthy.CredentialHandlerOwnerCount >= 1);
                     loader.ShutdownAll(delegate { });
                 }
 
@@ -636,6 +638,10 @@ namespace DesktopAICompanion.Plugins
                         failure.Reason.Contains("InvalidOperationException"));
                     ok &= Check(sb, "rollback: ...and the failed module holds no tray item, no pane and no event subscription in the host",
                         failed.TrayItems.Count == 0 && failed.OptionsPanes.Count == 0 && failed.LifecycleSubscriberCount == 0);
+                    // The owner map too (N-audit-1106-232): the rollback took the handler off the event but left its owner
+                    // recorded, so the map held the failed module's delegate and its load context.
+                    ok &= Check(sb, "w4-host-1: rollback: ...and the failed module's CredentialChanged handler is forgotten, not only unsubscribed (" +
+                        failed.CredentialHandlerOwnerCount + " owners left)", failed.CredentialHandlerOwnerCount == 0);
                     // The Init window closed properly after the rollback: a pane registered now has no owner.
                     var late = new OptionsPane { Title = "after the failed Init" };
                     failed.AddOptionsPane(late);

@@ -22345,6 +22345,14 @@ CASES = (
      b'            if (encoded.Length > encodedLimit)\n',
      HOST_CSPROJ, EXE,
      SECURITY, None, "host limits: a classic sound of exactly 2 MiB in line-wrapped base64 validates"),
+    # N-audit-1106-232: a rolled-back Init takes its CredentialChanged handler off the event but leaves its owner recorded.
+    ('bd-w4-host-1: a rolled-back Init leaves its CredentialChanged owner recorded (N-audit-1106-232)',
+     os.path.join(REPO, "src", "dotNet", "Plugins", "CompanionHost.cs"),
+     b'Ledger(delegate { _credentialChanged -= value; ForgetCredentialHandlerOwner(value); });',
+     b'Ledger(delegate { _credentialChanged -= value; });',
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "w4-host-1: rollback: ...and the failed module's CredentialChanged handler is forgotten"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
