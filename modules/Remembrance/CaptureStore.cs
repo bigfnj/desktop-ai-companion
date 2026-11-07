@@ -403,6 +403,60 @@ namespace DesktopAICompanion.RemembranceModule
             return report;
         }
 
+        /// <summary>
+        /// The recordings under <paramref name="root"/> whose audio has no transcript beside it, or only a stub of ours
+        /// (N-audit-1106-038): the last-write time (UTC) of each one's audio, which is the clock the purge's 72 hours run
+        /// on. A recording saved as the app closed, or one whose whisper-cli run never finished, has its audio and a
+        /// "[Transcription pending]" stub, and the purge then deletes the only copy of the meeting; this is what lets the
+        /// module say so first. Walked by the purge's own shapes and nothing wider: the root's flat names, folders named
+        /// as a capture ("recording.wav"), and day folders (each capture's "&lt;base&gt;.wav"), one level deep. A scratch
+        /// track is not a recording and is not counted. Read-only, and never throws: a folder that cannot be read counts
+        /// nothing.
+        /// </summary>
+        internal static List<DateTime> UntranscribedAudio(string root)
+        {
+            var found = new List<DateTime>();
+            try
+            {
+                if (!IsFullFolder(root) || !Directory.Exists(root)) return found;
+                AddUntranscribed(root, name => IsCaptureAudioName(name) && !IsScratchAudioName(name), found);
+                foreach (string sub in Directory.EnumerateDirectories(root))
+                {
+                    string name = Path.GetFileName(sub);
+                    if (IsDayFolderName(name))
+                    {
+                        DateTime? day = DayOf(name);
+                        AddUntranscribed(sub, file => IsCaptureAudioName(file, day) && !IsScratchAudioName(file, day), found);
+                    }
+                    else if (IsCaptureFolderName(name))
+                        AddUntranscribed(sub, file => file == FolderPrefix + ".wav", found);
+                }
+            }
+            catch (Exception) { }
+            return found;
+        }
+
+        /// <summary>One folder of <see cref="UntranscribedAudio"/>: each recording <paramref name="isRecording"/> accepts
+        /// (by its lower-cased name) with no transcript worth keeping beside it, by its audio's last-write time.</summary>
+        private static void AddUntranscribed(string dir, Func<string, bool> isRecording, List<DateTime> found)
+        {
+            try
+            {
+                foreach (string audio in Directory.EnumerateFiles(dir, "*.wav", SearchOption.TopDirectoryOnly))
+                {
+                    try
+                    {
+                        if (!isRecording(Path.GetFileName(audio).ToLowerInvariant())) continue;
+                        string transcript = Path.Combine(dir, Path.GetFileNameWithoutExtension(audio) + ".transcript.txt");
+                        if (Transcriber.HoldsTranscript(transcript)) continue;
+                        found.Add(File.GetLastWriteTimeUtc(audio));
+                    }
+                    catch (Exception) { }
+                }
+            }
+            catch (Exception) { }
+        }
+
         /// <summary>Remove an empty folder for the purge, and count what happened: removed, failed with its type, or
         /// kept because something is in it (which is not a failure).</summary>
         private static void RemoveEmptyFolder(string directory, DeletionReport report)

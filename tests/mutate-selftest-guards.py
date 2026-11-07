@@ -20885,6 +20885,42 @@ CASES = (
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "a clean stop records no track failure"),
+
+    # N-audit-1106-038, the Init half: the start counts nothing, so a recording saved at exit waits for the purge unseen.
+    ("bd-w2-remembrance-1: the start no longer counts recordings with no transcript (N-audit-1106-038)",
+     REMEMBRANCE_MODULE,
+     b"            BeginUntranscribedScan();\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "the next start says on the Status line which recordings have audio and no transcript"),
+
+    # N-audit-1106-038: a stub counts as a transcript, so the exit save's own recording is never counted.
+    ("bd-w2-remembrance-1: the count takes a stub for a transcript (N-audit-1106-038)",
+     os.path.join(REPO, "modules", "Remembrance", "CaptureStore.cs"),
+     b"                        if (Transcriber.HoldsTranscript(transcript)) continue;\n",
+     b"                        if (File.Exists(transcript)) continue;\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "the next start says on the Status line which recordings have audio and no transcript"),
+
+    # N-audit-1106-038: the count walks every subfolder, so a user's own folder holding a recording.wav is counted.
+    ("bd-w2-remembrance-1: the count walks folders the module never named (N-audit-1106-038)",
+     os.path.join(REPO, "modules", "Remembrance", "CaptureStore.cs"),
+     b"                    else if (IsCaptureFolderName(name))\n",
+     b"                    else\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "the next start says on the Status line which recordings have audio and no transcript"),
+
+    # N-audit-1106-038: the count is kept and logged but the Status line never shows it.
+    ("bd-w2-remembrance-1: the Status line leaves out the untranscribed warning (N-audit-1106-038)",
+     REMEMBRANCE_MODULE,
+     b"if (untranscribed != null) s += ",
+     b"if (untranscribed == \"\") s += ",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "the next start says on the Status line which recordings have audio and no transcript"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
