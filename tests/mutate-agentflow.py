@@ -31,9 +31,11 @@ plus one more that came from a harness which is no longer in the tree:
   is refused, and a FAIL line under exit 0 and RESULT=PASS is a plumbing fault the gate would
   stay green on, printed as such and never a firing (R-063).
 
-  Every child runs with a private TEMP (F418). It is removed after a clean run and KEPT, named
-  on the console, after anything else, with every non-FIRED case's whole report under a
-  per-case name (R-060, R-065).
+  The self-test child runs with a private TEMP (F418): run_selftest passes CHILD_ENV, which main()
+  points at a per-run folder. The `dotnet build` children do not; build() starts them with this
+  process's own environment, so they use the caller's TEMP (N-audit-1106-394). The per-run folder
+  is removed after a clean run and KEPT, named on the console, after anything else, with every
+  non-FIRED case's whole report under a per-case name (R-060, R-065).
 
     python tests/mutate-agentflow.py [--only=<substring>]
     python tests/mutate-agentflow.py --check-patterns    # every pattern matches its file once; builds nothing
@@ -2916,12 +2918,15 @@ def line_ending_variant(base, old, new):
     times)" and covered nothing at all -- a silent loss of coverage, which the release checklist is
     explicit is worse than a failure because it looks like a result.
 
-    Measured 2026-09-25: this accounted for ALL SEVEN no-op cases across this harness and its sibling
-    (one here, six in mutate-agentflow.py). Every one of them was read as "the source moved"; none of
-    them had. CompanionsPaneControl.cs, for instance, is 1014 CRLF lines and 0 bare LF.
+    Measured 2026-09-25, and recorded first in mutate-hardening-guards.py, whose copy of this function
+    this one is: line endings accounted for ALL SEVEN no-op cases across that harness and this one (one
+    there, six here). Every one of them was read as "the source moved"; none of them had. The example
+    that note gives, CompanionsPaneControl.cs (1014 CRLF lines and 0 bare LF), is one of that harness's
+    targets, not this one's (N-audit-1106-394: the note was pasted here with "here" still meaning there).
 
-    Restoring is unaffected either way: the loops below write back the ORIGINAL bytes they read, so a
-    file's line endings are never rewritten by a mutation run.
+    Restoring is unaffected either way: this harness reads and writes its targets as text with
+    newline="" (read() and write()), so restore() writes back the ORIGINAL text, line endings
+    included, and a file's line endings are never rewritten by a mutation run.
     """
     if base.count(old) == 1:
         return old, new
