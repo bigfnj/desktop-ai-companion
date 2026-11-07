@@ -22569,6 +22569,17 @@ CASES = (
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "WITNESS the recorder checks put the stop's wait back to StopBound"),
+
+    # ---- burndown/w5-host-1 ----
+    # Host code, burn-down wave 5. Named "bd-w5-host-1:" so one --only=bd-w5-host-1: run covers the lane.
+    # N-shimeji-host-05: the tick opener shows the window at the form's default place before its first frame again.
+    ('bd-w5-host-1: a new tick window is shown before its first frame (N-shimeji-host-05)',
+     os.path.join(REPO, "src", "dotNet", "FormCompanion.cs"),
+     b'            if (!IsHandleCreated) CreateHandle();\n',
+     b'            Show();\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     "first show: a new tick window stays hidden until its first frame and is first seen at that frame's place"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

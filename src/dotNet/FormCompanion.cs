@@ -306,6 +306,13 @@ namespace DesktopAICompanion
         /// <param name="h">Single frame height</param>
         public void Show(int w, int h)
         {
+            SizeToCell(w, h);
+            Show();
+        }
+
+        /// <summary>The window and its picture box at one frame's size, at the first step.</summary>
+        private void SizeToCell(int w, int h)
+        {
             Width = w;
             Height = h;
 
@@ -316,8 +323,20 @@ namespace DesktopAICompanion
             pictureBox1.Tag = 0;
 
 			AnimationStep = 0;
+        }
 
-            Show();
+        /// <summary>
+        /// A tick companion's window, sized to one frame and given its handle but NOT shown (N-shimeji-host-05): the tick
+        /// host places it, and <see cref="RenderTick"/> shows it with its first frame at the place that frame belongs.
+        /// Show(w, h) made it visible at the form's default place before any image, where a window poll counted a
+        /// visible 64x64 window that was not the companion. The handle is still made here, before the first frame,
+        /// because an alpha pet's per-pixel push needs one (PushLayeredFrame returns without it) and RenderTick pushes
+        /// that frame before it shows the window.
+        /// </summary>
+        internal void OpenHiddenForTick(int w, int h)
+        {
+            SizeToCell(w, h);
+            if (!IsHandleCreated) CreateHandle();
         }
 
         // ---- tick mode (the Shimeji runtime, src/dotNet/Shimeji): an outside clock drives this window

@@ -5985,6 +5985,20 @@ Assert-True ($w4SrcBuildFiles.Count -ge 5 -and $w4PropsText -cmatch '<TreatWarni
 Assert-True ($w4LowPins.Count -eq 0) (
     "w4-contracts-1: no src project pins WarningLevel below the net10 default of 10" +
     $(if ($w4LowPins.Count) { ' -- ' + ($w4LowPins -join ', ') } else { '' }))
+# ---- burndown/w5-host-1 ----
+# A NEW TICK COMPANION'S WINDOW STAYS HIDDEN UNTIL ITS FIRST FRAME (N-shimeji-host-05). StartUp's spawn and birth paths
+# need the running app, so --shimeji-window-selftest ("first show: ...") proves the opener itself, and its host factories
+# call the same one; what is pinned here is that both app paths call it, with the old Show(w, h) absent from both.
+# WITNESS: the classic spawn in AddSheepCore still shows its form with Show(w, h), which the absent pattern matches.
+$w5StartUp = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\StartUp.cs') -Raw)
+$w5Spawn = Get-MethodBody $w5StartUp 'private FormCompanion SpawnTickPet('
+$w5Born = Get-MethodBody $w5StartUp 'private FormCompanion OpenBornTickPet('
+$w5Classic = Get-MethodBody $w5StartUp 'private FormCompanion AddSheepCore('
+Assert-True ($w5Spawn.Length -gt 0 -and $w5Born.Length -gt 0 -and $w5Classic.Length -gt 0) 'w5-host-1: StartUp.SpawnTickPet, OpenBornTickPet and AddSheepCore were located'
+Assert-True ($w5Spawn -cmatch 'pet\.OpenHiddenForTick\(petXml\.spriteWidth, petXml\.spriteHeight\);\s*spawned = host\.SpawnLikeSource\(' -and
+    $w5Spawn -cnotmatch '\.Show\(' -and $w5Born -cmatch 'p\.OpenHiddenForTick\(type\.Sprites\.spriteWidth, type\.Sprites\.spriteHeight\);' -and
+    $w5Born -cnotmatch '\.Show\(' -and $w5Classic -cmatch 'pet\.Show\(petXml\.spriteWidth, petXml\.spriteHeight\);' -and $w5Classic -cmatch '\.Show\(') (
+    "w5-host-1: a spawned or born tick companion's window opens hidden, for RenderTick to show with its first frame (WITNESS: the classic spawn's Show(w, h) matches the absent pattern)")
 
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that

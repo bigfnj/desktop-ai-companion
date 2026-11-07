@@ -65,7 +65,7 @@ namespace DesktopAICompanion.Shimeji
                 host = new TickHost(t =>
                     {
                         var form = new FormCompanion(t.Animations, t.Sprites);
-                        form.Show(t.Type.CellWidth, t.Type.CellHeight);
+                        form.OpenHiddenForTick(t.Type.CellWidth, t.Type.CellHeight);
                         forms.Add(form);
                         return form;
                     },
@@ -91,7 +91,7 @@ namespace DesktopAICompanion.Shimeji
 
                 Rectangle work = System.Windows.Forms.Screen.PrimaryScreen.WorkingArea;
                 var window = new FormCompanion(alphaEntry.Animations, alphaEntry.Xml);
-                window.Show(64, 64);
+                window.OpenHiddenForTick(64, 64);
                 forms.Add(window);
                 TickMascot m = host.Spawn(start, new TickPoint(work.Left + work.Width / 2, work.Bottom), false, behaviour, window);
                 CompanionTypeRegistry.Entry eggEntry;
@@ -246,7 +246,7 @@ namespace DesktopAICompanion.Shimeji
                         // As StartUp.OpenBornTickPet: a closed preview's birth gets no window.
                         if (!previews.MayOpenWindow(t.Owner as CompanionTypeRegistry.Entry)) { windowsRefused++; return null; }
                         var form = new FormCompanion(t.Animations, t.Sprites);
-                        form.Show(t.Type.CellWidth, t.Type.CellHeight);
+                        form.OpenHiddenForTick(t.Type.CellWidth, t.Type.CellHeight);
                         forms.Add(form);
                         return form;
                     },
@@ -285,7 +285,7 @@ namespace DesktopAICompanion.Shimeji
 
                 Rectangle work = System.Windows.Forms.Screen.PrimaryScreen.WorkingArea;
                 var window = new FormCompanion(mainEntry.Animations, mainEntry.Xml);
-                window.Show(64, 64);
+                window.OpenHiddenForTick(64, 64);
                 forms.Add(window);
                 TickMascot m = host.Spawn(start, new TickPoint(work.Left + work.Width / 2, work.Bottom), false, behaviour, window);
                 host.Step();

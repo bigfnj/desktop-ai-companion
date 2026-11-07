@@ -782,7 +782,8 @@ namespace DesktopAICompanion
                 delegate { return new FormCompanion(petAnimations, petXml); },
                 delegate (FormCompanion pet)
                 {
-                    pet.Show(petXml.spriteWidth, petXml.spriteHeight);
+                    // Hidden until its first frame (N-shimeji-host-05): the host places it, RenderTick shows it.
+                    pet.OpenHiddenForTick(petXml.spriteWidth, petXml.spriteHeight);
                     spawned = host.SpawnLikeSource(startType, startBehaviour, pet);
                 });
             if (spawned != null) return form;
@@ -807,7 +808,7 @@ namespace DesktopAICompanion
             if (type.Animations == null || type.Sprites == null) return null;
             FormCompanion pet = CreateAndInitializeOwnedPet(
                 delegate { return new FormCompanion(type.Animations, type.Sprites); },
-                delegate (FormCompanion p) { p.Show(type.Sprites.spriteWidth, type.Sprites.spriteHeight); });
+                delegate (FormCompanion p) { p.OpenHiddenForTick(type.Sprites.spriteWidth, type.Sprites.spriteHeight); });
             sheeps[iSheeps] = pet;
             iSheeps++;
             bornPets.Add(pet);

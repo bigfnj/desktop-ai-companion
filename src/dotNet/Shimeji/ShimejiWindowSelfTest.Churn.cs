@@ -50,7 +50,7 @@ namespace DesktopAICompanion.Shimeji
                     {
                         var form = new FormCompanion(t.Animations, t.Sprites);
                         form.ShowInTaskbar = false;
-                        form.Show(t.Type.CellWidth, t.Type.CellHeight);
+                        form.OpenHiddenForTick(t.Type.CellWidth, t.Type.CellHeight);
                         forms.Add(form);
                         return form;
                     },
