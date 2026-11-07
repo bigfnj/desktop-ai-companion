@@ -200,7 +200,10 @@ namespace DesktopAICompanion.AiBrainModule
                                  //        timed-out Tesseract read left in %TEMP% are removed at each start, whatever
                                  //        the brain runs on. On the cloud with the local fallback, a remark goes
                                  //        straight to the local model while the cloud's last check got no answer. The
-                                 //        Ollama auto-start listens on the local endpoint's own address and port.
+                                 //        Ollama auto-start listens on the local endpoint's own address and port. A
+                                 //        cloud that answers its check with a redirect is still asked, so a base URL
+                                 //        that redirects stays an error on each remark, not a silent local answer
+                                 //        (N-bd-w3-aibrain-1-01).
                                  // 1.7.0: one Claude Code sign-in, shared with Remembrance (host 1.8.0's
                                  //        IHostCredentials, BACKLOG N-cli-token-02, the owner's decision of
                                  //        2026-10-29). The host keeps the token once, behind a grant the user gives on

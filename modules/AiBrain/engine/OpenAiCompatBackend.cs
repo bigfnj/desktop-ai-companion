@@ -18,7 +18,7 @@ namespace DesktopAICompanion.Ai
     /// VRAM; local servers load on first request). Ollama keeps its native client for keep-alive VRAM
     /// control; everything else routes here.
     /// </summary>
-    internal sealed class OpenAiCompatBackend : ICompanionBrainBackend, IModelLister, IModelListingStatus
+    internal sealed class OpenAiCompatBackend : ICompanionBrainBackend, IModelLister, IModelListingStatus, IAvailabilityProbeStatus
     {
         private readonly HttpClient _http;
         private readonly string _base;   // ".../v1"
@@ -84,9 +84,13 @@ namespace DesktopAICompanion.Ai
         /// recorded no-fallover-on-a-bad-key decision wants it. Local to this backend, deliberately: OllamaClient
         /// keeps the SUCCESS probe, because its EnsureServerAsync uses that answer to decide whether to launch
         /// `ollama serve`, and a foreign server answering 404 on :11434 must not suppress the launch.
+        /// A "not reachable" keeps its reason in <see cref="LastProbeFailure"/>: the redirect (an AiBackendHttpException,
+        /// the one answer the probe refuses) apart from the transport failure or the timeout, for the composite that has
+        /// to tell them apart (N-bd-w3-aibrain-1-01).
         /// </summary>
         public async Task<bool> IsAvailableAsync(CancellationToken ct)
         {
+            LastProbeFailure = null;
             try
             {
                 using (var request = CreateRequest(HttpMethod.Get, "/models"))
@@ -99,8 +103,14 @@ namespace DesktopAICompanion.Ai
                 }
             }
             catch (OperationCanceledException) { throw; }
-            catch { return false; }
+            catch (Exception ex) { LastProbeFailure = ex; return false; }
         }
+
+        /// <summary>Why the last probe answered "not reachable", or null when it answered up or has not run
+        /// (<see cref="IAvailabilityProbeStatus"/>). Written before the probe's task completes, so a continuation on that
+        /// task reads this probe's own reason; two probes of one backend failing within the same instant may swap
+        /// reasons, which the next probe corrects, the way the composite's record of the probe is last-writer-wins.</summary>
+        public Exception LastProbeFailure { get; private set; }
 
         /// <summary>
         /// List models this endpoint reports as available (<c>GET /models</c> — the same endpoint

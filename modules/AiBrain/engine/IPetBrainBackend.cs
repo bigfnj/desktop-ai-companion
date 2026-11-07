@@ -65,6 +65,20 @@ namespace DesktopAICompanion.Ai
     }
 
     /// <summary>
+    /// Why the most recent reachability probe (<see cref="ICompanionBrainBackend.IsAvailableAsync"/>, or an
+    /// EnsureServerAsync that is one) answered "not reachable", when a failure was the reason; null after a probe that
+    /// answered "up". The probe stays a bool for every caller that only asks "is it there"; the cloud-with-local-fallback
+    /// composite needs the reason, because a redirect is an ANSWER the cloud's chat fails on deterministically, while a
+    /// timeout or a refused connection is no answer at all, and only the second may send a remark straight to the local
+    /// model (BACKLOG N-bd-w3-aibrain-1-01, see FallbackBackend.PrimarySkipped). The same shape as
+    /// <see cref="IModelListingStatus"/> (RA-059): optional, so a double that never fails is not made to say why.
+    /// </summary>
+    internal interface IAvailabilityProbeStatus
+    {
+        Exception LastProbeFailure { get; }
+    }
+
+    /// <summary>
     /// A backend that can say what models it offers. Optional, and separate from
     /// <see cref="ICompanionBrainBackend"/> on purpose: the composite <see cref="FallbackBackend"/> answers for
     /// its PRIMARY (those are the ids the brain is configured with), and a double that lists nothing is not
