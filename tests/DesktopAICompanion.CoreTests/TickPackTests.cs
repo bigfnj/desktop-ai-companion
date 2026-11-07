@@ -152,6 +152,39 @@ namespace DesktopAICompanion
             AssertEqual(2, asked.Count, "A removed member was still found without asking the host.");
         }
 
+        /// <summary>
+        /// N-audit-1106-337: two DIFFERENTLY named types claiming one (pack, member) key. TickWorld.IndexReference keeps
+        /// the first registered and reports the second once through ReferenceConflict; no other group added two such
+        /// types, so the early return (and with it "the first one stays") could go with every check green. The same
+        /// name staged again is the same type reloaded, so it replaces itself and is no conflict.
+        /// </summary>
+        private static void TestTickPacksReferenceConflict()
+        {
+            TickType first = PackGrown("p-alpha", "p", "Alpha", "");
+            TickType second = PackGrown("p-alpha-copy", "p", "Alpha", "");
+            TickType egg = PackEgg("p-egg", "p", "Alpha");
+            var conflicts = new List<string>();
+            var w = new TickWorld(new TickDesk(), new TickTape(), new TickSwitches(), new TickLog());
+            w.ReferenceConflict = (kept, ignored) => conflicts.Add(kept.Name + " kept over " + ignored.Name);
+            w.AddType(first);
+            w.AddType(second);
+            w.AddType(egg);
+            w.Start();
+            AssertTrue(ReferenceEquals(w.ResolveReference(egg, "Alpha"), first),
+                "A second type claiming a held (pack, member) key took the place of the first: " + w.ResolveReference(egg, "Alpha").Name);
+            AssertEqual("p-alpha kept over p-alpha-copy", string.Join("|", conflicts),
+                "The second claim on a held (pack, member) key was not reported exactly once, naming the kept type first.");
+
+            // WITNESS: the same type added again, and a fresh compile under the SAME name (a reload), are no conflict,
+            // and the reload answers from then on.
+            TickType reloaded = PackGrown("p-alpha", "p", "Alpha", "");
+            w.AddType(first);
+            w.AddType(reloaded);
+            AssertTrue(ReferenceEquals(w.ResolveReference(egg, "Alpha"), reloaded) && conflicts.Count == 1,
+                "WITNESS: a type reloaded under its own name did not replace itself, or was reported as a conflict: "
+                + string.Join("|", conflicts));
+        }
+
         private static void TestTickPacksStartPlan()
         {
             Func<string, TickType> main = startupMember =>
@@ -192,6 +225,19 @@ namespace DesktopAICompanion
             AssertEqual(2, index.Duplicates.Count, "Each duplicate that lost was not reported.");
             AssertTrue(index.Find("dragonet", "Alpha").TypeId == "alpha" && index.Find("dragonet", "egg") == null && index.Find("other", "Egg") == null,
                 "A member was found by another case or in another pack.");
+
+            // N-audit-1106-338: "z-egg" and "B-egg" sort the same way by ordinal and by case-insensitive order, so the
+            // assertion above could not tell the documented folder order from a plain ordinal one. "a-ball" and "B-ball"
+            // disagree: ordinal puts 'B' (0x42) before 'a' (0x61), case-insensitive puts a before b. Fed in the ordinal
+            // winner's order, so an index that kept arrival order would fail too.
+            CompanionPackIndex folders = CompanionPackIndex.Build(new[]
+            {
+                new PackIndexEntry { TypeId = "B-ball", FromLibrary = true, Facts = new PackHeaderFacts { PackId = "q", Member = "Ball", Role = "helper" } },
+                new PackIndexEntry { TypeId = "a-ball", FromLibrary = true, Facts = new PackHeaderFacts { PackId = "q", Member = "Ball", Role = "helper" } },
+            });
+            PackIndexEntry ball = folders.Find("q", "Ball");
+            AssertTrue(ball != null && ball.TypeId == "a-ball",
+                "Folder order within a root was not case-insensitive ('a-ball' before 'B-ball'): " + (ball == null ? "none" : ball.TypeId));
 
             const string header = "<?xml version=\"1.0\"?><animations><header><author>a</author>"
                 + "<pack id=\"dragonet\" member=\"Egg\" role=\"egg\" hidden=\"true\"/><startup member=\"Egg\" behaviour=\"Laid\"/>"

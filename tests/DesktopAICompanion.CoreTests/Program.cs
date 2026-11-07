@@ -131,13 +131,16 @@ namespace DesktopAICompanion
                 Run("Tick social ScanMove: a missing name is reported and leaves its companion as it was", TestTickSocialScanMoveMissing);
                 Run("Tick social ScanMove: ends when its target stops offering", TestTickSocialScanMoveLost);
                 Run("Tick social ScanJump: jumps at its target with the arc and lands within one step", TestTickSocialScanJump);
+                Run("Tick social ScanJump: ends when its target stops offering", TestTickSocialScanJumpLost);
                 Run("Tick social ScanInteract: rescans when its target stops offering and faces the new one", TestTickSocialScanInteractReacquire);
                 Run("Tick social ScanInteract: on its last tick a non-blank Behavior enters both; a blank one blocks the target's", TestTickSocialScanInteractEnd);
                 Run("Tick social ScanInteract: Condition and Duration end it (policy:scaninteract-precedence)", TestTickSocialScanInteractPolicy);
                 Run("Tick social Interact: holds while two or more companions share its anchor", TestTickSocialInteract);
                 Run("Tick social ComplexMove: Characteristics split exactly; it breeds (not while turning) and scans as named", TestTickSocialComplexMove);
                 Run("Tick social ComplexMove: arrival is guarded when scanning is off (policy:complexmove-guarded)", TestTickSocialComplexMovePolicy);
+                Run("Tick social ComplexMove: scanning, it ends when its target stops offering", TestTickSocialComplexMoveLost);
                 Run("Tick social ComplexJump: scanning it lands on its target; plain, it jumps and breeds", TestTickSocialComplexJump);
+                Run("Tick social ComplexJump: scanning, it ends when its target stops offering", TestTickSocialComplexJumpLost);
                 Run("Tick windows WalkWithIE: carries the window by the exact grip at its lower corner, both facings", TestTickWindowsWalkCarries);
                 Run("Tick windows WalkWithIE: a grip 1 px off, or the window gone, loses the ground", TestTickWindowsWalkLosesGround);
                 Run("Tick windows switch: off, the animation plays and no window moves; Throwing off ends the action", TestTickWindowsSwitchOff);
@@ -164,6 +167,7 @@ namespace DesktopAICompanion
                 Run("Tick packs resolution: a member key resolves inside its own pack, never another pack's", TestTickPacksResolveInScope);
                 Run("Tick packs fallback: a missing member keeps the current type, one diagnostic per (type, reference)", TestTickPacksFallback);
                 Run("Tick packs resolver: the host stages an unknown member once, from the asker's pack only", TestTickPacksResolver);
+                Run("Tick packs conflict: a second type claiming a held member key never replaces the first, and is reported once", TestTickPacksReferenceConflict);
                 Run("Tick packs startup: the startup member and behaviour, and the egg preference only for an egg", TestTickPacksStartPlan);
                 Run("Tick packs index: library first, then folder order; a duplicate is reported and never wins", TestTickPacksIndex);
                 Run("Tick packs validator: one main, unique keys, references, one transparency, an egg that hatches", TestTickPacksValidator);
