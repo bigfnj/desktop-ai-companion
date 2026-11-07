@@ -1273,13 +1273,17 @@ namespace DesktopAICompanion
         public List<TNextAnimation> GetNextAnimations(int currentID, bool includeNext, bool includeBorder, bool includeGravity)
         {
             List<TNextAnimation> list = new List<TNextAnimation>();
+            // An id the set lacks has no successors: GetAnimation hands out a stand-in with id 0 for a missing id, and a
+            // tick companion's set is empty by design, so indexing here threw out of the debug menu (N-audit-1106-021).
+            TAnimation current;
+            if (!SheepAnimations.TryGetValue(currentID, out current)) return list;
 
             if (includeNext)
-                list.AddRange(SheepAnimations[currentID].EndAnimation);
+                list.AddRange(current.EndAnimation);
             if (includeBorder)
-                list.AddRange(SheepAnimations[currentID].EndBorder);
+                list.AddRange(current.EndBorder);
             if (includeGravity)
-                list.AddRange(SheepAnimations[currentID].EndGravity);
+                list.AddRange(current.EndGravity);
 
             return list;
         }

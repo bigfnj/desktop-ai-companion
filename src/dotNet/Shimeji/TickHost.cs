@@ -361,7 +361,7 @@ namespace DesktopAICompanion.Shimeji
             // the pose image's region of that cell, at the companion's bounds (TickPoseImage).
             TickRect b;
             Image frame = TickPoseImage.Frame(m, t.Sprites, _log, out b);
-            form.RenderTick(frame, b.X, b.Y, b.Width, b.Height, true, RenderOpacity);
+            form.RenderTick(frame, b.X, b.Y, b.Width, b.Height, true, RenderOpacity, m.LookRight);
         }
 
         /// <summary>A left-button event on a companion's window, delivered at the next step.</summary>

@@ -16806,8 +16806,8 @@ CASES = (
     # The tick window layer (TickHost, FormCompanion tick mode), graded by --shimeji-window-selftest.
     ('shimeji-host: a window ignores the image anchor',
      os.path.join(REPO, "src", "dotNet", "Shimeji", "TickHost.cs"),
-     b'form.RenderTick(frame, b.X, b.Y, b.Width, b.Height, true, RenderOpacity);',
-     b'form.RenderTick(frame, m.Anchor.X, m.Anchor.Y, b.Width, b.Height, true, RenderOpacity);',
+     b'form.RenderTick(frame, b.X, b.Y, b.Width, b.Height, true, RenderOpacity, m.LookRight);',
+     b'form.RenderTick(frame, m.Anchor.X, m.Anchor.Y, b.Width, b.Height, true, RenderOpacity, m.LookRight);',
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      'a window sits at its anchor minus the image anchor'),
@@ -20464,6 +20464,23 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--shimeji-window-selftest", "dp-shimeji-window-selftest.txt",
      "parity trace: a provenance fault ends the run in error, naming the field"),
+    # ---- burndown/host-1 ----
+    # N-audit-1106-021: a tick window opens the classic debug menu again on a right press with the debug window open.
+    ("bd-host-1: a tick window's right press opens the classic debug menu",
+     os.path.join(REPO, "src", "dotNet", "FormCompanion.cs"),
+     b"            if (TickHost != null) return false;\n            return DebugActiveForSelfTest",
+     b"            return DebugActiveForSelfTest",
+     HOST_CSPROJ, EXE,
+     "--shimeji-window-selftest", "dp-shimeji-window-selftest.txt",
+     "a right press on a tick window with the debug window open pokes"),
+    # N-audit-1106-022: the tick path stops setting the classic position the speech bubble anchors at.
+    ("bd-host-1: a tick window's speech anchor stays at the classic position",
+     os.path.join(REPO, "src", "dotNet", "FormCompanion.cs"),
+     b"            PositionX = left;\n            PositionY = top;\n            OffsetY = 0.0;\n",
+     b"",
+     HOST_CSPROJ, EXE,
+     "--shimeji-window-selftest", "dp-shimeji-window-selftest.txt",
+     "the speech bubble anchors over each tick companion's window"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
