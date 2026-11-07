@@ -22370,6 +22370,14 @@ CASES = (
      b"                            && audioBase64 + encodedLength <= xmlRoom;\n",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
      SHIMEJI, "classic-emitter", "a sheet with room for two clips embedded 3"),
+    # N-bd-codex-converter-1-04: an unused Group2 action loses its classifier reason again and is printed under the
+    # converter-gap sentence.
+    ("bd-w4-converter-1: an unused Group2 action is called a converter gap without its reason (N-bd-codex-converter-1-04)",
+     PET_EMITTER,
+     b"            List<string> gap = notOnFloor.Where(n => !unusedClassifiedNames.Contains(n)).ToList();\n",
+     b"            List<string> gap = notOnFloor; unusedClassified.Clear();\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "classic-emitter", "classic Group2 residue: an action left out on purpose is not listed with its classifier reason"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

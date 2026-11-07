@@ -2879,6 +2879,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     if (e.Source.Name != null) emittedNames.Add(e.Source.Name);
                 }
             var notOnFloor = new List<string>();
+            // The Group2 share of notOnFloor, each entry its name with the classifier's reason, and their names.
+            var unusedClassified = new List<string>();
+            var unusedClassifiedNames = new HashSet<string>(StringComparer.Ordinal);
             foreach (ShimejiAction a in config.Actions)
             {
                 if (a.Group == FidelityGroup.Group3)
@@ -2899,7 +2902,16 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     Emitted merged;
                     bool used = emittedActions.Contains(a) || (a.Name != null && (ExpandedSetPieces.Contains(a.Name)
                         || (CollapsedInto.TryGetValue(a.Name, out merged) && emitted.Contains(merged))));
-                    if (!used) { notOnFloor.Add(a.Name); continue; }
+                    // Still "not attempted" for the accounting, but with the classifier's reason beside its name: a
+                    // window-geometry or cursor-chasing action is left out on purpose, and the converter-gap sentence
+                    // below would misdescribe it (N-bd-codex-converter-1-04).
+                    if (!used)
+                    {
+                        notOnFloor.Add(a.Name);
+                        unusedClassified.Add(a.Name + (string.IsNullOrEmpty(a.Reason) ? "" : " (" + a.Reason + ")"));
+                        unusedClassifiedNames.Add(a.Name);
+                        continue;
+                    }
                     // A gaze keeps its Group2 classification (the cursor condition IS host state), but the
                     // classifier's stock reason is now false for it: the horizontal half is implemented rather
                     // than pending, and saying otherwise sends a reader looking for a host change that already
@@ -2981,8 +2993,14 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             // which describes a format limitation that does not exist -- the engine handles walls and ceilings
             // (17 of the 22 hand-authored pets use them). Say what is true: these specific animations were not
             // ATTEMPTED, and why.
-            if (notOnFloor.Count > 0)
-                residue.Notes.Add("These animations are not attempted: " + string.Join(", ", notOnFloor) + ". This is a converter gap rather than a format limit.");
+            // The Group1 leftovers are the converter's gap; a Group2 action no animation uses keeps the reason the
+            // classifier gave it, in a sentence of its own, so the gap sentence never claims it.
+            List<string> gap = notOnFloor.Where(n => !unusedClassifiedNames.Contains(n)).ToList();
+            if (gap.Count > 0)
+                residue.Notes.Add("These animations are not attempted: " + string.Join(", ", gap) + ". This is a converter gap rather than a format limit.");
+            if (unusedClassified.Count > 0)
+                residue.Notes.Add("These animations are not attempted: " + string.Join("; ", unusedClassified)
+                    + ". No animation of this pet uses them; the reason beside each is the one its classification gave.");
             if (riseFlattened.Count > 0)
                 residue.Notes.Add("These animations rise in the original but too gently to be jumps, so they play flat along the ground instead: " + string.Join(", ", riseFlattened) + ". The sprites and timing are kept; only the upward drift is dropped. Passing it through unchanged is what made a grapple pose and a flight cycle read as broken little jumps.");
             residue.Notes.Add("Per-pose velocity is reduced to one start/end pair per animation, and 'walk to a target x' becomes a fixed-length walk that turns at the screen edge.");
