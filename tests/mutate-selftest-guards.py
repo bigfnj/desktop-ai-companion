@@ -20489,6 +20489,14 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--fullscreen-selftest", "dp-fullscreen-selftest.txt",
      "maximized-framed-no-taskbar-primary"),
+    # N-audit-1106-024: the registrar hands out a live-looking handle for a combo Windows refused.
+    ("bd-host-1: the hotkey registrar ignores a refusal",
+     os.path.join(REPO, "src", "dotNet", "Plugins", "CompanionHost.cs"),
+     b"                if (!listener.Register(combo))\n",
+     b"                if (!(listener.Register(combo) || true))\n",
+     HOST_CSPROJ, EXE,
+     "--aibrain-selftest", "dp-aibrain-selftest.txt",
+     "hotkey registrar refuses a second registration"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

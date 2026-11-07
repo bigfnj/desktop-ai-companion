@@ -430,11 +430,37 @@ namespace DesktopAICompanion.Plugins
         public void PlayAnimationAll(IReadOnlyList<string> animationCandidates) { if (_startUp != null) _startUp.PlayAnimationOnAll(animationCandidates); }
         public IDisposable RegisterHotkey(string combo, Action onPressed)
         {
+            int win32Error;
+            string refusal;
+            return RegisterHotkey(combo, onPressed, out win32Error, out refusal);
+        }
+
+        /// <summary>
+        /// The registrar behind <see cref="RegisterHotkey(string, Action)"/>, with what a refusal was.
+        /// <paramref name="win32Error"/> is RegisterHotKey's error for a combo Windows refused (1409 when another window
+        /// holds it), else 0; <paramref name="refusal"/> is the line the log got, or null when the combo registered.
+        ///
+        /// A refused or unparseable combo used to become the no-op handle with no line anywhere (N-audit-1106-013), so a
+        /// module hotkey another application already held simply never fired and nobody could say why. The ABI still
+        /// has no way to hand the refusal to the module (that is the owner's call: a new contract member), so the log
+        /// says it, naming the combo, the reason and the module whose Init asked. Internal for the registrar's
+        /// self-test, which tells a live registration from the no-op (<see cref="IsLiveHotkey"/>) by this (-024).
+        /// </summary>
+        internal IDisposable RegisterHotkey(string combo, Action onPressed, out int win32Error, out string refusal)
+        {
             // The ABI makes global-hotkey registration a host service (it needs a UI-thread message
             // window + pump), so the host owns the registrar and a module just calls this. Wraps the
             // proven HotkeyListener; a bad/taken combo degrades to a no-op handle (the hotkey simply
             // never fires) rather than throwing into the module. Called on the UI thread.
+            win32Error = 0;
+            refusal = null;
             if (string.IsNullOrWhiteSpace(combo) || onPressed == null) return new Noop();
+            uint modifiers, key;
+            if (!HotkeyListener.TryParse(combo, out modifiers, out key))
+            {
+                refusal = HotkeyRefused(combo, "does not parse: it needs at least one of Ctrl, Alt, Shift or Win and exactly one key");
+                return new Noop();
+            }
             HotkeyListener listener = null;
             try
             {
@@ -442,19 +468,39 @@ namespace DesktopAICompanion.Plugins
                 listener.Pressed += delegate { Safe(() => onPressed()); };
                 if (!listener.Register(combo))
                 {
+                    win32Error = listener.LastError;
                     listener.Dispose();
+                    refusal = HotkeyRefused(combo, win32Error == HotkeyListener.ErrorHotkeyAlreadyRegistered
+                        ? "is already held by another application or another hotkey (Win32 error " + win32Error + ")"
+                        : "was refused by Windows (Win32 error " + win32Error + ")");
                     return new Noop();
                 }
             }
-            catch
+            catch (Exception ex)
             {
                 if (listener != null) { try { listener.Dispose(); } catch { } }
+                refusal = HotkeyRefused(combo, "could not be registered: " + ex.GetType().Name + ": " + ex.Message);
                 return new Noop();
             }
             HotkeyListener registered = listener;
             var remover = new Remover(() => { try { registered.Dispose(); } catch { } });
             if (_initLedger != null) _initLedger.Registrations.Add(remover);   // undone if this Init throws (F344)
             return remover;
+        }
+
+        /// <summary>Log a hotkey refusal under the module whose Init asked ("module" outside an Init) and return the line.</summary>
+        private string HotkeyRefused(string combo, string why)
+        {
+            string line = "the hotkey '" + combo.Trim() + "' will never fire: it " + why;
+            Log(_initialisingModuleId, line);
+            return line;
+        }
+
+        /// <summary>Whether <paramref name="handle"/> is a hotkey the registrar really registered, not the no-op a refusal
+        /// returns. For the registrar's self-test (N-audit-1106-024): both are non-null, which is all it could see.</summary>
+        internal static bool IsLiveHotkey(IDisposable handle)
+        {
+            return handle is Remover;
         }
         public IModuleStorage GetStorage(string moduleId) { return new ModuleStorage(ModuleDataDir(moduleId)); }
         public IModuleSettings GetSettings(string moduleId) { return new ModuleSettings(Path.Combine(ModuleDataDir(moduleId), "settings.json")); }
