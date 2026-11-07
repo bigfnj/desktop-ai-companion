@@ -70,6 +70,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "instant-without-animation", Run = (Action)InstantWithoutAnimation },
                 new { Name = "anonymous-nested-actions", Run = (Action)AnonymousNestedActions },
                 new { Name = "custom-variables", Run = (Action)CustomVariables },
+                new { Name = "nashorn-globals", Run = (Action)NashornGlobals },
                 new { Name = "ignored-behaviour-children", Run = (Action)IgnoredBehaviourChildren },
                 new { Name = "ignored-list-entries", Run = (Action)IgnoredListEntries },
                 new { Name = "class-on-plain-action", Run = (Action)ClassOnPlainAction },
@@ -94,6 +95,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "pack-source-identity", Run = (Action)PackSourceIdentity },
                 new { Name = "tick-cell-cap", Run = (Action)TickCellCap },
                 new { Name = "source-names-map", Run = (Action)SourceNamesMap },
+                new { Name = "source-pose-map", Run = (Action)SourcePoseMap },
             };
             if (onlyCase != null && !cases.Any(c => c.Name == onlyCase))
             {
@@ -1411,6 +1413,33 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 }
         }
 
+        private static void NashornGlobals()
+        {
+            foreach (string global in new[] { "engine", "context", "arguments" })
+                using (var fixture = new Fixture())
+                {
+                    XDocument actions = BuildActions();
+                    actions.Root.Element("ActionList").Add(S("Action", A("Name", "Global"), A("Type", "Move"),
+                        A("TargetX", "${" + global + " * 10}"), A(global, "5"), S("Animation", Pose("/p.png", 1))));
+                    fixture.Actions(actions);
+                    Refusal(fixture, "TICK_EXPRESSION_UNSUPPORTED TargetX: unknown name '" + global + "'");
+                    Require(!Directory.Exists(fixture.Output), "nashorn-globals: a reserved global left partial output: " + global);
+                }
+            // WITNESS: the names are case-sensitive globals, not forbidden custom-variable prefixes.
+            using (var fixture = new Fixture())
+            {
+                XDocument actions = BuildActions();
+                actions.Root.Element("ActionList").Add(S("Action", A("Name", "Local"), A("Type", "Move"),
+                    A("TargetX", "${Engine + contextValue + argumentsValue}"), A("Engine", "1"),
+                    A("contextValue", "2"), A("argumentsValue", "3"), S("Animation", Pose("/p.png", 1))));
+                fixture.Actions(actions);
+                XElement local = NamedNode(fixture.Convert(), "Local").Element(Ns + "act");
+                Require(Bound(local, "param", "Engine") == "1" && Bound(local, "param", "contextValue") == "2"
+                    && Bound(local, "param", "argumentsValue") == "3",
+                    "nashorn-globals: ordinary case-distinct and suffixed custom variables remain usable");
+            }
+        }
+
         // 1.0.23 reads only a Behavior's NextBehaviorList children: a <NextBehavior> (the official default
         // configuration's element) or any other child is never read, so the behaviour converts as if it were absent:
         // the same bytes, its add left at the root reading, and none of the ignored element's references as edges.
@@ -2429,11 +2458,61 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             return S("ポーズ", A("画像", image), A("基準座標", "2,3"), A("移動速度", "0,0"), A("長さ", duration));
         }
 
-        /// <summary>A Japanese action document's enumerated values, read through its own schema as the source compares
-        /// them (ActionBuilder.java:101-138, BorderedAction.java:44-49): every Type value and every BorderType value of
-        /// schema_ja, the literal BorderType written mapped both as the act's border and as its parameter (the host
-        /// reads the parameter first), and a reference binding of BorderType mapped too. Replaces action-schema-refusal,
-        /// which refused every Japanese action document outright; its successor refusal is japanese-schema-refusal.</summary>
+        // N-shimeji-1106-13: emitted pose/variant positions are not their source positions after zero-length omissions.
+        // These fixtures exercise the written map, including image-less poses and interleaved hotspots, without a host.
+        private static void SourcePoseMap()
+        {
+            using (var fixture = new Fixture())
+            {
+                XDocument actions = BuildActions();
+                XElement walk = actions.Descendants("Action").Single(a => (string)a.Attribute("Name") == "Walk");
+                walk.Element("Animation").ReplaceNodes(Pose("/p.png", 0),
+                    S("Hotspot", A("Shape", "Rectangle"), A("Origin", "0,0"), A("Size", "1,1")),
+                    Pose("/q.png", 2), Pose("/p.png", 0), Pose(null, 3));
+                actions.Root.Element("ActionList").Add(
+                    S("Action", A("Name", "Rest"), A("Type", "Stay"),
+                        S("Animation", Pose("/p.png", 1)),
+                        S("Animation", Pose("/q.png", 0)),
+                        S("Animation", Pose("/p.png", 0), Pose("/q.png", 2))),
+                    S("Action", A("Name", "Wave"), A("Type", "Animate"), S("Animation", Pose("/p.png", 0))));
+                fixture.Actions(actions);
+                XDocument document = fixture.Convert();
+                Validate(document, "source-pose-map");
+                using (JsonDocument map = JsonDocument.Parse(File.ReadAllText(fixture.MapPath)))
+                {
+                    Require(map.RootElement.GetProperty("schema").GetString() == "shimeji-parity-map/2",
+                        "source-pose-map: source pose provenance requires map schema 2");
+                    JsonElement poses = map.RootElement.GetProperty("poses");
+                    string walkId = (string)NamedNode(document, "Walk").Attribute("id");
+                    JsonElement first = poses.GetProperty(walkId + ":0:0"), second = poses.GetProperty(walkId + ":0:1");
+                    Require(first.GetProperty("index").GetInt32() == 1 && second.GetProperty("index").GetInt32() == 3,
+                        "source-pose-map: omitted poses keep their source ordinals and hotspots consume none");
+                    Require(first.GetProperty("refKey").GetString() == "A|conf/actions.xml|/Mascot[1]/ActionList[1]/Action[3]/Animation[1]/Pose[2]"
+                        && second.GetProperty("refKey").GetString() == "A|conf/actions.xml|/Mascot[1]/ActionList[1]/Action[3]/Animation[1]/Pose[4]",
+                        "source-pose-map: each live pose retains its exact source Pose refKey");
+                    XElement[] live = NamedNode(document, "Walk").Descendants(Ns + "pose").ToArray();
+                    Require(live.Length == 2 && (string)live[1].Attribute("frame") == "-1",
+                        "source-pose-map: the image-less pose witness is not present in the emitted variant");
+                    string restId = (string)NamedNode(document, "Rest").Attribute("id");
+                    Require(poses.GetProperty(restId + ":0:0").GetProperty("index").GetInt32() == 0,
+                        "source-pose-map: a pose with no omitted predecessor keeps source index zero");
+                    JsonElement shifted;
+                    Require(poses.TryGetProperty(restId + ":1:0", out shifted),
+                        "source-pose-map: omitted animations retain final emitted variant positions");
+                    Require(shifted.GetProperty("index").GetInt32() == 1
+                        && shifted.GetProperty("refKey").GetString() == "A|conf/actions.xml|/Mascot[1]/ActionList[1]/Action[6]/Animation[3]/Pose[2]",
+                        "source-pose-map: final variant indexes follow omitted animations while origins stay source-relative");
+                    string waveId = (string)NamedNode(document, "Wave").Attribute("id");
+                    Require(!poses.EnumerateObject().Any(p => p.Name.StartsWith(waveId + ":", StringComparison.Ordinal)),
+                        "source-pose-map: a permanently false synthetic pose claims no source evidence");
+                    int sourceBacked = document.Descendants(Ns + "act").SelectMany(a => a.Elements(Ns + "variants"))
+                        .SelectMany(v => v.Elements(Ns + "variant")).SelectMany(v => v.Elements(Ns + "pose")).Count() - 1;
+                    Require(poses.EnumerateObject().Count() == sourceBacked,
+                        "source-pose-map: every emitted source pose has exactly one final-position entry");
+                }
+            }
+        }
+
         /// <summary>CONTRACT v1.1 section 9 (decision 67): the parity map names the source's name of every node whose
         /// emitted name differs. A nameless nested action maps to null and an empty-named one to "" (never the synthetic
         /// place name), a renamed engine behaviour to its Japanese name, and a node that kept its name has no entry.</summary>
@@ -2477,6 +2556,11 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             }
         }
 
+        /// <summary>A Japanese action document's enumerated values, read through its own schema as the source compares
+        /// them (ActionBuilder.java:101-138, BorderedAction.java:44-49): every Type value and every BorderType value of
+        /// schema_ja, the literal BorderType written mapped both as the act's border and as its parameter (the host
+        /// reads the parameter first), and a reference binding of BorderType mapped too. Replaces action-schema-refusal,
+        /// which refused every Japanese action document outright; its successor refusal is japanese-schema-refusal.</summary>
         private static void JapaneseSchemaValues()
         {
             using (var fixture = new Fixture())

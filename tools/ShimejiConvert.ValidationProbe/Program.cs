@@ -7,6 +7,7 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using DesktopAICompanion;
 using XmlData;
@@ -104,8 +105,9 @@ internal static class Program
         var frames = new Dictionary<int, FrameGeometry>();
         using (JsonDocument map = JsonDocument.Parse(json))
         {
-            if (map.RootElement.GetProperty("schema").GetString() != "shimeji-parity-map/1")
+            if (map.RootElement.GetProperty("schema").GetString() != "shimeji-parity-map/2")
                 throw new InvalidDataException("parity map has an unsupported schema");
+            ValidatePoseMap(document, map.RootElement);
             foreach (JsonElement frame in map.RootElement.GetProperty("frames").EnumerateArray())
             {
                 int id = frame.GetProperty("frame").GetInt32();
@@ -131,6 +133,70 @@ internal static class Program
         }
     }
 
+    // Map/2 binds emitted positions to source positions, including image-less and unplayed poses.
+    // Only decision 68's exact synthetic placeholder has no source pose to map.
+    private static void ValidatePoseMap(XDocument document, JsonElement map)
+    {
+        JsonElement poses, imageSet;
+        if (!map.TryGetProperty("poses", out poses) || poses.ValueKind != JsonValueKind.Object)
+            throw new InvalidDataException("parity map poses must be an object");
+        if (!map.TryGetProperty("imageSet", out imageSet) || imageSet.ValueKind != JsonValueKind.String)
+            throw new InvalidDataException("parity map imageSet must be a string");
+        var keys = new HashSet<string>(StringComparer.Ordinal);
+        foreach (JsonProperty property in poses.EnumerateObject())
+        {
+            string key = property.Name;
+            if (!keys.Add(key)) throw new InvalidDataException("parity map poses has a duplicate key: " + key);
+            string[] positions = key.Split(':');
+            int position;
+            if (positions.Length != 3 || positions.Any(p => !Regex.IsMatch(p, @"\A(?:0|[1-9][0-9]*)\z")
+                || !int.TryParse(p, NumberStyles.None, CultureInfo.InvariantCulture, out position)))
+                throw new InvalidDataException("parity map poses has a malformed key: " + key);
+            JsonElement value = property.Value, reference, index;
+            if (value.ValueKind != JsonValueKind.Object || value.EnumerateObject().Count() != 2
+                || !value.TryGetProperty("refKey", out reference) || reference.ValueKind != JsonValueKind.String
+                || !value.TryGetProperty("index", out index) || index.ValueKind != JsonValueKind.Number
+                || !Regex.IsMatch(index.GetRawText(), @"\A(?:0|[1-9][0-9]*)\z") || !index.TryGetInt32(out position))
+                throw new InvalidDataException("parity map poses has a malformed value: " + key);
+            string[] parts = reference.GetString().Split('|');
+            Match terminal = parts.Length == 3 ? Regex.Match(parts[2], @"(?:\A|/)[^/\[\]]+\[([1-9][0-9]*)\]\z") : Match.Empty;
+            int ordinal;
+            if (parts.Length != 3 || parts[0] != imageSet.GetString() || string.IsNullOrEmpty(parts[1])
+                || !terminal.Success || !int.TryParse(terminal.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture, out ordinal)
+                || position != ordinal - 1)
+                throw new InvalidDataException("parity map poses has a malformed source identity or index: " + key);
+        }
+        foreach (XElement node in document.Root.Element(Ns + "animations").Elements(Ns + "animation"))
+        {
+            XElement act = node.Element(Ns + "act");
+            if (act == null) continue;
+            XElement variantsElement = act.Element(Ns + "variants");
+            XElement[] variants = variantsElement == null ? new XElement[0] : variantsElement.Elements(Ns + "variant").ToArray();
+            bool placeholder = Decision68Placeholder(act, variants);
+            for (int vi = 0; vi < variants.Length; vi++)
+            {
+                XElement[] emitted = variants[vi].Elements(Ns + "pose").ToArray();
+                for (int pi = 0; pi < emitted.Length; pi++)
+                {
+                    string key = node.Attribute("id").Value + ":" + vi.ToString(CultureInfo.InvariantCulture) + ":" + pi.ToString(CultureInfo.InvariantCulture);
+                    if (!keys.Remove(key) && !placeholder)
+                        throw new InvalidDataException("parity map poses is missing emitted pose: " + key);
+                }
+            }
+        }
+        if (keys.Count != 0) throw new InvalidDataException("parity map poses has a surplus key: " + keys.OrderBy(k => k, StringComparer.Ordinal).First());
+    }
+
+    private static bool Decision68Placeholder(XElement act, XElement[] variants)
+    {
+        string type = (string)act.Attribute("type"), cls = (string)act.Attribute("class");
+        if (!(type == "Animate" || (type == "Embedded" && cls == "Interact")) || variants.Length != 1
+            || (string)variants[0].Attribute("when") != "false") return false;
+        XElement[] poses = variants[0].Elements(Ns + "pose").ToArray();
+        return poses.Length == 1 && Attribute(poses[0], "frame", -2) == -1 && Attribute(poses[0], "ticks", 0) == 1
+            && Attribute(poses[0], "dx", 0) == 0 && Attribute(poses[0], "dy", 0) == 0;
+    }
+
     private static void CheckMapFrame(Dictionary<int, FrameGeometry> frames, XElement node, int index, int x, int y, int width, int height)
     {
         if (index < 0) return;
@@ -152,6 +218,10 @@ internal static class Program
         JsonNode wrongSchema = JsonNode.Parse(map);
         wrongSchema["schema"] = "unsupported";
         results.Add(CheckMap("control-map-schema", mapPath, document, wrongSchema.ToJsonString(), false, "schema"));
+        JsonNode oldSchema = JsonNode.Parse(map);
+        oldSchema["schema"] = "shimeji-parity-map/1";
+        results.Add(CheckMap("control-map-v1-schema", mapPath, document, oldSchema.ToJsonString(), false, "schema"));
+        CheckPoseMapControls(mapPath, document, map, results);
         XElement visible = document.Descendants(Ns + "pose").First(p => Attribute(p, "frame", -1) >= 0);
         int frame = Attribute(visible, "frame", -1);
         JsonNode missingFrame = JsonNode.Parse(map);
@@ -178,6 +248,51 @@ internal static class Program
             target["anchor"][0] = target["anchor"][0].GetValue<int>() + 1;
             results.Add(CheckMap("control-map-right-anchor", mapPath, document, invalid.ToJsonString(), false, "parity map frame " + right));
         }
+    }
+
+    private static void CheckPoseMapControls(string mapPath, XDocument document, string map, List<object> results)
+    {
+        Action<string, Action<JsonObject>, string> control = (name, mutate, diagnostic) =>
+        {
+            JsonObject invalid = JsonNode.Parse(map).AsObject();
+            mutate(invalid);
+            results.Add(CheckMap(name, mapPath, document, invalid.ToJsonString(), false, diagnostic));
+        };
+        control("control-map-missing-poses", m => m.Remove("poses"), "poses must be an object");
+        control("control-map-poses-not-object", m => m["poses"] = new JsonArray(), "poses must be an object");
+        string key = JsonNode.Parse(map)["poses"].AsObject().First().Key;
+        control("control-map-missing-pose", m => m["poses"].AsObject().Remove(key), "missing emitted pose");
+        control("control-map-surplus-pose", m => m["poses"]["2147483647:0:0"] = m["poses"][key].DeepClone(), "surplus key");
+        control("control-map-noncanonical-pose-key", m => m["poses"]["0" + key] = m["poses"][key].DeepClone(), "malformed key");
+        control("control-map-pose-index", m => m["poses"][key]["index"] = -1, "malformed value");
+        control("control-map-pose-source-index", m => m["poses"][key]["index"] = m["poses"][key]["index"].GetValue<int>() + 1,
+            "source identity or index");
+        control("control-map-pose-source-member", m => m["poses"][key]["refKey"] = "wrong|actions.xml|/Pose[1]", "source identity or index");
+        JsonNode duplicate = JsonNode.Parse(map);
+        duplicate["poses"] = null;
+        string duplicateObject = "{" + JsonSerializer.Serialize(key) + ":" + JsonNode.Parse(map)["poses"][key].ToJsonString()
+            + "," + JsonSerializer.Serialize(key) + ":" + JsonNode.Parse(map)["poses"][key].ToJsonString() + "}";
+        string duplicated = duplicate.ToJsonString().Replace("\"poses\":null", "\"poses\":" + duplicateObject);
+        results.Add(CheckMap("control-map-duplicate-pose-key", mapPath, document, duplicated, false, "duplicate key"));
+
+        // This valid synthetic placeholder is exempt. The same when=false pose in Stay or MoveWithTurn is not.
+        XDocument placeholder = new XDocument(document);
+        XElement act = placeholder.Root.Element(Ns + "animations").Elements(Ns + "animation").First(a => a.Element(Ns + "act") != null).Element(Ns + "act");
+        act.ReplaceAttributes(new XAttribute("type", "Animate"));
+        act.Elements(Ns + "variants").Remove();
+        act.Add(new XElement(Ns + "variants", new XElement(Ns + "variant", new XAttribute("when", "false"),
+            new XElement(Ns + "pose", new XAttribute("frame", -1), new XAttribute("ticks", 1), new XAttribute("dx", 0), new XAttribute("dy", 0)))));
+        string nodeId = act.Parent.Attribute("id").Value;
+        JsonNode placeholderMap = JsonNode.Parse(map);
+        foreach (string mapped in placeholderMap["poses"].AsObject().Select(p => p.Key).Where(k => k.StartsWith(nodeId + ":", StringComparison.Ordinal)).ToArray())
+            placeholderMap["poses"].AsObject().Remove(mapped);
+        string placeholderJson = placeholderMap.ToJsonString();
+        results.Add(CheckMap("witness-map-decision68-placeholder", mapPath, placeholder, placeholderJson, true));
+        act.SetAttributeValue("type", "Stay");
+        results.Add(CheckMap("control-map-false-stay-unmapped", mapPath, placeholder, placeholderJson, false, "missing emitted pose"));
+        act.SetAttributeValue("type", "Embedded");
+        act.SetAttributeValue("class", "MoveWithTurn");
+        results.Add(CheckMap("control-map-false-turn-unmapped", mapPath, placeholder, placeholderJson, false, "missing emitted pose"));
     }
 
     private static void CheckGeometry(string path, XDocument document, List<object> results)

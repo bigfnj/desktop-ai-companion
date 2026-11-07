@@ -4,6 +4,9 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.io.StringWriter;
 import java.io.Writer;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.Map;
 
 /** JSONL transport only. No contract field names are frozen by this class. */
@@ -12,10 +15,47 @@ public final class DraftTraceWriter implements Closeable {
     public DraftTraceWriter(Writer writer) { this.writer = writer; }
 
     public synchronized void writeRecord(Map<String, Object> record) throws IOException {
+        writer.write(recordJson(record) + "\n");
+        writer.flush();
+    }
+
+    /** The same bytes back both the trace and its trace-on/off event witness. */
+    private static String recordJson(Map<String, Object> record) throws IOException {
         StringWriter buffer = new StringWriter();
         new DraftTraceWriter(buffer).value(record);
-        writer.write(buffer.toString() + "\n");
-        writer.flush();
+        return buffer.toString();
+    }
+
+    /**
+     * N-shimeji-1106-21: counts cannot distinguish reordered or changed events. Feed records in their final output
+     * order, including the input events inserted ahead of callback-generated behavior events, in both observing modes.
+     * Only stored values are serialized; no source variable, script or condition is evaluated to make this witness.
+     */
+    public static final class EventSequence {
+        private final MessageDigest digest;
+        private String finished;
+
+        public EventSequence() {
+            try { digest = MessageDigest.getInstance("SHA-256"); }
+            catch (NoSuchAlgorithmException failure) { throw new IllegalStateException("SHA-256 unavailable", failure); }
+        }
+
+        public void add(Map<String, Object> record) throws IOException {
+            if (finished != null) throw new IllegalStateException("event sequence already finished");
+            digest.update((recordJson(record) + "\n").getBytes(StandardCharsets.UTF_8));
+        }
+
+        public String finish() {
+            if (finished == null) {
+                StringBuilder hex = new StringBuilder(64);
+                for (byte value : digest.digest()) {
+                    int unsigned = value & 255;
+                    hex.append(Character.forDigit(unsigned >>> 4, 16)).append(Character.forDigit(unsigned & 15, 16));
+                }
+                finished = hex.toString();
+            }
+            return finished;
+        }
     }
 
     private void quoted(String text) throws IOException {

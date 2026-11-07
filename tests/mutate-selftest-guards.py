@@ -21184,6 +21184,52 @@ CASES = (
      b'     None),\n',
      None, None,
      MUTATION_UNITTESTS, None, 'test_every_installer_variant_names_the_check_it_must_fail'),
+
+    # ---- burndown/codex-parity ----
+    # Each converter case names its focused CLI selftest in the marker slot. Existing SHIMEJI cases with None
+    # retain the aggregate suite. The engine DLL beside the CLI is the compiled artefact this process loads.
+    ("bd-codex-parity: pose mapping writes the emitted index instead of the source index",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
+     b"new { refKey = origin.RefKey, index = origin.Index }",
+     b"new { refKey = origin.RefKey, index = poseIndex }",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "tick-emitter/source-pose-map",
+     "source-pose-map: omitted poses keep their source ordinals and hotspots consume none"),
+    ("bd-codex-parity: pose mapping skips an emitted variant index after an omission",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
+     b"                        variantIndex++;",
+     b"                        variantIndex += 2;",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "tick-emitter/source-pose-map",
+     "source-pose-map: omitted animations retain final emitted variant positions"),
+    ("bd-codex-parity: pose provenance keeps the old map schema",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
+     b'schema = "shimeji-parity-map/2"',
+     b'schema = "shimeji-parity-map/1"',
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "tick-emitter/source-pose-map",
+     "source-pose-map: source pose provenance requires map schema 2"),
+    ("bd-codex-parity: globals permits a custom engine binding",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
+     b'+ "engine context arguments "',
+     b'+ "context arguments "',
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "tick-emitter/nashorn-globals",
+     "conversion accepted an input requiring refusal: TICK_EXPRESSION_UNSUPPORTED TargetX: unknown name 'engine'"),
+    ("bd-codex-parity: globals permits a custom context binding",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
+     b'+ "engine context arguments "',
+     b'+ "engine arguments "',
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "tick-emitter/nashorn-globals",
+     "conversion accepted an input requiring refusal: TICK_EXPRESSION_UNSUPPORTED TargetX: unknown name 'context'"),
+    ("bd-codex-parity: globals permits a custom arguments binding",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
+     b'+ "engine context arguments "',
+     b'+ "engine context "',
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "tick-emitter/nashorn-globals",
+     "conversion accepted an input requiring refusal: TICK_EXPRESSION_UNSUPPORTED TargetX: unknown name 'arguments'"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
@@ -21643,7 +21689,7 @@ def selftest(flag, marker):
     if flag == CORETESTS:
         return coretests()
     if flag == SHIMEJI:
-        return shimeji_selftest()
+        return shimeji_selftest(marker)
     if flag == SECURITY:
         return security()
     if flag == TEMPLATE:
@@ -21718,19 +21764,21 @@ def coretests():
     return "\n".join(lines) + "\n", proc.returncode
 
 
-def shimeji_selftest():
+def shimeji_selftest(group=None):
     """The converter's `selftest` verb (the gate's last step) in the marker vocabulary the ladder grades.
 
     EngineSelfTest.RunAll prints every sub-test's detail, a failing sub-test's failures as indented
     `FAIL <why>` lines, and then SELFTEST PASS or SELFTEST FAIL with exit 0 or 1. The indented FAIL
     lines already read as failure lines here (the ladder strips and looks for a FAIL prefix), so a
     case names its failure text as the expected fragment; the exit code becomes the column-0 RESULT=
-    line, which is the verb's real verdict.
+    line, which is the verb's real verdict. A SHIMEJI case may put a focused group/case name in its marker slot;
+    None retains the aggregate verb, so existing registrations keep their original coverage.
     """
     if not os.path.isfile(SHIMEJI_EXE):
         return None, "ShimejiConvert exe is missing: " + SHIMEJI_EXE
     try:
-        proc = run_text([SHIMEJI_EXE, "selftest"], capture_output=True, timeout=1800,
+        command = [SHIMEJI_EXE, "selftest"] + ([group] if group is not None else [])
+        proc = run_text(command, capture_output=True, timeout=1800,
                               env=CHILD_ENV)
     except subprocess.TimeoutExpired:
         return None, "ShimejiConvert selftest did not exit in 1800s"

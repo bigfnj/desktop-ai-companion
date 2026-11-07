@@ -158,9 +158,22 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     "composite literal reference binding was lost");
                 using (JsonDocument map = JsonDocument.Parse(Member(result, "Alpha").ParityMapJson))
                 {
-                    Require(map.RootElement.GetProperty("schema").GetString() == "shimeji-parity-map/1"
+                    Require(map.RootElement.GetProperty("schema").GetString() == "shimeji-parity-map/2"
                         && map.RootElement.GetProperty("frames").GetArrayLength() == 3,
                         "requested public parity map was absent or lost the explicit right image");
+                    JsonElement origins;
+                    Require(map.RootElement.TryGetProperty("poses", out origins) && origins.ValueKind == JsonValueKind.Object,
+                        "requested public parity map lost its poses object");
+                    string stand = (string)Node(document, "Stand").Attribute("id");
+                    for (int index = 0; index < poses.Length; index++)
+                    {
+                        JsonElement origin;
+                        Require(origins.TryGetProperty(stand + ":0:" + index, out origin)
+                            && origin.GetProperty("index").GetInt32() == index
+                            && origin.GetProperty("refKey").GetString().StartsWith("Alpha|", StringComparison.Ordinal)
+                            && origin.GetProperty("refKey").GetString().EndsWith("/Pose[" + (index + 1) + "]", StringComparison.Ordinal),
+                            "requested public parity map lost a Stand pose's source identity or ordinal");
+                    }
                 }
             }
         }

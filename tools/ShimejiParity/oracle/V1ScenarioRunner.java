@@ -102,6 +102,7 @@ public final class V1ScenarioRunner implements DraftParityHooks.Controller {
     private int eventCount;
     private int draws;
     private final List<Map<String, Object>> pending = new ArrayList<Map<String, Object>>();
+    private final DraftTraceWriter.EventSequence eventSequence = new DraftTraceWriter.EventSequence();
 
     // Identity: every sid the trace uses, and the lineage counters of CONTRACT section 3.
     private final IdentityHashMap<Mascot, String> sids = new IdentityHashMap<Mascot, String>();
@@ -231,11 +232,16 @@ public final class V1ScenarioRunner implements DraftParityHooks.Controller {
 
     private void emit(Map<String, Object> record) {
         eventCount++;
-        if (observing) pending.add(record);
+        // Both modes retain this tick's stored event records so the proof can witness their order and payloads.
+        pending.add(record);
     }
 
     private void flush() throws Exception {
-        for (Map<String, Object> record : pending) writer.writeRecord(record);
+        for (Map<String, Object> record : pending) {
+            // Hash after mouse() has inserted its events: emission-call order is not necessarily output order.
+            eventSequence.add(record);
+            if (observing) writer.writeRecord(record);
+        }
         pending.clear();
     }
 
@@ -750,7 +756,7 @@ public final class V1ScenarioRunner implements DraftParityHooks.Controller {
         int x = screen.x - component.getX(), y = screen.y - component.getY();
         int mark = pending.size();
         boolean wasDragging = mascot.isDragging(), wasHotspot = mascot.isHotspotClicked();
-        // Read from a counter kept in both modes, never from the trace buffer, which is empty with tracing off
+        // Read from the runtime counter, never infer a behavior change from the observer's buffered events
         // (review F3; CONTRACT section 5: turning tracing off must not change what the run does or counts).
         int behaviourEvents = behaviourEntries(mascot);
         namedBuild = null;
@@ -790,7 +796,7 @@ public final class V1ScenarioRunner implements DraftParityHooks.Controller {
                 inserted.add(record);
             }
             eventCount += inserted.size();
-            if (observing) pending.addAll(mark, inserted);
+            pending.addAll(mark, inserted);
         } finally {
             context = saved;
         }
@@ -1066,6 +1072,7 @@ public final class V1ScenarioRunner implements DraftParityHooks.Controller {
                 footer.put("draws", runner.observing ? runner.draws : 0);
                 footer.put("states", runner.states);
                 footer.put("events", runner.observing ? runner.eventCount : 0);
+                footer.put("eventSequenceSha256", runner.eventSequence.finish());
                 if (!runner.observing) {
                     // The trace-off run writes only its final tick; its draw and event totals are kept for the proof.
                     footer.put("unobservedDraws", runner.draws);
