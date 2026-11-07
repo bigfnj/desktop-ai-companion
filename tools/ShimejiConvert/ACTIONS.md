@@ -55,7 +55,7 @@ into Studio, but the import UI and its installation transaction are separate wor
 | Sequence, Select | Literal lowering | pending | Synthetic graph and binding checks |
 | Embedded Breed | Literal lowering | pending | Historical packet exact: S-slice-breed-01; two nonexact edge cases below |
 | Embedded Transform | Literal lowering | pending | Historical packet exact: S-slice-transform-01; blank-behavior case nonexact below |
-| Embedded Fall, Dragged | Reserved definitions retained | pending | Present in slice packs; action semantics unexercised |
+| Embedded Fall, Dragged | lowered; historical packet exact | pending | S-fall-params-01, S-fall-sweep-01, S-fall-wall-01, S-input-drag-01 |
 | Embedded Jump | lowered; historical packet comparison below | pending | S-jump-arc-01, S-jump-flat-01, S-jump-reaim-01 |
 | Embedded MoveWithTurn | lowered; historical packet comparison below | pending | S-move-withturn-01 |
 | Embedded Regist | lowered; historical packet comparison below | pending | S-input-regist-02 |
@@ -68,39 +68,51 @@ into Studio, but the import UI and its installation transaction are separate wor
 | Embedded MinimizeIE | lowered; historical packet comparison below | pending | S-window-minimize-on-01, S-window-minimize-off-01 |
 | Animation Hotspot (shape, origin, size, behaviour) | lowered; historical packet comparison below | pending | S-input-hotspot-01 |
 | Literal Affordance (`<offers>`) | lowered; historical packet comparison below | pending | S-scan-first-01, S-scan-loss-01, S-scan-reacquire-01 |
-| Toggleable behaviours (header `<toggles>`, behaviour `toggle`) | lowered; synthetic converter checks only | pending | No directed scenario yet |
-| Embedded Look, Turn, Offset, Mute, BringToFront, SelfDestruct, ScanJump, ComplexMove, ComplexJump, FallWithIE, JumpWithIE, Broadcast, BroadcastStay, BroadcastMove, BroadcastJump | lowered; synthetic converter checks only | pending | No directed scenario yet |
+| Toggleable behaviours (header `<toggles>`, behaviour `toggle`) | lowered; synthetic converter checks only | pending | No paired trace comparison in this packet |
+| Embedded Look, Offset, BringToFront | lowered; synthetic converter checks only | pending | S-lower-instant-01 exists; no host trace, not compared |
+| Embedded Turn, Mute, SelfDestruct, ScanJump, ComplexMove, ComplexJump, FallWithIE, JumpWithIE, Broadcast, BroadcastStay, BroadcastMove, BroadcastJump | lowered; synthetic converter checks only | pending | No paired trace comparison in this packet |
 | `${}` / `#{}` parameters and bindings | lowered; historical packet comparison below | pending | S-vars-cache-01 |
 | Scripted action Condition (cached parameter, guard when) | lowered; historical packet comparison below | pending | S-vars-transform-01 |
-| Scripted Animation Condition (cached parameter, variant when) | lowered; synthetic converter checks only | pending | No directed scenario yet |
-| Scripted Behavior and `<Condition>` selection conditions | lowered; synthetic converter checks only | pending | No directed scenario yet |
+| Scripted Animation Condition (cached parameter, variant when) | lowered; synthetic converter checks only | pending | No paired trace comparison in this packet |
+| Scripted Behavior and `<Condition>` selection conditions | lowered; synthetic converter checks only | pending | No paired trace comparison in this packet |
 
 The 2026-11-07 comparison used all 58 scenarios with historical `host-cw` packets. Fresh oracle runs used
 JDK 1.8.0_504, the pinned source archive, and the private patched oracle artifact below. All 58 runs completed;
 document witnesses and the trace-on/off observation proof passed. The comparer reported 52 `exact` and six `fail`.
-Every named scenario in a row marked "historical packet comparison below" was exact except these six cases:
+Every named paired scenario in the table was compared. Four raw failures are manually classified policy divergences
+and two are real open mismatches under the frozen v1 contract. The comparer has no mechanical policy-verdict branch,
+so raw verdicts remain 52 exact and six fail; reviewed contract classifications are 52 exact, four policy, two fail:
 
-| Scenario | Raw verdict | Observed difference |
-|---|---|---|
-| S-breed-blankbehavior-01 | fail: event-mismatch | Error-message wording at tick 10; both then refuse attempt 1 with null child and reason `error`. |
-| S-transform-blankbehavior-01 | fail: event-mismatch | Error-message wording at tick 6 after the same transform to Beta with an empty behavior. |
-| S-cap-at-01 | fail: event-mismatch | At tick 6, attempt 16, oracle initializes a child while host refuses with reason `cap`. Host admits 15 children plus the parent, as `policy:birth-cap` specifies. |
-| S-window-carry-off-01 | fail: missing-event | Oracle records 70 window moves; host suppresses them and reaches its next behavior at tick 70. |
-| S-window-minimize-off-01 | fail: missing-event | Oracle minimizes at tick 6; host suppresses it. Both select the next behavior at tick 7. |
-| S-window-throw-off-01 | fail: missing-event | Oracle records ten window moves; host suppresses them and selects its next behavior at tick 11. |
+| Scenario | Raw verdict | Reviewed classification | Observed difference |
+|---|---|---|---|
+| S-breed-blankbehavior-01 | fail: event-mismatch | OPEN: real v1 mismatch | Error-message wording at tick 10; both then refuse attempt 1 with null child and reason `error`. |
+| S-transform-blankbehavior-01 | fail: event-mismatch | OPEN: real v1 mismatch | Error-message wording at tick 6 after the same transform to Beta with an empty behavior. |
+| S-cap-at-01 | fail: event-mismatch | policy:birth-cap | At tick 6, attempt 16, oracle initializes a child while host refuses with reason `cap`. Host admits 15 children plus the parent; attempts 16 and 17 are refused. |
+| S-window-carry-off-01 | fail: missing-event | policy:window-off-plays | Oracle records 70 window moves; host suppresses them and reaches its next behavior at tick 70. |
+| S-window-minimize-off-01 | fail: missing-event | policy:window-off-plays | Oracle minimizes at tick 6; host suppresses it. Both select the next behavior at tick 7. |
+| S-window-throw-off-01 | fail: missing-event | policy:window-off-plays | Oracle records ten window moves; host suppresses them and selects its next behavior at tick 11. |
 
-No tolerance or exception changed those six raw failures into passes. The window results demonstrate suppressed
-host effects with `windowActions=false` while `throwing=true`; the oracle retains those effects. The separate
-`throwing=false` case ends Carry during initialization and matches historically. The policy's source/host flag
-correspondence remains to be clarified before using it to classify the three failures as allowed differences.
-The two blank-behavior cases remain nonexact even though their other events agree.
+WindowActions is host-only; with it off and Throwing on, the host plays the base action and suppresses window
+effects (`TickWindowFamily.cs`, HasNext and the window-effect methods). Throwing is the source switch retained by the host;
+the real host pins it on (HostTickSettings.Get). The oracle's WindowActions property is inert. S-window-throwing-off-01
+sets the separate Throwing switch off, ends Carry during initialization, and compares exact. The three off-window
+cases have identical state lines and only missing window effects, matching policy:window-off-plays. S-cap-below-01
+is exact; S-cap-at-01 witnesses policy:birth-cap. CONTRACT v1.1 must correct the old policy's source-side wording.
+
+The two OPEN blank-behavior cases differ in error.message only; every other event and state line matches. Frozen
+v1 section 3 defines that payload and section 6 compares it exactly; no policy exempts its wording. The coordinator
+will file both cases as open backlog entries for a separately reviewed error-message rule or named policy. Neither
+this page nor the v1.1 proposal exempts them. Mechanical policy-shape checking is a separate open comparer follow-up,
+since a raw fail alone would not distinguish a policy regression from today's intended difference.
 
 Each Interact case records 58 `interact` events over ticks 3 through 31 in both paired traces. The arrival case adds
 the third companion to the targets at tick 31; the shared-target case preserves manager order and excludes the
 out-of-range fourth companion. Both cases enter Huddled at tick 31. This packet exercises interaction beyond
 initialization; the older tick-0 termination note does not describe these paired traces.
 
-These are historical host 1.10.0 comparisons, not current-host verification or a supported-family verdict.
+These compare packs lowered by the historical 1.10.0 converter and executed by the historical 1.10.0 host. They do
+not verify this branch's map/2 lowering or establish a supported-family verdict. Current map/2 host traces await the
+N-shimeji-1106-13 host half, which must integrate with the producer and converter readers.
 Every paired scenario and scenario-specific pack hash matched. The host header's `commit` is a version string,
 not a source commit; the executable was neither located nor rerun, so the comparer reports its witness as
 `shape-only`. The oracle witness is `artifact-bound`. The input snapshot was generated at 184fbe0; it retains
@@ -111,13 +123,22 @@ the original S-slice-breed-01 description to preserve these scenario hashes.
 | Pinned source archive | cf9e72f74d93f45e9f70a4f69cb1e56ffaedd38af2c5e5413482944f78faccff |
 | Executed oracle artifact | 33eae68b85ceec6c0a456539d0d91c3434a2a4781322755cc4da10628fcf9d5f |
 | Historical host executable, header claim only | 0f7785bb1c0d4caf58c9491a74c00a0315c737d5ded050edf1fcef9083f582ca |
+| Historical converter code, header claim only | d98778e849ad6534f599de14e38f2b113c46a26709a47ffefbefa338cfbb636f |
+| Historical engine code, header claim only | f6c046a9a30b5da226306f679ab4dc05550fc617558930f0a8099386df3c94bd |
 | Private oracle results (`oracle-selected/v1-da86559a/results.json`) | 313659dee2435fe200e8c7ea09e405b490c7a519a0035a43b57ff4d00dde75ed |
 | Private per-case comparison record (`historical-comparison-results.json`) | 73da9250c00d229103f592ceb530cff3e1e96101e38da9682419132ecdae97af |
+| Reviewed classifications (`reviewed-classifications.json`) | a423f9080eaeb08239e31284403de5de2eb778317d635eba11c068721cebf779 |
 
-The last two records and their synthetic traces remain in the lane's private evidence directory
-`D:/.ai-work/worktrees/_temp/temp/bd-codex-parity` for coordinator review. The comparison record includes each
-scenario hash, pack hash, trace path, header build hashes, raw findings and binding verdict. Classes whose rows
-say "No directed scenario yet" still need those inputs and controlled comparisons.
+The two records, all 58 oracle and host traces, original synthetic inputs, executed oracle JAR and original tool
+bytes are retained in the durable private research packet
+`D:/.ai-work/shimeji-catalog/research/parity/oracle-v1/codex-2026-11-07`. They have no automatic TEMP cleanup.
+`retention-manifest.json` records file hashes and relocates paths: original records retain execution-time paths,
+with copies under `oracle-selected/v1-da86559a`, `host-cw` and `scenarios-184fbe0`. Its SHA-256 is
+`e42bb10b14fbf04cb77456d1eb7303cf8a49e7ebd4a1b90f828b32197833824d`. Retire it only with the campaign record.
+
+Twelve generated scenarios have no host-cw trace and were not compared or run on the oracle in this packet:
+S-conf-tiers-01, S-lower-info-01, S-lower-instant-01, S-lower-japanese-01, S-lower-japanese-02, S-lower-japanese-03,
+S-lower-nan-left-01, S-lower-nested-01, S-lower-sound-01, S-lower-spelling-01, S-lower-vars-01, S-select-missing-01.
 
 The command targets the headless parity runner. It does not infer egg roles or startup metadata and does not
 replace the classic conversion commands or Studio import. A `${...}` or `#{...}` value lowers to its body with
@@ -155,8 +176,10 @@ with another action's is refused. An attribute the schema does not name on an ac
 behaviour is a variable of the source's action map: it is carried under its own name when it is a plain
 identifier the host does not read as a parameter of its own and some script of the member names it, and the
 scripts of that map see it; one nothing reads is refused, as before.
-The JDK 8 JSR-223 globals `engine`, `context` and `arguments` are reserved rather than carried as custom variables;
-the pinned-runtime `DraftBridgeProbe` records their `typeof` values.
+The JDK 8 JSR-223 identifiers `engine`, `context` and `arguments` are reserved rather than carried as custom variables.
+The pinned-runtime `DraftBridgeProbe` asserts unbound object types and explicit binding behavior: numeric engine and
+context bindings take effect, while arguments retains its global object. The converter does not model those global
+objects; reserving the identifiers is conservative and does not claim every explicit binding loses to a global.
 A script's zero-argument JavaBean getter call
 (`getScreen()`, `isLookRight()`) is written as the property it reads, which Nashorn evaluates with the same call.
 `Math.random` named without a call is NaN in the source, with no draw; where it is the value of a Move's or a Jump's
