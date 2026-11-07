@@ -22363,6 +22363,17 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--aibrain-selftest", "dp-aibrain-selftest.txt",
      "hotkey registrar registers a valid combo as a live registration, not the no-op"),
+    # N-shimeji-host-05: a tick frame resizes and moves its window in four steps again (Width, Height, Left, Top).
+    ('bd-w4-host-1: a tick frame moves its window in four steps (N-shimeji-host-05)',
+     os.path.join(REPO, "src", "dotNet", "FormCompanion.cs"),
+     b'            if (Width != width || Height != height || Left != left || Top != top)\n'
+     b'                SetBounds(left, top, width, height);\n',
+     b'            if (Width != width || Height != height) { Width = width; Height = height; }\n'
+     b'            Left = left;\n'
+     b'            Top = top;\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'one move: a tick frame that resizes and moves its window never shows it at a mixed size or its old place'),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
