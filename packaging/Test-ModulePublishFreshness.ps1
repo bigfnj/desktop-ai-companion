@@ -382,15 +382,26 @@ foreach ($id in $ids) {
     }
 }
 
+# EVERY VERDICT IS REPORTED, THEN ONE THROW (N-bd-converter-1-02). The three blocks below used to throw in turn,
+# so the first non-empty one ended the run and hid the other two. A version MISMATCH is the normal state between a
+# module's version bump and its publish, which made it the one that hid the rest: a module whose payload had gone
+# stale with its versions still agreeing (through a source-linked file or the bundled ModuleKit, both in its watch
+# set) printed no STALE line and was absent from the failure message, so the run read as "these modules need their
+# publish" while one more needed it and was never named. Measured at commit 2dcaeba8: the whole-repo run named seven
+# mismatched modules and nothing else, while agentbroker.zip, its version agreeing, sat two watched commits behind its
+# source; only a run narrowed with -ModuleId agentbroker said so. Each block now prints its lines and adds its
+# sentence, and the run throws once, after all three, naming every module in every class. Reordering the blocks was
+# the rejected alternative: whichever throws first still hides the ones after it.
+$verdicts = New-Object 'Collections.Generic.List[string]'
+
 if ($mismatched.Count -gt 0) {
     Write-Host ''
     foreach ($m in $mismatched) { Write-Host "MISMATCH $($m.Id) -- $($m.Reason)" }
-    Write-Host ''
-    throw ("Module version(s) disagree across source, modules-dist\modules.json and catalog.json: " +
-           ($mismatched.Id -join ', ') +
-           ". Bump modules-dist\modules.json to match the module's ModuleInfo.Version, then regenerate " +
-           "the catalog (packaging\New-ContentCatalog.ps1). The in-app Update button compares these, so a " +
-           "mismatch either offers an update forever or never offers one at all.")
+    $verdicts.Add("Module version(s) disagree across source, modules-dist\modules.json and catalog.json: " +
+                  ($mismatched.Id -join ', ') +
+                  ". Bump modules-dist\modules.json to match the module's ModuleInfo.Version, then regenerate " +
+                  "the catalog (packaging\New-ContentCatalog.ps1). The in-app Update button compares these, so a " +
+                  "mismatch either offers an update forever or never offers one at all.")
 }
 
 # A narrowed watch set is a failure in its own right, not a note. It means this check is now
@@ -399,8 +410,8 @@ if ($degraded.Count -gt 0) {
     Write-Host ''
     Write-Host 'Watch set degraded -- this check is examining less than it should:' -ForegroundColor Red
     foreach ($note in $degraded) { Write-Host "  - $note" -ForegroundColor Red }
-    throw ("$($degraded.Count) module watch set(s) degraded. Coverage narrowed silently, which is " +
-           "how this check was blind to source-linked files for months.")
+    $verdicts.Add("$($degraded.Count) module watch set(s) degraded. Coverage narrowed silently, which is " +
+                  "how this check was blind to source-linked files for months.")
 }
 
 if ($stale.Count -gt 0) {
@@ -411,12 +422,16 @@ if ($stale.Count -gt 0) {
             foreach ($line in $s.Detail) { Write-Host "        $line" }
         }
     }
+    $verdicts.Add("Published module payload(s) are behind their source: " +
+                  ($stale.Id -join ', ') +
+                  ". Rebuild (build.ps1 -Release), re-zip (packaging\New-ModuleDistZip.ps1), COMMIT the zip, " +
+                  "then regenerate the catalog (packaging\New-ContentCatalog.ps1) -- in that order, because " +
+                  "the catalog hashes the committed blob.")
+}
+
+if ($verdicts.Count -gt 0) {
     Write-Host ''
-    throw ("Published module payload(s) are behind their source: " +
-           ($stale.Id -join ', ') +
-           ". Rebuild (build.ps1 -Release), re-zip (packaging\New-ModuleDistZip.ps1), COMMIT the zip, " +
-           "then regenerate the catalog (packaging\New-ContentCatalog.ps1) -- in that order, because " +
-           "the catalog hashes the committed blob.")
+    throw ($verdicts -join ' ')
 }
 
 Write-Host "All $($ids.Count) published module payload(s) are current with their source."

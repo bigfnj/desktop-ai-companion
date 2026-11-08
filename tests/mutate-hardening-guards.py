@@ -4804,6 +4804,26 @@ CASES = (
         b"                WindowTopHit underside = hwndWindow == (IntPtr)0 && (Animations.HasUndersideGrip(CurrentAnimation.ID) || true)\n",
         "w7-host-1: the window-underside walk runs only for an animation that can hang from one",
     ),
+    # ---- burndown/w8-studio-1 ----
+    # N-bd-converter-1-02: a version mismatch hides every stale payload again, either by throwing before the STALE
+    # report (the ORDER leg) or by leaving the STALE sentence out of the thrown message (the ARGUMENT leg).
+    # "bd-w8-studio-1:" for one --only.
+    (
+        "bd-w8-studio-1: the version mismatch throws on its own before STALE is reported (N-bd-converter-1-02)",
+        os.path.join(REPO, "packaging", "Test-ModulePublishFreshness.ps1"),
+        b'    $verdicts.Add("Module version(s) disagree across source, ',
+        b'    throw ("Module version(s) disagree across source, ',
+        # The expected text stays inside the 95 columns Windows PowerShell wraps a thrown message at; a longer one
+        # is split across two output lines and every case scores WRONG (measured on this lane's first run).
+        "w8-studio-1: every freshness verdict is reported before one throw carrying them all",
+    ),
+    (
+        "bd-w8-studio-1: STALE is printed but left out of the thrown message (N-bd-converter-1-02)",
+        os.path.join(REPO, "packaging", "Test-ModulePublishFreshness.ps1"),
+        b'    $verdicts.Add("Published module payload(s) are behind their source: " +\n',
+        b'    Write-Host ("Published module payload(s) are behind their source: " +\n',
+        "w8-studio-1: every freshness verdict is reported before one throw carrying them all",
+    ),
 )
 
 

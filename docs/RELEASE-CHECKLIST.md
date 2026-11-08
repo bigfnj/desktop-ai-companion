@@ -65,7 +65,10 @@ To cut a release:
    [`release.yml`](../.github/workflows/release.yml) does **not** run the freshness gate — only
    `build.yml` does. So the working order is: push the host → tag → publish the module → CI goes green.
    Confirm the freshness mismatch is the ONLY failure before tagging (`.\tests\run-gate.ps1` locally),
-   because that exception is otherwise an excellent way to tag over a real break. Hit for real on
+   because that exception is otherwise an excellent way to tag over a real break. The freshness line names
+   every module whose version disagrees AND every module whose payload is behind its source, so the
+   waiting module appears in both lists; any other module in either list is a real break (until
+   N-bd-converter-1-02 a mismatch hid every stale payload behind it). Hit for real on
    2026-09-10 cutting v1.1.0 with aibrain 1.1.0 waiting on it.
 4. **Run the leak soak locally** and check the growth numbers:
    `.\tests\runtime-resource-soak.ps1` → expect `"Result": "PASS"`. The figure that
