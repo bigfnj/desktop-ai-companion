@@ -1286,8 +1286,10 @@ def trace2_self_test(args, labels):
                                pack_sha256=lambda *unused: sha((pack / "synthetic.txt").read_bytes()))
         payload = b""
         child_timeout = True
+        launched_argv = []
 
         def child(argv, *unused, **unused_keywords):
+            launched_argv.append([str(item) for item in argv])
             off = argv[-1] == "off"
             output = Path(argv[-2] if off else argv[-1])
             output.write_bytes(payload)
@@ -1311,6 +1313,9 @@ def trace2_self_test(args, labels):
         payload = (json.dumps(header) + "\n").encode("utf-8")
         row = copied(SimpleNamespace(jdk_root=root / "unused"), stub, scenario, root / "off-run", "", root, {}, False)
         assert row["status"] == "timeout" and row["detail"].startswith("V2_TIMEOUT_TRACE_OFF_UNVERIFIED "), "V2_TIMEOUT_OFF_ENTRY_WITNESS"
+        assert len(launched_argv) == 4 and any(argv[-1] == "off" for argv in launched_argv) and any(argv[-1] != "off" for argv in launched_argv), "V2_FAULT_JVM_PATH_WITNESS"
+        assert all(argv.count("-XX:-OmitStackTraceInFastThrow") == 1 and argv.index("-XX:-OmitStackTraceInFastThrow") < argv.index("-cp") for argv in launched_argv), "V2_FAULT_JVM_FLAG_WITNESS"
+        labels.append("trace2-fault-jvm-flag-on-observed-and-off-launch-paths")
 
         def unrelated(*unused, **unused_keywords):
             raise Refusal("SYNTHETIC_UNRELATED_REFUSAL")
@@ -1781,6 +1786,13 @@ def mutate(args):
         ("bd-codex-parity-3-review: proof-off-event-line", [('or any(row.get("type") == "event" ' + 'for row in off)', 'or False')], "V2_PROOF_OFF_EVENT_LINE_WITNESS"),
         ("bd-codex-parity-3-review: proof-negative-tally", [('if type(off[-1].get(key)) is not int or off[-1][key] ' +
             '< 0:', 'if type(off[-1].get(key)) is not int:')], "V2_PROOF_NEGATIVE_TALLY_WITNESS")])
+    legs.extend([
+        ("bd-codex-parity-3-anchors: fault-jvm-flag", [
+            ('argv = [args.jdk_root / "bin" / "java.exe", "-XX:-OmitStackTraceInFastThrow", ' + '"-Dfile.encoding=UTF-8",',
+             'argv = [args.jdk_root / "bin" / "java.exe", "-Dfile.encoding=UTF-8",')], "V2_FAULT_JVM_FLAG_WITNESS"),
+        ("bd-codex-parity-3-anchors: fault-jvm-off-flag", [
+            ('    if not observe:\n        argv.append(' + '"off")',
+             '    if not observe:\n        argv.remove("-XX:-OmitStackTraceInFastThrow")\n        argv.append("off")')], "V2_FAULT_JVM_FLAG_WITNESS")])
     if args.only:
         legs = [leg for leg in legs if args.only in leg[0]]
         if not legs:
@@ -2337,7 +2349,7 @@ def v1_run(args, compare, scenario_path, root, classpath, runner, build, observe
               "runId": str(uuid.uuid4()), "startedUtc": datetime.datetime.now(datetime.timezone.utc).isoformat()}
     (run / "header.json").write_text(json.dumps(header, separators=(",", ":")) + "\n", encoding="utf-8")
     trace = run / "trace.jsonl"
-    argv = [args.jdk_root / "bin" / "java.exe", "-Dfile.encoding=UTF-8", "-Djava.io.tmpdir=" + os.environ["TEMP"],
+    argv = [args.jdk_root / "bin" / "java.exe", "-XX:-OmitStackTraceInFastThrow", "-Dfile.encoding=UTF-8", "-Djava.io.tmpdir=" + os.environ["TEMP"],
             "-Duser.home=" + str(run), "-Dshimeji.parity.enabled=true", "-Dshimeji.parity.continueAfterError=true",
             "-cp", str(runner) + os.pathsep + classpath, V1_MAIN_CLASS, run / "header.json", scenario_path, trace]
     if not observe:

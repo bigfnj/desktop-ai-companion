@@ -30,6 +30,11 @@ STUBS = {
         private java.util.Map<String,config.Configuration> configurations = new java.util.LinkedHashMap<String,config.Configuration>();
         public java.util.Properties getProperties() { return properties; }
         public config.Configuration getConfiguration(String name) { return configurations.get(name); }
+        public config.Configuration probeConfiguration() {
+            config.Configuration value = configurations.get("SearchedMember");
+            if (value == null) { value = new config.Configuration(); configurations.put("SearchedMember", value); }
+            return value;
+        }
         private boolean loadConfiguration(String name) {
             if (!"StartupSynthetic".equals(name)) return false;
             configurations.put(name, new config.Configuration());
@@ -44,6 +49,19 @@ STUBS = {
         public void setExitOnLastRemoved(boolean value) { }
         public void parityStep() {
             if (Boolean.getBoolean("probe.draw")) parity.DraftParityHooks.random("builtin:behavior-select");
+            if (Boolean.getBoolean("probe.hookError") || Boolean.getBoolean("probe.channelDefect")) {
+                Throwable original = new IllegalStateException("probe original fault");
+                if (Boolean.getBoolean("probe.channelDefect")) original.setStackTrace(new StackTraceElement[0]);
+                parity.DraftParityHooks.behaviorMissing(original, Main.getInstance().probeConfiguration(), System.getProperty("probe.name"));
+                if (Boolean.getBoolean("probe.secondDefect"))
+                    parity.DraftParityHooks.behaviorMissing(new IllegalStateException("unbound configuration"), new config.Configuration(), "Name");
+                if (Boolean.getBoolean("probe.hookError")) {
+                    parity.DraftParityHooks.arm(System.getProperty("probe.via", "birth"), original);
+                    try { parity.DraftParityHooks.fail("original hooked diagnostic", parity.DraftParityHooks.takeArmedFault()); }
+                    finally { parity.DraftParityHooks.disarm(); }
+                }
+                if (Boolean.getBoolean("probe.channelThrow")) throw new IllegalArgumentException("PROBE_SOURCE_FAILURE_AFTER_DEFECT");
+            }
             if (System.getProperty("probe.error") != null) {
                 parity.DraftParityHooks.Fault fault = null;
                 if (Boolean.getBoolean("probe.typed")) {
@@ -191,6 +209,7 @@ def run_trace(root, classes, args, name, schema=2, rng=None, ticks=2, properties
     (case / "scenario.json").write_text(json.dumps(scenario), encoding="utf-8")
     result = command([args.jdk_root / "bin/java.exe", "-Djava.awt.headless=true", "-Dshimeji.parity.enabled=true",
                       "-Dshimeji.parity.continueAfterError=true"] + list(properties)
+                     + (["-XX:-OmitStackTraceInFastThrow"] if schema == 2 else [])
                      + ["-cp", classes, "com.group_finity.mascot.parity.V1ScenarioRunner", case / "header.json",
                         case / "scenario.json", case / "trace.jsonl"] + (["off"] if off else []), case)
     lines = [json.loads(line) for line in (case / "trace.jsonl").read_text(encoding="utf-8").splitlines()]
@@ -287,7 +306,59 @@ def check_case(root, classes, args, only=None):
                 and not any(row.get("type") == "state" for row in lines), "JAVA_T2_CONFIGURATION_ABORTED")
         require(lines[-1].get("tapeExhausted") is False, "JAVA_T2_CONFIGURATION_FAILED_FLAG")
     run("configuration-refusal", configuration_refusal)
+    for label, witnesses in HOOK_CASES.items():
+        def check_hook(label=label, witnesses=witnesses):
+            result = command([args.jdk_root / "bin/java.exe", "-Djava.awt.headless=true", "-Dshimeji.parity.enabled=true",
+                              "-XX:-OmitStackTraceInFastThrow", "-cp", classes,
+                              "com.group_finity.mascot.parity.Trace2ProtocolProbe", "hooks", label], root)
+            if result.returncode != 0:
+                for witness in witnesses:
+                    if witness in result.stderr:
+                        raise AssertionError(witness)
+                raise AssertionError("JAVA_HOOK_PROBE_FAILED " + result.stderr)
+            require("TRACE2_HOOK_PROBE_EXECUTED: " + label in result.stdout, "JAVA_HOOK_EXECUTION")
+        run("hook-" + label, check_hook)
+
+    def hook_wire():
+        for index, raw in enumerate((None, "", " ")):
+            props = ["-Dprobe.hookError=true", "-Dprobe.via=transform"]
+            if raw is not None:
+                props.append("-Dprobe.name=" + raw)
+            result, lines = run_trace(root, classes, args, "hook-wire-" + str(index), properties=props)
+            errors = [r for r in lines if r.get("kind") == "error"]
+            expected = {"code": "behavior-missing", "lookup": {"imageSet": "SearchedMember", "behavior": raw}, "via": ["transform"]}
+            require(result.returncode == 0 and lines[-1]["status"] == "complete" and len(errors) == 2
+                    and all(r.get("error") == expected and r["message"] == "original hooked diagnostic" for r in errors), "JAVA_T2_HOOK_WIRE")
+    run("hook-wire", hook_wire)
+
+    def channel_refusal():
+        for off in (False, True):
+            for foreign in (False, True):
+                props = ["-Dprobe.channelDefect=true", "-Dprobe.secondDefect=true"]
+                if foreign:
+                    props.append("-Dprobe.channelThrow=true")
+                result, lines = run_trace(root, classes, args, "channel-refusal-" + str(off) + str(foreign), properties=props, off=off)
+                require(result.returncode == 1 and lines[-1]["status"] == "aborted"
+                        and "V1_REFUSAL V2_FAULT_CHANNEL_DEFECT" in result.stderr
+                        and "FAULT_BIND_EMPTY_STACK_TRACE" in result.stderr and "FAULT_BIND_FAILED" in result.stderr
+                        and "V1_FAULT_CONFIGURATION_UNBOUND" in result.stderr, "JAVA_T2_FAULT_DEFECT_REFUSED")
+        result, lines = run_trace(root, classes, args, "channel-legacy", schema=1,
+                                  properties=("-Dprobe.channelDefect=true", "-Dprobe.secondDefect=true"))
+        require(result.returncode == 0 and lines[-1]["status"] == "complete" and "FAULT_" not in result.stderr, "JAVA_T1_FAULT_RUNNER_FREEZE")
+    run("channel-refusal", channel_refusal)
     return done
+
+
+HOOK_CASES = {
+    "identity": ("JAVA_T2_HOOK_IDENTITY", "JAVA_T2_HOOK_CONSUMED"),
+    "chain": ("JAVA_T2_HOOK_CHAIN",), "carry": ("JAVA_T2_HOOK_CARRY", "JAVA_T2_HOOK_CARRY_IDENTITY"),
+    "carry-empty": ("JAVA_T2_HOOK_CARRY_EMPTY",),
+    "empty": ("JAVA_T2_HOOK_EMPTY_NO_RESOLVE", "JAVA_T2_HOOK_EMPTY_DEFECT"),
+    "legacy": ("JAVA_T1_FAULT_CHANNEL_FREEZE", "JAVA_T2_HOOK_EMPTY_NO_RESOLVE"),
+    "rebind": ("JAVA_T2_HOOK_REBIND",), "label": ("JAVA_T2_HOOK_LABEL_CONSUMED",),
+    "resolver-failure": ("JAVA_T2_HOOK_RESOLVER_FAILURE",), "guards": ("JAVA_T2_HOOK_OPERAND_GUARDS",),
+    "resolver": ("JAVA_T2_RESOLVER_SEARCHED_RAW", "JAVA_T2_RESOLVER_ACTION_ORIGIN", "JAVA_T2_RESOLVER_AMBIGUOUS", "JAVA_T1_FAULT_PROVENANCE_FREEZE"),
+}
 
 
 MUTATIONS = (
@@ -313,8 +384,29 @@ MUTATIONS = (
      "v1", "JAVA_T1_EVENT_FREEZE"),
     ("V1ScenarioRunner.java", 'record.put("message", detail == null ? null : detail.toString());',
      'record.put("message", "changed diagnostic");', "v1", "JAVA_T1_EVENT_FREEZE"),
-    ("V1ScenarioRunner.java", 'status = "aborted";', 'status = "error";',
+    ("V1ScenarioRunner.java", 'status = "aborted";\n                    System.err.println("V1_REFUSAL "', 'status = "error";\n                    System.err.println("V1_REFUSAL "',
      "configuration-refusal", "JAVA_T2_CONFIGURATION_ABORTED"),
+    ("draft/DraftParityHooks.java", "BoundCause cause = boundCauses.remove(link);", "BoundCause cause = boundCauses.get(link);", "hook-identity", "JAVA_T2_HOOK_CONSUMED"),
+    ("draft/DraftParityHooks.java", "if (cause != null) found = cause;", "if (cause != null && found == null) found = cause;", "hook-chain", "JAVA_T2_HOOK_CHAIN"),
+    ("draft/DraftParityHooks.java", "if (trace == null || trace.length == 0)", "if (false)", "hook-empty", "JAVA_T2_HOOK_EMPTY_NO_RESOLVE"),
+    ("draft/DraftParityHooks.java", "if (boundCauses.containsKey(thrown))", "if (false)", "hook-rebind", "JAVA_T2_HOOK_REBIND"),
+    ("draft/DraftParityHooks.java", 'cause != null && bindable(thrown, "carry " + cause.code)', "cause != null", "hook-carry-empty", "JAVA_T2_HOOK_CARRY_EMPTY"),
+    ("draft/DraftParityHooks.java", 'BoundCause cause = consumeBinding(caught);\n            List<String> via',
+     'BoundCause cause = wrapper != null && !WRAPPERS.contains(wrapper) ? null : consumeBinding(caught);\n            List<String> via', "hook-label", "JAVA_T2_HOOK_LABEL_CONSUMED"),
+    ("draft/DraftParityHooks.java", 'if (thrown == null || !faultChannelEnabled()) return thrown;\n            if (!bindable',
+     'if (thrown == null || !enabled()) return thrown;\n            if (!bindable', "hook-legacy", "JAVA_T1_FAULT_CHANNEL_FREEZE"),
+    ("draft/DraftParityHooks.java", 'Fault value = armedFault;\n        armedFault = null;', 'Fault value = armedFault;', "hook-identity", "JAVA_T2_HOOK_CONSUMED"),
+    ("draft/DraftParityHooks.java", 'return bindCause(thrown, "behavior-missing", configuration, requested);',
+     'return bindCause(thrown, "action-missing", configuration, requested);', "hook-wire", "JAVA_T2_HOOK_WIRE"),
+    ("V1ScenarioRunner.java", 'searched = entry.getKey();', 'searched = "ParentMember";', "hook-resolver", "JAVA_T2_RESOLVER_SEARCHED_RAW"),
+    ("V1ScenarioRunner.java", 'lookup.put("behavior-missing".equals(code) ? "behavior" : "action", operand);',
+     'lookup.put("behavior-missing".equals(code) ? "behavior" : "action", operand == null ? "" : ((String)operand).trim());', "hook-resolver", "JAVA_T2_RESOLVER_SEARCHED_RAW"),
+    ("V1ScenarioRunner.java", 'lookup.put("refKey", actionKey(owner));', 'lookup.put("refKey", "wrong");', "hook-resolver", "JAVA_T2_RESOLVER_ACTION_ORIGIN"),
+    ("V1ScenarioRunner.java", 'Object origin = actionOrigin.get((VariableMap)read(action, "variables"));',
+     'Object origin = actionDeclaration.get((VariableMap)read(action, "variables"));', "hook-resolver", "JAVA_T2_RESOLVER_ACTION_ORIGIN"),
+    ("V1ScenarioRunner.java", 'if (searched != null && !searched.equals(entry.getKey()))', 'if (false)', "hook-resolver", "JAVA_T2_RESOLVER_AMBIGUOUS"),
+    ("draft/DraftParityHooks.java", 'return new ArrayList<String>(faultDefects);', 'return new ArrayList<String>();', "channel-refusal", "JAVA_T2_FAULT_DEFECT_REFUSED"),
+    ("V1ScenarioRunner.java", 'if (runner != null && runner.trace2) {', 'if (false) {', "channel-refusal", "JAVA_T2_FAULT_DEFECT_REFUSED"),
 )
 
 

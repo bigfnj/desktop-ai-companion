@@ -325,6 +325,12 @@ CASES = (
     ("bd-codex-parity-3: occurrence before footer count", "T2 occurrence",
      'if trace2 and kind == "rng-draw" and (not isinstance(r["occurrence"], int) or isinstance(r["occurrence"], bool)):',
      'if trace2 and kind == "rng-draw" and (footer is None or footer["states"] == sum(row.get("type") == "state" for row in records)) and (not isinstance(r["occurrence"], int) or isinstance(r["occurrence"], bool)):'),
+    ("bd-codex-parity-3: occurrence before tick range", "T2 occurrence",
+     'if trace2 and kind == "rng-draw" and (not isinstance(r["occurrence"], int) or isinstance(r["occurrence"], bool)):',
+     'if trace2 and kind == "rng-draw" and r["tick"] >= 0 and (not isinstance(r["occurrence"], int) or isinstance(r["occurrence"], bool)):'),
+    ("bd-codex-parity-3: occurrence before tick order", "T2 occurrence",
+     'if trace2 and kind == "rng-draw" and (not isinstance(r["occurrence"], int) or isinstance(r["occurrence"], bool)):',
+     'if trace2 and kind == "rng-draw" and (r["tick"] < 0 or r["tick"] >= last_tick) and (not isinstance(r["occurrence"], int) or isinstance(r["occurrence"], bool)):'),
 )
 
 
@@ -585,6 +591,10 @@ MUTATION_EXPECTATIONS = (
     ("trace1 footerless non-suffix final snapshot 0: ('unjudgeable', 'malformed')", "unjudgeable", "malformed"),
     # bd-codex-parity-3: occurrence before footer count
     ("occurrence shape before footer count 0: ('unjudgeable', 'malformed')", "unjudgeable", "malformed"),
+    # bd-codex-parity-3: occurrence before tick range
+    ("occurrence shape before tick range 0: ('unjudgeable', 'malformed')", "unjudgeable", "malformed"),
+    # bd-codex-parity-3: occurrence before tick order
+    ("occurrence shape before tick order 0: ('unjudgeable', 'malformed')", "unjudgeable", "malformed"),
 )
 if len(CASES) != len(MUTATION_EXPECTATIONS):
     raise AssertionError("each mutation needs one explicit leg/verdict/class expectation")

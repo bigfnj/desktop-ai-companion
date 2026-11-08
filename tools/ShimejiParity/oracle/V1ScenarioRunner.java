@@ -77,7 +77,7 @@ import org.w3c.dom.Node;
  * Arguments: header.json scenario.json trace.jsonl [off]. "off" keeps every control (environment, RNG, input) and
  * writes only the final tick's state lines, the trace-on/trace-off proof of CONTRACT section 5.
  */
-public final class V1ScenarioRunner implements DraftParityHooks.Controller {
+public final class V1ScenarioRunner implements DraftParityHooks.Controller, DraftParityHooks.FaultResolver {
     private static final String SCHEMA = "shimeji-parity-scenario/1";
     /** Embedded classes whose CONTRACT section 3 events (sound, mute) are not observed yet. */
     private static final Set<String> UNOBSERVED = new LinkedHashSet<String>(java.util.Arrays.asList("Mute"));
@@ -382,6 +382,40 @@ public final class V1ScenarioRunner implements DraftParityHooks.Controller {
         Object origin = actionOrigin.get((VariableMap)read(action, "variables"));
         if (origin == null) throw new IllegalStateException("V1_ACTION_UNBOUND " + action.getClass().getSimpleName());
         return key(origin);
+    }
+
+    /** Only trace/2 activates stored fault provenance, including observation-off proof runs. */
+    public boolean faultChannelEnabled() { return trace2; }
+
+    /** Operands come from stored identity and builder origins; no source expression is evaluated here. */
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> faultLookup(String code, Object owner, Object operand) {
+        if (!trace2) return null;
+        Map<String, Object> lookup = new LinkedHashMap<String, Object>();
+        if ("behavior-missing".equals(code) || "action-missing".equals(code)) {
+            Map<String, Configuration> configurations = (Map<String, Configuration>)read(Main.getInstance(), "configurations");
+            String searched = null;
+            for (Map.Entry<String, Configuration> entry : configurations.entrySet()) {
+                if (entry.getValue() != owner) continue;
+                if (searched != null && !searched.equals(entry.getKey()))
+                    throw new IllegalStateException("V1_FAULT_CONFIGURATION_AMBIGUOUS");
+                searched = entry.getKey();
+            }
+            if (searched == null || searched.length() == 0)
+                throw new IllegalStateException("V1_FAULT_CONFIGURATION_UNBOUND");
+            if (operand != null && !(operand instanceof String))
+                throw new IllegalStateException("V1_FAULT_LOOKUP_OPERAND " + code);
+            lookup.put("imageSet", searched);
+            lookup.put("behavior-missing".equals(code) ? "behavior" : "action", operand);
+        } else if ("parameter-invalid".equals(code) || "scan-target-missing".equals(code)) {
+            lookup.put("refKey", actionKey(owner));
+            if ("parameter-invalid".equals(code)) {
+                if (!(operand instanceof String) || ((String)operand).length() == 0)
+                    throw new IllegalStateException("V1_FAULT_LOOKUP_OPERAND " + code);
+                lookup.put("parameter", operand);
+            }
+        } else return null;
+        return lookup;
     }
 
     private String behaviourKey(Object behaviour) {
@@ -1070,6 +1104,15 @@ public final class V1ScenarioRunner implements DraftParityHooks.Controller {
                     System.err.println("V1_REFUSAL " + cause.getMessage());
                     break;
                 }
+            }
+        }
+        // Source exceptions may escape before run() returns. Defect refusal still wins before any footer.
+        if (runner != null && runner.trace2) {
+            List<String> defects = DraftParityHooks.faultDefects();
+            if (!defects.isEmpty()) {
+                status = "aborted";
+                exit = 1;
+                System.err.println("V1_REFUSAL V2_FAULT_CHANNEL_DEFECT " + defects);
             }
         }
         try {
