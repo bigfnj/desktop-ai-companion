@@ -6706,7 +6706,6 @@ Assert-True ($ph2Factories.Count -eq 5 -and $ph2Unlisted.Count -eq 0 -and $ph2Go
     $(if ($ph2Unlisted.Count) { ' -- unlisted: ' + ($ph2Unlisted -join ' | ') } else { '' }) +
     $(if ($ph2Gone.Count) { ' -- listed but gone: ' + ($ph2Gone -join ' | ') } else { '' }))
 
-# LAST, and deliberately:this is the one assertion a BRANCH is expected to fail. Adding a source
 # ---- burndown/w9-tests-scripts-2 ----
 # NO C# SOURCE STARTS cmd.exe BY ITS BARE NAME (N-bd-w4-converter-1-03). With UseShellExecute=false a bare name reaches
 # CreateProcess, which searches the current directory ahead of System32, the order N-audit-1106-153 closed for ffmpeg.
@@ -6731,6 +6730,53 @@ Assert-True ($w9tsCsFiles.Count -gt 0 -and $w9tsFullStarts -gt 0 -and
 Assert-True ($w9tsBare.Count -eq 0) (
     "w9-tests-scripts-2: no C# source starts cmd.exe by its bare name" +
     $(if ($w9tsBare.Count) { ' -- bare in: ' + ($w9tsBare -join ', ') } else { '' }))
+
+# ---- burndown/w10-tests-scripts-2 ----
+# THE ISOLATED MSI LIFECYCLE REPORTS AN OBSERVED InstalledApplicationTouched (N-audit-1106-397). It was the constant
+# $false. tests\Test-InstallerMsiCallerSafety.ps1 (the offline checks run it) drives the actual snapshot, comparison and
+# report expression over fakes; what it cannot see is WHERE the run takes its two snapshots, because the run installs
+# software and no check executes it. Pinned here as the ORDER over the comment-stripped script: exactly one assignment
+# of the before snapshot, ahead of the lifecycle's try (so ahead of its first MSI); exactly one comparison, after that
+# try's cleanup finally and ahead of the report, whose after side is a FRESH read; and the report's field is the
+# comparison's value. A before snapshot re-taken after the run, or the before snapshot compared with itself, both read as
+# untouched whatever happened. WITNESS: the try, its first MSI, the cleanup's warning and the report are found in order.
+$w10tsLife = Remove-PsLineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'tests\Test-IsolatedMsiLifecycle.ps1') -Raw)
+$w10tsTry = $w10tsLife.IndexOf("`ntry {`n    foreach (`$family in `$manifest.Families) {`n")
+$w10tsFirstMsi = $w10tsLife.IndexOf("Invoke-OwnedMsi -Name 'install-v1' ")
+$w10tsCleanup = $w10tsLife.IndexOf("Write-Warning 'Owned lifecycle cleanup also failed; preserving the primary failure.'")
+$w10tsReport = $w10tsLife.IndexOf("`n`$report = [ordered]@{`n")
+Assert-True ($w10tsTry -gt 0 -and $w10tsFirstMsi -gt $w10tsTry -and $w10tsCleanup -gt $w10tsFirstMsi -and $w10tsReport -gt $w10tsCleanup) (
+    'w10-tests-scripts-2: WITNESS the lifecycle try, its first MSI, its cleanup warning and its report were found in order')
+$w10tsBefore = @([regex]::Matches($w10tsLife, '\$installedBefore\s*='))
+$w10tsCompare = @([regex]::Matches($w10tsLife, 'Compare-InstalledApplicationSnapshots\b'))
+$w10tsCompareCall = @([regex]::Matches($w10tsLife, '(?m)^\$installedApplication = Compare-InstalledApplicationSnapshots \$installedBefore \(Get-InstalledApplicationSnapshot\)$'))
+Assert-True ($w10tsBefore.Count -eq 1 -and $w10tsBefore[0].Index -lt $w10tsTry -and
+    $w10tsLife.Substring($w10tsBefore[0].Index) -cmatch '^\$installedBefore = Get-InstalledApplicationSnapshot\n' -and
+    $w10tsCompare.Count -eq 2 -and $w10tsCompareCall.Count -eq 1 -and
+    $w10tsCompareCall[0].Index -gt $w10tsCleanup -and $w10tsCompareCall[0].Index -lt $w10tsReport) (
+    'w10-tests-scripts-2: the lifecycle snapshots the installed application once before its first MSI and compares it with a fresh snapshot after its cleanup')
+$w10tsReportBody = $w10tsLife.Substring($w10tsReport, [Math]::Max(0, $w10tsLife.IndexOf("`n}`n", $w10tsReport + 1) - $w10tsReport))
+Assert-True ($w10tsReportBody.Length -gt 0 -and $w10tsReportBody -cmatch 'InstalledApplicationTouched = \$installedApplication\.Touched\n' -and
+    @([regex]::Matches($w10tsReportBody, 'InstalledApplicationTouched')).Count -eq 1 -and
+    $w10tsReportBody -cmatch 'InstalledApplicationObservation = \$installedApplication\.Observation\n') (
+    'w10-tests-scripts-2: the lifecycle report''s InstalledApplicationTouched is the observed value with its observation, never a literal')
+# THE DOC-COUNT BLOCK'S COMMENT APPEARS ONCE, BELOW EVERY LANE BLOCK (N-bd-w10-tests-scripts-2-01). A lane branched before a
+# fix to that comment's first line inserts its block between the old first line and the rest, and the merge keeps both:
+# 53c81415 (N-bd-w7-host-1-03) deleted one such stray copy, and the w9-tests-scripts-2 merge (274f4177) left another
+# above its own anchor, reading as the start of the last block with lane blocks still below it. Comments guard nothing,
+# so this file reads its own lines: exactly one starts with the comment's words, and no lane anchor follows it, which is
+# also the lane rule that nothing goes below the doc-count block. WITNESS: the anchors and the comment were found.
+$w10tsOwnLines = $hardeningOwnSource -split "`n"
+$w10tsMarks = @(); $w10tsLastAnchor = -1
+for ($w10tsAt = 0; $w10tsAt -lt $w10tsOwnLines.Count; $w10tsAt++) {
+    if ($w10tsOwnLines[$w10tsAt] -cmatch '^# LAST, and deliberately') { $w10tsMarks += $w10tsAt }
+    if ($w10tsOwnLines[$w10tsAt] -cmatch '^# ---- \S') { $w10tsLastAnchor = $w10tsAt }
+}
+Assert-True ($w10tsMarks.Count -ge 1 -and $w10tsLastAnchor -gt 0) (
+    "w10-tests-scripts-2: WITNESS this file's lane anchors and its doc-count comment were found ($($w10tsMarks.Count) comment lines)")
+Assert-True ($w10tsMarks.Count -eq 1 -and $w10tsMarks[0] -gt $w10tsLastAnchor) (
+    "w10-tests-scripts-2: the doc-count block's comment appears once, below every lane block" +
+    $(if ($w10tsMarks.Count -ne 1 -or $w10tsMarks[0] -le $w10tsLastAnchor) { " -- comment at line(s) $(($w10tsMarks | ForEach-Object { $_ + 1 }) -join ', '), last anchor at line $($w10tsLastAnchor + 1)" } else { '' }))
 
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that

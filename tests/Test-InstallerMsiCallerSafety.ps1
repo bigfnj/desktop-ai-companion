@@ -310,6 +310,91 @@ try {
 }
 $cases.Add('rollback-registry-evidence')
 
+# INSTALLED APPLICATION OBSERVATION (N-audit-1106-397). lifecycle-result.json's InstalledApplicationTouched was the
+# constant $false. The actual snapshot and comparison run here over FAKE readers, so no registration, process or folder
+# of this box is read, and the actual report expression is evaluated once per outcome, so a constant cannot stand in.
+$observe = @{}
+foreach ($name in @('Get-InstalledApplicationSnapshot', 'Compare-InstalledApplicationSnapshots')) {
+    $found = @($ast.FindAll({ param($node)
+        $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
+    }, $true))
+    if ($found.Count -ne 1) { throw "Actual lifecycle function was not identified uniquely: $name" }
+    . ([scriptblock]::Create($found[0].Extent.Text))
+}
+function Get-ProductionRegistrations { if ($script:fakeFailure) { throw 'injected_registration_read' }; return $script:fakeRegistrations }
+function Get-CompanionProcessLifetimes { return $script:fakeLifetimes }
+function Get-FixturePathAttributes([string]$Path) {
+    $script:programsAsked.Add($Path)
+    if ($script:fakeProgramsPresent) { return [IO.FileAttributes]::Directory }
+    return $null
+}
+function Read-Snapshot([string[]]$Registrations, [string[]]$Lifetimes, [bool]$ProgramsPresent, [bool]$Failure = $false) {
+    $script:fakeRegistrations = $Registrations; $script:fakeLifetimes = $Lifetimes
+    $script:fakeProgramsPresent = $ProgramsPresent; $script:fakeFailure = $Failure
+    return Get-InstalledApplicationSnapshot
+}
+$programsAsked = New-Object 'Collections.Generic.List[string]'
+$installed = '{327AF68D-A714-5C9B-B2D9-9C3404E03D38} {11111111-2222-3333-4444-555555555555} 5'
+$advertised = '{327AF68D-A714-5C9B-B2D9-9C3404E03D38} {11111111-2222-3333-4444-555555555555} 1'
+$running = '4321@133000000000000000'
+$reused = '4321@133000000000000777'
+$startedDuring = '9876@133000000000000999'
+$untouched = Compare-InstalledApplicationSnapshots (Read-Snapshot @($installed) @($running) $true) (Read-Snapshot @($installed) @($running, $startedDuring) $true)
+Check ($untouched.Touched -is [bool] -and -not $untouched.Touched -and $untouched.Observation.Changes.Count -eq 0 -and
+    $untouched.Observation.ProductionRegistrations -eq 1 -and $untouched.Observation.CompanionProcesses -eq 1 -and
+    $untouched.Observation.LocalProgramsFolder -ceq 'unchanged') 'installed application: an unchanged registration and process read as untouched, a companion started during the run included'
+Check ($programsAsked.Count -gt 0 -and $programsAsked[0] -ceq (Join-Path $localData 'Programs')) 'WITNESS installed application: the snapshot asks about the local Programs folder itself'
+foreach ($change in @(
+    @{ Name = 'a registration whose state changed'; Before = @($installed); After = @($advertised); Lifetimes = @(); Code = 'production-registration-changed' },
+    @{ Name = 'a registration removed'; Before = @($installed); After = @(); Lifetimes = @($running); Code = 'production-registration-changed' },
+    @{ Name = 'a registration added during the run'; Before = @(); After = @($installed); Lifetimes = @($running); Code = 'production-registration-changed' },
+    @{ Name = 'a companion process that ended'; Before = @($installed); After = @($installed); Lifetimes = @($running); AfterLifetimes = @(); Code = 'companion-process-ended' },
+    @{ Name = 'a companion PID reused by a new process'; Before = @(); After = @(); Lifetimes = @($running); AfterLifetimes = @($reused); Code = 'companion-process-ended' })) {
+    # Assigned, not taken from an if expression: that would flatten an empty list to $null, which then reads as a list
+    # holding one $null process and would make "a companion process that ended" a different case.
+    $afterLifetimes = $change.Lifetimes
+    if ($change.ContainsKey('AfterLifetimes')) { $afterLifetimes = $change.AfterLifetimes }
+    $seen = Compare-InstalledApplicationSnapshots (Read-Snapshot $change.Before $change.Lifetimes $true) (Read-Snapshot $change.After $afterLifetimes $true)
+    Check ($seen.Touched -is [bool] -and $seen.Touched -and (@($seen.Observation.Changes) -join ',') -ceq $change.Code) ('installed application: ' + $change.Name + ' reads as touched')
+}
+$nothing = Compare-InstalledApplicationSnapshots (Read-Snapshot @() @() $true) (Read-Snapshot @() @($startedDuring) $true)
+Check ($null -eq $nothing.Touched -and $nothing.Observation.Changes.Count -eq 0) 'installed application: nothing installed or running before the run is not observed (null), never untouched'
+foreach ($failedSide in @('before', 'after')) {
+    $failedBefore = Read-Snapshot @($installed) @($running) $true ($failedSide -eq 'before')
+    $failedAfter = Read-Snapshot @($installed) @($running) $true ($failedSide -eq 'after')
+    $failedSeen = Compare-InstalledApplicationSnapshots $failedBefore $failedAfter
+    Check ($null -eq $failedSeen.Touched -and $failedSeen.Observation.Failed -ceq 'injected_registration_read' -and $null -eq $failedSeen.Observation.LocalProgramsFolder) (
+        "installed application: a snapshot that failed $failedSide the run is not observed (null) and says why, never untouched")
+}
+$removed = Compare-InstalledApplicationSnapshots (Read-Snapshot @($installed) @() $true) (Read-Snapshot @($installed) @() $false)
+$created = Compare-InstalledApplicationSnapshots (Read-Snapshot @($installed) @() $false) (Read-Snapshot @($installed) @() $true)
+Check ($removed.Observation.LocalProgramsFolder -ceq 'removed' -and $created.Observation.LocalProgramsFolder -ceq 'created' -and
+    $removed.Touched -is [bool] -and -not $removed.Touched) 'installed application: the local Programs folder removed or created is reported beside the application, not folded into it'
+# The ACTUAL report expression, with every other variable it reads faked: InstalledApplicationTouched must carry each of
+# the three outcomes, and the observation must travel with it.
+$reportAssignment = @($ast.FindAll({ param($node)
+    $node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -ceq '$report' -and
+    $node.Right.Extent.Text.Contains('InstalledApplicationTouched')
+}, $true))
+if ($reportAssignment.Count -ne 1) { throw 'The actual lifecycle report could not be identified uniquely.' }
+$reportExpression = [scriptblock]::Create($reportAssignment[0].Right.Extent.Text)
+$manifest = [pscustomobject]@{ Scope = 'fake-scope'; Families = @() }
+$manifestFile = 'C:\owned-fake\fixture.json'
+$ObserveMaintenanceLog = $false
+$primary = $null
+$operations = New-Object 'Collections.Generic.List[object]'
+$installerState = New-ScopedMsiCallerState
+function Get-RollbackRegistryEvidence { }
+foreach ($outcome in @($true, $false, $null)) {
+    $installedApplication = [pscustomobject]@{ Touched = $outcome; Observation = [ordered]@{ Marker = 'fake-observation' } }
+    $evaluated = & $reportExpression
+    Check ($evaluated.Contains('InstalledApplicationTouched') -and
+        $(if ($null -eq $outcome) { $null -eq $evaluated['InstalledApplicationTouched'] } else { $evaluated['InstalledApplicationTouched'] -is [bool] -and $evaluated['InstalledApplicationTouched'] -eq $outcome }) -and
+        $evaluated['InstalledApplicationObservation']['Marker'] -ceq 'fake-observation') (
+        'the lifecycle report records the observed InstalledApplicationTouched and its observation (' + $(if ($null -eq $outcome) { 'null' } else { $outcome }) + ')')
+}
+$cases.Add('installed-application-observation')
+
 $scratch = Join-Path $repo ('build\msi-caller-safety\' + [Guid]::NewGuid().ToString('N'))
 [void](Assert-ScopedShutdownPath -Path $scratch -TrustedRoot $repo)
 [void][IO.Directory]::CreateDirectory($scratch)

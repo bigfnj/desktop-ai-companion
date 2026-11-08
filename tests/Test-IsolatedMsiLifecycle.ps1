@@ -32,6 +32,9 @@ $repo = Split-Path $PSScriptRoot -Parent
 $buildRoot = [IO.Path]::GetFullPath((Join-Path $repo 'build'))
 $fixtureParent = Join-Path $buildRoot 'isolated-msi'
 $encoding = New-Object Text.UTF8Encoding($false)
+# The production UpgradeCodes (installer\build-installer.ps1: the current one, and the one retired at 1.0.0). A fixture
+# family may carry neither, and the installed-application snapshots below watch both.
+$productionUpgradeCodes = @('{327AF68D-A714-5C9B-B2D9-9C3404E03D38}', '{DBF8DDB3-C4AB-498C-9E55-4193A734C573}')
 . (Join-Path $repo 'packaging\StagingPathSafety.ps1')
 . (Join-Path $repo 'packaging\WixToolchainPolicy.ps1')
 . (Join-Path $PSScriptRoot 'InstallerShutdown.Tests\MsiCallerSafety.ps1')
@@ -354,7 +357,7 @@ Assert-Check ((Hash-File $productionWxs) -eq $manifest.ProductionWxsSha256 -and
     (Hash-File $stagedFixture) -eq $manifest.SyntheticCompanionSha256) 'prebuilt fixture still matches current production inputs'
 foreach ($family in $manifest.Families) {
     if ($family.Name -notin @('main', 'legacy') -or $family.UpgradeCode -notmatch '^\{[A-F0-9-]{36}\}$' -or
-        $family.UpgradeCode -in @('{327AF68D-A714-5C9B-B2D9-9C3404E03D38}', '{DBF8DDB3-C4AB-498C-9E55-4193A734C573}')) {
+        $family.UpgradeCode -in $productionUpgradeCodes) {
         throw 'Fixture family cannot target a production upgrade identity.'
     }
     $expectedName = 'Desktop AI Companion Scoped Shutdown Test ' + $tag + ' ' + $family.Name
@@ -688,6 +691,86 @@ function Assert-FixtureConfinement {
     }
     Assert-NoDefaultFixtureArtifacts $Family
 }
+# INSTALLED APPLICATION OBSERVATION (N-audit-1106-397). InstalledApplicationTouched was the constant $false: nothing
+# here looked at the installed application, so a run whose shutdown action closed it, or whose MSI changed its
+# registration, reported exactly what an untouched run did. It is now read from two snapshots, one before the first MSI
+# and one after the cleanup, of what can be seen without opening the application: each ProductCode registered under a
+# production UpgradeCode with its ProductState (the Windows Installer API, read only), and the PID and creation time of
+# each running companion process (no image path, module or command line). Untouched ($false) needs something to have
+# been observed and none of it changed; nothing observed, or a snapshot that failed, is $null, never $false. It is
+# evidence, not a gate: a companion the owner closed during the run reads as touched too, because the report says what
+# was seen, not why (tools\agentbroker\Test-HostMsiUpgrade.ps1 compares the same two things around its MSI).
+#
+# The snapshots also carry whether %LOCALAPPDATA%\Programs exists (metadata only, never a listing). The fixture
+# redirects INSTALLFOLDER, Desktop and Start Menu but not ProgramsFolder, and the production row
+# RemoveProgramsFolderWhenEmpty (installer\DesktopAICompanion.wxs) removes that real folder on an uninstall that finds it
+# EMPTY. That is not the installed application, so it is reported beside it as LocalProgramsFolder, never folded in.
+function Get-ProductionRegistrations {
+    $installer = $null; $related = $null
+    $found = New-Object 'Collections.Generic.List[string]'
+    try {
+        $installer = New-Object -ComObject WindowsInstaller.Installer
+        foreach ($upgradeCode in $productionUpgradeCodes) {
+            $related = $installer.RelatedProducts($upgradeCode)
+            foreach ($code in $related) { $found.Add($upgradeCode + ' ' + [string]$code + ' ' + [int]$installer.ProductState([string]$code)) }
+            Release-Com $related; $related = $null
+        }
+    } finally { foreach ($value in @($related, $installer)) { Release-Com $value } }
+    return $found.ToArray()
+}
+function Get-CompanionProcessLifetimes {
+    $found = New-Object 'Collections.Generic.List[string]'
+    $processes = @([Diagnostics.Process]::GetProcessesByName('DesktopAICompanion'))
+    try {
+        foreach ($process in $processes) {
+            # A process that exited after the listing is simply not running; any other unreadable one fails the snapshot.
+            try { $found.Add([string]$process.Id + '@' + $process.StartTime.ToFileTimeUtc()) }
+            catch { if (-not $process.HasExited) { throw 'companion_process_identity_unavailable' } }
+        }
+    } finally { foreach ($process in $processes) { $process.Dispose() } }
+    return $found.ToArray()
+}
+function Get-InstalledApplicationSnapshot {
+    # A failed read is recorded, never thrown: the before snapshot must not stop a run that has not started, and the
+    # after snapshot must not hide the run's primary failure (Get-RollbackRegistryEvidence's rule).
+    try {
+        $localData = [Environment]::GetFolderPath('LocalApplicationData')
+        if ([string]::IsNullOrEmpty($localData)) { throw 'local_application_data_unavailable' }
+        return [pscustomobject]@{
+            Registrations = @(Get-ProductionRegistrations); Processes = @(Get-CompanionProcessLifetimes)
+            ProgramsFolderPresent = ($null -ne (Get-FixturePathAttributes (Join-Path $localData 'Programs'))); Failed = $null }
+    } catch {
+        return [pscustomobject]@{ Registrations = @(); Processes = @(); ProgramsFolderPresent = $null; Failed = $_.Exception.Message }
+    }
+}
+function Compare-InstalledApplicationSnapshots {
+    param($Before, $After)
+    $failed = @(@($Before.Failed, $After.Failed) | Where-Object { $null -ne $_ })
+    $changes = New-Object 'Collections.Generic.List[string]'
+    $programs = $null
+    if ($failed.Count -eq 0) {
+        # Compared both ways, so a production product registered DURING the run is a change as well.
+        if ($Before.Registrations.Count -ne $After.Registrations.Count -or
+            @($Before.Registrations | Where-Object { $After.Registrations -cnotcontains $_ }).Count -gt 0) { $changes.Add('production-registration-changed') }
+        # Only the processes running BEFORE: one started during the run is not a touch, and a PID reused by a new
+        # process carries a new creation time, so it counts as ended.
+        if (@($Before.Processes | Where-Object { $After.Processes -cnotcontains $_ }).Count -gt 0) { $changes.Add('companion-process-ended') }
+        $programs = $(if ($Before.ProgramsFolderPresent -eq $After.ProgramsFolderPresent) { 'unchanged' }
+            elseif ($Before.ProgramsFolderPresent) { 'removed' } else { 'created' })
+    }
+    $observed = $Before.Registrations.Count + $Before.Processes.Count
+    $touched = $(if ($failed.Count -gt 0 -or ($changes.Count -eq 0 -and $observed -eq 0)) { $null } else { $changes.Count -gt 0 })
+    return [pscustomobject]@{
+        Touched = $touched
+        Observation = [ordered]@{
+            ProductionRegistrations = $Before.Registrations.Count; CompanionProcesses = $Before.Processes.Count
+            Changes = @($changes.ToArray()); LocalProgramsFolder = $programs
+            Failed = $(if ($failed.Count -gt 0) { $failed -join '; ' } else { $null })
+        }
+    }
+}
+# Before the first MSI and before any synthetic child starts, so no process of this run is in it.
+$installedBefore = Get-InstalledApplicationSnapshot
 try {
     foreach ($family in $manifest.Families) {
         foreach ($package in $family.Packages) { Assert-Check ((Product-State $package.ProductCode) -eq -1) 'unique fixture product has no prior registration' }
@@ -780,9 +863,16 @@ finally {
         else { Write-Warning 'Owned lifecycle cleanup also failed; preserving the primary failure.' }
     }
 }
+# After the cleanup, a fresh read compared with the one taken before the first MSI (see Get-InstalledApplicationSnapshot).
+$installedApplication = Compare-InstalledApplicationSnapshots $installedBefore (Get-InstalledApplicationSnapshot)
+Write-Host ('Installed application: ' + $(if ($null -eq $installedApplication.Touched) {
+        'NOT OBSERVED' + $(if ($null -ne $installedApplication.Observation.Failed) { ' (' + $installedApplication.Observation.Failed + ')' } else { ' (nothing installed or running to observe)' }) }
+    elseif ($installedApplication.Touched) { 'TOUCHED (' + ($installedApplication.Observation.Changes -join ', ') + ')' } else { 'untouched' }) +
+    '; local Programs folder: ' + $(if ($null -eq $installedApplication.Observation.LocalProgramsFolder) { 'not observed' } else { $installedApplication.Observation.LocalProgramsFolder }))
 $report = [ordered]@{
     Result = $(if ($null -eq $primary) { 'PASS' } else { 'FAIL' }); Scope = $manifest.Scope
-    Operations = @($operations.ToArray()); InstalledApplicationTouched = $false
+    Operations = @($operations.ToArray()); InstalledApplicationTouched = $installedApplication.Touched
+    InstalledApplicationObservation = $installedApplication.Observation
     LegacyFixtureIsHistoricalMsi = $false; FixtureDirectory = $fixtureRoot
     MaintenanceLogObservationEnabled = [bool]$ObserveMaintenanceLog
     InstallerTimedOut = ($script:installerState.Uncertain -and $script:installerState.Reason -eq 'timeout')
