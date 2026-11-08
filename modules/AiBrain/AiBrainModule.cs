@@ -207,7 +207,10 @@ namespace DesktopAICompanion.AiBrainModule
                                  //        answered with a redirect from its host and to check the URL, where it said
                                  //        the host was not reachable, and Refresh models names a redirect the same
                                  //        way (N-bd-w4-aibrain-1-01). Show me 5 examples and 5 about my screen name it
-                                 //        the same way, where they said to start the provider (N-bd-w5-aibrain-1-01).
+                                 //        the same way, where they said to start the provider (N-bd-w5-aibrain-1-01),
+                                 //        with the local fallback on and no local model running too
+                                 //        (N-bd-w7-aibrain-1-01). The Status card's last ask names such a redirect
+                                 //        (http-301), where it said the engine was not reachable (N-bd-w7-aibrain-1-02).
                                  // 1.7.0: one Claude Code sign-in, shared with Remembrance (host 1.8.0's
                                  //        IHostCredentials, BACKLOG N-cli-token-02, the owner's decision of
                                  //        2026-10-29). The host keeps the token once, behind a grant the user gives on

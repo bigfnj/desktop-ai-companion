@@ -1223,7 +1223,12 @@ namespace DesktopAICompanion.Ai
             {
                 if (!await CheckBackendAvailableAsync(ct).ConfigureAwait(false))
                 {
-                    LastFailure = "its engine is not reachable";
+                    // A probe the host ANSWERED, with a redirect, is that answer's category ("http-301"), the one the
+                    // cloud's chat gives the same redirect on the composite, where the probe's redirect does not stop the
+                    // ask (FallbackBackend.PrimarySkipped). With the fallback off this said the engine was not reachable,
+                    // which sent the user to the network for a base URL that redirects (N-bd-w7-aibrain-1-02).
+                    AiBackendHttpException answered = LastProbeFailure as AiBackendHttpException;
+                    LastFailure = answered != null ? DescribeError(answered) : "its engine is not reachable";
                     return null;
                 }
 
