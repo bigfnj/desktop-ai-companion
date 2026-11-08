@@ -20648,10 +20648,12 @@ CASES = (
     # --only=bd-remembrance-1: runs exactly these.
 
     # N-audit-1106-040: a failed re-run on a capture's own WAV overwrites the transcript beside it with the stub again.
+    # Re-pointed by bd-w6-remembrance-1 (N-audit-1106-289 split the guarded write): the early return that skips the write
+    # for a failed run over a kept transcript is dropped, so the stub goes over it.
     ("bd-remembrance-1: a failed re-transcription overwrites the transcript beside the WAV (N-audit-1106-040)",
      TRANSCRIBER,
-     b"            if (didTranscribe || !keep) WriteText(transcriptPath, text);\n",
-     b"            WriteText(transcriptPath, text);\n",
+     b"            if (!didTranscribe && keep) return text;\n",
+     b"",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "a failed re-transcription leaves the transcript already beside the WAV untouched"),
@@ -22833,6 +22835,25 @@ CASES = (
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "join & record: a request that comes while a recording runs starts nothing after the stop"),
+
+    # N-audit-1106-289: RunWhisper deletes whisper-cli's own text as it reads it again, before the transcript is written.
+    ("bd-w6-remembrance-1: whisper-cli's own text is deleted before the transcript is written (N-audit-1106-289)",
+     TRANSCRIBER,
+     b"                string result = File.ReadAllText(txt);\n",
+     b"                string result = File.ReadAllText(txt);\n"
+     b"                try { File.Delete(txt); } catch { }\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "whisper-cli's own text stays beside the audio when the transcript cannot be written"),
+
+    # N-audit-1106-289: a transcript write that fails is swallowed again, so the run still reads as transcribed.
+    ("bd-w6-remembrance-1: a failed transcript write is swallowed (N-audit-1106-289)",
+     TRANSCRIBER,
+     b"            catch (Exception ex) { return ex.GetType().Name; }\n",
+     b"            catch (Exception) { return null; }\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a transcript that cannot be written is a failed run, never reported as transcribed"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

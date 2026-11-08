@@ -131,7 +131,11 @@ namespace DesktopAICompanion.RemembranceModule
                                  //        dropped when it stops, with a log line, where it started another recording on
                                  //        the first idle tick after a stop within the minute (N-audit-1106-287). The
                                  //        code now says that request is trusted by convention, not checked: any loaded
-                                 //        module can publish it (N-audit-1106-288).
+                                 //        module can publish it (N-audit-1106-288). A transcript that cannot be written
+                                 //        is a failed run that says so, and whisper-cli's own "<name>.whisper.txt" stays
+                                 //        beside the audio until the transcript is on disk; the write's failure was
+                                 //        swallowed, the words deleted first, and "Transcript ready." said
+                                 //        (N-audit-1106-289).
                                  // 2.10.0: one Claude Code sign-in, shared with AI Brain (host 1.8.0's
                                  //        IHostCredentials, BACKLOG N-cli-token-02, the owner's decision of
                                  //        2026-10-29), behind the ClaudeCodeSignIn grant, so MinHostVersion rises to
@@ -5894,6 +5898,7 @@ namespace DesktopAICompanion.RemembranceModule
 
                 SelfCheckTranscriptKeeping(check, scratch, wav, startedAt);
                 SelfCheckJobRefused(check, wav);
+                SelfCheckUnsavedTranscript(check, scratch, wav, startedAt);
             }
             catch (Exception ex) { check("wav length: " + ex.Message, false); }
             finally
@@ -6066,6 +6071,68 @@ namespace DesktopAICompanion.RemembranceModule
                     try { if (!stand.HasExited) stand.Kill(true); } catch { }
                     stand.Dispose();
                 }
+            }
+        }
+
+        /// <summary>
+        /// A transcript that cannot be written is a failed run that says where the words are, and whisper-cli's own
+        /// "&lt;name&gt;.whisper.txt" stays until the transcript is on disk (N-audit-1106-289). The real RunWhisper runs,
+        /// with Windows PowerShell standing in for whisper-cli through Transcriber.StartChild and writing that file the way
+        /// -otxt does, so the order of the read, the write and the delete is the shipped one. The transcript's path is a
+        /// folder, which no file write can open. The job is stood in by a handle that holds nothing: this check is about
+        /// the files, and N-cxr-w1-02's is about the job.
+        /// </summary>
+        private static void SelfCheckUnsavedTranscript(Action<string, bool> check, string scratch, string wav, DateTimeOffset startedAt)
+        {
+            const string Heard = "Alice: SENTINEL-HEARD-6e0d the words whisper heard.";
+            Func<ProcessStartInfo, Process> savedStart = Transcriber.StartChild;
+            Func<Process, IDisposable> savedAttach = Transcriber.AttachJob;
+            string whisperText = Transcriber.WhisperOutputPath(wav);
+            try
+            {
+                string powershell = System.IO.Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe");
+                if (!System.IO.File.Exists(powershell))
+                {
+                    check("unsaved transcript: Windows PowerShell, the stand-in child, is not on this machine", false);
+                    return;
+                }
+                Transcriber.StartChild = delegate(ProcessStartInfo psi)
+                {
+                    int of = psi.ArgumentList.IndexOf("-of");
+                    string target = (of >= 0 && of + 1 < psi.ArgumentList.Count ? psi.ArgumentList[of + 1] : "") + ".txt";
+                    psi.ArgumentList.Clear();
+                    foreach (string arg in new[] { "-NoProfile", "-NonInteractive", "-Command",
+                        "Set-Content -LiteralPath '" + target.Replace("'", "''") + "' -Value '" + Heard + "' -Encoding UTF8" })
+                        psi.ArgumentList.Add(arg);
+                    return Process.Start(psi);
+                };
+                Transcriber.AttachJob = delegate { return new CancellationTokenSource(); };
+
+                string folder = System.IO.Path.Combine(scratch, "unwritable.transcript.txt");
+                System.IO.Directory.CreateDirectory(folder);
+                bool unsavedRan;
+                string unsavedText = Transcriber.Transcribe(wav, folder, powershell, wav, "Standup", null, startedAt, out unsavedRan);
+                string reason = Transcriber.PendingReason(unsavedText) ?? "(no reason)";
+                check("a transcript that cannot be written is a failed run, never reported as transcribed (N-audit-1106-289): " + reason,
+                    !unsavedRan && reason.StartsWith("whisper-cli transcribed it, but writing the transcript failed with ", StringComparison.Ordinal) &&
+                    reason.EndsWith(", so its words are kept beside the audio in two-seconds.whisper.txt.", StringComparison.Ordinal));
+                string kept = System.IO.File.Exists(whisperText) ? System.IO.File.ReadAllText(whisperText) : null;
+                check("whisper-cli's own text stays beside the audio when the transcript cannot be written (N-audit-1106-289)",
+                    kept != null && kept.Contains("SENTINEL-HEARD-6e0d"));
+
+                string written = System.IO.Path.Combine(scratch, "written.transcript.txt");
+                bool writtenRan;
+                Transcriber.Transcribe(wav, written, powershell, wav, "Standup", null, startedAt, out writtenRan);
+                string writtenText = System.IO.File.Exists(written) ? System.IO.File.ReadAllText(written) : "";
+                check("WITNESS a transcript that is written holds the stand-in's words, and whisper-cli's own file is then removed",
+                    writtenRan && writtenText.Contains("SENTINEL-HEARD-6e0d") && !System.IO.File.Exists(whisperText));
+            }
+            catch (Exception ex) { check("unsaved transcript: " + ex.Message, false); }
+            finally
+            {
+                Transcriber.StartChild = savedStart;
+                Transcriber.AttachJob = savedAttach;
+                try { System.IO.File.Delete(whisperText); } catch { }
             }
         }
 
