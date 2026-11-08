@@ -6183,6 +6183,45 @@ Assert-True ($w6sInterpretDeclarations.Count -eq 1 -and $w6sInterpretDeclaration
     "w6-shared-1: the CLI runner's one Interpret takes the command line, and nothing reads a call without it (declarations $($w6sInterpretDeclarations.Count))")
 
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
+# ---- burndown/w6-tests-core-1 ----
+# NO WARNING-LEVEL PIN BELOW THE SDK DEFAULT IN CoreTests (N-bd-w4-contracts-1-02): the src rule w4-contracts-1 pinned
+# above, carried to the harness that recompiles src's pure-logic files. Its project pinned WarningLevel 4, so the
+# compiler's warning waves 5 to 10 were off for the harness and for every production file it links, and
+# TreatWarningsAsErrors could never fire on those classes there. The floor is the SDK's own default for a .NETCoreApp
+# target, the target framework's major version, read from the project so a framework move carries it along. XML comments
+# are stripped first (the project explains the rule in one). A Directory.Build.props or .targets in the project's folder,
+# in tests\ or at the repo root is scanned too, since MSBuild would import one into this project. WITNESS: the project was
+# read, still sets TreatWarningsAsErrors and names a netN target framework of at least net5 (the first with warning
+# waves), so a scan that read nothing, or the wrong file, fails instead of passing.
+$w6tcDir = Join-Path $repoRoot 'tests\DesktopAICompanion.CoreTests'
+$w6tcFiles = @(Get-Item -LiteralPath (Join-Path $w6tcDir 'DesktopAICompanion.CoreTests.csproj')) +
+    @(foreach ($w6tcAt in @($w6tcDir, (Join-Path $repoRoot 'tests'), $repoRoot)) {
+        foreach ($w6tcName in @('Directory.Build.props', 'Directory.Build.targets')) {
+            $w6tcPath = Join-Path $w6tcAt $w6tcName
+            if (Test-Path -LiteralPath $w6tcPath -PathType Leaf) { Get-Item -LiteralPath $w6tcPath }
+        }
+    })
+$w6tcProject = [regex]::Replace((Get-Content -LiteralPath $w6tcFiles[0].FullName -Raw), '(?s)<!--.*?-->', '')
+$w6tcFramework = [regex]::Match($w6tcProject, '<TargetFramework>\s*net(\d{1,3})\.\d+(-[A-Za-z0-9.]+)?\s*</TargetFramework>')
+$w6tcFloor = 0
+if ($w6tcFramework.Success) { $w6tcFloor = [int] $w6tcFramework.Groups[1].Value }
+$w6tcLowPins = @()
+foreach ($w6tcFile in $w6tcFiles) {
+    $w6tcXml = [regex]::Replace((Get-Content -LiteralPath $w6tcFile.FullName -Raw), '(?s)<!--.*?-->', '')
+    foreach ($w6tcPin in [regex]::Matches($w6tcXml, '<WarningLevel\b[^>]*>\s*([^<]*?)\s*</WarningLevel>')) {
+        $w6tcValue = $w6tcPin.Groups[1].Value
+        if ($w6tcValue -cnotmatch '^\d{1,5}$' -or [int] $w6tcValue -lt $w6tcFloor) {
+            $w6tcLowPins += ($w6tcFile.Directory.Name + '\' + $w6tcFile.Name + '=' + $w6tcValue)
+        }
+    }
+}
+Assert-True ($w6tcFloor -ge 5 -and $w6tcProject -cmatch '<TreatWarningsAsErrors>true</TreatWarningsAsErrors>') (
+    "w6-tests-core-1: the CoreTests warning-level scan read its project (WITNESS: TreatWarningsAsErrors is still set and the target framework is net$w6tcFloor; $($w6tcFiles.Count) files)")
+Assert-True ($w6tcLowPins.Count -eq 0) (
+    "w6-tests-core-1: CoreTests pins no WarningLevel below its target framework's default of $w6tcFloor" +
+    $(if ($w6tcLowPins.Count) { ' -- ' + ($w6tcLowPins -join ', ') } else { '' }))
+
+# LAST, and deliberately:this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever
 # stands here masks every assertion after it: mutate-hardening-guards.py scored a real case as

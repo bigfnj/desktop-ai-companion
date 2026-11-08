@@ -4621,6 +4621,30 @@ CASES = (
         # A prefix: PowerShell wraps the thrown label at the console width, which split the whole label across two lines.
         "w6-shared-1: the CLI runner's one Interpret takes the command line",
     ),
+    # ---- burndown/w6-tests-core-1 ----
+    # CoreTests pins a warning level below its framework's default again, in the shared group or in one
+    # configuration's, or stops treating warnings as errors (N-bd-w4-contracts-1-02). "bd-w6-tests-core-1:" for one --only.
+    (
+        "bd-w6-tests-core-1: the CoreTests project pins WarningLevel 4 again (N-bd-w4-contracts-1-02)",
+        os.path.join(REPO, "tests", "DesktopAICompanion.CoreTests", "DesktopAICompanion.CoreTests.csproj"),
+        b"    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>\n",
+        b"    <WarningLevel>4</WarningLevel>\n    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>\n",
+        "w6-tests-core-1: CoreTests pins no WarningLevel below its target framework's default",
+    ),
+    (
+        "bd-w6-tests-core-1: the CoreTests Release group pins WarningLevel 9, one below net10's (N-bd-w4-contracts-1-02)",
+        os.path.join(REPO, "tests", "DesktopAICompanion.CoreTests", "DesktopAICompanion.CoreTests.csproj"),
+        b"    <Optimize>true</Optimize>\n",
+        b"    <Optimize>true</Optimize>\n    <WarningLevel>9</WarningLevel>\n",
+        "w6-tests-core-1: CoreTests pins no WarningLevel below its target framework's default",
+    ),
+    (
+        "bd-w6-tests-core-1: the CoreTests project stops treating warnings as errors (N-bd-w4-contracts-1-02)",
+        os.path.join(REPO, "tests", "DesktopAICompanion.CoreTests", "DesktopAICompanion.CoreTests.csproj"),
+        b"    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>\n",
+        b"    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>\n",
+        "w6-tests-core-1: the CoreTests warning-level scan read its project",
+    ),
 )
 
 
