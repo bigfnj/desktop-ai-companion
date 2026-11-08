@@ -6042,6 +6042,47 @@ Assert-True ($w5Offline.Length -gt 0 -and $w5ExecPath -ge 0 -and $w5BashJoin -gt
 Assert-True ($w5Offline -cnotmatch $w5BareBash -and '        & bash $corpusScript --check' -cmatch $w5BareBash) (
     "w5-contracts-1: the offline script checks never call or look up a bare bash (WITNESS: a bare call matches)")
 
+# ---- burndown/w5-options-ui-1 ----
+# EVERY DRIVER THAT LAUNCHES THE REAL APP SEEDS ITS FRESH DATA ROOT WITH THE UPDATE CHECKS OFF, BEFORE THE LAUNCH
+# (N-shimeji-1106-17). A fresh root reads as a fresh install, whose module, app and companion update checks are on and
+# armed by every launch, so each soak, smoke and probe run reached the network on its own. ORDER and ARGUMENT are asserted
+# per driver: the seed call names the root the launch runs against and stands before the launch. The launch is located in
+# each driver first, so a renamed launch fails here rather than passing with the seed placed anywhere. The helper is held
+# to copying tests\quiet-settings.json (whose shape CoreTests' "Settings quiet test seed" grades) to settings.json in the
+# root it is given, after refusing a root that already has one.
+$w5Here = "(Join-Path `$PSScriptRoot 'Set-QuietSettings.ps1')"
+$w5Drivers = @(
+    @{ File = 'tests\runtime-resource-soak.ps1'; Seed = "& $w5Here -DataRoot `$scratchRoot"; Launch = 'if (-not $startupProcess.Start()) {' },
+    @{ File = 'tests\tray-menu-smoke.ps1'; Seed = "& $w5Here -DataRoot `$dataRoot"; Launch = '$proc = Start-Process -FilePath $exe -PassThru' },
+    @{ File = 'tests\debug-menu-smoke.ps1'; Seed = "& $w5Here -DataRoot `$dataRoot"; Launch = '$proc = Start-Process -FilePath $exe -PassThru' },
+    @{ File = 'tests\tray-question-smoke.ps1'; Seed = "& $w5Here -DataRoot `$dataRoot"
+        Launch = "`$proc = Start-Process -FilePath (Join-Path `$app 'DesktopAICompanion.exe') -PassThru" },
+    @{ File = 'tests\fullscreen-standdown-probe\standdown-ab.ps1'
+        Seed = "& (Join-Path (Split-Path `$PSScriptRoot -Parent) 'Set-QuietSettings.ps1') -DataRoot `$root"
+        Launch = '(& $Probe standdown $arms[$arm] $root $phase 2>&1' }
+)
+$w5Unseeded = @()
+foreach ($w5Driver in $w5Drivers) {
+    $w5Text = Remove-PsLineComments (Get-Content -LiteralPath (Join-Path $repoRoot $w5Driver.File) -Raw)
+    # The whole line, so a seed of another root whose name merely starts the same ($root2, $dataRootOld) is no match.
+    $w5Seed = [regex]::Match($w5Text, '(?m)^\s*' + [regex]::Escape($w5Driver.Seed) + '\r?$')
+    $w5SeedAt = if ($w5Seed.Success) { $w5Seed.Index } else { -1 }
+    $w5LaunchAt = $w5Text.IndexOf($w5Driver.Launch, [StringComparison]::Ordinal)
+    if ($w5LaunchAt -lt 0 -or $w5SeedAt -lt 0 -or $w5SeedAt -gt $w5LaunchAt) {
+        $w5Unseeded += ($w5Driver.File + ' (seed at ' + $w5SeedAt + ', launch at ' + $w5LaunchAt + ')')
+    }
+}
+Assert-True ($w5Drivers.Count -eq 5 -and $w5Unseeded.Count -eq 0) (
+    'w5-options-ui-1: every driver that launches the real app seeds its data root with the update checks off before the launch' +
+    $(if ($w5Unseeded.Count) { ' -- ' + ($w5Unseeded -join ', ') } else { '' }))
+$w5Quiet = Remove-PsLineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'tests\Set-QuietSettings.ps1') -Raw)
+$w5RefuseAt = $w5Quiet.IndexOf('if (Test-Path -LiteralPath $target) {', [StringComparison]::Ordinal)
+$w5CopyAt = $w5Quiet.IndexOf('Copy-Item -LiteralPath $fixture -Destination $target', [StringComparison]::Ordinal)
+Assert-True ($w5Quiet -cmatch "(?m)^\`$fixture = Join-Path \`$PSScriptRoot 'quiet-settings\.json'\r?$" -and
+    $w5Quiet -cmatch "(?m)^\`$target = Join-Path \`$DataRoot 'settings\.json'\r?$" -and
+    $w5RefuseAt -ge 0 -and $w5CopyAt -gt $w5RefuseAt) (
+    "w5-options-ui-1: Set-QuietSettings.ps1 copies quiet-settings.json to settings.json in the root it is given, after refusing a root that has one (refuse at $w5RefuseAt, copy at $w5CopyAt)")
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever

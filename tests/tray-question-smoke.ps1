@@ -146,6 +146,8 @@ try {
     # The app without its modules: every file beside the exe, nothing under modules\.
     [void](New-Item -ItemType Directory -Path $app -Force)
     [void](New-Item -ItemType Directory -Path $dataRoot -Force)
+    # The update checks off, everything else a fresh install's (N-shimeji-1106-17; Set-QuietSettings.ps1 says why).
+    & (Join-Path $PSScriptRoot 'Set-QuietSettings.ps1') -DataRoot $dataRoot
     Get-ChildItem -LiteralPath $build -Force | Where-Object { $_.Name -ne 'modules' } |
         ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $app -Recurse -Force }
     [void](New-Item -ItemType Directory -Path (Join-Path $app 'modules') -Force)

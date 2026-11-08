@@ -4462,6 +4462,53 @@ CASES = (
         b"p.Show(type.Sprites.spriteWidth, type.Sprites.spriteHeight);",
         "w5-host-1: a spawned or born tick companion's window opens hidden",
     ),
+    # ---- burndown/w5-options-ui-1 ----
+    # An app-launching driver stops seeding its fresh data root, or seeds it after the launch, or the helper stops copying
+    # the seed (N-shimeji-1106-17). "bd-w5-options-ui-1:" for one --only.
+    (
+        "bd-w5-options-ui-1: the tray-menu smoke launches on an unseeded data root (N-shimeji-1106-17)",
+        os.path.join(REPO, "tests", "tray-menu-smoke.ps1"),
+        b"& (Join-Path $PSScriptRoot 'Set-QuietSettings.ps1') -DataRoot $dataRoot\n",
+        b"",
+        "w5-options-ui-1: every driver that launches the real app seeds",
+    ),
+    (
+        "bd-w5-options-ui-1: the tray-menu smoke seeds its data root after the launch (N-shimeji-1106-17)",
+        os.path.join(REPO, "tests", "tray-menu-smoke.ps1"),
+        b"& (Join-Path $PSScriptRoot 'Set-QuietSettings.ps1') -DataRoot $dataRoot\n"
+        b"$previousRoot = $env:DESKTOP_AI_COMPANION_DATA_ROOT\n"
+        b"$env:DESKTOP_AI_COMPANION_DATA_ROOT = $dataRoot\n"
+        b"Write-Host \"isolated data root: $dataRoot\"\n"
+        b"\n"
+        b"$proc = $null\n"
+        b"$code = 4\n"
+        b"try {\n"
+        b"    $proc = Start-Process -FilePath $exe -PassThru\n",
+        b"$previousRoot = $env:DESKTOP_AI_COMPANION_DATA_ROOT\n"
+        b"$env:DESKTOP_AI_COMPANION_DATA_ROOT = $dataRoot\n"
+        b"Write-Host \"isolated data root: $dataRoot\"\n"
+        b"\n"
+        b"$proc = $null\n"
+        b"$code = 4\n"
+        b"try {\n"
+        b"    $proc = Start-Process -FilePath $exe -PassThru\n"
+        b"& (Join-Path $PSScriptRoot 'Set-QuietSettings.ps1') -DataRoot $dataRoot\n",
+        "w5-options-ui-1: every driver that launches the real app seeds",
+    ),
+    (
+        "bd-w5-options-ui-1: the A/B driver seeds another root whose name only starts like the sample's (N-shimeji-1106-17)",
+        os.path.join(REPO, "tests", "fullscreen-standdown-probe", "standdown-ab.ps1"),
+        b"            & (Join-Path (Split-Path $PSScriptRoot -Parent) 'Set-QuietSettings.ps1') -DataRoot $root\n",
+        b"            & (Join-Path (Split-Path $PSScriptRoot -Parent) 'Set-QuietSettings.ps1') -DataRoot $root2\n",
+        "w5-options-ui-1: every driver that launches the real app seeds",
+    ),
+    (
+        "bd-w5-options-ui-1: the seed helper overwrites instead of refusing a root that has settings (N-shimeji-1106-17)",
+        os.path.join(REPO, "tests", "Set-QuietSettings.ps1"),
+        b"if (Test-Path -LiteralPath $target) {\n",
+        b"if ($false) {\n",
+        "w5-options-ui-1: Set-QuietSettings.ps1 copies quiet-settings.json",
+    ),
 )
 
 

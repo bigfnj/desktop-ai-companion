@@ -48,6 +48,8 @@ namespace DesktopAICompanion
                 Run("Settings random-drop validation", TestSettingsRandomDrop);
                 Run("Settings trigger-speech validation", TestSettingsTriggerSpeech);
                 Run("Settings module-update check toggle", TestSettingsMonthlyModuleUpdateCheck);
+                Run("Settings partial document", TestSettingsPartialDocument);
+                Run("Settings quiet test seed", TestSettingsQuietSeed);
                 Run("Settings lock-failure fallback", TestSettingsLockFailureFallback);
                 Run("Diagnostic log launch rotation", TestDiagnosticLogLaunchRotation);
                 Run("Startup registration migration and removal", TestStartupRegistrationMigration);
@@ -948,6 +950,98 @@ namespace DesktopAICompanion
             AssertTrue(store2.Save(bad), "Bad active-pet doc could not be saved.");
             AssertTrue(new AppSettingsStore(path, null).Load().ActivePetId == "eSheep",
                 "An unsafe active pet id did not fall back to 'eSheep'.");
+        }
+
+        /// <summary>
+        /// N-bd-w4-options-ui-1-02: a settings.json that leaves a key out loads that key as a fresh install has it. The
+        /// serializer builds the document through its parameterless constructor and sets only the keys the file carries,
+        /// so before the fix a non-nullable field read as its CLR default: a file without "volume" muted the app, one
+        /// without "speechEnabled" turned speech off. Every non-nullable value field is walked by reflection, so a field
+        /// added later without its initializer fails here by key name. The nullable and reference fields keep their own
+        /// absent-reads-as-null contract, which the module-update and random-drop groups pin.
+        /// </summary>
+        private static void TestSettingsPartialDocument()
+        {
+            string directory = NewDirectory("settings-partial");
+            string path = Path.Combine(directory, "settings.json");
+            // multiScreen carries a NON-default value: it is the witness that this file was the document read. An
+            // unreadable file falls back to CreateDefault, which would pass every comparison below without reading a key.
+            File.WriteAllText(path, "{ \"schemaVersion\": 2, \"multiScreen\": true }", new UTF8Encoding(false));
+            AppSettingsDocument loaded = new AppSettingsStore(path, null).Load();
+            AssertTrue(loaded.MultiScreen, "WITNESS: the partial settings file was not the document read.");
+
+            var compared = new List<string>();
+            List<string> wrong = ValueFieldsUnlikeFreshInstall(loaded, new[] { "schemaVersion", "multiScreen" }, compared);
+            AssertTrue(
+                compared.Contains("volume") && compared.Contains("speechEnabled") && compared.Contains("speechDurationSeconds"),
+                "The field walk did not reach volume, speechEnabled and speechDurationSeconds; it compared: " +
+                string.Join(", ", compared));
+            AssertTrue(wrong.Count == 0,
+                "A key the file leaves out did not load as a fresh install's value: " + string.Join("; ", wrong));
+        }
+
+        /// <summary>
+        /// N-shimeji-1106-17: tests\quiet-settings.json, which every driver that launches the real app copies into its
+        /// fresh data root (tests\Set-QuietSettings.ps1), turns the three update checks off and changes nothing else. Its
+        /// key set is held to exactly those four keys, and the document it loads as to a fresh install's value fields, so
+        /// the seed can neither leave a check on nor quietly change what a soak or smoke is testing. The file is embedded
+        /// in this harness, so this grades the very bytes the drivers copy.
+        /// </summary>
+        private static void TestSettingsQuietSeed()
+        {
+            string seed;
+            using (Stream stream = typeof(Program).Assembly.GetManifestResourceStream("quiet-settings.json"))
+            {
+                AssertTrue(stream != null, "The quiet settings seed is not embedded in this harness.");
+                using (var reader = new StreamReader(stream, new UTF8Encoding(false)))
+                    seed = reader.ReadToEnd();
+            }
+            var keys = new List<string>();
+            foreach (KeyValuePair<string, JsonNode> entry in JsonNode.Parse(seed).AsObject())
+                keys.Add(entry.Key);
+            keys.Sort(StringComparer.Ordinal);
+            AssertEqual("appUpdateCheck, companionUpdateCheck, monthlyModuleUpdateCheck, schemaVersion", string.Join(", ", keys),
+                "The quiet settings seed carries other keys than the schema version and the three update checks.");
+
+            string directory = NewDirectory("settings-quiet-seed");
+            string path = Path.Combine(directory, "settings.json");
+            File.WriteAllText(path, seed, new UTF8Encoding(false));
+            AppSettingsDocument loaded = new AppSettingsStore(path, null).Load();
+            // Absent reads as ON (the ?? true getters), so a null here is a check left on, the same as a true.
+            var on = new List<string>();
+            if (loaded.MonthlyModuleUpdateCheck != false) on.Add("monthlyModuleUpdateCheck");
+            if (loaded.AppUpdateCheck != false) on.Add("appUpdateCheck");
+            if (loaded.PetUpdateCheck != false) on.Add("companionUpdateCheck");
+            AssertTrue(on.Count == 0, "The quiet settings seed leaves an update check on: " + string.Join(", ", on));
+            List<string> wrong = ValueFieldsUnlikeFreshInstall(loaded, new[] { "schemaVersion" }, null);
+            AssertTrue(wrong.Count == 0,
+                "The quiet settings seed loads a value a fresh install does not have: " + string.Join("; ", wrong));
+        }
+
+        /// <summary>Every public non-nullable value field of <paramref name="loaded"/> whose value differs from
+        /// CreateDefault's, as "key (actual rather than expected)", skipping <paramref name="skipKeys"/>; each key compared
+        /// is added to <paramref name="compared"/> when one is given. Keyed by the JSON name, which is what a file omits.</summary>
+        private static List<string> ValueFieldsUnlikeFreshInstall(
+            AppSettingsDocument loaded, ICollection<string> skipKeys, List<string> compared)
+        {
+            AppSettingsDocument fresh = AppSettingsDocument.CreateDefault();
+            var wrong = new List<string>();
+            foreach (System.Reflection.FieldInfo field in typeof(AppSettingsDocument).GetFields(
+                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance))
+            {
+                if (!field.FieldType.IsValueType || Nullable.GetUnderlyingType(field.FieldType) != null) continue;
+                var attribute = (System.Text.Json.Serialization.JsonPropertyNameAttribute)Attribute.GetCustomAttribute(
+                    field, typeof(System.Text.Json.Serialization.JsonPropertyNameAttribute));
+                string key = attribute == null ? field.Name : attribute.Name;
+                if (skipKeys.Contains(key)) continue;
+                if (compared != null) compared.Add(key);
+                object expected = field.GetValue(fresh);
+                object actual = field.GetValue(loaded);
+                if (!object.Equals(expected, actual))
+                    wrong.Add(key + " (" + Convert.ToString(actual, CultureInfo.InvariantCulture) + " rather than " +
+                        Convert.ToString(expected, CultureInfo.InvariantCulture) + ")");
+            }
+            return wrong;
         }
 
         /// <summary>

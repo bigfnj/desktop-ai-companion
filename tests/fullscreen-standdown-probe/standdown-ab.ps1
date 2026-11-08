@@ -77,6 +77,8 @@ try {
             $root = Join-Path $runRoot ("dataroot-" + $arm)
             if (Test-Path $root) { Remove-Item -Recurse -Force $root }
             New-Item -ItemType Directory -Path $root | Out-Null
+            # The update checks off, everything else a fresh install's (N-shimeji-1106-17; tests\Set-QuietSettings.ps1).
+            & (Join-Path (Split-Path $PSScriptRoot -Parent) 'Set-QuietSettings.ps1') -DataRoot $root
             # Continue for the native call only (see the top of the file); stderr lines become plain text.
             $text = $(try {
                     $ErrorActionPreference = 'Continue'

@@ -177,10 +177,12 @@ try {
 
     New-Item -ItemType Directory -Path $scratchRoot -Force | Out-Null
 
-    # No settings are seeded any more. This used to write an ai-settings.json with SmartFortunes /
-    # AiBrainEnabled / IdleCommentaryEnabled to steer the run, but every one of those keys moved into a
-    # module (S3d, S4b) and the base has not read them since. A fresh isolated data root is the correct
-    # starting state: no modules configured, nothing enabled, defaults everywhere.
+    # One settings.json is seeded: the three update checks off and nothing else (N-shimeji-1106-17), so the soak never
+    # reaches the network on its own; every key it leaves out loads as a fresh install has it, so this is still the
+    # defaults-everywhere starting state, with no modules configured and nothing enabled. (This once wrote an
+    # ai-settings.json with SmartFortunes / AiBrainEnabled / IdleCommentaryEnabled to steer the run, but every one of
+    # those keys moved into a module (S3d, S4b) and the base has not read them since.)
+    & (Join-Path $PSScriptRoot 'Set-QuietSettings.ps1') -DataRoot $scratchRoot
     $env:DESKTOP_AI_COMPANION_DATA_ROOT = $scratchRoot
     $startupInfo = New-Object Diagnostics.ProcessStartInfo
     $startupInfo.FileName = $resolvedExecutable

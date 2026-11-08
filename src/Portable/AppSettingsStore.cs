@@ -31,14 +31,30 @@ namespace DesktopAICompanion
         // from the feature not working.
         public const int MaximumNotificationSoundPathLength = 1024;
 
+        // A KEY THE FILE LEAVES OUT (N-bd-w4-options-ui-1-02). The serializer builds this document through its
+        // parameterless constructor and then sets only the keys the file carries, so a field's initializer here IS what
+        // an absent key reads as. A non-nullable field has no way to say "absent", and with no initializer it read as
+        // its CLR default: a hand-edited settings.json, or a test seed, without "volume" muted the app, one without
+        // "speechEnabled" turned speech off, and one without "speechDurationSeconds" was clamped to 2 s. So every
+        // non-nullable field whose fresh-install value is not the CLR default carries that value here as well as in
+        // CreateDefault, and CoreTests ("Settings partial document") holds the two equal field by field, by reflection,
+        // so a field added later without its initializer fails there rather than in a user's file.
+        //
+        // Deliberately NOT the rest of CreateDefault. A nullable field's null and a reference field's null are the
+        // recorded "absent" every reader already handles (the ?? true getters, Normalize's list and string repairs),
+        // and two of them are signals a default would erase: randomDrop* absent is what triggers LocalData's one-time
+        // import, and an update check absent must stay absent, not become an invented true. schemaVersion is the third:
+        // absent means a document from before versioning, which Normalize upgrades (the pre-v2 pet-mix seed), so it has
+        // no initializer either. Rejected: reading the file over a whole CreateDefault() document, which would erase
+        // all three of those signals at once.
         [JsonPropertyName("schemaVersion"), JsonPropertyOrder(1)]
         public int SchemaVersion;
 
         [JsonPropertyName("volume"), JsonPropertyOrder(2)]
-        public double Volume;
+        public double Volume = 0.3;
 
         [JsonPropertyName("scaleLevel"), JsonPropertyOrder(3)]
-        public int ScaleLevel;
+        public int ScaleLevel = 1;
 
         // Global fractional size as a PERCENT (25..400, 100 = 1x). 0 = follow the legacy ScaleLevel above.
         // Lets the size slider go BELOW 1x, which the integer level cannot express.
@@ -46,7 +62,7 @@ namespace DesktopAICompanion
         public int ScalePercent;
 
         [JsonPropertyName("autoStartCompanions"), JsonPropertyOrder(4)]
-        public int AutoStartPets;
+        public int AutoStartPets = 1;
 
         [JsonPropertyName("multiScreen"), JsonPropertyOrder(5)]
         public bool MultiScreen;
@@ -58,10 +74,10 @@ namespace DesktopAICompanion
         public bool StealTaskbarFocus;
 
         [JsonPropertyName("speechEnabled"), JsonPropertyOrder(8)]
-        public bool SpeechEnabled;
+        public bool SpeechEnabled = true;
 
         [JsonPropertyName("speechDurationSeconds"), JsonPropertyOrder(9)]
-        public int SpeechDurationSeconds;
+        public int SpeechDurationSeconds = 6;
 
         [JsonPropertyName("xml"), JsonPropertyOrder(10)]
         public string Xml;
@@ -259,12 +275,12 @@ namespace DesktopAICompanion
         // Kilobytes, not megabytes: the useful content is one launch's worth of startup lines, and a cap
         // small enough to attach to an issue is worth more than one that holds a week of history.
         [JsonPropertyName("diagnosticLogMaxKilobytes"), JsonPropertyOrder(43)]
-        public int DiagnosticLogMaxKilobytes;
+        public int DiagnosticLogMaxKilobytes = 512;
 
         // How many files to keep, current included. Two means "this run and the one before", which is the
         // minimum that survives the reflex of restarting an app whose tray icon vanished.
         [JsonPropertyName("diagnosticLogKeep"), JsonPropertyOrder(44)]
-        public int DiagnosticLogKeep;
+        public int DiagnosticLogKeep = 2;
 
         // "Modules;Tray", categories NOT to record. Muted rather than enabled so that absent means
         // everything, which is what a fresh install should mean.
