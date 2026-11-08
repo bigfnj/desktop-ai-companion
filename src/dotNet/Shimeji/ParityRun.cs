@@ -350,7 +350,8 @@ namespace DesktopAICompanion.Shimeji
                 _screenAreas.Add(new TickArea());
             }
             _workArea = Rect(scenario.GetProperty("workArea"));
-            // Environment.getScreenRect: the bounding rectangle of every screen.
+            // Environment.getScreenRect: the bounding rectangle of every screen. ParityRun.ScenarioInvalid refuses a scenario
+            // with none, for which these starting values would be the rectangle (N-bd-w11-shimeji-host-1-02).
             int l = int.MaxValue, t = int.MaxValue, r = int.MinValue, b = int.MinValue;
             foreach (int[] s in _screens)
             {
@@ -1060,12 +1061,25 @@ namespace DesktopAICompanion.Shimeji
                 log.WriteLine(Flag + " runs only under an overridden test data root (" + AppPaths.DataRootOverrideEnvironmentVariable + ").");
                 return 2;
             }
+            // N-bd-w11-shimeji-host-1-01: the converter is the first path argument read (its hash is the build witness's
+            // last field), and one that names nothing is refused by name with exit 2, as the run's own path arguments are.
+            // Unchecked, a converter that did not exist threw FileNotFoundException out of the command.
+            string converter = args[at + 4], converterSha256;
+            try
+            {
+                converterSha256 = ParityRun.ConverterSha256(converter);
+            }
+            catch (Exception e) when (ParityRun.IsArgumentFault(e))
+            {
+                log.WriteLine("refused " + converter + ": the converter cannot be read: " + e.Message);
+                return 2;
+            }
             var build = new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 { "commit", commit },
                 { "exeSha256", ParityRun.Sha256(File.ReadAllBytes(Environment.ProcessPath)) },
                 { "engineSha256", ParityRun.Sha256(File.ReadAllBytes(typeof(TickWorld).Assembly.Location)) },
-                { "converterSha256", ParityRun.ConverterSha256(args[at + 4]) },
+                { "converterSha256", converterSha256 },
             };
             return ParityRun.Run(args[at + 1], args[at + 2], args[at + 3], build, log);
         }
@@ -1128,6 +1142,16 @@ namespace DesktopAICompanion.Shimeji
                 || e is KeyNotFoundException || e is OverflowException;
         }
 
+        /// <summary>N-bd-w11-shimeji-host-1-01: what reading or opening one of the command's path arguments throws when the
+        /// path names nothing usable (no such file or folder, a folder where a file is wanted, no access, an empty or
+        /// malformed path). Each is the caller's argument error, refused by name with exit 2 and no trace, never an
+        /// unhandled exception out of the command. Caught around the one call that touches the argument, so nothing else
+        /// the run does is taken for an argument error.</summary>
+        internal static bool IsArgumentFault(Exception e)
+        {
+            return e is IOException || e is UnauthorizedAccessException || e is ArgumentException;
+        }
+
         /// <summary>
         /// Every converted pet in <paramref name="petsDir"/>: its document validated and compiled, its map parsed, checked
         /// and bound. Null, with the refusal logged, when any is refused. A folder with animations.xml and no
@@ -1137,7 +1161,17 @@ namespace DesktopAICompanion.Shimeji
         internal static List<KeyValuePair<TickType, ParityMap>> LoadPets(string petsDir, TextWriter log)
         {
             var loaded = new List<KeyValuePair<TickType, ParityMap>>();
-            foreach (string dir in Directory.GetDirectories(petsDir))
+            string[] petDirs;
+            try
+            {
+                petDirs = Directory.GetDirectories(petsDir);
+            }
+            catch (Exception e) when (IsArgumentFault(e))
+            {
+                log.WriteLine("refused " + petsDir + ": the pets folder cannot be listed: " + e.Message);
+                return null;
+            }
+            foreach (string dir in petDirs)
             {
                 string xmlPath = Path.Combine(dir, "animations.xml"), mapPath = Path.Combine(dir, "parity-map.json");
                 bool hasXml = File.Exists(xmlPath), hasMap = File.Exists(mapPath);
@@ -1182,7 +1216,20 @@ namespace DesktopAICompanion.Shimeji
         /// carrying the withheld totals and the event digest (<see cref="ParityTraceWriter"/>).</param>
         public static int Run(string scenarioPath, string petsDir, string tracePath, Dictionary<string, string> build, TextWriter log, bool traceOff = false)
         {
-            byte[] scenarioBytes = File.ReadAllBytes(scenarioPath);
+            // N-bd-w11-shimeji-host-1-01: a path argument that names nothing (this scenario file, the pets folder in
+            // LoadPets, the trace's folder below) is refused by name with exit 2, its line and no trace, as a refused map or
+            // pack is. It is the caller's argument error, not scenario-invalid: there is no scenario to judge. Unchecked,
+            // each threw FileNotFound or DirectoryNotFoundException out of the command, an unhandled exception's exit.
+            byte[] scenarioBytes;
+            try
+            {
+                scenarioBytes = File.ReadAllBytes(scenarioPath);
+            }
+            catch (Exception e) when (IsArgumentFault(e))
+            {
+                log.WriteLine("refused " + scenarioPath + ": the scenario cannot be read: " + e.Message);
+                return 2;
+            }
             // N-bd-w10-shimeji-host-1-01: a scenario that is not JSON, lacks a field or holds one the run cannot read is
             // scenario-invalid (CONTRACT sections 1 and 6), refused here with exit 2, its line and no trace, before the
             // pets and the pack are read. The oracle refuses the same scenario before it writes anything (oracle.py v1_run
@@ -1232,7 +1279,20 @@ namespace DesktopAICompanion.Shimeji
                     log.WriteLine("refused " + packDir + ": " + e.Message);
                     return 2;
                 }
-                using (var trace = new StreamWriter(tracePath, false, new UTF8Encoding(false)))
+                // The trace is opened last, so every refusal above leaves none. One that cannot be opened (its folder does
+                // not exist, the path is a folder, no access) is refused by name before anything is written; the folder is
+                // not made for it (the rejected alternative): a mistyped folder would hold a trace no later step reads.
+                StreamWriter opened;
+                try
+                {
+                    opened = new StreamWriter(tracePath, false, new UTF8Encoding(false));
+                }
+                catch (Exception e) when (IsArgumentFault(e))
+                {
+                    log.WriteLine("refused " + tracePath + ": the trace cannot be written: " + e.Message);
+                    return 2;
+                }
+                using (StreamWriter trace = opened)
                 {
                     trace.NewLine = "\n";
                     return Run(scenario, scenarioBytes, packSha256, pets, trace, build, log, traceOff);
@@ -1298,7 +1358,8 @@ namespace DesktopAICompanion.Shimeji
         /// field, ticks a non-negative integer, rng.kind one of the three, one or more unique sids, a behavior for every start
         /// companion (a directed start runs no selection draw), and timelines in order inside 0..N with no tick-0 button
         /// edge. Then the kinds this run reads by name, which the comparer leaves to the producers: the id and pack strings,
-        /// a tape's values and a splitmix64 seed, and each start companion's imageSet, anchor and lookRight.
+        /// one or more screens, a tape's values and a splitmix64 seed, and each start companion's imageSet, anchor and
+        /// lookRight.
         /// </summary>
         internal static string ScenarioInvalid(JsonElement s)
         {
@@ -1343,6 +1404,13 @@ namespace DesktopAICompanion.Shimeji
             }
             if (s.GetProperty("id").ValueKind != JsonValueKind.String) return "id is not a string";
             if (s.GetProperty("pack").ValueKind != JsonValueKind.String) return "pack is not a string";
+            // N-bd-w11-shimeji-host-1-02: the desktop is the bounding rectangle of the screens (ParityEnvironment), and an
+            // empty list bounds nothing. Unrefused, the run went on over a rectangle built from Int32's limits, its width
+            // wrapped to 1 in this unchecked build, and wrote a complete trace. The oracle's runner refuses the same
+            // scenario (V1ScenarioRunner, V1_SCENARIO_INVALID no screens). CONTRACT section 1 and the comparer's
+            // validate_scenario say nothing about an empty list; this follows the oracle.
+            JsonElement screens = s.GetProperty("screens");
+            if (screens.ValueKind != JsonValueKind.Array || screens.GetArrayLength() == 0) return "screens is not a list of one or more screens";
             if (kind == "tape" && (!rng.TryGetProperty("values", out e) || e.ValueKind != JsonValueKind.Array)) return "a tape rng lacks its values list";
             if (kind == "splitmix64" && (!rng.TryGetProperty("seed", out e) || e.ValueKind != JsonValueKind.String)) return "a splitmix64 rng lacks its seed string";
             foreach (JsonElement m in mascots.EnumerateArray())

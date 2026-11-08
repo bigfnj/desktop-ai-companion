@@ -24568,9 +24568,34 @@ CASES = (
      b'                    log.WriteLine("refused " + packDir + ": " + e.Message);\n'
      b'                    return 2;\n'
      b'                }\n'
-     b'                using (var trace = new StreamWriter(tracePath, false, new UTF8Encoding(false)))\n'
+     # Re-pointed by burndown/w12-shimeji-host-1 (N-bd-w11-shimeji-host-1-01), which put the trace's open in its own
+     # refusal: the mutant still opens the trace first and hashes the pack inside it with no refusal.
+     b'                // The trace is opened last, so every refusal above leaves none. One that cannot be opened (its folder does\n'
+     b'                // not exist, the path is a folder, no access) is refused by name before anything is written; the folder is\n'
+     b'                // not made for it (the rejected alternative): a mistyped folder would hold a trace no later step reads.\n'
+     b'                StreamWriter opened;\n'
+     b'                try\n'
+     b'                {\n'
+     b'                    opened = new StreamWriter(tracePath, false, new UTF8Encoding(false));\n'
+     b'                }\n'
+     b'                catch (Exception e) when (IsArgumentFault(e))\n'
+     b'                {\n'
+     b'                    log.WriteLine("refused " + tracePath + ": the trace cannot be written: " + e.Message);\n'
+     b'                    return 2;\n'
+     b'                }\n'
+     b'                using (StreamWriter trace = opened)\n'
      b'                {\n',
-     b'                using (var trace = new StreamWriter(tracePath, false, new UTF8Encoding(false)))\n'
+     b'                StreamWriter opened;\n'
+     b'                try\n'
+     b'                {\n'
+     b'                    opened = new StreamWriter(tracePath, false, new UTF8Encoding(false));\n'
+     b'                }\n'
+     b'                catch (Exception e) when (IsArgumentFault(e))\n'
+     b'                {\n'
+     b'                    log.WriteLine("refused " + tracePath + ": the trace cannot be written: " + e.Message);\n'
+     b'                    return 2;\n'
+     b'                }\n'
+     b'                using (StreamWriter trace = opened)\n'
      b'                {\n'
      b'                    string packSha256 = PackSha256(packDir);\n',
      HOST_CSPROJ, EXE,
@@ -24864,6 +24889,59 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--shimeji-window-selftest", "dp-shimeji-window-selftest.txt",
      "uninstall: WITNESS a birth queued for the next step is found, and removing another type leaves it pending"),
+    # ---- burndown/w12-shimeji-host-1 ----
+    # N-bd-w11-shimeji-host-1-01: each path argument of --shimeji-parity-run that names nothing is refused by name with
+    # exit 2 and no trace. Each case narrows one argument's catch filter to nothing, so that argument's exception escapes
+    # the command again and the --shimeji-window-selftest check that pins it fails. N-bd-w11-shimeji-host-1-02: a scenario
+    # with an empty screens list is scenario-invalid, as the oracle's runner has it; the case lets an empty list through.
+    # "bd-w12-shimeji-host-1:" for one --only.
+    ("bd-w12-shimeji-host-1: a scenario file that does not exist escapes the command again (N-bd-w11-shimeji-host-1-01)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            catch (Exception e) when (IsArgumentFault(e))\n'
+     b'            {\n'
+     b'                log.WriteLine("refused " + scenarioPath + ": the scenario cannot be read: " + e.Message);\n',
+     b'            catch (Exception e) when (e == null)\n'
+     b'            {\n'
+     b'                log.WriteLine("refused " + scenarioPath + ": the scenario cannot be read: " + e.Message);\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity run: a scenario file that does not exist is refused by name, with exit 2 and no trace file'),
+    ("bd-w12-shimeji-host-1: a pets folder that does not exist escapes the command again (N-bd-w11-shimeji-host-1-01)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            catch (Exception e) when (IsArgumentFault(e))\n'
+     b'            {\n'
+     b'                log.WriteLine("refused " + petsDir + ": the pets folder cannot be listed: " + e.Message);\n',
+     b'            catch (Exception e) when (e == null)\n'
+     b'            {\n'
+     b'                log.WriteLine("refused " + petsDir + ": the pets folder cannot be listed: " + e.Message);\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity run: a pets folder that does not exist is refused by name, with exit 2 and no trace file'),
+    ("bd-w12-shimeji-host-1: a trace in a folder that does not exist escapes the command again (N-bd-w11-shimeji-host-1-01)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'                catch (Exception e) when (IsArgumentFault(e))\n'
+     b'                {\n'
+     b'                    log.WriteLine("refused " + tracePath + ": the trace cannot be written: " + e.Message);\n',
+     b'                catch (Exception e) when (e == null)\n'
+     b'                {\n'
+     b'                    log.WriteLine("refused " + tracePath + ": the trace cannot be written: " + e.Message);\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity run: a trace path in a folder that does not exist is refused by name, with exit 2, the folder not made'),
+    ("bd-w12-shimeji-host-1: a converter that does not exist escapes the command again (N-bd-w11-shimeji-host-1-01)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            catch (Exception e) when (ParityRun.IsArgumentFault(e))\n',
+     b'            catch (Exception e) when (e == null)\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity run: a converter that does not exist is refused by name, with exit 2 and no trace file'),
+    ("bd-w12-shimeji-host-1: an empty screens list runs to a trace again (N-bd-w11-shimeji-host-1-02)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            if (screens.ValueKind != JsonValueKind.Array || screens.GetArrayLength() == 0) return "screens is not a list of one or more screens";\n',
+     b'            if (screens.ValueKind != JsonValueKind.Array) return "screens is not a list of one or more screens";\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity run: a scenario with no screens is refused as scenario-invalid, as the oracle refuses it'),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
