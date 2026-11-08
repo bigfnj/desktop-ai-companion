@@ -157,6 +157,8 @@ Get-Process -Name DesktopAICompanion -ErrorAction SilentlyContinue |
 
 $dataRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("dac-tray-smoke-" + [guid]::NewGuid().ToString('N'))
 [void](New-Item -ItemType Directory -Path $dataRoot -Force)
+# The update checks off, everything else a fresh install's (N-shimeji-1106-17; Set-QuietSettings.ps1 says why).
+& (Join-Path $PSScriptRoot 'Set-QuietSettings.ps1') -DataRoot $dataRoot
 $previousRoot = $env:DESKTOP_AI_COMPANION_DATA_ROOT
 $env:DESKTOP_AI_COMPANION_DATA_ROOT = $dataRoot
 Write-Host "isolated data root: $dataRoot"

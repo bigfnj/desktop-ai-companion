@@ -22569,6 +22569,31 @@ CASES = (
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "WITNESS the recorder checks put the stop's wait back to StopBound"),
+
+    # ---- burndown/w5-options-ui-1 ----
+    # Options UI and LocalData, burn-down wave 5. "bd-w5-options-ui-1:" for one --only.
+    # N-bd-w4-options-ui-1-02: a non-nullable settings field loses its initializer again, so a settings.json that
+    # leaves the key out loads the CLR default (volume 0 mutes the app; speechEnabled false turns speech off).
+    ('bd-w5-options-ui-1: a settings file without "volume" loads it muted (N-bd-w4-options-ui-1-02)',
+     APPSETTINGS_STORE,
+     b'        public double Volume = 0.3;\n',
+     b'        public double Volume;\n',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "Settings partial document: A key the file leaves out did not load as a fresh install's value: volume"),
+    ('bd-w5-options-ui-1: a settings file without "speechEnabled" loads speech off (N-bd-w4-options-ui-1-02)',
+     APPSETTINGS_STORE,
+     b'        public bool SpeechEnabled = true;\n',
+     b'        public bool SpeechEnabled;\n',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "Settings partial document: A key the file leaves out did not load as a fresh install's value: speechEnabled"),
+    # N-shimeji-1106-17: the settings seed the app-launching drivers copy leaves the app update check on again. The seed
+    # is embedded in CoreTests, so the edit rebuilds the harness.
+    ('bd-w5-options-ui-1: the quiet settings seed leaves the app update check on (N-shimeji-1106-17)',
+     os.path.join(REPO, "tests", "quiet-settings.json"),
+     b'  "appUpdateCheck": false,\n',
+     b'  "appUpdateCheck": true,\n',
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "Settings quiet test seed: The quiet settings seed leaves an update check on: appUpdateCheck"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

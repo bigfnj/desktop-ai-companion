@@ -67,6 +67,12 @@
     <EmbeddedResource Include="Fixtures\icon.png" />
   </ItemGroup>
 
+  <!-- The settings seed every app-launching test driver copies into its fresh data root (N-shimeji-1106-17), embedded
+       so "Settings quiet test seed" grades the very file the drivers copy, and so an edit to it rebuilds this harness. -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\quiet-settings.json" LogicalName="quiet-settings.json" />
+  </ItemGroup>
+
   <ItemGroup>
     <Compile Include="Program.cs" />
     <Compile Include="ModuleKitTests.cs" />
