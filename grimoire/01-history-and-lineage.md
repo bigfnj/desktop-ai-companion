@@ -132,10 +132,16 @@ worth recording here for lineage purposes:
 - The supported x64 executable and process are named **`DesktopAICompanion.exe`**. Portable and per-user MSI
   packages share the same runtime payload, with a portable marker selecting beside-the-executable
   data storage.
-- The engine descends from the 2015-era Adriano codebase and still targets .NET Framework 4.8, but
-  current validation, security, lifecycle, and geometry behavior is fork-specific.
-- The fork adds no new companion XML elements, but its mirrored XSD and semantic validator require and
-  bound fields more strictly than historical builds.
+- The engine descends from the 2015-era Adriano codebase, but it now targets .NET 10
+  (`net10.0-windows`; it was .NET Framework 4.8 until the .NET 10 migration), and current validation,
+  security, lifecycle, and geometry behavior is fork-specific.
+- The fork adds companion XML elements of its own: the tick-clock format of the Shimeji runtime extensions
+  (`<pose>`, `<variants>`, `<offers>`, `<guard>`, `<param>`, `<children>`, `<bind>`, `<hotspots>` and
+  more), each enabled by a feature token in `<header><features>` and specified in
+  [06](06-shimeji-runtime.md). No historical build and no upstream port knows them, and a host older than a
+  token refuses the companion rather than half-running it. The mirrored XSD and semantic validator also
+  require and bound the historical fields more strictly than historical builds. (This said the fork adds
+  no new elements and still targets .NET Framework 4.8 until N-audit-1106-192.)
 
 ---
 
