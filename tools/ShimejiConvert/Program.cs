@@ -583,14 +583,19 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             }
             if (File.Exists(outputPath)) File.Delete(outputPath);
             if (File.Exists(outputPath + ".residue.txt")) File.Delete(outputPath + ".residue.txt");
+            // The 1025th tile, the blank one an image-less pose plays. SpriteSheetBuilder reserves it before it fits
+            // the sheet (N-bd-codex-converter-1-01), so this is now the compositor's tile-limit refusal rather than
+            // the emitter's preflight; either way it must reach the caller's failure channel with its reason.
             File.WriteAllText(path, prefix + poses + "<Pose ImageAnchor='4,8' Velocity='0,0' Duration='1'/>" + suffix, new UTF8Encoding(false));
             using (var output = new StringWriter(CultureInfo.InvariantCulture))
             {
                 Console.SetOut(output); Console.SetError(output);
                 int exit = ConvertVerb(conf, img, "Synthetic", outputPath);
                 if (exit != 1 || File.Exists(outputPath) || File.Exists(outputPath + ".residue.txt")
-                    || !output.ToString().Contains("Convert failed: An image-less pose needs one blank sprite tile, but the sheet is already at the host's size or tile limit."))
-                    failures.Add("CLI_PREFLIGHT_REFUSAL: emitter preflight failure wrote an empty document or lost its reason");
+                    || !output.ToString().Contains("Convert failed: " + SpriteSheetBuilder.MaxTiles.ToString(CultureInfo.InvariantCulture)
+                        + " distinct frames plus the blank tile an image-less pose needs exceeds the "
+                        + SpriteSheetBuilder.MaxTiles.ToString(CultureInfo.InvariantCulture) + "-tile limit"))
+                    failures.Add("CLI_PREFLIGHT_REFUSAL: a conversion refused before it had a document wrote an empty document or lost its reason");
             }
         }
 

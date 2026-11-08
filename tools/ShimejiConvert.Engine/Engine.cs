@@ -348,7 +348,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
 
             ConversionResult result = PetEmitter.Emit(config, sheet, SpriteSheetBuilder.FileLoader(imgDir), skinName, loadSound);
             // A preflight refusal has no document to preview. Use the existing caller failure channel
-            // rather than letting the CLI write an empty file or Studio load an empty editor.
+            // rather than letting the CLI write an empty file or Studio load an empty editor. Emit's one preflight
+            // today is the image-less blank tile for a sheet without one reserved, and Build above reserves it for
+            // every sheet it returns (N-bd-codex-converter-1-01), so this is held for Emit's contract rather than for
+            // an input that reaches it now; the CLI's refusal fixture is refused by Build instead.
             if (result != null && result.Root == null && !string.IsNullOrEmpty(result.Error))
             {
                 error = result.Error;
