@@ -79,7 +79,9 @@ namespace DesktopAICompanion.ReminderModule
                                 //        meeting due in the same tick are one announcement, one chime and one
                                 //        reaction, both leads spent (N-audit-1106-297). An all-day event gets no lead
                                 //        reminder (it chimed at 23:55 the night before; N-audit-1106-295) and is not
-                                //        offered by the tray's Join (N-bd-w2-reminder-1-02).
+                                //        offered by the tray's Join (N-bd-w2-reminder-1-02). The self-test's questions
+                                //        double refuses a seventh ask in a minute, as the host does, and the module
+                                //        is held to it (N-audit-1106-296; no behaviour change).
                                 // 1.3.0: Calendar 5 becomes the Zoom slot (the owner, 2026-11-03): the meetings the user
                                 //        HOSTS in Zoom, read from Zoom's REST API after a browser sign-in to a Zoom
                                 //        app the user creates (OAuth with PKCE, a loopback redirect, no secret; the

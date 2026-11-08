@@ -38,6 +38,14 @@ namespace DesktopAICompanion.ReminderModule
 
             internal readonly List<Asked> Asks = new List<Asked>();
 
+            // When each question the double TOOK was asked, by Clock(): the host's per-module record behind its
+            // "rate-limited" refusal (TrayQuestions.MaxAsksPerMinute, six). A refused question is not in it, as in the host.
+            private readonly List<DateTimeOffset> _taken = new List<DateTimeOffset>();
+
+            /// <summary>Forget the asks of the last minute, as a new process's host does. QuestionRig.Start calls it: a
+            /// module started there stands for the app starting.</summary>
+            internal void NewProcess() { _taken.Clear(); }
+
             /// <summary>"Now" for the Deadline rule: the module's clock, so a stepped test clock and the rule agree.</summary>
             internal Func<DateTimeOffset> Clock = () => DateTimeOffset.Now;
 
@@ -51,6 +59,7 @@ namespace DesktopAICompanion.ReminderModule
                 Asks.Add(asked);
                 if (asked.Refused != null)
                     return Task.FromResult(new TrayAnswer { Outcome = TrayQuestionOutcome.Refused, Reason = asked.Refused });
+                _taken.Add(Clock());
                 asked.Answer = new TaskCompletionSource<TrayAnswer>();
                 withdraw.Register(delegate
                 {
@@ -61,7 +70,8 @@ namespace DesktopAICompanion.ReminderModule
                 return asked.Answer.Task;
             }
 
-            /// <summary>The rules PluginApi.cs gives TrayQuestion, plus the host's duplicate-key and four-pending limits.
+            /// <summary>The rules PluginApi.cs gives TrayQuestion, plus the host's duplicate-key, four-pending and
+            /// six-a-minute limits.
             /// Null when the question would be taken.</summary>
             private string Rule(string moduleId, TrayQuestion q)
             {
@@ -89,6 +99,12 @@ namespace DesktopAICompanion.ReminderModule
                 }
                 if (Asks.Any(a => a.Open && a.ModuleId == moduleId && a.Question.Key == q.Key)) return "duplicate-key";
                 if (Asks.Count(a => a.Open && a.ModuleId == moduleId) >= 4) return "too-many-pending";
+                // The host's other per-module limit: six asks a minute (N-audit-1106-296). Until 1.3.1 the double took a
+                // seventh, so the module's own per-minute guard (QuestionRoom) could be deleted with every "one the host
+                // would take" check still green. Checked last, as the host checks it after the pending limits.
+                DateTimeOffset now = Clock();
+                _taken.RemoveAll(t => now - t >= TimeSpan.FromMinutes(1));
+                if (_taken.Count >= 6) return "rate-limited";
                 return null;
             }
 
@@ -216,6 +232,7 @@ namespace DesktopAICompanion.ReminderModule
             /// <summary>Init a fresh module on the same host and settings: what the app does at its next start.</summary>
             internal void Start()
             {
+                Host.NewProcess();
                 Module = new ReminderModule();
                 Module.Init(Host);
                 Module.Microphone = new MeetingAppMicrophone(Mic);
@@ -444,6 +461,25 @@ namespace DesktopAICompanion.ReminderModule
             check("WITNESS the questions double refuses a Key outside the alphabet, Text over 240, labels equal but for case, a Deadline under 5 s, and a duplicate pending Key",
                 refusal(badKey) == "bad-key" && refusal(longText) == "bad-text" && refusal(sameLabels) == "bad-choice-label"
                 && refusal(nearDeadline) == "bad-deadline" && refusal(first) == null && refusal(second) == "duplicate-key");
+            DateTimeOffset pacedNow = t0;
+            var paced = new QuestionsHost { Clock = () => pacedNow };
+            Func<string, string> pacedAsk = delegate(string key)
+            {
+                // Answered at once when taken, so the four-pending limit never decides.
+                TrayQuestion q = valid(); q.Key = key;
+                Task<TrayAnswer> asked = paced.AskAsync(Id, q, CancellationToken.None);
+                if (asked.IsCompleted) return asked.Result.Outcome == TrayQuestionOutcome.Refused ? asked.Result.Reason : "answered";
+                paced.Choose(paced.Asks[paced.Asks.Count - 1], "a");
+                return null;
+            };
+            bool sixTaken = true;
+            for (int i = 1; i <= 6; i++) sixTaken &= pacedAsk("p" + i.ToString(CultureInfo.InvariantCulture)) == null;
+            string seventh = pacedAsk("p7");
+            pacedNow = t0.AddMinutes(1);
+            string minuteLater = pacedAsk("p8");
+            check("WITNESS the questions double refuses a seventh ask in a minute, each answered at once, and takes one a minute later ("
+                  + (seventh ?? "taken") + ", " + (minuteLater ?? "taken") + ")",
+                sixTaken && seventh == "rate-limited" && minuteLater == null);
 
             // The personal line's two new fields.
             var full = new PersonalReminder
@@ -919,6 +955,37 @@ namespace DesktopAICompanion.ReminderModule
                     rig.Host.Of("personal").Count == 9 && b2 != null && b2.Withdrawn && b2Again != null && b2Again != b2
                     && b2Again.Open && b2Stored != null && b2Stored.Enabled && b2Stored.LastFired == "once"
                     && !b2Stored.SnoozedUntil.HasValue && rig.Host.Refusals.Count == 0);
+            }
+
+            // The host's other limit, six asks a minute per module (N-audit-1106-296). Eight due at once, each card answered
+            // as soon as it is up, so the four-pending limit never decides: four at the start, two ten seconds later, then
+            // nothing until the first four are a minute old.
+            clock.Now = t0;
+            using (var rig = new QuestionRig(s => s.Set("personal", Lines(
+                OneOff("c1", "One", t0.AddMinutes(-1)), OneOff("c2", "Two", t0.AddMinutes(-1)), OneOff("c3", "Three", t0.AddMinutes(-1)),
+                OneOff("c4", "Four", t0.AddMinutes(-1)), OneOff("c5", "Five", t0.AddMinutes(-1)), OneOff("c6", "Six", t0.AddMinutes(-1)),
+                OneOff("c7", "Seven", t0.AddMinutes(-1)), OneOff("c8", "Eight", t0.AddMinutes(-1))))))
+            {
+                Action answerOpen = delegate
+                {
+                    foreach (QuestionsHost.Asked a in rig.Host.Of("personal")) if (a.Open) rig.Host.Choose(a, DoneChoice);
+                };
+                answerOpen();
+                clock.Now = t0.AddSeconds(10);
+                rig.Tick();
+                answerOpen();
+                clock.Now = t0.AddSeconds(20);
+                rig.Tick();
+                PersonalReminder seventhDue = rig.Personal("c7");
+                int inMinute = rig.Host.Of("personal").Count;
+                check("budget: eight due together, each answered at once, ask six in the first minute and leave the rest unmarked ("
+                      + inMinute.ToString(CultureInfo.InvariantCulture) + " asked; " + string.Join("; ", rig.Host.Refusals) + ")",
+                    inMinute == 6 && rig.Host.Refusals.Count == 0 && seventhDue != null && seventhDue.LastFired == "");
+                answerOpen();
+                clock.Now = t0.AddSeconds(61);
+                rig.Tick();
+                check("budget: ...and the last two are asked once the first four are a minute old",
+                    rig.Host.Of("personal").Count == 8 && rig.Host.Refusals.Count == 0);
             }
         }
 

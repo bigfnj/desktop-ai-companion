@@ -22851,6 +22851,22 @@ CASES = (
      REMINDER_CSPROJ, REMINDER_DLL,
      "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
      "join tray: an all-day event with a meeting link, in the feed all day, is not offered as the meeting to join"),
+    # N-audit-1106-296: the module's per-minute question guard deleted, which the double now refuses; and the double's
+    # own six-a-minute rule deleted, which its WITNESS sees.
+    ('bd-w6-reminder-1: the module asks past six questions a minute again (N-audit-1106-296)',
+     os.path.join(REPO, "modules", "Reminder", "ReminderModule.Questions.cs"),
+     b"            return Math.Max(0, Math.Min(MaxOpenQuestions - open, MaxAsksPerMinute - _askTimes.Count));\n",
+     b"            return Math.Max(0, MaxOpenQuestions - open);\n",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "budget: eight due together, each answered at once, ask six in the first minute"),
+    ('bd-w6-reminder-1: the questions double takes a seventh ask in a minute again (N-audit-1106-296)',
+     os.path.join(REPO, "modules", "Reminder", "ReminderModule.QuestionsSelfTest.cs"),
+     b"                if (_taken.Count >= 6) return \"rate-limited\";\n",
+     b"",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "WITNESS the questions double refuses a seventh ask in a minute"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
