@@ -72,6 +72,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "anonymous-nested-actions", Run = (Action)AnonymousNestedActions },
                 new { Name = "custom-variables", Run = (Action)CustomVariables },
                 new { Name = "nashorn-globals", Run = (Action)NashornGlobals },
+                new { Name = "nashorn-binding-paths", Run = (Action)NashornBindingPaths },
                 new { Name = "ignored-behaviour-children", Run = (Action)IgnoredBehaviourChildren },
                 new { Name = "ignored-list-entries", Run = (Action)IgnoredListEntries },
                 new { Name = "class-on-plain-action", Run = (Action)ClassOnPlainAction },
@@ -1425,16 +1426,43 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
 
         private static void NashornGlobals()
         {
+            // DraftBridgeProbe's pinned-JDK8 controls distinguish explicit scalar bindings from unbound objects.
+            // Exercise each owner whose attributes join an action's variable map; the value 5 is the probe's control.
+            foreach (string name in new[] { "engine", "context" })
+                foreach (string owner in new[] { "Action", "NestedAction", "ActionReference", "Behavior", "BehaviorReference" })
+                    NashornBoundScalar(name, owner);
+
             foreach (string global in new[] { "engine", "context", "arguments" })
                 using (var fixture = new Fixture())
                 {
                     XDocument actions = BuildActions();
                     actions.Root.Element("ActionList").Add(S("Action", A("Name", "Global"), A("Type", "Move"),
-                        A("TargetX", "${" + global + " * 10}"), A(global, "5"), S("Animation", Pose("/p.png", 1))));
+                        A("TargetX", "${" + global + " * 10}"), S("Animation", Pose("/p.png", 1))));
                     fixture.Actions(actions);
-                    Refusal(fixture, "TICK_EXPRESSION_UNSUPPORTED TargetX: unknown name '" + global + "'");
-                    Require(!Directory.Exists(fixture.Output), "nashorn-globals: a reserved global left partial output: " + global);
+                    // Inspect the emitter's preparation result before the independent host validator can refuse it.
+                    // A widened emitter scope must fail this assertion even if the host still rejects the output.
+                    bool refused = false;
+                    try { TickPackEmitter.PrepareMembers(fixture.Pack, false); }
+                    catch (InvalidDataException error)
+                    {
+                        Require(error.Message.Contains("TICK_EXPRESSION_UNSUPPORTED TargetX: unknown name '" + global + "'"),
+                            "nashorn-globals: an unbound object received the wrong refusal: " + global + ": " + error.Message);
+                        refused = true;
+                    }
+                    Require(refused, "nashorn-globals: an unbound object was accepted: " + global);
+                    Require(!Directory.Exists(fixture.Output), "nashorn-globals: an unbound object left partial output: " + global);
                 }
+
+            // The same explicit binding that shadows engine/context cannot shadow arguments on the measured runtime.
+            using (var fixture = new Fixture())
+            {
+                XDocument actions = BuildActions();
+                actions.Root.Element("ActionList").Add(S("Action", A("Name", "Global"), A("Type", "Move"),
+                    A("TargetX", "${arguments * 10}"), A("arguments", "5"), S("Animation", Pose("/p.png", 1))));
+                fixture.Actions(actions);
+                Refusal(fixture, "TICK_EXPRESSION_UNSUPPORTED TargetX: unknown name 'arguments'");
+                Require(!Directory.Exists(fixture.Output), "nashorn-globals: a bound arguments object left partial output");
+            }
             // WITNESS: the names are case-sensitive globals, not forbidden custom-variable prefixes.
             using (var fixture = new Fixture())
             {
@@ -1448,6 +1476,244 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     && Bound(local, "param", "argumentsValue") == "3",
                     "nashorn-globals: ordinary case-distinct and suffixed custom variables remain usable");
             }
+        }
+
+        private static void NashornBoundScalar(string name, string owner)
+        {
+            using (var fixture = new Fixture())
+            {
+                XDocument actions = BuildActions(), behaviours = BuildBehaviors();
+                XElement scalar = S("Action", A("Name", "Global"), A("Type", "Move"),
+                    A("TargetX", "${" + name + " * 10}"), S("Animation", Pose("/p.png", 1)));
+                XElement list = actions.Root.Element("ActionList");
+                if (owner == "Action" || owner == "NestedAction") scalar.SetAttributeValue(name, "5");
+                if (owner == "NestedAction") list.Add(S("Action", A("Name", "GlobalSequence"), A("Type", "Sequence"), scalar));
+                else list.Add(scalar);
+                if (owner == "ActionReference")
+                    list.Add(S("Action", A("Name", "GlobalSequence"), A("Type", "Sequence"),
+                        S("ActionReference", A("Name", "Global"), A(name, "5"))));
+                if (owner == "Behavior")
+                    behaviours.Root.Element("BehaviorList").Add(S("Behavior", A("Name", "GlobalBehavior"),
+                        A("Action", "Global"), A("Frequency", 0), A(name, "5")));
+                if (owner == "BehaviorReference")
+                    behaviours.Descendants("NextBehaviorList").First().Add(S("BehaviorReference", A("Name", "Idle"),
+                        A("Action", "Global"), A("Frequency", 1), A(name, "5")));
+                fixture.Actions(actions);
+                fixture.Behaviors(behaviours);
+                XDocument document;
+                try { document = fixture.Convert(); }
+                catch (InvalidDataException error)
+                {
+                    throw new InvalidOperationException("nashorn-globals: a bound " + name + " scalar was refused: " + owner + ": " + error.Message);
+                }
+                XElement act = NamedNode(document, "Global").Element(Ns + "act"), binding = act;
+                string tag = "param";
+                if (owner == "ActionReference")
+                {
+                    binding = NamedNode(document, "GlobalSequence").Element(Ns + "act").Element(Ns + "children").Element(Ns + "child");
+                    tag = "bind";
+                }
+                if (owner == "Behavior" || owner == "BehaviorReference")
+                {
+                    binding = Nodes(document).Select(n => n.Element(Ns + "behaviour"))
+                        .Single(b => b != null && (string)b.Attribute("runs") == "Global");
+                    tag = "bind";
+                }
+                Require(binding.Elements(Ns + tag).Count(p => (string)p.Attribute("name") == name
+                    && (string)p.Attribute("value") == "5" && (string)p.Attribute("cache") == "none") == 1
+                    && Scripted(act, "param", "TargetX", "action") == name + " * 10",
+                    "nashorn-globals: WITNESS a bound scalar and its reader survive: " + name + ": " + owner);
+                Validate(document, "bound " + name + " scalar on " + owner);
+            }
+        }
+
+        // engine/context have a source global-object fallback. One incoming scalar must not license an unbound
+        // invocation of the same action. Ordinary custom names keep their existing union scope.
+        private static void NashornBindingPaths()
+        {
+            foreach (string name in new[] { "engine", "context" })
+            {
+                foreach (string owner in new[] { "Behavior", "ActionReference", "BehaviorReference" })
+                {
+                    NashornInvocationPaths(name, owner, false, false, false);
+                    NashornInvocationPaths(name, owner, false, false, true);
+                    NashornInvocationPaths(name, owner, true, false, false);
+                    NashornInvocationPaths(name, owner, false, true, false);
+                }
+                foreach (string owner in new[] { "MagicBehavior", "ConditionalBehavior", "CrossKind" })
+                    NashornInvocationPaths(name, owner, false, false, false);
+                NashornBindingRhs(name, false);
+                NashornBindingRhs(name, true);
+                foreach (bool named in new[] { true, false })
+                    using (var fixture = new Fixture())
+                    {
+                        XDocument actions = BuildActions();
+                        XElement inline = S("Action", A("Type", "Move"), A("TargetX", "${" + name + " ? 100 : 200}"),
+                            S("Animation", Pose("/p.png", 1)));
+                        if (named) inline.SetAttributeValue("Name", "InlineGlobal");
+                        actions.Root.Element("ActionList").Add(S("Action", A("Name", "GlobalSequence"), A("Type", "Sequence"), inline));
+                        fixture.Actions(actions);
+                        XDocument behaviours = BuildBehaviors();
+                        behaviours.Root.Element("BehaviorList").Add(S("Behavior", A("Name", "GlobalEntry"),
+                            A("Action", "GlobalSequence"), A("Frequency", 0), A(name, "5")));
+                        fixture.Behaviors(behaviours);
+                        NashornPathRefusal(fixture, name, named ? "named-inline-parent-binding" : "anonymous-inline-parent-binding");
+                    }
+                foreach (string value in new[] { "${" + name + " ? 5 : 7}", "${2+3}", "true", "NaN", "Infinity", "1e999" })
+                    using (var fixture = new Fixture())
+                    {
+                        XDocument actions = BuildActions();
+                        actions.Root.Element("ActionList").Add(S("Action", A("Name", "Global"), A("Type", "Move"),
+                            A(name, value), A("TargetX", "${" + name + " ? 100 : 200}"), S("Animation", Pose("/p.png", 1))));
+                        fixture.Actions(actions);
+                        NashornScalarRefusal(fixture, name, value);
+                    }
+                using (var fixture = new Fixture())
+                {
+                    XDocument actions = BuildActions(), behaviours = BuildBehaviors();
+                    actions.Root.Element("ActionList").Add(S("Action", A("Name", "Global"), A("Type", "Move"), A(name, "5"),
+                        A("TargetX", "${" + name + " ? 100 : 200}"), S("Animation", Pose("/p.png", 1))));
+                    behaviours.Root.Element("BehaviorList").Add(S("Behavior", A("Name", "GlobalEntry"), A("Action", "Global"),
+                        A("Frequency", 0), A(name, "${" + name + " ? 5 : 7}")));
+                    fixture.Actions(actions);
+                    fixture.Behaviors(behaviours);
+                    NashornScalarRefusal(fixture, name, "incoming-self-read");
+                }
+            }
+            // The tick source-pack path requires both configuration documents; it does not generate default entries.
+            using (var fixture = new Fixture())
+            {
+                File.Delete(Path.Combine(fixture.Pack, "conf", "behaviors.xml"));
+                bool missing = false;
+                try { TickPackEmitter.PrepareMembers(fixture.Pack, false); }
+                catch (FileNotFoundException) { missing = true; }
+                Require(missing, "M2-binding-paths: missing source behaviours unexpectedly generated invocation paths");
+            }
+        }
+
+        private static void NashornInvocationPaths(string name, string owner, bool allBound, bool declared, bool reverse)
+        {
+            using (var fixture = new Fixture())
+            {
+                XDocument actions = BuildActions(), behaviours = BuildBehaviors();
+                XElement global = S("Action", A("Name", "Global"), A("Type", "Move"),
+                    A("TargetX", "${" + name + " ? 100 : 200}"), S("Animation", Pose("/p.png", 1)));
+                if (declared) global.SetAttributeValue(name, "7");
+                actions.Root.Element("ActionList").Add(global);
+                XElement first, second;
+                if (owner == "ActionReference" || owner == "CrossKind")
+                {
+                    first = S("ActionReference", A("Name", "Global"), A(name, "5"));
+                    second = S("ActionReference", A("Name", "Global"));
+                    actions.Root.Element("ActionList").Add(S("Action", A("Name", "GlobalSequence"), A("Type", "Sequence"),
+                        owner == "CrossKind" ? new[] { second } : reverse ? new[] { second, first } : new[] { first, second }));
+                    behaviours.Root.Element("BehaviorList").Add(S("Behavior", A("Name", "GlobalEntry"),
+                        A("Action", "GlobalSequence"), A("Frequency", 0)));
+                    if (owner == "CrossKind")
+                        behaviours.Root.Element("BehaviorList").Add(S("Behavior", A("Name", "GlobalBound"),
+                            A("Action", "Global"), A("Frequency", 0), A(name, "5")));
+                }
+                else if (owner == "BehaviorReference")
+                {
+                    // No Action on the reference: its own Name resolves Global. Its root's scalar is NOT inherited.
+                    first = S("Behavior", A("Name", "Global"), A("Action", "Global"), A("Frequency", 0), A(name, "5"));
+                    second = S("BehaviorReference", A("Name", "Global"), A("Frequency", 1));
+                    behaviours.Descendants("NextBehaviorList").First().Add(second);
+                    if (reverse) behaviours.Root.Element("BehaviorList").Add(first);
+                    else behaviours.Root.Element("BehaviorList").AddFirst(first);
+                }
+                else
+                {
+                    first = S("Behavior", A("Name", "GlobalBound"), A("Action", "Global"), A("Frequency", 0), A(name, "5"));
+                    second = S("Behavior", A("Name", owner == "MagicBehavior" ? "Fall" : "GlobalPlain"),
+                        A("Action", "Global"), A("Frequency", owner == "MagicBehavior" ? 0 : 1));
+                    XElement secondEntry = owner == "ConditionalBehavior" ? S("Condition", A("Condition", "false"), second) : second;
+                    behaviours.Root.Element("BehaviorList").Add(reverse ? secondEntry : first, reverse ? first : secondEntry);
+                }
+                if (allBound) second.SetAttributeValue(name, "7");
+                fixture.Actions(actions);
+                fixture.Behaviors(behaviours);
+                string path = owner + (reverse ? "-plain-first" : "-bound-first");
+                if (!allBound && !declared)
+                {
+                    NashornPathRefusal(fixture, name, path);
+                    return;
+                }
+                XDocument document;
+                try { document = fixture.Convert(); }
+                catch (InvalidDataException error)
+                {
+                    throw new InvalidOperationException("M2-binding-paths: a proven scalar path was refused: " + name + ": " + path
+                        + (declared ? ": action-declared" : ": all-bound") + ": " + error.Message);
+                }
+                XElement[] bindings = document.Descendants().Where(e => (e.Name == Ns + "param" || e.Name == Ns + "bind")
+                    && (string)e.Attribute("name") == name).ToArray();
+                Require(bindings.Length == 2 && bindings.Count(e => (string)e.Attribute("value") == "5" && (string)e.Attribute("cache") == "none") == 1
+                    && bindings.Count(e => e.Name == Ns + (declared ? "param" : "bind") && (string)e.Attribute("value") == "7"
+                        && (string)e.Attribute("cache") == "none") == 1
+                    && Scripted(NamedNode(document, "Global").Element(Ns + "act"), "param", "TargetX", "action") == name + " ? 100 : 200",
+                    "M2-binding-paths: WITNESS scalar bindings and reader survive: " + name + ": " + path
+                        + (declared ? ": action-declared" : ": all-bound"));
+                Validate(document, "proven " + name + " scalar paths on " + owner);
+            }
+        }
+
+        private static void NashornPathRefusal(Fixture fixture, string name, string path)
+        {
+            bool refused = false;
+            try { TickPackEmitter.PrepareMembers(fixture.Pack, false); }
+            catch (InvalidDataException error)
+            {
+                Require(error.Message.Contains("TICK_EXPRESSION_UNSUPPORTED TargetX: unknown name '" + name + "'"),
+                    "M2-binding-paths: wrong unbound-path refusal: " + name + ": " + path + ": " + error.Message);
+                refused = true;
+            }
+            Require(refused, "M2-binding-paths: an unbound invocation was accepted: " + name + ": " + path);
+            Require(!Directory.Exists(fixture.Output), "M2-binding-paths: refused preparation left output: " + name + ": " + path);
+        }
+
+        private static void NashornBindingRhs(string name, bool allBound)
+        {
+            using (var fixture = new Fixture())
+            {
+                XDocument actions = BuildActions(), behaviours = BuildBehaviors();
+                actions.Root.Element("ActionList").Add(S("Action", A("Name", "Global"), A("Type", "Move"),
+                    A("TargetX", "0"), S("Animation", Pose("/p.png", 1))));
+                string reader = "${" + name + " ? 100 : 200}";
+                XElement first = S("Behavior", A("Name", "GlobalBound"), A("Action", "Global"), A("Frequency", 0),
+                    A(name, "5"), A("TargetX", reader));
+                XElement second = S("Behavior", A("Name", "GlobalPlain"), A("Action", "Global"), A("Frequency", 1), A("TargetX", reader));
+                if (allBound) second.SetAttributeValue(name, "7");
+                behaviours.Root.Element("BehaviorList").Add(first, second);
+                fixture.Actions(actions);
+                fixture.Behaviors(behaviours);
+                if (!allBound)
+                {
+                    NashornPathRefusal(fixture, name, "binding-rhs-mixed");
+                    return;
+                }
+                XDocument document = fixture.Convert();
+                XElement[] bound = Nodes(document).Select(n => n.Element(Ns + "behaviour"))
+                    .Where(b => b != null && (string)b.Attribute("runs") == "Global").ToArray();
+                Require(bound.Length == 2 && bound.All(b => Scripted(b, "bind", "TargetX", "action") == name + " ? 100 : 200")
+                    && bound.Select(b => Bound(b, "bind", name)).OrderBy(v => v).SequenceEqual(new[] { "5", "7" }),
+                    "M2-binding-paths: WITNESS ordinary binding RHS reads proven scalars: " + name);
+                Validate(document, "proven " + name + " in ordinary binding RHS");
+            }
+        }
+
+        private static void NashornScalarRefusal(Fixture fixture, string name, string value)
+        {
+            bool refused = false;
+            try { TickPackEmitter.PrepareMembers(fixture.Pack, false); }
+            catch (InvalidDataException error)
+            {
+                Require(error.Message.Contains("TICK_GLOBAL_BINDING_UNPROVEN " + name + ": engine/context bindings require a finite decimal scalar literal"),
+                    "M2-binding-paths: wrong unproven scalar refusal: " + name + ": " + value + ": " + error.Message);
+                refused = true;
+            }
+            Require(refused, "M2-binding-paths: an unproven scalar was accepted: " + name + ": " + value);
+            Require(!Directory.Exists(fixture.Output), "M2-binding-paths: unproven special binding left output: " + name + ": " + value);
         }
 
         // 1.0.23 reads only a Behavior's NextBehaviorList children: a <NextBehavior> (the official default

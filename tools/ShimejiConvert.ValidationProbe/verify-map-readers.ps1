@@ -94,8 +94,9 @@ function Run-Pack([string]$Label, [bool]$ExpectedPass) {
 }
 $xml=Join-Path $evidence 'geometry\G\animations.xml'
 function Run-Probe([string]$Label, [string[]]$ExpectedFailures=@()) {
-    $output=Join-Path $evidence ('probe-' + $Label)
-    $run=Invoke-Child ('probe-' + $Label) 'powershell.exe' @('-NoProfile', '-File', (Join-Path $snapshot 'tools\ShimejiConvert.ValidationProbe\Run.ps1'), '-HostSourceRoot', $snapshot, '-XmlPath', $xml, '-OutputRoot', $output)
+    $fileLabel=[regex]::Replace($Label, '[^A-Za-z0-9_.-]', '_')
+    $output=Join-Path $evidence ('probe-' + $fileLabel)
+    $run=Invoke-Child ('probe-' + $fileLabel) 'powershell.exe' @('-NoProfile', '-File', (Join-Path $snapshot 'tools\ShimejiConvert.ValidationProbe\Run.ps1'), '-HostSourceRoot', $snapshot, '-XmlPath', $xml, '-OutputRoot', $output)
     $record=Get-Content -LiteralPath (Join-Path $output 'results.json') -Raw | ConvertFrom-Json
     $witness=Get-Content -LiteralPath (Join-Path $output 'witness.json') -Raw | ConvertFrom-Json
     $fails=@($record.results | Where-Object { -not $_.pass } | ForEach-Object { $_.name })
@@ -109,7 +110,17 @@ $mutations=@(
     @{ name='probe-accepts-v1'; kind='probe'; path='tools\ShimejiConvert.ValidationProbe\Program.cs'; old='if (map.RootElement.GetProperty("schema").GetString() != "shimeji-parity-map/2")'; new='if (map.RootElement.GetProperty("schema").GetString() != "shimeji-parity-map/2" && map.RootElement.GetProperty("schema").GetString() != "shimeji-parity-map/1")'; fails=@('control-map-v1-schema') },
     @{ name='probe-duplicate'; kind='probe'; path='tools\ShimejiConvert.ValidationProbe\Program.cs'; old='if (!keys.Add(key)) throw'; new='if (!keys.Add(key) && key == "__never__") throw'; fails=@('control-map-duplicate-pose-key') },
     @{ name='probe-surplus'; kind='probe'; path='tools\ShimejiConvert.ValidationProbe\Program.cs'; old='if (keys.Count != 0) throw'; new='if (keys.Count < 0) throw'; fails=@('control-map-surplus-pose') },
-    @{ name='probe-source-index'; kind='probe'; path='tools\ShimejiConvert.ValidationProbe\Program.cs'; old='|| position != ordinal - 1)'; new='|| position < 0)'; fails=@('control-map-pose-source-index') }
+    @{ name='probe-source-index'; kind='probe'; path='tools\ShimejiConvert.ValidationProbe\Program.cs'; old='|| position != ordinal - 1)'; new='|| position < 0)'; fails=@('control-map-pose-source-index') },
+    # N-bd-parity-recheck-04: these existing controls need actual guard-removal evidence, too.
+    @{ name='bd-codex-parity-2: probe-missing-emitted-pose'; kind='probe'; path='tools\ShimejiConvert.ValidationProbe\Program.cs'; old='if (!keys.Remove(key) && !placeholder)'; new='if (!keys.Remove(key) && !placeholder && key == "__never__")'; fails=@('control-map-missing-pose','control-map-false-stay-unmapped','control-map-false-turn-unmapped','control-map-placeholder-two-variants-unmapped','control-map-placeholder-two-poses-unmapped','control-map-placeholder-real-frame-unmapped','control-map-placeholder-ticks-unmapped','control-map-placeholder-dx-unmapped','control-map-placeholder-dy-unmapped') },
+    @{ name='bd-codex-parity-2: probe-placeholder-class'; kind='probe'; path='tools\ShimejiConvert.ValidationProbe\Program.cs'; old='if (!(type == "Animate" || (type == "Embedded" && cls == "Interact")) || variants.Length != 1'; new='if (variants.Length != 1'; fails=@('control-map-false-stay-unmapped','control-map-false-turn-unmapped') },
+    # ---- burndown/codex-parity-2-review ----
+    @{ name='bd-codex-parity-2-review: probe-placeholder-variant-count'; kind='probe'; path='tools\ShimejiConvert.ValidationProbe\Program.cs'; old=' || variants.Length != 1'; new=''; fails=@('control-map-placeholder-two-variants-unmapped') },
+    @{ name='bd-codex-parity-2-review: probe-placeholder-pose-count'; kind='probe'; path='tools\ShimejiConvert.ValidationProbe\Program.cs'; old='return poses.Length == 1 && '; new='return '; fails=@('control-map-placeholder-two-poses-unmapped') },
+    @{ name='bd-codex-parity-2-review: probe-placeholder-frame'; kind='probe'; path='tools\ShimejiConvert.ValidationProbe\Program.cs'; old='Attribute(poses[0], "frame", -2) == -1'; new='true'; fails=@('control-map-placeholder-real-frame-unmapped') },
+    @{ name='bd-codex-parity-2-review: probe-placeholder-ticks'; kind='probe'; path='tools\ShimejiConvert.ValidationProbe\Program.cs'; old='Attribute(poses[0], "ticks", 0) == 1'; new='true'; fails=@('control-map-placeholder-ticks-unmapped') },
+    @{ name='bd-codex-parity-2-review: probe-placeholder-dx'; kind='probe'; path='tools\ShimejiConvert.ValidationProbe\Program.cs'; old='Attribute(poses[0], "dx", 0) == 0'; new='true'; fails=@('control-map-placeholder-dx-unmapped') },
+    @{ name='bd-codex-parity-2-review: probe-placeholder-dy'; kind='probe'; path='tools\ShimejiConvert.ValidationProbe\Program.cs'; old='Attribute(poses[0], "dy", 0) == 0'; new='true'; fails=@('control-map-placeholder-dy-unmapped') }
 )
 $selected=@($mutations | Where-Object { $name=$_.name; @($Only | Where-Object { $name -like $_ }).Count -ne 0 })
 if ($Mutate -and $selected.Count -eq 0) { throw 'MAP_READERS_NO_MUTATIONS_SELECTED' }

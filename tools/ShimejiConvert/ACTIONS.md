@@ -191,10 +191,17 @@ with another action's is refused. An attribute the schema does not name on an ac
 behaviour is a variable of the source's action map: it is carried under its own name when it is a plain
 identifier the host does not read as a parameter of its own and some script of the member names it, and the
 scripts of that map see it; one nothing reads is refused, as before.
-The JDK 8 JSR-223 identifiers `engine`, `context` and `arguments` are reserved rather than carried as custom variables.
-The pinned-runtime `DraftBridgeProbe` asserts unbound object types and explicit binding behavior: numeric engine and
-context bindings take effect, while arguments retains its global object. The converter does not model those global
-objects; reserving the identifiers is conservative and does not claim every explicit binding loses to a global.
+`engine` and `context` follow the custom-variable rules above, with an extra requirement for a script to read them:
+its action must declare a finite decimal scalar literal, or every reference and behaviour that invokes the action
+must bind one. Scripted or non-scalar bindings for these two names are refused, including a binding whose own
+expression could read the global object before assignment.
+A next-list BehaviorReference supplies its own bindings; it does not inherit the root behaviour's bindings.
+Inline actions inherit no bindings from a parent action. `arguments` remains reserved rather than carried.
+The pinned-runtime `DraftBridgeProbe` distinguishes unbound objects from explicit bindings: numeric `engine`
+and `context` bindings take effect, while `arguments` retains its global object even when bound.
+The converter refuses a read that could use an unbound global object on any invocation path; it does not model those
+objects. Conditional and zero-frequency entries participate in that check, so a binding on one path cannot license
+an unbound read on another.
 A script's zero-argument JavaBean getter call
 (`getScreen()`, `isLookRight()`) is written as the property it reads, which Nashorn evaluates with the same call.
 `Math.random` named without a call is NaN in the source, with no draw; where it is the value of a Move's or a Jump's

@@ -1201,9 +1201,7 @@ OUTPUT_SCHEMA = "shimeji-parity-pack-output/1"
 
 def write_output_manifest(out, paths, in_progress=False):
     """Replace the journal atomically: an interrupted write must leave the previous ownership readable."""
-    document = {"schema": OUTPUT_SCHEMA, "paths": sorted(paths)}
-    if in_progress:
-        document["state"] = "building"
+    document = {"schema": OUTPUT_SCHEMA, "paths": sorted(paths), "state": "building" if in_progress else "ready"}
     descriptor, temporary = tempfile.mkstemp(prefix=OUTPUT_MANIFEST + ".", suffix=".tmp", dir=out)
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as stream:
@@ -1360,6 +1358,8 @@ def _self_test_output():
         clean, reused = Path(temporary) / "clean", Path(temporary) / "reused"
         with contextlib.redirect_stdout(io.StringIO()):
             main(clean)
+        require(json.loads((clean / OUTPUT_MANIFEST).read_text(encoding="utf-8")).get("state") == "ready",
+                "PACK_GENERATOR_READY_MANIFEST: completed output is not marked ready")
         shutil.copytree(clean, reused)
         first_pack = reused / "packs" / next(iter(PACKS))
         stale_frame = first_pack / "img" / "retired-member" / "obsolete.png"

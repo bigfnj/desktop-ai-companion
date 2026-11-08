@@ -6134,6 +6134,39 @@ Assert-True (@($w5pBuildSteps | Where-Object { $_ -cmatch '\A Run each module''s
     'w5-packaging-ci-1: WITNESS the step-key pattern matches the build.yml module self-test step''s if:')
 Assert-True ($w5pCaptureSteps.Count -eq 1 -and $w5pCaptureSteps[0] -cnotmatch '(?m)^        (if|continue-on-error): ') (
     "w5-packaging-ci-1: build.yml runs run_mutation_capture_checks.py in one step that throws on its exit code and cannot be skipped (found $($w5pCaptureSteps.Count))")
+# ---- burndown/codex-parity-2 ----
+# The strict map reader must run in both normal verification paths. Match executable calls and their
+# failure handling, so retaining a comment, an echo, or a detached PASS marker cannot keep these green.
+$p2MapGate = Remove-PsLineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'tests\run-gate.ps1') -Raw)
+$p2MapCi = [regex]::Replace((Get-Content -LiteralPath (Join-Path $repoRoot '.github\workflows\build.yml') -Raw), '(?m)^\s*#.*$', '')
+$p2MapCaller = (Remove-PsLineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'tools\ShimejiConvert.ValidationProbe\Invoke-Checks.ps1') -Raw)).Replace("`r`n", "`n")
+$p2MapResult = Get-MethodBody $p2MapCaller 'function Assert-MapReaderResult(' @("`nfunction ")
+Assert-True ($p2MapGate.Length -gt 0 -and $p2MapCi.Length -gt 0 -and $p2MapResult.Length -gt 0) 'bd-codex-parity-2: map-reader verification sources and result method were read'
+$p2MapGateRule = '(?m)^\s*try \{ & \(Join-Path \$repoRoot ''tools\\ShimejiConvert\.ValidationProbe\\Invoke-Checks\.ps1''\) \}\r?\n\s*catch \{ \$failures\.Add\(''Invoke-Checks\.ps1: '' \+ \$_\.Exception\.Message\) \}'
+$p2MapComment = Remove-PsLineComments '# try { & (Join-Path $repoRoot ''tools\ShimejiConvert.ValidationProbe\Invoke-Checks.ps1'') }'
+Assert-True ($p2MapGate -cmatch $p2MapGateRule -and $p2MapComment -cnotmatch $p2MapGateRule) 'bd-codex-parity-2: local gate invokes the map-reader caller and collects its failure (WITNESS: a comment cannot invoke it)'
+$p2MapCiRule = '(?m)^\s+\.\\tools\\ShimejiConvert\.ValidationProbe\\Invoke-Checks\.ps1\s*$'
+Assert-True ($p2MapCi -cmatch $p2MapCiRule -and 'Write-Host ''.\tools\ShimejiConvert.ValidationProbe\Invoke-Checks.ps1''' -cnotmatch $p2MapCiRule) 'bd-codex-parity-2: CI executes the same map-reader caller (WITNESS: an echo does not match)'
+$p2MapSelfTestAt = $p2MapCaller.IndexOf("`nTest-MapReaderResult`n", [StringComparison]::Ordinal)
+$p2MapChildAt = $p2MapCaller.IndexOf('& powershell.exe -NoLogo -NoProfile -NonInteractive -File', [StringComparison]::Ordinal)
+$p2MapJudgeAt = $p2MapCaller.IndexOf('Assert-MapReaderResult $childExit $output', [StringComparison]::Ordinal)
+Assert-True ($p2MapSelfTestAt -ge 0 -and $p2MapChildAt -gt $p2MapSelfTestAt -and $p2MapJudgeAt -gt $p2MapChildAt -and $p2MapCaller -cmatch '\$env:PSModulePath=\$originalModulePath') 'bd-codex-parity-2: caller self-check precedes child execution and actual-result grading, with module-path restoration'
+
+# ---- burndown/codex-parity-2-review ----
+# Success-only cleanup belongs to the caller: the direct lane verifier may retain its requested evidence.
+$p2ReviewCleanup = Get-MethodBody $p2MapCaller 'function Remove-MapReaderScratch(' @("`nTest-MapReaderResult")
+Assert-True ($p2ReviewCleanup.Length -gt 0) 'bd-codex-parity-2-review: Invoke-Checks.ps1 cleanup method was read'
+$p2ReviewConfinement = 'if ([IO.Path]::GetDirectoryName($full).TrimEnd(''\'') -ine $expectedParent -or'
+$p2ReviewNameGuard = '[IO.Path]::GetFileName($full) -cnotmatch ''^mr-[0-9a-f]{12}$'') { throw ''MAP_READERS_CLEANUP_UNSAFE_PATH'' }'
+$p2ReviewGuardAt = $p2ReviewCleanup.IndexOf($p2ReviewConfinement, [StringComparison]::Ordinal)
+$p2ReviewDeleteAt = $p2ReviewCleanup.IndexOf('Remove-Item -LiteralPath $full -Recurse -Force -ErrorAction Stop', [StringComparison]::Ordinal)
+$p2ReviewAbsentAt = $p2ReviewCleanup.IndexOf('if (Test-Path -LiteralPath $full) { throw ''MAP_READERS_CLEANUP_FAILED'' }', [StringComparison]::Ordinal)
+Assert-True ($p2ReviewGuardAt -ge 0 -and $p2ReviewCleanup.Contains($p2ReviewNameGuard) -and $p2ReviewDeleteAt -gt $p2ReviewGuardAt -and $p2ReviewAbsentAt -gt $p2ReviewDeleteAt -and @([regex]::Matches($p2ReviewCleanup, 'Remove-Item -LiteralPath')).Count -eq 1 -and $p2ReviewConfinement.Replace('-ine', '-ieq') -cne $p2ReviewConfinement) 'bd-codex-parity-2-review: Invoke-Checks.ps1 confines and executes cleanup before proving absence (WITNESS: the inverted parent comparison differs)'
+$p2ReviewCreateAt = $p2MapCaller.IndexOf('[IO.Directory]::CreateDirectory($callerScratch)', [StringComparison]::Ordinal)
+$p2ReviewPassAt = $p2MapCaller.IndexOf('$readerPassed=$true', [StringComparison]::Ordinal)
+$p2ReviewRemoveAt = $p2MapCaller.IndexOf('Remove-MapReaderScratch $callerScratch $callerScratchParent', [StringComparison]::Ordinal)
+$p2ReviewSuccessOnly = 'if \(\$readerPassed\)\s*\{\s*try \{ Remove-MapReaderScratch \$callerScratch \$callerScratchParent \}'
+Assert-True ($p2ReviewCreateAt -ge 0 -and $p2ReviewCreateAt -lt $p2MapChildAt -and $p2MapCaller.Contains('-ScratchRoot $callerScratch 2>&1') -and $p2ReviewPassAt -gt $p2MapJudgeAt -and $p2ReviewRemoveAt -gt $p2ReviewPassAt -and $p2MapCaller -cmatch $p2ReviewSuccessOnly -and $p2MapCaller.Contains('else { Write-Host (''Map reader failure evidence retained: '' + $callerScratch) }') -and 'if ($true) { try { Remove-MapReaderScratch $callerScratch $callerScratchParent }' -cnotmatch $p2ReviewSuccessOnly) 'bd-codex-parity-2-review: Invoke-Checks.ps1 owns scratch and cleans only after the actual pass (WITNESS: unconditional cleanup differs)'
 
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that

@@ -1,4 +1,4 @@
-"""Shimeji parity comparer (CONTRACT.md v1, sections 3 and 6).
+"""Shimeji parity comparer (CONTRACT.md v1.1, sections 3, 6 and 9).
 
     compare.py <oracle trace.jsonl> <host trace.jsonl> [--scenario scenario.json] [--oracle-artifact <jar>]
                [--host-exe <exe>] [--json out.json]
@@ -9,7 +9,8 @@ first (fields, build witness, counts, ordering, lineage, velocity and refKey con
 check is unjudgeable and nothing is compared. A directed scenario (rng kind none or tape) must then match EXACTLY on
 events and on every state field; a free-running one (splitmix64) is a separate claim and is reported as such. Every
 failure names the scenario, the first mismatching tick, the entity and the field. Exit 0 = a successful exact,
-tolerated or free-running time-share comparison, 1 = a mismatch, 2 = a trace or scenario that cannot be judged.
+tolerated or free-running time-share comparison, 1 = a mismatch or pending comparison,
+2 = a trace or scenario that cannot be judged.
 
 --self-test builds reference traces and a set of deliberately wrong ones, and requires each wrong one to fail with
 its expected class (and each positive control to stay exact); it is the proof that this comparer can fail.
@@ -170,7 +171,7 @@ def validate_scenario(s):
                 bad("a tick-0 press, release or click (button edges start at tick 1)")
 
 
-def load_trace(source, expected_runtime=None):
+def load_trace(source, expected_runtime=None, defer_run_failure=False):
     lines = source
     if isinstance(source, str):
         with open(source, encoding="utf-8") as f:
@@ -221,25 +222,27 @@ def load_trace(source, expected_runtime=None):
             or not isinstance(header.get("startedUtc"), str) or not header.get("startedUtc"):
         raise Unjudgeable("missing-field", f"{runtime} header needs tickMs 40, dpiScale, runId and startedUtc")
 
-    if not isinstance(records[-1], dict) or records[-1].get("type") != "footer" or len(records) < 2:
+    has_footer = len(records) >= 2 and isinstance(records[-1], dict) and records[-1].get("type") == "footer"
+    if not has_footer and not defer_run_failure:
         raise Unjudgeable("truncated", f"{runtime} trace has no footer")
-    footer = records[-1]
-    status = footer.get("status")
-    if status in ("timeout", "aborted", "error"):
-        raise Unjudgeable(status if status != "error" else "aborted", f"{runtime} run ended with status {status}")
-    if status != "complete":
-        raise Unjudgeable("missing-field", f"{runtime} footer status {status!r}")
-    for k in ("ticks", "draws", "states", "events"):
-        if not isinstance(footer.get(k), int) or isinstance(footer.get(k), bool) or footer[k] < 0:
-            raise Unjudgeable("missing-field", f"{runtime} footer {k!r} is missing")
-    n = footer["ticks"]
+    # A missing footer is a deferred run failure, not a manufactured physical footer. Its available records
+    # still need validation and input binding before a valid peer can establish section 6's scenario error.
+    footer = records[-1] if has_footer else None
+    status = footer.get("status") if footer is not None else "truncated"
+    if footer is not None:
+        if status not in ("complete", "timeout", "aborted", "error"):
+            raise Unjudgeable("missing-field", f"{runtime} footer status {status!r}")
+        for k in ("ticks", "draws", "states", "events"):
+            if not isinstance(footer.get(k), int) or isinstance(footer.get(k), bool) or footer[k] < 0:
+                raise Unjudgeable("missing-field", f"{runtime} footer {k!r} is missing")
+    n = footer["ticks"] if footer is not None else None
 
     def malformed(msg):
         raise Unjudgeable("malformed", f"{runtime}: {msg}")
 
     states, events = [], []
     last_tick = 0
-    for i, r in enumerate(records[1:-1], start=2):
+    for i, r in enumerate(records[1:-1] if has_footer else records[1:], start=2):
         if not isinstance(r, dict):
             malformed(f"line {i} is not an object")
         t = r.get("type")
@@ -267,14 +270,14 @@ def load_trace(source, expected_runtime=None):
         else:
             malformed(f"line {i}: unknown record type {t!r}")
         tick = r["tick"]
-        if tick < 0 or tick > n:
+        if tick < 0 or (n is not None and tick > n):
             malformed(f"line {i}: tick {tick} is outside 0..{n}")
         if tick < last_tick:
             malformed(f"line {i}: tick {tick} comes after tick {last_tick}")
         last_tick = tick
 
     draws = [e for e in events if e["kind"] == "rng-draw"]
-    if (len(states), len(events), len(draws)) != (footer["states"], footer["events"], footer["draws"]):
+    if footer is not None and (len(states), len(events), len(draws)) != (footer["states"], footer["events"], footer["draws"]):
         malformed(f"footer counts states/events/draws {footer['states']}/{footer['events']}/{footer['draws']} "
                   f"but the trace has {len(states)}/{len(events)}/{len(draws)}")
     for k, e in enumerate(draws, start=1):
@@ -301,22 +304,88 @@ def load_trace(source, expected_runtime=None):
         stack = s["actionStack"]
         if (stack[-1] if stack else None) != s["refKey"]:
             malformed(f"tick {s['tick']}, {s['sid']}: refKey {s['refKey']!r} is not the last actionStack entry")
-    if not any(s["tick"] == 0 for s in states):
+    # A startup refusal can leave no states at all. Its metadata and recorded events still need checking,
+    # but there is no observation prefix whose missing tick 0 could establish malformed runtime behavior.
+    if (states or status == "complete") and not any(s["tick"] == 0 for s in states):
         malformed("there is no state at tick 0")
+    # A failed run can stop before N, but the recorded prefix still has to be an internally valid observation.
+    # compare() defers its status so section 6 can first identify an invalid input from the preceding snapshot.
+    observed_end = n if status == "complete" else max((s["tick"] for s in states), default=-1)
     disposed = {(e["sid"], e["tick"]) for e in events if e["kind"] == "dispose"}
     for sid_, rows in by_sid.items():
         ticks = [r["tick"] for r in rows]
         if ticks != list(range(ticks[0], ticks[-1] + 1)):
             malformed(f"{sid_}'s state lines have a gap ({ticks[0]}..{ticks[-1]}, {len(ticks)} lines)")
-        if ticks[-1] < n and (sid_, ticks[-1] + 1) not in disposed:
-            malformed(f"{sid_} stops at tick {ticks[-1]} of {n} with no dispose event at tick {ticks[-1] + 1}")
+        # Without a footer, the last snapshot may end between two companions' state lines. Only that final
+        # one-tick tail is inconclusive unless a later event proves that snapshot already finished.
+        unfinished_snapshot = footer is None and ticks[-1] == observed_end - 1 and not any(e["tick"] > observed_end for e in events)
+        if ticks[-1] < observed_end and not unfinished_snapshot and (sid_, ticks[-1] + 1) not in disposed:
+            malformed(f"{sid_} stops at tick {ticks[-1]} of {observed_end} with no dispose event at tick {ticks[-1] + 1}")
+        # dispose means actual queue removal, not dispose-request. Failed tentative children can reuse their
+        # provisional sid and emit requests, but never join the add queue (CONTRACT sections 3 and 4).
+        disposed_at = min((tick for disposed_sid, tick in disposed if disposed_sid == sid_), default=None)
+        if disposed_at is not None and ticks[-1] >= disposed_at:
+            first = next(row for row in rows if row["tick"] >= disposed_at)
+            malformed(f"tick {first['tick']}, {sid_}: state at or after dispose tick {disposed_at}")
         prev = None
         for r in rows:
             want = [0, 0] if prev is None else [r["anchor"][0] - prev["anchor"][0], r["anchor"][1] - prev["anchor"][1]]
             if r["velocity"] != want:
                 malformed(f"tick {r['tick']}, {sid_}: velocity {r['velocity']} is not the anchor change {want}")
             prev = r
+    if not defer_run_failure:
+        _check_run_status(runtime, footer)
     return header, states, events, footer
+
+
+def _check_run_status(runtime, footer):
+    if footer is None:
+        raise Unjudgeable("truncated", f"{runtime} trace has no footer")
+    status = footer["status"]
+    if status != "complete":
+        raise Unjudgeable(status if status != "error" else "aborted", f"{runtime} run ended with status {status}")
+
+
+def _validate_input_targets(scenario, traces):
+    """Section 6: use a complete preceding snapshot or the target's irreversible observed removal."""
+    def inactive(runtime, edge):
+        raise Unjudgeable("scenario-invalid", f"scenario {scenario['id']}: {runtime} tick {edge['tick']} "
+                          f"left-button edge targets inactive sid {edge.get('sid')!r}")
+
+    for edge in scenario.get("input", []):
+        if not any(edge.get(button) == "left" for button in BUTTON_EDGES):
+            continue
+        previous = edge["tick"] - 1
+        for runtime, states, events, footer in traces:
+            if footer is None or not states:
+                continue  # An unfinished trace or startup refusal supplies no positive population proof.
+            last_seen = max((state["tick"] for state in states if state["sid"] == edge.get("sid")), default=None)
+            removed = last_seen is not None and any(event["kind"] == "dispose" and event["sid"] == edge.get("sid")
+                      and last_seen < event["tick"] <= previous for event in events)
+            if removed:
+                # Stable sids are never re-created. This target's removal remains conclusive after the last
+                # companion leaves, when completed empty ticks no longer advance the latest state timestamp.
+                # A state at or after the selected dispose contradicts that proof, so require its last observation.
+                inactive(runtime, edge)
+            observed_end = footer["ticks"] if footer["status"] == "complete" else max(s["tick"] for s in states)
+            if previous > observed_end:
+                continue  # A future edge after an unrelated abort has no observed dispatch state.
+            expected = {mascot["sid"] for mascot in scenario["mascots"]}
+            for event in events:
+                if event["tick"] > previous:
+                    break
+                if event["kind"] == "birth-request":
+                    if not isinstance(event["child"], str):
+                        expected = None
+                        break
+                    expected.add(event["child"])
+                elif event["kind"] == "dispose":
+                    expected.discard(event["sid"])
+            snapshot = [state for state in states if state["tick"] == previous]
+            if expected is None or {state["sid"] for state in snapshot} != expected:
+                continue  # An omitted snapshot or child line cannot prove that its target was inactive.
+            if not any(state["sid"] == edge.get("sid") and not state["pending"] for state in snapshot):
+                inactive(runtime, edge)
 
 
 def json_key(value):
@@ -347,8 +416,8 @@ def compare(oracle, host, scenario=None, scenario_sha=None, pack_sha=None, artif
     try:
         if scenario is not None:
             validate_scenario(scenario)
-        oh, ostates, oevents, ofoot = load_trace(oracle, "oracle")
-        hh, hstates, hevents, hfoot = load_trace(host, "host")
+        oh, ostates, oevents, ofoot = load_trace(oracle, "oracle", defer_run_failure=True)
+        hh, hstates, hevents, hfoot = load_trace(host, "host", defer_run_failure=True)
         sid = (scenario or {}).get("id") or oh["scenario"]["id"]
         for runtime, h in (("oracle", oh), ("host", hh)):
             if scenario_sha is not None and h["scenario"]["sha256"] != scenario_sha:
@@ -363,15 +432,28 @@ def compare(oracle, host, scenario=None, scenario_sha=None, pack_sha=None, artif
             raise Unjudgeable("pack-hash-mismatch", "the traces ran different versions of the pack")
         if oh["rng"] != hh["rng"] or (scenario is not None and scenario["rng"] != oh["rng"]):
             raise Unjudgeable("scenario-hash-mismatch", "the traces were run with different rng specs")
-        if ofoot["ticks"] != hfoot["ticks"] or (scenario is not None and scenario["ticks"] != ofoot["ticks"]):
-            raise Unjudgeable("tick-count-mismatch", f"oracle ran {ofoot['ticks']} steps, host {hfoot['ticks']}"
+        known_ticks = [footer["ticks"] for footer in (ofoot, hfoot) if footer is not None]
+        if known_ticks and (any(ticks != known_ticks[0] for ticks in known_ticks)
+                            or (scenario is not None and scenario["ticks"] != known_ticks[0])):
+            raise Unjudgeable("tick-count-mismatch", f"oracle ran {ofoot['ticks'] if ofoot is not None else 'unknown'} steps, "
+                              f"host {hfoot['ticks'] if hfoot is not None else 'unknown'}"
                               + (f", scenario {scenario['ticks']}" if scenario is not None else ""))
+        tick_bound = scenario["ticks"] if scenario is not None else (known_ticks[0] if known_ticks else None)
+        for runtime, states, events, footer in (("oracle", ostates, oevents, ofoot), ("host", hstates, hevents, hfoot)):
+            if footer is None and tick_bound is not None:
+                for row in states + events:
+                    if row["tick"] > tick_bound:
+                        raise Unjudgeable("malformed", f"{runtime}: tick {row['tick']} is outside 0..{tick_bound}")
         if scenario is not None:
             # Bind the observations to their inputs before judging this scenario's startup. Otherwise a wrong
             # --scenario file with different starters looks like a runtime startup defect instead of a hash mismatch.
             # Equal omissions in two bound traces are still incomplete observations of this scenario's startup.
             expected_starters = [mascot["sid"] for mascot in scenario["mascots"]]
-            for runtime, states in (("oracle", ostates), ("host", hstates)):
+            for runtime, states, footer in (("oracle", ostates, ofoot), ("host", hstates, hfoot)):
+                if footer is None:
+                    continue  # Truncation can interrupt even the startup snapshot.
+                if not states and footer["status"] != "complete":
+                    continue  # No tick-0 snapshot was written before this run failed.
                 starter_states = [state for state in states if state["tick"] == 0]
                 actual_starters = [state["sid"] for state in starter_states]
                 if actual_starters != expected_starters:
@@ -381,6 +463,10 @@ def compare(oracle, host, scenario=None, scenario_sha=None, pack_sha=None, artif
                 # must not establish parity merely because their sid order and pending flags agree.
                 if any(state["pending"] for state in starter_states):
                     raise Unjudgeable("scenario-start-mismatch", f"{runtime} tick-0 starters must be active, not pending")
+            _validate_input_targets(scenario, (("oracle", ostates, oevents, ofoot), ("host", hstates, hevents, hfoot)))
+        # After input proof, retain the missing footer's existing priority over a peer's generic run status.
+        for runtime, footer in sorted((("oracle", ofoot), ("host", hfoot)), key=lambda item: item[1] is not None):
+            _check_run_status(runtime, footer)
     except Unjudgeable as u:
         return {"verdict": "unjudgeable", "class": u.cls, "findings": [{"message": str(u)}]}
 
@@ -411,6 +497,18 @@ def compare(oracle, host, scenario=None, scenario_sha=None, pack_sha=None, artif
                  f"{sid}: a run drew past the tape's {tape_len} value(s) (oracle {len(odraws)}, host {len(hdraws)})")
         elif len(odraws) != len(hdraws):
             fail("rng-draw-count", None, None, "rng-draw", len(odraws), len(hdraws))
+        if not findings:
+            # Map/2 cannot recover the source script call site. After validity, binding and run checks,
+            # the independent RNG failures above still stand; only attribution-dependent matching is pending.
+            script_draw = next((event for event in oevents + hevents if event["kind"] == "rng-draw"
+                                and isinstance(event["site"], str) and event["site"].startswith("script:")), None)
+            if script_draw is not None:
+                report["verdict"] = "pending"
+                report["class"] = "script-site-unmapped"
+                findings.append({"class": "script-site-unmapped", "tick": script_draw["tick"], "sid": script_draw["sid"],
+                                 "field": "rng-draw.site",
+                                 "message": f"{sid}: script RNG site attribution is unavailable until a later parity map revision"})
+                return report
         if not findings:
             okeys = [event_key(e) for e in oevents]
             hkeys = [event_key(e) for e in hevents]
@@ -725,7 +823,11 @@ def _scenario():
 
 BURNDOWN_CHECKS = ("N269 source pin", "N269 unbound report", "N270 typed state", "N270 typed event",
                    "N270 event numbers", "N271 origin shape", "N272 tolerance names", "N400 starter population",
-                   "N400 binding order", "N400 pending starters")
+                   "N400 binding order", "N400 pending starters", "P2 inactive targets", "P2 input precedence",
+                   "P2 partial input proof", "P2 physical input CLI", "P2 script pending", "P2 script precedence",
+                   "P2 script independent failures", "P2 script refusal before draw", "P2 script pending CLI",
+                   "R2 zero-state runs", "R2 zero-state validation", "R2 disposed targets",
+                   "R2 truncated peer proof", "R2 truncated validation", "F3 interrupted snapshot", "F3 disposal lifecycle")
 
 
 def _case_require(value, name, detail):
@@ -748,8 +850,540 @@ def _two_starter_reference():
     return oracle, host, scenario
 
 
+def _cut_reference(trace, before_tick, status="aborted"):
+    trace[1:-1] = [row for row in trace[1:-1] if row["tick"] < before_tick]
+    trace[-1]["status"] = status
+    _refoot(trace)
+
+
+def _input_reference(tick=2, sid="m1.b1", button="left", edge="click"):
+    oracle, host = _reference()
+    scenario = _scenario()
+    scenario["input"].append(dict({"tick": tick, "sid": sid}, **{edge: button}))
+    return oracle, host, scenario
+
+
+def _p2_check(name):
+    def require(report, expected, detail, verdict="unjudgeable"):
+        _case_require(report["verdict"] == verdict and report["class"] == expected, name,
+                      detail + ": " + repr((report["verdict"], report["class"])))
+
+    if name == "P2 inactive targets":
+        for edge in BUTTON_EDGES:
+            for tick, target in ((1, "unknown"), (2, "m1.b1")):
+                for failed_runtime in (None, "oracle", "host", "both"):
+                    oracle, host, scenario = _input_reference(tick, target, edge=edge)
+                    for runtime, trace in (("oracle", oracle), ("host", host)):
+                        if failed_runtime in (runtime, "both"):
+                            _cut_reference(trace, tick)
+                    require(compare(oracle, host, scenario=scenario), "scenario-invalid",
+                            edge + " inactive target before " + str(failed_runtime) + " run failure")
+        # Either runtime's observation establishes the pending target, even when its peer has activated it early.
+        for pending_runtime in ("oracle", "host"):
+            oracle, host, scenario = _input_reference()
+            for runtime, trace in (("oracle", oracle), ("host", host)):
+                if runtime != pending_runtime:
+                    _where(trace, 1, "m1.b1")[0]["pending"] = False
+            require(compare(oracle, host, scenario=scenario), "scenario-invalid", pending_runtime + " pending target")
+        for tick, target in ((1, "m1"), (3, "m1.b1"), (4, "m1.b1")):
+            for edge in BUTTON_EDGES:
+                oracle, host, scenario = _input_reference(tick, target, edge=edge)
+                require(compare(oracle, host, scenario=scenario), None,
+                        "WITNESS active, activated or still-disposing left target", "exact")
+        oracle, host, scenario = _input_reference(4, "m1.b1")
+        for trace in (oracle, host):
+            next(row for row in trace if row.get("kind") == "dispose")["tick"] = 3
+            trace[1:-1] = [row for row in trace[1:-1] if not (
+                row.get("type") == "state" and row["tick"] == 3 and row["sid"] == "m1.b1")]
+            _resort(trace)
+            _refoot(trace)
+        require(compare(oracle, host, scenario=scenario), "scenario-invalid", "removed target")
+        for edge in BUTTON_EDGES:
+            for target in ("unknown", "m1.b1"):
+                oracle, host, scenario = _input_reference(2, target, "right", edge)
+                require(compare(oracle, host, scenario=scenario), None, "WITNESS right edge is ignored", "exact")
+        oracle, host, scenario = _input_reference()
+        scenario["input"][-1] = {"tick": 2, "sid": "unknown", "cursor": [1, 2]}
+        require(compare(oracle, host, scenario=scenario), None, "WITNESS cursor-only entry is not a button edge", "exact")
+    elif name == "P2 input precedence":
+        oracle, host, scenario = _input_reference()
+        for trace in (oracle, host):
+            _cut_reference(trace, 2)
+        cases = (
+            ("missing-field", lambda o, h, s: _where(h, 1, "m1")[0].pop("actionAge"), {}),
+            ("malformed", lambda o, h, s: h[-1].update(states=999), {}),
+            ("malformed", lambda o, h, s: _where(h, 1, "m1")[0].update(velocity=[999, 0]), {}),
+            ("build-witness-missing", lambda o, h, s: h[0].pop("build"), {}),
+            ("source-pin-mismatch", lambda o, h, s: o[0]["build"].update(sourceZipSha256=H("0")), {}),
+            ("scenario-hash-mismatch", lambda o, h, s: None, {"scenario_sha": H("c")}),
+            ("pack-hash-mismatch", lambda o, h, s: None, {"pack_sha": H("d")}),
+            ("artifact-hash-mismatch", lambda o, h, s: None, {"artifacts": {"host": H("9")}}),
+            ("scenario-hash-mismatch", lambda o, h, s: s.update(rng={"kind": "tape", "values": []}), {}),
+            ("tick-count-mismatch", lambda o, h, s: s.update(ticks=5), {}),
+            ("scenario-start-mismatch", lambda o, h, s: s["mascots"].append(dict(s["mascots"][0], sid="m2")), {}),
+            ("scenario-start-mismatch", lambda o, h, s: _where(h, 0, "m1")[0].update(pending=True), {}),
+        )
+        for expected, change, arguments in cases:
+            o, h, s = copy.deepcopy((oracle, host, scenario))
+            change(o, h, s)
+            require(compare(o, h, scenario=s, **arguments), expected, "input classification hid " + expected)
+        require(compare(oracle, host, scenario=scenario), "scenario-invalid", "WITNESS validated pending prefix")
+    elif name == "P2 partial input proof":
+        oracle, host, scenario = _input_reference(4, "unknown")
+        for trace in (oracle, host):
+            _cut_reference(trace, 1)
+        require(compare(oracle, host, scenario=scenario), "aborted", "future edge after an unrelated abort")
+        require(compare(oracle, host), "aborted", "WITNESS old abort without scenario stays unjudgeable")
+        # Once every companion has left, an empty future snapshot looks like an empty observed one. The prefix
+        # boundary must still prove that the preceding tick was reached; an abort is not an implicit clock advance.
+        for trace in (oracle, host):
+            trace.insert(-1, _ev(1, "m1", "dispose"))
+            _refoot(trace)
+        require(compare(oracle, host, scenario=scenario), "aborted", "future empty population after an unrelated abort")
+        oracle, host, scenario = _input_reference()
+        for trace in (oracle, host):
+            _cut_reference(trace, 2)
+            trace[1:-1] = [row for row in trace[1:-1] if row.get("sid") != "m1.b1"]
+            _refoot(trace)
+        require(compare(oracle, host, scenario=scenario), "aborted", "missing child snapshot is not inactive-target evidence")
+        oracle, host, scenario = _input_reference()
+        for trace in (oracle, host):
+            _cut_reference(trace, 2)
+        require(compare(oracle, host[:-1], scenario=scenario), "scenario-invalid", "valid peer proves invalid input before truncation")
+        require(compare(oracle[:-1], host[:-1], scenario=scenario), "truncated", "WITNESS two truncated traces supply no input proof")
+        # A gap in an earlier starter line remains malformed even though both runs stopped before N.
+        oracle, host, scenario = _input_reference(3, "unknown")
+        for trace in (oracle, host):
+            _cut_reference(trace, 3)
+        host[1:-1] = [row for row in host[1:-1] if not (
+            row.get("type") == "state" and row["tick"] == 1 and row["sid"] == "m1")]
+        _refoot(host)
+        require(compare(oracle, host, scenario=scenario), "malformed", "an incomplete prefix hid a state gap")
+        oracle, host, scenario = _input_reference()
+        for trace in (oracle, host):
+            _cut_reference(trace, 2)
+        require(compare(oracle, host, scenario=scenario), "scenario-invalid", "WITNESS complete pending prefix")
+        for status, expected in (("timeout", "timeout"), ("error", "aborted"), ("aborted", "aborted")):
+            oracle, host, scenario = _input_reference(2, "m1")
+            _cut_reference(host, 2, status)
+            require(compare(oracle, host, scenario=scenario), expected, "WITNESS active input preserves " + status)
+    elif name == "P2 physical input CLI":
+        import contextlib
+        import io
+        import tempfile
+        with tempfile.TemporaryDirectory(prefix="parity-p2-cli-") as folder:
+            root = Path(folder)
+            (root / "pack").mkdir()
+            (root / "pack" / "synthetic.txt").write_text("synthetic comparer fixture\n", encoding="utf-8")
+            oracle, host, scenario = _input_reference()
+            scenario["pack"] = "pack"
+            scenario_bytes = json.dumps(scenario).encode("utf-8")
+            (root / "scenario.json").write_bytes(scenario_bytes)
+            for runtime, trace in (("oracle", oracle), ("host", host)):
+                _cut_reference(trace, 2)
+                trace[0]["scenario"].update(sha256=sha256_bytes(scenario_bytes), packSha256=pack_sha256(root / "pack"))
+                (root / (runtime + ".jsonl")).write_text("\n".join(json.dumps(row) for row in trace) + "\n", encoding="utf-8")
+            output = io.StringIO()
+            arguments = ["compare.py", str(root / "oracle.jsonl"), str(root / "host.jsonl")]
+            with contextlib.redirect_stdout(output):
+                status = main(arguments + ["--scenario", str(root / "scenario.json"), "--json", str(root / "report.json")])
+            report = json.loads((root / "report.json").read_text(encoding="utf-8"))
+            require(report, "scenario-invalid", "physical JSONL with supplied scenario")
+            _case_require(status == 2 and "unjudgeable (scenario-invalid)" in output.getvalue(), name,
+                          "CLI did not expose scenario-invalid and exit 2")
+            with contextlib.redirect_stdout(io.StringIO()):
+                status = main(arguments + ["--json", str(root / "report.json")])
+            require(json.loads((root / "report.json").read_text(encoding="utf-8")), "aborted",
+                    "WITNESS same physical JSONL without scenario")
+            _case_require(status == 2, name, "generic abort CLI exit changed")
+    elif name == "P2 script pending":
+        for rng in ({"kind": "tape", "values": [0.5]},):
+            for script_runtime in ("oracle", "host", "both"):
+                oracle, host = _reference({"kind": "tape", "values": [0.5]})
+                for runtime, trace in (("oracle", oracle), ("host", host)):
+                    trace[0]["rng"] = rng
+                    if script_runtime in (runtime, "both"):
+                        next(row for row in trace if row.get("kind") == "rng-draw")["site"] = "script:Alpha#label#1"
+                report = compare(oracle, host)
+                require(report, "script-site-unmapped", "script site on " + script_runtime + " with " + rng["kind"], "pending")
+                _case_require(report["findings"][0]["class"] == "script-site-unmapped", name,
+                              "pending finding lost its diagnostic class")
+        oracle, host = _reference({"kind": "splitmix64", "seed": "0x0123456789abcdef"})
+        for trace in (oracle, host):
+            next(row for row in trace if row.get("kind") == "rng-draw")["site"] = "script:Alpha#label#1"
+        require(compare(oracle, host), None, "WITNESS free-running claim remains time-share", "time-share-pass")
+        oracle, host = _reference({"kind": "tape", "values": [0.5]})
+        require(compare(oracle, host), None, "WITNESS matching builtin draws remain exact", "exact")
+        next(row for row in host if row.get("kind") == "rng-draw")["site"] = "builtin:other"
+        require(compare(oracle, host), "event-mismatch", "WITNESS builtin mismatches still fail", "fail")
+        for site in ("Script:Alpha#label#1", "other:script:Alpha#label#1"):
+            oracle, host = _reference({"kind": "tape", "values": [0.5]})
+            next(row for row in host if row.get("kind") == "rng-draw")["site"] = site
+            require(compare(oracle, host), "event-mismatch", "WITNESS only exact script prefix defers", "fail")
+    elif name == "P2 script precedence":
+        oracle, host = _reference({"kind": "tape", "values": [0.5]})
+        next(row for row in host if row.get("kind") == "rng-draw")["site"] = "script:Alpha#label#1"
+        scenario = _scenario()
+        scenario["rng"] = oracle[0]["rng"]
+        cases = (
+            ("build-witness-missing", lambda o, h, s: h[0].pop("build"), {}),
+            ("source-pin-mismatch", lambda o, h, s: o[0]["build"].update(sourceZipSha256=H("0")), {}),
+            ("malformed", lambda o, h, s: h[-1].update(states=999), {}),
+            ("rng-invalid", lambda o, h, s: next(row for row in h if row.get("kind") == "rng-draw").update(value=1.25), {}),
+            ("scenario-invalid", lambda o, h, s: s["input"].append({"tick": 2, "sid": "m1.b1", "click": "left"}), {}),
+            ("scenario-hash-mismatch", lambda o, h, s: None, {"scenario_sha": H("c")}),
+            ("pack-hash-mismatch", lambda o, h, s: None, {"pack_sha": H("d")}),
+            ("artifact-hash-mismatch", lambda o, h, s: None, {"artifacts": {"host": H("9")}}),
+            ("scenario-start-mismatch", lambda o, h, s: _where(h, 0, "m1")[0].update(pending=True), {}),
+            ("aborted", lambda o, h, s: _cut_reference(h, 2), {}),
+            ("timeout", lambda o, h, s: _cut_reference(h, 2, "timeout"), {}),
+            ("aborted", lambda o, h, s: _cut_reference(h, 2, "error"), {}),
+            ("truncated", lambda o, h, s: h.pop(), {}),
+        )
+        for expected, change, arguments in cases:
+            o, h, s = copy.deepcopy((oracle, host, scenario))
+            change(o, h, s)
+            require(compare(o, h, scenario=s, **arguments), expected, "script pending hid " + expected)
+        require(compare(oracle, host, scenario=scenario), "script-site-unmapped", "WITNESS valid bound script pair", "pending")
+    elif name == "P2 script independent failures":
+        # These existing failures require no source-site identity. Each stays a failure with a script draw
+        # on either side, including equal script sites that would otherwise establish an unjustified exact claim.
+        for rng, expected in (({"kind": "none"}, "rng-unexpected-draw"),
+                              ({"kind": "tape", "values": []}, "rng-tape-exhausted")):
+            for drawn_runtime in ("oracle", "host", "both"):
+                oracle, host = _reference({"kind": "tape", "values": [0.5]})
+                for runtime, trace in (("oracle", oracle), ("host", host)):
+                    trace[0]["rng"] = rng
+                    if drawn_runtime in (runtime, "both"):
+                        next(row for row in trace if row.get("kind") == "rng-draw")["site"] = "script:Alpha#label#1"
+                    else:
+                        trace[1:-1] = [row for row in trace[1:-1] if row.get("kind") != "rng-draw"]
+                        _refoot(trace)
+                require(compare(oracle, host), expected, drawn_runtime + " script draw with " + rng["kind"], "fail")
+        for extra_runtime in ("oracle", "host"):
+            for values, expected in (([0.5], "rng-tape-exhausted"), ([0.5, 0.5], "rng-draw-count")):
+                oracle, host = _reference({"kind": "tape", "values": values})
+                extra = oracle if extra_runtime == "oracle" else host
+                extra.insert(3, _ev(1, "m1", "rng-draw", site="script:Alpha#label#1", occurrence=2,
+                                    value=0.5, purpose="script draw"))
+                _refoot(extra)
+                require(compare(oracle, host), expected, extra_runtime + " extra script draw", "fail")
+        oracle, host = _reference({"kind": "tape", "values": [0.5]})
+        next(row for row in host if row.get("kind") == "rng-draw")["site"] = "script:Alpha#label#1"
+        require(compare(oracle, host), "script-site-unmapped", "WITNESS valid equal draw counts still defer", "pending")
+    elif name == "P2 script refusal before draw":
+        # The real oracle can refuse an unattributed script call before logging a draw. A generic aborted footer
+        # carries no attribution evidence; neither a peer's script draw nor its absence turns the refusal pending.
+        for failed_runtime in ("oracle", "host"):
+            for peer_script in (False, True):
+                oracle, host = _reference({"kind": "tape", "values": [0.5]})
+                failed, peer = (oracle, host) if failed_runtime == "oracle" else (host, oracle)
+                _cut_reference(failed, 1)
+                if peer_script:
+                    next(row for row in peer if row.get("kind") == "rng-draw")["site"] = "script:Alpha#label#1"
+                scenario = _scenario()
+                scenario["rng"] = oracle[0]["rng"]
+                for supplied in (None, scenario):
+                    require(compare(oracle, host, scenario=supplied), "aborted",
+                            failed_runtime + " pre-draw refusal, peer script=" + str(peer_script)
+                            + ", scenario supplied=" + str(supplied is not None))
+    elif name == "P2 script pending CLI":
+        import contextlib
+        import io
+        import tempfile
+        with tempfile.TemporaryDirectory(prefix="parity-p2-script-cli-") as folder:
+            root = Path(folder)
+            oracle, host = _reference({"kind": "tape", "values": [0.5]})
+            next(row for row in host if row.get("kind") == "rng-draw")["site"] = "script:Alpha#label#1"
+            for runtime, trace in (("oracle", oracle), ("host", host)):
+                (root / (runtime + ".jsonl")).write_text("\n".join(json.dumps(row) for row in trace) + "\n", encoding="utf-8")
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                status = main(["compare.py", str(root / "oracle.jsonl"), str(root / "host.jsonl"),
+                               "--json", str(root / "report.json")])
+            report = json.loads((root / "report.json").read_text(encoding="utf-8"))
+            require(report, "script-site-unmapped", "physical JSONL pending diagnostic", "pending")
+            _case_require(status == 1 and "S-selftest: pending (script-site-unmapped)" in output.getvalue(), name,
+                          "pending CLI did not expose the diagnostic class and non-success exit")
+    else:
+        raise ValueError("unknown parity-2 check " + name)
+
+
+def _r2_check(name):
+    def require(report, expected, detail):
+        _case_require(report["verdict"] == "unjudgeable" and report["class"] == expected, name,
+                      detail + ": " + repr((report["verdict"], report["class"])))
+
+    def empty_run(status="aborted"):
+        oracle, host = _reference({"kind": "tape", "values": [0.5]})
+        _cut_reference(oracle, 0, status)
+        _cut_reference(host, 0, status)
+        scenario = _scenario()
+        scenario["rng"] = oracle[0]["rng"]
+        return oracle, host, scenario
+
+    def removed_pair(target="m1", button="left", dispose_sid="m1", dispose_tick=1, edge_tick=4):
+        oracle, host, scenario = _input_reference(edge_tick, target, button)
+        for trace in (oracle, host):
+            _cut_reference(trace, 1)
+            trace.insert(-1, _ev(dispose_tick, dispose_sid, "dispose"))
+            _refoot(trace)
+        return oracle, host, scenario
+
+    def truncated_pair(runtime="host", rng=None):
+        oracle, host, scenario = _input_reference()
+        if rng is not None:
+            oracle, host = _reference(rng)
+            scenario["rng"] = rng
+        for trace in (oracle, host):
+            _cut_reference(trace, 2)
+        (oracle if runtime == "oracle" else host).pop()
+        return oracle, host, scenario
+
+    if name == "R2 zero-state runs":
+        for status, expected in (("aborted", "aborted"), ("error", "aborted"), ("timeout", "timeout")):
+            for failed_runtime in ("oracle", "host", "both"):
+                oracle, host = _reference({"kind": "tape", "values": [0.5]})
+                scenario = _scenario()
+                scenario["rng"] = oracle[0]["rng"]
+                for runtime, trace in (("oracle", oracle), ("host", host)):
+                    if failed_runtime in (runtime, "both"):
+                        _cut_reference(trace, 0, status)
+                        try:
+                            load_trace(trace, runtime)
+                        except Unjudgeable as failure:
+                            _case_require(failure.cls == expected, name, "standalone zero-state status was lost")
+                        else:
+                            _case_require(False, name, "standalone failed run was accepted")
+                for supplied in (None, scenario):
+                    require(compare(oracle, host, scenario=supplied), expected,
+                            failed_runtime + " zero-state " + status + ", scenario=" + str(supplied is not None))
+    elif name == "R2 zero-state validation":
+        oracle, host, scenario = empty_run()
+        cases = (
+            ("missing-field", lambda o, h: h[-1].pop("events"), {}),
+            ("malformed", lambda o, h: h[-1].update(states=1), {}),
+            ("build-witness-missing", lambda o, h: h[0].pop("build"), {}),
+            ("source-pin-mismatch", lambda o, h: o[0]["build"].update(sourceZipSha256=H("0")), {}),
+            ("scenario-hash-mismatch", lambda o, h: None, {"scenario_sha": H("c")}),
+            ("pack-hash-mismatch", lambda o, h: None, {"pack_sha": H("d")}),
+            ("artifact-hash-mismatch", lambda o, h: None, {"artifacts": {"host": H("9")}}),
+            ("tick-count-mismatch", lambda o, h: h[-1].update(ticks=3), {}),
+        )
+        for expected, change, arguments in cases:
+            o, h = copy.deepcopy((oracle, host))
+            change(o, h)
+            require(compare(o, h, scenario=scenario, **arguments), expected, "zero-state run hid " + expected)
+        oracle, host, scenario = empty_run("complete")
+        require(compare(oracle, host, scenario=scenario), "malformed", "WITNESS complete run still requires tick 0")
+        oracle, host = _reference()
+        _cut_reference(host, 2)
+        host[1:-1] = [row for row in host[1:-1] if row.get("type") != "state" or row["tick"] != 0]
+        _refoot(host)
+        _revelocity(host)
+        require(compare(oracle, host), "malformed", "WITNESS nonempty failed prefix still requires tick 0")
+        oracle, host = _reference()
+        _cut_reference(host, 2)
+        _where(host, 1, "m1")[0]["velocity"] = [999, 0]
+        require(compare(oracle, host), "malformed", "WITNESS nonempty failed prefix still checks velocity")
+    elif name == "R2 disposed targets":
+        for edge in BUTTON_EDGES:
+            for proof_runtime in ("oracle", "host", "both"):
+                oracle, host, scenario = removed_pair()
+                scenario["input"][-1] = {"tick": 4, "sid": "m1", edge: "left"}
+                for runtime, trace in (("oracle", oracle), ("host", host)):
+                    if proof_runtime not in (runtime, "both"):
+                        trace[1:-1] = [row for row in trace[1:-1] if row.get("kind") != "dispose"]
+                        _refoot(trace)
+                require(compare(oracle, host, scenario=scenario), "scenario-invalid",
+                        proof_runtime + " sole companion disposed before later " + edge)
+        for target, dispose_sid, button in (("unknown", "unknown", "left"), ("m1.b1", "m1.b1", "left"),
+                                             ("m1", "other", "left"), ("m1", "m1", "right")):
+            oracle, host, scenario = removed_pair(target, button, dispose_sid)
+            require(compare(oracle, host, scenario=scenario), "aborted", "WITNESS unrelated or unobserved removal/right edge")
+        oracle, host, scenario = removed_pair(dispose_tick=2, edge_tick=1)
+        require(compare(oracle, host, scenario=scenario), "aborted", "WITNESS disposal after the input is not evidence")
+        for last_tick in (1, 2):
+            for contradicted_runtime in ("oracle", "host", "both"):
+                oracle, host, scenario = removed_pair()
+                for runtime, trace in (("oracle", oracle), ("host", host)):
+                    if contradicted_runtime in (runtime, "both"):
+                        for tick in range(1, last_tick + 1):
+                            trace.insert(-1, _state(tick, "m1", "Walk", "Walk", tick, 640, 640))
+                        _resort(trace)
+                    else:
+                        trace[1:-1] = [row for row in trace[1:-1] if row.get("kind") != "dispose"]
+                    _refoot(trace)
+                require(compare(oracle, host, scenario=scenario), "malformed",
+                        "WITNESS " + contradicted_runtime + " state at/after disposal contradicts removal: " + str(last_tick))
+        oracle, host, scenario = _input_reference(4, "m1.b1")
+        for trace in (oracle, host):
+            _cut_reference(trace, 2)
+        require(compare(oracle, host, scenario=scenario), "aborted", "WITNESS previously pending child is not permanently inactive")
+        for trace in (oracle, host):
+            trace.insert(-1, _ev(2, "m1.b1", "dispose"))
+            _refoot(trace)
+        require(compare(oracle, host, scenario=scenario), "scenario-invalid", "observed pending child was then removed")
+    elif name == "R2 truncated peer proof":
+        # Truncated records are validated but never used as positive proof, even when their dispose event
+        # would establish an irreversible removal in a trace with a footer.
+        oracle, host, scenario = removed_pair()
+        oracle.pop()
+        host.pop()
+        require(compare(oracle, host, scenario=scenario), "truncated", "two truncated removed-target prefixes are not proof")
+        for runtime in ("oracle", "host"):
+            oracle, host, scenario = truncated_pair(runtime)
+            require(compare(oracle, host, scenario=scenario), "scenario-invalid", runtime + " truncation follows valid peer proof")
+            require(compare(oracle, host), "truncated", "WITNESS no supplied scenario preserves " + runtime + " truncation")
+            truncated = oracle if runtime == "oracle" else host
+            try:
+                load_trace(truncated, runtime)
+            except Unjudgeable as failure:
+                _case_require(failure.cls == "truncated", name, "standalone reader lost missing-footer status")
+            else:
+                _case_require(False, name, "standalone reader accepted a truncated trace")
+            truncated[1:] = []
+            require(compare(oracle, host, scenario=scenario), "scenario-invalid", "header-only peer still binds before valid proof")
+        oracle, host, scenario = truncated_pair()
+        oracle.pop()
+        require(compare(oracle, host, scenario=scenario), "truncated", "WITNESS both pending prefixes are truncated")
+        oracle, host, scenario = truncated_pair()
+        scenario["input"][-1]["sid"] = "m1"
+        require(compare(oracle, host, scenario=scenario), "truncated", "WITNESS active target supplies no scenario error")
+    elif name == "R2 truncated validation":
+        for runtime in ("oracle", "host"):
+            oracle, host, scenario = truncated_pair(runtime, {"kind": "tape", "values": [0.5]})
+            cases = (
+                ("missing-field", lambda t: _where(t, 1, "m1")[0].pop("actionAge"), {}),
+                ("malformed", lambda t: _where(t, 1, "m1")[0].update(velocity=[999, 0]), {}),
+                ("build-witness-missing", lambda t: t[0].pop("build"), {}),
+                ("rng-invalid", lambda t: next(row for row in t if row.get("kind") == "rng-draw").update(value=1.25), {}),
+                ("scenario-hash-mismatch", lambda t: None, {"scenario_sha": H("c")}),
+                ("pack-hash-mismatch", lambda t: None, {"pack_sha": H("d")}),
+                ("artifact-hash-mismatch", lambda t: None, {"artifacts": {runtime: H("9")}}),
+            )
+            for expected, change, arguments in cases:
+                o, h = copy.deepcopy((oracle, host))
+                change(o if runtime == "oracle" else h)
+                require(compare(o, h, scenario=scenario, **arguments), expected, runtime + " truncated trace hid " + expected)
+            o, h = copy.deepcopy((oracle, host))
+            o[0]["build"]["sourceZipSha256"] = H("0")
+            require(compare(o, h, scenario=scenario), "source-pin-mismatch", "truncation hid the oracle source pin")
+            o, h = copy.deepcopy((oracle, host))
+            truncated = o if runtime == "oracle" else h
+            truncated[0]["scenario"]["sha256"] = H("c")
+            require(compare(o, h, scenario=scenario), "scenario-hash-mismatch", "truncated header must bind to its peer")
+            o, h = copy.deepcopy((oracle, host))
+            (h if runtime == "oracle" else o)[-1]["ticks"] = 3
+            require(compare(o, h, scenario=scenario), "tick-count-mismatch", "the remaining footer still binds scenario N")
+            o, h = copy.deepcopy((oracle, host))
+            (o if runtime == "oracle" else h).append(_ev(5, "m1", "error", message="late event"))
+            require(compare(o, h, scenario=scenario), "malformed", "scenario N still bounds the truncated body")
+            require(compare(o, h), "malformed", "peer N still bounds the truncated body without scenario")
+        oracle, host, scenario = truncated_pair()
+        bad = copy.deepcopy(scenario)
+        bad["input"] = [{"tick": 0, "sid": "m1", "click": "left"}]
+        report = compare(oracle, host, scenario=bad)
+        require(report, "scenario-invalid", "scenario syntax remains first")
+        _case_require("tick-0" in report["findings"][0]["message"], name, "trace inference hid scenario syntax error")
+    else:
+        raise ValueError("unknown parity review check " + name)
+
+
+def _final_check(name):
+    def require(report, expected, detail, verdict="unjudgeable"):
+        _case_require(report["verdict"] == verdict and report["class"] == expected, name,
+                      detail + ": " + repr((report["verdict"], report["class"])))
+
+    def interrupted(trace, tick):
+        stop = next(index for index, row in enumerate(trace) if row.get("type") == "state"
+                    and row["tick"] == tick and row["sid"] == "m1.b1")
+        trace[:] = trace[:stop]  # m1's final state is present; the second companion's is not.
+
+    if name == "F3 interrupted snapshot":
+        for runtime in ("oracle", "host"):
+            oracle, host = _reference()
+            scenario = _scenario()
+            cut = oracle if runtime == "oracle" else host
+            interrupted(cut, 3)
+            for supplied in (None, scenario):
+                require(compare(oracle, host, scenario=supplied), "truncated", runtime + " final snapshot cut between state rows")
+            o, h = copy.deepcopy((oracle, host))
+            later = o if runtime == "oracle" else h
+            later.append(_ev(4, "m1", "error", message="next tick was reached"))
+            for supplied in (None, scenario):
+                report = compare(o, h, scenario=supplied)
+                require(report, "malformed", "WITNESS later event proves the incomplete snapshot already ended")
+                _case_require("with no dispose event at tick 3" in report["findings"][0]["message"], name,
+                              "later-event witness did not reach the missing population check")
+            o, h = copy.deepcopy((oracle, host))
+            early = o if runtime == "oracle" else h
+            early[:] = [row for row in early if not (row.get("type") == "state"
+                       and row["tick"] == 2 and row["sid"] == "m1.b1")]
+            for supplied in (None, scenario):
+                require(compare(o, h, scenario=supplied), "malformed", "WITNESS earlier missing population remains malformed")
+            for status in ("aborted", "complete"):
+                o, h = copy.deepcopy((oracle, host))
+                declared = o if runtime == "oracle" else h
+                declared.append({"type": "footer", "status": status, "ticks": 3, "draws": 0, "states": 0, "events": 0})
+                _refoot(declared)
+                require(compare(o, h), "malformed", "WITNESS real footer retains complete snapshot rule: " + status)
+            o, h = copy.deepcopy((oracle, host))
+            bad = o if runtime == "oracle" else h
+            _where(bad, 2, "m1.b1")[0]["velocity"] = [999, 0]
+            require(compare(o, h), "malformed", "WITNESS interrupted tail still checks its recorded velocity")
+            oracle, host = _reference()
+            scenario = _scenario()
+            scenario["input"].append({"tick": 2, "sid": "m1.b1", "click": "left"})
+            cut, valid = (oracle, host) if runtime == "oracle" else (host, oracle)
+            interrupted(cut, 2)
+            _cut_reference(valid, 2)
+            require(compare(oracle, host, scenario=scenario), "scenario-invalid", runtime + " interrupted peer cannot hide valid input proof")
+            require(compare(oracle, host), "truncated", "WITNESS interrupted peer without scenario remains truncated")
+        oracle, host = _reference()
+        for trace in (oracle, host):
+            interrupted(trace, 3)
+        require(compare(oracle, host, scenario=_scenario()), "truncated", "WITNESS both interrupted snapshots remain truncated")
+    elif name == "F3 disposal lifecycle":
+        for runtime in ("both", "oracle", "host"):
+            for tick in (2, 4):
+                oracle, host = _reference()
+                for side, trace in (("oracle", oracle), ("host", host)):
+                    if runtime in (side, "both"):
+                        trace.insert(-1, _ev(tick, "m1", "dispose"))
+                        _resort(trace)
+                        _refoot(trace)
+                report = compare(oracle, host)
+                require(report, "malformed", runtime + " state at/after own dispose")
+                _case_require("state at or after dispose tick" in report["findings"][0]["message"], name,
+                              "the lifecycle refusal was hidden by another check")
+        oracle, host = _reference()
+        require(compare(oracle, host), None, "WITNESS dispose-request and disposing state before removal are valid", "exact")
+        # A tentative child's behavior, RNG and dispose-request events are not removal. Its refused sid is
+        # deliberately reused by the next successful child, which must still have valid later state lines.
+        oracle, host = _reference({"kind": "tape", "values": [0.5, 0.5]})
+        for trace in (oracle, host):
+            next(row for row in trace if row.get("kind") == "rng-draw")["occurrence"] = 2
+            next(row for row in trace if row.get("kind") == "birth-request")["attempt"] = 2
+            trace[2:2] = [_ev(1, "m1.b1", "behavior", **{"from": None, "to": "Failed", "cause": "forced"}),
+                          _ev(1, "m1.b1", "rng-draw", site="builtin:behavior-select", occurrence=1,
+                              value=0.5, purpose="tentative child"),
+                          _ev(1, "m1.b1", "dispose-request", reason="failed birth"),
+                          _ev(1, "m1", "birth-refused", child=None, attempt=1, reason="error")]
+            _refoot(trace)
+        require(compare(oracle, host), None, "WITNESS refused tentative sid reuse with request is not disposal", "exact")
+    else:
+        raise ValueError("unknown final comparer check " + name)
+
+
 def burndown_check(name):
     """Focused public-comparer witnesses, also callable by the small source-mutation runner."""
+    if name.startswith("F3 "):
+        return _final_check(name)
+    if name.startswith("R2 "):
+        return _r2_check(name)
+    if name.startswith("P2 "):
+        return _p2_check(name)
     oracle, host = _reference()
     if name == "N269 source pin":
         oracle[0]["build"]["sourceZipSha256"] = H("0")

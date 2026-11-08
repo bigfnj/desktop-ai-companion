@@ -4575,6 +4575,35 @@ CASES = (
         b"          python -X utf8 .\\tests\\run_mutation_capture_checks.py\n",
         "w5-packaging-ci-1: build.yml runs run_mutation_capture_checks.py in one step",
     ),
+
+    # ---- burndown/codex-parity-2 ----
+    ('bd-codex-parity-2: map-reader result method is renamed away',
+     os.path.join(REPO, 'tools', 'ShimejiConvert.ValidationProbe', 'Invoke-Checks.ps1'),
+     b'function Assert-MapReaderResult(', b'function InvalidMapReaderResult(',
+     'bd-codex-parity-2: map-reader verification sources and result method were read'),
+    ('bd-codex-parity-2: local gate only echoes the reader caller',
+     os.path.join(REPO, 'tests', 'run-gate.ps1'),
+     b"try { & (Join-Path $repoRoot 'tools\\ShimejiConvert.ValidationProbe\\Invoke-Checks.ps1') }",
+     b"try { Write-Host (Join-Path $repoRoot 'tools\\ShimejiConvert.ValidationProbe\\Invoke-Checks.ps1') }",
+     'bd-codex-parity-2: local gate invokes the map-reader caller and collects its failure'),
+    ('bd-codex-parity-2: CI only echoes the reader caller',
+     BUILD_YML,
+     b'          .\\tools\\ShimejiConvert.ValidationProbe\\Invoke-Checks.ps1',
+     b'          Write-Host .\\tools\\ShimejiConvert.ValidationProbe\\Invoke-Checks.ps1',
+     'bd-codex-parity-2: CI executes the same map-reader caller'),
+    ('bd-codex-parity-2: caller drops its result self-check',
+     os.path.join(REPO, 'tools', 'ShimejiConvert.ValidationProbe', 'Invoke-Checks.ps1'),
+     b'Test-MapReaderResult\nif ($SelfTestOnly)',
+     b'# Test-MapReaderResult omitted.\nif ($SelfTestOnly)',
+     'bd-codex-parity-2: caller self-check precedes child execution and actual-result grading'),
+
+    # ---- burndown/codex-parity-2-review ----
+    ('bd-codex-parity-2-review: cleanup method disappears', os.path.join(REPO, 'tools', 'ShimejiConvert.ValidationProbe', 'Invoke-Checks.ps1'), b'function Remove-MapReaderScratch(', b'function MissingReaderScratch(', 'bd-codex-parity-2-review: Invoke-Checks.ps1 cleanup method was read'),
+    ('bd-codex-parity-2-review: cleanup parent guard inverts', os.path.join(REPO, 'tools', 'ShimejiConvert.ValidationProbe', 'Invoke-Checks.ps1'), b"if ([IO.Path]::GetDirectoryName($full).TrimEnd('\\') -ine $expectedParent -or", b"if ([IO.Path]::GetDirectoryName($full).TrimEnd('\\') -ieq $expectedParent -or", 'bd-codex-parity-2-review: Invoke-Checks.ps1 confines and executes cleanup before proving absence'),
+    ('bd-codex-parity-2-review: cleanup deletion becomes an echo', os.path.join(REPO, 'tools', 'ShimejiConvert.ValidationProbe', 'Invoke-Checks.ps1'), b'Remove-Item -LiteralPath $full -Recurse -Force -ErrorAction Stop', b"Write-Host 'delete skipped'", 'bd-codex-parity-2-review: Invoke-Checks.ps1 confines and executes cleanup before proving absence'),
+    ('bd-codex-parity-2-review: cleanup loses actual success flag', os.path.join(REPO, 'tools', 'ShimejiConvert.ValidationProbe', 'Invoke-Checks.ps1'), b'$readerPassed=$true', b'$readerPassed=$false', 'bd-codex-parity-2-review: Invoke-Checks.ps1 owns scratch and cleans only after the actual pass'),
+    ('bd-codex-parity-2-review: cleanup becomes unconditional', os.path.join(REPO, 'tools', 'ShimejiConvert.ValidationProbe', 'Invoke-Checks.ps1'), b'if ($readerPassed) {', b'if ($true) {', 'bd-codex-parity-2-review: Invoke-Checks.ps1 owns scratch and cleans only after the actual pass'),
+    ('bd-codex-parity-2-review: cleanup call becomes an echo', os.path.join(REPO, 'tools', 'ShimejiConvert.ValidationProbe', 'Invoke-Checks.ps1'), b'Remove-MapReaderScratch $callerScratch $callerScratchParent', b"Write-Host 'cleanup skipped'", 'bd-codex-parity-2-review: Invoke-Checks.ps1 owns scratch and cleans only after the actual pass'),
 )
 
 
