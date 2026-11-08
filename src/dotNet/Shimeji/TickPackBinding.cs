@@ -7,7 +7,8 @@ namespace DesktopAICompanion.Shimeji
     /// The app's side of packs for the tick host: it stages a member on demand through the app's validated staging path
     /// and its type registry, holds a registry reference for every type a companion runs or draws as, forgets a type
     /// when its registry entry is disposed, and decides how a main member starts. StartUp builds one with the real
-    /// catalog; the window self-test builds one over a real registry with members built in code.
+    /// catalog (StartUp.BindTickPacks); the window self-test builds one through that same method, over a real registry,
+    /// with members built in code and staged through the app's own stager.
     /// </summary>
     internal sealed class TickPackBinding
     {

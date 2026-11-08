@@ -3291,7 +3291,7 @@ CASES = (
     (
         "stale-pet-xml: a companion added by id is staged from the settings copy",
         STARTUP,
-        b"            if (!CompanionCatalog.TryReadPetXml(id, out xmlText, out error))\n",
+        b"            if (!read(id, out xmlText, out error))\n",
         b"            xmlText = Program.MyData.GetXml(); error = null;\n"
         b"            if (string.IsNullOrEmpty(xmlText))\n",
         "stale-pet-xml: a companion added by id",
@@ -4803,6 +4803,16 @@ CASES = (
         b"                WindowTopHit underside = hwndWindow == (IntPtr)0 && Animations.HasUndersideGrip(CurrentAnimation.ID)\n",
         b"                WindowTopHit underside = hwndWindow == (IntPtr)0 && (Animations.HasUndersideGrip(CurrentAnimation.ID) || true)\n",
         "w7-host-1: the window-underside walk runs only for an animation that can hang from one",
+    ),
+    # ---- burndown/w8-shimeji-host-1 ----
+    # N-audit-1106-304: ResolveExtraType's body is StartUp.StageExtraType over a reader it is handed, so the
+    # self-test stages pack members through it. The app's reader is pinned at the call; "bd-w8-shimeji-host-1:".
+    (
+        "bd-w8-shimeji-host-1: ResolveExtraType hands the stager the settings copy (N-audit-1106-304)",
+        STARTUP,
+        b"            return StageExtraType(registry, id, CompanionCatalog.TryReadPetXml, Program.MyData,\n",
+        b"            return StageExtraType(registry, id, delegate (string i, out string x, out string e) { x = Program.MyData.GetXml(); e = null; return true; }, Program.MyData,\n",
+        "stale-pet-xml: a companion added by id",
     ),
 )
 

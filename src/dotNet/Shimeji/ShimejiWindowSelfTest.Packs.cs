@@ -10,8 +10,8 @@ namespace DesktopAICompanion.Shimeji
     /// Packs through the real tick host, the real type registry and the app's pack binding (grimoire/06 section 9): a
     /// synthetic pack built in code, where Alpha (main) starts as Egg, Egg hatches into Alpha, Alpha breeds Ball, and
     /// Ball transforms into a member that does not exist. Each member has its own colour, so the window shows which
-    /// member's frames it draws. Members are staged on demand by id, exactly once, and each registry entry lives exactly
-    /// as long as a companion runs or draws as that member.
+    /// member's frames it draws. Members are staged on demand by id, exactly once, through the app's own stager at each
+    /// member's own size, and each registry entry lives exactly as long as a companion runs or draws as that member.
     /// </summary>
     internal static partial class ShimejiWindowSelfTest
     {
@@ -20,42 +20,36 @@ namespace DesktopAICompanion.Shimeji
         private static void CheckPacks(Action<bool, string> check, StringBuilder log, string scratch)
         {
             var registry = new CompanionTypeRegistry();
-            var typesByXml = new Dictionary<Xml, TickType>();
             var staged = new List<string>();
             var lines = new List<string>();
             bool arriveAsEgg = true;
-            var docs = new Dictionary<string, KeyValuePair<XmlData.RootNode, Color[]>>(StringComparer.Ordinal)
+            var docs = new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 // Alpha has a second frame of its own, so a window that drew the egg's pose from Alpha's sheet would show it.
-                { "sp-alpha", new KeyValuePair<XmlData.RootNode, Color[]>(AlphaDoc(), new[] { Color.Red, Color.DarkRed }) },
-                { "sp-egg", new KeyValuePair<XmlData.RootNode, Color[]>(EggDoc(), new[] { Color.Yellow, Color.Gold }) },
-                { "sp-ball", new KeyValuePair<XmlData.RootNode, Color[]>(BallDoc(), new[] { Color.Blue }) },
+                { "sp-alpha", Serialize(AlphaDoc(), Color.Red, Color.DarkRed) },
+                { "sp-egg", Serialize(EggDoc(), Color.Yellow, Color.Gold) },
+                { "sp-ball", Serialize(BallDoc(), Color.Blue) },
+            };
+            // Members stage through the app's own stager (StartUp.StageExtraType, ResolveExtraType's body), reading these
+            // documents where the app reads a companion's file, sized by settings of their own in which Ball alone is at
+            // 200%: the size the app stages a member at is that member's own (N-audit-1106-304).
+            var sizes = new LocalData(new AppSettingsStore(Path.Combine(scratch, "pack-sizes.json"), null));
+            sizes.SetPetScalePercent("sp-ball", 200);
+            ActiveCompanionSource.PackReader read = delegate (string id, out string xml, out string error)
+            {
+                error = docs.ContainsKey(id) ? null : "not a member of the synthetic pack";
+                return docs.TryGetValue(id, out xml);
             };
             Func<string, CompanionTypeRegistry.Entry> stageType = id =>
             {
                 staged.Add(id);
-                CompanionTypeRegistry.Entry existing;
-                if (registry.TryGet(id, out existing)) return existing;
-                KeyValuePair<XmlData.RootNode, Color[]> doc;
-                if (!docs.TryGetValue(id, out doc)) return null;
-                var frames = new List<Bitmap>();
-                foreach (Color c in doc.Value)
-                {
-                    var b = new Bitmap(64, 64);
-                    using (Graphics g = Graphics.FromImage(b)) g.Clear(c);
-                    frames.Add(b);
-                }
-                var sprites = new Xml(frames, 64, 64);
-                TickType type = TickType.Compile("", doc.Key);
-                type.ApplyScale(1.0, sprites.spriteWidth, sprites.spriteHeight);
-                typesByXml[sprites] = type;
-                var animations = new Animations(sprites) { PetTypeId = id };
-                return registry.Add(id, sprites, animations);
+                return StartUp.StageExtraType(registry, id, read, sizes, line => lines.Add(line));
             };
             CompanionPackIndex index = CompanionPackIndex.Build(new[]
             {
                 IndexEntry("sp-alpha", "Alpha", "main", false), IndexEntry("sp-egg", "Egg", "egg", true), IndexEntry("sp-ball", "Ball", "helper", true),
             });
+            var tickEntries = new Dictionary<string, CompanionTypeRegistry.Entry>(StringComparer.Ordinal);
 
             TickHost host = null;
             var forms = new List<FormCompanion>();
@@ -72,13 +66,13 @@ namespace DesktopAICompanion.Shimeji
                     form => form.Close(),
                     message => lines.Add(message)) { RenderOpacity = 0.0 };
                 host.Environment.SearchesWindows = false;
-                var binding = new TickPackBinding(host, registry, stageType,
-                    x => { TickType t; return typesByXml.TryGetValue(x, out t) ? t : null; },
-                    () => index, id => arriveAsEgg, line => lines.Add(line));
+                // The app's binding, built as StartUp.AttachTickPacks builds it, with the stager wrapped to record entries.
+                TickPackBinding binding = StartUp.BindTickPacks(host, registry, stageType, () => index, id => arriveAsEgg, tickEntries,
+                    line => lines.Add(line));
 
                 // The user adds Alpha: its own entry is held by its window (as StartUp's petEntries does).
                 alphaEntry = stageType("sp-alpha");
-                TickType alpha = typesByXml[alphaEntry.Xml];
+                TickType alpha = TickStaging.Of(alphaEntry.Xml);
                 host.AddType(binding.Describe(alphaEntry, alpha));
                 registry.Increment(alphaEntry);
                 staged.Clear();
@@ -96,7 +90,7 @@ namespace DesktopAICompanion.Shimeji
                 TickMascot m = host.Spawn(start, new TickPoint(work.Left + work.Width / 2, work.Bottom), false, behaviour, window);
                 CompanionTypeRegistry.Entry eggEntry;
                 registry.TryGet("sp-egg", out eggEntry);
-                TickType egg = eggEntry == null ? null : typesByXml[eggEntry.Xml];
+                TickType egg = eggEntry == null ? null : TickStaging.Of(eggEntry.Xml);
                 check(eggEntry != null && eggEntry.RefCount == 1 && alphaEntry.RefCount == 1,
                     "packs: the egg's registry entry is held from the spawn (egg " + (eggEntry == null ? "none" : eggEntry.RefCount.ToString())
                     + ", alpha " + alphaEntry.RefCount + ")");
@@ -127,10 +121,26 @@ namespace DesktopAICompanion.Shimeji
                 }
                 CompanionTypeRegistry.Entry ballEntry;
                 registry.TryGet("sp-ball", out ballEntry);
+                TickType ball = ballEntry == null ? null : TickStaging.Of(ballEntry.Xml);
                 int ballStaged = staged.FindAll(s => s == "sp-ball").Count;
-                check(child != null && ballEntry != null && ReferenceEquals(child.Type, typesByXml[ballEntry.Xml]) && ballStaged == 1
+                check(child != null && ball != null && ReferenceEquals(child.Type, ball) && ballStaged == 1
                       && ballEntry.RefCount == 1,
                     "packs: Alpha's birth is a Ball, staged once on demand and held while pending (staged " + ballStaged + ")");
+
+                // Each member at its OWN size: Ball's setting says 200%, Alpha's and the egg's say nothing (100%).
+                check(ball != null && egg != null && alpha.CellWidth == 64 && egg.CellWidth == 64 && ball.CellWidth == 128
+                      && ball.CellWidth == ballEntry.Xml.spriteWidth,
+                    "packs: a member stages through the app's stager at its own size setting (cells: alpha " + alpha.CellWidth
+                    + ", egg " + (egg == null ? "none" : egg.CellWidth.ToString()) + ", ball " + (ball == null ? "none" : ball.CellWidth.ToString()) + ")");
+
+                // Every member the world staged is recorded for its windows under its type name, as the app's wrapper records
+                // it: a birth's window finds its registry entry there (StartUp.OpenBornTickPet).
+                CompanionTypeRegistry.Entry recordedEgg, recordedBall;
+                tickEntries.TryGetValue("sp-egg", out recordedEgg);
+                tickEntries.TryGetValue("sp-ball", out recordedBall);
+                check(recordedEgg != null && ReferenceEquals(recordedEgg, eggEntry) && recordedBall != null && ReferenceEquals(recordedBall, ballEntry),
+                    "packs: every member the world stages is recorded with its registry entry, as the app's binding records it (recorded "
+                    + string.Join("|", new List<string>(tickEntries.Keys)) + ")");
 
                 host.Step();   // the birth activates in its own window, drawing Ball's frames
                 FormCompanion ballWindow = child == null ? null : host.FormOf(child);
@@ -140,7 +150,7 @@ namespace DesktopAICompanion.Shimeji
                 // Ball keeps transforming into a member the pack does not have: it stays a Ball, said once.
                 for (int i = 0; i < 6; i++) host.Step();
                 int ghostLines = lines.FindAll(l => l.Contains("'Ghost'")).Count;
-                check(child != null && !child.Disposing && ballEntry != null && ReferenceEquals(child.Type, typesByXml[ballEntry.Xml]) && ghostLines == 1,
+                check(child != null && !child.Disposing && ball != null && ReferenceEquals(child.Type, ball) && ghostLines == 1,
                     "packs: a missing member keeps the current type, with one diagnostic however often it is named (" + ghostLines + ")");
 
                 // The born companion leaves: its member's registry entry goes with it.

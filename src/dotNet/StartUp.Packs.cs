@@ -17,20 +17,35 @@ namespace DesktopAICompanion
 
         private void AttachTickPacks(Shimeji.TickHost host)
         {
-            tickPacks = new Shimeji.TickPackBinding(host, registry, ResolveExtraType, Shimeji.TickStaging.Of,
-                CompanionCatalog.PackIndexLocal,
-                id => Program.MyData == null || Program.MyData.GetArriveAsEgg(id),
+            tickPacks = BindTickPacks(host, registry, ResolveExtraType, CompanionCatalog.PackIndexLocal,
+                id => Program.MyData == null || Program.MyData.GetArriveAsEgg(id), tickEntries,
                 line => AddDebugInfo(DEBUG_TYPE.warning, "[tick] " + line));
             tickPacks.StagePreviewMember = (scope, key) => previewPacks.Stage(registry, scope, key, PreviewScaleFactor(),
                 line => AddDebugInfo(DEBUG_TYPE.warning, "[tick] " + line));
-            // A staged member's windows (a birth of it) find its registry entry the way a spawned type's do.
+        }
+
+        /// <summary>
+        /// The app's pack binding over what it is handed: members are staged through <paramref name="stageType"/>, a staged
+        /// Xml's tick type is read with TickStaging.Of, and every member the world stages is recorded in
+        /// <paramref name="entries"/> under its type name. Static so --shimeji-window-selftest drives this wiring and the
+        /// recording, not a copy of them (N-audit-1106-304).
+        /// </summary>
+        internal static Shimeji.TickPackBinding BindTickPacks(Shimeji.TickHost host, CompanionTypeRegistry registry,
+            Func<string, CompanionTypeRegistry.Entry> stageType, Func<CompanionPackIndex> index, Func<string, bool> arriveAsEgg,
+            System.Collections.Generic.IDictionary<string, CompanionTypeRegistry.Entry> entries, Action<string> log)
+        {
+            var binding = new Shimeji.TickPackBinding(host, registry, stageType, Shimeji.TickStaging.Of, index, arriveAsEgg, log);
+            // A staged member's windows (a birth of it) find its registry entry the way a spawned type's do. This wraps the
+            // stager the binding's constructor just set, so it comes AFTER the binding: wrapped before, the constructor
+            // would replace it and a born member's window would hold no registry entry.
             Func<Shimeji.TickType, string, Shimeji.TickHostType> stage = host.StageMember;
             host.StageMember = delegate (Shimeji.TickType from, string key)
             {
                 Shimeji.TickHostType t = stage(from, key);
-                if (t != null) tickEntries[t.Type.Name] = t.Owner as CompanionTypeRegistry.Entry;
+                if (t != null) entries[t.Type.Name] = t.Owner as CompanionTypeRegistry.Entry;
                 return t;
             };
+            return binding;
         }
 
         /// <summary>A spawned tick type's pack scope: a preview's members resolve only in its own namespace.</summary>

@@ -5004,9 +5004,14 @@ Assert-True ($sspReloadOnScreen -cmatch 'case StartUp\.CompanionReloadOutcome\.N
 # The same rule for every companion the mix loads: a pet added by id is staged from its own file each time it is staged,
 # never from the settings copy, which is what kept those copies current while the default was not. WITNESS-shaped: the
 # file read is present AND the settings copy is absent.
+# Since N-audit-1106-304 the body is StageExtraType, over a reader the app hands it (the self-test hands its own), so the
+# app's reader is pinned at ResolveExtraType's call and the read at StageExtraType's.
 $sspExtra = Get-MethodBody $startUpCodeHost 'private CompanionTypeRegistry.Entry ResolveExtraType(string id)' @("`n        private ", "`n        internal ", "`n        public ")
-Assert-True ($sspExtra.Length -gt 0 -and $sspExtra.Contains('CompanionCatalog.TryReadPetXml(id, out xmlText, out error)') -and
-    -not $sspExtra.Contains('GetXml(')) (
+$sspStage = Get-MethodBody $startUpCodeHost 'internal static CompanionTypeRegistry.Entry StageExtraType(' @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($sspExtra.Length -gt 0 -and $sspStage.Length -gt 0 -and
+    $sspExtra -cmatch 'return StageExtraType\(registry, id, CompanionCatalog\.TryReadPetXml, Program\.MyData,' -and
+    $sspStage.Contains('if (!read(id, out xmlText, out error))') -and
+    -not $sspExtra.Contains('GetXml(') -and -not $sspStage.Contains('GetXml(')) (
     'stale-pet-xml: a companion added by id is staged from its own file, never from the settings copy')
 
 # ---- lane feature/tray-questions ----
