@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace DesktopAICompanion.Shimeji
 {
@@ -628,8 +630,21 @@ namespace DesktopAICompanion.Shimeji
                         return "unverified: the untraced footer lacks unobservedDraws, unobservedEvents or eventSequenceSha256";
                     if (!FooterBool(g, "tapeExhausted", out offFlag))
                         return "unverified: the untraced footer carries no tapeExhausted, and false is never inferred from absent draw lines";
+                    // 10.5.3 compares the ACTUAL trace-on draw count, so the traced footer's totals are first held to the
+                    // lines the trace holds: its event lines, and among them the rng-draw ones. Compared only with each
+                    // other, two footers raised alike (one writer counter wrong on both runs) would agree and prove it.
                     var events = new StringBuilder();
-                    foreach (string line in Lines(on, "{\"type\":\"event\"")) events.Append(line).Append('\n');
+                    int eventLines = 0, drawLines = 0;
+                    foreach (string line in Lines(on, "{\"type\":\"event\""))
+                    {
+                        events.Append(line).Append('\n');
+                        eventLines++;
+                        using (JsonDocument d = JsonDocument.Parse(line))
+                            if (FooterText(d.RootElement, "kind") == "rng-draw") drawLines++;
+                    }
+                    if (onDraws != drawLines || onEvents != eventLines)
+                        return "failed: the traced footer counts " + onDraws + " draws and " + onEvents + " events, its trace holds "
+                            + drawLines + " rng-draw lines and " + eventLines + " event lines";
                     string onDigest = ParityRun.Sha256(Encoding.UTF8.GetBytes(events.ToString()));
                     string onFinal = string.Join("\n", Lines(on, "{\"type\":\"state\",\"tick\":" + ticks + ","));
                     string offStates = string.Join("\n", Lines(off, "{\"type\":\"state\""));
@@ -678,6 +693,17 @@ namespace DesktopAICompanion.Shimeji
             return trace.Replace(footer, footer.Replace(from, to));
         }
 
+        /// <summary>A trace with its footer's integer <paramref name="field"/> raised by <paramref name="delta"/> (0 leaves it
+        /// as written, through the same edit); null when the footer has no such integer.</summary>
+        private static string Retally(string trace, string field, int delta)
+        {
+            string footer = LastFooter(trace);
+            if (footer == null) return null;
+            Match m = Regex.Match(footer, "\"" + field + "\":(\\d+)");
+            if (!m.Success) return null;
+            return EditFooter(trace, m.Value, "\"" + field + "\":" + (int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture) + delta).ToString(CultureInfo.InvariantCulture));
+        }
+
         private static void CheckTraceOffProof(Action<bool, string> check, string on, string off, string outrunOn, string outrunOff)
         {
             int onDraws = Lines(on, "\"kind\":\"rng-draw\"").Count, onEvents = Lines(on, "{\"type\":\"event\"").Count;
@@ -693,6 +719,19 @@ namespace DesktopAICompanion.Shimeji
             check(outrun == Proven && FooterFlag(outrunOn) == "true" && FooterFlag(outrunOff) == "true",
                 "parity trace-on/off proof: over an outrun tape it holds, with tapeExhausted true on both footers (" + outrun
                 + ", traced " + FooterFlag(outrunOn) + ", untraced " + FooterFlag(outrunOff) + ")");
+
+            // The traced totals are the lines the trace holds (Codex review H2-01): both footers raised alike, by one event
+            // or one draw, are refused, while the same edit by zero (the unchanged twin, through the same helper) still
+            // proves it, so the refusals are the totals' and not the edit's.
+            string twin = JudgeObservationProof(Retally(on, "events", 0), Retally(off, "unobservedEvents", 0));
+            check(twin == Proven,
+                "parity trace-on/off proof: WITNESS the footer-retally helper changes nothing at +0 on both runs (" + twin + ")");
+            string moreEvents = JudgeObservationProof(Retally(on, "events", 1), Retally(off, "unobservedEvents", 1));
+            string moreDraws = JudgeObservationProof(Retally(on, "draws", 1), Retally(off, "unobservedDraws", 1));
+            check(moreEvents.StartsWith("failed: the traced footer counts", StringComparison.Ordinal)
+                  && moreDraws.StartsWith("failed: the traced footer counts", StringComparison.Ordinal),
+                "parity trace-on/off proof: footer totals raised alike on both runs fail it, held to the lines the traced run holds ("
+                + moreEvents + "; " + moreDraws + ")");
 
             // CH14: the untraced footer's flag is compared, not taken on trust.
             string forged = JudgeObservationProof(outrunOn, EditFooter(outrunOff, "\"tapeExhausted\":true", "\"tapeExhausted\":false"));

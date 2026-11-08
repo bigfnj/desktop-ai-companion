@@ -24,6 +24,7 @@ namespace DesktopAICompanion.Shimeji
                 CheckErrorWrappers(check, golden, emitted);
                 CheckErrorPartialArrival(check, golden, emitted);
                 CheckErrorWhereItArises(check, golden, emitted);
+                CheckErrorTypedSites(check, golden, emitted);
                 CheckErrorNoEvent(check);
 
                 var invalid = new List<string>();
@@ -586,6 +587,100 @@ namespace DesktopAICompanion.Shimeji
             Golden(golden, message, "the first behaviour could not be built: action 'Mover' (MoveWithTurn) needs at least two variants");
             check(ctor == "{\"code\":\"unclassified\",\"lookup\":null,\"via\":[\"startup\"]}",
                 "parity error: a constructor fault reached through an ActionReference is unclassified, never the declaration's key (" + ctor + ")");
+        }
+
+        // ---- action-missing, variant-missing, scan-target-missing at their real sites (Codex review H2-03)
+
+        /// <summary>
+        /// The three codes the checks above never see written: each driven through the real engine to the site that forms
+        /// it, and the error line the trace writer wrote compared whole (code, operands, via). The validator's samples only
+        /// show the shape is legal; a factory that formed the wrong code with the same lookup shape (variant-missing and
+        /// scan-target-missing both carry a refKey alone) passes the validator and fails here.
+        /// </summary>
+        private static void CheckErrorTypedSites(Action<bool, string> check, List<string> golden, List<string> emitted)
+        {
+            string message;
+
+            // action-missing (TickWorld.BuildAction by name): a behaviour that runs an action its member does not declare,
+            // asked for at startup. The lookup typed it with the member it searched and the name it was asked for; the
+            // startup wrapper hands that cause on.
+            TickType lost = EType("Lost", EBeh(10, "Stand", "Stand"), EAct(30, "Stand", "Stay", null, 100), EBeh(11, "Astray", "Nowhere"));
+            var ta = new StringWriter();
+            ParityTraceWriter wa;
+            TickWorld actionWorld = EWorld(ta, out wa, lost);
+            TickMascot astray = actionWorld.CreateAtStart("m1", lost, new TickPoint(640, 680), false, "Astray");
+            string actionError = ErrorOf(One(Errors(ta, emitted)), out message);
+            Golden(golden, message, "the first behaviour could not be built: no action named 'Nowhere' in Lost");
+            check(actionError == "{\"code\":\"action-missing\",\"lookup\":{\"imageSet\":\"Lost\",\"action\":\"Nowhere\"},\"via\":[\"startup\"]}" && astray.Disposing,
+                "parity error: a behaviour whose action its member does not declare is action-missing, imageSet the member searched,"
+                + " action the name asked for, via startup (" + actionError + ")");
+
+            // variant-missing (TickAction.PlayPose): an action whose only variant's condition is false has none to play. The
+            // step reaches the pose, the action's own refKey names it, and the step's catch reports it (via []).
+            var blind = EAct(30, "Blind", "Stay", null, 100);
+            blind.Act.Variants.Variant[0].When = "false";
+            TickType dark = EType("Dark", EBeh(10, "Blind", "Blind"), blind);
+            var tv = new StringWriter();
+            ParityTraceWriter wv;
+            TickWorld variantWorld = EWorld(tv, out wv, dark);
+            TickMascot unseen = variantWorld.CreateAtStart("m1", dark, new TickPoint(640, 680), false, "Blind");
+            variantWorld.ActivateStartup();
+            wv.Tick = 1;
+            variantWorld.StepOnce();
+            string variantError = ErrorOf(One(Errors(tv, emitted)), out message);
+            Golden(golden, message, "action 'Blind' has no variant whose condition holds");
+            check(variantError == "{\"code\":\"variant-missing\",\"lookup\":{\"refKey\":" + JsonLine.Quote(ErrActionKey("Dark", 30)) + "},\"via\":[]}" && unseen.Disposing,
+                "parity error: an action with no variant whose condition holds is variant-missing, named by its own refKey, via [] ("
+                + variantError + ")");
+
+            // scan-target-missing (TickSocialFamily.Require): a ScanMove keeps a turn in progress across a re-Init (its
+            // turning flag is set false only at construction), so when a looping Sequence enters it again after its target
+            // stopped offering, the scan finds no one, HasNext still holds for the turn, and the step reads the target it
+            // does not have. Manager order puts the target first, so its own step has dropped the offer before the seeker
+            // scans again.
+            TickMascot seeker, target;
+            StringWriter ts = RunLostTarget(out seeker, out target);
+            string scanLine = One(Errors(ts, emitted));
+            string scanError = ErrorOf(scanLine, out message);
+            Golden(golden, message, "action 'Seeking' has no scan target");
+            check(scanError == "{\"code\":\"scan-target-missing\",\"lookup\":{\"refKey\":" + JsonLine.Quote(ErrActionKey("Seek", 31)) + "},\"via\":[]}"
+                  && scanLine != null && scanLine.Contains("\"sid\":\"m2\"") && seeker.Disposing && !target.Disposing,
+                "parity error: a ScanMove that resumes its turn with no target is scan-target-missing, named by its own refKey, via [] ("
+                + scanError + "; seeker " + (seeker.Disposing ? "disposed" : "alive") + ")");
+        }
+
+        /// <summary>A target (m1, member Tgt) that offers "hug" for two ticks and then rests, and a seeker (m2, member Seek)
+        /// whose looping Sequence runs a two-tick ScanMove with a ten-tick turn variant. The seeker is put into it once the
+        /// target offers (a scan needs a manager), turns towards the target, and its ScanMove is entered again after the
+        /// offer is gone.</summary>
+        private static StringWriter RunLostTarget(out TickMascot seeker, out TickMascot target)
+        {
+            var scan = EAct(31, "Seeking", "Embedded", "ScanMove", 10, EParam("Affordance", "hug"), EParam("Duration", "2"));
+            var turn = new XmlData.VariantNode { Turn = true, TurnSpecified = true, Pose = new[] { new XmlData.PoseNode { Frame = 0, Ticks = 10 } } };
+            scan.Act.Variants.Variant = new[] { scan.Act.Variants.Variant[0], turn };
+            var loop = EAct(32, "Looping", "Sequence", null, 1);
+            loop.Act.Variants = null;
+            loop.Act.Loop = true;
+            loop.Act.LoopSpecified = true;
+            loop.Act.Children = new XmlData.ChildrenNode { Mode = "sequence", Child = new[] { new XmlData.CompositeChildNode { Animation = "Seeking" } } };
+            TickType seek = EType("Seek", EBeh(10, "Stand", "Stand"), EAct(30, "Stand", "Stay", null, 100), EBeh(11, "Seek", "Looping"), scan, loop);
+            TickType tgt = EType("Tgt", EBeh(10, "Rest", "Resting"), EAct(30, "Resting", "Stay", null, 100),
+                EBeh(11, "Offer", "Offering"), EAct(31, "Offering", "Stay", null, 100, EParam("Affordance", "hug"), EParam("Duration", "2")));
+            var trace = new StringWriter();
+            ParityTraceWriter writer;
+            TickWorld world = EWorld(trace, out writer, seek, tgt);
+            target = world.CreateAtStart("m1", tgt, new TickPoint(900, 680), false, "Offer");
+            seeker = world.CreateAtStart("m2", seek, new TickPoint(640, 680), false, "Stand");
+            world.ActivateStartup();
+            writer.Tick = 1;
+            world.StepOnce();
+            seeker.SetBehaviour(world.BuildBehaviourByName(seek, "Seek", seeker), "forced");
+            for (int tick = 2; tick <= 8 && !seeker.Disposing; tick++)
+            {
+                writer.Tick = tick;
+                world.StepOnce();
+            }
+            return trace;
         }
 
         // ---- CH18

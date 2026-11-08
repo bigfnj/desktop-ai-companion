@@ -23572,6 +23572,48 @@ CASES = (
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      "parity error: a foreign exception while a starter is created is unclassified via startup"),
+    # Part 4, Codex's review of 5c45b91d. H2-01: the observation proof holds the traced footer's totals to the lines the
+    # trace holds (the check bypassed, and a writer counting each event twice on both runs, which no on/off comparison
+    # can see). H2-03: each of action-missing, variant-missing and scan-target-missing is pinned by an emitted error at
+    # its real site, so a factory that forms the wrong code with the same lookup shape fails. --only="bd-parity-host-2:
+    # part 4" runs exactly these.
+    ("bd-parity-host-2: part 4: the proof trusts footer totals raised alike (H2-01)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ShimejiWindowSelfTest.Parity.cs"),
+     b'                    if (onDraws != drawLines || onEvents != eventLines)\n'
+     b'                        return "failed: the traced footer counts " + onDraws + " draws and " + onEvents + " events, its trace holds "\n'
+     b'                            + drawLines + " rng-draw lines and " + eventLines + " event lines";\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity trace-on/off proof: footer totals raised alike on both runs fail it'),
+    ("bd-parity-host-2: part 4: the trace writer counts each event twice (H2-01)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+     b'            _events++;\n            return new JsonLine().Str("type", "event")',
+     b'            _events += 2;\n            return new JsonLine().Str("type", "event")',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'failed: the traced footer counts'),
+    ("bd-parity-host-2: part 4: a missing variant is typed scan-target-missing (H2-03)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'new TickFaultCause(VariantMissing, null, null, null, action.RefKey, null)',
+     b'new TickFaultCause(ScanTargetMissing, null, null, null, action.RefKey, null)',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity error: an action with no variant whose condition holds is variant-missing'),
+    ("bd-parity-host-2: part 4: a missing scan target is typed variant-missing (H2-03)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'new TickFaultCause(ScanTargetMissing, null, null, null, action.RefKey, null)',
+     b'new TickFaultCause(VariantMissing, null, null, null, action.RefKey, null)',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity error: a ScanMove that resumes its turn with no target is scan-target-missing'),
+    ("bd-parity-host-2: part 4: a missing action is typed behavior-missing (H2-03)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+     b'new TickFaultCause(ActionMissing, searched.Name, null, requested, null, null)',
+     b'new TickFaultCause(BehaviorMissing, searched.Name, null, requested, null, null)',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'parity error: a behaviour whose action its member does not declare is action-missing'),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
