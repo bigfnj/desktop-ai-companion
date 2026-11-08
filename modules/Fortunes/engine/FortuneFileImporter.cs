@@ -14,6 +14,7 @@ namespace DesktopAICompanion.Ai
         public string DestinationPath;
         public bool Imported;
         public string Error;
+        public int RowsLeftOut;          // entries of this plain pack its validation dropped (N-audit-1106-212); read for imported items
     }
 
     internal sealed class FortuneImportBatchResult
@@ -450,17 +451,20 @@ namespace DesktopAICompanion.Ai
                             Math.Max(0L, limits.Entries));
                         int entryCount;
                         string validationError;
+                        int rowsLeftOut;
                         if (!FortuneProvider.TryValidateCustomPackBytes(
                                 bytes,
                                 Path.GetFileNameWithoutExtension(fileName),
                                 maximumFileEntries,
                                 out entryCount,
-                                out validationError))
+                                out validationError,
+                                out rowsLeftOut))
                         {
                             TryDeleteFile(temporaryPath);
                             item.Error = "Rejected content: " + validationError;
                             continue;
                         }
+                        item.RowsLeftOut = rowsLeftOut;   // the module's status says so once the pack is in (N-audit-1106-212)
 
                         staged.Add(new StagedImport {
                             Result = item,

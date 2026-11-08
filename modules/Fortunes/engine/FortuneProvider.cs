@@ -1311,6 +1311,8 @@ namespace DesktopAICompanion.Ai
                 try { LoadCustomFromDirectory(parsed, directory, DefaultCustomLoadLimits, skips); }
                 catch { parsed.Clear(); skips.Error++; skips.WalkFaulted = true; }
                 if (skips.Total > 0) Say(DescribeSkips(skips));
+                // Its own line, because a dropped entry is not a skipped file (N-audit-1106-212).
+                if (skips.RowsLeftOut > 0) Say(DescribeRowsLeftOut(skips));
                 // A walk that FAULTED is a partial answer: published, so the pool has something to say now,
                 // but never served as a cache hit. Its signature cannot match the folder's, so the next
                 // reader walks again and heals it. It used to be cached under the folder's real fingerprint
@@ -1337,6 +1339,11 @@ namespace DesktopAICompanion.Ai
             // not reach are not refused, they are unknown, so the result is published for now and never served
             // as a cache hit (RA-107). Counted once under Error.
             public bool WalkFaulted;
+            // ENTRIES, not files (N-audit-1106-212): what the packs that DID load dropped for length or a control
+            // character, and how many packs dropped any. Deliberately outside Total, Damaged and DidNotFit, which
+            // count refused FILES and word the pane's note: a pack that loaded is not a skipped pack.
+            public int RowsLeftOut;
+            public int PacksWithRowsLeftOut;
             public int Total { get { return Malformed + Unreadable + Oversized + BadName + Budget + OverCap + Error; } }
             /// <summary>Files the user has to fix or remove: damaged, unreadable, badly named, or faulting.</summary>
             public int Damaged { get { return Malformed + Unreadable + BadName + Error; } }
@@ -1355,6 +1362,15 @@ namespace DesktopAICompanion.Ai
                    " over-cap=" + skips.OverCap.ToString(CultureInfo.InvariantCulture) +
                    " error=" + skips.Error.ToString(CultureInfo.InvariantCulture) +
                    (skips.WalkFaulted ? " (the folder walk faulted; this parse is partial and is retried on the next read)" : "");
+        }
+
+        /// <summary>The log line for entries the loaded packs dropped (N-audit-1106-212). Counts only, never a pack
+        /// name or an entry's text: the same LogSink rule as <see cref="DescribeSkips"/>.</summary>
+        internal static string DescribeRowsLeftOut(CustomLoadSkips skips)
+        {
+            return "pack entries left out: entries=" + skips.RowsLeftOut.ToString(CultureInfo.InvariantCulture) +
+                   " packs=" + skips.PacksWithRowsLeftOut.ToString(CultureInfo.InvariantCulture) +
+                   " (each under 8 or over 280 characters, or holding a control character)";
         }
 
         /// <summary>
@@ -1457,6 +1473,7 @@ namespace DesktopAICompanion.Ai
             public string Stamp;                  // path|length|lastWriteUtcTicks
             public List<FortuneEntry> Entries;    // null when the file was refused
             public string Skip;                   // the refusal category when Entries is null
+            public int LeftOut;                   // entries a loadable plain pack dropped (N-audit-1106-212); cached with the parse
         }
         private static readonly Dictionary<string, PackParse> _packCache =
             new Dictionary<string, PackParse>(StringComparer.OrdinalIgnoreCase);
@@ -1610,16 +1627,18 @@ namespace DesktopAICompanion.Ai
                     List<FortuneEntry> staged;
                     int chargedBytes;
                     string skip;
+                    int leftOut;
                     try
                     {
                         staged = LoadOnePack(path, limits, totalBytes, totalEntries, useCache,
-                            out chargedBytes, out skip);
+                            out chargedBytes, out skip, out leftOut);
                     }
                     catch (Exception)
                     {
                         staged = null;
                         chargedBytes = 0;
                         skip = "error";
+                        leftOut = 0;
                     }
                     if (staged == null)
                     {
@@ -1637,6 +1656,11 @@ namespace DesktopAICompanion.Ai
                     totalEntries += staged.Count;
                     totalBytes += chargedBytes;
                     files++;
+                    if (leftOut > 0)
+                    {
+                        skips.RowsLeftOut += leftOut;   // a loaded file's dropped entries (N-audit-1106-212)
+                        skips.PacksWithRowsLeftOut++;
+                    }
                 }
             }
             catch { walkFaulted = true; }
@@ -1673,10 +1697,12 @@ namespace DesktopAICompanion.Ai
             int totalEntries,
             bool useCache,
             out int chargedBytes,
-            out string skip)
+            out string skip,
+            out int leftOut)
         {
             chargedBytes = 0;
             skip = null;
+            leftOut = 0;
             int remainingBytes = limits.TotalBytes - totalBytes;
             int fileLimit = Math.Min(limits.FileBytes, remainingBytes);
             long declaredLength;
@@ -1740,6 +1766,7 @@ namespace DesktopAICompanion.Ai
                 skip = "budget";
                 return null;
             }
+            leftOut = parse.LeftOut;   // only for a file that loads: a refused one is reported as refused
             return parse.Entries;
         }
 
@@ -1763,12 +1790,14 @@ namespace DesktopAICompanion.Ai
             }
             List<FortuneEntry> staged;
             string validationError;
-            if (!TryParseCustomContent(content, source, maximumEntries, out staged, out validationError))
+            int leftOut;
+            if (!TryParseCustomContent(content, source, maximumEntries, out staged, out validationError, out leftOut))
             {
                 parse.Skip = "malformed";
                 return parse;
             }
             parse.Entries = staged;
+            parse.LeftOut = leftOut;
             return parse;
         }
 
@@ -2036,8 +2065,23 @@ namespace DesktopAICompanion.Ai
             out int entryCount,
             out string error)
         {
+            int leftOut;
+            return TryValidateCustomPackBytes(bytes, source, maximumEntries, out entryCount, out error, out leftOut);
+        }
+
+        /// <summary>As above, also saying how many entries of a loadable plain pack were left out for length or a
+        /// control character (N-audit-1106-212), so the importer and the download can say so.</summary>
+        internal static bool TryValidateCustomPackBytes(
+            byte[] bytes,
+            string source,
+            int maximumEntries,
+            out int entryCount,
+            out string error,
+            out int leftOut)
+        {
             entryCount = 0;
             error = null;
+            leftOut = 0;
             if (bytes == null || bytes.Length < 1 ||
                 bytes.Length > FortunePackLoadPolicy.MaximumFileBytes)
             {
@@ -2064,7 +2108,8 @@ namespace DesktopAICompanion.Ai
                     source,
                     maximumEntries,
                     out staged,
-                    out error))
+                    out error,
+                    out leftOut))
                 return false;
             entryCount = staged.Count;
             return true;
@@ -2366,13 +2411,32 @@ namespace DesktopAICompanion.Ai
         }
 
 
+        // The parser self-test's oracles (RunParserSelfTest) ask only what loads; everything else asks how much did not.
         private static bool TryParsePlainContent(
             string content,
             string source,
             int maximumEntries,
             out List<FortuneEntry> parsed)
         {
+            int leftOut;
+            return TryParsePlainContent(content, source, maximumEntries, out parsed, out leftOut);
+        }
+
+        /// <summary>
+        /// A plain pack's prose, one entry per line or per <c>%</c>-separated block. <paramref name="leftOut"/> counts
+        /// the entries of a pack that LOADS which were dropped because they are not 8..280 characters of plain text
+        /// (a control character refuses one too); 0 whenever the pack is refused, since then nothing of it loads and
+        /// the refusal is what the caller reports.
+        /// </summary>
+        private static bool TryParsePlainContent(
+            string content,
+            string source,
+            int maximumEntries,
+            out List<FortuneEntry> parsed,
+            out int leftOut)
+        {
             parsed = new List<FortuneEntry>();
+            leftOut = 0;
             if (string.IsNullOrEmpty(content) || !IsValidCustomSource(source) ||
                 maximumEntries < 1)
                 return false;
@@ -2383,11 +2447,22 @@ namespace DesktopAICompanion.Ai
             foreach (string chunk in chunks)
             {
                 string text = Regex.Replace(chunk, @"\s+", " ").Trim();
-                if (!IsValidFortuneText(text))
+                // COUNTED, NOT SILENT (N-audit-1106-212). A row outside 8..280 characters was a bare `continue`:
+                // the importer and the download said the pack was added, and the pane's skip note, which counts
+                // FILES, said nothing, so a pack of long quotes arrived a third its size with no word anywhere.
+                // A BLANK chunk is not an entry: the empty side of every `%` separator and the trailing newline
+                // produce one, and counting those would report losses in a pack that lost nothing.
+                if (text.Length == 0)
                     continue;
+                if (!IsValidFortuneText(text))
+                {
+                    leftOut++;
+                    continue;
+                }
                 if (parsed.Count >= maximumEntries)
                 {
                     parsed.Clear();
+                    leftOut = 0;
                     return false;
                 }
 
@@ -2404,18 +2479,24 @@ namespace DesktopAICompanion.Ai
                     Custom = true
                 });
             }
+            if (parsed.Count == 0) leftOut = 0;
             return parsed.Count > 0;
         }
 
+        /// <summary>One pack file's content, tagged or plain. <paramref name="leftOut"/> is the plain parser's
+        /// count of entries a loadable pack dropped (N-audit-1106-212); a tagged pack has none to report, because one
+        /// bad tagged row refuses the whole file.</summary>
         private static bool TryParseCustomContent(
             string content,
             string source,
             int maximumEntries,
             out List<FortuneEntry> parsed,
-            out string error)
+            out string error,
+            out int leftOut)
         {
             parsed = new List<FortuneEntry>();
             error = null;
+            leftOut = 0;
             if (!IsValidCustomSource(source))
             {
                 error = "file name is not a valid custom source identifier";
@@ -2454,7 +2535,8 @@ namespace DesktopAICompanion.Ai
                         content,
                         source,
                         maximumEntries,
-                        out parsed))
+                        out parsed,
+                        out leftOut))
                 {
                     error = "plain fortune content has no valid rows or exceeds the row limit";
                     return false;

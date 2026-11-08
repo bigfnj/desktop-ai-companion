@@ -145,6 +145,10 @@ namespace DesktopAICompanion.FortunesModule
                                  //        (N-cxr-w2-04). A line the contextual picker speaks leaves the random
                                  //        draw's shuffle bag, so the next random line is never that one and the bag
                                  //        still shows every other line before it comes round (N-audit-1106-215).
+                                 //        A plain pack's entries that are not 8 to 280 characters of plain text
+                                 //        are counted, not dropped in silence: the import and download statuses
+                                 //        say how many were left out, and the folder parse logs the count, with
+                                 //        blank separators and trailing newlines never counted (N-audit-1106-212).
                                  // 1.2.1: a pack import whose replace fails and whose backup cannot be put back is
                                  //        counted as a rollback failure, and the batch says its rollback could not be
                                  //        fully verified instead of "all earlier changes were rolled back"
@@ -1682,6 +1686,10 @@ namespace DesktopAICompanion.FortunesModule
 
                 string status = "Imported " + result.ImportedCount +
                     (result.ImportedCount == 1 ? " pack." : " packs.");
+                int rowsLeftOut = 0;
+                foreach (FortuneImportItemResult item in result.Items)
+                    if (item.Imported) rowsLeftOut += item.RowsLeftOut;   // a rejected file's rows were never in
+                status += RowsLeftOutSentence(rowsLeftOut);
                 if (result.RejectedCount > 0)
                 {
                     string firstError = "";
@@ -1703,6 +1711,22 @@ namespace DesktopAICompanion.FortunesModule
             catch (OperationCanceledException) { return "Import cancelled."; }
             catch (Exception ex) { return "✗ Import failed: " + Short(ex.Message); }
             finally { if (ownWrites != null) ownWrites.Dispose(); }
+        }
+
+        /// <summary>
+        /// What the import and download statuses add when a plain pack they put in place dropped entries that are
+        /// not 8 to 280 characters of plain text (N-audit-1106-212); "" when none. Those entries were a bare
+        /// `continue` in the parser, so "Imported 1 pack." was the whole story for a pack that arrived a third its
+        /// size, and the pane's skip note, which counts FILES, had nothing to say about a file that loaded. "Plain
+        /// text" because a control character refuses an entry as well as its length. Counts only: the status
+        /// names no entry, and the folder parse's log line carries the same count per folder. Pure, so the wording
+        /// is asserted.
+        /// </summary>
+        internal static string RowsLeftOutSentence(int entries)
+        {
+            if (entries <= 0) return "";
+            return " " + entries + (entries == 1 ? " entry was" : " entries were") +
+                " left out (a fortune must be 8 to 280 characters of plain text).";
         }
 
         // ---- catalog packs (browse + download through the host) -------------------------------------
@@ -1972,6 +1996,7 @@ namespace DesktopAICompanion.FortunesModule
                 // with nothing after it (only the exception branch fills lastError); DescribeDownload's log
                 // line is where they are told apart.
                 int rejectedId = 0, emptyPayload = 0, malformed = 0, threw = 0;
+                int rowsLeftOut = 0;   // entries the installed packs dropped (N-audit-1106-212)
                 string lastError = "";
                 string lastCategory = "";
                 foreach (CatalogItem item in pending)
@@ -1997,7 +2022,8 @@ namespace DesktopAICompanion.FortunesModule
                         // after the loop parses the new file once more, through the per-file cache's miss for a
                         // file it has not seen: one file per download, on a pool thread; recorded as the
                         // residue in BACKLOG.md rather than fixed by seeding the cache from here.
-                        bool loadable = await Task.Run(delegate { return ValidateDownloadedPack(bytes, item.Id); });
+                        int leftOut = 0;
+                        bool loadable = await Task.Run(delegate { return ValidateDownloadedPack(bytes, item.Id, out leftOut); });
                         if (!loadable) { failed++; malformed++; continue; }
                         // Asynchronous, like the download before it: a synchronous write sat on the UI thread
                         // once per ticked pack (F146; median 23 KB, so the small half of that handler's
@@ -2005,6 +2031,7 @@ namespace DesktopAICompanion.FortunesModule
                         await File.WriteAllBytesAsync(Path.Combine(directory, item.Id + ".txt"), bytes, _shutdown.Token);
                         _selectedPacks.Remove(item.Id);
                         installed++;
+                        rowsLeftOut += leftOut;   // only once the pack is written: a failed write's rows were never in
                     }
                     catch (Exception ex)
                     {
@@ -2021,7 +2048,8 @@ namespace DesktopAICompanion.FortunesModule
                 await RebuildEngineAsync(IndexChange.Packs);   // the new packs join the pool (and the smart index) right away
                 // Drop the installed ones from the available list so the card shows what's still missing.
                 CacheMissingPacks(_availablePacks);
-                string status = "Downloaded " + installed + (installed == 1 ? " pack." : " packs.");
+                string status = "Downloaded " + installed + (installed == 1 ? " pack." : " packs.") +
+                    RowsLeftOutSentence(rowsLeftOut);
                 if (failed > 0)
                     status += " " + failed + (failed == 1 ? " pack" : " packs") + " failed" +
                         (lastError.Length > 0 ? " (" + lastError + ")" : "") + ".";
@@ -2039,13 +2067,13 @@ namespace DesktopAICompanion.FortunesModule
 
         /// <summary>The loader's own admission check over a downloaded pack's bytes, on the pool thread the
         /// download awaits it on (RA-124); the thread is recorded so the probe can assert where it ran.</summary>
-        private bool ValidateDownloadedPack(byte[] bytes, string id)
+        private bool ValidateDownloadedPack(byte[] bytes, string id, out int leftOut)
         {
             System.Threading.Volatile.Write(ref _lastDownloadValidationThread, Environment.CurrentManagedThreadId);
             int entries;
             string error;
             return FortuneProvider.TryValidateCustomPackBytes(bytes, id, FortunePackLoadPolicy.MaximumEntries,
-                out entries, out error);
+                out entries, out error, out leftOut);
         }
         private int _lastDownloadValidationThread;   // diagnostics: the thread the last download's validation ran on
 
