@@ -4723,6 +4723,39 @@ CASES = (
         b"      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>\n    </None> -->\n  </ItemGroup>\n\n  <!-- The validator",
         "bd-w5-converter-1: PetStudio.csproj copies base-conf\\NOTICE.txt to its output",
     ),
+    # ---- burndown/parity-host-2 ----
+    # CH16 of the trace/2 host matrix (CONTRACT-v1.2-trace2-consolidated.md Part D.3), and CH9's "type it from the
+    # message": each case puts one message classifier, or one code chosen outside the factories, into the engine, and
+    # the one CONDITION that guards that path must fail. "bd-parity-host-2:" for one --only.
+    (
+        "bd-parity-host-2: the startup wrapper types a foreign exception from its message (CH16, CH9)",
+        os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+        b'+ "the first behaviour could not be built: " + e.Message, own == null ? null : own.Cause, TickFaultVia.Startup);',
+        b'+ "the first behaviour could not be built: " + e.Message, own == null ? (e.Message.StartsWith("Value cannot be null",'
+        b' StringComparison.Ordinal) ? TickFaultCause.OfMissingBehaviour(type, behaviour) : null) : own.Cause, TickFaultVia.Startup);',
+        "bd-parity-host-2: no statement that forms a fault cause reads a message",
+    ),
+    (
+        "bd-parity-host-2: ReportFault classifies an untyped fault by its message (CH16)",
+        os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+        b'{ Observer.Fault(mascot, message, cause, via); }',
+        b'{ Observer.Fault(mascot, message, cause ?? Classify(mascot, message), via); }',
+        "bd-parity-host-2: the cause a site reports reaches the error object unchanged",
+    ),
+    (
+        "bd-parity-host-2: the trace writer spells a code of its own (CH16)",
+        os.path.join(REPO, "src", "dotNet", "Shimeji", "ParityRun.cs"),
+        b'.Str("code", cause == null ? TickFaultCause.Unclassified : cause.Code)',
+        b'.Str("code", cause == null ? "behavior-missing" : cause.Code)',
+        "bd-parity-host-2: no engine source spells an error code outside TickFaultCause's six constants",
+    ),
+    (
+        "bd-parity-host-2: a factory takes its code from an operand (CH16)",
+        os.path.join(REPO, "src", "dotNet", "Shimeji", "TickRuntime.cs"),
+        b'return new TickFaultCause(ActionMissing, searched.Name, null, requested, null, null);',
+        b'return new TickFaultCause(requested, searched.Name, null, requested, null, null);',
+        "bd-parity-host-2: a fault code is set only by TickFaultCause's private constructor",
+    ),
 )
 
 

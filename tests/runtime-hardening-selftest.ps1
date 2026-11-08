@@ -6280,6 +6280,71 @@ Assert-True ($w6tcLowPins.Count -eq 0) (
     "w6-tests-core-1: CoreTests pins no WarningLevel below its target framework's default of $w6tcFloor" +
     $(if ($w6tcLowPins.Count) { ' -- ' + ($w6tcLowPins -join ', ') } else { '' }))
 
+# ---- burndown/parity-host-2 ----
+# CH16 of the trace/2 host matrix (tools/ShimejiParity/CONTRACT-v1.2-trace2-consolidated.md, Part D.3; CONTRACT.md
+# 10.3.4): a parity error code is formed where its cause arises, from stored provenance, and never read back from the
+# message. Asserted as the CONDITION over the comment-stripped engine sources (src\dotNet\Shimeji, its self-test files
+# excepted), in four parts: (1) a code is set only by TickFaultCause's private constructor, which only its own factories
+# call, each with one of the class's own code constants as the code; (2) no engine source spells a code anywhere else,
+# so no site can write one of its own choosing; (3) no statement that forms a cause also reads a message, so no factory
+# is fed, or picked by, message text; (4) the cause a site hands to TickWorld.ReportFault reaches
+# ParityTraceWriter.ErrorObject unchanged, ErrorObject takes no message, and the code it writes is the cause's own or
+# unclassified. A presence check ("TickFaultCause.Of" appears) still passes a message classifier added beside the
+# factories, which is the D.3 mutation; these do not. The product log's throttle key (TickEnvironment Identity) reads
+# message text for its own purpose and forms no cause, so it is outside every part.
+$ph2Files = @(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'src\dotNet\Shimeji') -Filter '*.cs' -File |
+    Where-Object { $_.Name -cnotmatch 'SelfTest' })
+$ph2Code = @{}
+foreach ($ph2File in $ph2Files) { $ph2Code[$ph2File.Name] = Remove-LineComments (Get-Content -LiteralPath $ph2File.FullName -Raw) }
+$ph2Members = @("`n        public ", "`n        internal ", "`n        private ")
+$ph2Cause = Get-MethodBody $ph2Code['TickRuntime.cs'] 'internal sealed class TickFaultCause' @("`n    internal ")
+$ph2Report = Get-MethodBody $ph2Code['TickRuntime.cs'] 'public void ReportFault(TickMascot mascot, string message, TickFaultCause cause, string via)' @("`n")
+$ph2Fault = Get-MethodBody $ph2Code['ParityRun.cs'] 'public void Fault(TickMascot mascot, string message, TickFaultCause cause, string via)' $ph2Members
+$ph2ErrorObject = Get-MethodBody $ph2Code['ParityRun.cs'] 'internal static string ErrorObject(' $ph2Members
+$ph2Constants = 'BehaviorMissing|ActionMissing|VariantMissing|ParameterInvalid|ScanTargetMissing'
+$ph2Built = [regex]::Matches($ph2Cause, 'new TickFaultCause\(').Count
+$ph2BuiltFromConstant = [regex]::Matches($ph2Cause, "new TickFaultCause\((?:$ph2Constants), ").Count
+$ph2BuiltAnywhere = 0
+$ph2Formed = 0
+$ph2Spelled = @()
+$ph2Mixed = @()
+$ph2Literal = '"(?:behavior-missing|action-missing|variant-missing|parameter-invalid|scan-target-missing|unclassified)"'
+foreach ($ph2Name in $ph2Code.Keys) {
+    $ph2Text = $ph2Code[$ph2Name]
+    $ph2BuiltAnywhere += [regex]::Matches($ph2Text, 'new TickFaultCause\(').Count
+    $ph2Formed += [regex]::Matches($ph2Text, 'TickFaultCause\.Of\w+\(').Count
+    $ph2Outside = $ph2Text
+    if ($ph2Name -ceq 'TickRuntime.cs' -and $ph2Cause.Length -gt 0) { $ph2Outside = $ph2Text.Replace($ph2Cause, '') }
+    foreach ($ph2Hit in [regex]::Matches($ph2Outside, $ph2Literal)) { $ph2Spelled += ($ph2Name + ' ' + $ph2Hit.Value) }
+    foreach ($ph2Statement in $ph2Text.Split(';')) {
+        if ($ph2Statement -cmatch 'TickFaultCause\.Of\w+\(|new TickFaultCause\(' -and $ph2Statement -cmatch '[Mm]essage') {
+            $ph2Mixed += ($ph2Name + ': ' + ($ph2Statement.Trim() -replace '\s+', ' '))
+        }
+    }
+}
+Assert-True ($ph2Files.Count -ge 5 -and $ph2Cause.Length -gt 0 -and $ph2Report.Length -gt 0 -and $ph2Fault.Length -gt 0 -and
+    $ph2ErrorObject.Length -gt 0 -and $ph2Built -ge 5 -and $ph2Formed -ge 15) (
+    "bd-parity-host-2: WITNESS the TickFaultCause class, TickWorld.ReportFault, ParityTraceWriter.Fault and ErrorObject were sliced " +
+    "($ph2Built factory constructions, $ph2Formed causes formed, $($ph2Files.Count) files)")
+Assert-True ($ph2Cause -cmatch 'private TickFaultCause\(string code, ' -and $ph2Cause -cnotmatch '(?:public|internal|protected)\s+TickFaultCause\(' -and
+    $ph2Cause -cmatch 'public readonly string Code;' -and [regex]::Matches($ph2Cause, '\bCode\s*=[^=]').Count -eq 1 -and
+    $ph2Built -eq $ph2BuiltFromConstant -and $ph2BuiltAnywhere -eq $ph2Built) (
+    "bd-parity-host-2: a fault code is set only by TickFaultCause's private constructor, from its own factories' code constants " +
+    "($ph2BuiltFromConstant of $ph2Built in the class, $ph2BuiltAnywhere in the engine)")
+Assert-True ([regex]::Matches($ph2Cause, $ph2Literal).Count -eq 6 -and $ph2Spelled.Count -eq 0) (
+    "bd-parity-host-2: no engine source spells an error code outside TickFaultCause's six constants" +
+    $(if ($ph2Spelled.Count) { ' -- ' + ($ph2Spelled -join ', ') } else { '' }))
+Assert-True ($ph2Mixed.Count -eq 0) (
+    "bd-parity-host-2: no statement that forms a fault cause reads a message" +
+    $(if ($ph2Mixed.Count) { ' -- ' + ($ph2Mixed -join ' | ') } else { '' }))
+Assert-True ($ph2Report -cmatch '\{\s*Observer\.Fault\(mascot, message, cause, via\);\s*\}' -and
+    $ph2Fault -cmatch '\.Raw\("error", ErrorObject\(cause, via\)\)' -and
+    $ph2ErrorObject -cmatch '^internal static string ErrorObject\(TickFaultCause cause, string via\)' -and
+    [regex]::Matches($ph2ErrorObject, '\.Str\("code", ').Count -eq 1 -and
+    $ph2ErrorObject -cmatch '\.Str\("code", cause == null \? TickFaultCause\.Unclassified : cause\.Code\)' -and
+    $ph2ErrorObject -cnotmatch '[Mm]essage') (
+    'bd-parity-host-2: the cause a site reports reaches the error object unchanged, and its code is read from that cause, never from the message')
+
 # LAST, and deliberately:this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever
