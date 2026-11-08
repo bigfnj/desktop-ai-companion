@@ -466,6 +466,8 @@ namespace DesktopAICompanion.Shimeji
             };
 
             string[] good = go(goodMap, "", xml, false);
+            // This run's scenario and pets are left as written; the argument refusals below run against them.
+            string goodScenario = Path.Combine(root, "S-host-" + run + ".json"), goodPets = Path.Combine(root, "pets" + run);
             check(good[0] == "0" && good[1] != null && good[1].Contains("\"index\":1}") && good[1].Contains("\"index\":3}") && good[1].Contains("\"index\":4}")
                   && !good[1].Contains("\"index\":0}") && !good[1].Contains("\"index\":2}"),
                 "parity run: pose.index is the source position map/2 binds (1, 3, 4), never the emitted one (exit " + good[0] + ")");
@@ -566,6 +568,60 @@ namespace DesktopAICompanion.Shimeji
             check(ruled.Length == 0,
                 "parity run: a scenario the comparer refuses is refused too, with exit 2 and no trace file ("
                 + (ruled.Length == 0 ? "no behavior, a tick-0 click, ticks -1" : ruled.Trim()) + ")");
+
+            // N-bd-w11-shimeji-host-1-01: a path argument that names nothing is refused by name, with exit 2, its line and
+            // no trace file, as a refused map or pack is. Unchecked, a scenario file or pets folder that did not exist, or a
+            // trace in a folder that did not exist, threw FileNotFound or DirectoryNotFoundException out of the command,
+            // which ended the process as an unhandled exception. Each run here has one bad argument beside good ones.
+            Func<string, string, string, string, string> argument = (scenarioArg, petsArg, traceArg, want) =>
+            {
+                var argLog = new StringWriter();
+                string exit;
+                try { exit = ParityRun.Run(scenarioArg, petsArg, traceArg, build, argLog).ToString(CultureInfo.InvariantCulture); }
+                catch (Exception e) { exit = "threw"; argLog.Write(e.GetType().Name + ": " + e.Message); }
+                bool traced = File.Exists(traceArg);
+                return exit == "2" && !traced && argLog.ToString().Contains(want) ? ""
+                    : "exit " + exit + ", trace " + (traced ? "left" : "none") + ", " + argLog.ToString().Trim();
+            };
+            string absentScenario = Path.Combine(root, "absent-scenario.json");
+            string noScenario = argument(absentScenario, goodPets, Path.Combine(root, "trace-absent-scenario.jsonl"),
+                "refused " + absentScenario + ": the scenario cannot be read: ");
+            check(noScenario.Length == 0,
+                "parity run: a scenario file that does not exist is refused by name, with exit 2 and no trace file ("
+                + (noScenario.Length == 0 ? "refused" : noScenario) + ")");
+            string absentPets = Path.Combine(root, "absent-pets");
+            string noPets = argument(goodScenario, absentPets, Path.Combine(root, "trace-absent-pets.jsonl"),
+                "refused " + absentPets + ": the pets folder cannot be listed: ");
+            check(noPets.Length == 0,
+                "parity run: a pets folder that does not exist is refused by name, with exit 2 and no trace file ("
+                + (noPets.Length == 0 ? "refused" : noPets) + ")");
+            string absentFolder = Path.Combine(root, "absent-folder"), strandedTrace = Path.Combine(absentFolder, "trace.jsonl");
+            string noFolder = argument(goodScenario, goodPets, strandedTrace, "refused " + strandedTrace + ": the trace cannot be written: ");
+            check(noFolder.Length == 0 && !Directory.Exists(absentFolder),
+                "parity run: a trace path in a folder that does not exist is refused by name, with exit 2, the folder not made ("
+                + (noFolder.Length == 0 ? "refused" : noFolder) + ")");
+            // The converter is the command's own argument, hashed for the build witness before the run, so it is driven
+            // through the command. The command refuses before that read outside a test data root, so this leg needs one
+            // and says so when it has none (the gate and CI run this self-test without it).
+            string absentConverter = Path.Combine(root, "absent-converter"), converterTrace = Path.Combine(root, "trace-absent-converter.jsonl");
+            var commandLog = new StringWriter();
+            int commandExit;
+            try
+            {
+                commandExit = ParityRunCommand.Execute(new[] { ParityRunCommand.Flag, goodScenario, goodPets, converterTrace, absentConverter }, 0, commandLog);
+            }
+            catch (Exception e)
+            {
+                commandExit = -1;
+                commandLog.Write("threw " + e.GetType().Name + ": " + e.Message);
+            }
+            if (!AppPaths.IsDataRootOverridden)
+                log.AppendLine("NOTE: parity run: the absent-converter refusal is not exercised (no test data root, so the command refuses"
+                    + " before it reads the converter: exit " + commandExit + ", " + commandLog.ToString().Trim() + ")");
+            else
+                check(commandExit == 2 && !File.Exists(converterTrace) && commandLog.ToString().Contains("refused " + absentConverter + ": the converter cannot be read: "),
+                    "parity run: a converter that does not exist is refused by name, with exit 2 and no trace file (exit " + commandExit + ", "
+                    + commandLog.ToString().Trim() + ")");
 
             // CONTRACT v1.1 section 1: a left-button edge for a companion not active at dispatch is scenario-invalid.
             string[] absent = go(goodMap, ",{\"tick\":2,\"sid\":\"m1.b1\",\"press\":\"left\"}", xml, false);
