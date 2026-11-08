@@ -1580,22 +1580,38 @@ namespace DesktopAICompanion
         // type owns the Animations.Xml "current type" static). Returns null on any failure (logged).
         private CompanionTypeRegistry.Entry ResolveExtraType(string id)
         {
+            return StageExtraType(registry, id, CompanionCatalog.TryReadPetXml, Program.MyData,
+                line => AddDebugInfo(DEBUG_TYPE.warning, line));
+        }
+
+        /// <summary>
+        /// The body of <see cref="ResolveExtraType"/> over what it is handed: the registry, a reader of a companion's file
+        /// by id (the catalog's in the app) and the settings that hold each type's size. Static so
+        /// --shimeji-window-selftest stages pack members through THIS path, at their own size, rather than through a copy
+        /// of it (N-audit-1106-304): its pack checks had staged a test copy at a fixed 1.0, so a stager that sized a member
+        /// by anything but that member's own setting passed them.
+        /// </summary>
+        internal static CompanionTypeRegistry.Entry StageExtraType(CompanionTypeRegistry registry, string id,
+            ActiveCompanionSource.PackReader read, LocalData sizes, Action<string> warn)
+        {
             CompanionTypeRegistry.Entry existing;
             if (registry.TryGet(id, out existing)) return existing;
 
             string xmlText, error;
-            if (!CompanionCatalog.TryReadPetXml(id, out xmlText, out error))
+            if (!read(id, out xmlText, out error))
             {
-                AddDebugInfo(DEBUG_TYPE.warning, "Pet '" + id + "' could not be loaded: " + error);
+                warn("Pet '" + id + "' could not be loaded: " + error);
                 return null;
             }
 
             Xml stagedXml;
             Animations stagedAnimations;
-            double factor = Program.MyData.GetEffectivePetScaleFactorD(id);
+            // The type's OWN size (its per-pet percent, else the global one): a pack member staged on demand is the size
+            // the user set for that member, exactly as a companion added by id is, never the active pet's.
+            double factor = sizes.GetEffectivePetScaleFactorD(id);
             if (!TryStageRuntime(xmlText, factor, out stagedXml, out stagedAnimations, out error))
             {
-                AddDebugInfo(DEBUG_TYPE.warning, "Pet '" + id + "' failed validation: " + error);
+                warn("Pet '" + id + "' failed validation: " + error);
                 return null;
             }
             stagedAnimations.PetTypeId = id;   // extra type -> keyed by its folder id (per-pet settings)
