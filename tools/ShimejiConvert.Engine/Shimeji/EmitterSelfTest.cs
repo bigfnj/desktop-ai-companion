@@ -2066,6 +2066,54 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         /// its own message: the tile count is the FullSheet check before this, the height and the post-encode XML
         /// budget are here.
         /// </summary>
+        /// <summary>
+        /// N-audit-1106-399: the residue names the ceiling frames the cell height cut off. Stand is 8 rows (the cell);
+        /// the Ceiling walk's /hang.png is 20 rows gripped at row 2, so 18 hang from the cell top and 10 are cut, and
+        /// GrabCeiling's /grip.png (8 rows gripped at 1) fits and must not be named. The same skin with an image-less
+        /// pose, emitted on that sheet (which reserved no blank tile), goes through the emitter's fallback copy, which
+        /// must keep what the compositor measured. The compositor self-test owns the row arithmetic and the painted
+        /// test; this owns the wiring from the sheet to the report.
+        /// </summary>
+        private static void CheckCeilingClipResidue(List<string> failures)
+        {
+            const string note = "Some ceiling frames lose their lowest rows";
+            string surfaces = ClassicStand
+                + "<Action Name='Walk' Type='Move'><Animation><Pose Image='/a.png' ImageAnchor='4,8' Velocity='-2,0' Duration='1'/></Animation></Action>"
+                + "<Action Name='GrabWall' Type='Stay' BorderType='Wall'><Animation><Pose Image='/b.png' ImageAnchor='4,8' Velocity='0,0' Duration='1'/></Animation></Action>"
+                + "<Action Name='Ceiling' Type='Move' BorderType='Ceiling'><Animation><Pose Image='/hang.png' ImageAnchor='4,2' Velocity='-2,0' Duration='1'/></Animation></Action>"
+                + "<Action Name='GrabCeiling' Type='Stay' BorderType='Ceiling'><Animation><Pose Image='/grip.png' ImageAnchor='4,1' Velocity='0,0' Duration='1'/></Animation></Action>";
+            Func<string, Bitmap> load = name => name == "/hang.png" ? Solid(8, 20, Color.Teal)
+                : name == "/grip.png" ? Solid(8, 8, Color.Olive)
+                : Solid(8, 8, name == "/s.png" ? Color.Gray : name == "/a.png" ? Color.Red : Color.Blue);
+            ShimejiConfig config = ShimejiParser.ParseConfXml("<Mascot><ActionList>" + surfaces + "</ActionList></Mascot>", null);
+            SpriteSheet sheet; string error;
+            if (!SpriteSheetBuilder.Build(PetEmitter.PosesToComposite(config), load, true, out sheet, out error))
+            {
+                failures.Add("WITNESS ceiling clip residue: the fixture did not composite: " + error);
+                return;
+            }
+            ConversionResult r = PetEmitter.Emit(config, sheet, load, "CeilingClip");
+            string named = r.Residue == null ? null : r.Residue.Notes.FirstOrDefault(n => n.StartsWith(note, StringComparison.Ordinal));
+            if (!r.Accepted || FindAnimationNamed(r, "Ceiling") == null || FindAnimationNamed(r, "GrabCeiling") == null || sheet.CellHeight != 8)
+                failures.Add("WITNESS ceiling clip residue: the fixture did not emit both ceiling animations on an 8-row cell ("
+                    + (r.Error ?? "accepted") + ", cell " + sheet.CellHeight + ")");
+            else if (named == null || !named.EndsWith(": /hang.png (10 rows).", StringComparison.Ordinal))
+                failures.Add("ceiling clip residue: the report does not name the 10 rows the 8-row cell cut off /hang.png: "
+                    + (named ?? "no note"));
+
+            // The fallback copy: the same skin plus an image-less pose, on the sheet Build made without one.
+            ShimejiConfig hidden = ShimejiParser.ParseConfXml("<Mascot><ActionList>" + surfaces
+                + "<Action Name='Hidden' Type='Stay'><Animation><Pose Velocity='0,0' Duration='1'/></Animation></Action></ActionList></Mascot>", null);
+            ConversionResult copied = PetEmitter.Emit(hidden, sheet, load, "CeilingClipFallback");
+            string copiedNote = copied.Residue == null ? null : copied.Residue.Notes.FirstOrDefault(n => n.StartsWith(note, StringComparison.Ordinal));
+            if (!copied.Accepted || FindAnimationNamed(copied, "Hidden") == null || sheet.FrameIndexByKey.ContainsKey(SpriteSheet.ImageLessFrameKey))
+                failures.Add("WITNESS ceiling clip residue fallback: the image-less pose was not given a blank tile on a copy ("
+                    + (copied.Error ?? "accepted") + ")");
+            else if (copiedNote == null || !copiedNote.EndsWith(": /hang.png (10 rows).", StringComparison.Ordinal))
+                failures.Add("ceiling clip residue fallback: the sheet copy that took the blank tile lost the ceiling rows the compositor measured: "
+                    + (copiedNote ?? "no note"));
+        }
+
         private static void CheckImageLessReservation(List<string> failures, ShimejiConfig hiddenConfig)
         {
             const string capRefusal = "An image-less pose needs one blank sprite tile, but the sheet is already at the host's size or tile limit.";
@@ -2322,6 +2370,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 failures.Add("classic image-less capacity: a full sheet did not refuse its extra blank tile explicitly");
 
             CheckImageLessReservation(failures, fullConfig);
+            CheckCeilingClipResidue(failures);
 
             string weighted = ClassicStand
                 + "<Action Name='Walk' Type='Move'><Animation><Pose Image='/a.png' ImageAnchor='4,8' Velocity='-2,0' Duration='1'/></Animation></Action>"

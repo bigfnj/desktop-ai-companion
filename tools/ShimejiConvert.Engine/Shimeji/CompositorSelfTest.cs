@@ -380,6 +380,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 }
 
                 BlankTileReservation(failures);
+                CeilingClip(failures, true);
+                CeilingClip(failures, false);
             }
             finally
             {
@@ -504,6 +506,78 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             }
         }
 
+        /// <summary>
+        /// N-audit-1106-399: a ceiling (AnchorToTop) pose that hangs further below its grip than the cell is tall loses
+        /// its lowest rows to the tile clip, and Compose records how many PAINTED rows it cut. A 40-row floor pose sets
+        /// the cell; "/deep" is 64 rows gripped at row 8, so 56 rows hang from the cell top and 16 are cut. "/fits" is
+        /// 40 rows gripped at 8 (32 hang) and "/padded" is /deep's size with its lowest 16 rows transparent, so its art
+        /// ends exactly on the tile's last row: neither may be recorded. Run in alpha and in key mode, because the two
+        /// modes define "painted" differently.
+        /// </summary>
+        private static void CeilingClip(List<string> failures, bool alpha)
+        {
+            string mode = alpha ? "alpha" : "key";
+            var owned = new Dictionary<string, Bitmap>(StringComparer.Ordinal)
+            {
+                { "/floor.png", Solid(8, 40, Color.FromArgb(255, 200, 40, 40)) },
+                { "/deep.png", Solid(8, 64, Color.FromArgb(255, 40, 200, 40)) },
+                { "/fits.png", Solid(8, 40, Color.FromArgb(255, 40, 40, 200)) },
+                { "/padded.png", Transparent(8, 64) },
+            };
+            try
+            {
+                using (var g = Graphics.FromImage(owned["/padded.png"]))
+                {
+                    g.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceCopy;
+                    using (var brush = new SolidBrush(Color.FromArgb(255, 200, 200, 40))) g.FillRectangle(brush, 0, 0, 8, 48);
+                }
+                var poses = new List<ShimejiPose>
+                {
+                    new ShimejiPose { Image = "/floor.png", AnchorX = 4, AnchorY = 40, Duration = 1 },
+                    new ShimejiPose { Image = "/deep.png", AnchorX = 4, AnchorY = 8, AnchorToTop = true, Duration = 1 },
+                    new ShimejiPose { Image = "/fits.png", AnchorX = 4, AnchorY = 8, AnchorToTop = true, Duration = 1 },
+                    new ShimejiPose { Image = "/padded.png", AnchorX = 4, AnchorY = 8, AnchorToTop = true, Duration = 1 },
+                };
+                Func<string, Bitmap> load = delegate(string n) { return new Bitmap(owned[n]); };
+                SpriteSheet sheet; string error;
+                if (!SpriteSheetBuilder.Build(poses, load, alpha, out sheet, out error))
+                {
+                    failures.Add("WITNESS ceiling clip (" + mode + "): the fixture would not build: " + error);
+                    return;
+                }
+                if (sheet.CellHeight != 40 || sheet.Scale != 1.0)
+                    failures.Add("WITNESS ceiling clip (" + mode + "): the cell is " + sheet.CellHeight + " rows at scale " + sheet.Scale
+                        + ", not the floor pose's 40 at scale 1 the row counts below assume");
+                var tiles = new Dictionary<string, int>(StringComparer.Ordinal);
+                foreach (ShimejiPose p in poses)
+                {
+                    int tile;
+                    if (sheet.FrameIndexByKey.TryGetValue(p.FrameKey, out tile)) tiles[p.Image] = tile;
+                }
+                if (tiles.Count != 4 || new HashSet<int>(tiles.Values).Count != 4)
+                {
+                    failures.Add("WITNESS ceiling clip (" + mode + "): the four poses do not resolve to four tiles");
+                    return;
+                }
+                int rows;
+                if (!sheet.ClippedCeilingRows.TryGetValue(tiles["/deep.png"], out rows) || rows != 16)
+                    failures.Add("ceiling clip (" + mode + "): the 64-row ceiling pose gripped at row 8 lost 16 painted rows to a 40-row cell, "
+                        + "recorded as " + (sheet.ClippedCeilingRows.ContainsKey(tiles["/deep.png"]) ? rows.ToString() : "nothing"));
+                if (sheet.ClippedCeilingRows.ContainsKey(tiles["/fits.png"]) || sheet.ClippedCeilingRows.ContainsKey(tiles["/floor.png"]))
+                    failures.Add("WITNESS ceiling clip (" + mode + "): a ceiling pose that fits its cell, or the floor pose, was recorded as cut off");
+                if (sheet.ClippedCeilingRows.ContainsKey(tiles["/padded.png"]))
+                    failures.Add("ceiling clip painted (" + mode + "): a ceiling pose whose rows below the tile are transparent was recorded as cut off ("
+                        + sheet.ClippedCeilingRows[tiles["/padded.png"]] + " rows), though the clip removed no painted pixel");
+                if (!TileBottomRowPainted(sheet.PngBytes, sheet.TilesX, sheet.CellWidth, sheet.CellHeight, tiles["/padded.png"], alpha))
+                    failures.Add("WITNESS ceiling clip (" + mode + "): the padded ceiling pose's art does not reach its tile's last row, so the painted "
+                        + "assertion above is not at the boundary");
+            }
+            finally
+            {
+                foreach (Bitmap b in owned.Values) b.Dispose();
+            }
+        }
+
         /// <summary>N-audit-1106-161: FileLoader reads a pose image inside the skin's img folder only. A name that
         /// climbs out ("/../outside.png") or is rooted once its leading separator is trimmed ("/C:/...") is refused by
         /// name before anything is read; a name that stays inside, a ".." included, still loads (WITNESS).</summary>
@@ -562,6 +636,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         /// anchor row was drawn rather than clipped off.</summary>
         private static bool TileBottomRowPainted(byte[] png, int tilesX, int cellW, int cellH, int tile)
         {
+            return TileBottomRowPainted(png, tilesX, cellW, cellH, tile, true);
+        }
+
+        /// <summary>As above, for either mode: in key mode every pixel is opaque, so painted means not the magenta key.</summary>
+        private static bool TileBottomRowPainted(byte[] png, int tilesX, int cellW, int cellH, int tile, bool alpha)
+        {
             using (var ms = new MemoryStream(png, false))
             using (var bmp = new Bitmap(ms))
             {
@@ -569,7 +649,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 int y = (tile / tilesX) * cellH + cellH - 1;
                 if (y >= bmp.Height) return false;
                 for (int x = x0; x < x0 + cellW && x < bmp.Width; x++)
-                    if (bmp.GetPixel(x, y).A != 0) return true;
+                {
+                    Color c = bmp.GetPixel(x, y);
+                    if (alpha ? c.A != 0 : !(c.R == 255 && c.G == 0 && c.B == 255)) return true;
+                }
                 return false;
             }
         }

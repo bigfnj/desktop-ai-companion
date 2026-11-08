@@ -23,6 +23,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         public readonly Dictionary<string, int> FrameIndexByKey =
             new Dictionary<string, int>(StringComparer.Ordinal); // ShimejiPose.FrameKey -> row-major tile index
 
+        /// <summary>Ceiling (AnchorToTop) tiles whose sprite still had painted pixels below the bottom of the tile,
+        /// by tile index, with how many painted rows the tile clip removed, in the sheet's own pixels. Filled by
+        /// Compose (N-audit-1106-399), so the emitter's residue can name what the cell height cut off; empty for a
+        /// sheet nothing was cut from.</summary>
+        public readonly Dictionary<int, int> ClippedCeilingRows = new Dictionary<int, int>();
+
         /// <summary>The <see cref="FrameIndexByKey"/> key of the blank tile an image-less pose plays, which
         /// <see cref="SpriteSheetBuilder.Build"/> reserves when any pose it is given has no image. A real FrameKey
         /// always has anchor separators, so this cannot collide with authored art.</summary>
@@ -471,6 +477,23 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                             // out empty. A blank tile is invisible at conversion time and only shows up as a
                             // pet that vanishes mid-animation.
                             if (srcY >= sh) srcY = 0;
+
+                            // The cell's height is the largest anchor height, which the floor poses set (step 3),
+                            // and a ceiling pose hangs DOWN
+                            // from the cell top, so one that reaches further below its grip than that height loses
+                            // its lowest rows to the tile clip below, with nothing saying so (N-audit-1106-399). The
+                            // reference conf's ceiling poses span 80 of the 128 rows its floor poses need, but
+                            // nothing holds another skin to that. Measured here and named in the residue rather than
+                            // fixed in pixels: a taller cell is a taller window for every pose (the host stands a pet
+                            // on its window's bottom edge and enters the ceiling when the window's top reaches the
+                            // screen top), and shrinking only these frames would draw the pet at two sizes. Only
+                            // PAINTED rows count, so a sprite padded with transparent rows below its art is not
+                            // reported for losing nothing.
+                            if (sh - srcY > scaledCellH)
+                            {
+                                int lost = LowestPaintedRow(scaled, alpha) + 1 - (srcY + scaledCellH);
+                                if (lost > 0) result.ClippedCeilingRows[i] = lost;
+                            }
                         }
                         else
                         {
@@ -519,6 +542,32 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     sha.TransformFinalBlock(new byte[0], 0, 0);
                     return BitConverter.ToString(sha.Hash);
                 }
+            }
+            finally { bmp.UnlockBits(data); }
+        }
+
+        /// <summary>The index of the lowest row of <paramref name="bmp"/> (a Format32bppArgb sprite as Compose blits it)
+        /// that carries a painted pixel, or -1 for none. Painted is what the sheet shows: any alpha in alpha mode, and
+        /// anything but the magenta key in key mode, where KeyToMagenta has already made every pixel opaque.</summary>
+        private static int LowestPaintedRow(Bitmap bmp, bool alpha)
+        {
+            var rect = new Rectangle(0, 0, bmp.Width, bmp.Height);
+            BitmapData data = bmp.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+            try
+            {
+                var row = new byte[bmp.Width * 4];
+                for (int y = bmp.Height - 1; y >= 0; y--)
+                {
+                    Marshal.Copy(data.Scan0 + y * data.Stride, row, 0, row.Length);
+                    for (int i = 0; i < row.Length; i += 4) // BGRA
+                    {
+                        bool painted = alpha
+                            ? row[i + 3] != 0
+                            : !(row[i + 0] == KeyB && row[i + 1] == KeyG && row[i + 2] == KeyR);
+                        if (painted) return y;
+                    }
+                }
+                return -1;
             }
             finally { bmp.UnlockBits(data); }
         }

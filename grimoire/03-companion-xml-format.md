@@ -4,7 +4,10 @@
 `animations.xml` file that embeds its own sprite sheet, icon, and sounds (as base64) and describes its
 behaviour as a state machine. (The format is inherited from desktopPet, which is why the namespace and
 much of the vocabulary below still say "pet"; the file and the schema are unchanged.) The same format is used by the WinForms engine *and* the browser port
-[`web-esheep`](04-upstream-forks-ecosystem.md), so a well-formed companion is portable between them.
+[`web-esheep`](04-upstream-forks-ecosystem.md), so a well-formed companion is portable between them as long as it
+keeps to the original format. This fork's additions are its own: `<transparency>Alpha` (a desktop-only render mode,
+as the converter's residue note says), the `faceCursor` action, the `window-*` edges and the tick-clock elements of
+[06](06-shimeji-runtime.md).
 
 - **Schema:** [`Resources/animations.xsd`](../Resources/animations.xsd) (target namespace
   `https://esheep.petrucci.ch/`).
@@ -51,13 +54,17 @@ Numbers written where the schema type is `xsd:string` (all `<x>`, `<y>`, `<inter
 |---------|------|---------|
 | `<author>` | string | Author name. |
 | `<title>` | string | Title shown on the webpage/gallery. |
-| `<petname>` | string | Pet name shown in the context menu. **Truncated to 16 chars** by the engine (`Xml.ReadXML`). |
+| `<petname>` | string | Pet name shown in the context menu. **Truncated to 16 chars** by the engine (`Xml.TryReadXml`, at 16 UTF-16 code units without splitting a surrogate pair). |
 | `<version>` | string | Companion version (e.g. `1.8`). "Once published you can't change it" (XSD note). |
-| `<info>` | string | Free text: credits, email, links. Supports `[br]` (line break) and one `[link:https://...]` About link. The user must select the link before DesktopAICompanion asks the default browser to open it; authored About links must use absolute HTTPS URLs. |
+| `<info>` | string | Free text shown in the About window: credits, email, links. `[br]` is a line break and each `[link:https://...]` becomes a link; nothing opens until the user clicks it, and a link that is not an absolute HTTPS URL is shown as plain text instead (`AboutWindow.AppendInfoInlines`, `WpfHyperlinks.Link`). Cut at 8192 characters. |
 | `<application>` | integer | **Must be `1`** — the only format version (XSD note). |
-| `<icon>` | string (base64) | A **48×48 ICO**, base64-encoded, in CDATA. Becomes the tray/taskbar icon. |
+| `<icon>` | string (base64) | An **ICO** (48×48 by upstream convention), base64-encoded, in CDATA. The validator requires an ICO container of at most 512 KiB (`CompanionXmlValidator.MaximumIconBytes`). Becomes the tray/taskbar icon. |
 
-Example (from esheep64):
+The header may also carry the tick-clock elements `<features>`, `<clock>`, `<pack>`, `<startup>`, `<constants>` and
+`<toggles>`, all optional (the XSD's "Shimeji runtime extensions"); they are [06](06-shimeji-runtime.md)'s subject.
+
+Example (from esheep64, with its About link written as HTTPS; the shipped file's `http://` link is shown as plain
+text):
 
 ```xml
 <header>
@@ -82,7 +89,7 @@ Example (from esheep64):
 | `<tilesx>` | integer | Number of columns of cells in the sheet. |
 | `<tilesy>` | integer | Number of rows of cells. |
 | `<png>` | string (base64) | The whole sprite sheet as a base64 PNG, in CDATA. |
-| `<transparency>` | string | Color key treated as transparent. **Default `Magenta`** (`#FF00FF`). |
+| `<transparency>` | string | `Alpha` (any letter case) keeps the PNG's own alpha channel, and the companion is drawn per pixel (`Xml.ReadImages`, `FormCompanion.ConfigureTransparencyMode`). Any other value keys out **magenta** (`#FF00FF`), the window's `TransparencyKey` (`FormCompanion.Designer.cs`), whatever colour it names; write `Magenta`, the XSD's default. |
 
 The engine decodes the PNG and slices it into `tilesx × tilesy` **equal-sized** cells; cell size =
 `sheetWidth/tilesx` by `sheetHeight/tilesy` (`Xml.ReadImages`). **Every cell must be the same size** and
@@ -101,8 +108,9 @@ the grid must be exact. esheep64 is `16 × 11 = 176` frames.
 
 Frames are numbered **row-major starting at 0**: index 0 is the top-left cell, index `tilesx-1` ends the
 first row, index `tilesx` starts the second row, and so on. Every `<frame>` in an animation references
-one of these indices. Any pixel equal to the transparency color is not painted (the window uses a
-magenta `TransparencyKey` — see [02 §6.1](02-architecture.md#61-rendering-a-magenta-keyed-layered-tool-window)).
+one of these indices. In a keyed sheet any magenta pixel is not painted (the window uses a magenta
+`TransparencyKey`; see [02 §6.1](02-architecture.md#61-rendering-a-magenta-keyed-layered-tool-window)); an `Alpha`
+sheet is drawn with its own per-pixel alpha instead.
 
 > **Direction convention.** Draw the companion facing one direction; the engine mirrors the whole sheet at
 > runtime with the `flip` action (see [§5.3](#53-action)). By convention the base sprites face such that
@@ -114,7 +122,7 @@ magenta `TransparencyKey` — see [02 §6.1](02-architecture.md#61-rendering-a-m
 
 One or more `<spawn>` entries. When a companion needs to (re)appear, the engine picks one **weighted by
 `probability`** (`Animations.GetRandomSpawn`), places the companion at the spawn's `<x>,<y>`, and starts the
-animation named by `<next>`.
+animation whose id `<next>` holds.
 
 `<spawn>` attributes: `id` (int), `probability` (int, a relative weight).
 `<spawn>` children (`xsd:all`): `<x>`, `<y>` (expressions), `<next>` (target animation id; carries an
@@ -218,12 +226,18 @@ window/taskbar-specific behaviour. If it hits a **vertical border** (screen left
 
 ### 5.3 `<action>`
 
-A sequence-level tag. Only **`flip`** is implemented by the engine (`FormCompanion.NextStep`): when the
-sequence finishes, every frame bitmap is mirrored horizontally and `IsMovingLeft` toggles — this is how
-the companion turns around (see esheep64 `rotate1a`, which flips then transitions to `rotate1b`). `<action>none</action>`
-(used throughout the neko companion) is an explicit no-op. Omit `<action>` when no action is needed. The
-current validator accepts only the literal actions `flip` and `none`; any other non-empty value rejects
-the companion before it is loaded.
+A sequence-level tag. Two actions do something:
+
+- **`flip`**, at the END of the sequence (`FormCompanion.NextStep`): `IsMovingLeft` toggles and the companion is
+  drawn from the mirrored view of its frames (the shared frames themselves are never changed). This is how the
+  companion turns around (see esheep64 `rotate1a`, which flips then transitions to `rotate1b`).
+- **`faceCursor`**, at the START of the animation (`FormCompanion.SetNewAnimationCore`): the companion turns to face
+  the pointer, once, setting its direction outright rather than toggling it. The converter emits it on a
+  "look at the mouse" pose.
+
+`<action>none</action>` (used throughout the neko companion) is an explicit no-op. Omit `<action>` when no action is
+needed. The validator accepts `flip`, `faceCursor` and `none` in any letter case, and the runtime matches them the
+same way; any other non-empty value rejects the companion before it is loaded (`CompanionXmlValidator`).
 
 ```xml
 <animation id="2">
@@ -255,7 +269,8 @@ the companion before it is loaded.
 When a list is evaluated, the engine is told the current *situation* (`where`). It keeps only the
 `<next>` entries whose `only` matches, sums their weights, and rolls a weighted random choice.
 
-- `only="none"` matches **every** situation (the `NONE` flag is `0x7F`) — a safe default/fallback.
+- `only="none"` matches **every** situation (`TNextAnimation.Eligible` takes it unconditionally; its flag value is
+  `0x7F`) — a safe default/fallback.
 - `only="taskbar"` — only when the companion is on the taskbar.
 - `only="window"` — only when standing on another window's title bar.
 - `only="vertical"` — only at the left/right **screen** border.
@@ -275,15 +290,18 @@ The three lists differ only in *when* they're consulted:
 
 | List | Consulted when | Situation passed |
 |------|----------------|------------------|
-| `<sequence>`'s `<next>` | the frame sequence finishes | `TASKBAR` if the companion is at the bottom, else `NONE` |
-| `<border>`'s `<next>` | a border is detected | `VERTICAL` / `HORIZONTAL` / `TASKBAR` / `WINDOW` |
+| `<sequence>`'s `<next>` | the frame sequence finishes | `WINDOW` if the companion stands on a window, else `TASKBAR` at the bottom of the work area, else `NONE` |
+| `<border>`'s `<next>` | a border is detected | `VERTICAL` / `HORIZONTAL` / `TASKBAR`, or `WINDOW` together with the `window-*` edge reached |
 | `<gravity>`'s `<next>` | nothing is underneath | `NONE` or `WINDOW` |
 
 > **The respawn rule.** If, in the relevant situation, **no `<next>` is eligible**, the selector returns
-> `-1` and the companion **respawns** (a fresh `<spawn>`). This is intentional and is how walking off the edge
-> or finishing a terminal animation loops the companion. It's also the most common authoring bug: forgetting a
-> `only="none"` fallback makes a companion vanish and reappear unexpectedly. (`Animations.SetNextGeneralAnimation`;
-> the `TNextAnimation` remarks say so explicitly.)
+> `-1` (`Animations.SetNextGeneralAnimation`; the `TNextAnimation` remarks say so explicitly). When a sequence
+> finishes or gravity fires, the companion then **respawns** (a fresh `<spawn>`; a child closes instead). At a
+> screen border it carries on past the edge, and a sequence that finishes with it fully off screen respawns it whatever
+> its `<next>` entries say; at a window's edge it leaves
+> the window and gravity takes over (one gripping the window plays its `fall`) (`FormCompanion.NextStep`). This is
+> intentional and is how walking off the edge or finishing a terminal animation loops the companion. It's also the
+> most common authoring bug: forgetting a `only="none"` fallback makes a companion vanish and reappear unexpectedly.
 
 `<border>` and `<gravity>` may each hold up to **256** `<next>` entries (XSD
 `maxOccurs="256"`).
@@ -300,9 +318,9 @@ Four `<name>` values are wired to engine lifecycle events (`Xml.LoadAnimations`;
 | `drag` | user left-presses/holds the companion | `AnimationDrag` |
 | `fall` | companion is released after a drag, or gravity fires (via a `<gravity><next>`) | `AnimationFall` |
 | `kill` | the app is closing — the companion plays this then fades to opacity 0 and closes | `AnimationKill` |
-| `sync` | "synchronise all companions" (About-box cancel / `SyncSheeps`) | `AnimationSync` |
+| `sync` | the tray menu's "Synchronise companions", shown only while more than one companion is out and at least one declares `sync` (`ContextMenus`, `StartUp.SyncSheeps`) | `AnimationSync` |
 
-If there is **no** `kill` animation, the companion closes immediately (`Changelog.txt` 0.9.3). Give a companion a
+If there is **no** `kill` animation, the companion closes immediately (`FormCompanion.Kill`). Give a companion a
 `drag`/`fall` pair if you want it to react to being picked up.
 
 ---
@@ -319,19 +337,19 @@ functions, or other .NET expression syntax are rejected. Substituted tokens:
 |-------|-------|
 | `screenW`, `screenH` | monitor width / height (full bounds) |
 | `areaW` | working-area width |
-| `areaH` | usable bottom = `WorkingArea.Height + WorkingArea.Y` (top of the taskbar) |
-| `imageW`, `imageH` | one sprite cell's width / height |
+| `areaH` | working-area height, `WorkingArea.Height` (`DesktopGeometry.Metrics`) |
+| `imageW`, `imageH` | one sprite cell's width / height; `imageW` is negative while a child is placed against a flipped parent |
 | `imageX`, `imageY` | the **parent** companion's left/top — for placing **children** relative to the parent |
 | `random` | fresh integer 0–99 **on every evaluation** |
-| `randS` | integer 0–99 **fixed until the next spawn** (per-companion spawn seed) |
-| `scale` | current HD scale factor |
+| `randS` | integer 10–89 rolled **once each time the XML is loaded** (`Xml`'s constructor), then fixed for every spawn until the next load |
+| `scale` | the companion's size factor rounded to a whole number, never below 1 (`ScalePolicy.LevelForExpression`) |
 
 Notes:
 - Using `imageX`, `imageY`, `random`, or `randS` marks the value **dynamic** — it is recomputed each time
   the animation starts (`TValue.IsDynamic`). Using `screen…`/`area…` marks it **screen-dependent**
   (recomputed per monitor on multi-screen).
 - `random` changing every step vs `randS` staying fixed is deliberate: use `randS` when you want a value
-  that's consistent for one "life" of the companion (e.g. a random landing height chosen at spawn), `random`
+  that stays the same across spawns until the companion is reloaded (e.g. a random landing height), `random`
   for jitter.
 - Example: `random*(screenW-imageW-50)/100+25` → a random x within the screen, 25px inset from the edges.
 
@@ -393,8 +411,9 @@ Optional. Each `<sound>` ties an MP3 to an animation id; when that animation sta
 </sounds>
 ```
 
-Multiple sounds may target the same `animationid` (see neko). If audio init fails the engine silently
-disables volume rather than crashing.
+Multiple sounds may target the same `animationid` (see neko). If no audio output can be opened (the chosen
+device, then the default), sounds stay silent rather than crashing, and the output is tried again at most every two
+minutes (`AudioOutput.EnsureStarted`).
 
 ---
 
@@ -423,7 +442,8 @@ disables volume rather than crashing.
    current-format validity. The upstream online editor is likewise a legacy aid and may not enforce the
    current application's semantic and resource limits.
 9. **Test live.** Run a companion and **drag-and-drop your `animations.xml` onto it** — the engine hot-loads it
-   (`FormCompanion.Form2_DragDrop`); on a parse error it falls back to the default sheep and shows the error.
+   (`FormCompanion.Form2_DragDrop`); a file the validator rejects leaves the current companion unchanged, a warning
+   says so, and the reason goes to the debug log (`StartUp.LoadNewXMLFromString`).
    Or launch with `DesktopAICompanion.exe localxml=yourpet.xml`.
 10. **Publish (optional, upstream).** Add a folder under [`Companions/`](../Companions) containing `animations.xml`,
     `README.md` (your "about" text, shown in-app), and `icon.png`; then add an entry (`folder`, `author`,
@@ -447,7 +467,7 @@ disables volume rather than crashing.
 | `offsety`/`opacity` | start/end | — | draw offset / fade |
 | `sequence` | animation | `repeat`,`repeatfrom` | frames + finish transitions |
 | `frame` | sequence | — | 0-based sprite index |
-| `action` | sequence | — | `flip` (mirror + turn) or `none` |
+| `action` | sequence | — | `flip` (mirror + turn), `faceCursor` (face the pointer) or `none` |
 | `border` | animation | — | transitions on a border hit (≤256 next) |
 | `gravity` | animation | — | transitions when unsupported (≤256 next) |
 | `next` | sequence/border/gravity/spawn/child | `probability`,`only` | weighted, situation-filtered transition; text = target id |

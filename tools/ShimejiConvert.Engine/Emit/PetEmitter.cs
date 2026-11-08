@@ -486,7 +486,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             if (soundNodes.Count > 0)
                 root.Sounds = new SoundsNode { Sound = soundNodes.ToArray() };
 
-            BuildResidue(config, result.Residue, sheet.IsAlpha, all, wallSpokes.Count > 0, ceilingSpokes.Count > 0);
+            BuildResidue(config, result.Residue, sheet.IsAlpha, all, wallSpokes.Count > 0, ceilingSpokes.Count > 0,
+                ClippedCeilingFrames(ceilingSpokes, sheet));
             AppendSoundResidue(result.Residue, soundWanted, soundCaptured, loadSound != null, soundNoRoom, soundOverClipCap, soundNoSlot);
 
             // --- validate + round-trip + reachability ---
@@ -1267,10 +1268,17 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         ///
         /// The cell is sized as max(AnchorY), which the FLOOR poses set at 128 in the reference conf. Wall
         /// poses share that anchor, so they were free. Ceiling poses anchor at 48 and are marked AnchorToTop
-        /// here, which makes them span (height - 48) = 80px downward from the cell top: comfortably inside the
-        /// 128 the floor already needs, and they never raise max(AnchorY), so admitting them cannot pad the
-        /// cell. That padding is the exact failure the old exclusion existed to avoid (pet floats, ground
-        /// detection breaks), so it is asserted in the self-test rather than left to this comment.
+        /// here, which makes them span (height - 48) = 80px downward from the cell top: inside the 128 the
+        /// floor already needs, IN THE REFERENCE CONF, and a ceiling anchor that low does not raise
+        /// max(AnchorY), so admitting them does not pad the cell there. That padding is the exact failure the
+        /// old exclusion existed to avoid (pet floats, ground detection breaks), so the self-test asserts it
+        /// for its fixture rather than leaving it to this comment.
+        ///
+        /// Nothing holds another skin to the 80-in-128 shape. A ceiling pose that hangs further below its grip
+        /// than the cell is tall loses its lowest rows to the tile clip. This comment used to call that
+        /// "comfortably inside" for every skin, unenforced (N-audit-1106-399). The compositor now measures the
+        /// painted rows it cuts (<see cref="SpriteSheet.ClippedCeilingRows"/>) and the residue names those
+        /// frames; the cell is not grown for them (SpriteSheetBuilder.Compose says why).
         /// </summary>
         public static List<ShimejiPose> PosesToComposite(ShimejiConfig config)
         {
@@ -1383,6 +1391,28 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             return frames;
         }
 
+        /// <summary>
+        /// The frames of the EMITTED ceiling animations that the compositor cut off at the bottom of their tile,
+        /// each as "image (N rows)", in animation then pose order, one entry per image (N-audit-1106-399). Read
+        /// through the same FrameKey lookup FramesOf plays, so a pose collapsed onto another image's identical
+        /// tile is named under its own image, and a ceiling region the emitter left out names nothing.
+        /// </summary>
+        private static List<string> ClippedCeilingFrames(List<Emitted> ceilingSpokes, SpriteSheet sheet)
+        {
+            var named = new List<string>();
+            if (sheet.ClippedCeilingRows.Count == 0) return named;
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            foreach (Emitted e in ceilingSpokes)
+                foreach (ShimejiPose p in PosesOf(e))
+                {
+                    int tile, rows;
+                    if (p == null || string.IsNullOrEmpty(p.Image) || !sheet.FrameIndexByKey.TryGetValue(p.FrameKey, out tile)
+                        || !sheet.ClippedCeilingRows.TryGetValue(tile, out rows) || !seen.Add(p.Image)) continue;
+                    named.Add(p.Image + " (" + rows + (rows == 1 ? " row)" : " rows)"));
+                }
+            return named;
+        }
+
         // A real FrameKey always has anchor separators, so this cannot collide with authored art. The builder
         // owns the key now that it reserves the tile; one spelling, so the two can never disagree.
         private const string ImageLessFrameKey = SpriteSheet.ImageLessFrameKey;
@@ -1416,6 +1446,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 CellHeight = source.CellHeight, Scale = source.Scale, IsAlpha = source.IsAlpha };
             foreach (KeyValuePair<string, int> frame in source.FrameIndexByKey) result.FrameIndexByKey.Add(frame.Key, frame.Value);
             result.FrameIndexByKey.Add(ImageLessFrameKey, blank);
+            // The drawn tiles keep their indexes and pixels on the copy, so what Compose measured as cut off still is.
+            foreach (KeyValuePair<int, int> clipped in source.ClippedCeilingRows) result.ClippedCeilingRows.Add(clipped.Key, clipped.Value);
             using (var input = new System.IO.MemoryStream(source.PngBytes ?? Convert.FromBase64String(source.Base64Png)))
             using (var original = new Bitmap(input))
             using (var bitmap = new Bitmap(width, height, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
@@ -2878,8 +2910,11 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         /// them (see EmitCore), and a report that read the config alone said "Wall climbing IS converted"
         /// about a pet that carries no wall animation (F429).</param>
         /// <param name="ceilingRegionEmitted">Likewise for the ceiling.</param>
+        /// <param name="clippedCeiling">The emitted ceiling frames the cell height cut off, from
+        /// <see cref="ClippedCeilingFrames"/>.</param>
         private static void BuildResidue(ShimejiConfig config, ResidueReport residue, bool alpha,
-                                         List<Emitted> emitted, bool wallRegionEmitted, bool ceilingRegionEmitted)
+                                         List<Emitted> emitted, bool wallRegionEmitted, bool ceilingRegionEmitted,
+                                         List<string> clippedCeiling)
         {
             ShimejiAction fallAction = FirstWithClass(config, "Fall");
             ShimejiAction dragAction = FirstWithClass(config, "Dragged");
@@ -2997,6 +3032,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 residue.Notes.Add("This skin has wall animations (" + string.Join(", ", wallConverted) + ") but no travelling floor animation or jump into a ceiling can reach them. They are left out rather than emitted as animations nothing can reach.");
             if (ceilingRegionEmitted)
                 residue.Notes.Add("Ceiling walking IS converted: a pet that climbs a wall to the top of the screen usually carries on across the ceiling, then either drops or climbs back down the far wall. Converted for this skin: " + string.Join(", ", ceilingConverted) + ".");
+            // N-audit-1106-399: what the cell height cut off a ceiling pose, said rather than shipped silently.
+            if (ceilingRegionEmitted && clippedCeiling.Count > 0)
+                residue.Notes.Add("Some ceiling frames lose their lowest rows: every frame of the converted pet has the same height, the tallest any pose stands above its anchor point (a floor pose's feet), and a ceiling pose hangs down from the top of its frame, so whatever it draws lower than that height is cut off. Cut off for this skin, in rows of the converted frame: " + string.Join(", ", clippedCeiling) + ".");
             else if (ceilingConverted.Count > 0)
                 residue.Notes.Add("This skin has ceiling animations (" + string.Join(", ", ceilingConverted) + ") but "
                     + (wallConverted.Count == 0

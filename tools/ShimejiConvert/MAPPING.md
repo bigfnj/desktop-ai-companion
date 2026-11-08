@@ -143,12 +143,15 @@ less reviewable and no more correct than the table above.
 ## Stage 1: the census is executable
 
 The Group 1/2/3 taxonomy above is now implemented in `tools/ShimejiConvert.Engine/Shimeji/`
-(`ShimejiParser` + `ActionClassifier`) and reproducible with `ShimejiConvert classify <conf-dir>` against an
-external `gil/shimeji-ee` clone. On that reference config it reports **91 actions: 54 Group1 / 31 Group2 / 6
-Group3**, and **24 behaviour conditions: 5 map cleanly (`only=`) / 19 need new state**. (This line said
+(`ShimejiParser` + `ActionClassifier`) and reproducible with `ShimejiConvert classify <conf-dir>`. The
+`gil/shimeji-ee` reference config is bundled (`tools/ShimejiConvert.Engine/base-conf`), so
+`ShimejiConvert classify tools/ShimejiConvert.Engine/base-conf` reproduces it with no clone. On that reference config
+it reports **91 actions: 54 Group1 / 31 Group2 / 6 Group3**, and **24 behaviour conditions: 5 map cleanly
+(`only=`) / 19 need new state** (both re-run 2026-11-08). (This line said
 53/32/6 until 2026-09-28. The split moved on 2026-08-28 when ClimbWall stopped being reported as needing
 selfX/selfY; `BundledConfSelfTest.cs` asserts the action numbers on every gate run and is the
-authority.) The Group2 bucket is
+authority for them. It prints the condition count without asserting it, and nothing asserts the 5 / 19 split:
+re-run `classify` before quoting either.) The Group2 bucket is
 dominated by the dead IE-window subsystem; the genuinely worth-preserving Group2 items are cursor-following
 (ChaseMouse / look-at-mouse). **Half of that has since shipped and the other half is not planned**, so read the
 next paragraph rather than this one for current state. Look-at-mouse ships as the `faceCursor` sequence action,
@@ -159,5 +162,7 @@ position is not otherwise reachable (`imageX`/`imageY` return -1 for a top-level
 parked on a judgement call recorded in `docs/BLOCKED.md`, not scheduled. `totalCount` is not planned at all: zero
 occurrences across the 32 shipping skins.
 
-`ShimejiConvert selftest` gates the parser + classifier on a committed synthetic fixture; the real config is
-copyrighted and deliberately never enters this repo (clone it outside the tree for the `classify` dev check).
+`ShimejiConvert selftest` gates the parser + classifier on a committed synthetic fixture, and on the bundled
+reference config (`BundledConfSelfTest`: the action census and the behaviour weights). That config ships unmodified
+under its 3-clause BSD licence (`THIRD_PARTY_NOTICES.md`), embedded so a sprites-only skin can convert; skins
+themselves never enter this repo.
