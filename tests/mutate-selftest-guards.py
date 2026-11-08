@@ -23647,6 +23647,30 @@ CASES = (
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "Shutdown unsubscribed every host event it subscribed to -- still attached: CredentialChanged"),
+
+    # ---- burndown/w8-converter-1 ----
+    # Converter entries of burn-down wave 8. "bd-w8-converter-1:" for one --only.
+    # N-bd-w4-converter-1-02: manifest.json or animation.json is read through a bare Path.Combine again, or the refusal
+    # falls back to it, so a link with either name is read past the reparse walk. The label is the JUNCTION leg's, the
+    # one leg that runs without the symbolic-link privilege; the file-link leg is DEGRADED here and could not fire.
+    ("bd-w8-converter-1: manifest.json is read through a bare Path.Combine again (N-bd-w4-converter-1-02)",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Shimeji", "BundleParser.cs"),
+     b"            string manifestPath = BundleFile(bundleDir, \"manifest.json\");\n",
+     b"            string manifestPath = Path.Combine(bundleDir, \"manifest.json\");\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "bundle", "bundle file links: manifest.json as a junction was not refused as a link"),
+    ("bd-w8-converter-1: animation.json is read through a bare Path.Combine again (N-bd-w4-converter-1-02)",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Shimeji", "BundleParser.cs"),
+     b"            string animationPath = BundleFile(bundleDir, \"animation.json\");\n",
+     b"            string animationPath = Path.Combine(bundleDir, \"animation.json\");\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "bundle", "bundle file links: animation.json as a junction was not refused as a link"),
+    ("bd-w8-converter-1: a refused bundle JSON file falls back to the bare join (N-bd-w4-converter-1-02)",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Shimeji", "BundleParser.cs"),
+     b"            if (path == null) throw new InvalidDataException(name + \" refused: \" + reason);\n",
+     b"            if (path == null) path = Path.Combine(bundleDir, name);\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "bundle", "bundle file links: manifest.json as a junction was not refused as a link"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
