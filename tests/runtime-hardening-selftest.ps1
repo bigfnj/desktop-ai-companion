@@ -6515,6 +6515,54 @@ $w9tsPwshList = [regex]::Match($w9tsOffline, '(?s)\$mutationPwsh = @\((.*?\))\)\
 Assert-True ($w9tsPwshList.Length -gt 0 -and $w9tsPwshList.Contains("@('Test-MutationTempBudget.ps1', '')")) 'w9-tests-scripts-1: WITNESS the offline checks'' PowerShell 7 list was sliced'
 Assert-True ($w9tsPwshList.Contains("@('Test-IsolatedMsiApiLogging.ps1', '')") -and $w9tsPwshList.Contains("@('Test-IsolatedMsiApiLoggingCase.ps1', '')")) (
     'w9-tests-scripts-1: the offline checks run both MSI API logging suites in PowerShell 7, judged by exit code')
+# NO TEST PROJECT PINS A WARNING LEVEL BELOW THE SDK DEFAULT (N-bd-w6-tests-core-1-01). w6-tests-core-1's rule above covers
+# CoreTests alone, and the window soak harness kept a WarningLevel 4 pin on net10.0-windows, so warning waves 5 to 10 were
+# off there and TreatWarningsAsErrors could not fire on them (measured 2026-11-08: a type with an all-lowercase name,
+# CS8981, built clean under the pin and failed the build without it). Every project one folder below tests\ is scanned,
+# so the next harness project is covered without an edit here. Per project, the floor is its target framework's major
+# version (0 when the project names no single netN.M target, so it is not judged), and the files are the project with XML comments
+# stripped plus any Directory.Build.props or .targets MSBuild would import from its folder, tests\ or the repo root.
+# WITNESS: the window soak project was read, still sets TreatWarningsAsErrors and targets net5 or later.
+$w9tsTestsRoot = Join-Path $repoRoot 'tests'
+$w9tsProjects = @(Get-ChildItem -LiteralPath $w9tsTestsRoot -Directory | ForEach-Object {
+    Get-ChildItem -LiteralPath $_.FullName -Filter '*.csproj' -File })
+$w9tsShared = @(foreach ($w9tsAt in @($w9tsTestsRoot, $repoRoot)) {
+    foreach ($w9tsName in @('Directory.Build.props', 'Directory.Build.targets')) {
+        $w9tsPath = Join-Path $w9tsAt $w9tsName
+        if (Test-Path -LiteralPath $w9tsPath -PathType Leaf) { Get-Item -LiteralPath $w9tsPath }
+    }
+})
+$w9tsLowPins = @()
+$w9tsSoakFloor = 0
+$w9tsSoakErrors = $false
+foreach ($w9tsProject in $w9tsProjects) {
+    $w9tsXml = [regex]::Replace((Get-Content -LiteralPath $w9tsProject.FullName -Raw), '(?s)<!--.*?-->', '')
+    $w9tsFramework = [regex]::Match($w9tsXml, '<TargetFramework>\s*net(\d{1,3})\.\d+(-[A-Za-z0-9.]+)?\s*</TargetFramework>')
+    $w9tsFloor = 0
+    if ($w9tsFramework.Success) { $w9tsFloor = [int] $w9tsFramework.Groups[1].Value }
+    if ($w9tsProject.Name -ceq 'DesktopAICompanion.WindowSoak.csproj') {
+        $w9tsSoakFloor = $w9tsFloor
+        $w9tsSoakErrors = $w9tsXml -cmatch '<TreatWarningsAsErrors>true</TreatWarningsAsErrors>'
+    }
+    $w9tsLocal = @(foreach ($w9tsName in @('Directory.Build.props', 'Directory.Build.targets')) {
+        $w9tsPath = Join-Path $w9tsProject.DirectoryName $w9tsName
+        if (Test-Path -LiteralPath $w9tsPath -PathType Leaf) { Get-Item -LiteralPath $w9tsPath }
+    })
+    foreach ($w9tsFile in @(@($w9tsProject) + $w9tsLocal + $w9tsShared)) {
+        $w9tsText = [regex]::Replace((Get-Content -LiteralPath $w9tsFile.FullName -Raw), '(?s)<!--.*?-->', '')
+        foreach ($w9tsPin in [regex]::Matches($w9tsText, '<WarningLevel\b[^>]*>\s*([^<]*?)\s*</WarningLevel>')) {
+            $w9tsValue = $w9tsPin.Groups[1].Value
+            if ($w9tsValue -cnotmatch '^\d{1,5}$' -or [int] $w9tsValue -lt $w9tsFloor) {
+                $w9tsLowPins += ($w9tsProject.Name + ' via ' + $w9tsFile.Directory.Name + '\' + $w9tsFile.Name + '=' + $w9tsValue)
+            }
+        }
+    }
+}
+Assert-True ($w9tsProjects.Count -ge 2 -and $w9tsSoakFloor -ge 5 -and $w9tsSoakErrors) (
+    "w9-tests-scripts-1: the test-project warning-level scan read the window soak project (WITNESS: TreatWarningsAsErrors is still set and the target framework is net$w9tsSoakFloor; $($w9tsProjects.Count) projects)")
+Assert-True ($w9tsLowPins.Count -eq 0) (
+    "w9-tests-scripts-1: no project under tests pins a WarningLevel below its target framework's default" +
+    $(if ($w9tsLowPins.Count) { ' -- ' + ($w9tsLowPins -join ', ') } else { '' }))
 
 # LAST, and deliberately:this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that

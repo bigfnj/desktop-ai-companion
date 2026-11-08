@@ -4956,6 +4956,22 @@ CASES = (
         b"    @('Test-IsolatedMsiApiLogging.ps1', ''))\n",
         "w9-tests-scripts-1: the offline checks run both MSI API logging suites in PowerShell 7",
     ),
+    # N-bd-w6-tests-core-1-01: the window soak harness pins WarningLevel 4 again, or a level one below its framework's
+    # default, so the floor is read from the target framework rather than written as 4.
+    (
+        "bd-w9-tests-scripts-1: the window soak pins WarningLevel 4 again (N-bd-w6-tests-core-1-01)",
+        os.path.join(REPO, "tests", "DesktopAICompanion.WindowSoak", "DesktopAICompanion.WindowSoak.csproj"),
+        b"         below the default. -->\n    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>\n",
+        b"         below the default. -->\n    <WarningLevel>4</WarningLevel>\n    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>\n",
+        "w9-tests-scripts-1: no project under tests pins a WarningLevel below",
+    ),
+    (
+        "bd-w9-tests-scripts-1: the window soak pins WarningLevel 9 under net10 (N-bd-w6-tests-core-1-01)",
+        os.path.join(REPO, "tests", "DesktopAICompanion.WindowSoak", "DesktopAICompanion.WindowSoak.csproj"),
+        b"         below the default. -->\n    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>\n",
+        b"         below the default. -->\n    <WarningLevel>9</WarningLevel>\n    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>\n",
+        "w9-tests-scripts-1: no project under tests pins a WarningLevel below",
+    ),
 )
 
 
