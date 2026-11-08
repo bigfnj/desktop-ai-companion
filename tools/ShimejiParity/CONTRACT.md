@@ -306,7 +306,7 @@ A trace is checked before anything is compared, and a trace that fails a check i
 - `malformed`: two state lines for one tick and sid; ticks out of order or outside 0..N; footer counts that do not
   match the lines; no state at tick 0; a companion whose lines have a gap, or that stops before tick N without a
   `dispose` event; a `velocity` that is not the anchor change; a `refKey` that is not the last `actionStack` entry;
-  `rng-draw` occurrences out of sequence.
+  `rng-draw` occurrences out of sequence. **(v1.1 clarification)** A state line for a sid at or after that sid's own `dispose` tick is `malformed`.
 - `rng-invalid`: a recorded draw value outside [0, 1), or, in a `tape` scenario, a recorded value that is not the
   tape's value at that occurrence. A trace that did not take the scenario's numbers as declared cannot be compared, so
   this is unjudgeable. (Drawing at all in a `none` scenario, or past the tape's end, is the runtime's BEHAVIOUR and is
@@ -758,6 +758,11 @@ fresh host traces are required for the new snapshot; historical comparisons keep
 Error-message text remains an exact `error` payload under v1.1. The two historical blank-behaviour mismatches (one
 birth, one Transform) differ only in that text and stay open until a separately reviewed rule or policy resolves them;
 v1.1 does not exempt them.
+
+The section 6 clarification for N-parity-1107-07 (a state line at or after the sid's own `dispose` tick is
+`malformed`) was proposed and signed by Codex on 2026-11-08 and signed by Claude the same day. It writes down a rule
+the comparer has applied since ff0fd55. `dispose` is the companion's removal from the manager, which a failed
+tentative child or a failed starter never reaches, so their provisional or reused sids are unaffected.
 
 ## v1.2 signature record
 
