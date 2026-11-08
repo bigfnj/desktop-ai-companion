@@ -119,9 +119,44 @@ public final class DraftParityHooks {
      * dismissed, so the error becomes a trace event and the caller returns before the dialog.
      */
     public static void fail(String message) {
-        observe("error", null, message);
+        fail(message, null);
+    }
+
+    /** Optional context must be supplied at the actual failure/catch site, never recovered from its message. */
+    public static void fail(String message, Fault fault) {
+        observe("error", fault, message);
         if (!Boolean.getBoolean("shimeji.parity.continueAfterError")) {
             throw new IllegalStateException("oracle-runtime-error " + message);
         }
+    }
+
+    /**
+     * Stored fault data for the versioned writer. A missing channel is inconclusive, not a guessed cause. The
+     * factory does not inspect an action, run a script or read a diagnostic. A reviewed failure-site hook owns the
+     * code and operands it passes here; a reviewed catch site owns the wrapper list.
+     */
+    public static final class Fault {
+        private final String code;
+        private final Map<String, Object> lookup;
+        private final List<String> via;
+
+        public Fault(String code, Map<String, Object> lookup, List<String> via) {
+            this.code = code;
+            this.lookup = lookup == null ? null : new LinkedHashMap<String, Object>(lookup);
+            this.via = new ArrayList<String>(via);
+        }
+
+        public Map<String, Object> record() {
+            Map<String, Object> result = new LinkedHashMap<String, Object>();
+            result.put("code", code);
+            result.put("lookup", lookup == null ? null : new LinkedHashMap<String, Object>(lookup));
+            result.put("via", new ArrayList<String>(via));
+            return result;
+        }
+    }
+
+    public static Map<String, Object> faultRecord(Object context) {
+        if (context instanceof Fault) return ((Fault)context).record();
+        return new Fault("unclassified", null, new ArrayList<String>()).record();
     }
 }

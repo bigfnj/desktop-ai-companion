@@ -87,6 +87,7 @@ public final class V1ScenarioRunner implements DraftParityHooks.Controller {
 
     private final Map<String, Object> scenario;
     private final boolean observing;
+    private final boolean trace2;
     private final DraftTraceWriter writer;
     private final int ticks;
     private final Map<String, Object> rng;
@@ -143,10 +144,11 @@ public final class V1ScenarioRunner implements DraftParityHooks.Controller {
     private int appliedWindowEntry = -1;
     private Mascot held;
 
-    private V1ScenarioRunner(Map<String, Object> scenario, DraftTraceWriter writer, boolean observing) {
+    private V1ScenarioRunner(Map<String, Object> scenario, DraftTraceWriter writer, boolean observing, boolean trace2) {
         this.scenario = scenario;
         this.writer = writer;
         this.observing = observing;
+        this.trace2 = trace2;
         this.ticks = integer(scenario.get("ticks"));
         this.rng = object(scenario.get("rng"));
         String kind = (String)rng.get("kind");
@@ -644,6 +646,9 @@ public final class V1ScenarioRunner implements DraftParityHooks.Controller {
         } else if (hook.equals("error")) {
             Map<String, Object> record = event(contextSid(), "error");
             record.put("message", detail == null ? null : detail.toString());
+            // A missing optional cause channel must not turn a message into a fabricated typed lookup. Required
+            // document/action identity checks elsewhere retain their provenance refusals (CONTRACT 10.3.3).
+            if (trace2) record.put("error", DraftParityHooks.faultRecord(subject));
             emit(record);
         }
     }
@@ -1039,6 +1044,11 @@ public final class V1ScenarioRunner implements DraftParityHooks.Controller {
             String header = new String(Files.readAllBytes(Paths.get(args[0])), StandardCharsets.UTF_8).trim();
             String json = new String(Files.readAllBytes(Paths.get(args[1])), StandardCharsets.UTF_8);
             ScriptEngine engine = new ScriptEngineManager().getEngineByName("nashorn");
+            engine.put("headerText", header);
+            Map<String, Object> headerRecord = object(engine.eval("Java.asJSONCompatible(JSON.parse(headerText))"));
+            String traceSchema = (String)headerRecord.get("schema");
+            boolean trace2 = "shimeji-parity-trace/2".equals(traceSchema);
+            if (!trace2 && !"shimeji-parity-trace/1".equals(traceSchema)) throw new IllegalStateException("V1_TRACE_SCHEMA");
             engine.put("scenarioText", json);
             Map<String, Object> scenario = object(engine.eval("Java.asJSONCompatible(JSON.parse(scenarioText))"));
             if (!SCHEMA.equals(scenario.get("schema"))) throw new IllegalStateException("V1_SCENARIO_INVALID schema");
@@ -1046,7 +1056,7 @@ public final class V1ScenarioRunner implements DraftParityHooks.Controller {
             stream.write(header + "\n");
             stream.flush();
             writer = new DraftTraceWriter(stream);
-            runner = new V1ScenarioRunner(scenario, writer, args.length < 4 || !"off".equals(args[3]));
+            runner = new V1ScenarioRunner(scenario, writer, args.length < 4 || !"off".equals(args[3]), trace2);
             DraftParityHooks.install(runner);
             status = runner.run();
             exit = 0;
@@ -1078,7 +1088,9 @@ public final class V1ScenarioRunner implements DraftParityHooks.Controller {
                     footer.put("unobservedDraws", runner.draws);
                     footer.put("unobservedEvents", runner.eventCount);
                 }
-                if (runner.tapeExhausted) footer.put("tapeExhausted", true);
+                // Trace/1 retains its optional true-only extension; trace/2 requires the actual flag, including
+                // false and trace-off runs. Exhaustion has never shortened this runner's stepping loop.
+                if (runner.trace2 || runner.tapeExhausted) footer.put("tapeExhausted", runner.tapeExhausted);
                 writer.writeRecord(footer);
                 writer.close();
             }

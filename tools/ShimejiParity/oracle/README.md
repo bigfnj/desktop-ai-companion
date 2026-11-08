@@ -107,7 +107,7 @@ The restore-then-move case also retains the source's cached area size, which is 
 The virtual model then treats the zero-sized result as absent. Native Win32 minimum tracking-size clamping for a
 captioned top-level window is not modelled or probed, so this case is a declared modelling assumption.
 
-## CONTRACT v1 producer
+## Versioned-contract producer (the V1 command)
 
 ```powershell
 .\Invoke-Oracle.ps1 @oracle -Action Draft
@@ -115,13 +115,22 @@ captioned top-level window is not modelled or probed, so this case is a declared
 ```
 
 `V1` runs every `S-*.json` under `SharedRoot` (or the ids matching `-Only`) on the private draft runtime and writes
-`shimeji-parity-trace/1` traces for `tools/ShimejiParity/comparer/compare.py`. It first re-hashes the draft build it
+`shimeji-parity-trace/2` traces for `tools/ShimejiParity/comparer/compare.py`. The command name is retained; historical
+trace/1 evidence keeps its original v1.1 comparison rules. Trace/2 implements CONTRACT section 10's separate dispatch.
+The producer first re-hashes the draft build it
 binds: the record, the JAR, the private patch, `edit-spec.json` and the helpers in `draft/`; a missing record or field,
 a changed JAR, a tampered patch or a stale specification or helper is refused by name. The header's `build` carries
 the source archive hash, the patch hash, the JDK version, every library and the runner (`deps`) and the JAR hash.
 The private draft's `lib/` and `conf/` files must also match the source inventory verified against the pinned archive,
 with no missing or extra resource files. An incomplete directory scan is a refusal. The producer and comparer read
 the same source-archive pin from `source-pin.json`.
+
+Trace/2 error events carry the required `error` object. The current message-only seam writes `unclassified` with a
+null lookup and an empty `via`; it cannot attribute a typed lookup or a consequence wrapper from a diagnostic string.
+The optional stored-fault channel accepts explicit cause data from reviewed failure/catch hooks. Until those hooks
+are wired, typed lookup attribution and the fresh blank-behavior closure fixtures of CONTRACT 10.9 remain incomplete.
+The Java protocol probe checks payload transport, fallback and RNG/footer behavior with original synthetic API stubs;
+it does not establish pinned-runtime lookup attribution or catch/state-write equivalence.
 
 `V1ScenarioRunner.java` is original driver code compiled beside the draft JAR. It installs its controller before any
 environment class initialises, replaces the native factory before any companion exists (scenario-fed desktop,
@@ -153,8 +162,10 @@ merge.
 Each scenario gets one status: `complete`, or a distinct failure (`truncated`, `timeout`, `error`, or the comparer's
 trace-check class). A requested scenario without a result fails the action (`V1_SCENARIO_SKIPPED`). The named proof
 scenario `S-input-drag-01`, which must be directed (`none` or `tape`), is run again with observation off; both runs
-must complete and its final tick (an empty one included), draw and event totals, and ordered event digest must equal
-the traced run's (CONTRACT section 5). Both modes hash compact UTF-8 event records followed by LF after input-event
+must complete and its final tick (an empty one included), draw and event totals, exhaustion flag, and ordered event
+digest must equal the traced run's (CONTRACT sections 5 and 10.5.3). Trace/2 proof inputs must identify the same runtime,
+build, scenario and RNG. The proof validates the physical trace-on counts against the trace-off durable counters,
+and both flags against the actual traced draw count. Both modes hash compact UTF-8 event records followed by LF after input-event
 insertion, in final emission order; the footer records `eventSequenceSha256`. The proof also recomputes the digest
 from the trace's written event lines. Without that scenario the proof is
 reported unavailable and the action is incomplete. A failed producer check writes `results.json` and `v1-latest.json`
@@ -163,8 +174,14 @@ Draws from a script `Math.random` are refused (`V1_RNG_SCRIPT_SITE_UNATTRIBUTED`
 the contract's script site names are attributed. Scan sites report their result through `DraftParityHooks.scanned`
 (the `wrap-assigned-value` spec operation, which refuses any call outside the hooks class) and Interact reports the
 start of its step. A runner refusal (Mute, or a sounding pose with sounds on, whose events have no seam yet) ends the
-run `aborted` and names itself; an exception from the source itself ends it `error`. Traces and launch records stay in
-the private evidence folder.
+run `aborted` and names itself; an exception from the source itself ends it `error`. Tape exhaustion continues on
+0.5 and does not change the runtime's status. Every trace/2 footer reports `tapeExhausted`, including false and
+trace-off runs. A traced timeout footer counts only complete physical prefix records. It does not repair partial
+JSON, replace a footer, or infer withheld draws. A trace-off timeout without a durable tally keeps its incomplete
+artifact and an unverified timeout result. A refusal to append a timeout footer is local to that scenario, is named
+in its result and sets `timeout_footer_verified` false; unrelated input/build/resource refusals still fail the phase.
+Completed trace-off files are proof-only artifacts and never enter the public cross-runtime validator. Traces and
+launch records stay in the private evidence folder.
 
 `V1Failures` reuses the latest `V1` evidence on private copies, and first refuses it (`V1_EVIDENCE_STALE`) unless
 `oracle.py`, the runner, the draft JAR and patch and the base trace's bytes are still the ones that run recorded and
@@ -174,6 +191,9 @@ each fail by name, and a real trace judged against itself relabelled as a host t
 changed, then fail as `entity-mismatch` (companions out of manager order), `state-mismatch` on `pose` (another image,
 same position) and on `actionAge`, `extra-event`, `missing-event`, `event-mismatch` (another draw site) and
 `rng-draw-count` (an extra draw).
+
+The `V1Failures` positive control needs a directed baseline whose self-comparison is exact. In trace/2 an aligned
+unclassified error blocks that result; do not treat that failure as evidence that typed attribution was completed.
 
 ## Failure witnesses
 
@@ -187,6 +207,17 @@ same position) and on `actionAge`, `extra-event`, `missing-event`, `event-mismat
 
 `SelfTest` exercises checksum refusal, archive containment, protected-path refusal, bytecode difference
 preservation, source/inventory tampering, distribution pins, exact class comparisons and isolation variables.
+Its trace/2 Python controls use synthetic child results and records, with no JDK or source-cache access. The separate
+owning-layer Java check compiles the original driver against synthetic API stubs with the supplied JDK 8:
+
+```powershell
+& $oracle.PythonPath .\test_trace2_java.py --jdk-root $oracle.JdkRoot --mutate --result '<private-evidence-directory>\java-protocol.json'
+```
+
+This check exercises actual driver main methods in fresh headless JVMs, records newly compiled class identities for
+each mutation, and removes its private scratch tree. It is a standalone explicit check, not an automatically wired
+whole-repository gate or a substitute for fresh paired runtime fixtures.
+
 `Mutate` disables the corresponding controls in fresh private
 script copies and requires the named witness to fail; it removes those copies and checks the tracked script
 remained byte-identical.
