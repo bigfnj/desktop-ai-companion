@@ -149,9 +149,11 @@ run.
   tick-clock companion every sound is a named clip (an id of 1 to 64 characters, unique, no `animationid`), and its
   audio passes the same size limits as a classic sound (2 MiB a clip, 8 MiB a document), except that a clip that
   declares a `format` (below) may be 4 MiB: WAV is uncompressed, and the attribute needs feature `wav`, so a host
-  older than that refuses such a clip by the feature's name before any size is measured. A named clip carries no `<loop>` and no
-  `<probability>` (both 0, the serializer's own values): a clip plays once per start, as the source's does, so either
-  would be ignored, and the validator refuses one rather than accept a setting that does nothing.
+  older than that refuses such a clip by the feature's name before any size is measured. A named clip's `<probability>`
+  and `<loop>` are both 0, the serializer's own values: the schema requires a `<probability>` on every `<sound>`, so a
+  named clip writes `<probability>0</probability>`, and its `<loop>` is left out or 0. A clip plays once per start, as
+  the source's does, so any other value would be ignored, and the validator refuses one rather than accept a setting
+  that does nothing.
 - **`<sound format="...">`.** A named clip's audio format, DECLARED, never sniffed: absent or `mp3` is MP3 (the
   structural check every sound has had: an ID3 tag or an MPEG frame sync), `wav` a RIFF/WAVE. The attribute, whatever
   its value, needs feature `wav`, so a host that predates it refuses the companion by that name before the schema;

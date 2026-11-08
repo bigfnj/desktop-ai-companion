@@ -423,10 +423,32 @@ namespace XmlData
         [XmlElement("next")]
         public NextNode[] Next;
         /// <summary>
-        ///  Action to execute if this animation is over.
+        ///  Every action as written. The schema's sequence content is a choice that may repeat, so a valid document can
+        ///  carry more than one &lt;action&gt;; a single string kept the first and dropped the rest on every load and
+        ///  save (Companion Studio, the converter), so the document came back different from the one the author wrote
+        ///  (N-bd-w4-options-ui-1-01, as N-cxr-conv-01 was for child/next probability). Refusing a repeated action in
+        ///  the schema or the validator instead was rejected: a companion that carries one loaded before, and would then
+        ///  be refused. Declared where the single field was, so a document with one action serialises byte for byte as
+        ///  before.
         /// </summary>
         [XmlElement("action")]
-        public string Action;
+        public string[] Actions;
+        /// <summary>
+        ///  Action to execute if this animation is over: the FIRST written, which is all the runtime and the validator
+        ///  read, exactly as the single-string field kept it. A property over <see cref="Actions"/> so every reader of
+        ///  the old field, Companion Studio's source-linked copy among them, compiles and behaves as before. Setting it
+        ///  replaces the first and keeps the rest; setting null clears them all (no action).
+        /// </summary>
+        [XmlIgnore]
+        public string Action
+        {
+            get { return Actions != null && Actions.Length > 0 ? Actions[0] : null; }
+            set
+            {
+                if (value == null || Actions == null || Actions.Length == 0) Actions = value == null ? null : new[] { value };
+                else Actions[0] = value;
+            }
+        }
     }
 
     /// <summary>

@@ -23419,6 +23419,42 @@ CASES = (
      FORTUNES_CSPROJ, FORTUNES_DLL,
      "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
      "an entry of seven emoji, 14 UTF-16 code units, is seven characters and is left out as under 8"),
+    # ---- burndown/w7-contracts-1 ----
+    # Shared contracts, burn-down wave 7. "bd-w7-contracts-1:" for one --only.
+    # N-audit-1106-148: the named-clip refusal tells the author to leave <probability> out again, which the schema refuses.
+    ("bd-w7-contracts-1: the named-clip refusal no longer says its probability and loop must be 0 (N-audit-1106-148)",
+     os.path.join(REPO, "src", "dotNet", "CompanionXmlValidator.cs"),
+     b'                        + "its <probability> and <loop> must be 0, since they belong to classic sounds.");\n',
+     b'                        + "<probability> and <loop> belong to classic sounds.");\n',
+     HOST_CSPROJ, EXE,
+     SECURITY, None, 'a named clip with a probability is refused'),
+    # N-bd-w4-options-ui-1-01: SequenceNode goes back to one action string, so a load and save keeps only the first
+    # <action> of a sequence. The whole Actions field and Action property become the old single field: the check names
+    # only Action, so this mutant compiles and is the pre-fix DTO byte for byte.
+    ("bd-w7-contracts-1: a sequence keeps only its first action through a load and save (N-bd-w4-options-ui-1-01)",
+     os.path.join(REPO, "src", "LocalData", "AnimationXML.cs"),
+     b'        [XmlElement("action")]\n'
+     b'        public string[] Actions;\n'
+     b'        /// <summary>\n'
+     b'        ///  Action to execute if this animation is over: the FIRST written, which is all the runtime and the validator\n'
+     b'        ///  read, exactly as the single-string field kept it. A property over <see cref="Actions"/> so every reader of\n'
+     b"        ///  the old field, Companion Studio's source-linked copy among them, compiles and behaves as before. Setting it\n"
+     b'        ///  replaces the first and keeps the rest; setting null clears them all (no action).\n'
+     b'        /// </summary>\n'
+     b'        [XmlIgnore]\n'
+     b'        public string Action\n'
+     b'        {\n'
+     b'            get { return Actions != null && Actions.Length > 0 ? Actions[0] : null; }\n'
+     b'            set\n'
+     b'            {\n'
+     b'                if (value == null || Actions == null || Actions.Length == 0) Actions = value == null ? null : new[] { value };\n'
+     b'                else Actions[0] = value;\n'
+     b'            }\n'
+     b'        }\n',
+     b'        [XmlElement("action")]\n'
+     b'        public string Action;\n',
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "sound-resolve", "ROUNDTRIP_SEQUENCE_ACTIONS: the public document API lost a sequence's second action"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
