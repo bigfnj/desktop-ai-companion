@@ -22828,6 +22828,13 @@ CASES = (
      HOST_CSPROJ, EXE,
      '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
      'a fullscreen window on its monitor hides a tick window'),
+    ("bd-w6-shimeji-host-1: put windows back moves a reused handle by its bare value (N-audit-1106-391)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickHost.cs"),
+     b'                    if (pid != p.Value.Process || thread != p.Value.Thread) continue;\n',
+     b'                    if (pid != p.Value.Process) continue;\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'put back: a recorded handle another thread now owns is left where it is'),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

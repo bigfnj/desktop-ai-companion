@@ -389,6 +389,35 @@ namespace DesktopAICompanion.Shimeji
                 check(fake.Calls == 2 && said == "No window needed putting back.",
                     "put back: with nothing recorded the record is not asked");
             }
+            // The real record (N-audit-1106-391): a handle goes back only while the process and thread that owned it when
+            // it was recorded still own it. This process's own window, created and never shown, stands in: recorded once
+            // under another thread (a handle value a closed window gave up and a new window was given), then under its
+            // real owner (WITNESS).
+            using (var probe = new System.Windows.Forms.Form
+            {
+                ShowInTaskbar = false, FormBorderStyle = System.Windows.Forms.FormBorderStyle.None,
+                StartPosition = System.Windows.Forms.FormStartPosition.Manual, Bounds = new Rectangle(-20000, -20000, 40, 40),
+            })
+            {
+                IntPtr h = probe.Handle;
+                int process;
+                uint thread = Win32InteractiveWindow.OwnerForSelfTest(h, out process);
+                var record = new Win32InteractiveWindow();
+                Point start = probe.Location;
+                var elsewhere = new Rectangle(start.X + 40, start.Y + 40, 40, 40);
+                record.RecordForSelfTest(h, elsewhere, process, unchecked(thread + 1));
+                System.Windows.Forms.Application.DoEvents();
+                int reused = record.PutWindowsBack();
+                Point afterReused = probe.Location;
+                record.RecordForSelfTest(h, elsewhere, process, thread);
+                System.Windows.Forms.Application.DoEvents();
+                int owned = record.PutWindowsBack();
+                Point afterOwned = probe.Location;
+                check(reused == 0 && afterReused == start,
+                    "put back: a recorded handle another thread now owns is left where it is (" + reused + ", " + afterReused + ")");
+                check(owned == 1 && afterOwned == elsewhere.Location,
+                    "put back: WITNESS a recorded window its recorder still owns goes back (" + owned + ", " + afterOwned + ")");
+            }
             // The tray menu carries the item, hidden until a window was moved.
             var menus = new ContextMenus();
             try
