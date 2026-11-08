@@ -25,7 +25,15 @@
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <LangVersion>7.3</LangVersion>
     <Deterministic>true</Deterministic>
-    <WarningLevel>4</WarningLevel>
+    <!-- No WarningLevel here, on purpose (N-bd-w4-contracts-1-02), the same rule src\Directory.Build.props
+         states for src (N-audit-1106-136). For a .NETCoreApp target the SDK sets it to the target framework's
+         major version (Microsoft.NET.Sdk.Analyzers.targets), so net10.0 builds at 10 with the compiler's
+         warning waves 5 to 10 on. This project used to pin 4, the .NET Framework value, which switched every
+         wave off for the harness AND for the production sources it recompiles, so the setting below could
+         never turn one of those warnings into an error here. Measured 2026-11-07 before removing it: the
+         harness rebuilt at level 10 with 0 warnings, and a scratch file with an all-lowercase type name
+         compiled into it was silent at the pin and failed with CS8981 (wave 7) at 10.
+         tests/runtime-hardening-selftest.ps1 refuses a pin below the framework's default here. -->
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
     <RestoreLockedMode Condition="'$(RestoreLockedMode)' == '' and '$(CI)' == 'true'">true</RestoreLockedMode>

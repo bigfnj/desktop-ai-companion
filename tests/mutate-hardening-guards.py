@@ -4604,6 +4604,31 @@ CASES = (
     ('bd-codex-parity-2-review: cleanup loses actual success flag', os.path.join(REPO, 'tools', 'ShimejiConvert.ValidationProbe', 'Invoke-Checks.ps1'), b'$readerPassed=$true', b'$readerPassed=$false', 'bd-codex-parity-2-review: Invoke-Checks.ps1 owns scratch and cleans only after the actual pass'),
     ('bd-codex-parity-2-review: cleanup becomes unconditional', os.path.join(REPO, 'tools', 'ShimejiConvert.ValidationProbe', 'Invoke-Checks.ps1'), b'if ($readerPassed) {', b'if ($true) {', 'bd-codex-parity-2-review: Invoke-Checks.ps1 owns scratch and cleans only after the actual pass'),
     ('bd-codex-parity-2-review: cleanup call becomes an echo', os.path.join(REPO, 'tools', 'ShimejiConvert.ValidationProbe', 'Invoke-Checks.ps1'), b'Remove-MapReaderScratch $callerScratch $callerScratchParent', b"Write-Host 'cleanup skipped'", 'bd-codex-parity-2-review: Invoke-Checks.ps1 owns scratch and cleans only after the actual pass'),
+
+    # ---- burndown/w6-tests-core-1 ----
+    # CoreTests pins a warning level below its framework's default again, in the shared group or in one
+    # configuration's, or stops treating warnings as errors (N-bd-w4-contracts-1-02). "bd-w6-tests-core-1:" for one --only.
+    (
+        "bd-w6-tests-core-1: the CoreTests project pins WarningLevel 4 again (N-bd-w4-contracts-1-02)",
+        os.path.join(REPO, "tests", "DesktopAICompanion.CoreTests", "DesktopAICompanion.CoreTests.csproj"),
+        b"    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>\n",
+        b"    <WarningLevel>4</WarningLevel>\n    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>\n",
+        "w6-tests-core-1: CoreTests pins no WarningLevel below its target framework's default",
+    ),
+    (
+        "bd-w6-tests-core-1: the CoreTests Release group pins WarningLevel 9, one below net10's (N-bd-w4-contracts-1-02)",
+        os.path.join(REPO, "tests", "DesktopAICompanion.CoreTests", "DesktopAICompanion.CoreTests.csproj"),
+        b"    <Optimize>true</Optimize>\n",
+        b"    <Optimize>true</Optimize>\n    <WarningLevel>9</WarningLevel>\n",
+        "w6-tests-core-1: CoreTests pins no WarningLevel below its target framework's default",
+    ),
+    (
+        "bd-w6-tests-core-1: the CoreTests project stops treating warnings as errors (N-bd-w4-contracts-1-02)",
+        os.path.join(REPO, "tests", "DesktopAICompanion.CoreTests", "DesktopAICompanion.CoreTests.csproj"),
+        b"    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>\n",
+        b"    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>\n",
+        "w6-tests-core-1: the CoreTests warning-level scan read its project",
+    ),
 )
 
 
