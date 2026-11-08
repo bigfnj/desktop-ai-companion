@@ -5051,9 +5051,15 @@ Assert-True ($tqContracts -cmatch 'public interface ITrayQuestions' -and $tqIHos
     'tray-questions: ITrayQuestions is its own interface, not on IHost and not on RecordingHost, and the host implements it')
 
 # The answer completes asynchronously, so module code never runs inside the host's click handler or timer tick.
-Assert-True ($tqAsk -cmatch 'TaskCreationOptions\.RunContinuationsAsynchronously' -and
+# Re-pointed by burndown/w10-host-1 (N-audit-1106-248): AskAsync takes its completion from TrayQuestionRules.NewAnswer,
+# the one factory --trayquestions-selftest's rig also builds with, so that self-test's continuation check reaches the
+# host's option; the option is asserted on the factory, and AskAsync building its own completion fails here.
+$tqNewAnswer = Get-MethodBody $tqArbiter 'internal static TaskCompletionSource<TrayAnswer> NewAnswer()' @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($tqAsk -cmatch 'var completion = TrayQuestionRules\.NewAnswer\(\);' -and $tqAsk -cnotmatch 'new [\w.]*TaskCompletionSource<' -and
+    $tqNewAnswer -cmatch 'return new TaskCompletionSource<TrayAnswer>\(TaskCreationOptions\.RunContinuationsAsynchronously\);' -and
+    'var completion = new System.Threading.Tasks.TaskCompletionSource<TrayAnswer>(' -cmatch 'new [\w.]*TaskCompletionSource<' -and
     $tqAsk.IndexOf('TrayQuestionRules.TryAccept(') -ge 0 -and $tqAsk.IndexOf('TrayQuestionRules.TryAccept(') -lt $tqAsk.IndexOf('questions.Ask(entry, withdraw)')) (
-    'tray-questions: AskAsync copies and validates the question before queueing it, and its answer runs continuations asynchronously')
+    'tray-questions: AskAsync copies and validates the question before queueing it, and its answer runs continuations asynchronously, through the one factory (WITNESS: an own-completion line matches the absent pattern)')
 
 # The log carries a question's key, outcome and choice id -- never its text, title or labels (the self-test asserts the
 # LINES; this pins that no [question] log statement reads those members at all, in the queue or the host).

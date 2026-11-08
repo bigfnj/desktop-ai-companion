@@ -3314,11 +3314,12 @@ CASES = (
         b"    public class RecordingHost : IHost, DesktopAICompanion.Modules.ITrayQuestions\n",
         "tray-questions: ITrayQuestions is its own interface",
     ),
+    # Re-pointed by burndown/w10-host-1 (N-audit-1106-248): the option lives in TrayQuestionRules.NewAnswer now.
     (
         "tray-questions: the answer's continuations run inline in the host",
-        COMPANION_HOST_CS,
-        b"                System.Threading.Tasks.TaskCreationOptions.RunContinuationsAsynchronously);\n",
-        b"                System.Threading.Tasks.TaskCreationOptions.None);\n",
+        TRAY_QUESTIONS_CS,
+        b"            return new TaskCompletionSource<TrayAnswer>(TaskCreationOptions.RunContinuationsAsynchronously);\n",
+        b"            return new TaskCompletionSource<TrayAnswer>(TaskCreationOptions.None);\n",
         "tray-questions: AskAsync copies and validates the question",
     ),
     (
@@ -5111,6 +5112,16 @@ CASES = (
         b'            }\n'
         b'            return false;\n',
         "w10-host-1: Remove takes one of the companions the user chose",
+    ),
+    # N-audit-1106-248: AskAsync builds its own completion again, so the self-test's continuation check, which runs on
+    # the factory, no longer reaches the host's option.
+    (
+        "bd-w10-host-1: AskAsync builds its own answer completion (N-audit-1106-248)",
+        COMPANION_HOST_CS,
+        b"            var completion = TrayQuestionRules.NewAnswer();   // continuations run asynchronously; see there\n",
+        b"            var completion = new System.Threading.Tasks.TaskCompletionSource<TrayAnswer>(\n"
+        b"                System.Threading.Tasks.TaskCreationOptions.RunContinuationsAsynchronously);\n",
+        "tray-questions: AskAsync copies and validates the question",
     ),
 )
 

@@ -107,6 +107,17 @@ namespace DesktopAICompanion
         internal static readonly TimeSpan MaxDeadlineAhead = TimeSpan.FromHours(24);
 
         /// <summary>
+        /// The completion a question's answer is delivered through: continuations run asynchronously, so a module's
+        /// code never runs inside the host's own click handler or timer tick. ONE definition (N-audit-1106-248), used by
+        /// the host's AskAsync and by --trayquestions-selftest's rig, so the check that an answer's continuation runs
+        /// outside the click tests the host's own option rather than a copy of it the rig made for itself.
+        /// </summary>
+        internal static TaskCompletionSource<TrayAnswer> NewAnswer()
+        {
+            return new TaskCompletionSource<TrayAnswer>(TaskCreationOptions.RunContinuationsAsynchronously);
+        }
+
+        /// <summary>
         /// Take a COPY of the question, or refuse it with a fixed reason token. Refused rather than trimmed, so a module
         /// learns of an over-long label in its own self-test and not from a clipped button on a user's screen. Text and
         /// labels are sanitised first (controls and bidi overrides stripped, whitespace collapsed), and the limits apply

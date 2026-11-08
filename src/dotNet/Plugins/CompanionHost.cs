@@ -643,8 +643,7 @@ namespace DesktopAICompanion.Plugins
         /// </summary>
         public System.Threading.Tasks.Task<TrayAnswer> AskAsync(string moduleId, TrayQuestion question, CancellationToken withdraw)
         {
-            var completion = new System.Threading.Tasks.TaskCompletionSource<TrayAnswer>(
-                System.Threading.Tasks.TaskCreationOptions.RunContinuationsAsynchronously);
+            var completion = TrayQuestionRules.NewAnswer();   // continuations run asynchronously; see there
             string id = (moduleId ?? "").Trim();
             try
             {

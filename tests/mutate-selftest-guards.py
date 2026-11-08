@@ -24488,6 +24488,15 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--catalog-selftest", "dp-catalog-selftest.txt",
      "online verdict: a catalog with a refused entry fails, naming it"),
+    # N-audit-1106-248: the host's answer completion runs continuations inline. The rig builds through the same factory
+    # since the fix, so --trayquestions-selftest's continuation check now reaches the host's option.
+    ("bd-w10-host-1: the host's answer completion runs continuations inline (N-audit-1106-248)",
+     os.path.join(REPO, "src", "dotNet", "TrayQuestions.cs"),
+     b'            return new TaskCompletionSource<TrayAnswer>(TaskCreationOptions.RunContinuationsAsynchronously);\n',
+     b'            return new TaskCompletionSource<TrayAnswer>(TaskCreationOptions.None);\n',
+     HOST_CSPROJ, EXE,
+     "--trayquestions-selftest", "dp-trayquestions-selftest.txt",
+     "queue: an answer's continuation runs asynchronously, never inside the host's click handler"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
