@@ -23353,6 +23353,39 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--hardening-selftest", "dp-hardening-selftest.txt",
      "hang: an animation whose border edges cannot hang does not look for an underside"),
+    # N-audit-1106-238: a version keeps only the parts it was given again, so 1.11.0.0 outranks 1.11.0.
+    ("bd-w7-host-1: a four-part MinHostVersion outranks the three-part host it names (N-audit-1106-238)",
+     os.path.join(REPO, "src", "dotNet", "Plugins", "ModuleHostRequirement.cs"),
+     b"            version = new Version(numbers[0], numbers[1], numbers[2], numbers[3]);\n",
+     b"            version = parts.Length == 4 ? new Version(numbers[0], numbers[1], numbers[2], numbers[3]) : new Version(numbers[0], numbers[1], numbers[2]);\n",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "gate: a four-part requirement equal to the host (1.11.0.0 on 1.11.0) loads"),
+    ("bd-w7-host-1: a one-part MinHostVersion is read as a typo again (N-audit-1106-238)",
+     os.path.join(REPO, "src", "dotNet", "Plugins", "ModuleHostRequirement.cs"),
+     b"            if (parts.Length > 4) return false;\n",
+     b"            if (parts.Length > 4 || parts.Length < 2) return false;\n",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "gate: a one-part requirement (2) is enforced, not read as a typo"),
+    # N-audit-1106-239: a question asked from inside Init is no longer ledgered, so a failed Init leaves it queued.
+    ("bd-w7-host-1: a failed Init leaves its tray question queued (N-audit-1106-239)",
+     COMPANION_HOST,
+     b"                        Ledger(() => questions.CancelModule(id));\n",
+     b"                        { }\n",
+     HOST_CSPROJ, EXE,
+     "--trayquestions-selftest", "dp-trayquestions-selftest.txt",
+     "host: an Init that throws after asking a tray question takes the question with it"),
+    # N-audit-1106-237: a module leaves its CredentialChanged handler attached after Shutdown; the convention run's
+    # leak check must name it (it could not before: the convention host offered no IHostCredentials). AiBrain, not the
+    # test module, because the test module's convention run is red by design and no baseline could pass.
+    ("bd-w7-host-1: AiBrain leaves its CredentialChanged handler after Shutdown (N-audit-1106-237)",
+     AIBRAIN_MODULE,
+     b"                try { sharedSignIn.CredentialChanged -= _sharedSignInChanged; } catch { }\n",
+     b"                try { } catch { }\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Shutdown unsubscribed every host event it subscribed to -- still attached: CredentialChanged"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

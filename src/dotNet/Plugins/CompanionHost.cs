@@ -656,7 +656,7 @@ namespace DesktopAICompanion.Plugins
                 entry.Completion = completion;
                 OnUi(delegate
                 {
-                    TrayQuestionArbiter questions = _startUp != null ? _startUp.Questions : null;
+                    TrayQuestionArbiter questions = _startUp != null ? _startUp.Questions : QuestionsForSelfTest;
                     if (questions == null)
                     {
                         completion.TrySetResult(new TrayAnswer { Outcome = TrayQuestionOutcome.Refused, Reason = "not-available" });
@@ -675,6 +675,11 @@ namespace DesktopAICompanion.Plugins
             }
             return completion.Task;
         }
+
+        /// <summary>The question queue of a host built with no app, which a self-test hands it so a question asked from
+        /// inside a module's Init reaches a real queue (N-audit-1106-239). Null in the app, where StartUp.Questions is
+        /// the queue and this is never read.</summary>
+        internal TrayQuestionArbiter QuestionsForSelfTest;
 
         /// <summary>Run on the UI thread: inline when already there (or when there is no context, as in the headless
         /// self-tests), posted otherwise.</summary>

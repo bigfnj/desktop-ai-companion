@@ -684,6 +684,27 @@ namespace DesktopAICompanion
                 invalid.Wait(5000) && invalid.Result.Outcome == TrayQuestionOutcome.Refused && invalid.Result.Reason == "no-text");
             Task<TrayAnswer> nothing = questions.AskAsync("remembrance", null, CancellationToken.None);
             check("host: a null question answers Refused", nothing.Wait(5000) && nothing.Result.Outcome == TrayQuestionOutcome.Refused);
+
+            // A question asked from inside Init goes with the rest of a failed Init (N-audit-1106-239). The host records a
+            // CancelModule in the Init ledger for it, and the module-host rollback check covers tray items, panes,
+            // subscriptions and responders but never asked a question, so that entry had no check anywhere. On the real
+            // host, with a real queue handed to it, through the same Begin/RollBack window ModuleHost puts around Init.
+            var rig = new Rig();
+            var initHost = new DesktopAICompanion.Plugins.CompanionHost(null) { QuestionsForSelfTest = rig.Arbiter };
+            initHost.BeginModuleInit("remembrance");
+            Task<TrayAnswer> fromInit = initHost.AskAsync("remembrance", Q("remembrance.limit"), CancellationToken.None);
+            bool queued = !fromInit.IsCompleted && rig.View.Shown != null && rig.View.Shown.Key == "remembrance.limit";
+            check("host: WITNESS a question asked from inside a module's Init reaches the queue and is shown", queued);
+            initHost.RollBackModuleInit();
+            check("host: an Init that throws after asking a tray question takes the question with it (Cancelled, card hidden)",
+                queued && fromInit.Wait(5000) && fromInit.Result.Outcome == TrayQuestionOutcome.Cancelled && rig.View.Shown == null);
+            // WITNESS the ledger is the Init window's only: a healthy Init's question stays after the window closes.
+            initHost.BeginModuleInit("remembrance");
+            Task<TrayAnswer> fromHealthy = initHost.AskAsync("remembrance", Q("remembrance.meeting-over"), CancellationToken.None);
+            initHost.EndModuleInit();
+            check("host: WITNESS a question asked from a healthy Init stays queued after the Init window closes",
+                !fromHealthy.IsCompleted && rig.View.Shown != null && rig.View.Shown.Key == "remembrance.meeting-over");
+            rig.Arbiter.CancelAll();
         }
     }
 }

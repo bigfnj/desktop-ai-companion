@@ -149,10 +149,16 @@ namespace DesktopAICompanion.Plugins
                     if (host.CompanionPokedHasSubs) stillSubscribed += " CompanionPoked";
                     if (host.CompanionLandedHasSubs) stillSubscribed += " CompanionLanded";
                     if (host.HostShutdownHasSubs) stillSubscribed += " HostShutdown";
-                    // Six of six. These two were the blind spots: ContextChanged threw its
-                    // subscribers away, and FullscreenChanged kept them but nothing looked.
+                    // These two were the blind spots: ContextChanged threw its subscribers away, and
+                    // FullscreenChanged kept them but nothing looked.
                     if (host.ContextChangedHasSubs) stillSubscribed += " ContextChanged";
                     if (host.FullscreenChangedHasSubs) stillSubscribed += " FullscreenChanged";
+                    // Seven of seven (N-audit-1106-237). This one said "six of six" while the host also
+                    // raises CredentialChanged, which this fake did not offer: it implemented no
+                    // IHostCredentials, so a module's `host as IHostCredentials` was null here and a
+                    // handler left on it after Shutdown could not be seen. The fake answers Denied to
+                    // every credential call, as the real host does for a module the user has not allowed.
+                    if (host.CredentialChangedHasSubs) stillSubscribed += " CredentialChanged";
                     ok &= Check(sb,
                         "Shutdown unsubscribed every host event it subscribed to"
                         + (stillSubscribed.Length > 0 ? " -- still attached:" + stillSubscribed : ""),
@@ -345,7 +351,7 @@ namespace DesktopAICompanion.Plugins
         /// SelfTest builds a richer host from ModuleKit (which travels with the module), so duplicating that
         /// here would put a second, drifting copy in the base.
         /// </summary>
-        private sealed class ConventionHost : IHost
+        private sealed class ConventionHost : IHost, IHostCredentials
         {
             public string HostVersion { get { return Application.ProductVersion; } }
             public bool SpeechEnabled { get { return true; } }
@@ -374,7 +380,8 @@ namespace DesktopAICompanion.Plugins
             internal bool HostShutdownHasSubs { get { return HostShutdown != null; } }
             internal bool ContextChangedHasSubs { get { return ContextChanged != null; } }
             internal bool FullscreenChangedHasSubs { get { return FullscreenChanged != null; } }
-            // No TouchEvents here (RA-290): the six HasSubs reads above are what keep CS0067 quiet for these
+            internal bool CredentialChangedHasSubs { get { return CredentialChanged != null; } }
+            // No TouchEvents here (RA-290): the seven HasSubs reads above are what keep CS0067 quiet for these
             // events, so the never-called invoker the other fakes carry was redundant in this one. The other
             // five fakes keep theirs because they have no such reads.
 
@@ -456,6 +463,22 @@ namespace DesktopAICompanion.Plugins
             // written. An empty accessor pair is the one shape that makes a test silently
             // unfalsifiable rather than merely incomplete.
             public event Action<string> ContextChanged;
+
+            // IHostCredentials, so the seventh host event is offered and its leak check can fail (N-audit-1106-237).
+            // Every call answers Denied, the real host's answer to a module the user has not allowed, and writes
+            // nothing: the convention run is about what a module subscribes to, not about a sign-in.
+            public event Action<HostCredentialId, long> CredentialChanged;
+            public HostCredentialReading ReadCredential(string moduleId, HostCredentialId credential)
+            {
+                return new HostCredentialReading { State = HostCredentialState.Denied, Revision = -1 };
+            }
+            public HostCredentialCommit TrySaveCredential(string moduleId, HostCredentialId credential, string value) { return Denied(); }
+            public HostCredentialCommit ImportCredentialIfUnset(string moduleId, HostCredentialId credential, string value) { return Denied(); }
+            public HostCredentialCommit RemoveCredential(string moduleId, HostCredentialId credential) { return Denied(); }
+            private static HostCredentialCommit Denied()
+            {
+                return new HostCredentialCommit { Outcome = HostCredentialOutcome.Denied, Revision = -1, Problem = "" };
+            }
 
             /// <summary>A registration handle whose Dispose undoes the registration, once.</summary>
             private sealed class Remover : IDisposable

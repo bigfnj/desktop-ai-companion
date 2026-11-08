@@ -1574,6 +1574,15 @@ namespace DesktopAICompanion.Plugins
                 ModuleHostRequirement.IsSatisfied("1.5.0", "dev", out reason) && reason.Length > 0);
             ok &= Check(sb, "gate: an unparseable HOST version never refuses anything",
                 ModuleHostRequirement.IsSatisfied("selftest", "9.9.9", out reason) && reason.Length > 0);
+            // Parts left out are 0 (N-audit-1106-238): System.Version ordered 1.11.0.0 above 1.11.0 and refused "2".
+            ok &= Check(sb, "gate: a four-part requirement equal to the host (1.11.0.0 on 1.11.0) loads",
+                ModuleHostRequirement.IsSatisfied("1.11.0", "1.11.0.0", out reason) && reason.Length == 0);
+            string onePart;
+            bool onePartLoads = ModuleHostRequirement.IsSatisfied("1.11.0", "2", out onePart);
+            ok &= Check(sb, "gate: a one-part requirement (2) is enforced, not read as a typo (" + onePart + ")",
+                !onePartLoads && onePart == "needs host 2.0.0 or newer (this host is 1.11.0)");
+            ok &= Check(sb, "gate: WITNESS a four-part requirement one revision up (1.11.0.1) is refused",
+                !ModuleHostRequirement.IsSatisfied("1.11.0", "1.11.0.1", out reason) && reason.Contains("1.11.0.1"));
 
             // Wiring: the real loader, the real testmodule (which declares MinHostVersion 1.0.0).
             if (!Directory.Exists(Path.Combine(modulesRoot, "testmodule")))
