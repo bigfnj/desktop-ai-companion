@@ -11,10 +11,15 @@ namespace DesktopAICompanion
     /// only in the build whose runtime implements it, so no build accepts a companion it cannot run.
     ///
     /// Partial because the runtime is not in every build that compiles this file. The app compiles the runtime and
-    /// implements the two hooks below (Shimeji/TickFeatures.cs); Studio and the converter compile this file without it,
-    /// so the hooks vanish there, their <see cref="Supported"/> stays empty, and they keep refusing a tick companion by
-    /// feature name. That is deliberate: both re-serialise documents through copies that do not yet carry every field
-    /// (DESIGN-REGISTER, feature/shimeji-host-runtime).
+    /// implements both hooks below (Shimeji/TickFeatures.cs). Companion Studio implements only the token hook, with the
+    /// app's tokens (modules/PetStudio/StudioFeatures.cs; --petstudio-selftest fails when the two sets differ), and
+    /// leaves the class hook to the format, because the host re-validates with its own class gate when Studio previews
+    /// or installs. The converter compiles this file with neither hook, so its <see cref="Supported"/> stays empty and
+    /// its single-document checks (ShimejiEngine.TryValidate, the round trip) refuse a tick companion by feature name; its
+    /// tick-pack paths (TickPackEmitter, PackConversion) do not consult that set and validate every emitted member
+    /// against <see cref="All"/>, and the host validates each member again against its real set when it loads it
+    /// (DESIGN-REGISTER, feature/shimeji-host-runtime and feature/shimeji-host-studio). Until N-bd-w6-docs-1-03 this
+    /// said Studio and the converter both refused every tick companion, because their copies did not carry every field.
     /// </summary>
     internal static partial class CompanionFormatFeatures
     {
@@ -37,8 +42,9 @@ namespace DesktopAICompanion
         public static readonly string[] All =
             { Tick, Actions, Behaviours, Expressions, Packs, Social, Lifecycle, Windows, Hotspots, Variables, Wav };
 
-        /// <summary>What this build runs: the tokens its runtime registers, none where no runtime is compiled in. A
-        /// companion that uses anything else is refused, by feature name.</summary>
+        /// <summary>What this build accepts: the tokens its token hook registers (the app's runtime, or Studio's copy of
+        /// the app's list), none in the converter, which implements no hook. A companion that uses anything else is
+        /// refused, by feature name.</summary>
         public static readonly IReadOnlyCollection<string> Supported = RuntimeFeatures();
 
         private static string[] RuntimeFeatures()
@@ -48,12 +54,13 @@ namespace DesktopAICompanion
             return supported.ToArray();
         }
 
-        /// <summary>The runtime's tokens; implemented only in a build that runs them.</summary>
+        /// <summary>The build's tokens; implemented in the app (its runtime's) and in Studio (the same list).</summary>
         static partial void AddRuntimeFeatures(List<string> supported);
 
         /// <summary>Whether this build constructs an embedded class. A token covers a family of classes, and a family
-        /// can land a class at a time, so the validator also asks per class. Where no runtime is compiled in, the
-        /// format alone decides (true), since <see cref="Supported"/> already refuses every tick companion there.</summary>
+        /// can land a class at a time, so the validator also asks per class. Where no runtime is compiled in (Studio,
+        /// the converter), the format alone decides (true): the host asks its own runtime when it previews, installs or
+        /// loads the document, so a class this app does not build is refused there, by name.</summary>
         public static bool RunsClass(string embeddedClass)
         {
             bool runs = true;

@@ -319,10 +319,16 @@ UNC path allows its own files and a junction inside the root still cannot lead o
 resolved refuses, on the same fail-closed grounds as the file.
 
 **The loader is fail-closed on a partial type load (2026-09-29, F342).** `ModuleHost.LoadFrom` calls
-`Assembly.GetTypes()` and refuses the module whole when any type in it fails to load, rather than searching
-the partial list for the `IModule` type and letting the broken type throw when first touched. Safer while
+`Assembly.GetTypes()` and refuses the module whole when any type in it fails to load, rather than running the
+`IModule` type found in the partial list and letting the broken type throw when first touched. Safer while
 every module is first-party; a module that degrades on load is a decision for the day a third-party module
 needs it, and the convention runner no longer carries a partial-load catch that implied the other policy.
+
+*Amended 2026-11-07 (N-audit-1106-025), order only, not policy: `LoadFrom` now does find and construct the
+`IModule` type from the partial list, but only to read its `MinHostVersion`, so a too-new module whose assembly
+holds a type this host cannot load is reported as needing a newer app. When the floor is satisfied the module is
+still refused whole, before Init, with the loader's reason. `--module-host-selftest` checks both
+(TooNewPartialLoad).*
 
 **A module whose Init throws holds nothing in the host (2026-09-29, F344).** The isolation promise at the
 top of `ModuleHost` ("one bad module can never take the host down") covered the host and not the module's

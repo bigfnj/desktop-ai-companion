@@ -550,8 +550,16 @@ action.
 **When the toggle is OFF,** the action's animation plays and no window moves or is minimized
 (`policy:window-off-plays`). The source has no such toggle: it plays the action and moves or minimizes the window. Only
 the source's own Throwing setting ends a window action at once; the host keeps that setting and pins it on, so in the
-app the action always plays. Which window is "active" follows the source's environment rule; it is to be confirmed by
-the parity lane before freeze.
+app the action always plays.
+
+Which window is "active" follows the source's environment rule: walking the windows in z-order, the first one that is
+visible, not cloaked, not minimised, on the screen, and whose title contains an entry of the source's shipped
+interactive-window list; none at all when a visible, uncloaked maximised window, whatever its title, comes first. This
+app's own windows are passed over. The rule is `TickWindowRules.Classify`, which the host's `Win32InteractiveWindow.Find`
+applies in z-order, and CoreTests pin it case by case (the window title-rule and walk-order tests, through `Classify`
+and its pure walk `FindActive`). The parity contract does not check this rule and was frozen without it: a scenario
+scripts the active window, and neither runtime reads the real windows during one (`tools/ShimejiParity/CONTRACT.md`
+section 1). (Until N-bd-w4-docs-1-06 this said the parity lane would confirm the rule before freeze.)
 
 ---
 
@@ -660,7 +668,9 @@ Preview runs one as it is.
 ## 11. Open points to settle before freeze
 
 1. The special-behaviour names and when the host enters them (4.3), from `UserBehavior`.
-2. The active-window rule used for `activeIE` and window actions (section 8), from the Windows environment.
+2. The active-window rule used for `activeIE` and window actions (section 8), from the Windows environment. Settled
+   outside the parity contract, which scripts the active window: the host follows the source's walk and CoreTests
+   pin it (section 8).
 3. Hotspot input semantics: when a press triggers its behaviour, held versus released state, and a hotspot with no
    behaviour (a held click or head-pat).
 
