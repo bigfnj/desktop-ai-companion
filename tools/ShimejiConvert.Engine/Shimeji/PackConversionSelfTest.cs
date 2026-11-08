@@ -211,9 +211,11 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             {
                 PackConversionOptions options = Options();
                 options.Members = new Dictionary<string, PackMemberOptions> { { "Absent", new PackMemberOptions { Role = "form" } } };
-                Refused(fixture, options, "Absent");
+                // N-audit-1106-158: each refusal is identified by its diagnostic, not by a token the error echoes from the
+                // input ("Absent", "role"), which a refusal for another reason could carry too.
+                Refused(fixture, options, "TICK_PACK_OPTIONS_UNKNOWN: member metadata names an image set that is not in this pack: Absent");
                 options.Members = new Dictionary<string, PackMemberOptions> { { "Alpha", new PackMemberOptions { Role = "mystery" } } };
-                Refused(fixture, options, "role");
+                Refused(fixture, options, "TICK_PACK_ROLE_INVALID: image set 'Alpha' has unknown role 'mystery'");
                 options.Members = new Dictionary<string, PackMemberOptions> { { "bad/key", new PackMemberOptions() } };
                 PackConversionResult invalid = Refused(fixture, options,
                     "TICK_PACK_MEMBER_INVALID: member metadata has an invalid image-set key: 'bad/key'.");
@@ -226,7 +228,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             {
                 PackConversionOptions options = Options();
                 options.Startup = new PackStartupOptions { Member = "Absent", Behaviour = "Main" };
-                Refused(fixture, options, "Absent");
+                Refused(fixture, options, "header/startup names member 'Absent', which this pack does not have");
             }
         }
         private static void StartupBehaviour()
@@ -235,7 +237,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             {
                 PackConversionOptions options = Options();
                 options.Startup = new PackStartupOptions { Member = "Alpha", Behaviour = "Absent" };
-                Refused(fixture, options, "Absent");
+                Refused(fixture, options, "TICK_PACK_STARTUP_UNMAPPED: image set 'Alpha' cannot resolve startup behaviour 'Absent'");
             }
         }
         private static void EggReturn()
@@ -246,7 +248,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 PackConversionOptions options = Options();
                 options.Members = new Dictionary<string, PackMemberOptions> { { "Egg (2)", new PackMemberOptions { Role = "egg", Hidden = true } } };
                 options.Startup = new PackStartupOptions { Member = "Egg (2)", Behaviour = "Hatch" };
-                Refused(fixture, options, "egg");
+                Refused(fixture, options, "The startup egg 'Egg (2)' never transforms back into the main member 'Alpha'");
             }
         }
 

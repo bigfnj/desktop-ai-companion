@@ -22895,6 +22895,21 @@ CASES = (
      b"                if (!path.StartsWith(root, StringComparison.OrdinalIgnoreCase))\n",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
      SHIMEJI, "compositor", "loader containment: a pose image outside the img folder was read or refused for another reason: /../img-other/x.png"),
+    # N-audit-1106-158: a refusal for the WRONG reason. With the unknown-role check gone the main member's
+    # "mystery" role still refuses as a role conflict, whose text contains "role"; a startup behaviour no member has
+    # is called ambiguous, and that text still names 'Absent'. The old token fragments passed both.
+    ("bd-w5-converter-1: an unknown role refuses only as a role conflict (N-audit-1106-158)",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "PackConversion.cs"),
+     b"                    if (member.Role != null && member.Role != \"main\" && member.Role != \"egg\" && member.Role != \"form\" && member.Role != \"helper\")\n",
+     b"                    if (member.Role == \"no such role\")\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "pack-conversion/unknown-option-refusal", "refusal did not identify TICK_PACK_ROLE_INVALID: image set 'Alpha' has unknown role 'mystery'"),
+    ("bd-w5-converter-1: an unmapped startup behaviour is called ambiguous (N-audit-1106-158)",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "PackConversion.cs"),
+     b"            error = (matches.Length == 0 ? \"TICK_PACK_STARTUP_UNMAPPED\" : \"TICK_PACK_STARTUP_AMBIGUOUS\")\n",
+     b"            error = (matches.Length != 0 ? \"TICK_PACK_STARTUP_UNMAPPED\" : \"TICK_PACK_STARTUP_AMBIGUOUS\")\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "pack-conversion/startup-behaviour-refusal", "refusal did not identify TICK_PACK_STARTUP_UNMAPPED: image set 'Alpha' cannot resolve startup behaviour 'Absent'"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
