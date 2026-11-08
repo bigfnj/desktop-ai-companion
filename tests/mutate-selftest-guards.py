@@ -24856,12 +24856,18 @@ CASES = (
      b"<PathMap>$(MSBuildProjectDirectory)=/_/tools/ShimejiConvert.Engine</PathMap>",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL, SHIMEJI, 'cli-roundtrip',
      "CLI_SYMBOLS_DOCUMENT_PATH: ShimejiConvert.Engine.dll"),
-    ("bd-w12-converter-1: the engine keeps the SDK's default Source Link record, which maps the checkout folder (N-bd-closure2-02)",
+    # Re-pointed by bd-w13-converter-1 (N-bd-w12-review-04): deleting EnableSourceLink fired only where the SDK writes a
+    # record, a git checkout with a GitHub origin, and SURVIVED in a snapshot copy with the guard intact. Same intent, a
+    # Source Link record in the engine's Release dll, now put in by the compiler's SourceLink property naming the synthetic
+    # map under tools\ShimejiConvert\fixtures\symbols, keyed on /_/ the way ContinuousIntegrationBuild maps it, which the
+    # old drive-path test passed. Any record fails by its presence now.
+    ("bd-w12-converter-1: the engine keeps the SDK's default Source Link record, which maps the checkout folder (N-bd-closure2-02); bd-w13-converter-1: re-pointed at a record the build puts in directly, keyed on /_/ (N-bd-w12-review-04)",
      os.path.join(REPO, "tools", "ShimejiConvert.Engine", "ShimejiConvert.Engine.csproj"),
      b"    <EnableSourceLink>false</EnableSourceLink>\n",
-     b"",
+     b"    <EnableSourceLink>false</EnableSourceLink>\n"
+     b"    <SourceLink>$(MSBuildThisFileDirectory)..\\ShimejiConvert\\fixtures\\symbols\\sourcelink.json</SourceLink>\n",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL, SHIMEJI, 'cli-roundtrip',
-     "CLI_SYMBOLS_RECORD_PATH: ShimejiConvert.Engine.dll"),
+     "CLI_SYMBOLS_SOURCE_LINK: ShimejiConvert.Engine.dll"),
     # ---- burndown/w12-host-1 ----
     # The host entry of burn-down wave 12. "bd-w12-host-1:" for one --only.
     # N-bd-w11-options-ui-1-01: an uninstall leaves the type's births still queued in the tick host, so one activates at
@@ -25006,6 +25012,38 @@ CASES = (
      b"        $fixture.Removed = $true\n",
      None, None, PRIVACY, None,
      "the run left a folder it created behind"),
+    # ---- burndown/w13-converter-1 ----
+    # N-bd-w12-review-04, graded through the converter's cli-roundtrip selftest. The CLI's Release dll carries a Source
+    # Link record keyed on the mapped /_/ root, put in by the compiler's SourceLink property naming the synthetic map
+    # under tools\ShimejiConvert\fixtures\symbols, so it fires in any copy of the repository (the engine's leg is the
+    # re-pointed bd-w12-converter-1 case); then the compilation-options test reads a backslash drive path only again,
+    # loses its backslash share-path form, or reads a URL's scheme as a drive, each against the synthetic records
+    # Program.CheckRecordPathTest feeds it. "bd-w13-converter-1:" for one --only.
+    ("bd-w13-converter-1: the CLI's Release dll carries a Source Link record keyed on /_/ (N-bd-w12-review-04)",
+     SHIMEJI_CSPROJ,
+     b"    <EnableSourceLink>false</EnableSourceLink>\n",
+     b"    <EnableSourceLink>false</EnableSourceLink>\n"
+     b"    <SourceLink>$(MSBuildThisFileDirectory)fixtures\\symbols\\sourcelink.json</SourceLink>\n",
+     SHIMEJI_CSPROJ, os.path.join(os.path.dirname(SHIMEJI_ENGINE_DLL), 'ShimejiConvert.dll'), SHIMEJI, 'cli-roundtrip',
+     "CLI_SYMBOLS_SOURCE_LINK: ShimejiConvert.dll"),
+    ("bd-w13-converter-1: the compilation-options test reads a backslash drive path only again (N-bd-w12-review-04)",
+     os.path.join(REPO, "tools", "ShimejiConvert", "Program.cs"),
+     rb'[A-Za-z]:[\\/]|',
+     rb'[A-Za-z]:\\|',
+     SHIMEJI_CSPROJ, os.path.join(os.path.dirname(SHIMEJI_ENGINE_DLL), 'ShimejiConvert.dll'), SHIMEJI, 'cli-roundtrip',
+     "CLI_SYMBOLS_RECORD_TEST: the compilation-options test misses a forward-slash drive path"),
+    ("bd-w13-converter-1: the compilation-options test loses the backslash share path (N-bd-w12-review-04)",
+     os.path.join(REPO, "tools", "ShimejiConvert", "Program.cs"),
+     rb'(\\\\|//)[^\\/\s]',
+     rb'//[^\\/\s]',
+     SHIMEJI_CSPROJ, os.path.join(os.path.dirname(SHIMEJI_ENGINE_DLL), 'ShimejiConvert.dll'), SHIMEJI, 'cli-roundtrip',
+     "CLI_SYMBOLS_RECORD_TEST: the compilation-options test misses a UNC share path"),
+    ("bd-w13-converter-1: the compilation-options test reads a URL's scheme as a drive (N-bd-w12-review-04)",
+     os.path.join(REPO, "tools", "ShimejiConvert", "Program.cs"),
+     rb'@"(?<![A-Za-z])[A-Za-z]:[\\/]|',
+     rb'@"[A-Za-z]:[\\/]|',
+     SHIMEJI_CSPROJ, os.path.join(os.path.dirname(SHIMEJI_ENGINE_DLL), 'ShimejiConvert.dll'), SHIMEJI, 'cli-roundtrip',
+     "CLI_SYMBOLS_RECORD_TEST_WITNESS: the compilation-options test reads a mapped root or a URL"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

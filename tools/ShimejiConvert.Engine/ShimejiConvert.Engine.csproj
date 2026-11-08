@@ -67,7 +67,9 @@
          kept two checkouts of one commit apart, and with it two commits whose converter is byte-identical would
          still differ. The witness hashes the converter's code, so neither belongs in it.
          The CLI's selftest reads both dlls back (Program.CheckSymbolsNameNoBuildFolder) and fails on a rooted
-         CodeView path, an unmapped document, or a rooted path in the Source Link or compilation-options record. -->
+         CodeView path, an unmapped document, ANY Source Link record (N-bd-w12-review-04: one whose keys are mapped to
+         /_/, as ContinuousIntegrationBuild maps them, names no folder and still carries the commit), or a drive or
+         share path, with either slash, in the compilation-options record. -->
     <DebugType>embedded</DebugType>
     <PathMap>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\..'))=/_/</PathMap>
     <EnableSourceLink>false</EnableSourceLink>
