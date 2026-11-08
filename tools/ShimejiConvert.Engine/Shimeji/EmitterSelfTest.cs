@@ -40,8 +40,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 // one. Its own art, so a direction collapse cannot merge it into a neighbour and hide the
                 // answer.
                 { "/nc.png", Solid(40, 60, Color.FromArgb(255, 90, 160, 110)) },
-                // For the action whose sprite FILE is named after the cursor (the Victim skin's shape). Its
-                // own art, like /nc.png, so a collapse cannot hide the answer.
+                // For the action whose sprite FILE is named after the cursor (an unshipped corpus skin's
+                // shape). Its own art, like /nc.png, so a collapse cannot hide the answer.
                 { "/cursorsetup01.png", Solid(40, 60, Color.FromArgb(255, 80, 150, 100)) },
                 { "/t.png", Solid(40, 60, Color.FromArgb(255, 255, 120, 120)) },
                 { "/c1.png", Solid(40, 60, Color.FromArgb(255, 120, 255, 255)) },
@@ -1213,8 +1213,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 }
 
                 // A FILENAME IS NOT EVIDENCE EITHER. The blob both Has() helpers read used to hold every
-                // attribute value, so a plain Stay whose sprite is /cursorsetup01.png -- the Victim skin's
-                // CursorHate, seven copies in the corpus, no Condition at all -- was Group2 "branches on cursor
+                // attribute value, so a plain Stay whose sprite is /cursorsetup01.png -- an unshipped corpus
+                // skin's CursorHate, seven copies in the corpus, no Condition at all -- was Group2 "branches on cursor
                 // position" and emitted as a faceCursor gaze on the strength of its art's name (F441). The blob
                 // is expression text now (Conditions and scripted values), so this must be a plain Group1 rest:
                 // emitted, untagged, and in no residue bucket.
@@ -3102,7 +3102,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
     <Action Name=""RestNearCursor"" Type=""Stay"" BorderType=""Floor"">
       <Animation><Pose Image=""/nc.png"" ImageAnchor=""20,60"" Velocity=""0,0"" Duration=""250"" /></Animation>
     </Action>
-    <!-- And one whose SPRITE FILE is named after the cursor while nothing else is: alan becker's Victim skin
+    <!-- And one whose SPRITE FILE is named after the cursor while nothing else is: an unshipped corpus skin
          ships exactly this (CursorHate over /cursorsetup01.png, a Stay with no Condition). The classifier's
          blob used to hold every attribute value, so this was Group2 and a gaze on the strength of a filename;
          it must convert as a plain Group1 rest (F441). -->

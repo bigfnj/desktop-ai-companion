@@ -55,8 +55,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     // replaced printed a stack trace; the guard traded it for the later suites running and
                     // reported a 2400-line suite's throw as one line with no line number (RA-382). The first
                     // frame rides on the FAIL line itself, because the gate's mutation harness grades single
-                    // FAIL lines; the whole trace follows for a human. The pdb ships beside the DLL, so the
-                    // frames resolve to lines.
+                    // FAIL lines; the whole trace follows for a human. The Release DLL embeds its pdb (paths
+                    // mapped under /_/, N-bd-closure2-02), so the frames resolve to lines.
                     d = "FAIL " + suite.Name + " threw " + ex.GetType().Name + ": " + ex.Message
                         + " -- " + FirstFrameOf(ex) + Environment.NewLine + ex.ToString();
                 }

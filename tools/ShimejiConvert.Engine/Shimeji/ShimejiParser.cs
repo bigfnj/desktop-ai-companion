@@ -965,8 +965,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         /// It used to be every attribute value, and ActionClassifier tests the blob for the bare token
         /// "cursor" -- so an action whose IMAGE was named cursor*.png was graded Group2 as "branches on cursor
         /// position" and, being stationary, emitted as a faceCursor gaze on the strength of a filename; a
-        /// moving one would have been dropped from the floor graph outright. Not hypothetical: alan becker's
-        /// Victim skin ships `CursorHate`, a plain Stay with no Condition over /cursorsetup01.png, in seven
+        /// moving one would have been dropped from the floor graph outright. Not hypothetical: an unshipped
+        /// corpus skin ships `CursorHate`, a plain Stay with no Condition over /cursorsetup01.png, in seven
         /// copies across the corpus (F441). PetEmitter.IsGazeAction reads the same blob for the same token,
         /// so both halves narrow together, which is what the 1.1.7 fix that aligned their case sensitivity
         /// asked for. Every token the classifier looks for -- cursor, activeIE, totalCount, mascot.anchor,
