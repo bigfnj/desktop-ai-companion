@@ -6,9 +6,14 @@ using DesktopAICompanion.Tools.ShimejiConvert.Emit;
 namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
 {
     /// <summary>
-    /// Committed, IP-free unit test of the parser + classifier: every classification BRANCH, exercised with a
-    /// hand-written synthetic actions.xml whose actions are named "G1_", "G2_" or "G3_" after the group they
-    /// must land in, and asserted to bucket correctly. The census against the reference gil/shimeji-ee
+    /// Committed, IP-free unit test of the parser + classifier: every branch of <see cref="ActionClassifier.Classify"/>,
+    /// exercised with a hand-written synthetic actions.xml whose actions are named "G1_", "G2_" or "G3_" after the
+    /// group they must land in, and asserted to bucket correctly; the branches whose reason text a reader could
+    /// confuse with another's also have that reason asserted. Until 2026-11-07 this header claimed every branch
+    /// while the pairing (Scan*/Interact), Transform, target-relative and unknown-embedded-class branches had no
+    /// fixture anywhere (N-audit-1106-154). The bundle-only AIR/USER border rule is exercised from a bundle in
+    /// BundleSelfTest, and behaviour-selection CONDITIONS (ClassifyBehaviorCondition) are not graded here: only
+    /// BundledConfSelfTest's census reaches them. The census against the reference gil/shimeji-ee
     /// config is not this file's job and never was a dev-only step: that conf ships in the repo
     /// (base-conf/, 3-clause BSD, see its NOTICE.txt) and BundledConfSelfTest pins its 91 actions at
     /// 54/31/6 on every selftest run. This header used to say the reference conf was copyrighted, could not
@@ -54,8 +59,20 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             }
 
             // Guard against a fixture that silently stopped parsing: it must cover all three groups.
-            if (checkedCount < 12)
-                failures.Add("expected at least 12 classified actions from the fixture, got " + checkedCount);
+            if (checkedCount < 23)
+                failures.Add("expected at least 23 classified actions from the fixture, got " + checkedCount);
+
+            // The reason, where the group alone cannot tell two branches apart: the pairing and Transform branches
+            // and the unknown-class guard all exist to stop an action reaching a LATER branch, and the residue
+            // prints the reason. A pairing action graded by the Transform text would still be Group3 (N-audit-1106-154).
+            foreach (KeyValuePair<string, string> expectedReason in ExpectedReasons)
+            {
+                ShimejiAction a = config.Actions.Find(x => x.Name == expectedReason.Key);
+                if (a == null)
+                    failures.Add("reason: fixture action '" + expectedReason.Key + "' is missing");
+                else if (a.Reason == null || a.Reason.IndexOf(expectedReason.Value, StringComparison.Ordinal) < 0)
+                    failures.Add("reason: " + a.Name + " gave '" + a.Reason + "', expected it to contain '" + expectedReason.Value + "'");
+            }
 
             // A reason is user-facing: it is what the residue report prints for a degraded or dropped action.
             // So it must not PROMISE work. Three of these once read "added in Stage 5", naming a plan that
@@ -170,6 +187,16 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             return false;
         }
 
+        /// <summary>A fragment of the reason each named fixture action must carry.</summary>
+        private static readonly KeyValuePair<string, string>[] ExpectedReasons =
+        {
+            new KeyValuePair<string, string>("G3_Interact", "part of a two-shimeji interaction (Interact)"),
+            new KeyValuePair<string, string>("G3_ScanMove", "part of a two-shimeji interaction (ScanMove)"),
+            new KeyValuePair<string, string>("G3_Transform", "transforms the pet into a different skin"),
+            new KeyValuePair<string, string>("G2_Teleport", "embedded behaviour (Teleport) has no desktopPet equivalent"),
+            new KeyValuePair<string, string>("G1_ClimbToTarget", "target-relative gate"),
+        };
+
         /// <summary>Phrasings that turn a residue line into a roadmap. None may appear in a classifier
         /// reason.</summary>
         private static readonly string[] PendingWorkPromises =
@@ -267,6 +294,24 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
     </Action>
     <Action Name=""G3_Breed"" Type=""Embedded"" Class=""com.group_finity.mascot.action.Breed"" BornBehavior=""PullUp"">
       <Animation><Pose Image=""/h.png"" ImageAnchor=""64,128"" Velocity=""0,0"" Duration=""16"" /></Animation>
+    </Action>
+    <!-- The branches no fixture reached until N-audit-1106-154: the pairing classes (Interact and a Scan class), Transform,
+         a target-relative gate, and an embedded class the classifier does not know, POSED so that a missing guard would
+         let its frames through as a clean Group1 map. -->
+    <Action Name=""G3_Interact"" Type=""Embedded"" Class=""com.group_finity.mascot.action.Interact"">
+      <Animation><Pose Image=""/m.png"" ImageAnchor=""64,128"" Velocity=""0,0"" Duration=""8"" /></Animation>
+    </Action>
+    <Action Name=""G3_ScanMove"" Type=""Embedded"" Class=""com.group_finity.mascot.action.ScanMove"">
+      <Animation><Pose Image=""/n.png"" ImageAnchor=""64,128"" Velocity=""-2,0"" Duration=""6"" /></Animation>
+    </Action>
+    <Action Name=""G3_Transform"" Type=""Embedded"" Class=""com.group_finity.mascot.action.Transform"">
+      <Animation><Pose Image=""/o.png"" ImageAnchor=""64,128"" Velocity=""0,0"" Duration=""8"" /></Animation>
+    </Action>
+    <Action Name=""G2_Teleport"" Type=""Embedded"" Class=""com.example.synthetic.Teleport"" BorderType=""Floor"">
+      <Animation><Pose Image=""/p.png"" ImageAnchor=""64,128"" Velocity=""0,0"" Duration=""8"" /></Animation>
+    </Action>
+    <Action Name=""G1_ClimbToTarget"" Type=""Move"" BorderType=""Wall"">
+      <Animation Condition=""#{TargetY &lt; mascot.anchor.y}""><Pose Image=""/q.png"" ImageAnchor=""64,128"" Velocity=""0,-2"" Duration=""8"" /></Animation>
     </Action>
   </ActionList>
 </Mascot>";
