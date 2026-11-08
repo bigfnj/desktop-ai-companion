@@ -6744,6 +6744,18 @@ Assert-True ($w10Judged -ge 0 -and $w10Download -gt $w10Judged -and
     $w10Online.Substring([Math]::Max(0, $w10Judged)) -cmatch '^string problem = OnlineCatalogProblem\(catalog\);\s*if \(problem != null\)\s*\{\s*ok = false;') (
     'w10-host-1: the online test judges the fetched catalog and fails on its problem before any download')
 
+# REMOVE TAKES A COMPANION THE USER CHOSE, NEVER A BORN ONE (N-audit-1106-246, N-bd-w2-host-1-01). The tray row, the
+# Companions pane's button and the ABI's RemoveOne all offer it for an OnScreenMix count, which leaves born companions
+# out; walking every pet newest-first removed the hatchling instead. StartUp needs a live desktop, so the delegation is
+# pinned: RemoveOnePet's body is the call to RemoveOneChosenPet, whose skip the w2-host-1 block pins, with no walk of its
+# own (WITNESS: the old walk's line matches the absent pattern).
+$w10Remove = Get-MethodBody $startUpCodeHost 'public bool RemoveOnePet(string id)' @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($w10Remove.Length -gt 0) 'w10-host-1: RemoveOnePet was located'
+$w10OldWalk = '                if (pet == null) continue;'
+Assert-True ($w10Remove -cmatch '^public bool RemoveOnePet\(string id\)\s*\{\s*return RemoveOneChosenPet\(id\);\s*\}\s*$' -and
+    $w10Remove -cnotmatch 'if \(pet == null\) continue;' -and $w10OldWalk -cmatch 'if \(pet == null\) continue;') (
+    'w10-host-1: Remove takes one of the companions the user chose, through RemoveOneChosenPet (WITNESS: the old walk matches)')
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever

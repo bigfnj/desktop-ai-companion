@@ -1724,27 +1724,25 @@ namespace DesktopAICompanion
         }
 
         /// <summary>
-        /// Remove one on-screen pet of a given type (the most recently added), routing through KillSheep
+        /// Remove one on-screen pet of a given type the user CHOSE (the most recently added), routing through KillSheep
         /// so the kill animation + reference release + persistence all run. False when none is present.
+        ///
+        /// A companion born this session is passed over (N-audit-1106-246, N-bd-w2-host-1-01). Every caller offers this
+        /// for a count read from OnScreenMix, which leaves born companions out: the tray's Remove row, the Companions
+        /// pane's Remove button and its uninstall loop, and the ABI's RemoveOne beside its OnScreenMix. Walking every
+        /// pet newest-first took the hatchling a chosen pet had just bred, so a born companion vanished while the
+        /// chosen pet and the count shown for it stayed the same. A type with only born companions up has no row, no
+        /// button and no count, and answers false here.
         /// </summary>
         public bool RemoveOnePet(string id)
         {
-            string target = id ?? "";
-            for (int i = iSheeps - 1; i >= 0; i--)
-            {
-                FormCompanion pet = sheeps[i];
-                if (pet == null) continue;
-                CompanionTypeRegistry.Entry entry;
-                string petId = petEntries.TryGetValue(pet, out entry) ? (entry.Id ?? "") : "";
-                if (string.Equals(petId, target, StringComparison.OrdinalIgnoreCase))
-                    return KillSheep(pet);   // KillSheep persists the reduced mix
-            }
-            return false;
+            return RemoveOneChosenPet(id);   // KillSheep persists the reduced mix
         }
 
         /// <summary>
-        /// <see cref="RemoveOnePet"/> over the pets the user chose only: a companion born this session is passed over.
-        /// ReloadPetType's removals, which must match the chosen pets it counted and respawns (N-audit-1106-028).
+        /// The removal behind <see cref="RemoveOnePet"/>, over the pets the user chose only: a companion born this session
+        /// is passed over. ReloadPetType's removals call it directly, since they must match the chosen pets it counted and
+        /// respawns (N-audit-1106-028).
         /// </summary>
         private bool RemoveOneChosenPet(string id)
         {

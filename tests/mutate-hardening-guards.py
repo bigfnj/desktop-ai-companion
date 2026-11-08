@@ -5095,6 +5095,23 @@ CASES = (
         b'                if (false)\n                {\n                    ok = false;\n',
         "w10-host-1: the online test judges the fetched catalog",
     ),
+    # N-audit-1106-246 / N-bd-w2-host-1-01: Remove walks every pet of the type newest-first again, so it takes the
+    # hatchling a chosen pet bred while the count it was offered for stays the same.
+    (
+        "bd-w10-host-1: Remove takes the newest pet of the type, born or chosen (N-audit-1106-246)",
+        os.path.join(REPO, "src", "dotNet", "StartUp.cs"),
+        b'            return RemoveOneChosenPet(id);   // KillSheep persists the reduced mix\n',
+        b'            for (int i = iSheeps - 1; i >= 0; i--)\n'
+        b'            {\n'
+        b'                FormCompanion pet = sheeps[i];\n'
+        b'                if (pet == null) continue;\n'
+        b'                CompanionTypeRegistry.Entry entry;\n'
+        b'                if (string.Equals(petEntries.TryGetValue(pet, out entry) ? (entry.Id ?? "") : "", id ?? "", StringComparison.OrdinalIgnoreCase))\n'
+        b'                    return KillSheep(pet);\n'
+        b'            }\n'
+        b'            return false;\n',
+        "w10-host-1: Remove takes one of the companions the user chose",
+    ),
 )
 
 
