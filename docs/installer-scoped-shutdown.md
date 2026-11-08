@@ -157,7 +157,8 @@ are read before the first MSI and after the cleanup, and it is `null` when
 nothing was there to observe or a read failed. The fixture does not redirect
 `%LOCALAPPDATA%\Programs`, which the production authoring removes on an
 uninstall that finds it empty, so its existence before and after is reported
-beside it as `LocalProgramsFolder`.
+as `InstalledApplicationObservation.LocalProgramsFolder`, apart from
+`InstalledApplicationTouched`.
 
 The first local qualification passed rollback, upgrade and reinstall with exact
 native shutdown receipts, foreign-process survival and preserved settings. Its
