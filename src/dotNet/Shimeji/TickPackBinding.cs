@@ -291,8 +291,19 @@ namespace DesktopAICompanion.Shimeji
 
         public bool IsOpen(string previewId) { return previewId != null && _open.ContainsKey(previewId); }
 
-        /// <summary>Whether a window may open for a companion of this registry entry: false only for a member of a whole-pack
-        /// preview that has been closed. A single preview, and every installed type, is never refused here.</summary>
+        /// <summary>Retire a SINGLE preview, which never opened a namespace here, when its handle is removed
+        /// (N-host-pack-abi-01): a birth of it still queued then gets no window, as a closed whole-pack preview's does.
+        /// Close alone could not say so, because it marks only a namespace that was open.</summary>
+        public void Retire(string previewId)
+        {
+            if (string.IsNullOrEmpty(previewId)) return;
+            _open.Remove(previewId);
+            _closed.Add(previewId);
+        }
+
+        /// <summary>Whether a window may open for a companion of this registry entry: false only for an entry of a preview
+        /// that has been closed (a whole-pack preview) or retired (a single one). A live preview, and every installed type,
+        /// is never refused here.</summary>
         public bool MayOpenWindow(CompanionTypeRegistry.Entry entry)
         {
             if (entry == null || !entry.IsTransient || string.IsNullOrEmpty(entry.Id)) return true;

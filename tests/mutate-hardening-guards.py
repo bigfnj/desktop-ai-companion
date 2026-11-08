@@ -4948,6 +4948,14 @@ CASES = (
         b"                    File.WriteAllText(_path, JsonSerializer.Serialize(_d), new UTF8Encoding(false));\n",
         "w9-host-1: a module settings save replaces settings.json whole through the atomic write",
     ),
+    # N-host-pack-abi-01: the single preview's handle removes only the window it was handed again.
+    (
+        "bd-w9-host-1: a single preview's handle removes only its own window again (N-host-pack-abi-01)",
+        os.path.join(REPO, "src", "dotNet", "Plugins", "CompanionHost.cs"),
+        b"            try { if (_startUp != null) _startUp.RemoveSinglePreview(pet, _previewId); }\n",
+        b"            try { if (_startUp != null) _startUp.RemovePetInstance(pet); }\n",
+        "host-pack-abi: a pack preview's handle removes by namespace",
+    ),
 )
 
 

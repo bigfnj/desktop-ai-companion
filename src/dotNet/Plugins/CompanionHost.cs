@@ -1749,12 +1749,16 @@ namespace DesktopAICompanion.Plugins
         private readonly StartUp _startUp;
         private readonly CompanionHost _host;
         private FormCompanion _pet;
+        /// <summary>The preview's registry id ("preview:" and a guid, its PetTypeId), kept apart from the window so Remove
+        /// still finds what the preview bred after the window it was handed has gone.</summary>
+        private readonly string _previewId;
 
         internal PreviewHandle(StartUp startUp, CompanionHost host, FormCompanion pet)
         {
             _startUp = startUp;
             _host = host;
             _pet = pet;
+            _previewId = pet != null ? pet.PetTypeId : null;
         }
 
         public ICompanion Pet
@@ -1777,7 +1781,9 @@ namespace DesktopAICompanion.Plugins
             FormCompanion pet = _pet;
             _pet = null;
             if (pet == null) return;
-            try { if (_startUp != null) _startUp.RemovePetInstance(pet); }
+            // By the preview's registry entry, not the one window (N-host-pack-abi-01): a tick preview that breeds gives each
+            // born companion its own transient entry, and those outlived a Remove that took only the handed window.
+            try { if (_startUp != null) _startUp.RemoveSinglePreview(pet, _previewId); }
             catch { }
         }
 

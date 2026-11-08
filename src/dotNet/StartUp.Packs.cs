@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace DesktopAICompanion
 {
@@ -148,6 +149,40 @@ namespace DesktopAICompanion
             foreach (FormCompanion pet in mine)
                 if (RemovePetInstance(pet)) removed++;
             return removed;
+        }
+
+        /// <summary>Remove a SINGLE preview (ICompanionManager.SpawnPreview's handle) the way RemovePackPreview removes a
+        /// whole-pack one (N-host-pack-abi-01): the preview is retired first, so a birth still queued gets no window, then
+        /// the window the handle was given goes with every companion it bred. A tick preview that breeds gives each born
+        /// companion the preview's own transient registry entry (OpenBornTickPet), and removing the handed window alone
+        /// left those running: not persisted, not in the tray, not reachable by RemoveOne. The count removed.</summary>
+        internal int RemoveSinglePreview(FormCompanion pet, string previewId)
+        {
+            if (!string.IsNullOrEmpty(previewId)) previewPacks.Retire(previewId);
+            int removed = 0;
+            foreach (FormCompanion p in SinglePreviewWindows(sheeps, iSheeps, petEntries, previewId, pet))
+                if (RemovePetInstance(p)) removed++;
+            return removed;
+        }
+
+        /// <summary>The windows a single preview's Remove takes: the one it was handed, and every other window whose registry
+        /// entry is the preview's own transient entry (its id is the preview's). Exact id, not TickPreviewPacks.Owns: a
+        /// single preview stages no members. Pure over the arrays given, for --shimeji-window-selftest.</summary>
+        internal static List<FormCompanion> SinglePreviewWindows(FormCompanion[] pets, int count,
+            IDictionary<FormCompanion, CompanionTypeRegistry.Entry> entries, string previewId, FormCompanion handed)
+        {
+            var mine = new List<FormCompanion>();
+            if (handed != null) mine.Add(handed);
+            if (pets == null || entries == null || string.IsNullOrEmpty(previewId)) return mine;
+            for (int i = 0; i < count && i < pets.Length; i++)
+            {
+                FormCompanion p = pets[i];
+                CompanionTypeRegistry.Entry entry;
+                if (p != null && !ReferenceEquals(p, handed) && entries.TryGetValue(p, out entry) && entry != null && entry.IsTransient
+                    && string.Equals(entry.Id, previewId, StringComparison.OrdinalIgnoreCase))
+                    mine.Add(p);
+            }
+            return mine;
         }
 
         /// <summary>Whether any companion of this preview is still on screen.</summary>

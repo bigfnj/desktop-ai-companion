@@ -23915,6 +23915,22 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--module-host-selftest", "dp-module-host-selftest.txt",
      "settings damage: a second read of the same damaged file in one session adds no line"),
+    # N-host-pack-abi-01: a single preview's Remove takes only the window it was handed again, or its retirement does not
+    # stop a queued birth. --shimeji-window-selftest drives StartUp.SinglePreviewWindows and TickPreviewPacks.Retire.
+    ("bd-w9-host-1: a single preview's Remove takes only the handed window (N-host-pack-abi-01)",
+     os.path.join(REPO, "src", "dotNet", "StartUp.Packs.cs"),
+     b'                    && string.Equals(entry.Id, previewId, StringComparison.OrdinalIgnoreCase))\n                    mine.Add(p);\n',
+     b'                    && string.Equals(entry.Id, previewId, StringComparison.OrdinalIgnoreCase) && p == null)\n                    mine.Add(p);\n',
+     HOST_CSPROJ, EXE,
+     "--shimeji-window-selftest", "dp-shimeji-window-selftest.txt",
+     "single preview: Remove takes the handed window and every companion the preview bred, and nothing else"),
+    ("bd-w9-host-1: a retired single preview's queued birth still opens a window (N-host-pack-abi-01)",
+     os.path.join(REPO, "src", "dotNet", "Shimeji", "TickPackBinding.cs"),
+     b'            _open.Remove(previewId);\n            _closed.Add(previewId);\n',
+     b'            if (_open.Remove(previewId)) _closed.Add(previewId);\n',
+     HOST_CSPROJ, EXE,
+     "--shimeji-window-selftest", "dp-shimeji-window-selftest.txt",
+     "single preview: a birth still queued when the handle is removed gets no window"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

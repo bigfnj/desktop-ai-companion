@@ -5468,9 +5468,9 @@ Assert-True ($hpaBorn -cmatch 'if \(!previewPacks\.MayOpenWindow\(entry\)\) retu
     $hpaBorn.IndexOf('previewPacks.MayOpenWindow(entry)') -lt $hpaBorn.IndexOf('CreateAndInitializeOwnedPet(')) (
     "host-pack-abi: a closed pack preview's pending birth gets no window")
 Assert-True ($hpaHandleRemove -cmatch '_startUp\.RemovePackPreview\(id\)' -and $hpaHandleRemove -cnotmatch 'RemovePetInstance' -and
-    (Get-MethodBody $hpaHost 'public void Remove()' $hpaStops) -cmatch 'RemovePetInstance' -and
+    (Get-MethodBody $hpaHost 'public void Remove()' $hpaStops) -cmatch '_startUp\.RemoveSinglePreview\(pet, _previewId\)' -and
     $hpaBridge -cmatch 'new PackPreviewHandle\(_startUp, _host, pet, previewId\)' -and $hpaBridge -cnotmatch 'new PreviewHandle\(') (
-    "host-pack-abi: a pack preview's handle removes by namespace, never the one window it was handed (WITNESS: the single preview's Remove does)")
+    "host-pack-abi: a pack preview's handle removes by namespace, never the one window it was handed (WITNESS: the single preview's Remove goes by its registry entry too, N-host-pack-abi-01)")
 Assert-True ($hpaPacks -cmatch 'tickPacks\.StagePreviewMember = \(scope, key\) => previewPacks\.Stage\(registry, scope, key, PreviewScaleFactor\(\),' -and
     'catch { registry.DropIfUnused(entry); throw; }' -cnotmatch 'catch \{ previewPacks\.Close\(id\); registry\.DropIfUnused\(entry\); throw; \}') (
     "host-pack-abi: the app's binding stages a preview's members from the preview namespaces (WITNESS: the single preview's catch does not satisfy the pack's)")
