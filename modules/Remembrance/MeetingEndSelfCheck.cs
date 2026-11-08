@@ -1279,6 +1279,24 @@ namespace DesktopAICompanion.RemembranceModule
                     module.WatchTickForSelfTest();
                     check("join & record: a request older than a minute starts nothing, and the log says how old",
                         !module.IsRecordingForSelfTest && host.LoggedLines.Any(l => l.Contains("was ignored because it was 90 s old")));
+                    // A press that comes while a recording runs (a card shown before it began) is dropped at the stop, never
+                    // held for the first idle tick after it, which started a recording nobody had just asked for
+                    // (N-audit-1106-287). The request is ten seconds old at that tick, well inside RequestFreshFor.
+                    module.StartRecordingForSelfTest();
+                    bool busyRecording = pumpUntil(delegate { return module.IsRecordingForSelfTest; });
+                    host.PublishContext("reminder", RecordingHandshake.RequestKey,
+                        RecordingHandshake.RequestJson("req-busy", now, MeetingJson("Design review", WatchT0, WatchT0.AddMinutes(30))));
+                    module.WatchTickForSelfTest();
+                    module.StopRecordingForSelfTest();
+                    saved(module);
+                    now = now.AddSeconds(10);
+                    module.WatchTickForSelfTest();
+                    check("WITNESS join & record: a recording was running when the request came",
+                        busyRecording);
+                    check("join & record: a request that comes while a recording runs starts nothing after the stop, and the log says why (N-audit-1106-287)",
+                        !module.IsRecordingForSelfTest
+                        && host.LoggedLines.Count(l => l.Contains("asked for a recording; starting one")) == 1
+                        && host.LoggedLines.Any(l => l.Contains("was ignored because a recording was already running")));
                     host.SettingsFor(Id).Set(AcceptJoinRecordKey, "false");
                     module.PublishRecorderReadyForSelfTest();
                     check("join & record: with the setting off Remembrance says it does not accept, so Reminder shows no button",

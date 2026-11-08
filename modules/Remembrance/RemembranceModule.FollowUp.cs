@@ -100,7 +100,9 @@ namespace DesktopAICompanion.RemembranceModule
         /// <summary>The summary "Summarize a transcript…" names, and the transcript the user picked for it, as one array
         /// written whole so a reader never sees one path without its partner. A picked .txt not named "*.transcript.txt"
         /// has no "&lt;name&gt;.transcript.txt" beside its summary, so a follow-up set to read the transcript too failed
-        /// on every such summary (N-audit-1106-279); TranscriptFor takes this pairing first.</summary>
+        /// on every such summary (N-audit-1106-279); TranscriptFor takes this pairing first. Bound only once that summary
+        /// is WRITTEN (N-cxr-w34-02): a pick of a second file with the same name, failed or still running, keeps the pair
+        /// of the summary that is actually on disk.</summary>
         private volatile string[] _pickedTranscript;
 
         private void NotePickedTranscript(string summaryPath, string transcriptPath)

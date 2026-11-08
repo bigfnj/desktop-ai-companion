@@ -44,8 +44,43 @@ namespace DesktopAICompanion.RemembranceModule
             string why;
             string body = Whisper(wavPath, whisperExe, modelPath, out didTranscribe, out why);
             string text = didTranscribe ? header + body : header + PendingBody(why, true);
-            if (didTranscribe || !keep) WriteText(transcriptPath, text);
+            if (!didTranscribe && keep) return text;
+            string unsaved = WriteText(transcriptPath, text);
+            if (!didTranscribe) return text;
+            // THE WORDS ARE NEVER LEFT IN NO FILE (N-audit-1106-289). RunWhisper used to delete whisper-cli's own
+            // "<name>.whisper.txt" as it read it, before this write, and the write swallowed its failure while
+            // didTranscribe stayed true: a transcript that could not be saved (the file open in an editor, a full disk, a
+            // folder that went read-only) was announced as "Transcript ready." with the words in no file at all, and the
+            // stub written before the run still on disk saying the app had closed. Now whisper-cli's file goes only once
+            // the transcript is written, and a write that fails is a failed run that says where the words are.
+            string whisperText = WhisperOutputPath(wavPath);
+            if (unsaved != null)
+            {
+                didTranscribe = false;
+                return header + PendingBody(UnsavedReason(unsaved, whisperText), true);
+            }
+            try { File.Delete(whisperText); } catch { }
             return text;
+        }
+
+        /// <summary>Why a run whose words are in whisper-cli's own file, and not in the transcript, did not finish
+        /// (N-audit-1106-289). <paramref name="failure"/> is the type of what stopped the write.</summary>
+        internal static string UnsavedReason(string failure, string whisperText)
+        {
+            return "whisper-cli transcribed it, but writing the transcript failed with " + failure +
+                   ", so its words are kept beside the audio in " + Path.GetFileName(whisperText) + ".";
+        }
+
+        /// <summary>The file whisper-cli writes its text to for <paramref name="wavPath"/>: RunWhisper hands it
+        /// "&lt;name&gt;.whisper" as -of, and -otxt adds ".txt".</summary>
+        internal static string WhisperOutputPath(string wavPath)
+        {
+            return WhisperOutputBase(wavPath) + ".txt";
+        }
+
+        private static string WhisperOutputBase(string wavPath)
+        {
+            return Path.Combine(Path.GetDirectoryName(wavPath), Path.GetFileNameWithoutExtension(wavPath) + ".whisper");
         }
 
         /// <summary>
@@ -167,9 +202,12 @@ namespace DesktopAICompanion.RemembranceModule
             return sb.ToString();
         }
 
-        private static void WriteText(string path, string text)
+        /// <summary>Null when written, else the type of the exception that stopped it (N-audit-1106-289): the stubs ignore
+        /// it, as best effort, and Transcribe's final write acts on it.</summary>
+        private static string WriteText(string path, string text)
         {
-            try { File.WriteAllText(path, text, new UTF8Encoding(false)); } catch { }
+            try { File.WriteAllText(path, text, new UTF8Encoding(false)); return null; }
+            catch (Exception ex) { return ex.GetType().Name; }
         }
 
         /// <summary>RunWhisper's shape, for the seam below.</summary>
@@ -200,8 +238,7 @@ namespace DesktopAICompanion.RemembranceModule
                 if (string.IsNullOrWhiteSpace(wavPath) || !File.Exists(wavPath))
                 { why = "The recording is gone \u2014 there is nothing left to transcribe."; return ""; }
 
-                string outBase = Path.Combine(Path.GetDirectoryName(wavPath),
-                    Path.GetFileNameWithoutExtension(wavPath) + ".whisper");
+                string outBase = WhisperOutputBase(wavPath);
                 TimeSpan audioLength = TryReadDuration(wavPath);
                 var psi = new ProcessStartInfo
                 {
@@ -272,11 +309,11 @@ namespace DesktopAICompanion.RemembranceModule
                     try { outText.GetAwaiter().GetResult(); } catch { }
                     if (proc.ExitCode != 0) { why = DescribeExit(proc.ExitCode, err); return ""; }
                 }
-                string txt = outBase + ".txt";
+                string txt = WhisperOutputPath(wavPath);
                 if (!File.Exists(txt))
                 { why = "whisper-cli finished cleanly but wrote no transcript beside the audio."; return ""; }
+                // Read and LEFT where it is: Transcribe deletes it once the transcript is written (N-audit-1106-289).
                 string result = File.ReadAllText(txt);
-                try { File.Delete(txt); } catch { }
                 ok = true;
                 return result;
             }

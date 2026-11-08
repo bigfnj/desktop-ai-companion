@@ -29,8 +29,16 @@ namespace DesktopAICompanion.RemembranceModule
     {
         internal const string LongestRecordingKey = "longestRecordingHours";
         internal const string OfferToRecordKey = "offerToRecord";
-        /// <summary>"Let Reminder's Join &amp; record start a recording" (2.5.0), on by default: the request only ever comes
-        /// from a button the user pressed. Off, Remembrance says it does not accept them, so Reminder offers no button.</summary>
+        /// <summary>"Let Reminder's Join &amp; record start a recording" (2.5.0), on by default. Off, Remembrance says it does
+        /// not accept them, so Reminder offers no button.
+        /// TRUSTED BY CONVENTION, NOT CHECKED (N-audit-1106-288). Reminder publishes the request only when the user presses
+        /// its button, but nothing makes Reminder the only publisher: the host's PublishContext stores a value under its key
+        /// whoever sends it (CompanionHost.PublishContext ignores the module id), so any loaded module can ask for a
+        /// recording. That is no wider than what such a module can already do: every module runs in this process with
+        /// the app's rights, and the declared Microphone and SystemAudio permissions are shown at consent, not enforced
+        /// (PluginApi.cs), so a module that wanted to record could open the devices itself. Rejected for that reason: a
+        /// tray question before a requested start, which would add a click to the user's own press and stop nothing a
+        /// module could not do without asking.</summary>
         internal const string AcceptJoinRecordKey = "acceptJoinRecord";
         internal const string AcceptJoinRecordLabel = "Let Reminder's Join & record start a recording";
         internal const string MeetingsCard = "Meetings";
@@ -143,7 +151,28 @@ namespace DesktopAICompanion.RemembranceModule
             CancelQuestion();
             _watch = null;
             SetWatchInterval(WatchIdleMs);
+            DropRecordRequestFromRecording();
             PublishRecorderReady(false);
+        }
+
+        /// <summary>
+        /// A Join &amp; record request still unseen when a recording ends came while it ran (or in the seconds before a
+        /// start the user made by hand), so it is marked seen and logged as ignored, never acted on (N-audit-1106-287).
+        /// HandleRecordRequest returns while recording before it marks an id seen, and the recording tick never reads
+        /// the request, so such a request used to wait for the first idle tick after the stop and, younger than
+        /// RequestFreshFor, start a recording nobody had just asked for. A card shown before a recording began can still
+        /// be pressed during it, which is how one arrives. Here, before the ready key says "not recording", rather than
+        /// on the recording tick: a stop inside one two-second tick would have slipped past that. UI thread, as every
+        /// stop path calls EndWatch.
+        /// </summary>
+        private void DropRecordRequestFromRecording()
+        {
+            string id, meetingJson; DateTimeOffset at;
+            if (!RecordingHandshake.TryParseRequest(SafeRead(_host, RecordingHandshake.RequestKey), out id, out at, out meetingJson)) return;
+            // The one that started this recording, or one already dropped: seen, nothing to say.
+            if (string.Equals(_lastRecordRequestId, id, StringComparison.Ordinal)) return;
+            _lastRecordRequestId = id;
+            Log("join & record: a request from Reminder was ignored because a recording was already running");
         }
 
         // ---- Join & record (2.5.0): Reminder's third button, over the shared context ----
@@ -175,7 +204,8 @@ namespace DesktopAICompanion.RemembranceModule
         /// On the idle tick: a Join &amp; record request Reminder published since the last one this instance saw starts a
         /// recording named for its meeting. Read at use, like meeting.current, so the start comes within one idle tick
         /// (5 s) of the press. Ignored, with a line in the log that names no meeting, when the setting is off or the
-        /// request is older than <see cref="RecordingHandshake.RequestFreshFor"/>; never considered while recording.
+        /// request is older than <see cref="RecordingHandshake.RequestFreshFor"/>; never considered while recording, and
+        /// one that came while recording is dropped when it ends (DropRecordRequestFromRecording, N-audit-1106-287).
         /// </summary>
         private void HandleRecordRequest(DateTimeOffset now)
         {

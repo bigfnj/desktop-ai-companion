@@ -20648,10 +20648,12 @@ CASES = (
     # --only=bd-remembrance-1: runs exactly these.
 
     # N-audit-1106-040: a failed re-run on a capture's own WAV overwrites the transcript beside it with the stub again.
+    # Re-pointed by bd-w6-remembrance-1 (N-audit-1106-289 split the guarded write): the early return that skips the write
+    # for a failed run over a kept transcript is dropped, so the stub goes over it.
     ("bd-remembrance-1: a failed re-transcription overwrites the transcript beside the WAV (N-audit-1106-040)",
      TRANSCRIBER,
-     b"            if (didTranscribe || !keep) WriteText(transcriptPath, text);\n",
-     b"            WriteText(transcriptPath, text);\n",
+     b"            if (!didTranscribe && keep) return text;\n",
+     b"",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "a failed re-transcription leaves the transcript already beside the WAV untouched"),
@@ -22798,6 +22800,60 @@ CASES = (
          SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
          SHIMEJI, "tick-emitter/nashorn-binding-paths",
          "M2-binding-paths: an unproven scalar was accepted: engine: incoming-self-read"),
+
+    # ---- burndown/w6-remembrance-1 ----
+    # Remembrance, burn-down wave 6. "bd-w6-remembrance-1:" for one --only.
+    # N-cxr-w34-02: "Summarize a transcript..." on a CLI binds the follow-up's pair even when the summary failed, so a
+    # second file of the same name pairs the first file's summary with its own text again.
+    ("bd-w6-remembrance-1: a failed CLI summary rebinds the follow-up's transcript (N-cxr-w34-02)",
+     REMEMBRANCE_MODULE,
+     b"                                    .ConfigureAwait(false);\n"
+     b"                                if (failure == null) NotePickedTranscript(summaryPath, transcriptPath);\n",
+     b"                                    .ConfigureAwait(false);\n"
+     b"                                NotePickedTranscript(summaryPath, transcriptPath);\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "leaves the follow-up on the first file's transcript (N-cxr-w34-02): Plan.transcript.txt then Plan.txt"),
+
+    # N-cxr-w34-02: a CLI summary that was written binds no pair, so a plain ".txt" summarized first loses to a
+    # "<name>.transcript.txt" whose summary then failed.
+    ("bd-w6-remembrance-1: a written CLI summary binds no follow-up transcript (N-cxr-w34-02)",
+     REMEMBRANCE_MODULE,
+     b"                                    .ConfigureAwait(false);\n"
+     b"                                if (failure == null) NotePickedTranscript(summaryPath, transcriptPath);\n",
+     b"                                    .ConfigureAwait(false);\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "leaves the follow-up on the first file's transcript (N-cxr-w34-02): Field.txt then Field.transcript.txt"),
+
+    # N-audit-1106-287: a Join & record request that came while recording waits for the first idle tick after the stop
+    # again, and starts a recording nobody had just asked for.
+    ("bd-w6-remembrance-1: a request that came while recording starts one after the stop (N-audit-1106-287)",
+     os.path.join(REPO, "modules", "Remembrance", "RemembranceModule.Watch.cs"),
+     b"            DropRecordRequestFromRecording();\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "join & record: a request that comes while a recording runs starts nothing after the stop"),
+
+    # N-audit-1106-289: RunWhisper deletes whisper-cli's own text as it reads it again, before the transcript is written.
+    ("bd-w6-remembrance-1: whisper-cli's own text is deleted before the transcript is written (N-audit-1106-289)",
+     TRANSCRIBER,
+     b"                string result = File.ReadAllText(txt);\n",
+     b"                string result = File.ReadAllText(txt);\n"
+     b"                try { File.Delete(txt); } catch { }\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "whisper-cli's own text stays beside the audio when the transcript cannot be written"),
+
+    # N-audit-1106-289: a transcript write that fails is swallowed again, so the run still reads as transcribed.
+    ("bd-w6-remembrance-1: a failed transcript write is swallowed (N-audit-1106-289)",
+     TRANSCRIBER,
+     b"            catch (Exception ex) { return ex.GetType().Name; }\n",
+     b"            catch (Exception) { return null; }\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a transcript that cannot be written is a failed run, never reported as transcribed"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

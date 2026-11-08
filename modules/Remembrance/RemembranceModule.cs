@@ -124,6 +124,18 @@ namespace DesktopAICompanion.RemembranceModule
                                  //        flight, so its warning is up before anything is deleted (N-cxr-w2-03).
                                  //        Self-test: the recorder checks give each stop a short wait of their own, so
                                  //        the BUG-009 case finishes inside the harness's bound (N-shimeji-1106-18).
+                                 //        The follow-up pairs a summary with the transcript it was made from once that
+                                 //        summary is written: a second file of the same name whose summary failed, or
+                                 //        was still running, sent the first file's summary with the second file's text
+                                 //        (N-cxr-w34-02). A Join & record request that comes while a recording runs is
+                                 //        dropped when it stops, with a log line, where it started another recording on
+                                 //        the first idle tick after a stop within the minute (N-audit-1106-287). The
+                                 //        code now says that request is trusted by convention, not checked: any loaded
+                                 //        module can publish it (N-audit-1106-288). A transcript that cannot be written
+                                 //        is a failed run that says so, and whisper-cli's own "<name>.whisper.txt" stays
+                                 //        beside the audio until the transcript is on disk; the write's failure was
+                                 //        swallowed, the words deleted first, and "Transcript ready." said
+                                 //        (N-audit-1106-289).
                                  // 2.10.0: one Claude Code sign-in, shared with AI Brain (host 1.8.0's
                                  //        IHostCredentials, BACKLOG N-cli-token-02, the owner's decision of
                                  //        2026-10-29), behind the ClaudeCodeSignIn grant, so MinHostVersion rises to
@@ -2485,8 +2497,9 @@ namespace DesktopAICompanion.RemembranceModule
                 new SettingField { Id = LongestRecordingKey, Label = "Longest recording (hours)", Kind = SettingKind.Int,
                     Min = WatchTuning.LimitHoursMin, Max = WatchTuning.LimitHoursMax, Group = MeetingsCard },
                 new SettingField { Id = OfferToRecordKey, Label = "Offer to record meetings", Kind = SettingKind.Bool, Group = MeetingsCard },
-                // Join & record (2.5.0): whether Reminder's third button may start a recording. On by default, because the
-                // request only ever comes from a button the user pressed.
+                // Join & record (2.5.0): whether Reminder's third button may start a recording. On by default, because
+                // Reminder sends the request only when the user presses that button; any loaded module could publish it,
+                // which is trusted by convention (AcceptJoinRecordKey says why, N-audit-1106-288).
                 new SettingField { Id = AcceptJoinRecordKey, Label = AcceptJoinRecordLabel, Kind = SettingKind.Bool, Group = MeetingsCard },
                 new SettingField { Id = "meetingApps", Label = "Meeting apps", Kind = SettingKind.Info, Group = MeetingsCard },
 
@@ -3595,7 +3608,10 @@ namespace DesktopAICompanion.RemembranceModule
                 string summaryPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(transcriptPath), name + CaptureStore.SummarySuffix);
                 // The follow-up that reads the transcript too sends THIS file with the summary, whatever its name
                 // (N-audit-1106-279): "notes.txt" summarizes to "notes.summary.md", and no "notes.transcript.txt" exists.
-                NotePickedTranscript(summaryPath, transcriptPath);
+                // The pair is bound where each engine below has WRITTEN the summary, never here at the pick (N-cxr-w34-02):
+                // "notes.transcript.txt" and "notes.txt" both summarize to "notes.summary.md", so a pick bound at once let a
+                // failed (or still running) second summary pair the first file's summary with the second file's text, and
+                // the follow-up sent that mismatch. A failure leaves the old summary in place, and the old pair with it.
                 // The prompt as the card shows it (2.8.0), the file read now, for this summary.
                 SummaryPrompt.Resolved manualPrompt = ResolveSummaryPrompt(SummaryPrompt.UsesFile(shown), SummaryPrompt.FileOf(shown));
                 string manualInstructions = manualPrompt.Text;
@@ -3613,6 +3629,7 @@ namespace DesktopAICompanion.RemembranceModule
                             {
                                 string text = System.IO.File.ReadAllText(transcriptPath);
                                 string failure = await WriteCloudSummaryAsync(manualCloud, name, text, summaryPath, manualInstructions).ConfigureAwait(false);
+                                if (failure == null) NotePickedTranscript(summaryPath, transcriptPath);
                                 if (failure == null && await FollowUpAfterTryItAsync(manualFollowUp, name, summaryPath, manualNote).ConfigureAwait(false)) return;
                                 FinishTryIt(failure == null ? ("Summarized: " + name + manualNote) : ("Summary failed (" + failure + "): " + name),
                                     failure == null ? "Summary ready." : "Could not summarize that transcript.");
@@ -3645,6 +3662,7 @@ namespace DesktopAICompanion.RemembranceModule
                                 string failure = await WriteCliSummaryAsync(manualCli, manualCliModel, manualCliEffort, manualCliSettingsOut,
                                     name, text, summaryPath, manualInstructions)
                                     .ConfigureAwait(false);
+                                if (failure == null) NotePickedTranscript(summaryPath, transcriptPath);
                                 if (failure == null && await FollowUpAfterTryItAsync(manualFollowUp, name, summaryPath, manualNote).ConfigureAwait(false)) return;
                                 // The CLI row's "last answered" changes with it.
                                 FinishTryIt(failure == null ? ("Summarized: " + name + manualNote) : ("Summary failed (" + failure + "): " + name),
@@ -3672,6 +3690,7 @@ namespace DesktopAICompanion.RemembranceModule
                     {
                         string transcript = System.IO.File.ReadAllText(transcriptPath);
                         bool wrote = await WriteSummaryAsync(endpoint, model, name, transcript, summaryPath, busy, manualInstructions).ConfigureAwait(false);
+                        if (wrote) NotePickedTranscript(summaryPath, transcriptPath);
                         if (wrote && manualFollowUp.On)
                         {
                             busy.Dispose();
@@ -5879,6 +5898,7 @@ namespace DesktopAICompanion.RemembranceModule
 
                 SelfCheckTranscriptKeeping(check, scratch, wav, startedAt);
                 SelfCheckJobRefused(check, wav);
+                SelfCheckUnsavedTranscript(check, scratch, wav, startedAt);
             }
             catch (Exception ex) { check("wav length: " + ex.Message, false); }
             finally
@@ -6051,6 +6071,68 @@ namespace DesktopAICompanion.RemembranceModule
                     try { if (!stand.HasExited) stand.Kill(true); } catch { }
                     stand.Dispose();
                 }
+            }
+        }
+
+        /// <summary>
+        /// A transcript that cannot be written is a failed run that says where the words are, and whisper-cli's own
+        /// "&lt;name&gt;.whisper.txt" stays until the transcript is on disk (N-audit-1106-289). The real RunWhisper runs,
+        /// with Windows PowerShell standing in for whisper-cli through Transcriber.StartChild and writing that file the way
+        /// -otxt does, so the order of the read, the write and the delete is the shipped one. The transcript's path is a
+        /// folder, which no file write can open. The job is stood in by a handle that holds nothing: this check is about
+        /// the files, and N-cxr-w1-02's is about the job.
+        /// </summary>
+        private static void SelfCheckUnsavedTranscript(Action<string, bool> check, string scratch, string wav, DateTimeOffset startedAt)
+        {
+            const string Heard = "Alice: SENTINEL-HEARD-6e0d the words whisper heard.";
+            Func<ProcessStartInfo, Process> savedStart = Transcriber.StartChild;
+            Func<Process, IDisposable> savedAttach = Transcriber.AttachJob;
+            string whisperText = Transcriber.WhisperOutputPath(wav);
+            try
+            {
+                string powershell = System.IO.Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe");
+                if (!System.IO.File.Exists(powershell))
+                {
+                    check("unsaved transcript: Windows PowerShell, the stand-in child, is not on this machine", false);
+                    return;
+                }
+                Transcriber.StartChild = delegate(ProcessStartInfo psi)
+                {
+                    int of = psi.ArgumentList.IndexOf("-of");
+                    string target = (of >= 0 && of + 1 < psi.ArgumentList.Count ? psi.ArgumentList[of + 1] : "") + ".txt";
+                    psi.ArgumentList.Clear();
+                    foreach (string arg in new[] { "-NoProfile", "-NonInteractive", "-Command",
+                        "Set-Content -LiteralPath '" + target.Replace("'", "''") + "' -Value '" + Heard + "' -Encoding UTF8" })
+                        psi.ArgumentList.Add(arg);
+                    return Process.Start(psi);
+                };
+                Transcriber.AttachJob = delegate { return new CancellationTokenSource(); };
+
+                string folder = System.IO.Path.Combine(scratch, "unwritable.transcript.txt");
+                System.IO.Directory.CreateDirectory(folder);
+                bool unsavedRan;
+                string unsavedText = Transcriber.Transcribe(wav, folder, powershell, wav, "Standup", null, startedAt, out unsavedRan);
+                string reason = Transcriber.PendingReason(unsavedText) ?? "(no reason)";
+                check("a transcript that cannot be written is a failed run, never reported as transcribed (N-audit-1106-289): " + reason,
+                    !unsavedRan && reason.StartsWith("whisper-cli transcribed it, but writing the transcript failed with ", StringComparison.Ordinal) &&
+                    reason.EndsWith(", so its words are kept beside the audio in two-seconds.whisper.txt.", StringComparison.Ordinal));
+                string kept = System.IO.File.Exists(whisperText) ? System.IO.File.ReadAllText(whisperText) : null;
+                check("whisper-cli's own text stays beside the audio when the transcript cannot be written (N-audit-1106-289)",
+                    kept != null && kept.Contains("SENTINEL-HEARD-6e0d"));
+
+                string written = System.IO.Path.Combine(scratch, "written.transcript.txt");
+                bool writtenRan;
+                Transcriber.Transcribe(wav, written, powershell, wav, "Standup", null, startedAt, out writtenRan);
+                string writtenText = System.IO.File.Exists(written) ? System.IO.File.ReadAllText(written) : "";
+                check("WITNESS a transcript that is written holds the stand-in's words, and whisper-cli's own file is then removed",
+                    writtenRan && writtenText.Contains("SENTINEL-HEARD-6e0d") && !System.IO.File.Exists(whisperText));
+            }
+            catch (Exception ex) { check("unsaved transcript: " + ex.Message, false); }
+            finally
+            {
+                Transcriber.StartChild = savedStart;
+                Transcriber.AttachJob = savedAttach;
+                try { System.IO.File.Delete(whisperText); } catch { }
             }
         }
 
