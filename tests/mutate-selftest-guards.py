@@ -22798,6 +22798,31 @@ CASES = (
          SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
          SHIMEJI, "tick-emitter/nashorn-binding-paths",
          "M2-binding-paths: an unproven scalar was accepted: engine: incoming-self-read"),
+
+    # ---- burndown/w6-remembrance-1 ----
+    # Remembrance, burn-down wave 6. "bd-w6-remembrance-1:" for one --only.
+    # N-cxr-w34-02: "Summarize a transcript..." on a CLI binds the follow-up's pair even when the summary failed, so a
+    # second file of the same name pairs the first file's summary with its own text again.
+    ("bd-w6-remembrance-1: a failed CLI summary rebinds the follow-up's transcript (N-cxr-w34-02)",
+     REMEMBRANCE_MODULE,
+     b"                                    .ConfigureAwait(false);\n"
+     b"                                if (failure == null) NotePickedTranscript(summaryPath, transcriptPath);\n",
+     b"                                    .ConfigureAwait(false);\n"
+     b"                                NotePickedTranscript(summaryPath, transcriptPath);\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "leaves the follow-up on the first file's transcript (N-cxr-w34-02): Plan.transcript.txt then Plan.txt"),
+
+    # N-cxr-w34-02: a CLI summary that was written binds no pair, so a plain ".txt" summarized first loses to a
+    # "<name>.transcript.txt" whose summary then failed.
+    ("bd-w6-remembrance-1: a written CLI summary binds no follow-up transcript (N-cxr-w34-02)",
+     REMEMBRANCE_MODULE,
+     b"                                    .ConfigureAwait(false);\n"
+     b"                                if (failure == null) NotePickedTranscript(summaryPath, transcriptPath);\n",
+     b"                                    .ConfigureAwait(false);\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "leaves the follow-up on the first file's transcript (N-cxr-w34-02): Field.txt then Field.transcript.txt"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

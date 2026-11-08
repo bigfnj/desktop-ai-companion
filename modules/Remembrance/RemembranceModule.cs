@@ -124,6 +124,10 @@ namespace DesktopAICompanion.RemembranceModule
                                  //        flight, so its warning is up before anything is deleted (N-cxr-w2-03).
                                  //        Self-test: the recorder checks give each stop a short wait of their own, so
                                  //        the BUG-009 case finishes inside the harness's bound (N-shimeji-1106-18).
+                                 //        The follow-up pairs a summary with the transcript it was made from once that
+                                 //        summary is written: a second file of the same name whose summary failed, or
+                                 //        was still running, sent the first file's summary with the second file's text
+                                 //        (N-cxr-w34-02).
                                  // 2.10.0: one Claude Code sign-in, shared with AI Brain (host 1.8.0's
                                  //        IHostCredentials, BACKLOG N-cli-token-02, the owner's decision of
                                  //        2026-10-29), behind the ClaudeCodeSignIn grant, so MinHostVersion rises to
@@ -3595,7 +3599,10 @@ namespace DesktopAICompanion.RemembranceModule
                 string summaryPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(transcriptPath), name + CaptureStore.SummarySuffix);
                 // The follow-up that reads the transcript too sends THIS file with the summary, whatever its name
                 // (N-audit-1106-279): "notes.txt" summarizes to "notes.summary.md", and no "notes.transcript.txt" exists.
-                NotePickedTranscript(summaryPath, transcriptPath);
+                // The pair is bound where each engine below has WRITTEN the summary, never here at the pick (N-cxr-w34-02):
+                // "notes.transcript.txt" and "notes.txt" both summarize to "notes.summary.md", so a pick bound at once let a
+                // failed (or still running) second summary pair the first file's summary with the second file's text, and
+                // the follow-up sent that mismatch. A failure leaves the old summary in place, and the old pair with it.
                 // The prompt as the card shows it (2.8.0), the file read now, for this summary.
                 SummaryPrompt.Resolved manualPrompt = ResolveSummaryPrompt(SummaryPrompt.UsesFile(shown), SummaryPrompt.FileOf(shown));
                 string manualInstructions = manualPrompt.Text;
@@ -3613,6 +3620,7 @@ namespace DesktopAICompanion.RemembranceModule
                             {
                                 string text = System.IO.File.ReadAllText(transcriptPath);
                                 string failure = await WriteCloudSummaryAsync(manualCloud, name, text, summaryPath, manualInstructions).ConfigureAwait(false);
+                                if (failure == null) NotePickedTranscript(summaryPath, transcriptPath);
                                 if (failure == null && await FollowUpAfterTryItAsync(manualFollowUp, name, summaryPath, manualNote).ConfigureAwait(false)) return;
                                 FinishTryIt(failure == null ? ("Summarized: " + name + manualNote) : ("Summary failed (" + failure + "): " + name),
                                     failure == null ? "Summary ready." : "Could not summarize that transcript.");
@@ -3645,6 +3653,7 @@ namespace DesktopAICompanion.RemembranceModule
                                 string failure = await WriteCliSummaryAsync(manualCli, manualCliModel, manualCliEffort, manualCliSettingsOut,
                                     name, text, summaryPath, manualInstructions)
                                     .ConfigureAwait(false);
+                                if (failure == null) NotePickedTranscript(summaryPath, transcriptPath);
                                 if (failure == null && await FollowUpAfterTryItAsync(manualFollowUp, name, summaryPath, manualNote).ConfigureAwait(false)) return;
                                 // The CLI row's "last answered" changes with it.
                                 FinishTryIt(failure == null ? ("Summarized: " + name + manualNote) : ("Summary failed (" + failure + "): " + name),
@@ -3672,6 +3681,7 @@ namespace DesktopAICompanion.RemembranceModule
                     {
                         string transcript = System.IO.File.ReadAllText(transcriptPath);
                         bool wrote = await WriteSummaryAsync(endpoint, model, name, transcript, summaryPath, busy, manualInstructions).ConfigureAwait(false);
+                        if (wrote) NotePickedTranscript(summaryPath, transcriptPath);
                         if (wrote && manualFollowUp.On)
                         {
                             busy.Dispose();

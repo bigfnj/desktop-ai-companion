@@ -196,6 +196,8 @@ namespace DesktopAICompanion.RemembranceModule
                 using (var devices = new RecorderSelfCheck.FakeDevices())
                 {
                     bool codexFails = false;
+                    // A Claude Code summary that fails, its follow-up still answered (N-cxr-w34-02).
+                    bool claudeSummaryFails = false;
                     var fake = new FakeCliProcess();
                     Func<FakeCliCall, CancellationToken, Task<CliProcessResult>> ordinary = FakeCliProcess.Answering(NextSummaryAnswer);
                     fake.Respond = delegate(FakeCliCall call, CancellationToken token)
@@ -206,6 +208,8 @@ namespace DesktopAICompanion.RemembranceModule
                             return Task.FromResult(codexFails
                                 ? FakeCliProcess.Result(1, FakeCliProcess.CodexFailure("stream disconnected before completion"), "")
                                 : FakeCliProcess.Result(0, FakeCliProcess.CodexStream(followUpCall ? NextFollowUpAnswer : NextSummaryAnswer), ""));
+                        if (claudeSummaryFails && !followUpCall)
+                            return Task.FromResult(FakeCliProcess.Result(1, FakeCliProcess.ClaudeStream("API Error: the service is overloaded", true), ""));
                         string alias = call.After("--model");
                         return Task.FromResult(FakeCliProcess.Result(0, FakeCliProcess.ClaudeStream(followUpCall ? NextFollowUpAnswer : NextSummaryAnswer,
                             false, FakeCliProcess.AnsweredModelFor(alias), alias ?? "fake-default"), ""));
@@ -489,6 +493,54 @@ namespace DesktopAICompanion.RemembranceModule
                               (goneLine == null ? "(no Status line)" : goneLine.Split(new[] { "  |  " }, StringSplitOptions.None)[0]),
                             goneSaid && goneLine.StartsWith("Follow-up failed (there is no transcript beside the summary): Notes 1", StringComparison.Ordinal) &&
                             findCall("SENTINEL-FOLLOWUP-PROMPT") == null);
+
+                        // ---- two files of one name, the second summary failing: the pair stays the one on disk (N-cxr-w34-02) ----
+                        // "<name>.transcript.txt" and "<name>.txt" both summarize to "<name>.summary.md". The first is summarized,
+                        // the second fails on the CLI and leaves the first's summary in place, and a press of "Run the follow-up
+                        // on the latest summary" must send that summary with the FIRST file's text. Both orders: "Plan" first
+                        // summarizes the ".transcript.txt" file, "Field" the plain ".txt" one, which no lookup by name finds.
+                        const string FirstText = "Quill: SENTINEL-FIRST-TEXT-4b1e the fence goes up on Monday.";
+                        const string SecondText = "Marlow: SENTINEL-SECOND-TEXT-8d2f the fence waits for spring.";
+                        Func<string, string, string, string> summarizePicked = delegate(string file, string text, string endsAs)
+                        {
+                            System.IO.File.WriteAllText(file, text);
+                            host.PickedFiles = new List<string> { file };
+                            Dictionary<string, string> pickScreen = CopyOf(pane.Load());
+                            pickScreen[FollowUp.OnKey] = "false";
+                            fake.Clear();
+                            Press(PaneActionFor(pane, "Try it on a file", "Summarize a transcript…"), pickScreen, ui, TimeSpan.FromSeconds(5));
+                            string line = null;
+                            pumpUntil(delegate { line = module.StatusLine(); return line.StartsWith(endsAs, StringComparison.Ordinal); });
+                            return line == null ? "(no Status line)" : line.Split(new[] { "  |  " }, StringSplitOptions.None)[0];
+                        };
+                        Func<string> pressFollowUp = delegate
+                        {
+                            fake.Clear();
+                            Press(PaneActionFor(pane, FollowUp.CardGroup, FollowUp.RunLabel), onScreen, ui, TimeSpan.FromSeconds(5));
+                            pumpUntil(delegate { return module.StatusLine().StartsWith("Follow-up", StringComparison.Ordinal); });
+                            return PromptOf(findCall("SENTINEL-FOLLOWUP-PROMPT"));
+                        };
+                        string[][] orders =
+                        {
+                            new[] { "Plan", "Plan.transcript.txt", "Plan.txt" },
+                            new[] { "Field", "Field.txt", "Field.transcript.txt" },
+                        };
+                        foreach (string[] order in orders)
+                        {
+                            string firstLine = summarizePicked(System.IO.Path.Combine(scratch, order[1]), FirstText, "Summarized: " + order[0]);
+                            claudeSummaryFails = true;
+                            string secondLine = summarizePicked(System.IO.Path.Combine(scratch, order[2]), SecondText, "Summary failed (");
+                            claudeSummaryFails = false;
+                            string sent = pressFollowUp();
+                            check("WITNESS follow-up: " + order[1] + " was summarized, and " + order[2] + " failed and left that summary in place: " +
+                                  firstLine + " | " + secondLine,
+                                firstLine.StartsWith("Summarized: " + order[0], StringComparison.Ordinal) &&
+                                secondLine.StartsWith("Summary failed (", StringComparison.Ordinal) && secondLine.EndsWith("): " + order[0], StringComparison.Ordinal) &&
+                                System.IO.File.Exists(System.IO.Path.Combine(scratch, order[0] + CaptureStore.SummarySuffix)));
+                            check("follow-up: a failed summary of a second file with the same name leaves the follow-up on the first file's transcript (N-cxr-w34-02): " +
+                                  order[1] + " then " + order[2],
+                                sent.Contains("TRANSCRIPT:") && sent.Contains("SENTINEL-FIRST-TEXT-4b1e") && !sent.Contains("SENTINEL-SECOND-TEXT-8d2f"));
+                        }
 
                         // ---- a cloud summary sends it too, as its prompt ----
                         const string CloudKey = "sk-test-cloud-0123456789abcdef";
