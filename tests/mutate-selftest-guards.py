@@ -24111,6 +24111,41 @@ CASES = (
      b"                    if (parsed.TryGetValue(memberPath, out source) && source == null) parsed.Remove(memberPath);\n",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
      SHIMEJI, "tick-emitter/prepare-parses-once", "prepare parses: two members took 4 configuration parses, not one each"),
+    # ---- burndown/w10-converter-1 ----
+    # Converter entries of burn-down wave 10. "bd-w10-converter-1:" for one --only.
+    # N-audit-1106-399: a ceiling pose that hangs further below its grip than the cell is tall loses its lowest rows to
+    # the tile clip. Compose records the painted rows it cut (in alpha and key mode, transparent padding excluded), and
+    # the residue names the emitted ceiling frames, through the emitter's fallback sheet copy as well.
+    ("bd-w10-converter-1: Compose records no ceiling rows the tile clip cut (N-audit-1106-399)",
+     SPRITE_SHEET_BUILDER,
+     b"                                if (lost > 0) result.ClippedCeilingRows[i] = lost;\n",
+     b"                                if (lost < 0) result.ClippedCeilingRows[i] = lost;\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "compositor", "ceiling clip (alpha): the 64-row ceiling pose gripped at row 8 lost 16 painted rows"),
+    ("bd-w10-converter-1: every row past the tile counts as cut, painted or not (N-audit-1106-399)",
+     SPRITE_SHEET_BUILDER,
+     b"                                int lost = LowestPaintedRow(scaled, alpha) + 1 - (srcY + scaledCellH);\n",
+     b"                                int lost = sh - (srcY + scaledCellH);\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "compositor", "ceiling clip painted (alpha): a ceiling pose whose rows below the tile are transparent"),
+    ("bd-w10-converter-1: key mode counts the magenta key as painted (N-audit-1106-399)",
+     SPRITE_SHEET_BUILDER,
+     b"                            : !(row[i + 0] == KeyB && row[i + 1] == KeyG && row[i + 2] == KeyR);\n",
+     b"                            : row[i + 3] != 0;\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "compositor", "ceiling clip painted (key): a ceiling pose whose rows below the tile are transparent"),
+    ("bd-w10-converter-1: the residue does not name the cut ceiling frames (N-audit-1106-399)",
+     PET_EMITTER,
+     b"            if (ceilingRegionEmitted && clippedCeiling.Count > 0)\n",
+     b"            if (ceilingRegionEmitted && clippedCeiling.Count > 1)\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "classic-emitter", "ceiling clip residue: the report does not name the 10 rows the 8-row cell cut off /hang.png"),
+    ("bd-w10-converter-1: the fallback sheet copy drops the measured ceiling rows (N-audit-1106-399)",
+     PET_EMITTER,
+     b"            foreach (KeyValuePair<int, int> clipped in source.ClippedCeilingRows) result.ClippedCeilingRows.Add(clipped.Key, clipped.Value);\n",
+     b"",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "classic-emitter", "ceiling clip residue fallback: the sheet copy that took the blank tile lost the ceiling rows"),
     # ---- burndown/w9-host-1 ----
     # Host entries of burn-down wave 9. "bd-w9-host-1:" for one --only.
     # N-audit-1106-234: a damaged settings.json is read as empty again with no line and no kept copy, or is reported on
