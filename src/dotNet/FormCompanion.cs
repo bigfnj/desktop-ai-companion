@@ -2198,8 +2198,13 @@ namespace DesktopAICompanion
         ///   * the SCAN is throttled, once per 300ms for the whole desktop, in
         ///     <c>StartUp.BlockedMonitorsForStandDown</c>. It was throttled here instead, per instance,
         ///     which multiplied one desktop-wide answer by the number of companions -- 16 z-order walks
-        ///     per cycle at MAX_SHEEPS, and a walk costs 781 user32/dwmapi calls on this box whenever a
-        ///     monitor's centre is uncovered and the early exit cannot fire.
+        ///     per cycle at MAX_SHEEPS. Whenever a monitor's centre is uncovered the early exit cannot
+        ///     fire, and a walk asks user32 one question of every top-level window on the desktop and up
+        ///     to seven more (user32 and dwmapi) of each visible one (FullscreenScan.BlockedMonitors).
+        ///     Counted on 2026-11-08 with the walk-uncovered mode of tests/fullscreen-standdown-probe, a
+        ///     read-only replica of that walk which counts each call: 796 calls over 670 top-level
+        ///     windows. That is one day's desktop, not a constant; the 781 this comment gave before was
+        ///     counted before the walk read each window's extended style and maximized frame.
         ///
         ///   * the ENFORCEMENT is NOT throttled, and must not be. A hidden companion keeps ticking, so its
         ///     animation can reach a respawn whose Play() shows the window again; the correction has to be

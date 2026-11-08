@@ -899,8 +899,9 @@ Assert-True (
 ) 'hiding for a fullscreen app is enforced every scan, not latched behind a flag'
 
 # The z-order walk is shared. It used to be throttled PER COMPANION, so one desktop-wide answer was
-# recomputed once per companion per cycle -- 16 walks at MAX_SHEEPS, and a walk costs 781
-# user32/dwmapi calls whenever no window covers some monitor's centre and the early exit cannot fire.
+# recomputed once per companion per cycle -- 16 walks at MAX_SHEEPS, and whenever no window covers some
+# monitor's centre the early exit cannot fire and a walk reads every top-level window on the desktop (796
+# user32/dwmapi calls over 670 windows, counted on 2026-11-08; see FormCompanion.CheckFullScreen).
 # Asserted in both directions, because either half alone is satisfiable by broken code: the tick path
 # must READ the shared answer, and it must not keep its own walk beside it.
 #

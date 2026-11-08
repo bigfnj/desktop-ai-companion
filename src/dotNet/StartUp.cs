@@ -1102,10 +1102,13 @@ namespace DesktopAICompanion
         //
         // The z-order walk is the expensive half and it used to be run PER COMPANION: the 300ms throttle
         // lived in FormCompanion, so at MAX_SHEEPS the desktop was walked 16 times per cycle for one
-        // answer that does not depend on which companion asked. Counted on this box (679 top-level
-        // windows): 37 user32/dwmapi calls per walk when the early exit fires, and 781 when it cannot --
-        // which is any monitor showing bare desktop, a common state, not a corner case. 53 walks/s
-        // became 3.3.
+        // answer that does not depend on which companion asked. What one walk costs depends on the
+        // desktop. Counted on this box on 2026-11-08 with tests/fullscreen-standdown-probe (its walk and
+        // walk-uncovered modes, a read-only replica of FullscreenScan.BlockedMonitors that counts each
+        // user32/dwmapi call): 150 calls when the early exit fired after 99 of 678 top-level windows, and
+        // 796 over all 670 when it cannot -- which is any monitor showing bare desktop, a common state,
+        // not a corner case. (The 37 and 781 given here first were counted before the walk read each
+        // window's extended style and maximized frame.) 53 walks/s became 3.3.
         //
         // WHAT IS CACHED IS THE WHOLE PER-MONITOR ARRAY, not the collapsed "any monitor" bool. That
         // distinction is the reason this is safe: the companion stand-down must stay per-monitor -- a

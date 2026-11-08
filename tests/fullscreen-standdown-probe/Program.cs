@@ -17,8 +17,10 @@
 //   time-walk   cold-first-call stopwatch around ONE walk, then exit (for interleaving)
 //   time-decide cold-first-call stopwatch around ONE decision pass, then exit
 //   walk-uncovered       one cold walk with an extra off-desktop monitor whose centre nothing covers, so
-//                        the early exit never fires: the realistic worst case, and where the 679-callback /
-//                        781-call figure FormCompanion.cs and README.md quote came from (F392)
+//                        the early exit never fires: the realistic worst case, and where the no-early-exit
+//                        counts FormCompanion.cs, StartUp.cs and README.md quote come from (F392: 679
+//                        callbacks / 781 calls at first; 670 / 796 on 2026-11-08, with the extended style
+//                        and maximized frame reads counted)
 //   time-walk-uncovered  the stopwatch form of the same
 //   standdown <exe> <dataRoot> [phaseDelayMs]
 //                        the end-to-end stand-down probe against a built app (README.md, RELEASE-CHECKLIST.md)
