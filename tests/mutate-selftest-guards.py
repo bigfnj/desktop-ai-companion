@@ -22812,6 +22812,22 @@ CASES = (
      b'            long saturation = 100000;\n',
      CORETESTS_CSPROJ, CORETESTS_DLL,
      CORETESTS, None, "A long hexadecimal literal's written exponent saturated before its digits' displacement"),
+    # N-audit-1106-303: the window self-test stands in for the fullscreen scan's answer only, so the mapping a tick
+    # window does with it runs under --shimeji-window-selftest. Both cases fire on a one-monitor box.
+    ("bd-w6-shimeji-host-1: a tick window maps a scan of the wrong length onto its monitors (N-audit-1106-303)",
+     os.path.join(REPO, "src", "dotNet", "FormCompanion.cs"),
+     b'            if (blocked == null || blocked.Length != screens.Length)\n            {\n',
+     b'            if (blocked == null)\n            {\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'a scan with a result count that is not the screen count stands no tick window down'),
+    ("bd-w6-shimeji-host-1: a tick window never finds its own monitor in the scan (N-audit-1106-303)",
+     os.path.join(REPO, "src", "dotNet", "FormCompanion.cs"),
+     b'            string device = Screen.FromRectangle(area).DeviceName;\n            for (int i = 0; i < screens.Length; i++)\n                if (screens[i].DeviceName == device) return blocked[i];\n',
+     b'            string device = Screen.FromRectangle(area).DeviceName;\n            for (int i = 0; i < screens.Length; i++)\n                if (screens[i].DeviceName == device + "?") return blocked[i];\n',
+     HOST_CSPROJ, EXE,
+     '--shimeji-window-selftest', 'dp-shimeji-window-selftest.txt',
+     'a fullscreen window on its monitor hides a tick window'),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
