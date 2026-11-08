@@ -4913,6 +4913,23 @@ CASES = (
         b"          dotnet build tools\\ShimejiConvert\\ShimejiConvert.csproj -c Release --nologo -v:minimal\n",
         "w8-packaging-ci-1: the converter build, verbs and suite floor live only",
     ),
+    # ---- burndown/w9-tests-scripts-2 ----
+    # N-bd-w4-converter-1-03: a host self-test's mklink /J helper starts cmd.exe by its bare name again, so CreateProcess
+    # searches the current directory ahead of System32. "bd-w9-tests-scripts-2:" for one --only.
+    (
+        "bd-w9-tests-scripts-2: the Shimeji window self-test starts a bare cmd.exe (N-bd-w4-converter-1-03)",
+        os.path.join(REPO, "src", "dotNet", "Shimeji", "ShimejiWindowSelfTest.cs"),
+        b"                var psi = new System.Diagnostics.ProcessStartInfo(Path.Combine(Environment.SystemDirectory, \"cmd.exe\"),\n",
+        b"                var psi = new System.Diagnostics.ProcessStartInfo(\"cmd.exe\",\n",
+        "w9-tests-scripts-2: no C# source starts cmd.exe by its bare name",
+    ),
+    (
+        "bd-w9-tests-scripts-2: the options self-test's escape junction starts a bare cmd (N-bd-w4-converter-1-03)",
+        os.path.join(REPO, "src", "dotNet", "WpfOptionsSelfTest.cs"),
+        b"                    var mk = new System.Diagnostics.ProcessStartInfo(Path.Combine(Environment.SystemDirectory, \"cmd.exe\"),\n",
+        b"                    var mk = new System.Diagnostics.ProcessStartInfo(\"CMD\",\n",
+        "w9-tests-scripts-2: no C# source starts cmd.exe by its bare name",
+    ),
     # ---- burndown/w8-host-1 ----
     # N-bd-w7-host-1-01: Blinking LED's engine asks the command line for a self-test flag again, so the no-real-input
     # variable stops withholding in a full app started by mistake. Invisible to the module self-test, which runs under

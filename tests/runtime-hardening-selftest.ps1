@@ -6502,6 +6502,31 @@ Assert-True (
     $w7h1FormCode -cmatch 'SetNextBorderAnimation\(CurrentAnimation\.ID, TNextAnimation\.TOnly\.WINDOW \| TNextAnimation\.TOnly\.WINDOW_BOTTOM, out chosenOnly, absenceIsNormal: true, plays: HangsFromUnderside\);'
 ) 'w8-host-1: the window-underside border roll declines a pick that would not hang before it sounds'
 
+# ---- burndown/w9-tests-scripts-2 ----
+# NO C# SOURCE STARTS cmd.exe BY ITS BARE NAME (N-bd-w4-converter-1-03). With UseShellExecute=false a bare name reaches
+# CreateProcess, which searches the current directory ahead of System32, the order N-audit-1106-153 closed for ffmpeg.
+# The converter's mklink /J helper (BundleSelfTest) used Environment.SystemDirectory while the host's three copies, in
+# ShimejiWindowSelfTest and WpfOptionsSelfTest, named "cmd.exe" bare. Every .cs under src, tools and modules (bin and obj
+# skipped), comment-stripped: no ProcessStartInfo constructor and no FileName names cmd bare, in either case. WITNESS:
+# the scan found the full-path starts, so it read the files it must, and the old line matches the bare-name pattern.
+$w9tsCsFiles = @(foreach ($w9tsRoot in @('src', 'tools', 'modules')) {
+    Get-ChildItem -LiteralPath (Join-Path $repoRoot $w9tsRoot) -Filter '*.cs' -Recurse -File |
+        Where-Object { $_.FullName -cnotmatch '\\(bin|obj)\\' } })
+$w9tsBarePattern = '(?:ProcessStartInfo\s*\(\s*|FileName\s*=\s*)"(?i:cmd(?:\.exe)?)"'
+$w9tsBare = @()
+$w9tsFullStarts = 0
+foreach ($w9tsFile in $w9tsCsFiles) {
+    $w9tsCode = Remove-LineComments ([IO.File]::ReadAllText($w9tsFile.FullName))
+    if ($w9tsCode -cmatch $w9tsBarePattern) { $w9tsBare += $w9tsFile.FullName.Substring($repoRoot.Length + 1) }
+    $w9tsFullStarts += @([regex]::Matches($w9tsCode, 'ProcessStartInfo\(Path\.Combine\(Environment\.SystemDirectory, "cmd\.exe"\)')).Count
+}
+Assert-True ($w9tsCsFiles.Count -gt 0 -and $w9tsFullStarts -gt 0 -and
+    'var psi = new System.Diagnostics.ProcessStartInfo("cmd.exe", "/c mklink /J \"" + link' -cmatch $w9tsBarePattern) (
+    "w9-tests-scripts-2: WITNESS the C# scan found full-path cmd.exe starts ($w9tsFullStarts in $($w9tsCsFiles.Count) files) and the old bare line matches")
+Assert-True ($w9tsBare.Count -eq 0) (
+    "w9-tests-scripts-2: no C# source starts cmd.exe by its bare name" +
+    $(if ($w9tsBare.Count) { ' -- bare in: ' + ($w9tsBare -join ', ') } else { '' }))
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever

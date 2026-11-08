@@ -992,7 +992,9 @@ namespace DesktopAICompanion
                     // neither, which also makes it the CHEAPER escape and therefore the one that had to
                     // be covered. mklink /J is used because .NET has no junction API.
                     string junction = Path.Combine(revealRoot, "escape");
-                    var mk = new System.Diagnostics.ProcessStartInfo("cmd.exe",
+                    // cmd.exe by its full path: with UseShellExecute=false a bare name reaches CreateProcess, which
+                    // searches the current directory ahead of System32 (N-bd-w4-converter-1-03).
+                    var mk = new System.Diagnostics.ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "cmd.exe"),
                         "/c mklink /J \"" + junction + "\" \"" + Path.GetDirectoryName(outsideFile) + "\"")
                     // The encoding is pinned rather than left to the console codepage. This is a
                     // GUI process with no console, so GetConsoleOutputCP() returns 0 and .NET reads
@@ -1033,7 +1035,7 @@ namespace DesktopAICompanion
                     // data directory gets relocated to another drive -- used to refuse every one of its own
                     // files as "outside". The link is a SIBLING of the root pointing at it, so the escape
                     // junction inside the root stays an escape and the witness below can show it.
-                    var mkRoot = new System.Diagnostics.ProcessStartInfo("cmd.exe",
+                    var mkRoot = new System.Diagnostics.ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "cmd.exe"),
                         "/c mklink /J \"" + revealRootLink + "\" \"" + revealRoot + "\"")
                     { UseShellExecute = false, CreateNoWindow = true,
                       RedirectStandardOutput = true, RedirectStandardError = true,

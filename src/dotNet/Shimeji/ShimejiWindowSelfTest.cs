@@ -1095,7 +1095,10 @@ namespace DesktopAICompanion.Shimeji
             catch (Exception) { }
             try
             {
-                var psi = new System.Diagnostics.ProcessStartInfo("cmd.exe", "/c mklink /J \"" + link + "\" \"" + target + "\"")
+                // cmd.exe by its full path (N-bd-w4-converter-1-03): with UseShellExecute=false a bare name reaches
+                // CreateProcess, which searches the current directory ahead of System32, as BundleSelfTest's copy says.
+                var psi = new System.Diagnostics.ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "cmd.exe"),
+                    "/c mklink /J \"" + link + "\" \"" + target + "\"")
                 {
                     CreateNoWindow = true,
                     UseShellExecute = false,
