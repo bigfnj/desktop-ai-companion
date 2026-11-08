@@ -5116,10 +5116,10 @@ def repair_stranded_mutant():
 
 
 def main():
+    global JOURNAL
     # Before anything is printed: a redirected cp1252 stdout cannot encode a marker a printed line may quote
     # (N-bd-w7-aibrain-1-03; mutation_process.utf8_stdio says why UTF-8).
     utf8_stdio()
-    global JOURNAL
     parser = argparse.ArgumentParser()
     parser.add_argument("--only", default=None)
     args = parser.parse_args()

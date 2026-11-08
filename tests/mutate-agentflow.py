@@ -3292,10 +3292,10 @@ def repair_stranded_mutant():
 
 def main():
     global RUN_TEMP, MARKER, CHILD_ENV
+    global RUN_TEMP, MARKER, CHILD_ENV, JOURNAL
     # Before anything is printed: the module report lines this harness quotes can carry the pane's markers, which a
     # redirected cp1252 stdout cannot encode (N-bd-w7-aibrain-1-03; mutation_process.utf8_stdio says why UTF-8).
     utf8_stdio()
-    global RUN_TEMP, MARKER, CHILD_ENV, JOURNAL
     parser = argparse.ArgumentParser()
     add_selection_arguments(parser)
     parser.add_argument("--check-patterns", action="store_true",
