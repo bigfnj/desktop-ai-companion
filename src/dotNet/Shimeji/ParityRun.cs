@@ -1053,29 +1053,21 @@ namespace DesktopAICompanion.Shimeji
                 log.WriteLine("usage: " + Flag + " <scenario.json> <pets dir> <trace out> <converter exe>");
                 return 2;
             }
-            // N-bd-w12-review-03: an earlier file at the trace path is released (removed) before any refusal that follows
-            // the two gates below, so a command refused after them leaves no file a caller could take for this run
-            // (ParityRun.ReleaseTracePath says why, and why not a refusal).
-            //
-            // The order is what keeps that release off the command's inputs and off a command the gates refuse. The
-            // scenario's pack is an input only the scenario names, so the scenario is read first, once: nothing can be
-            // compared with a pack folder no one has read yet. TraceClaim.Claim then refuses a trace path that is any input
-            // the run reads, by name with exit 2 (the follow-up to N-bd-w12-review-03, which released first and so deleted
-            // the scenario, a converter file or a pack file named as the trace path). The claim only reads and compares, so
-            // it may come ahead of the gates. The release deletes, so it waits until both gates have passed (follow-up 2, the
-            // coordinator's decision): a command refused for its build's identity, or for running outside an overridden test
-            // data root, touches nothing at the trace path, as it touched nothing before N-bd-w12-review-03. Released ahead
-            // of them, an unisolated command deleted a file at the trace path and only then refused, which weakened the one
-            // gate that keeps this command off a real environment. Every refusal after the gates (the converter's, then the
-            // run's own) still leaves no earlier file. The run below is handed these same bytes rather than reading the file
-            // again, so the pack it hashes is the pack the claim compared against.
+            // N-bd-w12-review-03, as the coordinator decided after two follow-ups: a trace path where anything already is (a
+            // file, a folder, a link, dangling or not) is refused by name with exit 2 before every other refusal, and nothing
+            // at it is ever deleted, truncated or replaced (ParityRun.TraceClaim says why). So "exit 2, no trace" holds for a
+            // reused path too: what is there was never this run's, and the refusal says so. The claim also keeps a NEW
+            // trace out of every input folder, and the scenario's pack is an input folder only the scenario names, so the
+            // scenario is read first, once; the run below is handed these same bytes rather than reading the file again, so
+            // the pack it hashes is the pack the claim compared against. The claim only reads, so it may come ahead of the
+            // gates, which now have nothing at the trace path to protect.
             ParityRun.ScenarioFile scenario = ParityRun.ScenarioFile.Read(args[at + 1]);
             ParityRun.TraceClaim claim = ParityRun.TraceClaim.Claim(scenario, args[at + 2], args[at + 3], args[at + 4], log);
             if (claim == null) return 2;
-            // The build's identity next, before the data-root gate, before the trace path is released and before anything
-            // else is read or a trace opened. A missing or malformed revision is refused rather than written as a
-            // placeholder, which the comparer's non-empty check would pass while it names nothing (contract review item 13),
-            // and it is never replaced by the product version (N-bd-parity-host-1-03).
+            // The build's identity next, before the data-root gate and before anything else is read or a trace opened. A
+            // missing or malformed revision is refused rather than written as a placeholder, which the comparer's
+            // non-empty check would pass while it names nothing (contract review item 13), and it is never replaced by the
+            // product version (N-bd-parity-host-1-03).
             string refusal;
             string commit = SourceRevision(stamped, out refusal);
             if (commit == null)
@@ -1089,9 +1081,6 @@ namespace DesktopAICompanion.Shimeji
                 log.WriteLine(Flag + " runs only under an overridden test data root (" + AppPaths.DataRootOverrideEnvironmentVariable + ").");
                 return 2;
             }
-            // Both gates passed: only now is an earlier file at the claimed trace path released, ahead of every refusal
-            // that remains (the order comment above).
-            if (!claim.Release(log)) return 2;
             // N-bd-w11-shimeji-host-1-01: the converter is the first path argument read (its hash is the build witness's
             // last field), and one that names nothing is refused by name with exit 2, as the run's own path arguments are.
             // Unchecked, a converter that did not exist threw FileNotFoundException out of the command.
@@ -1190,38 +1179,49 @@ namespace DesktopAICompanion.Shimeji
         }
 
         /// <summary>
-        /// N-bd-w12-review-03: remove an earlier FILE at the trace path before any refusal can happen, so whatever the
-        /// command answers, a file at that path afterwards is this run's trace or there is none. "Exit 2, no trace" held only
-        /// for a fresh path: every refusal left an existing file untouched, so a caller that reuses a path and reads it after
-        /// exit 2 read the last run as this one. The run owns its trace path (a complete run already overwrites it), so
-        /// releasing it is no new power over the caller's files; refusing an existing path was the rejected alternative, for
-        /// two reasons. No caller in the repository launches the command (the window self-test calls ParityRun.Run with a
-        /// fresh path per run), but the lane harnesses that do keep one output folder and rerun into it, and a refusal would
-        /// turn every rerun into exit 2 for a path the run is about to own anyway. And the oracle's producer already works
-        /// this way: oracle.py's v1() writes its v1-latest.json as "running" before any phase, so that "a failure must not
-        /// leave a previous successful v1-latest.json looking like the current run". A folder at the path is left (the
-        /// open below refuses it), and so is a link: deleting it would delete the caller's link, not the trace behind it.
-        /// One that cannot be removed (read-only, held open) is refused by name with exit 2, as an unwritable trace is.
-        /// Private: its only way in is <see cref="TraceClaim.Release"/>, and only <see cref="TraceClaim.Claim"/> makes a
-        /// claim, so nothing releases a path no one has compared with the inputs.
+        /// What is already at the trace path, in words for the refusal ("a file", "a folder", "a link"), or null when
+        /// nothing is. File.GetAttributes reads the entry itself and does not follow it, so a link is seen as a link and a
+        /// dangling one too, and .NET hands it a path past 260 characters in the form Windows accepts. Null also when no
+        /// entry can be read at the path at all (no such file or folder, a missing or non-folder parent, an empty or
+        /// malformed path, an entry whose attributes this account may not read): nothing seen there is replaced either
+        /// way, because the trace is opened only as a new file (FileMode.CreateNew in the run), which refuses anything that
+        /// is there after all.
         /// </summary>
-        private static bool ReleaseTracePath(string tracePath, TextWriter log)
+        private static string OccupantOf(string tracePath)
         {
+            FileAttributes attributes;
             try
             {
-                if (File.Exists(tracePath) && (File.GetAttributes(tracePath) & FileAttributes.ReparsePoint) == 0) File.Delete(tracePath);
-                return true;
+                attributes = File.GetAttributes(tracePath);
             }
-            catch (Exception e) when (IsArgumentFault(e))
+            catch (Exception e) when (IsArgumentFault(e) || e is NotSupportedException)
             {
-                log.WriteLine("refused " + tracePath + ": the trace cannot be replaced: " + e.Message);
-                return false;
+                return null;
             }
+            if ((attributes & FileAttributes.ReparsePoint) != 0) return "a link";
+            if ((attributes & FileAttributes.Directory) != 0) return "a folder";
+            return "a file";
+        }
+
+        /// <summary>The refusal of a trace path something is already at (<see cref="OccupantOf"/>'s words), from the claim
+        /// and from the open, so a caller reads one line for both.</summary>
+        private static string AlreadyThere(string tracePath, string occupant)
+        {
+            return "refused " + tracePath + ": " + occupant + " is already there and a parity run never replaces one;"
+                + " delete it or name a new trace path";
+        }
+
+        /// <summary>The open's own answer for a file that is already there: ERROR_FILE_EXISTS (80) from CREATE_NEW, or
+        /// ERROR_ALREADY_EXISTS (183).</summary>
+        private static bool IsAlreadyThere(IOException e)
+        {
+            int code = e.HResult & 0xFFFF;
+            return code == 80 || code == 183;
         }
 
         /// <summary>The scenario file as the run reads it, once: its bytes, or the argument fault reading them threw. Read
         /// before the trace path is claimed, because only its bytes name the pack, and refused (the fault) only after the
-        /// claim, so "the scenario cannot be read" still leaves no earlier file at the trace path.</summary>
+        /// claim, so a trace path something is already at is named first.</summary>
         internal sealed class ScenarioFile
         {
             public readonly string Argument;
@@ -1249,102 +1249,114 @@ namespace DesktopAICompanion.Shimeji
         }
 
         /// <summary>
-        /// Follow-up to N-bd-w12-review-03: a trace path compared with every input the run reads and found to be none of
-        /// them. Releasing first deleted the input itself, on every run including a refused one, and a complete run had
-        /// always overwritten it. A run never deletes or overwrites what it reads, so <see cref="Claim"/> refuses a trace
-        /// path that is an input by name with exit 2, before anything is released or written, and the input stays as it
-        /// was. The claim and the release are two steps (follow-up 2): the command claims before its gates and releases
-        /// only after them (ParityRunCommand.Execute says why), and the in-process run, which has no gates, does both at
-        /// once. Only <see cref="Claim"/> makes one, so nothing releases a path no one compared with the inputs.
+        /// N-bd-w12-review-03, as the coordinator decided: a trace path where nothing is, and where a new file would be in
+        /// none of the run's input folders. "Exit 2, no trace" held only for a fresh path: every refusal left an existing
+        /// file as it was, and a caller that reused the path read the last run's trace as this one's. The first fix
+        /// released (deleted) an existing file at the trace path ahead of the refusals, and that deletion had to be kept
+        /// off the run's own inputs by comparing paths. Two follow-ups did so and each was refuted with a new spelling of an
+        /// input (a junction inside an input folder; then a path past 260 characters, where the resolution fell back to the
+        /// spelling in silence, and by code a loopback share), because no comparison of spellings can know every name
+        /// Windows gives one file. So nothing is deleted any more. <see cref="Claim"/> refuses a trace path where ANYTHING
+        /// already is (<see cref="OccupantOf"/>), by name with exit 2, before every other refusal of the command and of
+        /// the run, and the run opens its trace only as a new file (FileMode.CreateNew), so a file that appears between
+        /// the claim and the open is refused there and is never truncated or replaced either. An input is a file that
+        /// exists, so a trace path that is an input, however it is spelled, is refused as already there. The rejected
+        /// alternative was the release, for the reason above; its cost, that a caller rerunning into one path now gets
+        /// exit 2, is paid by the callers (each in-repository caller uses a fresh path or deletes its own old trace).
+        /// What the claim still compares is where a NEW trace would go (<see cref="InputFolderAtTracePath"/>), as defence
+        /// in depth only. The claim is a token: only <see cref="Claim"/> makes one, and it holds nothing to release.
         /// </summary>
         internal sealed class TraceClaim
         {
-            private readonly string _tracePath;
-
-            private TraceClaim(string tracePath)
+            private TraceClaim()
             {
-                _tracePath = tracePath;
             }
 
             /// <summary>
-            /// The claim, or null with the refusal logged when the trace path is an input (<see cref="InputAtTracePath"/>
-            /// says which). Inside the pack matters even for a new file: the pack is hashed before the trace is opened, so a
-            /// trace written into it leaves a pack that no longer matches the hash in the header. The pack comes from
-            /// <paramref name="scenario"/>'s bytes, so the scenario is read before this, and its "pack" is read even when
-            /// the scenario will be refused for something else: the folder it names is still the caller's. The converter
-            /// is null for the in-process callers, which have none.
+            /// The claim, or null with the refusal logged: first when anything is already at the trace path, then when a
+            /// new trace there would be inside an input folder (<see cref="InputFolderAtTracePath"/> says which). Inside the
+            /// pack matters even for a new file: the pack is hashed before the trace is opened, so a trace written into it
+            /// leaves a pack that no longer matches the hash in the header. The pack comes from <paramref name="scenario"/>'s
+            /// bytes, so the scenario is read before this, and its "pack" is read even when the scenario will be refused for
+            /// something else: the folder it names is still the caller's. The converter is null for the in-process callers,
+            /// which have none. A path the comparison could not resolve is said on the log as DEGRADED, every time, ahead of
+            /// the claim's answer: that comparison then ran on the path as written only.
             /// </summary>
             internal static TraceClaim Claim(ScenarioFile scenario, string petsDir, string tracePath, string converter, TextWriter log)
             {
-                string input = InputAtTracePath(scenario, petsDir, tracePath, converter);
-                if (input != null)
+                string occupant = OccupantOf(tracePath);
+                if (occupant != null)
                 {
-                    log.WriteLine("refused " + tracePath + ": the trace path is " + input + "; a parity run never deletes or overwrites its inputs");
+                    log.WriteLine(AlreadyThere(tracePath, occupant));
                     return null;
                 }
-                return new TraceClaim(tracePath);
-            }
-
-            /// <summary>Remove an earlier file at the claimed path (<see cref="ReleaseTracePath"/>): false, with the refusal
-            /// logged, when it cannot be removed.</summary>
-            internal bool Release(TextWriter log)
-            {
-                return ReleaseTracePath(_tracePath, log);
+                var unresolved = new List<string>();
+                string input = InputFolderAtTracePath(scenario, petsDir, tracePath, converter, unresolved);
+                foreach (string path in unresolved)
+                    log.WriteLine("DEGRADED: parity run: " + path + " could not be resolved through its links, so the trace path is compared"
+                        + " with the input folders there as written only");
+                if (input != null)
+                {
+                    log.WriteLine("refused " + tracePath + ": the trace path is " + input + "; a parity run never writes into its inputs");
+                    return null;
+                }
+                return new TraceClaim();
             }
         }
 
         /// <summary>
-        /// Which input the trace path is, in words for the refusal, or null. The inputs are what the run reads: the
-        /// scenario file, the converter, the pets folder, the scenario's pack folder, and inside the converter and pets
-        /// folders each entry the run reads there (<see cref="ConverterFiles"/>, <see cref="PetsRead"/>), each compared on
-        /// its own. Follow-up 2 (the wave 13 review): comparing the arguments alone, on resolved paths, missed a link
-        /// INSIDE an input folder. A pet folder that is a junction (pets\Ball to elsewhere\Ball) is read through by
-        /// LoadPets, but resolving the trace followed the junction out of the pets folder while the pets argument resolved
-        /// to itself, so a trace path of pets\Ball\animations.xml, or of the file the junction leads to, was released and
-        /// that pet's animations.xml deleted, on a refused run and an otherwise complete one. A converter *.dll that is a
-        /// file link misses the same way. So each entry the run reads is resolved on its own, and every comparison is made
-        /// on both spellings of both sides (<see cref="Spellings"/>). The entries are only those the run reads: a link
-        /// inside an input folder that leads to something the run never opens (a subfolder of the converter folder, a link
-        /// inside a pet folder, a link in the pack, which the pack's preflight refuses) is not followed, though a trace
-        /// path SPELLED through it is still inside that folder and refused. An input that names nothing (an empty or
-        /// malformed argument, a folder that cannot be listed) adds nothing here and is refused later by its own line.
+        /// Which input folder a new trace at the trace path would be inside, in words for the refusal, or null. The input
+        /// folders are those the run reads from: the converter (when it is a folder), the pets folder, each pet folder in it
+        /// that LoadPets reads (<see cref="PetFoldersRead"/>), and the scenario's pack folder. Input FILES are not compared:
+        /// each exists, so a trace path that is one is refused as already there (<see cref="OccupantOf"/>) whatever its
+        /// spelling. Each folder is compared on both spellings of both sides (<see cref="Spellings"/>): as written, a trace
+        /// pets\Ball\x is inside the pets folder whatever pets\Ball links to; as resolved, a trace spelled as the folder a
+        /// junction pet folder leads to is inside that pet folder. A pet folder is resolved on its own for that reason
+        /// (follow-up 2: resolving only the arguments followed the junction out of the pets folder). A link inside an
+        /// input folder that leads somewhere the run never reads (a subfolder of the converter folder, a link inside a pet
+        /// folder) is not followed, though a trace path SPELLED through it is still inside that folder and refused. An
+        /// input that names nothing (an empty or malformed argument, a folder that cannot be listed) adds nothing here and
+        /// is refused later by its own line.
+        ///
+        /// What this comparison does NOT catch, said plainly: a path through a share that leads back to this machine
+        /// (\\localhost\D\..., \\127.0.0.1\..., or a drive letter mapped to such a share), which Windows resolves to the
+        /// share's \\server\share form and never to the local path; and an existing part of a path no handle can be opened
+        /// on (no access, a dangling link), which is then compared as written and said on the log as DEGRADED. That is now
+        /// harmless, because nothing that exists is ever replaced (the claim refuses an occupied path and the open creates
+        /// only a new file): the worst a spelling this misses can do is put a NEW file inside an input folder, one the
+        /// next run's pack hash or pets listing then sees, never change or remove a file the run read.
         /// </summary>
-        private static string InputAtTracePath(ScenarioFile scenario, string petsDir, string tracePath, string converter)
+        private static string InputFolderAtTracePath(ScenarioFile scenario, string petsDir, string tracePath, string converter, List<string> unresolved)
         {
-            // A trace path no full path can be made of names no file: there is nothing there to release or overwrite, and
+            // A trace path no full path can be made of names no file: nothing can be put inside an input folder there, and
             // opening it is refused below as an unwritable trace, as it was.
-            string[] trace = Spellings(tracePath);
+            string[] trace = Spellings(tracePath, unresolved);
             if (trace == null) return null;
             string named;
-            if ((named = Overlap(trace, scenario.Argument, false, "the scenario file ")) != null) return named;
-            if (converter != null && (named = Overlap(trace, converter, true, "the converter ")) != null) return named;
-            foreach (string code in converter == null ? new string[0] : ConverterFilesOrNone(converter))
-                if ((named = Overlap(trace, code, false, "the converter assembly ")) != null) return named;
-            if ((named = Overlap(trace, petsDir, true, "the pets folder ")) != null) return named;
-            foreach (KeyValuePair<string, bool> pet in PetsRead(petsDir))
-                if ((named = Overlap(trace, pet.Key, pet.Value, pet.Value ? "the pet folder " : "the pet file ")) != null) return named;
+            if (converter != null && (named = Overlap(trace, converter, "the converter ", unresolved)) != null) return named;
+            if ((named = Overlap(trace, petsDir, "the pets folder ", unresolved)) != null) return named;
+            foreach (string pet in PetFoldersRead(petsDir))
+                if ((named = Overlap(trace, pet, "the pet folder ", unresolved)) != null) return named;
             string pack = PackFolderOf(scenario);
-            if (pack != null && (named = Overlap(trace, pack, true, "the scenario's pack folder ")) != null) return named;
+            if (pack != null && (named = Overlap(trace, pack, "the scenario's pack folder ", unresolved)) != null) return named;
             return null;
         }
 
-        /// <summary>"<paramref name="what"/><paramref name="input"/>" when the trace is the input, "inside ..." when the
-        /// input is a folder (<paramref name="folder"/>) and the trace is anywhere under it, else null. Every spelling of the
-        /// trace against every spelling of the input (<see cref="Spellings"/>): as written, the trace pets\Ball\x is inside
-        /// the pets folder whatever pets\Ball links to; as resolved, a trace spelled through another link to the same
-        /// place is inside it too. The way Windows compares names: case-insensitive (ordinal), with no trailing separator;
-        /// under means the folder's path plus a separator, so a sibling whose name only starts the same ("pets2" beside
-        /// "pets") is not inside it.</summary>
-        private static string Overlap(string[] trace, string input, bool folder, string what)
+        /// <summary>"inside <paramref name="what"/><paramref name="input"/>" when the trace is anywhere under the input
+        /// folder, else null. Every spelling of the trace against every spelling of the folder (<see cref="Spellings"/>).
+        /// The way Windows compares names: case-insensitive (ordinal), with no trailing separator; under means the
+        /// folder's path plus a separator, so a sibling whose name only starts the same ("pets2" beside "pets") is not
+        /// inside it. A trace path that IS the folder is already there (<see cref="OccupantOf"/>), or names a folder
+        /// that does not exist, which its own line refuses before any trace is opened.</summary>
+        private static string Overlap(string[] trace, string input, string what, List<string> unresolved)
         {
-            string[] spellings = Spellings(input);
+            string[] spellings = Spellings(input, unresolved);
             if (spellings == null) return null;
             foreach (string t in trace)
                 foreach (string i in spellings)
                 {
-                    if (string.Equals(t, i, StringComparison.OrdinalIgnoreCase)) return what + input;
                     string under = i[i.Length - 1] == Path.DirectorySeparatorChar ? i : i + Path.DirectorySeparatorChar;
-                    if (folder && t.StartsWith(under, StringComparison.OrdinalIgnoreCase)) return "inside " + what + input;
+                    if (t.StartsWith(under, StringComparison.OrdinalIgnoreCase)) return "inside " + what + input;
                 }
             return null;
         }
@@ -1353,38 +1365,22 @@ namespace DesktopAICompanion.Shimeji
         /// parts, "." and "..", "/", trailing dots and spaces) with no trailing separator and every link along it left
         /// where it stands; and as Windows resolves it (<see cref="ResolvedPath"/>). Null when no full path can be made of
         /// it.</summary>
-        private static string[] Spellings(string path)
+        private static string[] Spellings(string path, List<string> unresolved)
         {
             string written = FullPathOrNull(path);
             if (written == null) return null;
-            return new[] { written, ResolvedPath(written) };
-        }
-
-        /// <summary>The files ConverterSha256 hashes, listed the way it lists them, or none when they cannot be listed
-        /// (then the hash refuses the converter by its own line, after the release, as before).</summary>
-        private static string[] ConverterFilesOrNone(string converter)
-        {
-            try
-            {
-                return ConverterFiles(converter);
-            }
-            catch (Exception e) when (IsArgumentFault(e))
-            {
-                return new string[0];
-            }
+            return new[] { written, ResolvedPath(written, unresolved) };
         }
 
         /// <summary>
-        /// The pet folders and files LoadPets reads, each with whether it is a folder: the pets folder listed as LoadPets
-        /// lists it, every folder in it that holds an animations.xml or a parity-map.json (the folders LoadPets loads or
-        /// refuses; one with neither it skips and reads nothing in), and each of those two files it holds. The folder is
-        /// resolved on its own, so a pet folder that is a junction protects where its files really are; each file is
-        /// resolved on its own too, for one that is itself a link. Nothing deeper is listed: LoadPets opens nothing else.
-        /// Empty when the pets folder cannot be listed (LoadPets refuses it by its own line).
+        /// The pet folders LoadPets reads: every folder in the pets folder, listed as LoadPets lists it, that holds an
+        /// animations.xml or a parity-map.json (the folders it loads or refuses; one with neither it skips and reads
+        /// nothing in). Each is resolved on its own, so a pet folder that is a junction protects where its files really
+        /// are. Empty when the pets folder cannot be listed (LoadPets refuses it by its own line).
         /// </summary>
-        private static List<KeyValuePair<string, bool>> PetsRead(string petsDir)
+        private static List<string> PetFoldersRead(string petsDir)
         {
-            var read = new List<KeyValuePair<string, bool>>();
+            var read = new List<string>();
             string[] folders;
             try
             {
@@ -1395,14 +1391,7 @@ namespace DesktopAICompanion.Shimeji
                 return read;
             }
             foreach (string folder in folders)
-            {
-                var files = new List<string>();
-                foreach (string name in new[] { "animations.xml", "parity-map.json" })
-                    if (File.Exists(Path.Combine(folder, name))) files.Add(Path.Combine(folder, name));
-                if (files.Count == 0) continue;
-                read.Add(new KeyValuePair<string, bool>(folder, true));
-                foreach (string file in files) read.Add(new KeyValuePair<string, bool>(file, false));
-            }
+                if (File.Exists(Path.Combine(folder, "animations.xml")) || File.Exists(Path.Combine(folder, "parity-map.json"))) read.Add(folder);
             return read;
         }
 
@@ -1456,13 +1445,14 @@ namespace DesktopAICompanion.Shimeji
         /// <summary>
         /// A full path (<see cref="FullPathOrNull"/>'s) as Windows resolves it, for comparing two of them: the deepest part
         /// that exists resolved through a handle by GetFinalPathNameByHandle (8.3 short names to long ones, every junction
-        /// and symbolic link along it, a SUBST or mapped drive, the \\?\ form), with the part that does not exist yet put
-        /// back after it and any trailing separator taken off. A trace path rarely exists, and a new file under an existing
-        /// folder is still under that folder's real path. Where no handle can be opened (no access, a dangling link) the
-        /// full path stands as it is, so two spellings of one file only those resolutions would join are then compared as
-        /// written.
+        /// and symbolic link along it), with the part that does not exist yet put back after it and any trailing separator
+        /// taken off. A trace path rarely exists, and a new file under an existing folder is still under that folder's real
+        /// path. A share, a loopback one included, resolves to its \\server\share form (<see cref="InputFolderAtTracePath"/>
+        /// says why that is harmless now). Where no handle can be opened (no access, a dangling link) the existing part
+        /// stands as written and is added to <paramref name="unresolved"/>, which the claim says on its log as DEGRADED:
+        /// two spellings only that resolution would join are then compared as written, and the log says so every time.
         /// </summary>
-        private static string ResolvedPath(string full)
+        private static string ResolvedPath(string full, List<string> unresolved)
         {
             string existing = full;
             var missing = new Stack<string>();
@@ -1473,7 +1463,14 @@ namespace DesktopAICompanion.Shimeji
                 missing.Push(Path.GetFileName(existing));
                 existing = parent;
             }
-            string resolved = FinalPathOrNull(existing) ?? existing;
+            int error;
+            string resolved = FinalPathOrNull(existing, out error);
+            if (resolved == null)
+            {
+                string note = existing + " (Win32 error " + error.ToString(CultureInfo.InvariantCulture) + ")";
+                if (!unresolved.Contains(note)) unresolved.Add(note);
+                resolved = existing;
+            }
             foreach (string name in missing) resolved = Path.Combine(resolved, name);
             return WithoutTrailingSeparator(resolved);
         }
@@ -1493,16 +1490,39 @@ namespace DesktopAICompanion.Shimeji
         [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true)]
         private static extern int GetFinalPathNameByHandleW(Microsoft.Win32.SafeHandles.SafeFileHandle handle, StringBuilder path, int count, int flags);
 
+        /// <summary>
+        /// The form of a full path CreateFileW takes past 260 characters: \\?\ before a drive path, \\?\UNC\ in place of a
+        /// share's leading \\, and \\?\ in place of \\.\ (a path already in \\?\ form stands). This process is not
+        /// longPathAware (the apphost's manifest does not say so), so CreateFileW refuses a longer path given plainly,
+        /// whatever the machine's LongPathsEnabled; .NET's own file calls add this prefix themselves, which is why the run
+        /// could read and write a path its resolution could not open (the wave 13 fix-2 review: a pets folder at a 260
+        /// character path whose pet folder was a junction, and a trace spelled as the junction's target). The \\?\ form
+        /// turns off Windows' own normalising, which is safe here because the path is already Path.GetFullPath's.
+        /// </summary>
+        private static string LongPathForm(string full)
+        {
+            if (full.StartsWith(@"\\?\", StringComparison.Ordinal)) return full;
+            if (full.StartsWith(@"\\.\", StringComparison.Ordinal)) return @"\\?\" + full.Substring(4);
+            if (full.StartsWith(@"\\", StringComparison.Ordinal)) return @"\\?\UNC\" + full.Substring(2);
+            return @"\\?\" + full;
+        }
+
         /// <summary>Where an existing file or folder really is (OptionsWindow.FinalDirectoryPath's call): no access asked,
         /// every share mode so a file another process holds still resolves, FILE_FLAG_BACKUP_SEMANTICS so a folder opens,
-        /// and the \\?\ prefix taken off (\\?\UNC\ back to \\) so a path no handle could resolve compares like with like.
-        /// Null when it cannot be resolved.</summary>
-        private static string FinalPathOrNull(string existing)
+        /// the path handed over in its long form (<see cref="LongPathForm"/>), and the \\?\ prefix taken off the answer
+        /// (\\?\UNC\ back to \\) so it compares like with like. Null, with the Win32 error in <paramref name="error"/>,
+        /// when it cannot be resolved.</summary>
+        private static string FinalPathOrNull(string existing, out int error)
         {
             const uint shareAll = 0x1 | 0x2 | 0x4, openExisting = 3, backupSemantics = 0x02000000;
-            using (Microsoft.Win32.SafeHandles.SafeFileHandle handle = CreateFileW(existing, 0, shareAll, IntPtr.Zero, openExisting, backupSemantics, IntPtr.Zero))
+            error = 0;
+            using (Microsoft.Win32.SafeHandles.SafeFileHandle handle = CreateFileW(LongPathForm(existing), 0, shareAll, IntPtr.Zero, openExisting, backupSemantics, IntPtr.Zero))
             {
-                if (handle == null || handle.IsInvalid) return null;
+                if (handle == null || handle.IsInvalid)
+                {
+                    error = System.Runtime.InteropServices.Marshal.GetLastWin32Error();
+                    return null;
+                }
                 var buffer = new StringBuilder(512);
                 int written = GetFinalPathNameByHandleW(handle, buffer, buffer.Capacity, 0);
                 if (written > buffer.Capacity)
@@ -1510,7 +1530,11 @@ namespace DesktopAICompanion.Shimeji
                     buffer = new StringBuilder(written);
                     written = GetFinalPathNameByHandleW(handle, buffer, buffer.Capacity, 0);
                 }
-                if (written <= 0 || written > buffer.Capacity) return null;
+                if (written <= 0 || written > buffer.Capacity)
+                {
+                    error = System.Runtime.InteropServices.Marshal.GetLastWin32Error();
+                    return null;
+                }
                 string final = buffer.ToString(0, written);
                 if (final.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase)) return @"\\" + final.Substring(8);
                 if (final.StartsWith(@"\\?\", StringComparison.Ordinal)) return final.Substring(4);
@@ -1583,17 +1607,15 @@ namespace DesktopAICompanion.Shimeji
         public static int Run(string scenarioPath, string petsDir, string tracePath, Dictionary<string, string> build, TextWriter log, bool traceOff = false)
         {
             // N-bd-w12-review-03: claimed here too, for the callers that come in below the command (the window self-test),
-            // in the command's order (ParityRunCommand.Execute says why): the scenario read once, then a trace path that is
-            // an input refused before anything is released, then the release, then every other refusal. This entry has no
-            // gates, so the release follows the claim at once.
+            // in the command's order (ParityRunCommand.Execute says why): the scenario read once, then a trace path that
+            // anything is already at, or that is inside an input folder, refused ahead of every other refusal.
             ScenarioFile scenarioFile = ScenarioFile.Read(scenarioPath);
-            TraceClaim claim = TraceClaim.Claim(scenarioFile, petsDir, tracePath, null, log);
-            if (claim == null || !claim.Release(log)) return 2;
+            if (TraceClaim.Claim(scenarioFile, petsDir, tracePath, null, log) == null) return 2;
             return Run(scenarioFile, petsDir, tracePath, build, log, traceOff);
         }
 
-        /// <summary>The run on a scenario already read and a trace path already claimed and released
-        /// (<see cref="TraceClaim"/>).</summary>
+        /// <summary>The run on a scenario already read and a trace path already claimed (<see cref="TraceClaim"/>), which
+        /// it opens only as a new file.</summary>
         internal static int Run(ScenarioFile scenarioFile, string petsDir, string tracePath, Dictionary<string, string> build, TextWriter log, bool traceOff)
         {
             string scenarioPath = scenarioFile.Argument;
@@ -1601,7 +1623,7 @@ namespace DesktopAICompanion.Shimeji
             // LoadPets, the trace's folder below) is refused by name with exit 2, its line and no trace, as a refused map or
             // pack is. It is the caller's argument error, not scenario-invalid: there is no scenario to judge. Unchecked,
             // each threw FileNotFound or DirectoryNotFoundException out of the command, an unhandled exception's exit. The
-            // read itself is ScenarioFile.Read's, before the claim; its fault is refused here, after the release.
+            // read itself is ScenarioFile.Read's, before the claim; its fault is refused here, after the claim.
             if (scenarioFile.Fault != null)
             {
                 log.WriteLine("refused " + scenarioPath + ": the scenario cannot be read: " + scenarioFile.Fault.Message);
@@ -1682,10 +1704,18 @@ namespace DesktopAICompanion.Shimeji
                 // The trace is opened last, so every refusal above leaves none. One that cannot be opened (its folder does
                 // not exist, the path is a folder, no access) is refused by name before anything is written; the folder is
                 // not made for it (the rejected alternative): a mistyped folder would hold a trace no later step reads.
+                // N-bd-w12-review-03: opened only as a NEW file (FileMode.CreateNew, never Create, which truncates). The
+                // claim refused a path anything was already at, and a file that appeared there since (another run, the
+                // caller) is refused here with the claim's own line, never truncated or replaced (TraceClaim says why).
                 StreamWriter opened;
                 try
                 {
-                    opened = new StreamWriter(tracePath, false, new UTF8Encoding(false));
+                    opened = new StreamWriter(new FileStream(tracePath, FileMode.CreateNew, FileAccess.Write, FileShare.Read), new UTF8Encoding(false));
+                }
+                catch (IOException e) when (IsAlreadyThere(e))
+                {
+                    log.WriteLine(AlreadyThere(tracePath, "a file"));
+                    return 2;
                 }
                 catch (Exception e) when (IsArgumentFault(e))
                 {
@@ -2004,8 +2034,7 @@ namespace DesktopAICompanion.Shimeji
             return ManifestSha256(rows);
         }
 
-        /// <summary>The files converterSha256 binds: every *.dll in the folder given, or the one file given. One listing for the
-        /// hash and for TraceClaim, so the files the claim keeps a trace path off are the files the hash reads.</summary>
+        /// <summary>The files converterSha256 binds: every *.dll in the folder given, or the one file given.</summary>
         private static string[] ConverterFiles(string path)
         {
             return Directory.Exists(path) ? Directory.GetFiles(path, "*.dll") : new[] { path };
