@@ -331,6 +331,18 @@ CASES = (
     ("bd-codex-parity-3: occurrence before tick order", "T2 occurrence",
      'if trace2 and kind == "rng-draw" and (not isinstance(r["occurrence"], int) or isinstance(r["occurrence"], bool)):',
      'if trace2 and kind == "rng-draw" and (r["tick"] < 0 or r["tick"] >= last_tick) and (not isinstance(r["occurrence"], int) or isinstance(r["occurrence"], bool)):'),
+    ("bd-codex-parity-3: occurrence before upper tick range", "T2 occurrence",
+     'if trace2 and kind == "rng-draw" and (not isinstance(r["occurrence"], int) or isinstance(r["occurrence"], bool)):',
+     'if trace2 and kind == "rng-draw" and (n is None or r["tick"] <= n) and (not isinstance(r["occurrence"], int) or isinstance(r["occurrence"], bool)):'),
+    ("bd-codex-parity-3: boolean occurrence before tick range", "T2 occurrence",
+     'if trace2 and kind == "rng-draw" and (not isinstance(r["occurrence"], int) or isinstance(r["occurrence"], bool)):',
+     'if trace2 and kind == "rng-draw" and (not isinstance(r["occurrence"], bool) or (r["tick"] >= 0 and (n is None or r["tick"] <= n))) and (not isinstance(r["occurrence"], int) or isinstance(r["occurrence"], bool)):'),
+    ("bd-codex-parity-3: boolean occurrence before tick order", "T2 occurrence",
+     'if trace2 and kind == "rng-draw" and (not isinstance(r["occurrence"], int) or isinstance(r["occurrence"], bool)):',
+     'if trace2 and kind == "rng-draw" and (not isinstance(r["occurrence"], bool) or r["tick"] < 0 or (n is not None and r["tick"] > n) or r["tick"] >= last_tick) and (not isinstance(r["occurrence"], int) or isinstance(r["occurrence"], bool)):'),
+    ("bd-codex-parity-3: boolean occurrence before footer count", "T2 occurrence",
+     'if trace2 and kind == "rng-draw" and (not isinstance(r["occurrence"], int) or isinstance(r["occurrence"], bool)):',
+     'if trace2 and kind == "rng-draw" and (not isinstance(r["occurrence"], bool) or footer is None or footer["states"] == sum(row.get("type") == "state" for row in records)) and (not isinstance(r["occurrence"], int) or isinstance(r["occurrence"], bool)):'),
 )
 
 
@@ -595,6 +607,14 @@ MUTATION_EXPECTATIONS = (
     ("occurrence shape before tick range 0: ('unjudgeable', 'malformed')", "unjudgeable", "malformed"),
     # bd-codex-parity-3: occurrence before tick order
     ("occurrence shape before tick order 0: ('unjudgeable', 'malformed')", "unjudgeable", "malformed"),
+    # bd-codex-parity-3: occurrence before upper tick range
+    ("occurrence shape before upper tick range 0: ('unjudgeable', 'malformed')", "unjudgeable", "malformed"),
+    # bd-codex-parity-3: boolean occurrence before tick range
+    ("boolean occurrence shape before tick range 0: ('unjudgeable', 'malformed')", "unjudgeable", "malformed"),
+    # bd-codex-parity-3: boolean occurrence before tick order
+    ("boolean occurrence shape before tick order 0: ('unjudgeable', 'malformed')", "unjudgeable", "malformed"),
+    # bd-codex-parity-3: boolean occurrence before footer count
+    ("boolean occurrence shape before footer count 0: ('unjudgeable', 'malformed')", "unjudgeable", "malformed"),
 )
 if len(CASES) != len(MUTATION_EXPECTATIONS):
     raise AssertionError("each mutation needs one explicit leg/verdict/class expectation")

@@ -18,6 +18,8 @@ import time
 HERE = Path(__file__).resolve().parent
 PACKAGE = "com/group_finity/mascot"
 JAVA_FILES = ("V1ScenarioRunner.java", "draft/DraftParityHooks.java", "draft/DraftTraceWriter.java", "Trace2ProtocolProbe.java")
+HELPER_FILES = ("draft/DraftParityHooks.java", "draft/DraftTraceWriter.java")
+HELPER_PREFIXES = ("DraftParityHooks", "DraftTraceWriter")
 PROCESS_RECORDS = []
 
 
@@ -131,6 +133,34 @@ def require(condition, witness):
         raise AssertionError(witness)
 
 
+class HelperSourceCompatibilityFailure(AssertionError):
+    """A failed helper compile, never an ordinary runtime-mutation success."""
+    def __init__(self, rebuild, diagnostics):
+        super().__init__("JAVA_HELPER_SOURCE6_COMPILE")
+        self.rebuild = rebuild
+        self.diagnostics = diagnostics
+
+
+def class_facts(path):
+    raw = path.read_bytes()
+    require(raw[:4] == bytes.fromhex("cafebabe"), "JAVA_CLASS_MAGIC_WITNESS")
+    return {"sha256": hashlib.sha256(raw).hexdigest(), "mtime_ns": path.stat().st_mtime_ns,
+            "major": int.from_bytes(raw[6:8], "big")}
+
+
+def helper_diamond_rejection(failure, expected_witness):
+    """Accept only the expected source-6 diamond diagnostic after a successful bootstrap."""
+    require(str(failure) == expected_witness, "JAVA_MUTATION_WRONG_HELPER_WITNESS")
+    witness, diagnostics = failure.rebuild, failure.diagnostics
+    require(witness["compile_process"]["exit_code"] == 0
+            and witness["helper_compile_process"]["exit_code"] == 1
+            and diagnostics.count("compiler.err.") == 1
+            and "compiler.err.diamond.not.supported.in.source: 1.6" in diagnostics
+            and "DraftParityHooks.java:" in diagnostics,
+            "JAVA_MUTATION_WRONG_HELPER_DIAGNOSTIC\n" + diagnostics)
+    return witness, diagnostics
+
+
 def command(argv, folder):
     values = [str(value) for value in argv]
     started = time.time_ns()
@@ -162,7 +192,8 @@ def compile_case(root, args, mutation=None):
         if mutation is not None and relative == mutation[0]:
             require(text.count(mutation[1]) == 1, "JAVA_MUTATION_PATTERN " + mutation[4])
             text = text.replace(mutation[1], mutation[2])
-        (source / Path(relative).name).write_text(text, encoding="utf-8")
+        # Preserve the exact LF helper bytes, separately from the generated synthetic stubs.
+        (source / Path(relative).name).write_bytes(text.encode("utf-8"))
     for name, body in STUBS.items():
         suffix = name.rsplit("/", 1)[0] if "/" in name else ""
         target = source / (name + ".java")
@@ -182,18 +213,49 @@ def compile_case(root, args, mutation=None):
     result = command([args.jdk_root / "bin/javac.exe", "-encoding", "UTF-8", "-source", "1.8", "-target", "1.8",
                       "-d", classes] + sorted(source.rglob("*.java")), root)
     require(result.returncode == 0, "JAVA_COMPILE_FAILED\n" + result.stdout + result.stderr)
+    # The original stubs provide the API classpath. The helpers themselves must obey the production draft's
+    # source/target level, and the runtime checks must load these outputs rather than the bootstrap copies.
+    helper_classes = root / "helper-classes6"
+    helper_classes.mkdir()
+    helper_started = time.time_ns()
+    helper_result = command([args.jdk_root / "bin/javac.exe", "-XDrawDiagnostics", "-encoding", "UTF-8",
+                             "-source", "1.6", "-target", "1.6", "-implicit:none", "-classpath", classes,
+                             "-d", helper_classes] + [source / Path(name).name for name in HELPER_FILES], root)
+
+    def rebuild(phase):
+        return {"phase": phase,
+                "fresh_classes": {str(path.relative_to(root)): class_facts(path) for path in sorted(classes.rglob("*.class"))},
+                "compile_started_ns": started, "compile_process": result.execution,
+                "helper_compile_started_ns": helper_started, "helper_compile_process": helper_result.execution,
+                "helper_classes": {str(path.relative_to(helper_classes)): class_facts(path) for path in sorted(helper_classes.rglob("*.class"))},
+                "source_sha256": {name: hashlib.sha256((source / Path(name).name).read_bytes()).hexdigest() for name in JAVA_FILES},
+                "compiled_source_sha256": {str(path.relative_to(source)): hashlib.sha256(path.read_bytes()).hexdigest()
+                                           for path in sorted(source.rglob("*.java"))}}
+
+    if helper_result.returncode != 0:
+        raise HelperSourceCompatibilityFailure(rebuild("helper-source6-rejected"), helper_result.stdout + helper_result.stderr)
+    helpers = sorted(helper_classes.rglob("*.class"))
+    helper_names = {path.name for path in helpers}
+    require({"DraftParityHooks.class", "DraftParityHooks$FaultResolver.class", "DraftTraceWriter.class",
+             "DraftTraceWriter$EventSequence.class"}.issubset(helper_names), "JAVA_HELPER_SOURCE6_CLASS_SET")
+    require(all(path.name.startswith(HELPER_PREFIXES) and class_facts(path)["major"] == 50
+                and path.stat().st_mtime_ns >= helper_started - 2_000_000_000 for path in helpers),
+            "JAVA_HELPER_SOURCE6_CLASS_VERSION")
+    for path in sorted(classes.rglob("*.class")):
+        if path.name.startswith(HELPER_PREFIXES):
+            path.relative_to(classes)
+            path.unlink()
+    for path in helpers:
+        target = classes / path.relative_to(helper_classes)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(path.read_bytes())
     loaded = sorted(classes.rglob("*.class"))
     expected = {classes / PACKAGE / ("parity/" + name + ".class") for name in
                 ("V1ScenarioRunner", "DraftParityHooks", "DraftParityHooks$Fault", "DraftTraceWriter", "Trace2ProtocolProbe")}
     require(expected.issubset(set(loaded)), "JAVA_CLASS_SET_WITNESS")
     require(all(path.is_file() and path.stat().st_mtime_ns >= started - 2_000_000_000 for path in loaded), "JAVA_REBUILD_WITNESS")
     (classes / "language.properties").write_text("probe=value\n", encoding="utf-8")
-    return classes, {"fresh_classes": {str(path.relative_to(root)): {"sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-                      "mtime_ns": path.stat().st_mtime_ns} for path in loaded}, "compile_started_ns": started,
-                     "compile_process": result.execution,
-                     "source_sha256": {name: hashlib.sha256((source / Path(name).name).read_bytes()).hexdigest() for name in JAVA_FILES},
-                     "compiled_source_sha256": {str(path.relative_to(source)): hashlib.sha256(path.read_bytes()).hexdigest()
-                                                for path in sorted(source.rglob("*.java"))}}
+    return classes, rebuild("runtime-ready")
 
 
 def run_trace(root, classes, args, name, schema=2, rng=None, ticks=2, properties=(), off=False, startup=False,
@@ -223,6 +285,12 @@ def check_case(root, classes, args, only=None):
         if only is None or only == label:
             check()
             done.append(label)
+
+    def helpers_java6():
+        helpers = [path for path in classes.rglob("*.class") if path.name.startswith(HELPER_PREFIXES)]
+        require(len(helpers) >= 8 and all(class_facts(path)["major"] == 50 for path in helpers),
+                "JAVA_HELPER_SOURCE6_LOADED_CLASSES")
+    run("helper-source6", helpers_java6)
 
     def payload():
         result = command([args.jdk_root / "bin/java.exe", "-cp", classes, "com.group_finity.mascot.parity.Trace2ProtocolProbe"], root)
@@ -407,6 +475,8 @@ MUTATIONS = (
     ("V1ScenarioRunner.java", 'if (searched != null && !searched.equals(entry.getKey()))', 'if (false)', "hook-resolver", "JAVA_T2_RESOLVER_AMBIGUOUS"),
     ("draft/DraftParityHooks.java", 'return new ArrayList<String>(faultDefects);', 'return new ArrayList<String>();', "channel-refusal", "JAVA_T2_FAULT_DEFECT_REFUSED"),
     ("V1ScenarioRunner.java", 'if (runner != null && runner.trace2) {', 'if (false) {', "channel-refusal", "JAVA_T2_FAULT_DEFECT_REFUSED"),
+    ("draft/DraftParityHooks.java", "new java.util.IdentityHashMap<Throwable, BoundCause>()",
+     "new java.util.IdentityHashMap<>()", "helper-source6", "JAVA_HELPER_SOURCE6_COMPILE"),
 )
 
 
@@ -437,6 +507,25 @@ def main():
                 case = root / ("mutant-" + str(index))
                 case.mkdir()
                 start = len(PROCESS_RECORDS)
+                if mutation[3] == "helper-source6":
+                    # This is a compile-target regression. A generic compile error never fires it: the 1.8
+                    # bootstrap must pass and source 6 must reject only the Java 7 diamond feature.
+                    try:
+                        compile_case(case, args, mutation)
+                    except HelperSourceCompatibilityFailure as failure:
+                        witness, diagnostics = helper_diamond_rejection(failure, mutation[4])
+                    else:
+                        raise AssertionError("JAVA_MUTATION_SURVIVED " + mutation[4])
+                    mutant_classes = {name: data["sha256"] for name, data in witness["fresh_classes"].items()}
+                    changed_classes = sorted(name for name in baseline_classes.keys() | mutant_classes.keys()
+                                             if baseline_classes.get(name) != mutant_classes.get(name))
+                    require(changed_classes, "JAVA_MUTATION_BINARY_UNCHANGED " + mutation[4])
+                    rows.append({"case": mutation[4], "status": "FIRED", "mutation_index": index,
+                                 "kind": "specific-source6-compile-rejection", "diagnostics": diagnostics,
+                                 "changed_classes": changed_classes, "rebuild": witness,
+                                 "processes": PROCESS_RECORDS[start:]})
+                    print("FIRED: " + mutation[4] + " (fresh 1.8 bootstrap; exact source-6 diamond rejection)", flush=True)
+                    continue
                 classes, witness = compile_case(case, args, mutation)
                 mutant_classes = {name: data["sha256"] for name, data in witness["fresh_classes"].items()}
                 changed_classes = sorted(name for name in baseline_classes.keys() | mutant_classes.keys()

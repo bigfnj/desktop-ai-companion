@@ -1956,6 +1956,31 @@ def _trace2_check(name):
                 draw["occurrence"] = 1.0
                 require(compare(*bad), "missing-field", "unjudgeable",
                         "occurrence shape before " + fault + " " + str(side))
+        for fault in ("footer count", "tick range", "upper tick range", "tick order"):
+            for side in (0, 1):
+                bad = copy.deepcopy(pair)
+                draw = next(row for row in bad[side] if row.get("kind") == "rng-draw")
+                if fault == "footer count":
+                    bad[side][-1]["states"] += 1
+                    diagnostic = "footer counts states/events/draws"
+                elif fault in ("tick range", "upper tick range"):
+                    draw["tick"] = -1 if fault == "tick range" else bad[side][-1]["ticks"] + 1
+                    diagnostic = "is outside 0.."
+                else:
+                    bad[side].remove(draw)
+                    bad[side].insert(-1, draw)
+                    diagnostic = "comes after tick"
+                report = compare(*bad)
+                require(report, "malformed", "unjudgeable",
+                        "integer occurrence exposes " + fault + " boolean twin " + str(side))
+                _case_require(diagnostic in report["findings"][0]["message"], name,
+                              "integer occurrence reaches competing " + fault + " boolean twin " + str(side))
+                for occurrence in ((1.0, True) if fault == "upper tick range" else (True,)):
+                    shaped = copy.deepcopy(bad)
+                    next(row for row in shaped[side] if row.get("kind") == "rng-draw")["occurrence"] = occurrence
+                    require(compare(*shaped), "missing-field", "unjudgeable",
+                            ("boolean occurrence shape before " if type(occurrence) is bool else "occurrence shape before ")
+                            + fault + " " + str(side))
     elif name == "T2 lookahead":
         for codes in (("behavior-missing", "behavior-missing"), ("unclassified", "behavior-missing"),
                       ("behavior-missing", "unclassified"), ("unclassified", "unclassified")):
