@@ -146,14 +146,28 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             if (members.Length == 0) throw new InvalidDataException("Tick pack has no image-set members.");
             // Whether the members disagree on the schema the source looks engine behaviour names up in (RuntimeSchema).
             // A member that fails to parse is refused below and judged by nothing here.
+            //
+            // N-audit-1106-380: each member's configuration is parsed ONCE. This census needs the parsed configuration
+            // only for its RuntimeSchema, and the build loop below needs the same object, so the census keeps what it
+            // parsed and the build loop takes it from here. A member whose census parse (or schema read) threw is kept
+            // out and parsed again below, which raises the same failure there, so the TICK_MEMBER_CONFIGURATION mapping
+            // and the capture filter see exactly what they saw when every member was parsed twice. The cost is holding
+            // the parsed members until each is built instead of one at a time. (Each parse also reads every document
+            // twice, a bounded census pass and then the materialising pass in ShimejiParser.LoadXml: that is deliberate
+            // and stays.)
             var runtimeSchemas = new HashSet<ShimejiSourceSchema>();
+            var parsed = new Dictionary<string, ShimejiSourceConfig>(StringComparer.Ordinal);
+            int parses = 0;
             foreach (string memberPath in members)
             {
                 if (!ShimejiParser.HasSourceConfiguration(packRoot, Path.GetFileName(memberPath))) continue;
                 try
                 {
                     SafeEntry(memberPath);
-                    runtimeSchemas.Add(RuntimeSchema(ShimejiParser.ParseSourcePack(packRoot, Path.GetFileName(memberPath))));
+                    parses++;
+                    ShimejiSourceConfig census = ShimejiParser.ParseSourcePack(packRoot, Path.GetFileName(memberPath));
+                    runtimeSchemas.Add(RuntimeSchema(census));
+                    parsed[memberPath] = census;
                 }
                 catch (Exception failure) when (failure is InvalidDataException || failure is IOException
                     || failure is UnauthorizedAccessException || failure is System.Xml.XmlException
@@ -178,12 +192,17 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 {
                     SafeEntry(memberPath);
                     ShimejiSourceConfig source;
-                    try { source = ShimejiParser.ParseSourcePack(packRoot, member); }
-                    catch (Exception missing) when (missing is FileNotFoundException || missing is DirectoryNotFoundException)
+                    if (parsed.TryGetValue(memberPath, out source)) parsed.Remove(memberPath);
+                    else
                     {
-                        throw new InvalidDataException("TICK_MEMBER_CONFIGURATION: image set '" + member
-                            + "' could not load its configuration. Checked " + ConfigurationLocations(packRoot, member)
-                            + ". " + missing.Message, missing);
+                        parses++;
+                        try { source = ShimejiParser.ParseSourcePack(packRoot, member); }
+                        catch (Exception missing) when (missing is FileNotFoundException || missing is DirectoryNotFoundException)
+                        {
+                            throw new InvalidDataException("TICK_MEMBER_CONFIGURATION: image set '" + member
+                                + "' could not load its configuration. Checked " + ConfigurationLocations(packRoot, member)
+                                + ". " + missing.Message, missing);
+                        }
                     }
                     prepared.Add(new MemberBuilder(packRoot, member, source, mixedRuntime) { RecoverMissingNext = recoverMissingNext }.Build());
                 }
@@ -199,8 +218,14 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     prepared.Add(new PreparedMember { Name = member, Error = failure.Message });
                 }
             }
+            LastPrepareParseCount = parses;
             return prepared;
         }
+
+        /// <summary>How many configuration parses the last <see cref="PrepareMembers"/> that returned made: one per
+        /// member with a configuration, plus one for each whose census parse failed. Exposed for the tick self-test,
+        /// which is the only way to see from outside that the census parse is reused (N-audit-1106-380).</summary>
+        internal static int LastPrepareParseCount;
 
         private static string ConfigurationLocations(string packRoot, string member)
         {

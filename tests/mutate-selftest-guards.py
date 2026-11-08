@@ -23940,6 +23940,14 @@ CASES = (
      b"        public const int MaxSheetDimension = DesktopAICompanion.CompanionXmlValidator.MaximumImageDimension + 1;\n",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
      SHIMEJI, "compositor", "blank tile pixels: a sheet inside 4097 px on both sides can exceed"),
+    # N-audit-1106-380: PrepareMembers parses every member twice again, once for the RuntimeSchema census and once to
+    # build it, by never taking the census's parse.
+    ("bd-w9-converter-1: PrepareMembers parses each member's configuration twice again (N-audit-1106-380)",
+     os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "TickPackEmitter.cs"),
+     b"                    if (parsed.TryGetValue(memberPath, out source)) parsed.Remove(memberPath);\n",
+     b"                    if (parsed.TryGetValue(memberPath, out source) && source == null) parsed.Remove(memberPath);\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, "tick-emitter/prepare-parses-once", "prepare parses: two members took 4 configuration parses, not one each"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

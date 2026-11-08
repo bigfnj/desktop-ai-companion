@@ -62,6 +62,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "duplicate-root-last-definition", Run = (Action)DuplicateRoot },
                 new { Name = "enclosing-conditions", Run = (Action)EnclosingConditions },
                 new { Name = "prepare-all-members", Run = (Action)PrepareAllMembers },
+                new { Name = "prepare-parses-once", Run = (Action)PrepareParsesOnce },
                 new { Name = "cross-schema-refusal", Run = (Action)CrossSchemaRefusal },
                 new { Name = "toggle-lowering", Run = (Action)ToggleLowering },
                 new { Name = "toggle-required-names", Run = (Action)ToggleRequiredNames },
@@ -1156,6 +1157,33 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 fixture.Write("img/B/conf/behaviors.xml", BuildBehaviors().ToString());
                 Refusal(fixture, "TICK_EXPRESSION_UNSUPPORTED Duration");
                 Require(!Directory.Exists(fixture.Output), "member A was written before invalid member B was prepared");
+            }
+        }
+
+        // N-audit-1106-380: PrepareMembers parsed every member's configuration twice, once for the RuntimeSchema census
+        // and once to build it. Two good members take two parses; a member whose parse fails is parsed again by the
+        // build loop so its refusal is raised (and captured) exactly as before, which makes three members four parses.
+        private static void PrepareParsesOnce()
+        {
+            using (var fixture = new Fixture())
+            {
+                fixture.Member("B");
+                List<TickPackEmitter.PreparedMember> good = TickPackEmitter.PrepareMembers(fixture.Pack, false);
+                Require(good.Count == 2 && good.All(m => m.Error == null && !m.Skipped),
+                    "WITNESS prepare parses: the two-member fixture did not prepare both members");
+                Require(TickPackEmitter.LastPrepareParseCount == 2,
+                    "prepare parses: two members took " + TickPackEmitter.LastPrepareParseCount + " configuration parses, not one each");
+                fixture.Member("C");
+                fixture.Write("img/C/conf/actions.xml", "<Mascot><ActionList>");
+                fixture.Write("img/C/conf/behaviors.xml", BuildBehaviors().ToString());
+                List<TickPackEmitter.PreparedMember> mixed = TickPackEmitter.PrepareMembers(fixture.Pack, true);
+                TickPackEmitter.PreparedMember broken = mixed.SingleOrDefault(m => m.Name == "C");
+                Require(mixed.Count == 3 && broken != null && !string.IsNullOrEmpty(broken.Error)
+                    && mixed.Where(m => m.Name != "C").All(m => m.Error == null),
+                    "WITNESS prepare parses: a member whose configuration does not parse was not captured as refused beside two prepared ones");
+                Require(TickPackEmitter.LastPrepareParseCount == 4,
+                    "prepare parses: two good members and one unparseable member took " + TickPackEmitter.LastPrepareParseCount
+                    + " configuration parses, not one each plus the refused member's second");
             }
         }
 
