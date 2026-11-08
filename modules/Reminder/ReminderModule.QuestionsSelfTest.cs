@@ -38,6 +38,14 @@ namespace DesktopAICompanion.ReminderModule
 
             internal readonly List<Asked> Asks = new List<Asked>();
 
+            // When each question the double TOOK was asked, by Clock(): the host's per-module record behind its
+            // "rate-limited" refusal (TrayQuestions.MaxAsksPerMinute, six). A refused question is not in it, as in the host.
+            private readonly List<DateTimeOffset> _taken = new List<DateTimeOffset>();
+
+            /// <summary>Forget the asks of the last minute, as a new process's host does. QuestionRig.Start calls it: a
+            /// module started there stands for the app starting.</summary>
+            internal void NewProcess() { _taken.Clear(); }
+
             /// <summary>"Now" for the Deadline rule: the module's clock, so a stepped test clock and the rule agree.</summary>
             internal Func<DateTimeOffset> Clock = () => DateTimeOffset.Now;
 
@@ -51,6 +59,7 @@ namespace DesktopAICompanion.ReminderModule
                 Asks.Add(asked);
                 if (asked.Refused != null)
                     return Task.FromResult(new TrayAnswer { Outcome = TrayQuestionOutcome.Refused, Reason = asked.Refused });
+                _taken.Add(Clock());
                 asked.Answer = new TaskCompletionSource<TrayAnswer>();
                 withdraw.Register(delegate
                 {
@@ -61,7 +70,8 @@ namespace DesktopAICompanion.ReminderModule
                 return asked.Answer.Task;
             }
 
-            /// <summary>The rules PluginApi.cs gives TrayQuestion, plus the host's duplicate-key and four-pending limits.
+            /// <summary>The rules PluginApi.cs gives TrayQuestion, plus the host's duplicate-key, four-pending and
+            /// six-a-minute limits.
             /// Null when the question would be taken.</summary>
             private string Rule(string moduleId, TrayQuestion q)
             {
@@ -89,6 +99,12 @@ namespace DesktopAICompanion.ReminderModule
                 }
                 if (Asks.Any(a => a.Open && a.ModuleId == moduleId && a.Question.Key == q.Key)) return "duplicate-key";
                 if (Asks.Count(a => a.Open && a.ModuleId == moduleId) >= 4) return "too-many-pending";
+                // The host's other per-module limit: six asks a minute (N-audit-1106-296). Until 1.3.1 the double took a
+                // seventh, so the module's own per-minute guard (QuestionRoom) could be deleted with every "one the host
+                // would take" check still green. Checked last, as the host checks it after the pending limits.
+                DateTimeOffset now = Clock();
+                _taken.RemoveAll(t => now - t >= TimeSpan.FromMinutes(1));
+                if (_taken.Count >= 6) return "rate-limited";
                 return null;
             }
 
@@ -216,6 +232,7 @@ namespace DesktopAICompanion.ReminderModule
             /// <summary>Init a fresh module on the same host and settings: what the app does at its next start.</summary>
             internal void Start()
             {
+                Host.NewProcess();
                 Module = new ReminderModule();
                 Module.Init(Host);
                 Module.Microphone = new MeetingAppMicrophone(Mic);
@@ -286,6 +303,80 @@ namespace DesktopAICompanion.ReminderModule
             CheckOneOffQuestion(check, clock, t0);
             CheckRecurringQuestion(check, clock, t0);
             CheckMeetingInProgress(check, clock, t0);
+            CheckLeadsAndJoinTray(check, clock, t0);
+        }
+
+        // ---- the lead line once per meeting a tick, never for an all-day event, and no all-day event in the tray's Join ----
+        // N-audit-1106-297, N-audit-1106-295, N-bd-w2-reminder-1-02. A companion is out, so the lead line is spoken (the F199
+        // hold is not what is under test); the events carry no join link except where the tray's Join is the subject.
+        private static void CheckLeadsAndJoinTray(Action<string, bool> check, TestClock clock, DateTimeOffset t0)
+        {
+            clock.Now = t0;
+            using (var rig = new QuestionRig(s => s.Set("leads", "15,5")))
+            {
+                rig.Host.RaiseCompanionSpawned(new FakeCompanion(1, "sheep"));
+                rig.Feed(new CalendarEvent { Id = "w1", Title = "Review", Start = t0.AddMinutes(3), End = t0.AddMinutes(33) });
+                rig.Tick();
+                int lines = rig.Host.BroadcastLines.Count, chimes = rig.Host.PlayedSounds.Count;
+                check("leads: a tick inside the 15- and the 5-minute window at once announces the meeting once, with one chime ("
+                      + lines.ToString(CultureInfo.InvariantCulture) + " lines, " + chimes.ToString(CultureInfo.InvariantCulture) + " chimes)",
+                    lines == 1 && chimes == 1);
+                rig.Tick();
+                check("leads: ...and spends both leads, so the next tick inside the windows says nothing more",
+                    rig.Module._fired.Contains("cal1|w1@15") && rig.Module._fired.Contains("cal1|w1@5")
+                    && rig.Host.BroadcastLines.Count == 1);
+                rig.Feed(new CalendarEvent { Id = "w2", Title = "Retro", Start = t0.AddMinutes(10), End = t0.AddMinutes(40) });
+                rig.Tick();
+                clock.Now = t0.AddMinutes(5);
+                rig.Tick();
+                check("WITNESS leads: a meeting whose two leads come due on separate ticks is announced at each",
+                    rig.Host.BroadcastLines.Count == 3 && rig.Host.PlayedSounds.Count == 3);
+            }
+
+            // An all-day event starts at midnight: with Skip all-day events at its default (off), three minutes before it.
+            var lateEvening = new DateTimeOffset(t0.Year, t0.Month, t0.Day, 23, 57, 0, t0.Offset);
+            DateTimeOffset midnight = lateEvening.AddMinutes(3);
+            clock.Now = lateEvening;
+            using (var rig = new QuestionRig(null))
+            {
+                rig.Host.RaiseCompanionSpawned(new FakeCompanion(1, "sheep"));
+                var offsite = new CalendarEvent { Id = "day3", Title = "Offsite", Start = midnight, End = midnight.AddDays(1), AllDay = true };
+                rig.Feed(offsite);
+                rig.Tick();
+                check("leads: an all-day event gets no lead reminder at 23:57 the night before, with Skip all-day events off ("
+                      + string.Join(" / ", rig.Host.BroadcastLines) + ")",
+                    rig.Host.BroadcastLines.Count == 0 && rig.Host.PlayedSounds.Count == 0
+                    && !rig.Module._fired.Contains("cal1|day3@5") && rig.Settings.Get("skipAllDay", "") == "");
+                rig.Feed(offsite, new CalendarEvent { Id = "late", Title = "Night launch", Start = midnight, End = midnight.AddMinutes(30) });
+                rig.Tick();
+                check("WITNESS leads: a timed event at the same midnight, beside it, is announced",
+                    rig.Host.BroadcastLines.Count == 1 && rig.Host.BroadcastLines[0].Contains("Night launch"));
+            }
+
+            // The tray's Join at 10:00, beside today's all-day event that carries a meeting link.
+            clock.Now = t0;
+            using (var rig = new QuestionRig(null))
+            {
+                var dayStart = new DateTimeOffset(t0.Year, t0.Month, t0.Day, 0, 0, 0, t0.Offset);
+                var linked = new CalendarEvent
+                {
+                    Id = "day4", Title = "Hackathon", Start = dayStart, End = dayStart.AddDays(1), AllDay = true,
+                    Description = "Join the meeting: " + TeamsLink,
+                };
+                string url, kind;
+                check("WITNESS join tray: the all-day event carries a link the detector finds",
+                    MeetingLinkDetector.TryFind(linked, out url, out kind));
+                rig.Feed(linked);
+                rig.Tick();
+                CalendarEvent alone = rig.Module.BestJoinable();
+                check("join tray: an all-day event with a meeting link, in the feed all day, is not offered as the meeting to join ("
+                      + (alone == null ? "none" : alone.Title) + ")", alone == null);
+                rig.Feed(linked, MeetingAt("m12", t0.AddMinutes(5)));
+                rig.Tick();
+                CalendarEvent offered = rig.Module.BestJoinable();
+                check("WITNESS join tray: a meeting starting in five minutes, beside it, is offered",
+                    offered != null && offered.Title == "Standup");
+            }
         }
 
         // ---- the meeting the user is in (N-audit-1106-042): the sources keep it until it ENDS, so meeting.current must
@@ -370,6 +461,25 @@ namespace DesktopAICompanion.ReminderModule
             check("WITNESS the questions double refuses a Key outside the alphabet, Text over 240, labels equal but for case, a Deadline under 5 s, and a duplicate pending Key",
                 refusal(badKey) == "bad-key" && refusal(longText) == "bad-text" && refusal(sameLabels) == "bad-choice-label"
                 && refusal(nearDeadline) == "bad-deadline" && refusal(first) == null && refusal(second) == "duplicate-key");
+            DateTimeOffset pacedNow = t0;
+            var paced = new QuestionsHost { Clock = () => pacedNow };
+            Func<string, string> pacedAsk = delegate(string key)
+            {
+                // Answered at once when taken, so the four-pending limit never decides.
+                TrayQuestion q = valid(); q.Key = key;
+                Task<TrayAnswer> asked = paced.AskAsync(Id, q, CancellationToken.None);
+                if (asked.IsCompleted) return asked.Result.Outcome == TrayQuestionOutcome.Refused ? asked.Result.Reason : "answered";
+                paced.Choose(paced.Asks[paced.Asks.Count - 1], "a");
+                return null;
+            };
+            bool sixTaken = true;
+            for (int i = 1; i <= 6; i++) sixTaken &= pacedAsk("p" + i.ToString(CultureInfo.InvariantCulture)) == null;
+            string seventh = pacedAsk("p7");
+            pacedNow = t0.AddMinutes(1);
+            string minuteLater = pacedAsk("p8");
+            check("WITNESS the questions double refuses a seventh ask in a minute, each answered at once, and takes one a minute later ("
+                  + (seventh ?? "taken") + ", " + (minuteLater ?? "taken") + ")",
+                sixTaken && seventh == "rate-limited" && minuteLater == null);
 
             // The personal line's two new fields.
             var full = new PersonalReminder
@@ -845,6 +955,37 @@ namespace DesktopAICompanion.ReminderModule
                     rig.Host.Of("personal").Count == 9 && b2 != null && b2.Withdrawn && b2Again != null && b2Again != b2
                     && b2Again.Open && b2Stored != null && b2Stored.Enabled && b2Stored.LastFired == "once"
                     && !b2Stored.SnoozedUntil.HasValue && rig.Host.Refusals.Count == 0);
+            }
+
+            // The host's other limit, six asks a minute per module (N-audit-1106-296). Eight due at once, each card answered
+            // as soon as it is up, so the four-pending limit never decides: four at the start, two ten seconds later, then
+            // nothing until the first four are a minute old.
+            clock.Now = t0;
+            using (var rig = new QuestionRig(s => s.Set("personal", Lines(
+                OneOff("c1", "One", t0.AddMinutes(-1)), OneOff("c2", "Two", t0.AddMinutes(-1)), OneOff("c3", "Three", t0.AddMinutes(-1)),
+                OneOff("c4", "Four", t0.AddMinutes(-1)), OneOff("c5", "Five", t0.AddMinutes(-1)), OneOff("c6", "Six", t0.AddMinutes(-1)),
+                OneOff("c7", "Seven", t0.AddMinutes(-1)), OneOff("c8", "Eight", t0.AddMinutes(-1))))))
+            {
+                Action answerOpen = delegate
+                {
+                    foreach (QuestionsHost.Asked a in rig.Host.Of("personal")) if (a.Open) rig.Host.Choose(a, DoneChoice);
+                };
+                answerOpen();
+                clock.Now = t0.AddSeconds(10);
+                rig.Tick();
+                answerOpen();
+                clock.Now = t0.AddSeconds(20);
+                rig.Tick();
+                PersonalReminder seventhDue = rig.Personal("c7");
+                int inMinute = rig.Host.Of("personal").Count;
+                check("budget: eight due together, each answered at once, ask six in the first minute and leave the rest unmarked ("
+                      + inMinute.ToString(CultureInfo.InvariantCulture) + " asked; " + string.Join("; ", rig.Host.Refusals) + ")",
+                    inMinute == 6 && rig.Host.Refusals.Count == 0 && seventhDue != null && seventhDue.LastFired == "");
+                answerOpen();
+                clock.Now = t0.AddSeconds(61);
+                rig.Tick();
+                check("budget: ...and the last two are asked once the first four are a minute old",
+                    rig.Host.Of("personal").Count == 8 && rig.Host.Refusals.Count == 0);
             }
         }
 
