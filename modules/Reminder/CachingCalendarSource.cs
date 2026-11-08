@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
@@ -52,7 +53,9 @@ namespace DesktopAICompanion.ReminderModule
         // retained data now belongs to its key: see LastGoodFor and the cache clear in Fetch.
         private IReadOnlyList<CalendarEvent> _lastGood;
         private string _lastGoodKey;
-        private DateTimeOffset _lastFetchUtc = DateTimeOffset.MinValue;
+        // When the newest result landed, on the MONOTONIC clock (see MonotonicNow); null before the first landing and
+        // after Invalidate, which both mean "stale now".
+        private TimeSpan? _lastFetchAt;
         private string _lastKey;
         // The key the NEWEST attempt was kicked for, stamped at the kick rather than at the landing like
         // _lastKey. Fetch compares the caller's key with it to tell "the target I am already fetching" from "a
@@ -66,9 +69,34 @@ namespace DesktopAICompanion.ReminderModule
         // names and its newest is what the deadline measures before another attempt is kicked (R-044).
         private int _generation;
         private int _landedGeneration;
-        private readonly Dictionary<int, DateTimeOffset> _started = new Dictionary<int, DateTimeOffset>();
+        private readonly Dictionary<int, Kick> _started = new Dictionary<int, Kick>();
+
+        /// <summary>When one attempt was kicked, on both clocks: <see cref="At"/> is what the deadline measures,
+        /// <see cref="Wall"/> only what the stall report prints ("a refresh started at 09:41").</summary>
+        private struct Kick
+        {
+            internal TimeSpan At;
+            internal DateTimeOffset Wall;
+        }
+
+        // The origin of MonotonicNow: a Stopwatch timestamp, which no change to the system clock moves.
+        private static readonly long MonotonicOrigin = Stopwatch.GetTimestamp();
 
         protected CachingCalendarSource(TimeSpan refreshInterval) { _refreshInterval = refreshInterval; }
+
+        /// <summary>The clock every ELAPSED time here is measured on: the refresh interval and the stall deadline.
+        /// Monotonic, so the user (or a time sync) setting the system clock back does not stretch either. Both were
+        /// differences of DateTimeOffset.UtcNow until 1.3.1: a clock set back an hour made "now minus the last
+        /// landing" negative for that hour, so no feed refreshed (a meeting added meanwhile never announced), and
+        /// "now minus the attempt's start" negative too, so a refresh hung in that hour was neither reported nor
+        /// retried; a clock set forward reported a healthy refresh as stalled and parked a second thread on it
+        /// (N-audit-1106-291). Virtual for the self-test, which steps it and <see cref="WallClockUtc"/> apart; the
+        /// shipped sources take the default.</summary>
+        protected virtual TimeSpan MonotonicNow { get { return Stopwatch.GetElapsedTime(MonotonicOrigin); } }
+
+        /// <summary>The wall clock, for the one thing here that is ABOUT the time of day: the start time the stall
+        /// report prints. Never subtracted. Virtual beside <see cref="MonotonicNow"/>, for the self-test.</summary>
+        protected virtual DateTimeOffset WallClockUtc { get { return DateTimeOffset.UtcNow; } }
 
         public abstract string Name { get; }
 
@@ -133,7 +161,7 @@ namespace DesktopAICompanion.ReminderModule
         /// flight is left to land: this marks the cache stale, it does not start a second attempt.</summary>
         public void Invalidate()
         {
-            lock (_lock) _lastFetchUtc = DateTimeOffset.MinValue;
+            lock (_lock) _lastFetchAt = null;
         }
 
         public CalendarSnapshot Fetch()
@@ -144,11 +172,12 @@ namespace DesktopAICompanion.ReminderModule
             int generation = 0;
             CalendarSnapshot snapshot;
             string stall = null;
-            DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+            TimeSpan now = MonotonicNow;
+            DateTimeOffset wallUtc = WallClockUtc;
             lock (_lock)
             {
                 bool changed = !string.Equals(key, _lastKey, StringComparison.Ordinal);
-                bool stale = changed || _cache == null || (nowUtc - _lastFetchUtc) > _refreshInterval;
+                bool stale = changed || _cache == null || !_lastFetchAt.HasValue || now - _lastFetchAt.Value > _refreshInterval;
                 bool inFlight = _generation != _landedGeneration;
                 TimeSpan deadline = RefreshDeadline;
                 // The stall is reported while the slot's data is not fresh and SOME attempt has outlived the
@@ -167,20 +196,20 @@ namespace DesktopAICompanion.ReminderModule
                     // flipped to ⚠ and the on-change feed log wrote a stall and a recovery once per refresh
                     // cycle, for the life of the process (R-044). It still counts toward the cap below: a
                     // parked thread is a parked thread whatever generation it carries.
-                    DateTimeOffset oldest = DateTimeOffset.MaxValue, newest = DateTimeOffset.MinValue;
+                    Kick oldest = new Kick { At = TimeSpan.MaxValue }, newest = new Kick { At = TimeSpan.MinValue };
                     bool live = false;
-                    foreach (KeyValuePair<int, DateTimeOffset> attempt in _started)
+                    foreach (KeyValuePair<int, Kick> attempt in _started)
                     {
                         if (attempt.Key < _landedGeneration) continue;
                         live = true;
-                        if (attempt.Value < oldest) oldest = attempt.Value;
-                        if (attempt.Value > newest) newest = attempt.Value;
+                        if (attempt.Value.At < oldest.At) oldest = attempt.Value;
+                        if (attempt.Value.At > newest.At) newest = attempt.Value;
                     }
-                    if (live && nowUtc - oldest > deadline)
+                    if (live && now - oldest.At > deadline)
                         stall = "a refresh started at "
-                            + oldest.ToLocalTime().ToString("t", CultureInfo.CurrentCulture)
+                            + oldest.Wall.ToLocalTime().ToString("t", CultureInfo.CurrentCulture)
                             + " has not completed";
-                    abandoned = live && nowUtc - newest > deadline;
+                    abandoned = live && now - newest.At > deadline;
                 }
                 // A key the newest attempt was not kicked for is a new calendar: the user edited the URL or the
                 // file while the previous target's attempt was still out (a share whose host is unreachable
@@ -196,7 +225,7 @@ namespace DesktopAICompanion.ReminderModule
                 if (kick)
                 {
                     generation = ++_generation;
-                    _started[generation] = nowUtc;
+                    _started[generation] = new Kick { At = now, Wall = wallUtc };
                     _kickedKey = key;
                 }
                 // A changed key means the cache describes a calendar the user no longer points at. Serving it
@@ -270,7 +299,7 @@ namespace DesktopAICompanion.ReminderModule
                     _lastGood = result.Events;
                     _lastGoodKey = key ?? "";
                 }
-                _lastFetchUtc = DateTimeOffset.UtcNow;
+                _lastFetchAt = MonotonicNow;
                 _lastKey = key;
             }
         }

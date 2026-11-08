@@ -72,7 +72,10 @@ namespace DesktopAICompanion.ReminderModule
                                 //        day past its start is pruned even while the slot errors, so a signed-out or
                                 //        warning Zoom slot no longer grows the fired set for good (N-audit-1106-043).
                                 //        'at 09:00' rolled to tomorrow across a DST change fires at 09:00, not an
-                                //        hour off (N-audit-1106-293).
+                                //        hour off (N-audit-1106-293). Burn-down wave 6 (lane w6-reminder-1): the
+                                //        refresh interval and the stall deadline are measured on a monotonic clock,
+                                //        so a system clock set back no longer stops every feed refreshing, or hides a
+                                //        hung one, for the size of the jump (N-audit-1106-291).
                                 // 1.3.0: Calendar 5 becomes the Zoom slot (the owner, 2026-11-03): the meetings the user
                                 //        HOSTS in Zoom, read from Zoom's REST API after a browser sign-in to a Zoom
                                 //        app the user creates (OAuth with PKCE, a loopback redirect, no secret; the
@@ -2202,6 +2205,13 @@ namespace DesktopAICompanion.ReminderModule
                 stalled.ReleaseAll();
             }
 
+            // ---- the system clock moving does not stretch the interval or the deadline (N-audit-1106-291) ----
+            // Both were differences of DateTimeOffset.UtcNow, so a clock set back stopped every feed refreshing, and hid
+            // a hung refresh, for the size of the jump; a clock set forward reported a healthy refresh as stalled. The
+            // probe's monotonic reading is the base's own plus a shift the test steps, and its wall clock is an instant
+            // the test moves on its own, so each step below is "this much time passed while the clock moved that way".
+            CheckClockChanges(check);
+
             // ---- the refresh key is computed on the caller's thread only (F192) ----
             // The getters behind RefreshKey read the module's settings store, a bare Dictionary the UI thread
             // writes on every Apply. LocalJsonSource and IcsUrlSource used to call RefreshKey() AGAIN inside
@@ -3169,6 +3179,110 @@ namespace DesktopAICompanion.ReminderModule
                 };
             }
             internal void ReleaseAll() { foreach (System.Threading.ManualResetEventSlim gate in Gates) gate.Set(); }
+        }
+
+        /// <summary>A caching source whose two clocks the test sets (N-audit-1106-291). <see cref="MonotonicNow"/> is the
+        /// base's own reading plus <see cref="Elapsed"/>, so whatever the base measures with reaches the checks; the wall
+        /// clock is <see cref="Wall"/> alone. One-hour interval (so a three-hour deadline): only the steps decide when a
+        /// refresh is due. While <see cref="Hold"/> is set an attempt waits on <see cref="Gate"/>, bounded like
+        /// StallingProbe's.</summary>
+        private sealed class ClockProbe : CachingCalendarSource
+        {
+            internal TimeSpan Elapsed;
+            internal DateTimeOffset Wall = new DateTimeOffset(2026, 1, 5, 9, 0, 0, TimeSpan.Zero);
+            internal volatile bool Hold;
+            internal readonly System.Threading.ManualResetEventSlim Gate = new System.Threading.ManualResetEventSlim(false);
+            private int _starts;
+            internal ClockProbe() : base(TimeSpan.FromHours(1)) { }
+            internal int Starts { get { return System.Threading.Volatile.Read(ref _starts); } }
+            public override string Name { get { return "clock probe"; } }
+            protected override string RefreshKey() { return ""; }
+            protected override TimeSpan MonotonicNow { get { return base.MonotonicNow + Elapsed; } }
+            protected override DateTimeOffset WallClockUtc { get { return Wall; } }
+            protected override CalendarSnapshot FetchCore(string key, DateTimeOffset now)
+            {
+                System.Threading.Interlocked.Increment(ref _starts);
+                if (Hold) Gate.Wait(TimeSpan.FromSeconds(15));
+                return new CalendarSnapshot
+                {
+                    Events = new List<CalendarEvent>
+                    {
+                        new CalendarEvent { Id = "c", Title = "Clock", Start = new DateTimeOffset(2026, 1, 5, 9, 0, 0, TimeSpan.Zero) },
+                    },
+                };
+            }
+        }
+
+        /// <summary>N-audit-1106-291 through <see cref="ClockProbe"/>: an hour-interval source whose clock is set back and
+        /// forward while time passes. Whether a Fetch kicked is read as Starts after the source is idle again, which
+        /// is exact either way: a kick's FetchCore runs before its landing clears IsRefreshing.</summary>
+        private static void CheckClockChanges(Action<string, bool> check)
+        {
+            var probe = new ClockProbe();
+            Func<bool> idle = delegate
+            {
+                return System.Threading.SpinWait.SpinUntil(delegate { return !probe.IsRefreshing; }, TimeSpan.FromSeconds(10));
+            };
+            try
+            {
+                probe.Fetch();
+                check("WITNESS clock: the first Fetch reads the feed", idle() && probe.Starts == 1);
+                probe.Elapsed += TimeSpan.FromMinutes(30);
+                probe.Fetch();
+                check("WITNESS clock: half an hour later, inside the hour, Fetch answers from the cache",
+                    idle() && probe.Starts == 1);
+
+                // An hour and a half passes while the clock is set back three hours: by the wall clock the last read
+                // is still an hour and a half in the future.
+                probe.Wall -= TimeSpan.FromHours(3);
+                probe.Elapsed += TimeSpan.FromHours(1);
+                probe.Fetch();
+                bool refreshed = idle() && probe.Starts == 2;
+                check("clock: a clock set back three hours does not stop the feed refreshing once the hour is up ("
+                      + probe.Starts.ToString(CultureInfo.InvariantCulture) + " reads)", refreshed);
+
+                // A read that hangs, and four hours pass while the clock is set back another two.
+                probe.Hold = true;
+                probe.Elapsed += TimeSpan.FromHours(2);
+                probe.Fetch();
+                bool held = System.Threading.SpinWait.SpinUntil(delegate { return probe.Starts == 3; }, TimeSpan.FromSeconds(10));
+                string startedAt = probe.Wall.ToLocalTime().ToString("t", CultureInfo.CurrentCulture);
+                probe.Wall -= TimeSpan.FromHours(2);
+                probe.Elapsed += TimeSpan.FromHours(4);
+                CalendarSnapshot hung = probe.Fetch();
+                check("clock: a read hung past its three-hour deadline is reported although the clock was set back meanwhile ("
+                      + (hung == null ? "null" : hung.Error ?? "no error") + ")",
+                    held && hung != null && hung.Error != null && hung.Error.Contains("has not completed"));
+                check("clock: ...the report names the time the read started, as the wall clock read then",
+                    hung != null && hung.Error != null && hung.Error.Contains("a refresh started at " + startedAt + " "));
+                check("clock: ...and one more read is started",
+                    System.Threading.SpinWait.SpinUntil(delegate { return probe.Starts == 4; }, TimeSpan.FromSeconds(10)));
+                probe.Hold = false;
+                probe.Gate.Set();
+                bool drained = System.Threading.SpinWait.SpinUntil(delegate { return probe.OutstandingRefreshes == 0; }, TimeSpan.FromSeconds(10));
+
+                // A read one minute old while the clock is set forward five hours: not a stall.
+                // Counted from here, so this step does not depend on what the steps above started.
+                probe.Gate.Reset();
+                probe.Hold = true;
+                probe.Elapsed += TimeSpan.FromHours(2);
+                int before = probe.Starts;
+                probe.Fetch();
+                bool heldAgain = System.Threading.SpinWait.SpinUntil(delegate { return probe.Starts == before + 1; }, TimeSpan.FromSeconds(10));
+                probe.Wall += TimeSpan.FromHours(5);
+                probe.Elapsed += TimeSpan.FromMinutes(1);
+                CalendarSnapshot young = probe.Fetch();
+                check("clock: a clock set forward five hours neither reports a read one minute old as stalled nor starts another ("
+                      + (young == null ? "null" : young.Error ?? "no error") + ", "
+                      + probe.OutstandingRefreshes.ToString(CultureInfo.InvariantCulture) + " outstanding)",
+                    drained && heldAgain && young != null && young.Error == null && probe.OutstandingRefreshes == 1);
+            }
+            finally
+            {
+                probe.Hold = false;
+                probe.Gate.Set();
+                System.Threading.SpinWait.SpinUntil(delegate { return probe.OutstandingRefreshes == 0; }, TimeSpan.FromSeconds(10));
+            }
         }
 
         /// <summary>A caching source that records the thread every RefreshKey() call runs on and the key its

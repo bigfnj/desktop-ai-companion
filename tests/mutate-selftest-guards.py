@@ -2199,18 +2199,20 @@ CASES = (
     # of the same sequential scenario; the first FAIL line is the one named here.
     # Re-pointed 2026-09-30 by lane burn/reminder: the scan skips attempts a newer landing superseded (R-044),
     # so `_started.Count > 0` became `live` on both lines; the mutations negate it.
+    # Re-pointed 2026-11-07 by lane burndown/w6-reminder-1: the deadline is measured on the monotonic clock
+    # (N-audit-1106-291), so `nowUtc - oldest` became `now - oldest.At` on both lines; same negation.
     ("the refresh stall is never reported on the served snapshot",
      CACHING_CALENDAR_SOURCE,
-     b"                    if (live && nowUtc - oldest > deadline)\n",
-     b"                    if (!live && nowUtc - oldest > deadline)\n",
+     b"                    if (live && now - oldest.At > deadline)\n",
+     b"                    if (!live && now - oldest.At > deadline)\n",
      REMINDER_CSPROJ, REMINDER_DLL,
      "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
      "a refresh that outlives its deadline is reported on the served snapshot"),
 
     ("an overdue refresh never triggers a retry",
      CACHING_CALENDAR_SOURCE,
-     b"                    abandoned = live && nowUtc - newest > deadline;\n",
-     b"                    abandoned = !live && nowUtc - newest > deadline;\n",
+     b"                    abandoned = live && now - newest.At > deadline;\n",
+     b"                    abandoned = !live && now - newest.At > deadline;\n",
      REMINDER_CSPROJ, REMINDER_DLL,
      "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
      "one more attempt is started while the first stays parked"),
@@ -2273,9 +2275,11 @@ CASES = (
      "past the size cap is refused while it is still arriving"),
 
     # A user's click re-reads the feeds (F201): Invalidate on the base, forwarded by the aggregate. Both halves.
+    # Re-pointed 2026-11-07 by lane burndown/w6-reminder-1: the landing stamp is a nullable monotonic reading
+    # (N-audit-1106-291), so Invalidate clears it to null; the mutation still forgets nothing.
     ("Invalidate forgets nothing",
      CACHING_CALENDAR_SOURCE,
-     b"            lock (_lock) _lastFetchUtc = DateTimeOffset.MinValue;\n",
+     b"            lock (_lock) _lastFetchAt = null;\n",
      b"            lock (_lock) { }\n",
      REMINDER_CSPROJ, REMINDER_DLL,
      "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
@@ -22798,6 +22802,31 @@ CASES = (
          SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
          SHIMEJI, "tick-emitter/nashorn-binding-paths",
          "M2-binding-paths: an unproven scalar was accepted: engine: incoming-self-read"),
+    # ---- burndown/w6-reminder-1 ----
+    # N-audit-1106-291: the caching source measures elapsed time on the wall clock again. The whole defect (the base
+    # clock reads the wall clock), then each of the deadline's two tests on the wall clock alone, so the stall report
+    # and the retry are each seen to be guarded, not only the interval the first case fails on.
+    ('bd-w6-reminder-1: the caching source measures elapsed time on the wall clock again (N-audit-1106-291)',
+     CACHING_CALENDAR_SOURCE,
+     b"        protected virtual TimeSpan MonotonicNow { get { return Stopwatch.GetElapsedTime(MonotonicOrigin); } }\n",
+     b"        protected virtual TimeSpan MonotonicNow { get { return new TimeSpan(WallClockUtc.UtcTicks); } }\n",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "clock: a clock set back three hours does not stop the feed refreshing once the hour is up"),
+    ('bd-w6-reminder-1: the stall report measures the deadline on the wall clock again (N-audit-1106-291)',
+     CACHING_CALENDAR_SOURCE,
+     b"                    if (live && now - oldest.At > deadline)\n",
+     b"                    if (live && wallUtc - oldest.Wall > deadline)\n",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "clock: a read hung past its three-hour deadline is reported although the clock was set back meanwhile"),
+    ('bd-w6-reminder-1: the retry measures the deadline on the wall clock again (N-audit-1106-291)',
+     CACHING_CALENDAR_SOURCE,
+     b"                    abandoned = live && now - newest.At > deadline;\n",
+     b"                    abandoned = live && wallUtc - newest.Wall > deadline;\n",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "clock: a clock set forward five hours neither reports a read one minute old as stalled nor starts another"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
