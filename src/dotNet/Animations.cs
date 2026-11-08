@@ -1069,6 +1069,28 @@ namespace DesktopAICompanion
         private bool _absenceIsNormal;
 
         /// <summary>
+        /// As above, for a caller that plays only SOME of the picks the roll can make: <paramref name="plays"/> says
+        /// which. The roll is unchanged, the same weights over the same eligible edges, so how often each edge wins
+        /// does not move; a pick the caller declines is returned as -1, with <paramref name="chosenOnly"/> still naming
+        /// it, BEFORE it is announced or its sound is sent (N-bd-w7-host-1-02). The window-underside branch is the one
+        /// caller: it rolls over every edge eligible under a window, the plain window wildcard and unconditional edges
+        /// included, and hangs only on an exact window-bottom pick, so a pet with both kinds of edge used to play the
+        /// sound of a wildcard animation that never started. Rolling over window-bottom edges alone was refused: it
+        /// would make such a pet hang every time it rose under a window instead of at its authored rate.
+        /// </summary>
+        public int SetNextBorderAnimation(int animationID, TNextAnimation.TOnly where,
+                                          out TNextAnimation.TOnly chosenOnly, bool absenceIsNormal,
+                                          Func<TNextAnimation.TOnly, bool> plays)
+        {
+            _plays = plays;
+            try { return SetNextBorderAnimation(animationID, where, out chosenOnly, absenceIsNormal); }
+            finally { _plays = null; }
+        }
+
+        /// <summary>Set for the duration of one lookup by the overload above, like <see cref="_absenceIsNormal"/>.</summary>
+        private Func<TNextAnimation.TOnly, bool> _plays;
+
+        /// <summary>
         /// Whether animation <paramref name="animationID"/> can ever take hold of a window's underside: one of its border
         /// edges asks for exactly <c>window-bottom</c> with a positive probability (N-audit-1106-225). That is the only pick
         /// FormCompanion.GripFor turns into a hang, and an edge of weight 0 is never picked, so with none the underside
@@ -1199,6 +1221,15 @@ namespace DesktopAICompanion
                         chosenOnly = anim.only;
                         break;
                     }
+                }
+                // A pick the caller will not play is given back unannounced and silent (the plays overload above).
+                Func<TNextAnimation.TOnly, bool> plays = _plays;
+                if (iDefaultID > 0 && plays != null && !plays(chosenOnly))
+                {
+                    StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.info,
+                        (kind ?? "?") + " pick " + iDefaultID.ToString(System.Globalization.CultureInfo.InvariantCulture) +
+                        " (only=" + chosenOnly + ") is not one the caller plays here: not started, no sound");
+                    return -1;
                 }
                     // If an animation was found, re-calculate the values (if there are some Random values, they must be evaluated again)
                 if (iDefaultID > 0)

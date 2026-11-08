@@ -683,6 +683,9 @@ namespace DesktopAICompanion
             return WindowGrip.None;
         }
 
+        /// <summary>The window-underside branch plays a border pick only when it hangs (GripFor gives Bottom).</summary>
+        internal static readonly Func<TNextAnimation.TOnly, bool> HangsFromUnderside = only => GripFor(only) == WindowGrip.Bottom;
+
         /// <summary>
         /// Where a pet hanging from a window's underside sits: its visible TOP against the window's bottom
         /// edge. Pure, and the transpose of <see cref="GripPositionX"/> -- the ceiling compositor
@@ -1565,7 +1568,9 @@ namespace DesktopAICompanion
                 if (underside.Found)
                 {
                     TNextAnimation.TOnly chosenOnly;
-                    int iBorderAnimation = Animations.SetNextBorderAnimation(CurrentAnimation.ID, TNextAnimation.TOnly.WINDOW | TNextAnimation.TOnly.WINDOW_BOTTOM, out chosenOnly, absenceIsNormal: true);
+                    // HangsFromUnderside: a wildcard or unconditional pick is declined before its sound plays, since it
+                    // would not start here (N-bd-w7-host-1-02); the roll and its odds are unchanged.
+                    int iBorderAnimation = Animations.SetNextBorderAnimation(CurrentAnimation.ID, TNextAnimation.TOnly.WINDOW | TNextAnimation.TOnly.WINDOW_BOTTOM, out chosenOnly, absenceIsNormal: true, plays: HangsFromUnderside);
                     WindowGrip hang = GripFor(chosenOnly);
                     if (iBorderAnimation >= 0 && hang == WindowGrip.Bottom)
                     {

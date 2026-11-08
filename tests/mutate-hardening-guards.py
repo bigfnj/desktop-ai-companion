@@ -4822,6 +4822,14 @@ CASES = (
         b"                    decided = BlinkingLedModule.WithholdsRealInput(Environment.GetEnvironmentVariable) && Environment.GetCommandLineArgs().Length > 1 ? 1 : 2;\n",
         "w8-host-1: the engine withholds real input on the variable alone, in any process",
     ),
+    # N-bd-w7-host-1-02: the underside call stops passing its predicate, so a wildcard pick sounds and never plays.
+    (
+        "bd-w8-host-1: the underside roll stops declining a pick that would not hang (N-bd-w7-host-1-02)",
+        os.path.join(REPO, "src", "dotNet", "FormCompanion.cs"),
+        b"out chosenOnly, absenceIsNormal: true, plays: HangsFromUnderside);\n",
+        b"out chosenOnly, absenceIsNormal: true);\n",
+        "w8-host-1: the window-underside border roll declines a pick that would not hang before it sounds",
+    ),
 )
 
 

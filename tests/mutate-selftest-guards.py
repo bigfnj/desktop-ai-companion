@@ -23714,6 +23714,22 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--catalog-selftest", "dp-catalog-selftest.txt",
      "Echo never splits a kept pair at its bound"),
+    # N-bd-w7-host-1-02: a border pick the caller declines is announced and sounded again, or the underside predicate
+    # accepts a wildcard pick. --hardening-selftest drives the underside roll with a recording sound sink.
+    ("bd-w8-host-1: a declined border pick is sounded again (N-bd-w7-host-1-02)",
+     os.path.join(REPO, "src", "dotNet", "Animations.cs"),
+     b'                if (iDefaultID > 0 && plays != null && !plays(chosenOnly))\n',
+     b'                if (iDefaultID > 0 && plays != null && !plays(chosenOnly) && plays == null)\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "hang: a window-wildcard pick under a window, which would not hang, is declined before its sound plays"),
+    ("bd-w8-host-1: the underside predicate plays a pick that does not hang (N-bd-w7-host-1-02)",
+     os.path.join(REPO, "src", "dotNet", "FormCompanion.cs"),
+     b'only => GripFor(only) == WindowGrip.Bottom;\n',
+     b'only => GripFor(only) != WindowGrip.Left;\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "hang: a window-wildcard pick under a window, which would not hang, is declined before its sound plays"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

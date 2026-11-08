@@ -1993,6 +1993,32 @@ namespace DesktopAICompanion
                           "(window wildcard and unconditional " + aGrip.HasUndersideGrip(2) + ", weight-0 window-bottom " +
                           aGrip.HasUndersideGrip(3) + ", unknown animation " + aGrip.HasUndersideGrip(99) + ")",
                         !aGrip.HasUndersideGrip(2) && !aGrip.HasUndersideGrip(3) && !aGrip.HasUndersideGrip(99));
+
+                    // N-bd-w7-host-1-02: the underside roll declines a pick that would not hang BEFORE it is announced or
+                    // sounded. Each staged animation has one eligible edge, so each roll's winner is certain.
+                    var wildcardOnly = new TAnimation("rise-wildcard-only", 4, xGrip);
+                    wildcardOnly.EndBorder.Add(new TNextAnimation(2, 5, TNextAnimation.TOnly.WINDOW));
+                    var bottomOnly = new TAnimation("rise-bottom-only", 5, xGrip);
+                    bottomOnly.EndBorder.Add(new TNextAnimation(3, 5, TNextAnimation.TOnly.WINDOW_BOTTOM));
+                    aGrip.SheepAnimations[4] = wildcardOnly;
+                    aGrip.SheepAnimations[5] = bottomOnly;
+                    aGrip.SheepSound[2] = new System.Collections.Generic.List<TSound> { new TSound { Probability = 100, Data = new byte[] { 1 } } };
+                    aGrip.SheepSound[3] = new System.Collections.Generic.List<TSound> { new TSound { Probability = 100, Data = new byte[] { 2 } } };
+                    var sounded = new System.Collections.Generic.List<int>();
+                    Action<string, int, byte[], int> savedSink = Animations.SoundSink;
+                    Animations.SoundSink = (pet, id, data, loop) => sounded.Add(id);
+                    try
+                    {
+                        TNextAnimation.TOnly declinedOnly, hungOnly;
+                        int declined = aGrip.SetNextBorderAnimation(4, under, out declinedOnly, true, FormCompanion.HangsFromUnderside);
+                        Check("hang: a window-wildcard pick under a window, which would not hang, is declined before its sound plays (returned " +
+                              declined + ", sounds sent " + sounded.Count + ")",
+                            declined == -1 && declinedOnly == TNextAnimation.TOnly.WINDOW && sounded.Count == 0);
+                        int hung = aGrip.SetNextBorderAnimation(5, under, out hungOnly, true, FormCompanion.HangsFromUnderside);
+                        Check("hang: WITNESS a window-bottom pick under a window is played and its sound sent",
+                            hung == 3 && hungOnly == TNextAnimation.TOnly.WINDOW_BOTTOM && sounded.Count == 1 && sounded[0] == 3);
+                    }
+                    finally { Animations.SoundSink = savedSink; }
                 }
 
                 // The rising-boundary test. Asymmetric with the descending one on purpose: landing rests ON

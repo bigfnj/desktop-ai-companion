@@ -6409,6 +6409,13 @@ Assert-True (
     $briEngine -cnotmatch 'GetCommandLineArgs|Environment\.CommandLine'
 ) 'w8-host-1: the engine withholds real input on the variable alone, in any process: its decision reads no command line'
 
+# N-bd-w7-host-1-02: the window-underside border roll hands Animations the HangsFromUnderside predicate, so a wildcard or
+# unconditional pick, which would not hang, is declined before it is announced or sounded. --hardening-selftest drives the
+# declining itself; this pins the WIRING it cannot reach, as the ARGUMENT of the one underside call.
+Assert-True (
+    $w7h1FormCode -cmatch 'SetNextBorderAnimation\(CurrentAnimation\.ID, TNextAnimation\.TOnly\.WINDOW \| TNextAnimation\.TOnly\.WINDOW_BOTTOM, out chosenOnly, absenceIsNormal: true, plays: HangsFromUnderside\);'
+) 'w8-host-1: the window-underside border roll declines a pick that would not hang before it sounds'
+
 # LAST, and deliberately:this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever
