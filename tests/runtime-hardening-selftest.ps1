@@ -6279,6 +6279,46 @@ Assert-True ($w6tcFloor -ge 5 -and $w6tcProject -cmatch '<TreatWarningsAsErrors>
 Assert-True ($w6tcLowPins.Count -eq 0) (
     "w6-tests-core-1: CoreTests pins no WarningLevel below its target framework's default of $w6tcFloor" +
     $(if ($w6tcLowPins.Count) { ' -- ' + ($w6tcLowPins -join ', ') } else { '' }))
+# ---- burndown/w7-packaging-ci-1 ----
+# A DEAD CATALOG CHILD IS ONE FAILURE WHICHEVER PIPE NOTICES FIRST (N-audit-1106-265). Under pwsh a request written to a
+# child that has already exited throws from Flush; that exception used to reach Get-CatalogAsset's generic catch as
+# 'could not talk to the child', so the verifier's dead-child witness, whose one-off child races the write, failed CI
+# whenever the child won. The behaviour is driven for real by Test-ContentCatalogIntegrity.ps1 (a cached child waited out
+# before the write), but this script runs under Windows PowerShell, whose .NET Framework swallows that pipe error, so
+# only the shape can be pinned here: comment-stripped, Get-CatalogAsset alone, the ORDER Flush, the sent flag, a catch
+# for IOException that names the INPUT, then the header read only behind the sent flag; and in the verifier, the
+# dead-child witness accepting either pipe and the closed-pipe leg seeding the cache before it calls. WITNESS: the EOF
+# branch still names the OUTPUT, so a slice that found nothing cannot pass.
+$w7pAssetsCode = Remove-PsLineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'packaging\ContentCatalogAssets.ps1') -Raw)
+$w7pAssetStart = $w7pAssetsCode.IndexOf('function Get-CatalogAsset(', [StringComparison]::Ordinal)
+$w7pAssetBody = ''
+if ($w7pAssetStart -ge 0) {
+    $w7pAssetEnd = $w7pAssetsCode.IndexOf("`nfunction ", $w7pAssetStart + 1, [StringComparison]::Ordinal)
+    if ($w7pAssetEnd -lt 0) { $w7pAssetEnd = $w7pAssetsCode.Length }
+    $w7pAssetBody = $w7pAssetsCode.Substring($w7pAssetStart, $w7pAssetEnd - $w7pAssetStart)
+}
+Assert-True ($w7pAssetBody.Length -gt 0 -and
+    $w7pAssetBody -cmatch "elseif \(\`$header\.Eof\) \{ \`$failure = 'the child exited or closed its output before answering' \}") (
+    'w7-packaging-ci-1: WITNESS Get-CatalogAsset was located and its EOF branch still names the output pipe')
+$w7pFlushAt = $w7pAssetBody.IndexOf('$batch.Stdin.Flush()', [StringComparison]::Ordinal)
+$w7pSentAt = $w7pAssetBody.IndexOf('$requestSent = $true', [StringComparison]::Ordinal)
+$w7pCatchAt = $w7pAssetBody.IndexOf('catch [System.IO.IOException] {', [StringComparison]::Ordinal)
+$w7pInputAt = $w7pAssetBody.IndexOf('$failure = "the child exited or closed its input before answering', [StringComparison]::Ordinal)
+$w7pGuardAt = $w7pAssetBody.IndexOf('if ($requestSent) {', [StringComparison]::Ordinal)
+$w7pReadAt = $w7pAssetBody.IndexOf('$header = Read-CatalogBatchLine $batch $TimeoutMs', [StringComparison]::Ordinal)
+Assert-True ($w7pFlushAt -ge 0 -and $w7pFlushAt -lt $w7pSentAt -and $w7pSentAt -lt $w7pCatchAt -and $w7pCatchAt -lt $w7pInputAt -and
+    $w7pInputAt -lt $w7pGuardAt -and $w7pGuardAt -lt $w7pReadAt -and
+    $w7pAssetBody.IndexOf('$batch.Stdin.Flush()', $w7pFlushAt + 1, [StringComparison]::Ordinal) -lt 0) (
+    "w7-packaging-ci-1: Get-CatalogAsset names a failed request write as a dead child and reads no reply after it (flush $w7pFlushAt, sent $w7pSentAt, catch $w7pCatchAt, input $w7pInputAt, guard $w7pGuardAt, read $w7pReadAt)")
+$w7pVerifierCode = Remove-PsLineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'packaging\Test-ContentCatalogIntegrity.ps1') -Raw)
+$w7pSeedAt = $w7pVerifierCode.IndexOf('$script:CatalogAssetBatches[$deadKey] = $deadCached', [StringComparison]::Ordinal)
+$w7pWaitAt = $w7pVerifierCode.IndexOf('$deadCached.Process.WaitForExit(', [StringComparison]::Ordinal)
+$w7pCall = [regex]::Match($w7pVerifierCode, '\$null = Get-CatalogAsset \$repoRootForProbe \$timeoutProbeRel \$timeoutProbeFull \$stallBudgetMs\r?\n')
+$w7pCallAt = if ($w7pCall.Success) { $w7pCall.Index } else { -1 }
+Assert-True (([regex]::Matches($w7pVerifierCode, "-notmatch 'exited or closed its \(\?:input\|output\) before answering'")).Count -eq 2 -and
+    $w7pVerifierCode -cnotmatch "-notmatch 'exited or closed its output'" -and
+    $w7pWaitAt -ge 0 -and $w7pWaitAt -lt $w7pSeedAt -and $w7pSeedAt -lt $w7pCallAt) (
+    "w7-packaging-ci-1: the catalog verifier's dead-child legs accept either pipe and seed a waited-out child before the call (wait $w7pWaitAt, seed $w7pSeedAt, call $w7pCallAt)")
 
 # LAST, and deliberately:this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that

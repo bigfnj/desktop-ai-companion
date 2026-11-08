@@ -120,10 +120,47 @@ try {
     $deadThrew = '(did not throw)'
 }
 catch { $deadThrew = $_.Exception.Message }
-if ($deadThrew -notmatch 'exited or closed its output' -or $deadThrew -match 'did not return within' -or
-    $deadThrew -notmatch 'Refusing to fall back') {
+# EITHER PIPE. This child races the request: when it exits first, pwsh's Flush throws and the failure names the
+# INPUT; when the write lands first, the read meets EOF and it names the OUTPUT. Matching only the output made this
+# witness fail CI whenever cmd.exe won (N-audit-1106-265); the leg below forces the losing order every run.
+if ($deadThrew -notmatch 'exited or closed its (?:input|output) before answering' -or
+    $deadThrew -match 'did not return within' -or $deadThrew -notmatch 'Refusing to fall back') {
     throw ("Get-CatalogAsset did not refuse a child that exited before answering as a dead child; it said: " +
            $deadThrew + ". If this reads as a timeout, the two branches are no longer told apart.")
+}
+# THE ORDER THE RACE ONLY SOMETIMES REACHES, every run (N-audit-1106-265): a child that is already gone when the
+# request is written. A one-off is started inside Get-CatalogAsset, so it cannot be waited out from here; a CACHED
+# child can, and a cached git that died between two requests is the production shape of the same failure. The
+# dead child is put where the cache keeps git's (keyed as Get-CatalogAsset keys it) and waited for, so the write
+# meets a closed pipe. Get-CatalogAsset closes a failed child and drops it from the cache, which the last clause
+# checks, so the real git child of the run below starts fresh.
+$deadKey = [IO.Path]::GetFullPath($repoRootForProbe).TrimEnd('\', '/').ToLowerInvariant()
+$deadCached = Start-CatalogAssetBatch $repoRootForProbe @('cmd.exe', '/c', 'exit 1') $stallBudgetMs
+if (-not $deadCached.Process.WaitForExit(10000)) {
+    Close-CatalogAssetBatch $deadCached -Kill
+    throw 'The dead-child probe (cmd.exe /c exit 1) was still running after 10 s, so the closed-pipe order could not be set up.'
+}
+$script:CatalogAssetBatches[$deadKey] = $deadCached
+$deadFirstThrew = ''
+try {
+    $null = Get-CatalogAsset $repoRootForProbe $timeoutProbeRel $timeoutProbeFull $stallBudgetMs
+    $deadFirstThrew = '(did not throw)'
+}
+catch { $deadFirstThrew = $_.Exception.Message }
+finally {
+    if ($script:CatalogAssetBatches.ContainsKey($deadKey) -and
+        [object]::ReferenceEquals($script:CatalogAssetBatches[$deadKey], $deadCached)) {
+        $script:CatalogAssetBatches.Remove($deadKey)
+        Close-CatalogAssetBatch $deadCached
+        $deadFirstThrew += ' (and the failed child was left in the cache)'
+    }
+}
+if ($deadFirstThrew -notmatch 'exited or closed its (?:input|output) before answering' -or
+    $deadFirstThrew -match 'could not talk to the child' -or $deadFirstThrew -match 'left in the cache' -or
+    $deadFirstThrew -notmatch 'Refusing to fall back') {
+    throw ("Get-CatalogAsset did not refuse a child that had already exited when the request was written as a " +
+           "dead child; it said: " + $deadFirstThrew + ". Under pwsh that write throws, and a dead child named " +
+           "any other way fails the witness above whenever the child wins its race.")
 }
 
 $catalogPath = Join-Path $RepoRoot 'catalog.json'
