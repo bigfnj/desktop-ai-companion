@@ -36,7 +36,9 @@ internal sealed class AgentClientSetup(IAgentClientCommand command)
             var existing = await command.RunAsync(client, get, token);
             if (existing.ExitCode == 0)
             {
-                if (client == "codex" && MatchesCodex(existing.Output, worker, bridgeArguments))
+                if (client == "codex" && MatchesCodex(existing.Output, worker, bridgeArguments) ||
+                    client == "claude" && InspectClaude(existing.Output, worker, directory,
+                        loopbackMcpEndpoint ?? "", DateTimeOffset.UtcNow).State == ClientConfiguration.Configured)
                     return "AgentBroker is already configured. Reconnect MCP or restart the client to load it.";
                 return "An MCP entry with this name already exists. Review it with the client's MCP settings before changing it.";
             }

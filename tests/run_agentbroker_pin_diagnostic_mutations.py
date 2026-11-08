@@ -74,6 +74,46 @@ ASSEMBLIES = {
     family: ROOT / Path(project).parent / "bin/Release/net10.0-windows" / (Path(project).stem + ".dll")
     for family, project in PROJECTS.items()
 }
+ARTIFACT_NAMES = {
+    "worker": ("AgentBroker.Worker.dll", "AgentBroker.Core.dll",
+               "AgentBroker.ClaudeAdapter.dll", "AgentBroker.CodexDesktopAdapter.dll"),
+    "desktop": ("AgentBroker.CodexDesktopAdapter.dll",),
+}
+
+
+def artifact_snapshot(family: str, *, missing_ok: bool = False) -> dict:
+    result = {}
+    for name in (ASSEMBLIES[family].name, *ARTIFACT_NAMES[family]):
+        path = ASSEMBLIES[family].parent / name
+        refuse_links(path)
+        if missing_ok and not path.exists():
+            result[name] = None
+            continue
+        raw = path.read_bytes()
+        after = path.stat()
+        result[name] = {"path": path.relative_to(ROOT).as_posix(), "sha256": sha256(raw),
+                        "mtimeNs": after.st_mtime_ns, "bytes": len(raw)}
+    return result
+
+
+def require_rebuilt_artifacts(before: dict, after: dict, started_ns: int) -> None:
+    for name, current in after.items():
+        previous = before[name]
+        if current["mtimeNs"] < started_ns or (previous is not None and current["mtimeNs"] <= previous["mtimeNs"]):
+            raise RuntimeError("PIN_ARTIFACT_NOT_REBUILT: " + name)
+
+
+def mutation_artifact(source: str) -> str:
+    relative = SOURCES[source]
+    if relative.startswith("src/AgentBroker.Core/"):
+        return "AgentBroker.Core.dll"
+    if relative.startswith(("tools/AgentBroker.CodexDesktopAdapter/", "tools/AgentBroker.Pins/")):
+        return "AgentBroker.CodexDesktopAdapter.dll"
+    if relative.startswith("tools/AgentBroker.ClaudeAdapter/"):
+        return "AgentBroker.ClaudeAdapter.dll"
+    if relative.startswith("tools/AgentBroker.Worker/"):
+        return "AgentBroker.Worker.dll"
+    raise RuntimeError("PIN_MUTATION_ARTIFACT_UNKNOWN: " + source)
 # Worker 196 measured on 22b05e9 (feature/agentbroker-bus base): the folded 2026-10-26 preview put
 # peer diagnostics (24) and Claude observation (42) before the --existing-tests-only cut-off.
 # Re-measured 2026-10-29 by lane feature/broker-next-160 (N-modules-fixes-01): later lanes had added checks before the
@@ -82,7 +122,9 @@ ASSEMBLIES = {
 # lifecycle checks (N-agentbroker-native-flicker-01). Worker 213 and focused 81 after the review fixes: three more lifecycle
 # checks (adapter failure recorded, owner_discovery_rejected per row), and owner_discovery_rejected during owner
 # resolution now checked as a skipped row (two checks) instead of a failed pass (three).
-EXISTING_COUNTS = {"worker": 234, "desktop": 157}  # worker 213 -> 234: re-measured by lane broker-163; stale before it (no existing-suite check changed there)
+# Worker re-measured at 516 on the final 2026-11-07 claim/renewal integration, with 516 independent PASS labels and
+# in-process product/test hashes matching the fresh restored build. The older fixed 234 blocked a healthy baseline.
+EXISTING_COUNTS = {"worker": 516, "desktop": 157}
 FOCUSED_COUNTS = {"worker": 92, "desktop": 23}  # desktop 15 -> 23: installed-version image-mismatch witnesses and layout controls
 CLAUDE_SCENARIOS = ("early-reject", "unsupported-version", "hash-mismatch", "mixed", "recovery", "bounded-snapshot")
 
@@ -99,6 +141,7 @@ class Witness:
     kind: str = "reporting"
     # Existing checks this mutation necessarily breaks, by check text in suite order. Empty for every witness but one.
     allowed_existing_failures: tuple[str, ...] = ()
+    failure_check: str | None = None
 
 
 WITNESSES = (
@@ -118,10 +161,13 @@ WITNESSES = (
         """        catch (DesktopAdapterException error)
         {
             bindings.Clear();
+            publishedBindings = new Dictionary<SessionAddress, BindingObservation>();
             throw new AdapterDiscoveryException(DescribeDiscoveryFailure(error), error);
         }""",
-        '        catch (DesktopAdapterException) { bindings.Clear(); throw new IOException("Native Codex directory is unavailable."); }',
-    ),)),
+        '        catch (DesktopAdapterException error) { bindings.Clear(); '
+        'publishedBindings = new Dictionary<SessionAddress, BindingObservation>(); '
+        'throw new AdapterDiscoveryException(new("native_discovery_failed", "Native Codex directory is unavailable."), error); }',
+    ),), failure_check="Codex unsupported_desktop_version survives the real adapter catch during directory observation"),
     Witness("codex-profile-reporting", "provider", "worker", ("--codex-provider-diagnostics-only",), "CodexProviderDiagnosticChecks.cs", (
         ('                diagnostics.Add(profilePinDiagnostic);', "                _ = error;"),
         ('                diagnostics.Add(new("vscode_profile_unavailable",\n'
@@ -152,7 +198,7 @@ WITNESSES = (
         '                adapterErrors[adapter.Id] = e is BrokerException b ? b.Code : "adapter_unavailable";',
     ),)),
     Witness("deferred-claim-atomicity", "claims", "worker", ("--deferred-claim-only",), "DeferredClaimChecks.cs",
-            (("        lock (gate)", "        _ = gate;"),), replacement_counts=(2,), kind="concurrency"),
+            (("        lock (gate)", "        _ = gate;"),), replacement_counts=(3,), kind="concurrency"),
     # ---- lane feature/agentbroker-bus ----
     Witness("bus-mailbox-addressable-live", "store", "worker", ("--mailbox-only",), "MailboxChecks.cs", ((
         "sessions.TryGetValue(address, out var s) && (Live(s) || Retained(s));",
@@ -380,10 +426,10 @@ WITNESSES = (
         "return knownName && (host.Port ?? 80) == listenerPort;", "return knownName;",
     ),)),
     Witness("broker-d-wait-returns-unaddressable", "tools", "worker", ("--wait-tools-only",), "WaitToolChecks.cs", ((
-        '            if (!runtime.Store.IsAddressable(session)) throw new McpException("session_unavailable");\n'
+        '            Run(() => { runtime.Store.RequireAddressable(session, availabilitySubject); return true; });\n'
         "            var result = pending();\n",
         "            var result = pending();\n"
-        '            if (result.Length == 0 && !runtime.Store.IsAddressable(session)) throw new McpException("session_unavailable");\n',
+        '            if (result.Length == 0) Run(() => { runtime.Store.RequireAddressable(session, availabilitySubject); return true; });\n',
     ),)),
     # ---- lane feature/agentbroker-backlog-e ----
     # Tombstone on acknowledgement (N-broker-a-02, owner decision 2026-10-27), the rollback to 1.0.4 and the unchanged
@@ -419,11 +465,13 @@ WITNESSES = (
     # Re-pointed by lane feature/broker-next-160 (N-modules-fixes-01): wait_for_receipt now reads its original the same
     # way, so the bare lookup line occurs twice; the anchor includes wait_for_reply's own signature (same intent).
     Witness("broker-e-wait-reply-skips-tombstone", "tools", "worker", ("--tombstone-case", "wait-reply"), "TombstoneChecks.cs", ((
-        "    public Task<IReadOnlyList<MessageReceipt>> WaitForReply(Guid messageId, CancellationToken cancellationToken, int timeoutSeconds = 20)\n"
+        "    public Task<IReadOnlyList<MessageReceipt>> WaitForReply(Guid messageId, CancellationToken cancellationToken, int timeoutSeconds = 20,\n"
+        "        bool unacknowledgedOnly = false)\n"
         "    {\n"
         "        ValidateTimeout(timeoutSeconds);\n"
         "        var original = runtime.Store.FindReceipt(messageId)?.Message",
-        "    public Task<IReadOnlyList<MessageReceipt>> WaitForReply(Guid messageId, CancellationToken cancellationToken, int timeoutSeconds = 20)\n"
+        "    public Task<IReadOnlyList<MessageReceipt>> WaitForReply(Guid messageId, CancellationToken cancellationToken, int timeoutSeconds = 20,\n"
+        "        bool unacknowledgedOnly = false)\n"
         "    {\n"
         "        ValidateTimeout(timeoutSeconds);\n"
         "        var original = runtime.Store.FindReceiptWithText(messageId)?.Message",
@@ -489,9 +537,11 @@ WITNESSES = (
     ),)),
     Witness("broker-e-wire-record-member-added", "models", "worker", ("--tombstone-case", "wire"), "TombstoneChecks.cs", ((
         """public sealed record MessageReceipt(BrokerMessage Message, MessageStatus Status,
-    DateTimeOffset UpdatedAt, string? Reason = null, int Attempts = 0);""",
+    DateTimeOffset UpdatedAt, string? Reason = null, int Attempts = 0)
+{""",
         """public sealed record MessageReceipt(BrokerMessage Message, MessageStatus Status,
-    DateTimeOffset UpdatedAt, string? Reason = null, int Attempts = 0, bool Tombstone = false);""",
+    DateTimeOffset UpdatedAt, string? Reason = null, int Attempts = 0, bool Tombstone = false)
+{""",
     ),)),
     # ---- lane feature/agentbroker-pin-automation ----
     # The exact pins moved into ONE embedded JSON document (lane broker-pins, owner decision 2026-10-27): its strict
@@ -825,6 +875,7 @@ class Runner:
         self.owned_current = dict(self.original)
         self.serial = 0
         self.steps: list[dict] = []
+        self.built_artifacts: dict[str, dict] = {}
         backups = []
         for index, (relative, raw) in enumerate(self.original.items(), start=1):
             name = f"source-{index:02d}.bytes"
@@ -911,6 +962,8 @@ class Runner:
         return entry
 
     def build(self, family: str, label: str) -> None:
+        before = artifact_snapshot(family, missing_ok=True)
+        started_ns = time.time_ns()
         # Restore first, as build.ps1 does before its clean (N-audit-20261029-17). obj/project.assets.json names the
         # package folder of the restore that wrote it, and a passing isolated gate restores these projects into its
         # private dotnet home and then releases that home, so the --no-restore build read a folder that no longer
@@ -921,18 +974,36 @@ class Runner:
         if restored["exitCode"] != 0:
             raise RuntimeError("Restore before a healthy/mutant build failed; this is not a killed reporting mutation: " + label)
         result = self.invoke(label, ["dotnet", "build", PROJECTS[family], "-c", "Release", "--no-restore",
-                                    "--disable-build-servers", "-warnaserror", "-p:UseSharedCompilation=false"], 600)
+                                    "--no-incremental", "--disable-build-servers", "-warnaserror", "-p:UseSharedCompilation=false"], 600)
         if result["exitCode"] != 0:
             raise RuntimeError("Healthy/mutant build failed; this is not a killed reporting mutation: " + label)
+        after = artifact_snapshot(family)
+        require_rebuilt_artifacts(before, after, started_ns)
+        self.built_artifacts[family] = after
+        result["artifactBuildProof"] = {"startedNs": started_ns, "before": before, "after": after,
+                                        "sourceSha256": {relative: sha256(read_source(relative)) for relative in self.owned_current}}
+        for name, identity in after.items():
+            print(f"ARTIFACT-BUILD-WITNESS {label} {name} SHA256={identity['sha256']} MTimeNs={identity['mtimeNs']}", flush=True)
 
     def test(self, family: str, label: str, args: tuple[str, ...], *, failure_file: str | None = None,
              existing: bool = False, focused: bool = False, expected_assertions: int | None = None,
-             named_failures: tuple[str, ...] = ()) -> dict:
+             named_failures: tuple[str, ...] = (), failure_check: str | None = None) -> dict:
+        expected_artifacts = self.built_artifacts.get(family)
+        if expected_artifacts is None or artifact_snapshot(family) != expected_artifacts:
+            raise RuntimeError("PIN_EXECUTION_ARTIFACTS_DIFFER_FROM_BUILD: " + label)
         result = self.invoke(label, ["dotnet", str(ASSEMBLIES[family].relative_to(ROOT)), *args], 180)
         output = result["output"]
+        if artifact_snapshot(family) != expected_artifacts:
+            raise RuntimeError("PIN_EXECUTION_ARTIFACTS_CHANGED_DURING_TEST: " + label)
+        result["executedArtifactProof"] = expected_artifacts
         if failure_file is not None:
             if result["exitCode"] != 1 or failure_file not in output:
                 raise RuntimeError("Mutation did not fail cleanly with exit 1 in its specific new test file: " + label)
+            if failure_check is not None:
+                failed = re.findall(r"(?m)^System\.InvalidOperationException: ([^\r\n]+)", output)
+                if "RESULT=FAIL" not in output.splitlines() or failed != [failure_check]:
+                    raise RuntimeError("PIN_INTENDED_ASSERTION_REQUIRED: " + label)
+                result["failedCheck"] = failure_check
             result["expectedFailureFile"] = failure_file
             result["expectedOutcome"] = "new_test_failed"
         elif named_failures:
@@ -959,9 +1030,11 @@ class Runner:
                 raise RuntimeError("Focused diagnostic assertion inventory changed unexpectedly: " + label)
             if expected_assertions is not None and result["assertions"] != expected_assertions:
                 raise RuntimeError("Focused concurrency assertion inventory changed unexpectedly: " + label)
+        for name, identity in expected_artifacts.items():
+            print(f"ARTIFACT-EXECUTION-WITNESS {label} {name} SHA256={identity['sha256']} MTimeNs={identity['mtimeNs']}", flush=True)
         return result
 
-    def healthy(self, prefix: str, families: tuple[str, ...]) -> None:
+    def healthy(self, prefix: str, families: tuple[str, ...], witnesses: tuple[Witness, ...]) -> None:
         for family in families:
             self.build(family, prefix + "-build-" + family)
         for family in families:
@@ -975,12 +1048,38 @@ class Runner:
                         raise RuntimeError("A named existing failure is not one passing existing check: " + witness.name)
         if "worker" in families:
             self.test("worker", prefix + "-deferred-claim", ("--deferred-claim-only",), expected_assertions=4)
+        # Every group a selected mutant will grade must first be green on these exact healthy sources.
+        # The diagnostic and existing cuts do not necessarily register later focused groups.
+        seen = {(family, args) for family in families
+                for args in (("--pin-diagnostics-only",), ("--existing-tests-only",))}
+        if "worker" in families:
+            seen.add(("worker", ("--deferred-claim-only",)))
+        for witness in witnesses:
+            group = (witness.family, witness.test_args)
+            if group in seen:
+                continue
+            seen.add(group)
+            healthy = self.test(witness.family, prefix + "-witness-group-" + str(len(seen)), witness.test_args)
+            if not healthy.get("assertions") or healthy["assertions"] < 1:
+                raise RuntimeError("Selected witness group proved no healthy assertions: " + witness.name)
 
     def witness(self, witness: Witness) -> dict:
         record = {"name": witness.name, "classification": witness.kind, "source": SOURCES[witness.source], "checks": []}
+        dependency = mutation_artifact(witness.source)
+        prior_artifact = artifact_snapshot(witness.family)[dependency]
+        relative = SOURCES[witness.source]
+        source_before = (ROOT / relative).stat().st_mtime_ns
         self.mutate(witness)
         try:
+            record["mutatedSourceProof"] = {"beforeSha256": sha256(self.original[relative]),
+                                            "afterSha256": sha256(read_source(relative)),
+                                            "beforeMtimeNs": source_before,
+                                            "afterMtimeNs": (ROOT / relative).stat().st_mtime_ns}
             self.build(witness.family, witness.name + "-build")
+            changed_artifact = self.built_artifacts[witness.family][dependency]
+            if changed_artifact["sha256"] == prior_artifact["sha256"]:
+                raise RuntimeError("PIN_MUTATED_DEPENDENCY_UNCHANGED: " + dependency)
+            record["mutatedDependencyProof"] = {"name": dependency, "before": prior_artifact, "after": changed_artifact}
             if witness.name == "claude-reporting":
                 for scenario in CLAUDE_SCENARIOS:
                     outcome = self.test("worker", witness.name + "-" + scenario,
@@ -990,11 +1089,12 @@ class Runner:
                                              "expectedOutcome": outcome["expectedOutcome"]})
             else:
                 outcome = self.test(witness.family, witness.name + "-new", witness.test_args,
-                                    failure_file=witness.failure_file)
-                record["checks"].append({"exitCode": outcome["exitCode"], "expectedOutcome": outcome["expectedOutcome"]})
+                                    failure_file=witness.failure_file, failure_check=witness.failure_check)
+                record["checks"].append({"exitCode": outcome["exitCode"], "expectedOutcome": outcome["expectedOutcome"],
+                                         "failedCheck": outcome.get("failedCheck")})
             if witness.kind == "concurrency":
                 record["existingRegression"] = {"runWhileMutated": False,
-                    "reason": "This witness intentionally restores the known legacy deferred-claim race; the old 130 checks run after source restoration."}
+                    "reason": "This witness intentionally restores the known legacy deferred-claim race; existing checks run after source restoration."}
             elif witness.allowed_existing_failures:
                 old = self.test(witness.family, witness.name + "-existing", ("--existing-tests-only",),
                                 named_failures=witness.allowed_existing_failures)
@@ -1030,6 +1130,7 @@ def main() -> int:
                           "selectedFamilies": families, "expectedFailureExitCode": 1,
                           "witnesses": [{"name": item.name, "source": SOURCES[item.source],
                                          "classification": item.kind, "newFailureFile": item.failure_file,
+                                         "expectedFailureCheck": item.failure_check,
                                          "existingAssertions": EXISTING_COUNTS[item.family] if item.kind == "reporting" else None,
                                          "allowedExistingFailures": list(item.allowed_existing_failures)}
                                         for item in selected]}, indent=2))
@@ -1043,11 +1144,16 @@ def main() -> int:
     if evidence.parent != artifacts.resolve() or not re.fullmatch(r"pin-diagnostic-mutations-[A-Za-z0-9-]{1,80}", evidence.name):
         raise ValueError("Evidence must be a new artifacts/pin-diagnostic-mutations-<label> directory.")
     artifacts.mkdir(exist_ok=True)
-    evidence.mkdir(exist_ok=False)
     lock_path = artifacts / ".pin-diagnostics-mutation.lock"
     refuse_links(lock_path)
     lock = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-    os.write(lock, (str(os.getpid()) + "\n").encode("ascii"))
+    try:
+        os.write(lock, (str(os.getpid()) + "\n").encode("ascii"))
+        evidence.mkdir(exist_ok=False)
+    except BaseException:
+        os.close(lock)
+        lock_path.unlink()
+        raise
     report = {"schema": 1, "startedUtc": utc_now(), "evidence": evidence.relative_to(ROOT).as_posix(),
               "sourceBackupsManifest": "source-backups.json", "focusedAssertions": FOCUSED_COUNTS,
               "existingAssertions": EXISTING_COUNTS, "deferredClaimAssertions": 4, "selectedFamilies": families,
@@ -1058,7 +1164,7 @@ def main() -> int:
     try:
         runner = Runner(evidence)
         report["sourceSha256Before"] = {relative: sha256(raw) for relative, raw in runner.original.items()}
-        runner.healthy("baseline", families)
+        runner.healthy("baseline", families, tuple(selected))
         for witness in selected:
             report["witnesses"].append(runner.witness(witness))
         report["verdict"] = "PASS"
@@ -1074,7 +1180,7 @@ def main() -> int:
                 report["sourceBytesRestored"] = True
                 report["sourceSha256After"] = {relative: sha256(read_source(relative)) for relative in runner.original}
                 if not interrupted:
-                    runner.healthy("restored", families)
+                    runner.healthy("restored", families, tuple(selected))
                     report["restoredBuildAndRegression"] = "PASS"
             except BaseException as error:
                 failed = True

@@ -189,20 +189,34 @@ function Find-FileMarkers([string]$Path, $Markers) {
     return $found
 }
 
-function Find-ArchiveMarkers([string]$Archive, $Markers) {
+function Find-ArchiveMarkers([string]$Archive, $Markers, [scriptblock]$Inspect = $null) {
     # Uses the reviewed read-only inspector. Without Node the archive checks stay UNPROVEN, never PASS.
-    $node = Get-Command node -ErrorAction SilentlyContinue
-    if ($null -eq $node) { return $null }
-    $inspector = Join-Path $script:RepoRoot 'tools\agentbroker\inspect-public-asar.mjs'
-    $members = @(& $node.Source $inspector $Archive --list-prefix '.vite/build/' 2>$null | ForEach-Object {
-            try { ($_ | ConvertFrom-Json).member } catch { $null } } | Where-Object { $_ -and $_ -like '*.js' } | Select-Object -First 128)
+    if ($null -eq $Inspect) {
+        $node = Get-Command node -ErrorAction SilentlyContinue
+        if ($null -eq $node) { return $null }
+        $inspector = Join-Path $script:RepoRoot 'tools\agentbroker\inspect-public-asar.mjs'
+        $Inspect = {
+            param([string[]]$Arguments)
+            try {
+                $lines = @(& $node.Source $inspector $Archive @Arguments 2>$null)
+                return [pscustomobject]@{ ExitCode = $LASTEXITCODE; Lines = $lines }
+            }
+            catch { return [pscustomobject]@{ ExitCode = 1; Lines = @() } }
+        }
+    }
+    $listed = & $Inspect -Arguments @('--list-prefix', '.vite/build/')
+    if ($listed.ExitCode -ne 0) { return $null }
+    try { $members = @($listed.Lines | ForEach-Object { ($_ | ConvertFrom-Json).member } | Where-Object { $_ -and $_ -like '*.js' }) }
+    catch { return $null }
+    if ($members.Count -gt 128) { return $null }
     $found = @{}
     foreach ($key in $Markers.Keys) { $found[$key] = $false }
     $pattern = (@($Markers.Values) | ForEach-Object { [regex]::Escape($_) }) -join '|'
     foreach ($member in $members) {
-        $hits = @(& $node.Source $inspector $Archive --member $member --pattern $pattern --context 0 --limit 64 2>$null)
-        foreach ($line in $hits) {
-            try { $excerpt = ($line | ConvertFrom-Json).excerpt } catch { continue }
+        $inspected = & $Inspect -Arguments @('--member', $member, '--pattern', $pattern, '--context', '0', '--limit', '64')
+        if ($inspected.ExitCode -ne 0) { return $null }
+        foreach ($line in @($inspected.Lines)) {
+            try { $excerpt = ($line | ConvertFrom-Json).excerpt } catch { return $null }
             foreach ($key in $Markers.Keys) { if ([string]$excerpt -ceq [string]$Markers[$key]) { $found[$key] = $true } }
         }
     }
@@ -308,7 +322,8 @@ function Get-PinnedProfiles([string]$Path) {
             [pscustomobject]@{ Package = [string]$pin.packageFullName; Version = [string]$pin.applicationVersion
                 ExecutableSha256 = [string]$pin.executableSha256; ArchiveSha256 = [string]$pin.archiveSha256; Electron = [string]$pin.electronVersion } })
     $extension = @(foreach ($pin in @($document.codexVsCode)) {
-            [pscustomobject]@{ Version = [string]$pin.version; NativeImageSha256 = [string]$pin.nativeImageSha256 } })
+            [pscustomobject]@{ Version = [string]$pin.version; DirectoryName = [string]$pin.directoryName
+                NativeImageSha256 = [string]$pin.nativeImageSha256; ManifestFunctionalSha256 = [string]$pin.manifestFunctionalSha256; Images = $pin.images } })
     $router = @(foreach ($pin in @($document.vscodeRouter)) {
             [pscustomobject]@{ Version = [string]$pin.productVersion; Sha256 = [string]$pin.executableSha256 } })
     $claude = @(foreach ($pin in @($document.claudeCode)) { [pscustomobject]@{ Version = [string]$pin.version; Sha256 = [string]$pin.sha256 } })
@@ -380,6 +395,15 @@ function ConvertTo-PinDocumentText($Document) {
     return (($lines -join "`n") + "`n")
 }
 
+function Get-PinImagePairs($Images) {
+    if ($Images -is [Collections.IDictionary]) {
+        foreach ($key in $Images.Keys) { [pscustomobject]@{ Name = [string]$key; Hash = [string]$Images[$key] } }
+    }
+    elseif ($Images -is [pscustomobject]) {
+        foreach ($property in $Images.PSObject.Properties) { [pscustomobject]@{ Name = [string]$property.Name; Hash = [string]$property.Value } }
+    }
+}
+
 function Get-PinMergeRefusal($Document, [string]$List, $Entry) {
     # The adapters' loader refuses these repeats (PinDocument.Unique), so a merge that would make one is refused here.
     $existing = @(Get-PinMember $Document $List)
@@ -398,6 +422,12 @@ function Get-PinMergeRefusal($Document, [string]$List, $Entry) {
         elseif ([string](Get-PinMember $pin $key) -ceq [string](Get-PinMember $Entry $key)) {
             return "the pin document already has a $List pin with that $key; a person must replace it rather than add a second"
         }
+    }
+    if ($List -ceq 'codexVsCode') {
+        $images = if ($Entry -is [Collections.IDictionary]) { $Entry['images'] }
+            elseif ($Entry.PSObject.Properties['images']) { $Entry.images } else { $null }
+        $pairs = @(Get-PinImagePairs $images)
+        if ($pairs.Count -lt 1 -or $pairs.Count -gt 32) { return 'a codexVsCode pin needs 1 through 32 image hashes' }
     }
     return $null
 }
@@ -427,8 +457,8 @@ function Complete-Result($Result, [scriptblock]$Draft) {
         $Result.Checks.Add((New-Check $live 'LIVE' 'live acceptance after publish (compatibility doc, "Required live acceptance"); never inferred offline'))
     }
     $failed = @($Result.Checks | Where-Object { $_.Status -eq 'FAIL' }).Count
-    if ($Result.Pinned) { $Result.Verdict = 'ALREADY PINNED' }
-    elseif ($failed -gt 0) { $Result.Verdict = 'NOT READY' }
+    if ($failed -gt 0) { $Result.Verdict = 'NOT READY' }
+    elseif ($Result.Pinned) { $Result.Verdict = 'ALREADY PINNED' }
     else {
         $Result.Verdict = 'DRAFT FOR REVIEW'
         $drafted = & $Draft
@@ -489,6 +519,10 @@ function Measure-ClaudeBuild([string]$Image, $Pins, $Providers) {
 }
 
 function Add-MergeCheck($Result, $Pins, [string]$List, $Entry) {
+    if ($Result.Pinned) {
+        $Result.Checks.Add((New-Check 'pin-document.mergeable' 'PASS' 'the exact complete entry is already pinned; no merge is needed'))
+        return
+    }
     # An unpinned build whose entry the document could not hold (a repeat the adapters' loader refuses) is not
     # draftable: replacing a reviewed pin is a person's edit, never an automated addition.
     if ($Result.Pinned -or $null -eq $Pins.Document) { return }
@@ -523,7 +557,7 @@ function Measure-CodexDesktop($Package, $Pins, $Providers) {
             $_.ArchiveSha256 -eq $archiveSha -and $_.Electron -eq $electron }).Count -gt 0
     $markers = & $Providers.ArchiveMarkers $archive $script:CodexDesktopMarkers
     foreach ($key in $script:CodexDesktopMarkers.Keys) {
-        if ($null -eq $markers) { $result.Checks.Add((New-Check $key 'UNPROVEN' 'Node.js is unavailable, so the archive was not inspected')) }
+        if ($null -eq $markers) { $result.Checks.Add((New-Check $key 'UNPROVEN' 'the archive inspector was unavailable, failed or exceeded its bound; no marker absence was established')) }
         elseif ($markers[$key]) { $result.Checks.Add((New-Check $key 'PASS' ("a .vite/build member contains '" + $script:CodexDesktopMarkers[$key] + "'"))) }
         else { $result.Checks.Add((New-Check $key 'FAIL' ("no .vite/build member contains '" + $script:CodexDesktopMarkers[$key] + "'"))) }
     }
@@ -541,13 +575,14 @@ function Measure-CodexExtension([string]$Directory, $Pins, $Providers) {
     $result = New-Result 'codex-vscode' 'Codex VS Code extension' $version $engine
     $result.Checks.Add((Test-Publisher (& $Providers.Signature $engine) $script:OpenAIPublisher 'publisher.engine-authenticode'))
     $result.Sha256 = & $Providers.Hash $engine
-    $result.Pinned = @($Pins.Extension | Where-Object { $_.Version -eq $version -and $_.NativeImageSha256 -eq $result.Sha256 }).Count -gt 0
     $bundles = New-Object 'Collections.Generic.List[string]'
     $extensionJs = Join-Path $Directory 'out\extension.js'
     if (Test-Path -LiteralPath $extensionJs -PathType Leaf) { $bundles.Add($extensionJs) }
     $assets = Join-Path $Directory 'webview\assets'
     if (Test-Path -LiteralPath $assets -PathType Container) {
-        foreach ($file in @(Get-ChildItem -LiteralPath $assets -File | Where-Object { $_.Name -match $script:CodexBundlePattern } | Sort-Object Name | Select-Object -First 32)) {
+        $assetFiles = @(Get-ChildItem -LiteralPath $assets -File | Where-Object { $_.Name -match $script:CodexBundlePattern } | Sort-Object Name | Select-Object -First 33)
+        if ($assetFiles.Count -gt 32) { $result.Checks.Add((New-Check 'source.vscode.bundle-scan-bound' 'UNPROVEN' 'more than 32 candidate bundles; the bounded scan did not inspect all of them')) }
+        foreach ($file in @($assetFiles | Select-Object -First 32)) {
             $bundles.Add($file.FullName)
         }
     }
@@ -587,6 +622,21 @@ function Measure-CodexExtension([string]$Directory, $Pins, $Providers) {
     foreach ($holder in $holders) {
         $relative = $holder.Substring($Directory.Length).TrimStart('\', '/').Replace('\', '/')
         $images[$relative] = & $Providers.Hash $holder
+    }
+    if ($images.Count -gt 32) { $result.Checks.Add((New-Check 'source.vscode.image-bound' 'FAIL' 'more than 32 image hashes would exceed the adapters pin-loader bound')) }
+    foreach ($pin in @($Pins.Extension | Where-Object { $_.Version -eq $version -and $_.NativeImageSha256 -eq $result.Sha256 })) {
+        if ($pin.DirectoryName -cne $leaf -or -not $manifestHash -or $pin.ManifestFunctionalSha256 -cne $manifestHash) { continue }
+        $pairs = @(Get-PinImagePairs $pin.Images)
+        if ($pairs.Count -lt 1 -or $pairs.Count -gt 32) { continue }
+        $matching = $true
+        foreach ($pair in $pairs) {
+            if (-not (Test-PlainMemberPath $pair.Name)) { $matching = $false; break }
+            $file = Resolve-InsideDirectory $Directory $pair.Name
+            if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { $matching = $false; break }
+            $actualHash = if ($images.Contains($pair.Name)) { $images[$pair.Name] } else { & $Providers.Hash $file }
+            if ($actualHash -cne $pair.Hash) { $matching = $false; break }
+        }
+        if ($matching) { $result.Pinned = $true; break }
     }
     $entry = [ordered]@{ version = $version; directoryName = $leaf; nativeImageSha256 = $result.Sha256
         manifestFunctionalSha256 = $manifestHash; images = $images }
@@ -861,7 +911,15 @@ function Initialize-OutputDirectory([string]$Path) {
 
 function Write-Utf8File([string]$Path, [string]$Text) { [IO.File]::WriteAllText($Path, $Text, (New-Object Text.UTF8Encoding($false))) }
 
+function Set-RepinFixtureDacl([string]$Path, [Security.AccessControl.FileSecurity]$Acl) {
+    # PowerShell's Set-Acl provider can request SACL privilege on the deliberately restricted fixture.
+    # These file APIs persist only the DACL sections marked modified on this owned FileSecurity object.
+    if ($PSVersionTable.PSVersion.Major -lt 6) { [IO.File]::SetAccessControl($Path, $Acl) }
+    else { [IO.FileSystemAclExtensions]::SetAccessControl((New-Object IO.FileInfo $Path), $Acl) }
+}
+
 function Invoke-SelfTest {
+    Write-Output 'WITNESS: REPIN_NATIVE_AUDIT_SELFTEST_EXECUTED'
     # Provider blocks below resolve $state dynamically from this function's scope, so fixtures can change it.
     function Assert([bool]$Condition, [string]$Label) {
         if (-not $Condition) { throw "FAIL: $Label" }
@@ -871,6 +929,7 @@ function Invoke-SelfTest {
     $script:selfTestChecks = 0
     $fixture = Join-Path ([IO.Path]::GetTempPath()) ('agentbroker-repin-selftest-' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $fixture | Out-Null
+    $ownedFile = $null; $fixtureOwnedAcl = $null; $selfTestFailure = $null
     try {
         # A pin document in the exact shape the adapters embed, so the reader is exercised against the real format.
         $sources = Join-Path $fixture 'repo'
@@ -901,6 +960,28 @@ function Invoke-SelfTest {
 
         $all = @{}
         foreach ($key in $script:ClaudeMarkers.Keys) { $all[$key] = $true }
+        $notInspected = Find-ArchiveMarkers 'synthetic.asar' $script:CodexDesktopMarkers {
+            param($Arguments) [pscustomobject]@{ ExitCode = 1; Lines = @() }
+        }
+        Assert ($null -eq $notInspected) 'REPIN_ARCHIVE_LIST_FAILURE: an inspector failure is unavailable, never proof of absent markers'
+        $memberFailed = Find-ArchiveMarkers 'synthetic.asar' $script:CodexDesktopMarkers {
+            param($Arguments)
+            if ($Arguments -contains '--list-prefix') { [pscustomobject]@{ ExitCode = 0; Lines = @('{"member":".vite/build/synthetic.js"}') } }
+            else { [pscustomobject]@{ ExitCode = 1; Lines = @() } }
+        }
+        Assert ($null -eq $memberFailed) 'REPIN_ARCHIVE_MEMBER_FAILURE: a failed member read cannot become a missing-protocol verdict'
+        $inspectedMissing = Find-ArchiveMarkers 'synthetic.asar' $script:CodexDesktopMarkers {
+            param($Arguments)
+            if ($Arguments -contains '--list-prefix') { [pscustomobject]@{ ExitCode = 0; Lines = @('{"member":".vite/build/synthetic.js"}') } }
+            else { [pscustomobject]@{ ExitCode = 0; Lines = @() } }
+        }
+        Assert ($null -ne $inspectedMissing -and @($inspectedMissing.Values | Where-Object { $_ }).Count -eq 0) 'REPIN_ARCHIVE_ABSENCE_WITNESS: a successful inspection can establish genuine missing markers'
+        $archiveBound = Find-ArchiveMarkers 'synthetic.asar' $script:CodexDesktopMarkers {
+            param($Arguments)
+            if ($Arguments -contains '--list-prefix') { [pscustomobject]@{ ExitCode = 0; Lines = @(1..129 | ForEach-Object { '{"member":".vite/build/synthetic-' + $_ + '.js"}' }) } }
+            else { [pscustomobject]@{ ExitCode = 0; Lines = @() } }
+        }
+        Assert ($null -eq $archiveBound) 'REPIN_ARCHIVE_MEMBER_BOUND: an uninspected archive tail remains unavailable coverage'
         $state = @{ Signature = [pscustomobject]@{ Status = 'Valid'; Subject = 'CN="Anthropic, PBC", O="Anthropic, PBC", C=US' }
             Version = '2.1.310'; Hash = $hexC; Markers = $all; Protected = $true; ArchiveMarkers = $null }
         $providers = @{
@@ -1004,6 +1085,34 @@ function Invoke-SelfTest {
             $images.Contains('webview/assets/app-initial-ffff.js') -and -not $images.Contains('webview/assets/src-dead.js') -and
             -not $images.Contains('webview/assets/code-review-0e0f.js')) 'extension entry hashes every marker-holding bundle and every app-main and app-initial bundle, and no other'
         if ($PSVersionTable.PSVersion.Major -ge 7) {
+            $exactPins = $pins.PSObject.Copy()
+            $exactPins.Document = Merge-PinEntry $pins.Document 'codexVsCode' $code.DraftEntry
+            $exactPins.Extension = @($pins.Extension) + @([pscustomobject]@{
+                Version = $code.Version; DirectoryName = Split-Path $extension -Leaf; NativeImageSha256 = $code.Sha256
+                ManifestFunctionalSha256 = $code.DraftEntry.manifestFunctionalSha256; Images = $code.DraftEntry.images
+            })
+            $exactCode = Measure-CodexExtension $extension $exactPins $extensionProviders
+            Assert ($exactCode.Pinned -and $exactCode.Verdict -ceq 'ALREADY PINNED') 'REPIN_COMPLETE_PIN_WITNESS: every current pinned manifest and image hash agrees'
+            $manifestPath = Join-Path $extension 'package.json'
+            $manifestOriginal = [IO.File]::ReadAllBytes($manifestPath)
+            try {
+                [IO.File]::WriteAllText($manifestPath, '{"name":"chatgpt","version":"26.2000.5","changed":true}')
+                $changedManifest = Measure-CodexExtension $extension $exactPins $extensionProviders
+                Assert (-not $changedManifest.Pinned -and $changedManifest.Verdict -cne 'ALREADY PINNED') 'REPIN_MANIFEST_DRIFT: an engine hash alone cannot certify a changed manifest'
+            }
+            finally { [IO.File]::WriteAllBytes($manifestPath, $manifestOriginal) }
+            $bundlePath = Join-Path $extension 'out\extension.js'
+            $bundleOriginal = [IO.File]::ReadAllBytes($bundlePath)
+            try {
+                [IO.File]::AppendAllText($bundlePath, ' // changed without dropping any protocol marker')
+                $changedBundle = Measure-CodexExtension $extension $exactPins $extensionProviders
+                Assert (-not $changedBundle.Pinned -and $changedBundle.Verdict -cne 'ALREADY PINNED') 'REPIN_BUNDLE_DRIFT: a changed pinned bundle cannot retain already-pinned status'
+            }
+            finally { [IO.File]::WriteAllBytes($bundlePath, $bundleOriginal) }
+            $untrustedProviders = $extensionProviders.Clone()
+            $untrustedProviders.Signature = { param($Path) [pscustomobject]@{ Status = 'NotSigned'; Subject = '' } }
+            $failedPinned = Measure-CodexExtension $extension $exactPins $untrustedProviders
+            Assert ($failedPinned.Pinned -and $failedPinned.Verdict -ceq 'NOT READY') 'REPIN_PINNED_FAILURE: an exact content match never overrides a failed current check'
             # The adapter's own test vector (VsCodeManifestChecks.cs "canonical"): sorted members, root __metadata dropped.
             $vector = Get-ManifestFunctionalSha256 ([Text.Encoding]::UTF8.GetBytes('{"z":true,"a":{"y":"v","x":null},"array":[1,2],"__metadata":{"when":1}}'))
             $expected = (Get-FileHash -InputStream (New-Object IO.MemoryStream (, [Text.Encoding]::UTF8.GetBytes('{"a":{"x":null,"y":"v"},"array":[1,2],"z":true}'))) -Algorithm SHA256).Hash
@@ -1027,6 +1136,24 @@ function Invoke-SelfTest {
         [IO.File]::WriteAllText((Join-Path $extension 'webview\assets\app-main-0a1b.js'), '"thread-follower-start-turn"')
         $drifted = Measure-CodexExtension $extension $pins $extensionProviders
         Assert ($drifted.Verdict -eq 'NOT READY' -and @($drifted.Checks | Where-Object { $_.Status -eq 'FAIL' } | ForEach-Object { $_.Name }) -contains 'source.vscode.untrusted-input') 'an extension that drops a reviewed marker fails that check by name'
+        $overflowExtension = Join-Path $fixture 'openai.chatgpt-26.2000.6-win32-x64'
+        foreach ($dir in @('bin\windows-x86_64', 'out', 'webview\assets')) { New-Item -ItemType Directory -Path (Join-Path $overflowExtension $dir) | Out-Null }
+        [IO.File]::WriteAllText((Join-Path $overflowExtension 'bin\windows-x86_64\codex.exe'), 'synthetic engine')
+        [IO.File]::WriteAllText((Join-Path $overflowExtension 'package.json'), '{"name":"chatgpt","version":"26.2000.6"}')
+        $allMarkers = @($script:CodexExtensionMarkers.Values) -join ';'
+        [IO.File]::WriteAllText((Join-Path $overflowExtension 'out\extension.js'), $allMarkers)
+        for ($index = 0; $index -lt 32; $index++) {
+            [IO.File]::WriteAllText((Join-Path $overflowExtension ('webview\assets\app-main-' + $index.ToString('x4') + '.js')), $allMarkers)
+        }
+        $tooManyImages = Measure-CodexExtension $overflowExtension $pins $extensionProviders
+        Assert ($tooManyImages.Verdict -eq 'NOT READY' -and @($tooManyImages.Checks | Where-Object { $_.Name -eq 'source.vscode.image-bound' -and $_.Status -eq 'FAIL' }).Count -eq 1) 'REPIN_IMAGE_BOUND: extension.js plus 32 holders cannot draft a 33-image pin the loader refuses'
+        [IO.File]::WriteAllText((Join-Path $overflowExtension 'webview\assets\app-main-ffff.js'), $allMarkers)
+        $unvisitedBundle = Measure-CodexExtension $overflowExtension $pins $extensionProviders
+        Assert (-not $unvisitedBundle.PullRequestEligible -and @($unvisitedBundle.Checks | Where-Object { $_.Name -eq 'source.vscode.bundle-scan-bound' -and $_.Status -eq 'UNPROVEN' }).Count -eq 1) 'REPIN_BUNDLE_CENSUS_BOUND: an unvisited bundle is explicit unavailable coverage'
+        $oversizedImages = [ordered]@{}
+        foreach ($index in 0..32) { $oversizedImages['out/image-' + $index + '.js'] = $hexA }
+        $oversizedEntry = [ordered]@{ version = '88.0.1'; directoryName = 'openai.chatgpt-88.0.1-win32-x64'; nativeImageSha256 = $hexA; manifestFunctionalSha256 = $hexA; images = $oversizedImages }
+        Assert ((Get-PinMergeRefusal $pins.Document 'codexVsCode' $oversizedEntry) -like '*1 through 32*') 'REPIN_MERGE_IMAGE_BOUND: importing an oversized image map is refused before serializing a loader-invalid document'
 
         # Merging a drafted entry: appended in the canonical layout; a repeat the loader refuses is refused here first.
         $merged = ConvertTo-PinDocumentText (Merge-PinEntry $pins.Document 'claudeCode' ([ordered]@{ version = '2.1.310'; sha256 = $hexC }))
@@ -1095,12 +1222,24 @@ function Invoke-SelfTest {
         # Same DACL shape as a package file (only SYSTEM can write) but owned by this user: the owner alone refuses.
         $ownedFile = Join-Path $fixture 'user-owned.exe'
         [IO.File]::WriteAllText($ownedFile, 'synthetic')
+        $ownedOriginalSddl = (Get-Acl -LiteralPath $ownedFile).GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::Access)
+        # Restore only the DACL. Persisting a full Get-Acl object can request SACL privilege on PowerShell5.1.
+        $ownedOriginalAcl = New-Object Security.AccessControl.FileSecurity
+        $ownedOriginalAcl.SetSecurityDescriptorSddlForm($ownedOriginalSddl, [Security.AccessControl.AccessControlSections]::Access)
+        $fixtureOwnedAcl = $ownedOriginalAcl
         $acl = New-Object Security.AccessControl.FileSecurity
         $acl.SetAccessRuleProtection($true, $false)
         $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule((New-Object Security.Principal.SecurityIdentifier('S-1-5-18')), 'FullControl', 'Allow')))
         $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule((New-Object Security.Principal.SecurityIdentifier('S-1-5-32-545')), 'ReadAndExecute', 'Allow')))
-        Set-Acl -LiteralPath $ownedFile -AclObject $acl
-        Assert (-not (Test-DefaultProtectedFile $ownedFile)) 'protected-location check refuses a user-owned file even when only SYSTEM can write'
+        try {
+            Set-RepinFixtureDacl $ownedFile $acl
+            Assert (-not (Test-DefaultProtectedFile $ownedFile)) 'protected-location check refuses a user-owned file even when only SYSTEM can write'
+        }
+        finally { Set-RepinFixtureDacl $ownedFile $ownedOriginalAcl }
+        $restoredSddl = (Get-Acl -LiteralPath $ownedFile).GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::Access)
+        Assert ($restoredSddl -ceq $ownedOriginalSddl) 'REPIN_FIXTURE_ACL_RESTORED: the owned protected-DACL fixture is writable by its original owner before cleanup'
+        [IO.File]::Delete($ownedFile)
+        Assert (-not [IO.File]::Exists($ownedFile)) 'REPIN_FIXTURE_FILE_REMOVED: the protected-file probe leaves no owned executable fixture'
 
         $split = Join-Path $fixture 'split.bin'
         $bytes = New-Object byte[] (4MB + 16)
@@ -1118,7 +1257,25 @@ function Invoke-SelfTest {
             (Get-Content -LiteralPath $repoPins -Raw -Encoding UTF8) -ceq $committed) 'the helper never writes or adds a pin document, in the fixture or the repository'
         Write-Output ("PASS: {0} re-pin helper fixture checks" -f $script:selfTestChecks)
     }
-    finally { Remove-Item -LiteralPath $fixture -Recurse -Force -ErrorAction SilentlyContinue }
+    catch { $selfTestFailure = $_; throw }
+    finally {
+        try {
+            $tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\')
+            $resolvedFixture = [IO.Path]::GetFullPath($fixture)
+            if (-not $resolvedFixture.StartsWith($tempRoot + '\', [StringComparison]::OrdinalIgnoreCase) -or
+                (Split-Path $resolvedFixture -Leaf) -notmatch '^agentbroker-repin-selftest-[0-9a-f]{32}$') { throw 'Unexpected self-test fixture path.' }
+            if ($ownedFile -and [IO.File]::Exists($ownedFile) -and $null -ne $fixtureOwnedAcl) { Set-RepinFixtureDacl $ownedFile $fixtureOwnedAcl }
+            $linked = @(Get-ChildItem -LiteralPath $fixture -Force -Recurse | Where-Object { ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 })
+            if ($linked.Count -gt 0) { throw 'A self-test fixture contains a reparse point.' }
+            Remove-Item -LiteralPath $resolvedFixture -Recurse -Force -ErrorAction Stop
+            if (Test-Path -LiteralPath $resolvedFixture) { throw 'The self-test fixture remains.' }
+            Write-Output 'REPIN_FIXTURE_CLEANED=True'
+        }
+        catch {
+            if ($null -ne $selfTestFailure) { Write-Warning ('Re-pin fixture cleanup failed; original failure preserved. Retained: ' + $fixture) }
+            else { throw 'REPIN_FIXTURE_CLEANUP_FAILED: the owned re-pin fixture could not be removed.' }
+        }
+    }
 }
 
 if ($SelfTest) {

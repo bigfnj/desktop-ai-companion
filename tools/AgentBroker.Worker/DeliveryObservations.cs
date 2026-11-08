@@ -23,8 +23,17 @@ internal sealed class DeliveryObservations(TimeProvider clock)
     internal const int MaximumMessages = 4096;
     internal const int MaximumRecipients = 256;
     private readonly object gate = new();
-    private sealed record BusyObservation(SessionAddress Recipient, DateTimeOffset Since, DateTimeOffset LastObservedAt,
-        long LastObservedTimestamp);
+    // UUIDs become reusable after store retention. Match the admitted lifetime as well as its routing metadata,
+    // without retaining message text, so report-only state cannot attach to a later admission of the same UUID.
+    private readonly record struct MessageEpoch(SessionAddress Sender, SessionAddress Recipient, Guid ConversationId,
+        Guid? ReplyTo, DateTimeOffset CreatedAt, DateTimeOffset ExpiresAt, int RemainingReplies)
+    {
+        internal static MessageEpoch From(BrokerMessage message) => new(message.Sender, message.Recipient,
+            message.ConversationId, message.ReplyTo, message.CreatedAt, message.ExpiresAt, message.RemainingReplies);
+    }
+    private sealed record BusyObservation(MessageEpoch Epoch, Guid Admission, DateTimeOffset Since, DateTimeOffset LastObservedAt,
+        long LastObservedTimestamp)
+    { internal SessionAddress Recipient => Epoch.Recipient; }
     private readonly Dictionary<Guid, BusyObservation> busySince = new();
     private readonly Dictionary<SessionAddress, HashSet<Guid>> busyMessagesByRecipient = new();
     private sealed record RecipientBusyObservation(DateTimeOffset Since, DateTimeOffset LastObservedAt, bool FromDirectory);
@@ -32,22 +41,28 @@ internal sealed class DeliveryObservations(TimeProvider clock)
     // The engine binding a native adapter observed at each message's latest attempt (report only,
     // N-agentbroker-code-owner-provenance-01). Kept after the attempt, since a Submitted receipt is where it matters most;
     // past the bound the older half by observation time goes.
-    private readonly Dictionary<Guid, EngineBinding> engineAtAttempt = new();
+    private sealed record EngineObservation(MessageEpoch Epoch, Guid Admission, EngineBinding Binding);
+    private readonly Dictionary<Guid, EngineObservation> engineAtAttempt = new();
 
     // After every local native attempt. A busy deferral starts (or continues) the message's busy run and refreshes the
     // recipient's; any other answer ends both, since it says nothing about a turn still running.
-    internal void Record(BrokerMessage message, AdapterResult result)
+    internal void Record(BrokerMessage message, AdapterResult result, Guid admission = default)
     {
         var now = clock.GetUtcNow();
         long observedAt = clock.GetTimestamp();
+        var epoch = MessageEpoch.From(message);
         lock (gate)
         {
+            if (busySince.TryGetValue(message.Id, out var previousBusy) && (previousBusy.Epoch != epoch || previousBusy.Admission != admission))
+                RemoveBusyMessage(message.Id);
+            if (engineAtAttempt.TryGetValue(message.Id, out var previousEngine) && (previousEngine.Epoch != epoch || previousEngine.Admission != admission))
+                engineAtAttempt.Remove(message.Id);
             if (result.EngineBinding is { } engine)
             {
                 if (!engineAtAttempt.ContainsKey(message.Id) && engineAtAttempt.Count >= MaximumMessages)
-                    foreach (var old in engineAtAttempt.OrderBy(p => p.Value.ObservedAt).Take(MaximumMessages / 2).Select(p => p.Key).ToArray())
+                    foreach (var old in engineAtAttempt.OrderBy(p => p.Value.Binding.ObservedAt).Take(MaximumMessages / 2).Select(p => p.Key).ToArray())
                         engineAtAttempt.Remove(old);
-                engineAtAttempt[message.Id] = engine;
+                engineAtAttempt[message.Id] = new(epoch, admission, engine);
             }
             if (result.Outcome == AdapterAdmission.DeferredNotSubmitted && IsBusyReason(result.Reason))
             {
@@ -55,14 +70,14 @@ internal sealed class DeliveryObservations(TimeProvider clock)
                     Fresh(previousRecipient.LastObservedAt, now);
                 RecordRecipientBusy(message.Recipient, now, fromDirectory: false);
                 if (busySince.TryGetValue(message.Id, out var existing))
-                    busySince[message.Id] = new(message.Recipient,
+                    busySince[message.Id] = new(epoch, admission,
                         (Fresh(existing.LastObservedAt, now) || continuingRecipient) && existing.Since <= now ? existing.Since : now, now,
                         Math.Max(existing.LastObservedTimestamp, observedAt));
                 else
                 {
                     if (busySince.Count >= MaximumMessages)
                         RemoveBusyMessage(busySince.MinBy(pair => (pair.Value.LastObservedTimestamp, pair.Key)).Key);
-                    busySince[message.Id] = new(message.Recipient, now, now, observedAt);
+                    busySince[message.Id] = new(epoch, admission, now, now, observedAt);
                     if (!busyMessagesByRecipient.TryGetValue(message.Recipient, out var messages))
                         busyMessagesByRecipient[message.Recipient] = messages = [];
                     messages.Add(message.Id);
@@ -144,14 +159,16 @@ internal sealed class DeliveryObservations(TimeProvider clock)
 
     // A deferred busy message carries its own busy run. A queued or submitted message can instead report the current
     // directory's first observed Busy time; this says nothing about whether the requested work is progressing.
-    internal DateTimeOffset? BusySince(MessageReceipt receipt)
+    internal DateTimeOffset? BusySince(MessageReceipt receipt, Guid? admission = null)
     {
         if (receipt.Status is not (MessageStatus.Accepted or MessageStatus.Submitting or MessageStatus.Submitted)) return null;
         var now = clock.GetUtcNow();
         lock (gate)
         {
             if (IsBusyReason(receipt.Reason) && receipt.Status is not MessageStatus.Submitted &&
-                busySince.TryGetValue(receipt.Message.Id, out var observation) && Fresh(observation.LastObservedAt, now))
+                busySince.TryGetValue(receipt.Message.Id, out var observation) && observation.Epoch == MessageEpoch.From(receipt.Message) &&
+                (admission is null || observation.Admission == admission) &&
+                Fresh(observation.LastObservedAt, now))
                 return observation.Since;
             return (IsBusyReason(receipt.Reason) || receipt.Reason == "recipient_busy" || receipt.Status == MessageStatus.Submitted) &&
                 recipientBusyAt.TryGetValue(receipt.Message.Recipient, out var recipient) && recipient.FromDirectory &&
@@ -160,9 +177,11 @@ internal sealed class DeliveryObservations(TimeProvider clock)
     }
 
     // What the adapter observed about the recipient's engine at this message's latest attempt that observed one.
-    internal EngineBinding? EngineAtAttempt(Guid messageId)
+    internal EngineBinding? EngineAtAttempt(BrokerMessage message, Guid? admission = null)
     {
-        lock (gate) return engineAtAttempt.TryGetValue(messageId, out var engine) ? engine : null;
+        lock (gate) return engineAtAttempt.TryGetValue(message.Id, out var engine) && engine.Epoch == MessageEpoch.From(message) &&
+            (admission is null || engine.Admission == admission)
+            ? engine.Binding : null;
     }
 
     // A row discovery left Unknown, whose recipient answered busy within BusyFreshFor.

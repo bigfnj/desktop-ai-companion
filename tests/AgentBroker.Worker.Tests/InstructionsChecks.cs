@@ -34,7 +34,8 @@ internal static class InstructionsChecks
             lines[1].Contains("(none, or observation-only), register_agent", StringComparison.Ordinal) &&
             lines[1].Contains("codex:<CODEX_THREAD_ID>", StringComparison.Ordinal),
             "CARD_CAPABILITY_GATE: no mailbox only for a row with Receive and WakeIdle; an observation-only row registers one; Codex uses CODEX_THREAD_ID");
-        string scratch = Path.Combine(AppContext.BaseDirectory, "scratch", "instructions-" + Guid.NewGuid().ToString("N"));
+        using var scratchOwner = OwnedScratch.Create("instructions");
+        string scratch = scratchOwner.Root;
         Guid brokerId;
         using (var seed = new BrokerStore(Path.Combine(scratch, "store"))) brokerId = seed.BrokerId;
         string keyName = AgentBroker.Worker.Security.BrokerIdentity.KeyNameFor(scratch, brokerId);

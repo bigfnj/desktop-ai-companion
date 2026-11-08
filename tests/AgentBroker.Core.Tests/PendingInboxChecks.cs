@@ -37,11 +37,11 @@ internal static class PendingInboxChecks
             var submitted = Message(Guid.Parse("ffffffff-0000-4000-8000-000000000001"));
             store.Accept(submitted, store.BrokerId);
             Check(store.BeginDelivery()?.Message.Id == submitted.Id, "INBOX_WITNESS_SUBMITTED: real delivery claims the first message");
-            store.CompleteDelivery(submitted.Id, MessageStatus.Submitted);
+            store.CompleteDelivery(store.FindReceipt(submitted.Id)!, MessageStatus.Submitted);
             var uncertain = Message(Guid.Parse("00000001-0000-4000-8000-000000000001"), createdAgo: 30);
             store.Accept(uncertain, store.BrokerId);
             Check(store.BeginDelivery()?.Message.Id == uncertain.Id, "INBOX_WITNESS_UNCERTAIN: lower UUID arrives second");
-            store.CompleteDelivery(uncertain.Id, MessageStatus.Uncertain, "synthetic_uncertain");
+            store.CompleteDelivery(store.FindReceipt(uncertain.Id)!, MessageStatus.Uncertain, "synthetic_uncertain");
             var submitting = Message(Guid.NewGuid()); store.Accept(submitting, store.BrokerId);
             Check(store.BeginDelivery()?.Message.Id == submitting.Id, "INBOX_WITNESS_SUBMITTING: native attempt remains in flight");
             var accepted = Message(Guid.NewGuid()); store.Accept(accepted, store.BrokerId);

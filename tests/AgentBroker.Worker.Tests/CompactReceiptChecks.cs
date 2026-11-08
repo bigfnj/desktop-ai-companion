@@ -87,7 +87,7 @@ internal static class CompactReceiptChecks
         Guid id = Guid.NewGuid();
         fixture.Tools.Send(sender.Address, native.Address, id, Text);
         check(fixture.Store.BeginDelivery()?.Message.Id == id, "The synthetic native message is claimed.");
-        fixture.Store.CompleteDelivery(id, MessageStatus.Submitted, "native_admission_unconfirmed");
+        fixture.Store.CompleteDelivery(fixture.Store.FindReceipt(id)!, MessageStatus.Submitted, "native_admission_unconfirmed");
         var submittedAt = fixture.Clock.GetUtcNow();
         fixture.Clock.Advance(TimeSpan.FromSeconds(1));
         check(fixture.Tools.GetMessageReceipt(id)?.ReadAt == submittedAt.AddSeconds(1), "READ_AT_NOW: readAt is the broker's clock at the read");

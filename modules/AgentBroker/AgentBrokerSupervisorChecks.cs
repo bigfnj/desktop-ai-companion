@@ -23,6 +23,7 @@ internal static class AgentBrokerSupervisorChecks
         check(status.Connected && status.OwnsWorker && launcher.Starts == 1,
             "a refused control status does not abandon supervision");
         await supervisor.StopOwnedAsync(Launch().DataDirectory, CancellationToken.None).ConfigureAwait(false);
+
         check(child.ForcedStops == 1 && child.Disposals == 1 && control.LastRequiredPid == child.Id,
             "refused control and canceled exit waiting still stop and dispose the exact owned child");
         await supervisor.StopOwnedAsync(Launch().DataDirectory, CancellationToken.None).ConfigureAwait(false);
@@ -92,12 +93,51 @@ internal static class AgentBrokerSupervisorChecks
         await supervisor.StopOwnedAsync(Launch().DataDirectory, CancellationToken.None).ConfigureAwait(false);
         check(status.Connected && !status.OwnsWorker && child.Disposals == 1 && child.ForcedStops == 0 && control.Stops == 0,
             "only an exited owned child releases ownership and attaches to the existing standby without sending stop");
+
+        clock = new Clock(); child = new Child(); launcher = new Launcher(child) { StartFailures = 1 };
+        control = new Control { Existing = () => launcher.Starts > 1 };
+        supervisor = new WorkerSupervisor(control, launcher, clock);
+        status = await supervisor.RefreshAsync(Launch(), CancellationToken.None).ConfigureAwait(false);
+        check(status.Code == "worker_start_failed" && !status.OwnsWorker && launcher.Starts == 1,
+            "SUPERVISION_LAUNCH_FAILURE: a failed process start becomes a retryable bounded status");
+        status = await supervisor.RefreshAsync(Launch(), CancellationToken.None).ConfigureAwait(false);
+        check(status.Code == "restart_backoff" && launcher.Starts == 1,
+            "SUPERVISION_LAUNCH_BACKOFF: repeated polls do not retry a process start during backoff");
+        clock.Advance(TimeSpan.FromSeconds(2));
+        status = await supervisor.RefreshAsync(Launch(), CancellationToken.None).ConfigureAwait(false);
+        check(status.Code == "starting" && status.OwnsWorker && launcher.Starts == 2,
+            "SUPERVISION_LAUNCH_RECOVERS: the same supervisor retries after its launch backoff");
+        await supervisor.StopOwnedAsync(Launch().DataDirectory, CancellationToken.None).ConfigureAwait(false);
+
+        foreach (TimeSpan adjustment in new[] { TimeSpan.FromHours(-1), TimeSpan.FromHours(1) })
+        {
+            clock = new Clock(); child = new Child(); launcher = new Launcher(child) { StartFailures = 1 };
+            control = new Control { Existing = () => launcher.Starts > 1 };
+            supervisor = new WorkerSupervisor(control, launcher, clock);
+            await supervisor.RefreshAsync(Launch(), CancellationToken.None).ConfigureAwait(false);
+            clock.UtcAdjustment = adjustment;
+            clock.Advance(TimeSpan.FromSeconds(1));
+            status = await supervisor.RefreshAsync(Launch(), CancellationToken.None).ConfigureAwait(false);
+            check(status.Code == "restart_backoff" && launcher.Starts == 1,
+                "SUPERVISION_BACKOFF_CLOCK_BOUND: a wall-clock adjustment cannot shorten monotonic restart backoff");
+            clock.Advance(TimeSpan.FromSeconds(1));
+            status = await supervisor.RefreshAsync(Launch(), CancellationToken.None).ConfigureAwait(false);
+            check(status.Code == "starting" && launcher.Starts == 2,
+                "SUPERVISION_BACKOFF_CLOCK_RECOVERS: a wall-clock adjustment cannot prolong monotonic restart backoff");
+            await supervisor.StopOwnedAsync(Launch().DataDirectory, CancellationToken.None).ConfigureAwait(false);
+        }
     }
 
     private sealed class Launcher(Child child) : IWorkerChildLauncher
     {
         public int Starts;
-        public IWorkerChild Start(ProcessStartInfo start) { Starts++; return child; }
+        public int StartFailures;
+        public IWorkerChild Start(ProcessStartInfo start)
+        {
+            Starts++;
+            if (StartFailures-- > 0) throw new System.ComponentModel.Win32Exception(2);
+            return child;
+        }
     }
     private sealed class Child : IWorkerChild
     {
@@ -143,9 +183,10 @@ internal static class AgentBrokerSupervisorChecks
     private sealed class Clock : TimeProvider
     {
         private long ticks;
+        public TimeSpan UtcAdjustment;
         public override long TimestampFrequency => TimeSpan.TicksPerSecond;
         public override long GetTimestamp() => ticks;
-        public override DateTimeOffset GetUtcNow() => DateTimeOffset.UnixEpoch.AddTicks(ticks);
+        public override DateTimeOffset GetUtcNow() => DateTimeOffset.UnixEpoch.AddTicks(ticks).Add(UtcAdjustment);
         public void Advance(TimeSpan elapsed) => ticks += elapsed.Ticks;
     }
 }

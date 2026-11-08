@@ -4,7 +4,7 @@
     Run the real offline runner against disposable script fixtures and prove each new dispatch can fail.
 #>
 [CmdletBinding()]
-param([string]$PythonExecutable = '')
+param([string]$PythonExecutable = '', [switch]$HealthyOnly)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $pwsh = @(Get-Command -Name 'pwsh' -CommandType Application -ErrorAction SilentlyContinue) | Select-Object -First 1
@@ -21,6 +21,22 @@ if ([string]::IsNullOrWhiteSpace($PythonExecutable)) {
 # This expected contract is independent of the runner's registry. Removing a route from that registry
 # must fail the healthy fixture too, even though the remaining children all succeed.
 $checks = @(
+    @{ Name = 'Test-ModulePublishCommit.ps1'; Relative = 'tests/Test-ModulePublishCommit.ps1'; Summary = 'SUMMARY: Test-ModulePublishCommit passed 1 checks; synthetic repository removed.'; New = $true },
+    @{ Name = 'Test-CatalogDeadChild.ps1'; Relative = 'tests/Test-CatalogDeadChild.ps1'; Summary = 'SUMMARY: Test-CatalogDeadChild passed 1 checks; owned children disposed.'; New = $true },
+    @{ Name = 'Test-GrantClaudeLocalMcpReadiness.ps1'; Relative = 'tests/Test-GrantClaudeLocalMcpReadiness.ps1'; Summary = 'SUMMARY: Test-GrantClaudeLocalMcpReadiness passed 1 checks; no live policy, CLI or settings access.'; New = $true },
+    @{ Name = 'Refresh-AgentBrokerStatus.ps1'; Relative = 'tools/agentbroker/Refresh-AgentBrokerStatus.ps1'; Summary = '{"SelfTestPassed":true,"Checks":1}'; SelfTest = $true; New = $true },
+    @{ Name = 'Test-LocalAgentBrokerHealth.ps1'; Relative = 'tools/agentbroker/Test-LocalAgentBrokerHealth.ps1'; Summary = 'PublicMetadataChecks=1'; SelfTest = $true; New = $true },
+    @{ Name = 'Test-CompletedWorkerBinaryCleanup.ps1'; Relative = 'tests/Test-CompletedWorkerBinaryCleanup.ps1'; Summary = '  "Result": "PASS",'; New = $true },
+    @{ Name = 'Test-BacklogCriteriaSources.ps1'; Relative = 'tests/Test-BacklogCriteriaSources.ps1'; Summary = 'CriteriaSourceChecks=1'; New = $true },
+    @{ Name = 'Test-CodexEditorProbePreparation.ps1'; Relative = 'tests/Test-CodexEditorProbePreparation.ps1'; Summary = 'PASS: 1 preparation checks; no GUI launched.'; New = $true },
+    @{ Name = 'Test-OwnedTestTree.ps1'; Relative = 'tests/Test-OwnedTestTree.ps1'; Summary = 'OwnedTreeChecks=1'; New = $true },
+    @{ Name = 'Test-GateDispatchContracts.ps1'; Relative = 'tests/Test-GateDispatchContracts.ps1'; Summary = 'GateDispatchChecks=1'; New = $true },
+    @{ Name = 'Test-HarnessOutputContracts.ps1'; Relative = 'tests/Test-HarnessOutputContracts.ps1'; Summary = 'HarnessOutputChecks=1'; New = $true },
+    @{ Name = 'Install-LocalAgentBroker.ps1'; Relative = 'tools/agentbroker/Install-LocalAgentBroker.ps1'; Summary = 'PathPolicyChecks=1'; SelfTest = $true; New = $true },
+    @{ Name = 'Grant-ClaudeLocalMcpAllowance.ps1'; Relative = 'tools/agentbroker/Grant-ClaudeLocalMcpAllowance.ps1'; Summary = '{"SelfTestPassed":true,"Checks":1,"LiveSettingsReadOrChanged":false,"FixtureCleaned":true}'; SelfTest = $true; New = $true },
+    @{ Name = 'Inspect-ClaudeMcpPolicy.ps1'; Relative = 'tools/agentbroker/Inspect-ClaudeMcpPolicy.ps1'; Summary = '{"SelfTestPassed":true,"Checks":1,"LivePolicyRead":false}'; SelfTest = $true; New = $true },
+    @{ Name = 'Inspect-ClaudeMcpEntry.mjs'; Relative = 'tools/agentbroker/Inspect-ClaudeMcpEntry.mjs'; Summary = '{"status":"self_test_passed","checks":1}'; SelfTest = $true; New = $true },
+    @{ Name = 'Probe-IsolatedClaudeMcpSetup.mjs'; Relative = 'tools/agentbroker/Probe-IsolatedClaudeMcpSetup.mjs'; Summary = '{"status":"self_test_passed","checks":1,"fixtureRemoved":true,"publicFilesOpened":false,"cliLaunched":false}'; SelfTest = $true; New = $true },
     @{ Name = 'Test-InstallerMsiCallerSafety.ps1'; Relative = 'tests/Test-InstallerMsiCallerSafety.ps1'; Summary = ''; New = $false },
     @{ Name = 'Test-InstallerNativeCheckTimeout.ps1'; Relative = 'tests/Test-InstallerNativeCheckTimeout.ps1'; Summary = ''; New = $false },
     @{ Name = 'Test-InstallerPathSafety.ps1'; Relative = 'tests/Test-InstallerPathSafety.ps1'; Summary = ''; New = $false },
@@ -34,7 +50,8 @@ $checks = @(
     @{ Name = 'Test-IsolatedDotnetEnvironment.ps1'; Relative = 'tests/Test-IsolatedDotnetEnvironment.ps1'; Summary = '{"Result":"PASS","Checks":1,"Synthetic":true}'; New = $true },
     @{ Name = 'Test-OfflineScriptCheckDispatch.ps1'; Relative = 'tests/Test-OfflineScriptCheckDispatch.ps1'; Summary = 'OfflineDispatchChecks=1'; New = $true },
     @{ Name = 'run_installer_shutdown_mutations.py --self-test'; Relative = 'tests/run_installer_shutdown_mutations.py'; Summary = 'PASS 1 restoration cases (synthetic)'; SelfTest = $true; New = $true },
-    @{ Name = 'Test-MutationHarnessRestoration.py'; Relative = 'tests/Test-MutationHarnessRestoration.py'; Summary = 'MutationRestorationChecks=1'; New = $true }
+    @{ Name = 'Test-MutationHarnessRestoration.py'; Relative = 'tests/Test-MutationHarnessRestoration.py'; Summary = 'MutationRestorationChecks=1'; New = $true },
+    @{ Name = 'run_mutation_capture_checks.py'; Relative = 'tests/run_mutation_capture_checks.py'; Summary = 'MutationCaptureChecks=1; Failures=0; Errors=0; Skipped=0'; New = $true }
 )
 $scratchBase = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
 $scratch = Join-Path $scratchBase ('offline-dispatch-' + [guid]::NewGuid().ToString('N'))
@@ -63,6 +80,16 @@ if os.environ.get("OFFLINE_DISPATCH_SILENT") != name:
 '@
             $stub = $stub.Replace('NAME', ($check.Name | ConvertTo-Json -Compress)).Replace('ARGS', $(if ($requiresSelfTest) { '["--self-test"]' } else { '[]' })).Replace('SUMMARY', ($check.Summary | ConvertTo-Json -Compress))
         }
+        elseif ($path.EndsWith('.mjs', [StringComparison]::Ordinal)) {
+            $stub = @'
+const name = NAME;
+if (JSON.stringify(process.argv.slice(2)) !== '["--self-test"]') process.exit(23);
+console.log('DISPATCH-WITNESS:' + name);
+if (process.env.OFFLINE_DISPATCH_FAILURE === name) process.exit(17);
+if (process.env.OFFLINE_DISPATCH_SILENT !== name) console.log(SUMMARY);
+'@
+            $stub = $stub.Replace('NAME', ($check.Name | ConvertTo-Json -Compress)).Replace('SUMMARY', ($check.Summary | ConvertTo-Json -Compress))
+        }
         else {
             $stub = @'
 [CmdletBinding()]
@@ -80,9 +107,12 @@ if ([Environment]::GetEnvironmentVariable('OFFLINE_DISPATCH_SILENT', 'Process') 
 
     $scenarios = @(@{ Name = 'healthy'; Failure = ''; Silent = '' })
     foreach ($check in $checks) {
-        if ($check.New) { $scenarios += @{ Name = $check.Name; Failure = $check.Name; Silent = '' } }
+        if ($check.New) {
+            $scenarios += @{ Name = $check.Name; Failure = $check.Name; Silent = '' }
+            $scenarios += @{ Name = ('missing summary: ' + $check.Name); Failure = ''; Silent = $check.Name }
+        }
     }
-    $scenarios += @{ Name = 'missing summary'; Failure = ''; Silent = 'Test-MutationTempBudget.ps1' }
+    if ($HealthyOnly) { $scenarios = @($scenarios[0]) }
     foreach ($scenario in $scenarios) {
         [Environment]::SetEnvironmentVariable('OFFLINE_DISPATCH_FAILURE', $scenario.Failure, 'Process')
         [Environment]::SetEnvironmentVariable('OFFLINE_DISPATCH_SILENT', $scenario.Silent, 'Process')
@@ -100,14 +130,24 @@ if ([Environment]::GetEnvironmentVariable('OFFLINE_DISPATCH_SILENT', 'Process') 
             }
         }
         if ($scenario.Name -ceq 'healthy') {
-            if ($code -ne 0 -or -not $text.Contains("PASS: $($checks.Count) offline script checks")) { throw 'Healthy dispatch fixture failed.' }
+            if ($code -ne 0 -or -not $text.Contains("PASS: $($checks.Count) offline script checks")) {
+                throw ('Healthy dispatch fixture failed: ' + $text)
+            }
         }
         else {
             $target = if ($scenario.Silent) { $scenario.Silent } else { $scenario.Failure }
             if ($code -eq 0 -or -not $text.Contains("1 of $($checks.Count) offline script check(s) failed: " + $target)) {
                 throw ('Dispatch failure did not name exactly its one check: ' + $target)
             }
-            if ($scenario.Silent -and -not $text.Contains('missing or ambiguous passing summary')) { throw 'A child that silently did nothing was accepted.' }
+            if ($scenario.Silent) {
+                $signals = @($output | Where-Object { "$_" -cmatch '^OFFLINE-SUMMARY-MISSING:' })
+                if ($signals.Count -ne 1 -or "$($signals[0])" -cne ('OFFLINE-SUMMARY-MISSING:' + $target)) {
+                    throw ('Summary-missing signal did not name exactly its check: ' + $target)
+                }
+            }
+        }
+        if (-not $scenario.Silent -and @($output | Where-Object { "$_" -cmatch '^OFFLINE-SUMMARY-MISSING:' }).Count -ne 0) {
+            throw ('Unexpected summary-missing signal: ' + $scenario.Name)
         }
         $count++
         Write-Output ('PASS dispatch fixture: ' + $scenario.Name)

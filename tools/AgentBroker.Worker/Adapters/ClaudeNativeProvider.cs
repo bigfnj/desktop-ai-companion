@@ -16,6 +16,8 @@ public sealed class ClaudeNativeProvider : IClaudeNativeProvider
     // Sessions this pass found but could not open (see RefreshCoreAsync). Discovery runs one pass at a time.
     private int unopenableThisPass;
     private const int ErrorAccessDenied = 5;
+    internal const int MaximumCandidateCount = 32;
+    internal const int MaximumProcessScan = 128;
     private bool disposed;
 
     public ClaudeNativeProvider(bool enablePeerCredentials = false, bool updateTolerantDelivery = false)
@@ -50,20 +52,37 @@ public sealed class ClaudeNativeProvider : IClaudeNativeProvider
                 + "); no Claude Code build is verified, so no session can be woken until an AgentBroker module update replaces it."));
         var live = new HashSet<int>();
         unopenableThisPass = 0;
-        var processIds = source.GetProcessIds().Order().Take(33).ToArray();
-        bool complete = processIds.Length <= 32;
-        foreach (int processId in processIds.Take(32))
+        var processIds = source.GetProcessIds().Order().Take(MaximumProcessScan + 1).ToArray();
+        bool truncated = processIds.Length > MaximumProcessScan;
+        bool complete = !truncated;
+        // One held image sample per exact path in this invocation. Every process is rechecked independently;
+        // all samples are released before return, and the next pass/submission verifies the image afresh.
+        var images = new Dictionary<string, ClaudePublicImageTrustResult>(StringComparer.Ordinal);
+        try
         {
-            token.ThrowIfCancellationRequested(); live.Add(processId);
-            var candidate = await RefreshCoreAsync(processId, diagnostics, token);
-            if (candidate is not null) found.Add(candidate);
-            else complete = false;
+            foreach (int processId in processIds.Take(MaximumProcessScan))
+            {
+                if (found.Count == MaximumCandidateCount) { complete = false; truncated = true; break; }
+                token.ThrowIfCancellationRequested(); live.Add(processId);
+                var candidate = await RefreshCoreAsync(processId, diagnostics, token, images);
+                if (candidate is not null) found.Add(candidate);
+                else complete = false;
+            }
         }
+        finally
+        {
+            List<Exception>? failures = null;
+            foreach (var sample in images.Values)
+                try { sample.Dispose(); } catch (Exception error) { (failures ??= []).Add(error); }
+            if (failures is not null) throw new AggregateException("Claude discovery image cleanup failed.", failures);
+        }
+        if (truncated)
+            diagnostics.Add(new("claude_discovery_truncated", "Claude discovery reached its bounded process/session census; some sessions may be missing.") { Note = true });
         // Counted, never named (no process ID, session ID or path): such a session used to be skipped in silence, so its
         // owner saw no row and no reason (N-broker-elevated-caller-01).
         if (unopenableThisPass > 0)
             // A note, not an adapter failure (review of 25a0c65, finding 5): the other sessions are healthy, so the pane keeps
-            // their wake line and shows this beside it. At most 116 characters for any count up to the 32-process bound, so it
+            // their wake line and shows this beside it. The bounded 128-process census keeps this count label short, so it
             // fits a 120-character tray label with its marker (the plural once ran to 117 and lost its final period).
             diagnostics.Add(new("claude_session_elevated", unopenableThisPass + " Claude Code session" + (unopenableThisPass == 1
                 ? " is elevated or another user's and cannot be woken; use register_agent or run unelevated."
@@ -81,7 +100,7 @@ public sealed class ClaudeNativeProvider : IClaudeNativeProvider
         => RefreshCoreAsync(processId, diagnostics: null, token);
 
     private Task<ClaudeNativeCandidate?> RefreshCoreAsync(int processId, List<AdapterDiscoveryDiagnostic>? diagnostics,
-        CancellationToken token)
+        CancellationToken token, Dictionary<string, ClaudePublicImageTrustResult>? images = null)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
         token.ThrowIfCancellationRequested();
@@ -108,12 +127,12 @@ public sealed class ClaudeNativeProvider : IClaudeNativeProvider
                 // every supported candidate must still match the complete public executable hash.
                 string? version = source.ReadProductVersion(image);
                 if (!EngineProfile.IsSupportedPublicVersion(version))
-                    return Task.FromResult(Unpinned("unsupported_public_version", processId, metadata, process, image, started, version, diagnostics, token));
+                    return Task.FromResult(Unpinned("unsupported_public_version", processId, metadata, process, image, started, version, diagnostics, token, images));
                 string hash = source.ReadImageSha256(image);
                 profile = EngineProfile.Verified
                     .SingleOrDefault(candidate => string.Equals(candidate.Sha256, hash, StringComparison.OrdinalIgnoreCase));
                 if (profile is null)
-                    return Task.FromResult(Unpinned("image_hash_mismatch", processId, metadata, process, image, started, version, diagnostics, token));
+                    return Task.FromResult(Unpinned("image_hash_mismatch", processId, metadata, process, image, started, version, diagnostics, token, images));
                 if (profiles.Count >= 32) profiles.Remove(profiles.Keys.First());
                 profiles[key] = profile;
             }
@@ -141,11 +160,11 @@ public sealed class ClaudeNativeProvider : IClaudeNativeProvider
 
     private ClaudeNativeCandidate? Unpinned(string pinRefusal, int processId, NativeSessionMetadata metadata,
         IClaudeDiscoveryProcess process, string image, ulong started, string? version,
-        List<AdapterDiscoveryDiagnostic>? diagnostics, CancellationToken token)
+        List<AdapterDiscoveryDiagnostic>? diagnostics, CancellationToken token, Dictionary<string, ClaudePublicImageTrustResult>? images)
     {
         int reportAt = diagnostics?.Count ?? 0;
         ClaudeNativeCandidate? observed = null;
-        try { return observed = ObserveUnpinned(processId, metadata, process, image, started, version, diagnostics, token); }
+        try { return observed = ObserveUnpinned(processId, metadata, process, image, started, version, diagnostics, token, images); }
         finally
         {
             // The failed exact pin stays the adapter's error, first, as before, unless update-tolerant delivery carries this
@@ -167,33 +186,42 @@ public sealed class ClaudeNativeProvider : IClaudeNativeProvider
 
     private ClaudeNativeCandidate? ObserveUnpinned(int processId, NativeSessionMetadata metadata,
         IClaudeDiscoveryProcess process, string image, ulong started, string? version,
-        List<AdapterDiscoveryDiagnostic>? diagnostics, CancellationToken token)
+        List<AdapterDiscoveryDiagnostic>? diagnostics, CancellationToken token, Dictionary<string, ClaudePublicImageTrustResult>? images)
     {
         // The default process implementation refuses this path. Exact-pin delivery remains separate.
         if (!process.IsCurrentUser || process.HasExited) return null;
         token.ThrowIfCancellationRequested();
-        using var trust = source.ObserveUnpinnedPublicImage(image);
-        token.ThrowIfCancellationRequested();
-        if (trust.Trust != ClaudePublicImageTrust.ExpectedPublisher || trust.ImageSha256 is not { Length: 64 } hash ||
-            !hash.All(Uri.IsHexDigit))
+        ClaudePublicImageTrustResult trust;
+        if (images is null || !images.TryGetValue(image, out trust!))
         {
-            string code = trust.Trust switch
-            {
-                ClaudePublicImageTrust.UntrustedSignature => "public_image_signature_untrusted",
-                ClaudePublicImageTrust.UnexpectedPublisher => "public_image_publisher_mismatch",
-                _ => "public_image_trust_unavailable",
-            };
-            diagnostics?.Add(new(code, "Claude Code read-only observation refused: public image publisher trust was not established."));
-            return null;
+            trust = source.ObserveUnpinnedPublicImage(image);
+            images?.Add(image, trust);
         }
-        if (process.HasExited || !process.IsCurrentUser || process.StartFileTime != started ||
-            !string.Equals(process.ImagePath, image, StringComparison.Ordinal)) return null;
-        bool plausible = metadata.HasPlausibleActivityTimestamp(DateTimeOffset.UtcNow);
-        // Update-tolerant delivery makes the same signed, identity-checked observation deliverable. NativePeerAdapter checks the
-        // publisher again on the connected pipe server's own image, and its hash against this one, before any credential read.
-        return new(new(metadata.CanonicalPipe, processId, image, hash, version ?? "unknown",
-            started, metadata.SessionId), plausible ? metadata.Status : null)
-        { Provenance = updateTolerant ? ClaudeDiscoveryProvenance.UpdateTolerant : ClaudeDiscoveryProvenance.PublisherSignedObservation };
+        try
+        {
+            token.ThrowIfCancellationRequested();
+            if (trust.Trust != ClaudePublicImageTrust.ExpectedPublisher || trust.ImageSha256 is not { Length: 64 } hash ||
+                !hash.All(Uri.IsHexDigit))
+            {
+                string code = trust.Trust switch
+                {
+                    ClaudePublicImageTrust.UntrustedSignature => "public_image_signature_untrusted",
+                    ClaudePublicImageTrust.UnexpectedPublisher => "public_image_publisher_mismatch",
+                    _ => "public_image_trust_unavailable",
+                };
+                diagnostics?.Add(new(code, "Claude Code read-only observation refused: public image publisher trust was not established."));
+                return null;
+            }
+            if (process.HasExited || !process.IsCurrentUser || process.StartFileTime != started ||
+                !string.Equals(process.ImagePath, image, StringComparison.Ordinal)) return null;
+            bool plausible = metadata.HasPlausibleActivityTimestamp(DateTimeOffset.UtcNow);
+            // Update-tolerant delivery makes the same signed, identity-checked observation deliverable. NativePeerAdapter checks the
+            // publisher again on the connected pipe server's own image, and its hash against this one, before any credential read.
+            return new(new(metadata.CanonicalPipe, processId, image, hash, version ?? "unknown",
+                started, metadata.SessionId), plausible ? metadata.Status : null)
+            { Provenance = updateTolerant ? ClaudeDiscoveryProvenance.UpdateTolerant : ClaudeDiscoveryProvenance.PublisherSignedObservation };
+        }
+        finally { if (images is null) trust.Dispose(); }
     }
 
     private static string Installed(string? version) => string.IsNullOrWhiteSpace(version) ? "unknown version" :

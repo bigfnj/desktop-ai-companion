@@ -130,13 +130,16 @@ internal static class ClaudePinDiagnosticChecks
 
     private static async Task BoundedSnapshotAsync(Action<bool, string> check)
     {
-        var entries = Enumerable.Range(501, 40).Select(pid => Create(pid) with { Version = "2.1." + pid }).Reverse().ToArray();
+        var entries = Enumerable.Range(501, 129).Select(pid => Create(pid) with { Version = "2.1." + pid }).Reverse().ToArray();
         var source = new PublicSource(entries);
         await using var provider = new ClaudeNativeProvider(source);
-        await provider.DiscoverAsync(CancellationToken.None);
-        check(provider.DiscoveryDiagnostics.Count == 32 && source.Calls.Count(call => call.EndsWith(":metadata", StringComparison.Ordinal)) == 32 &&
-            !source.Calls.Contains("533:metadata"),
-            "Claude discovery diagnostics retain the existing sorted thirty-two-process bound");
+        var sessions = await provider.DiscoverAsync(CancellationToken.None);
+        check(sessions.Count == 0 && !provider.DiscoveryCensusComplete && provider.DiscoveryDiagnostics.Count == 129 &&
+            provider.DiscoveryDiagnostics.Count(item => item.Code == "unsupported_public_version") == 128 &&
+            provider.DiscoveryDiagnostics.Count(item => item.Code == "claude_discovery_truncated" && item.Note) == 1 &&
+            source.Calls.Where(call => call.EndsWith(":metadata", StringComparison.Ordinal))
+                .SequenceEqual(Enumerable.Range(501, 128).Select(pid => pid + ":metadata")) && !source.Calls.Contains("629:metadata"),
+            "Claude discovery diagnostics retain the sorted 128-process scan and an explicit incomplete-census note");
         source.Processes.Clear();
         await provider.DiscoverAsync(CancellationToken.None);
         check(provider.DiscoveryDiagnostics.Count == 0,
@@ -180,8 +183,8 @@ internal static class ClaudePinDiagnosticChecks
         check(plural?.StartsWith("2 Claude Code sessions are elevated", StringComparison.Ordinal) == true,
             "CLAUDE_ELEVATED_PLURAL: two elevated sessions are counted as two");
         // Review of d9c2967, item 3: the plural ran to 117 characters and lost its final period in the module's 116.
-        check(plural is not null && ("32" + plural[1..]).Length <= 116 && plural.EndsWith(".", StringComparison.Ordinal),
-            "CLAUDE_ELEVATED_PLURAL_FITS: the plural note fits 116 characters even at the 32-process bound");
+        check(plural is not null && ("128" + plural[1..]).Length <= 116 && plural.EndsWith(".", StringComparison.Ordinal),
+            $"CLAUDE_ELEVATED_PLURAL_FITS: the plural note fits 116 characters at the 128-process bound ({(plural is null ? 0 : ("128" + plural[1..]).Length)} characters)");
         check(await provider.RefreshAsync(elevated.Pid, CancellationToken.None) is null,
             "CLAUDE_ELEVATED_REFRESH: a direct refresh of an elevated session still finds no target");
         source.Processes.Remove(elevated.Pid); source.Processes.Remove(secondElevated.Pid);

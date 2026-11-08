@@ -74,7 +74,7 @@ internal static class ReceiptWaitChecks
         tools.Send(sender.Address, native.Address, submitted, "Synthetic message a native adapter admits.");
         var claim = fixture.Store.BeginDelivery();
         check(claim?.Message.Id == submitted, "The native message is claimed for submission.");
-        fixture.Store.CompleteDelivery(submitted, MessageStatus.Submitted, "native_write_unconfirmed");
+        fixture.Store.CompleteDelivery(fixture.Store.FindReceipt(submitted)!, MessageStatus.Submitted, "native_write_unconfirmed");
         elapsed.Restart();
         var transport = await tools.WaitForReceipt(submitted, default, timeoutSeconds: 1);
         elapsed.Stop();

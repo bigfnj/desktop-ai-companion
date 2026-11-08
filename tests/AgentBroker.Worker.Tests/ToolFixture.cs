@@ -9,6 +9,7 @@ using ModelContextProtocol;
 // Advance while a blocking wait still ends on real elapsed time.
 internal sealed class ToolFixture : IAsyncDisposable
 {
+    private readonly OwnedScratch scratch;
     internal ManualClock Clock { get; } = new();
     internal string Root { get; }
     internal BrokerStore Store { get; }
@@ -20,8 +21,8 @@ internal sealed class ToolFixture : IAsyncDisposable
     internal ToolFixture(string name, BrokerLimits? limits = null, TimeProvider? clock = null,
         IReadOnlyList<ILocalAgentAdapter>? adapters = null, ICallerProcessResolver? callers = null)
     {
-        Root = Path.Combine(AppContext.BaseDirectory, "scratch", name + "-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(Root);
+        scratch = OwnedScratch.Create(name);
+        Root = scratch.Root;
         Store = new BrokerStore(Path.Combine(Root, "store"), limits, clock ?? Clock);
         Runtime = new BrokerRuntime(Store, new NoPeers(), adapters ?? [], new SessionPreferences(Root), clock ?? Clock, callers);
         Context.Items["agentbroker.identity"] = Store.BrokerId;
@@ -31,7 +32,11 @@ internal sealed class ToolFixture : IAsyncDisposable
     internal BrokerSession? Current(SessionAddress address) => Store.Directory().SingleOrDefault(session => session.Address == address);
     internal BrokerSession Native(string id) => new(new(Store.BrokerId, id, Guid.NewGuid()), "Synthetic native " + id, "codex",
         SessionCapabilities.Receive | SessionCapabilities.WakeIdle | SessionCapabilities.Reply, SessionActivity.Idle, Clock.GetUtcNow().AddMinutes(1));
-    public async ValueTask DisposeAsync() { await Runtime.DisposeAsync(); Store.Dispose(); }
+    public async ValueTask DisposeAsync()
+    {
+        try { await Runtime.DisposeAsync(); }
+        finally { try { Store.Dispose(); } finally { scratch.Dispose(); } }
+    }
 
     internal static bool Refused(Action action, string code)
     {

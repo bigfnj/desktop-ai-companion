@@ -5,7 +5,6 @@ using AgentBroker.Worker.Security;
 using AgentBroker.Worker.Adapters;
 using Microsoft.AspNetCore.Server.Kestrel.Https;
 using ModelContextProtocol.AspNetCore;
-using System.Diagnostics;
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
@@ -15,18 +14,27 @@ namespace AgentBroker.Worker;
 public sealed class WorkerApplication : IAsyncDisposable
 {
     private readonly BrokerIdentity identity;
+    private readonly DateTimeOffset certificateRenewalDueAt;
     private readonly CancellationTokenSource lifetime = new();
     private readonly byte[] localToken = RandomNumberGenerator.GetBytes(32);
     private Task? parentWatch;
+    private Task? certificateWatch;
     private LocalControlServer? control;
     private readonly McpActivityTracker mcpActivity;
     private readonly CancellationTokenRegistration mcpStarted, mcpStopping;
     private int disposed;
+    private int certificateRenewalRequested;
+    private int shutdownCleanupFailed;
+    private int externalStopRequested;
     public WebApplication Application { get; }
     public BrokerRuntime Runtime { get; }
     public WorkerOptions Options { get; }
     public string LocalAccessToken => Convert.ToHexString(localToken);
     public McpStatusView McpStatus => mcpActivity.Snapshot();
+    internal DateTimeOffset CertificateRenewalDueAt => certificateRenewalDueAt;
+    internal bool CertificateRenewalRequested => Volatile.Read(ref certificateRenewalRequested) != 0;
+    internal bool ShutdownCleanupFailed => Volatile.Read(ref shutdownCleanupFailed) != 0;
+    internal bool ExternalStopRequested => Volatile.Read(ref externalStopRequested) != 0;
     // Read-only LAN observations for status: network category, this worker's rule, inbound evidence.
     public LanProfileMonitor LanProfile { get; } = new(new WindowsLanProfileProbe());
 
@@ -34,6 +42,7 @@ public sealed class WorkerApplication : IAsyncDisposable
         BrokerIdentity identity, WorkerOptions options, McpActivityTracker mcpActivity)
     {
         Application = application; Runtime = runtime; this.identity = identity; Options = options;
+        certificateRenewalDueAt = identity.RenewalDueAt;
         this.mcpActivity = mcpActivity;
         mcpStarted = application.Lifetime.ApplicationStarted.Register(static state => ((McpActivityTracker)state!).SetReady(true), mcpActivity);
         mcpStopping = application.Lifetime.ApplicationStopping.Register(static state => ((McpActivityTracker)state!).SetReady(false), mcpActivity);
@@ -198,6 +207,36 @@ public sealed class WorkerApplication : IAsyncDisposable
         control!.Start();
         Runtime.Start(lifetime.Token);
         if (Options.ParentPid > 0) parentWatch = WatchParentAsync(lifetime.Token);
+        certificateWatch = WatchCertificateAsync(lifetime.Token);
+    }
+
+    private async Task WatchCertificateAsync(CancellationToken token)
+    {
+        try
+        {
+            // Startup has already renewed a due certificate. Never replace a certificate held by live listeners.
+            while (true)
+            {
+                await Task.Delay(TimeSpan.FromHours(1), token);
+                if (RequestCertificateRenewal(DateTimeOffset.UtcNow)) return;
+            }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+    }
+
+    internal bool RequestCertificateRenewal(DateTimeOffset now)
+    {
+        if (!WorkerLifetime.RenewalIsDue(now, CertificateRenewalDueAt) ||
+            Application.Lifetime.ApplicationStopping.IsCancellationRequested ||
+            Interlocked.CompareExchange(ref certificateRenewalRequested, 1, 0) != 0) return false;
+        Application.Lifetime.StopApplication();
+        return true;
+    }
+
+    internal void RequestExternalStop()
+    {
+        Interlocked.Exchange(ref externalStopRequested, 1);
+        Application.Lifetime.StopApplication();
     }
 
     private async Task WatchParentAsync(CancellationToken token)
@@ -206,16 +245,7 @@ public sealed class WorkerApplication : IAsyncDisposable
         {
             while (!token.IsCancellationRequested)
             {
-                bool owned;
-                try
-                {
-                    using var parent = Process.GetProcessById(Options.ParentPid);
-                    owned = !parent.HasExited && parent.StartTime.ToUniversalTime().ToFileTimeUtc() == Options.ParentCreationFileTime;
-                }
-                catch (ArgumentException) { owned = false; }
-                catch (InvalidOperationException) { owned = false; }
-                catch (System.ComponentModel.Win32Exception) { owned = false; }
-                if (!owned) { Application.Lifetime.StopApplication(); return; }
+                if (!WorkerLifetime.ParentIsAlive(Options)) { RequestExternalStop(); return; }
                 await Task.Delay(TimeSpan.FromSeconds(1), token);
             }
         }
@@ -234,6 +264,7 @@ public sealed class WorkerApplication : IAsyncDisposable
             using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
             await CleanAsync(() => Application.StopAsync(deadline.Token));
             if (parentWatch is not null) await CleanAsync(() => parentWatch);
+            if (certificateWatch is not null) await CleanAsync(() => certificateWatch);
             await CleanAsync(() => Runtime.Federation.DisposeAsync().AsTask());
             await CleanAsync(() => Application.DisposeAsync().AsTask());
         }
@@ -243,10 +274,14 @@ public sealed class WorkerApplication : IAsyncDisposable
             mcpStarted.Dispose(); mcpStopping.Dispose();
             CryptographicOperations.ZeroMemory(localToken); lifetime.Dispose();
         }
-        static async Task CleanAsync(Func<Task> action)
+        async Task CleanAsync(Func<Task> action)
         {
             try { await action(); }
-            catch (Exception) { Console.Error.WriteLine("agentbroker: shutdown_cleanup_failed"); }
+            catch (Exception)
+            {
+                Interlocked.Exchange(ref shutdownCleanupFailed, 1);
+                Console.Error.WriteLine("agentbroker: shutdown_cleanup_failed");
+            }
         }
     }
 }

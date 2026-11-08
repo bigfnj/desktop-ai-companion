@@ -15,10 +15,15 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+. (Join-Path $PSScriptRoot 'OwnedTestTree.ps1')
 $project = Join-Path $repo 'tests\AgentBroker.Desktop.Tests\AgentBroker.Desktop.Tests.csproj'
 $executable = Join-Path $repo 'tests\AgentBroker.Desktop.Tests\bin\Release\net10.0-windows\AgentBroker.Desktop.Tests.exe'
-$scratch = Join-Path $repo ('artifacts\discovery-timeouts\' + [Guid]::NewGuid().ToString('N'))
+$scratchParent = Join-Path $repo 'artifacts\discovery-timeouts'
+$scratch = Join-Path $scratchParent ([Guid]::NewGuid().ToString('N'))
+[void](Assert-OwnedTestPath $scratch)
 [void][IO.Directory]::CreateDirectory($scratch)
+$runFailed = $false
+try {
 $config = Join-Path $scratch 'NuGet.Config'
 $cachedPackages = Join-Path ([Environment]::GetFolderPath('UserProfile')) '.nuget\packages'
 $fallback = [Security.SecurityElement]::Escape($cachedPackages)
@@ -65,3 +70,7 @@ finally {
         else { [Environment]::SetEnvironmentVariable($name, $previous[$name], 'Process') }
     }
 }
+} catch { $runFailed = $true; throw }
+finally { Complete-OwnedTestTree $scratch $scratchParent $runFailed }
+if (Test-Path -LiteralPath $scratch) { throw 'DISCOVERY_TIMEOUT_FIXTURE_CLEANED' }
+Write-Output ('ScratchCleaned=' + (-not (Test-Path -LiteralPath $scratch)))

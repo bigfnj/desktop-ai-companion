@@ -16,6 +16,13 @@ namespace AgentBroker.Worker.Federation;
 
 public sealed partial class PeerFederation : IPeerFederation
 {
+    internal const int MaximumMessageBodyBytes = 128 * 1024;
+    internal const int MaximumDirectoryBodyBytes = 1024 * 1024;
+    private sealed class ConnectionAttempt
+    {
+        internal volatile bool Connected;
+        internal volatile bool FailedBeforeConnect;
+    }
     private sealed record Request(Guid RequestId, string Nonce, BrokerAdvertisement Peer, DateTimeOffset ExpiresAt);
     private sealed record Approval(Guid RequestId, string Nonce, BrokerAdvertisement Peer, string VerificationCode);
     private sealed record ApprovalAnswer(Guid RequestId, string Nonce, BrokerAdvertisement Peer, string VerificationCode, bool LocalApproved);
@@ -62,16 +69,15 @@ public sealed partial class PeerFederation : IPeerFederation
     {
         if (!context.Request.IsHttps || context.Connection.RemoteIpAddress is not { } remote || !NetworkPolicy.PrivateV4(remote) ||
             context.Connection.ClientCertificate is not { } cert) return null;
-        string fingerprint = cert.GetCertHashString(HashAlgorithmName.SHA256);
         foreach (var peer in store.Peers())
-            if (fingerprint.Equals(peer.CertificateSha256, StringComparison.OrdinalIgnoreCase) && BrokerIdentity.IsFor(cert, peer.BrokerId))
+            if (CertificateContinuity.MatchesPinnedCertificate(cert, peer.BrokerId, peer.CertificateSha256, Now))
                 return peer.BrokerId;
         return null;
     }
     private void PairCertificate(HttpContext context, BrokerAdvertisement peer)
     {
         if (!context.Request.IsHttps || context.Connection.RemoteIpAddress is not { } remote || context.Connection.ClientCertificate is not { } cert ||
-            !BrokerIdentity.IsFor(cert, peer.BrokerId) || !cert.GetCertHashString(HashAlgorithmName.SHA256).Equals(peer.CertificateSha256, StringComparison.OrdinalIgnoreCase))
+            !CertificateContinuity.MatchesPinnedCertificate(cert, peer.BrokerId, peer.CertificateSha256, Now))
             throw new UnauthorizedAccessException("Pairing identity does not match its TLS caller.");
         NetworkPolicy.Advertisement(peer, remote);
         if (peer.BrokerId == store.BrokerId) throw new InvalidDataException("Cannot pair the broker with itself.");
@@ -138,7 +144,7 @@ public sealed partial class PeerFederation : IPeerFederation
             RequirePeer(c); return Task.FromResult<IResult>(Results.Json(new PeerDirectory(store.BrokerId, store.PresentedDirectory(true)), Json));
         })));
         application.MapPost("/federation/messages", (Func<HttpContext, Task<IResult>>)((HttpContext c) => Handle(c, async () => {
-            Guid caller = RequirePeer(c); var message = await Read<BrokerMessage>(c);
+            Guid caller = RequirePeer(c); var message = await Read<BrokerMessage>(c, MaximumMessageBodyBytes);
             // Recheck after body read so revocation during a slow upload cannot authorize admission.
             if (RequirePeer(c) != caller) throw new UnauthorizedAccessException();
             return Results.Json(store.Accept(message, caller), Json);
@@ -236,7 +242,7 @@ public sealed partial class PeerFederation : IPeerFederation
     public async Task<PeerDirectory> GetDirectoryAsync(PeerTrust peer, CancellationToken token)
     {
         var authorization = Current(peer); using var client = Client(Advert(peer));
-        var directory = await Exchange<PeerDirectory>(client, HttpMethod.Get, "federation/directory", null, token, maximum: 262144,
+        var directory = await Exchange<PeerDirectory>(client, HttpMethod.Get, "federation/directory", null, token, maximum: MaximumDirectoryBodyBytes,
             authorization: authorization, peerBrokerId: peer.BrokerId); Current(authorization);
         if (directory.BrokerId != peer.BrokerId || directory.Sessions.Count > 512 || directory.Sessions.Any(s => s.Address.BrokerId != peer.BrokerId || s.IsPrivate))
             throw new InvalidDataException("Peer directory contains invalid or transitive identities.");
@@ -245,10 +251,12 @@ public sealed partial class PeerFederation : IPeerFederation
     public async Task<MessageReceipt> SubmitAsync(PeerTrust peer, BrokerMessage message, CancellationToken token)
     {
         var authorization = Current(peer); if (message.Sender.BrokerId != store.BrokerId || message.Recipient.BrokerId != peer.BrokerId) throw new InvalidDataException("Only direct local-to-peer submission is allowed.");
-        using var client = Client(Advert(peer));
+        var attempt = new ConnectionAttempt();
+        using var client = Client(Advert(peer), attempt: attempt);
         MessageReceipt receipt;
         try { receipt = await Exchange<MessageReceipt>(client, HttpMethod.Post, "federation/messages", message, token,
-            maximum: 65536, authorization: authorization, peerBrokerId: peer.BrokerId, submission: true); }
+            maximum: MaximumMessageBodyBytes, authorization: authorization, peerBrokerId: peer.BrokerId, submission: true,
+            maximumRequest: MaximumMessageBodyBytes, attempt: attempt); }
         catch (PeerAdmissionRefusedException) { Current(authorization); throw; }
         Current(authorization);
         if (receipt.Message != message) throw new InvalidDataException("Peer receipt differs from submitted message."); return receipt;
@@ -257,7 +265,7 @@ public sealed partial class PeerFederation : IPeerFederation
     {
         var authorization = Current(peer); using var client = Client(Advert(peer));
         try { var receipt = await Exchange<MessageReceipt>(client, HttpMethod.Get, "federation/receipts/" + messageId, null, token,
-            maximum: 65536, authorization: authorization, peerBrokerId: peer.BrokerId); Current(authorization); if (receipt.Message.Id != messageId) throw new InvalidDataException("Wrong receipt identity."); return receipt; }
+            maximum: MaximumMessageBodyBytes, authorization: authorization, peerBrokerId: peer.BrokerId); Current(authorization); if (receipt.Message.Id != messageId) throw new InvalidDataException("Wrong receipt identity."); return receipt; }
         catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.NotFound) { return null; }
     }
     private BrokerStore.PeerAuthorization Current(PeerTrust peer) => store.CapturePeerAuthorization(peer)
@@ -295,33 +303,48 @@ public sealed partial class PeerFederation : IPeerFederation
         if (consumed.Count > 256) consumed.Remove(consumed.MinBy(p => p.Value.Until).Key);
     }
     private void Trim() { foreach (var p in pending.Where(p => p.Value.Offer.ExpiresAt <= Now).ToArray()) { Remember(p.Value); pending.Remove(p.Key); } foreach (var p in consumed.Where(p => p.Value.Until <= Now).ToArray()) consumed.Remove(p.Key); }
-    private HttpClient Client(BrokerAdvertisement peer, Action<IPAddress>? local = null)
+    private HttpClient Client(BrokerAdvertisement peer, Action<IPAddress>? local = null, ConnectionAttempt? attempt = null)
     {
         Uri endpoint = NetworkPolicy.Endpoint(peer.Endpoint);
         var handler = new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false, UseProxy = false, ConnectTimeout = TimeSpan.FromSeconds(10), PooledConnectionLifetime = TimeSpan.Zero };
         handler.SslOptions = new SslClientAuthenticationOptions { ClientCertificates = new X509CertificateCollection { identity.Certificate },
-            RemoteCertificateValidationCallback = (_, certificate, _, _) => certificate is X509Certificate2 cert && BrokerIdentity.IsFor(cert, peer.BrokerId) &&
-                cert.GetCertHashString(HashAlgorithmName.SHA256).Equals(peer.CertificateSha256, StringComparison.OrdinalIgnoreCase) };
+            RemoteCertificateValidationCallback = (_, certificate, _, _) => certificate is X509Certificate2 cert &&
+                CertificateContinuity.MatchesPinnedCertificate(cert, peer.BrokerId, peer.CertificateSha256, Now) };
         handler.ConnectCallback = async (_, cancellation) => {
             var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-            try { await socket.ConnectAsync(new IPEndPoint(IPAddress.Parse(endpoint.Host), endpoint.Port), cancellation); local?.Invoke(((IPEndPoint)socket.LocalEndPoint!).Address); return new NetworkStream(socket, true); }
-            catch { socket.Dispose(); throw; }
+            try
+            {
+                await socket.ConnectAsync(new IPEndPoint(IPAddress.Parse(endpoint.Host), endpoint.Port), cancellation);
+                if (attempt is not null) attempt.Connected = true;
+                local?.Invoke(((IPEndPoint)socket.LocalEndPoint!).Address);
+                return new NetworkStream(socket, true);
+            }
+            catch
+            {
+                if (attempt is not null && !attempt.Connected) attempt.FailedBeforeConnect = true;
+                socket.Dispose(); throw;
+            }
         };
         return new HttpClient(handler) { BaseAddress = endpoint, Timeout = TimeSpan.FromSeconds(10) };
     }
     private async Task<T> Exchange<T>(HttpClient client, HttpMethod method, string path, object? payload, CancellationToken token,
         int maximum = 32768, bool pairingRequest = false, BrokerStore.PeerAuthorization? authorization = null,
-        Guid peerBrokerId = default, bool submission = false)
+        Guid peerBrokerId = default, bool submission = false, int maximumRequest = 32768, ConnectionAttempt? attempt = null)
     {
         using var request = new HttpRequestMessage(method, path);
-        if (payload is not null) { byte[] body = JsonSerializer.SerializeToUtf8Bytes(payload, Json); if (body.Length > 32768) throw new InvalidDataException("Request body is oversized."); request.Content = new ByteArrayContent(body); request.Content.Headers.ContentType = new("application/json"); }
+        if (payload is not null) { byte[] body = JsonSerializer.SerializeToUtf8Bytes(payload, Json); if (body.Length > maximumRequest) throw new InvalidDataException("Request body is oversized."); request.Content = new ByteArrayContent(body); request.Content.Headers.ContentType = new("application/json"); }
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token); timeout.CancelAfter(TimeSpan.FromSeconds(10));
         var started = peerClocks.Begin();
         HttpResponseMessage answer;
         try { answer = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token); }
-        catch
+        catch (Exception error)
         {
             if (authorization is not null && store.IsPeerAuthorized(authorization)) peerClocks.Unavailable(peerBrokerId, authorization);
+            if (submission && authorization is not null && attempt is { FailedBeforeConnect: true, Connected: false })
+            {
+                Current(authorization);
+                throw new PeerSubmissionNotStartedException(peerBrokerId, error);
+            }
             throw;
         }
         using var response = answer;
@@ -353,11 +376,11 @@ public sealed partial class PeerFederation : IPeerFederation
         byte[] bytes = await Bounded(await response.Content.ReadAsStreamAsync(timeout.Token), maximum, timeout.Token);
         return JsonSerializer.Deserialize<T>(bytes, Json) ?? throw new InvalidDataException("Empty response.");
     }
-    private static async Task<T> Read<T>(HttpContext c)
+    private static async Task<T> Read<T>(HttpContext c, int maximum = 32768)
     {
-        if (c.Request.ContentLength > 32768 || !c.Request.HasJsonContentType()) throw new InvalidDataException("Invalid body.");
+        if (c.Request.ContentLength > maximum || !c.Request.HasJsonContentType()) throw new InvalidDataException("Invalid body.");
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(c.RequestAborted); timeout.CancelAfter(TimeSpan.FromSeconds(10));
-        return JsonSerializer.Deserialize<T>(await Bounded(c.Request.Body, 32768, timeout.Token), Json) ?? throw new InvalidDataException("Empty body.");
+        return JsonSerializer.Deserialize<T>(await Bounded(c.Request.Body, maximum, timeout.Token), Json) ?? throw new InvalidDataException("Empty body.");
     }
     private static async Task<byte[]> Bounded(Stream stream, int maximum, CancellationToken token)
     {

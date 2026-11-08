@@ -39,17 +39,21 @@ WRAPPER = ROOT / "tests/Test-InstallerShutdown.ps1"
 VARIANTS = (
     ("basename-selection", "paths", POLICY,
      '        for (const auto& image : context.installedImages) installed |= SamePath(identity.image, image);',
-     '        for (const auto& image : context.installedImages) { (void)image; installed = true; }', None),
+     '        for (const auto& image : context.installedImages) { (void)image; installed = true; }',
+     "only the complete installed image is closed gracefully"),
     ("legacy-refusal", "legacy", POLICY,
      '            if (context.legacyTransition) throw Failure("legacy_foreign_companion_present");',
-     '            (void)context.legacyTransition;', None),
+     '            (void)context.legacyTransition;',
+     "a legacy upgrade refuses a foreign same-basename companion"),
     ("owner-prevalidation", "prevalidation", POLICY,
      '        if (identity.userSid != context.userSid) throw Failure("installed_companion_owner_mismatch");',
-     '        (void)context.userSid;', None),
+     '        (void)context.userSid;',
+     "an installed image owned by a different user refuses shutdown"),
     ("retained-fallback-identity", "changed-identity", POLICY,
      '        if (!SameIdentity(target.identity, target.process->ReadIdentity())) throw Failure("companion_identity_changed");\n'
      '        target.process->Terminate();',
-     '        target.process->Terminate();', None),
+     '        target.process->Terminate();',
+     "fallback rejects changed incarnation or image after graceful close times out"),
     # ---- lane feature/installer-tests ----
     ("installer-tests:cached-package-missing", "paths", PLATFORM,
      'std::wstring CanonicalCachedPackage(const std::wstring& path) { return Canonical(path, false, "cached_package_missing"); }',
@@ -82,6 +86,11 @@ def file_label(name: str) -> str:
 
 def digest(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
+
+
+def exact_failure(text: str, exit_code: int, rebuilt: bool, label: str | None) -> bool:
+    failures = re.findall(r"(?m)^FAIL[^\r\n]*", text)
+    return bool(label) and rebuilt and exit_code == 1 and failures == ["FAIL ShutdownChecks.cpp: " + label]
 
 
 def write_new(path: Path, raw: bytes) -> None:
@@ -374,8 +383,7 @@ def main(argv: list[str] | None = None) -> int:
             # A stale checker scores every mutant as survived; prove this one was rebuilt.
             rebuilt = built_stamp() > stamp
             result = command(name + "-negative", [str(CHECKS), "--case", suite])
-            fired = rebuilt and result["exitCode"] == 1 and "FAIL ShutdownChecks.cpp:" in result["text"] and \
-                (label is None or label in result["text"])
+            fired = exact_failure(result["text"], result["exitCode"], rebuilt, label)
             report["witnesses"].append({"name": name, "suite": suite, "source": relative, "rebuilt": rebuilt,
                                         "fired": fired, "exitCode": result["exitCode"]})
             if not fired:

@@ -41,7 +41,9 @@ public sealed partial class AgentBrokerModule : IModule
     {
         Id = "agentbroker",
         Name = "AgentBroker",
-        Version = "1.8.0",   // 1.8.0: arrival-cursor inbox reads, report-only native recovery, exact-address declarations,
+        Version = "1.9.0",   // 1.9.0: authenticated certificate renewal and post-push reliability repairs.
+                             //        Exact-incarnation delivery and the host ABI floor are unchanged.
+                             // 1.8.0: arrival-cursor inbox reads, report-only native recovery, exact-address declarations,
                              //        independent discovery, delivery diagnostics and a supported one-request client.
                              // 1.7.2: a Codex build that is not exactly pinned but that Windows verifies as signed by its
                              //        publisher (the VS Code extension, the desktop app or the VS Code router) is reported
@@ -397,7 +399,15 @@ public sealed partial class AgentBrokerModule : IModule
             {
                 observation = NextObservation();
                 long requestedObservation = observation;
-                WorkerStatus state = await supervisor.RefreshAsync(launch, token).ConfigureAwait(false);
+                WorkerStatus state;
+                try { state = await supervisor.RefreshAsync(launch, token).ConfigureAwait(false); }
+                catch (OperationCanceledException) when (token.IsCancellationRequested) { break; }
+                catch (Exception)
+                {
+                    // A failed observation is not the end of supervision. Keep the exact child
+                    // under its supervisor and retry on the normal bounded polling interval.
+                    state = new(false, false, "supervision_retry");
+                }
                 string approvalRaw = Volatile.Read(ref approvalObservationRaw);
                 if (state.Connected && NeedsApprovalObservationForwarding(approvalRaw, lastApprovalRaw, lastApprovalBroker, state.Snapshot))
                 {
@@ -459,6 +469,7 @@ public sealed partial class AgentBrokerModule : IModule
             {
                 "worker_not_packaged" => "The worker is missing from this module package.",
                 "worker_exited" => "The worker exited. Retrying with a delay.",
+                "worker_start_failed" => "The worker could not start. Retrying with a delay.",
                 "restart_backoff" => "Waiting before restarting the worker.",
                 "starting" => "Starting",
                 "worker_unresponsive" => "Worker is not responding to status requests. Retrying automatically.",

@@ -47,7 +47,7 @@ other malformed line, and is compacted once its dead lines outnumber live ones b
 schema 1 exactly, so a 1.0.4 worker still loads it and loses only the tombstoned IDs.
 In-flight and uncertain records count toward per-recipient queue bounds. Session leases, current receive
 capability, privacy changes, idle state, and wake capability are rechecked before a local claim. Unknown
-activity permits a claim only with explicit `AtomicIdleAdmission` plus receive/wake capabilities; the
+activity permits a claim only with explicit `NativeIdleGuard` plus receive/wake capabilities; the
 adapter must then enforce an authoritative native idle guard. Known busy/approval/interrupted states
 remain queued. New
 session incarnations supersede only the same exact session ID; queued messages are never redirected to a

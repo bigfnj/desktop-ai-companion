@@ -9,4 +9,8 @@
     <RestoreLockedMode Condition="'$(CI)' == 'true'">true</RestoreLockedMode>
   </PropertyGroup>
   <ItemGroup><ProjectReference Include="../../tools/AgentBroker.Worker/AgentBroker.Worker.csproj" /></ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\AgentBroker.TestSupport\OwnedScratch.cs" Link="TestSupport\OwnedScratch.cs" />
+    <Using Include="AgentBroker.TestSupport" />
+  </ItemGroup>
 </Project>

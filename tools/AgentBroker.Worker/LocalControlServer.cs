@@ -15,6 +15,7 @@ internal interface ILocalControlWorker
     string LocalAccessToken { get; }
     McpStatusView McpStatus { get; }
     LanProfileMonitor LanProfile { get; }
+    void RequestExternalStop() => Application.Lifetime.StopApplication();
 }
 
 /// <summary>Local administration never shares the LAN listener or its trust domain.</summary>
@@ -31,6 +32,7 @@ public sealed class LocalControlServer : IAsyncDisposable
         public string LocalAccessToken => worker.LocalAccessToken;
         public McpStatusView McpStatus => worker.McpStatus;
         public LanProfileMonitor LanProfile => worker.LanProfile;
+        public void RequestExternalStop() => worker.RequestExternalStop();
     }
     private readonly CancellationTokenSource stop = new();
     private Task[] listeners = [];
@@ -69,7 +71,7 @@ public sealed class LocalControlServer : IAsyncDisposable
                 await pipe.WriteAsync(frame, deadline.Token);
                 await pipe.WriteAsync("\n"u8.ToArray(), deadline.Token);
                 await pipe.FlushAsync(deadline.Token);
-                if (shouldStop) worker.Application.Lifetime.StopApplication();
+                if (shouldStop) worker.RequestExternalStop();
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { break; }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException or OperationCanceledException)

@@ -44,8 +44,10 @@ foreach ($change in @('pin', 'digest', 'count', 'id', 'index', 'fraction', 'part
 }
 Refuses { Assert-MixedShardCoverage $whole @($import) @($scheduled[0..4]) $pin } 'mixed union refuses a gap' 'remainder_case_gap'
 Refuses { Assert-MixedShardCoverage $whole @($import) @($scheduled + (Shard 1 8)) $pin } 'mixed union refuses an overlap' 'remainder_case_overlap'
-Refuses { Assert-MixedShardCoverage $whole @() $scheduled $pin } 'mixed union requires a completed import'
-Refuses { Assert-MixedShardCoverage $whole @($import) @() $pin } 'mixed union requires scheduled work'
+# Each empty-selection fixture otherwise covers every case, so only the named guard can refuse it.
+$completePlan = @(1..4 | ForEach-Object { Shard $_ 4 })
+Refuses { Assert-MixedShardCoverage $whole @() $completePlan $pin } 'mixed union requires a completed import' 'remainder_selection_empty'
+Refuses { Assert-MixedShardCoverage $whole $completePlan @() $pin } 'mixed union requires scheduled work' 'remainder_selection_empty'
 Assert-RemainderOptions '' @() @() 4 $false $false
 Assert-RemainderOptions 'synthetic' @(1) @(2, 3, 4, 6, 7, 8) 8 $false $false
 Check $true 'normal defaults and read-only remainder selection are valid'

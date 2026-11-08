@@ -24,7 +24,8 @@ internal static class ChannelBridgeChecks
         check(McpChannelBridge.NegotiateProtocol("2025-06-18") == "2025-06-18",
             "WITNESS the channel bridge echoes a supported older MCP revision");
 
-        string scratch = Path.Combine(AppContext.BaseDirectory, "scratch", "channel-" + Guid.NewGuid().ToString("N"));
+        using var scratchOwner = OwnedScratch.Create("channel");
+        string scratch = scratchOwner.Root;
         Guid brokerId;
         using (var seed = new BrokerStore(Path.Combine(scratch, "store"))) brokerId = seed.BrokerId;
         string keyName = AgentBroker.Worker.Security.BrokerIdentity.KeyNameFor(scratch, brokerId);

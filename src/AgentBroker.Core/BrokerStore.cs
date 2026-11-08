@@ -26,7 +26,8 @@ public sealed partial class BrokerStore : IDisposable
     // empty Text), so tombstones live in a file 1.0.4 never opens.
     private sealed record Tombstone(Guid Id, Guid ConversationId, Guid? ReplyTo, SessionAddress Sender, SessionAddress Recipient,
         string TextSha256, DateTimeOffset CreatedAt, DateTimeOffset ExpiresAt, int RemainingReplies,
-        MessageStatus Status, DateTimeOffset UpdatedAt, string? Reason, int Attempts);
+        MessageStatus Status, DateTimeOffset UpdatedAt, string? Reason, int Attempts)
+    { internal Guid AdmissionEpoch { get; init; } = Guid.NewGuid(); }
     // The journal's first line. A journal written under another broker identity (a replaced broker-state.json) is stale.
     private sealed record TombstoneJournal(int Version, Guid BrokerId);
     private static readonly JsonSerializerOptions Json = new()
@@ -579,7 +580,8 @@ public sealed partial class BrokerStore : IDisposable
             MessageReceipt? next = null;
             if (index >= 0)
             {
-                next = messages[index] with { Status = MessageStatus.Submitting, UpdatedAt = Now, Attempts = messages[index].Attempts + 1 };
+                next = messages[index] with { Status = MessageStatus.Submitting, UpdatedAt = Now, Attempts = messages[index].Attempts + 1,
+                    ClaimNonce = Guid.NewGuid() };
                 messages[index] = next;
             }
             // Also commit when an owed notice can now be admitted (its sender came back, or its queue has room) or must be
@@ -590,17 +592,41 @@ public sealed partial class BrokerStore : IDisposable
         }
     }
 
-    public MessageReceipt CompleteDelivery(Guid messageId, MessageStatus outcome, string? reason = null)
+    public DeliveryClaim? BeginDeliveryClaim(IReadOnlyDictionary<Guid, Guid>? excludedAdmissions = null)
+    {
+        lock (gate)
+        {
+            var excluded = excludedAdmissions is null ? null : state.Messages.Where(receipt =>
+                excludedAdmissions.TryGetValue(receipt.Message.Id, out Guid epoch) && epoch == receipt.AdmissionEpoch)
+                .Select(receipt => receipt.Message.Id).ToHashSet();
+            return BeginDelivery(excluded) is { } receipt ? DeliveryClaim.Capture(receipt) : null;
+        }
+    }
+
+    public static Guid ReceiptAdmissionEpoch(MessageReceipt snapshot) => snapshot.AdmissionEpoch;
+
+    public bool TryCompleteDelivery(DeliveryClaim claim, MessageStatus outcome, string? reason, out MessageReceipt? receipt)
+    {
+        lock (gate)
+        {
+            EnsureOpen(); receipt = null;
+            if (!claim.Matches(state.Messages.Find(current => current.Message.Id == claim.Message.Id))) return false;
+            receipt = CompleteDelivery(claim.Receipt, outcome, reason); return true;
+        }
+    }
+
+    public MessageReceipt CompleteDelivery(MessageReceipt expected, MessageStatus outcome, string? reason = null)
     {
         lock (gate)
         {
             EnsureOpen();
+            Guid messageId = expected.Message.Id;
             if (outcome is not (MessageStatus.Submitted or MessageStatus.Delivered or MessageStatus.Held or MessageStatus.Refused or MessageStatus.Uncertain))
                 Fail("invalid_outcome");
             if (reason?.Length > 80 || reason?.Any(c => !char.IsAsciiLetterOrDigit(c) && c != '_') == true) Fail("invalid_reason");
             var messages = state.Messages.ToList();
             var index = messages.FindIndex(r => r.Message.Id == messageId);
-            if (index < 0 || messages[index].Status != MessageStatus.Submitting) Fail("message_not_submitting");
+            if (index < 0 || !DeliveryClaim.Capture(expected).Matches(messages[index])) Fail("message_not_submitting");
             var next = messages[index] with { Status = outcome, Reason = reason, UpdatedAt = Now };
             messages[index] = next; Commit(state with { Messages = messages }); return Stored(messageId, null, out _)!;
         }
@@ -686,17 +712,28 @@ public sealed partial class BrokerStore : IDisposable
     /// was submitted. Generic errors/timeouts must complete Uncertain instead. Never releases a
     /// Submitted/Uncertain claim, so an ambiguous native input cannot be blindly replayed.
     /// </summary>
-    public MessageReceipt ReleaseUnsubmittedClaim(Guid messageId, string? reason = null)
+    public bool TryReleaseUnsubmittedClaim(DeliveryClaim claim, string? reason, out MessageReceipt? receipt)
+    {
+        lock (gate)
+        {
+            EnsureOpen(); receipt = null;
+            if (!claim.Matches(state.Messages.Find(current => current.Message.Id == claim.Message.Id))) return false;
+            receipt = ReleaseUnsubmittedClaim(claim.Receipt, reason); return true;
+        }
+    }
+
+    public MessageReceipt ReleaseUnsubmittedClaim(MessageReceipt expected, string? reason = null)
     {
         lock (gate)
         {
             EnsureOpen();
+            Guid messageId = expected.Message.Id;
             reason ??= "deferred_not_submitted";
             if (string.IsNullOrEmpty(reason) || reason.Length > 80 || reason.Any(c => !char.IsAsciiLetterOrDigit(c) && c != '_'))
                 Fail("invalid_reason");
             var messages = state.Messages.ToList();
             int index = messages.FindIndex(r => r.Message.Id == messageId);
-            if (index < 0 || messages[index].Status != MessageStatus.Submitting) Fail("message_not_submitting");
+            if (index < 0 || !DeliveryClaim.Capture(expected).Matches(messages[index])) Fail("message_not_submitting");
             var previous = messages[index];
             var next = previous.Message.ExpiresAt <= Now
                 ? previous with { Status = MessageStatus.Expired, UpdatedAt = Now, Reason = "expired" }
@@ -713,15 +750,40 @@ public sealed partial class BrokerStore : IDisposable
     // deadline, so the peer's Expired is recorded as Refused with reason peer_expired: before, it was recorded as
     // recipient_receipt and the sender's notice said its recipient refused a message that had expired unread
     // (N-agentbroker-peer-expired-01).
-    public MessageReceipt RecordPeerReceipt(Guid messageId, SessionAddress recipient, Guid peerBroker, MessageStatus remoteStatus)
-        => RecordPeerReceipt(messageId, recipient, peerBroker, remoteStatus, null);
+    public MessageReceipt RecordPeerReceipt(MessageReceipt expected, SessionAddress recipient, Guid peerBroker, MessageStatus remoteStatus)
+        => RecordPeerReceipt(expected, recipient, peerBroker, remoteStatus, null);
 
-    public MessageReceipt RecordPeerReceipt(Guid messageId, SessionAddress recipient, Guid peerBroker, MessageStatus remoteStatus,
+    public MessageReceipt RecordPeerReceipt(MessageReceipt expected, SessionAddress recipient, Guid peerBroker, MessageStatus remoteStatus,
         string? remoteReason)
-        => remoteStatus == MessageStatus.Expired
-            ? RecordReceipt(messageId, recipient, peerBroker, MessageStatus.Refused, "peer_expired")
-            : RecordReceipt(messageId, recipient, peerBroker, remoteStatus,
+    {
+        lock (gate)
+        {
+            EnsureOpen();
+            if (!HasAdmission(expected)) Fail("message_not_current");
+            return remoteStatus == MessageStatus.Expired
+            ? RecordReceipt(expected.Message.Id, recipient, peerBroker, MessageStatus.Refused, "peer_expired")
+            : RecordReceipt(expected.Message.Id, recipient, peerBroker, remoteStatus,
                 remoteStatus == MessageStatus.Refused ? PeerReceiptPolicy.KnownRefusalReason(remoteReason) ?? "recipient_receipt" : "recipient_receipt");
+        }
+    }
+
+    public bool TryRecordPeerReceipt(MessageReceipt expected, SessionAddress recipient, Guid peerBroker, MessageStatus remoteStatus,
+        string? remoteReason, out MessageReceipt? receipt)
+    {
+        lock (gate)
+        {
+            EnsureOpen(); receipt = null;
+            if (!HasAdmission(expected)) return false;
+            receipt = RecordPeerReceipt(expected, recipient, peerBroker, remoteStatus, remoteReason); return true;
+        }
+    }
+
+    private bool HasAdmission(MessageReceipt expected)
+    {
+        var full = state.Messages.Find(current => current.Message.Id == expected.Message.Id);
+        if (full is not null) return full.AdmissionEpoch == expected.AdmissionEpoch;
+        return tombstones.TryGetValue(expected.Message.Id, out var acknowledged) && acknowledged.AdmissionEpoch == expected.AdmissionEpoch;
+    }
 
     private MessageReceipt RecordReceipt(Guid messageId, SessionAddress recipient, Guid authenticatedBroker, MessageStatus outcome, string reason)
     {
@@ -1115,11 +1177,12 @@ public sealed partial class BrokerStore : IDisposable
     private static Tombstone ToTombstone(MessageReceipt receipt) => new(receipt.Message.Id, receipt.Message.ConversationId,
         receipt.Message.ReplyTo, receipt.Message.Sender, receipt.Message.Recipient, HashText(receipt.Message.Text),
         receipt.Message.CreatedAt, receipt.Message.ExpiresAt, receipt.Message.RemainingReplies,
-        receipt.Status, receipt.UpdatedAt, receipt.Reason, receipt.Attempts);
+        receipt.Status, receipt.UpdatedAt, receipt.Reason, receipt.Attempts) { AdmissionEpoch = receipt.AdmissionEpoch };
 
     private static MessageReceipt Render(Tombstone tombstone, string text) => new(new(tombstone.Id, tombstone.ConversationId,
         tombstone.ReplyTo, tombstone.Sender, tombstone.Recipient, text, tombstone.CreatedAt, tombstone.ExpiresAt,
-        tombstone.RemainingReplies), tombstone.Status, tombstone.UpdatedAt, tombstone.Reason, tombstone.Attempts);
+        tombstone.RemainingReplies), tombstone.Status, tombstone.UpdatedAt, tombstone.Reason, tombstone.Attempts)
+        { AdmissionEpoch = tombstone.AdmissionEpoch };
 
     private static string HashText(string text) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
 

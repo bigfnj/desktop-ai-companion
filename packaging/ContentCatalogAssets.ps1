@@ -200,6 +200,7 @@ function Get-CatalogAsset(
     $oneOff = [bool]($StallChild -and $StallChild.Count -gt 0)
     $key = [IO.Path]::GetFullPath($RepoRoot).TrimEnd('\', '/').ToLowerInvariant()
     $batch = $null
+    $writingRequest = $false
     try {
         if ($oneOff) {
             $batch = Start-CatalogAssetBatch $RepoRoot $StallChild $TimeoutMs
@@ -212,8 +213,10 @@ function Get-CatalogAsset(
         }
 
         $request = [Text.Encoding]::UTF8.GetBytes("HEAD:$RelPath`n")
+        $writingRequest = $true
         $batch.Stdin.Write($request, 0, $request.Length)
         $batch.Stdin.Flush()
+        $writingRequest = $false
 
         $header = Read-CatalogBatchLine $batch $TimeoutMs
         if ($header.TimedOut) { $failure = 'timeout' }
@@ -229,7 +232,9 @@ function Get-CatalogAsset(
         else { $failure = "unexpected reply '$($header.Line)'" }
     }
     catch {
-        $failure = "could not talk to the child: $($_.Exception.Message)"
+        if ($writingRequest -and $_.Exception.GetBaseException() -is [IO.IOException]) {
+            $failure = 'the child exited or closed its input before accepting the request'
+        } else { $failure = "could not talk to the child: $($_.Exception.Message)" }
     }
     finally {
         # A one-off is never reused, and a child that failed is not trusted with the next request

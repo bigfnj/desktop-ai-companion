@@ -23,7 +23,8 @@ internal static class OnboardingChecks
 
     public static async Task InboxAttributionAsync(Action<bool, string> check)
     {
-        string scratch = Path.Combine(AppContext.BaseDirectory, "scratch", "inbox-attribution-" + Guid.NewGuid().ToString("N"));
+        using var scratchOwner = OwnedScratch.Create("inbox-attribution");
+        string scratch = scratchOwner.Root;
         var options = new WorkerOptions(scratch, "Synthetic inbox attribution", LoopbackPort: 0, EnableLan: false,
             AllowUnauthenticatedLoopback: false) { EnableBrokerDiscovery = false };
         string? keyName = null;
@@ -169,7 +170,8 @@ internal static class OnboardingChecks
 
         // The real worker: snapshot wiring and the Windows probe, read-only. Inside this test process the rule
         // read is refused (the host is not AgentBroker.Worker.exe); the category is whatever Windows reports.
-        string scratch = Path.Combine(AppContext.BaseDirectory, "scratch", "lan-profile-" + Guid.NewGuid().ToString("N"));
+        using var scratchOwner = OwnedScratch.Create("lan-profile");
+        string scratch = scratchOwner.Root;
         var options = new WorkerOptions(scratch, "Synthetic LAN profile", LoopbackPort: 0, LanPort: 0, EnableLan: true,
             AllowUnauthenticatedLoopback: false) { LanListenAddress = IPAddress.Loopback, EnableBrokerDiscovery = false };
         string? keyName = null;

@@ -11,7 +11,7 @@ internal static class DeferredClaimChecks
         using var continueSelection = new ManualResetEventSlim();
         using var deferralStarted = new ManualResetEventSlim();
         int armed = 0;
-        Task<MessageReceipt?>? selection = null;
+        Task<DeliveryClaim?>? selection = null;
         Task? release = null;
         try
         {
@@ -38,7 +38,8 @@ internal static class DeferredClaimChecks
                 if (!continueSelection.Wait(TimeSpan.FromSeconds(10)))
                     throw new TimeoutException("DeferredClaimChecks.cs: controlled selection was not released.");
             });
-            check(claims.BeginDelivery()?.Message.Id == message.Id,
+            var initial = claims.BeginDelivery();
+            check(initial?.Message.Id == message.Id,
                 "DeferredClaimChecks.cs: the synthetic message has one initial in-flight claim");
             Interlocked.Exchange(ref armed, 1);
             selection = Task.Factory.StartNew(claims.BeginDelivery, CancellationToken.None,
@@ -48,7 +49,7 @@ internal static class DeferredClaimChecks
             release = Task.Factory.StartNew(() =>
             {
                 deferralStarted.Set();
-                claims.ReleaseUnsubmittedClaim(message.Id, "synthetic_busy");
+                claims.ReleaseUnsubmittedClaim(initial!, "synthetic_busy");
             }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
             if (!deferralStarted.Wait(TimeSpan.FromSeconds(5)))
                 throw new TimeoutException("DeferredClaimChecks.cs: the competing deferral did not start.");

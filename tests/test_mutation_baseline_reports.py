@@ -3,6 +3,7 @@
 import contextlib
 import importlib.util
 import io
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -24,6 +25,14 @@ class MutationBaselineReportTests(unittest.TestCase):
         cls.harness = importlib.util.module_from_spec(spec)
         sys.modules[spec.name] = cls.harness
         spec.loader.exec_module(cls.harness)
+
+    def setUp(self):
+        # These tests grade baseline reports, not filesystem-watch permissions or real Documents.
+        # The harness separately self-checks its actual watcher before every real mutation run.
+        self.enterContext(patch.object(self.harness, "documents_watch_selfcheck", return_value=[]))
+        self.enterContext(patch.object(self.harness, "documents_watch_notice", return_value="DOCUMENTS WATCH: synthetic baseline-report fixture"))
+        self.enterContext(patch.object(self.harness, "DOCUMENTS_REMEMBRANCE", None))
+        self.enterContext(patch.dict(os.environ, {"DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT": "1"}))
 
     def test_refused_script_and_module_baselines_keep_full_diagnostics(self):
         root = Path(__file__).resolve().parent

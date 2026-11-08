@@ -21,6 +21,7 @@ public sealed partial class AgentBrokerModule
         try
         {
             AgentBrokerSupervisorChecks.RunAsync(Check).GetAwaiter().GetResult();
+            RunSupervisionRecoveryChecks(Check, dispatcher);
             RunMetadataChecks(Check);
             RunStatusChecks(Check, dispatcher);
             RunMcpStatusChecks(Check, dispatcher);
@@ -38,6 +39,9 @@ public sealed partial class AgentBrokerModule
             var supervisor = new TestSupervisor();
             module = new(control, supervisor);
             module.Init(host);
+            // Settle the disabled run before enabling another one, so its cleanup cannot
+            // race the later shutdown assertion and masquerade as that run's own stop.
+            Pump(() => module.pending.IsCompleted, dispatcher);
             OptionsPane pane = host.OptionsPanes.Single();
             var defaults = pane.Load();
             Check(defaults["enabled"] == "false" && defaults["codexPeerMessages"] == "false" &&
@@ -334,9 +338,11 @@ public sealed partial class AgentBrokerModule
                 "failed confirmation keeps the full comparison code and explicit tray retry operable");
             var pendingOffer = offer with { RequestId = Guid.NewGuid() };
             module.ApplyStatus(new(true, false, "standby", view with { PairingOffers = [pendingOffer] }));
+            int stopsBeforeShutdown = supervisor.Stops;
             module.Shutdown();
             Pump(() => module.pending.IsCompleted, dispatcher);
-            Check(host.Asks.Last().Withdrawn && supervisor.Stops > 0, "shutdown withdraws questions and cleans owned worker off thread");
+            Check(host.Asks.Last().Withdrawn && supervisor.Stops > stopsBeforeShutdown,
+                "shutdown withdraws questions and cleans owned worker off thread");
             int requests = control.Requests.Count;
             dispatcher.Drain();
             Check(control.Requests.Count == requests, "shutdown never approves late answers");
@@ -411,8 +417,14 @@ public sealed partial class AgentBrokerModule
         internal ConcurrentQueue<WorkerLaunch> Launches { get; } = new();
         internal BrokerSnapshot? View;
         internal int Stops;
+        internal int RefreshFaults;
         public Task<WorkerStatus> RefreshAsync(WorkerLaunch launch, CancellationToken token)
-        { token.ThrowIfCancellationRequested(); Launches.Enqueue(launch); return Task.FromResult(new WorkerStatus(true, false, "standby", View)); }
+        {
+            token.ThrowIfCancellationRequested();
+            if (Interlocked.Exchange(ref RefreshFaults, 0) != 0) throw new IOException("Synthetic supervisor observation failed.");
+            Launches.Enqueue(launch);
+            return Task.FromResult(new WorkerStatus(true, false, "standby", View));
+        }
         public Task StopOwnedAsync(string directory, CancellationToken token)
         { Interlocked.Increment(ref Stops); return Task.CompletedTask; }
     }

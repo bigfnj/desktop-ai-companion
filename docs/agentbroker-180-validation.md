@@ -1,6 +1,6 @@
 # AgentBroker 1.8.0 validation and dispositions
 
-Campaign record, updated 2026-11-07. This covers AgentBroker and supporting infrastructure. All 14 subsequent independent-review IDs now have dispositions below, supported by 41 executed controls. The final integrated seven-harness result is a composite 2908 passing assertions, qualified below. The original 2785-assertion result, installed upgrade and ZIP hashes remain PRE-REVIEW evidence. The repaired canonical package, official installed upgrade, live native queries and real module loader passed the post-review acceptance recorded below. Source, review repairs, payloads and catalog are committed locally through `102375f`; publication and the post-merge audit remain pending. On 2026-11-07 the owner accepted both remaining product choices, giving all 13 original in-scope backlog IDs checkable dispositions below. These original-item dispositions do not close separately arriving audit entries. Required private privacy input was received; the actual public-push privacy check remains a publication prerequisite. No identifiers are recorded here. No GUI chat/hook acceptance is claimed.
+Campaign record, updated 2026-11-07. Scope is AgentBroker and supporting infrastructure. The initial 1.8.0 campaign was published to master at `7ab4074` and its CI passed; its original 13 backlog entries and 14 independent-review IDs have checkable dispositions below. The subsequent 1.9.0 repair campaign passed 3178 assertions across seven harnesses, 385 real module-loader checks and the official installed upgrade/native operations. Historical counts and hashes remain labelled by their snapshots. The final scoped disposition audit passed with 89 closed findings and 380 unrelated IDs preserved. The 1.9.0 publication remains pending. Private privacy inputs stay outside tracked files. No configured title-hook, fresh-chat MCP exposure or original-GUI acceptance is claimed.
 
 ## Decisions and limits
 
@@ -243,8 +243,9 @@ Retained private receipts are `post-review-canonical-build-receipt.json`, `post-
 | R07 observation/census repair | COMPLETE engineering proof: focused 49, related 193, 15 killing controls and restored verification; included in final Worker 1365. |
 | Final combined seven harnesses | PASS composite 2908 from six component receipts plus the corrected-fixture full Worker receipt; failed receipts remain retained. The earlier 2785 is pre-review. |
 | Canonical rebuild/reinstall | PASS: current Broker ZIP `549B7798C1650CFCAC8B7636CB6BA62555FEE945D64DA9657306ED72498A6DF0`, official installed stage/readiness, exact 16 tools, preserved settings/data, live native queries/declaration cleanup and real 1.8.0 loader with 373 checks. Earlier ZIP hashes remain historical receipts. |
-| Local commits/publication | Source `1003063`, initial payload/catalog `bf8f9dd` / `5b5049c`, review repairs `5167e36`, final payload `592d854` and catalog `102375f` are committed locally. Private owner privacy input was received on 2026-11-07; public push remains pending. Root's private scan passed the six-commit campaign range; an unchanged baseline profile-path example prevents a whole-index PASS. Repeat the range check after this decision record and upstream integration. No privacy identifiers are recorded here. |
-| Post-push/post-merge audit | PENDING after actual publication. This independent review and its repair checks are not that audit. |
+| Initial 1.8.0 publication | Source `1003063`, initial payload/catalog `bf8f9dd` / `5b5049c`, review repairs `5167e36`, final payload `592d854`, catalog `102375f` and owner decisions `f141572` were integrated with the intervening upstream documentation at `7ab40743b5b40f525921601ac0bc59da56dd73b8`. The feature branch and primary `master` were pushed to that exact commit. The private campaign-range privacy check passed all 11 commits; an unchanged baseline profile-path example prevents a whole-index PASS. No privacy identifiers are recorded here. |
+| Initial publication CI | [Build 42429845952](https://github.com/bigfnj/desktop-ai-companion/actions/runs/42429845952) passed for the exact published `7ab4074` head. This is the initial 1.8.0 result, not evidence for later uncommitted repairs. |
+| Actual post-push/post-merge audit | The source review and repairs followed the actual publication above. The upstream audit CSV has 403 rows; the historical Markdown count says 397. All 87 AgentBroker/supporting rows, the repin DACL fixture and the claim-contract finding have one owner and qualified disposition. Integrated regression, installed acceptance and the final no-drop audit passed. Post-repair publication and its subsequent audit remain separate steps. Unrelated findings remain outside this campaign. |
 | Approval signal decision | ACCEPTED-RECORDED, owner 2026-11-07: aggregate visible status plus explicit per-session declarations complete the design item. Recipient-specific correlation and guessed approval attribution remain unclaimed. |
 | Codex wake decision and GUI acceptance | ACCEPTED-RECORDED, owner 2026-11-07: supported manual Desktop opening and the vendor limitation complete the research item. Loaded-chat, known/unknown-ID, current native turn/ack and configured hook GUI behavior remain unclaimed. |
 
@@ -261,3 +262,66 @@ Retained private receipts are `post-review-canonical-build-receipt.json`, `post-
 | Unrelated backlog | Preserve AgentFlow focus 01-03; Shimeji convert 01-06, oracle, contract, host 01-05, classic, docs, tests, tooling, host-pack ABI and host-limits entries; preserve closed Shimeji WAV and historical sections. Approval count work does not close AgentFlow focus negatives. |
 
 No tools were installed. Existing PowerShell, .NET, Node and repository runners sufficed; no scripts-utilities addition is recommended for this campaign's tools. Scratch evidence and isolated products are retained for final review only. Their eventual cleanup must be recorded separately from test-owned inputs/processes already checked absent.
+
+## Post-push repair campaign
+
+The initial published package and its receipts above remain historical evidence. The subsequent repair version is 1.9.0, including the owner's authenticated automatic certificate-renewal choice. The host ABI floor and exact-incarnation routing policy are unchanged. The final 1.9.0 source and installed results below supersede the earlier pending milestones; publication retains its separate status.
+
+| Record | Current evidence and remaining work |
+| --- | --- |
+| [Core/runtime/federation audit](audits/agentbroker-postpush-core-20261107.md) | Forty frozen files were imported with independent source/target hash checks. All 34 controls qualified and restored: 30 original plus 4 for reused-UUID observation lifetime. Core 408, Network 240, Relay 40 and corrected Worker 1388 preceded the observation addition; smoke 68 and engine 19 followed. Final integrated Worker 1590 passed with the later repairs. Additional fixes cover escaped-directory size, twelve fixture leaks and observation identity/index consistency. |
+| [Module audit](audits/agentbroker-postpush-module-20261107.md) | Supervision recovery and monotonic backoff, shutdown ownership, existing-Claude setup recognition, local helper behavior, publisher commit ownership, catalog EOF classification and probe teardown have qualified engineering checks. The owner's authenticated automatic certificate-renewal choice is implemented with stable paired identity, bounded continuity proof, atomic storage and graceful restart. Its focused contracts, final integrated regression and official installed acceptance passed; compatibility limits remain documented. |
+| [Native/discovery audit](audits/agentbroker-postpush-native-20261107.md) | Native input sizing/encoding, pipe identity, bounded discovery, invocation-local image proofs, firewall projections and repin cleanup have source repairs and qualified controls. The record measures the retained limits rather than claiming persistent trust caching, a larger native frame cap or a performance saving. |
+| [Infrastructure audit](audits/agentbroker-postpush-infrastructure-20261107.md) | Source/caller controls, offline dispatch, artifact provenance, owned cleanup and supporting tools have qualified evidence. All 129 anchors matched, inventory 516 was verified, and one real Codex control fired and restored. Actual PS5 packaging 52 and PS7 source 28 passed after repairing runtime delegation. Numeric floors use the final observed 3178 total. |
+| [MCP and recovery review](audits/agentbroker-postpush-tools-20261107.md) | The independent source/call-chain pass found no additional confirmed defect in inbox/recovery authority, exact-address acknowledgement/reply, local hints, bounded retention, request-local guidance or the one-request client. It ran no tests and makes no resource-soak or race-freedom claim. |
+| [Defensive claim contracts](audits/agentbroker-postpush-claim-contract-20261107.md) | Twenty-four hash-verified delta files were imported after the frozen core handoff. Ordinary Core 408, Worker 1426 and Network 244 passed; claim contracts 22 and fixture ownership 4 passed. Three pure predicate/JSON controls failed their intended assertions and restored successfully. Final integrated regression and installed acceptance also passed. This does not claim execution of the retired timing scenario. |
+
+The final integrated assertion counts, deployed artifact identity and completed no-drop disposition audit are recorded below. Post-repair publication remains pending. Optional configured title-hook acceptance remains deferred because the peer's session forbids installed-app/data access; no rerouting or permission bypass was requested.
+
+### Integration review follow-up
+
+The merged call-chain review found a separate late-settlement race after the frozen core handoff. A delivery loop could retain an old claim across retention pruning and UUID re-admission, then settle or release the new Submitting record by UUID alone. The adjacent peer-receipt reconciliation await had the same lifetime problem when recreated message metadata compared equal. Automatic security review stopped the delegated reproduction task. Its initial compilation completed, but no reproduction execution was requested or counted. Defensive implementation, ordinary claim-contract checks and existing normal regressions subsequently passed as recorded above. The stopped timing replay remains retired and was not retried through another session.
+
+The imported repair uses opaque delivery claims and process-local receipt identity, compared atomically under the store lock. Receipt snapshots carry their own admission identity, including tombstone/render paths. The runtime selection gate orders successful settlement, immediate observation publication and backoff without awaiting transport IO inside that gate. These claim controls preserve exact-incarnation routing and introduce no wire or durable-schema fields. Final combined regression and installed acceptance passed as recorded below.
+
+The private release pipeline also received independent review before execution. Run IDs and artifact hashes now bind build, package, stage, loader and live receipts; explicit literal file inventories prevent commit path expansion; failure paths clean owned loader/request files. The shared commit fixture passed 59 checks under each PowerShell runtime. Three clone-only cleanup controls failed their named absence checks, were restored, then passed, with all synthetic roots independently absent. This is operational validation of private helpers, separate from product mutation counts and real installed-app acceptance.
+
+## 1.9.0 integrated validation and installed acceptance
+
+The final combined run passed all seven harnesses with 3178 assertions. These are actual integrated results after the claim and certificate repairs:
+
+| Harness | Assertions |
+| --- | --- |
+| Core | 408 |
+| Relay | 40 |
+| Claude | 212 |
+| Desktop | 594 |
+| Adapter | 84 |
+| Network | 250 |
+| Worker | 1590 |
+
+Packaging 52, the public LAN diagnostic 10, the connection helper 62, collaboration helper 148 and its process 81, re-pin 44/52 and scheduled re-pin 25 passed in the same gate. Windows PowerShell 5.1 source invariants passed on the host. The new floors are checked separately against these observed counts; the unchanged seven harnesses are not repeated for numeric floor edits.
+
+The final representative Codex control rebuilt and executed the mutated product, failed its declared assertion, restored exactly, then passed the healthy groups. Its fixed existing inventory is 516, with all 129 replacement anchors matched. Twenty-six protected product files matched their backups, three builds had fresh artifact proofs, ten executions matched their in-process identities, and the lock and owned runtime were absent. Earlier refused zero-witness attempts remain failed evidence. No whole 129-case mutation campaign is claimed.
+
+| Artifact or real application check | Final actual evidence |
+| --- | --- |
+| Canonical build | Zero warnings/errors; 203 watched source inputs bound to run `608ec630-1fab-4d7b-bf95-7f8ef237ea50`. Self-contained worker: 354 files, 113804639 bytes. |
+| ZIP | 357 entries, 51467785 bytes; SHA-256 `EE01AAF4D5EABA6BF32ED78605AC5BF58D0198C7DCA19D2E9505906C455C7EDA`. |
+| Worker DLL | SHA-256 `F50C48E7BCC34FF1B2E2859FEFA5993C4DF22D5CC66A97D362BA6F96815BB684`. |
+| Module DLL | SHA-256 `882C4229952687460A8C03369FE4868BE611CEFE0C393004693B7C4C65D7B710`. |
+| Bundled ModuleKit | SHA-256 `2E55887B5BD0B79B5464A4E7D7945C612897A1FEC5BCE35B2782CC1A7B6FD723`. |
+| Official read-only preflight | ModuleInfo 1.9.0, expected tool count 16, existing data unopened, external writes false. AssemblyInformationalVersion `1.0.0+7ab4074` is recorded separately from the advertised module version. |
+| Real module loader | 385 module checks, host shutdown ownership checks, exit 0, stderr 0; private temporary root removed after child exit. |
+| Official installed upgrade | Exact installed process refreshed before staging; Companion and its worker restarted; both listener owners verified; MCP initialized with 16 tools; updated payload matched; Ready true. Settings/data preserved. PreviousCopyRetained false, with no retained rollback-copy claim. |
+| Installed native operations | Directory, native inbox and report-only recovery succeeded: 0 pending messages and 1 recovery entry. Temporary declaration round-tripped and cleared; owned request file absent. |
+| Preservation | Both modules' settings hashes and all three AgentFlow public payload hashes matched the freshly captured pre-stage state. AgentFlow 1.12.4 was not rebuilt or restaged. |
+| Receipt chain | The shared validator passed under Windows PowerShell 5.1 with matching run ID, current product sources and artifact hashes across build/package/stage/loader/live. |
+
+[Certificate continuity](audits/agentbroker-certificate-continuity-20261107.md) records identity 24, continuity 22, lifecycle 101, mutual TLS 6, and their named controls. The first direct-UUID extension shape failed on Windows and was replaced by the qualified subject-directory-attribute wrapper. A wrong-key exception classification was corrected after its ordinary smoke failed. The public LAN diagnostic shares the verifier and passed on actual .NET 8.0.8 and the current PowerShell runtime.
+
+Two verifier defects were caught by actual root execution. The legacy packaging caller invoked a PowerShell 7-only packager; it now delegates to the correct runtime and passed 52 payload assertions plus four controls and argument round trips. The private loader wrapper expected verbose check lines and initially counted zero despite the actual 385-check success; its corrected terse/verbose parser passed eleven fixtures on both runtimes and its floor-disabled control failed by name. The corrected real wrapper then passed. The first source-invariant attempt stopped on sandbox access to Git's existing ignore configuration; the host rerun passed without weakening the check. All original failed receipts remain retained.
+
+No timing replay of the retired claim scaffold, forced Program-loop recreation, resource soak, configured vendor title-hook event, fresh-chat MCP exposure, original-GUI acceptance matrix or new physical two-PC acceptance is claimed. The actual worker lifecycle, policy/order, synthetic TLS and installed operations are distinct evidence. Exact-incarnation routing remains the owner's choice.
+
+The completed [no-drop disposition audit](audits/agentbroker-campaign-dispositions-20261107.md) maps all 89 scoped findings: 77 FIXED, 9 CLOSED-VERIFIED and 3 DECLINED-MEASURED. The frozen old backlog was compared with the final edit: no scoped omission or duplicate owner, and all 380 unrelated unique IDs and their complete entries were preserved. Closure is bound to the actual installed acceptance run above. Publication and the audit after that push remain separate steps. Historical external acceptance gates stay outside this engineering campaign.

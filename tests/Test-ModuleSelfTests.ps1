@@ -59,6 +59,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'HarnessOutput.ps1')
 
 # Resolved AFTER the param block, not as a default. Under Windows PowerShell 5.1 $PSScriptRoot is
 # empty while parameter defaults are being bound, so `Split-Path -Parent $PSScriptRoot` there throws
@@ -657,9 +658,8 @@ try {
         # success", in the file built to catch exactly that. It was that. Found by an audit the same
         # night it was written.
         #
-        # An assertion line is `PASS:` with the colon, optionally behind a `[module]` tag;
-        # `RESULT=PASS` has no colon and no longer counts.
-        $assertions = @($r.Lines | Where-Object { $_ -match '^\s*(\[[^\]]*\]\s*)?PASS:' }).Count
+        # Only this module's tagged assertions count. Host convention PASS lines also exist for an empty SelfTest.
+        $assertions = Get-ModuleAssertionCount $r.Lines $id
         # The real-input rules first and on their own: a run that sent real input, or cannot show it sent none, is a problem
         # whatever else it reports, and is never also printed as OK.
         $realInputProblem = $null

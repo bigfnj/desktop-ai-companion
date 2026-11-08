@@ -115,7 +115,13 @@ public sealed partial class DesktopAdapter : IAsyncDisposable
         JsonObject turnStart = externalPeer
             ? NativeExternalPeerInput.CreateTurnStart(binding.ConversationId, messageId, text)
             : NativeExternalPeerInput.CreateAuthorizedPlaintextTurnStart(binding.ConversationId, messageId, text);
-        if (System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(turnStart).Length > DesktopFrames.MaximumFrameBytes - 2048)
+        // Use the same envelope builder and encoder as the actual write, including both complete input copies.
+        // UUID contents differ at dispatch, but every UUID has the same ASCII length and escaping.
+        var preflight = CreateRequest("thread-follower-start-turn", new()
+        {
+            ["conversationId"] = binding.ConversationId.ToString("D"), ["turnStart"] = turnStart.DeepClone()
+        }, 2, binding.OwnerClientId, Guid.Empty.ToString("D"), options.Timeout);
+        if (DesktopFrames.EncodedLength(preflight) > DesktopFrames.MaximumFrameBytes)
             throw new DesktopAdapterException("message_frame_too_large");
         await gate.WaitAsync(token);
         try
@@ -219,14 +225,7 @@ public sealed partial class DesktopAdapter : IAsyncDisposable
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
         deadline.CancelAfter(requestTimeout);
         string requestId = Guid.NewGuid().ToString("D");
-        var request = new JsonObject
-        {
-            ["type"] = "request", ["requestId"] = requestId,
-            ["sourceClientId"] = clientId == Guid.Empty ? "initializing-client" : clientId.ToString("D"),
-            ["version"] = version, ["method"] = method, ["params"] = parameters,
-            ["timeoutMs"] = (int)requestTimeout.TotalMilliseconds
-        };
-        if (target.HasValue) request["targetClientId"] = target.Value.ToString("D");
+        var request = CreateRequest(method, parameters, version, target, requestId, requestTimeout);
         try
         {
             await DesktopFrames.WriteAsync(connection.Stream, request, deadline.Token);
@@ -267,6 +266,20 @@ public sealed partial class DesktopAdapter : IAsyncDisposable
             await connection.DisposeAsync();
             throw;
         }
+    }
+
+    private JsonObject CreateRequest(string method, JsonObject parameters, int version, Guid? target,
+        string requestId, TimeSpan requestTimeout)
+    {
+        var request = new JsonObject
+        {
+            ["type"] = "request", ["requestId"] = requestId,
+            ["sourceClientId"] = clientId == Guid.Empty ? "initializing-client" : clientId.ToString("D"),
+            ["version"] = version, ["method"] = method, ["params"] = parameters,
+            ["timeoutMs"] = (int)requestTimeout.TotalMilliseconds
+        };
+        if (target.HasValue) request["targetClientId"] = target.Value.ToString("D");
+        return request;
     }
 
     private void EnsureOpen()

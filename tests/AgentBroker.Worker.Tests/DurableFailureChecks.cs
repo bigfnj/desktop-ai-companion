@@ -23,7 +23,7 @@ internal static class DurableFailureChecks
                 store.BeginDelivery();
                 using var locked = new FileStream(Path.Combine(root, "replace", "broker-state.json"), FileMode.Open, FileAccess.Read, FileShare.Read);
                 Exception? failure = null;
-                try { store.CompleteDelivery(sent.Message.Id, MessageStatus.Submitted); } catch (Exception error) { failure = error; }
+                try { store.CompleteDelivery(store.FindReceipt(sent.Message.Id)!, MessageStatus.Submitted); } catch (Exception error) { failure = error; }
                 check(failure is IOException { InnerException: Win32Exception },
                     "DURABLE_REPLACE_CLASSIFIED: actual Windows replacement fallback is a durable IO failure");
                 check(store.FindReceipt(sent.Message.Id)?.Status == MessageStatus.Submitting,

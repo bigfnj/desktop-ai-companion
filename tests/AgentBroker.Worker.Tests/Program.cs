@@ -13,9 +13,55 @@ using System.Text.Json;
 if (args.Length == 3 && args[0] == "--durable-failure-child")
     return await DurableFailureChecks.RunChildAsync(args[1], args[2]);
 
+using var scratchAudit = new ScratchAudit();
+Console.WriteLine("WITNESS: POSTPUSH_WORKER_EXECUTED");
+Console.WriteLine("WORKER_PRODUCT_SHA256=" + Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(typeof(BrokerRuntime).Assembly.Location))));
+Console.WriteLine("WORKER_HARNESS_SHA256=" + Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(System.Reflection.Assembly.GetExecutingAssembly().Location))));
 int assertions = 0;
 void Check(bool value, string name)
-{ if (!value) throw new InvalidOperationException(name); assertions++; Console.WriteLine("PASS: " + name); }
+{ if (!value) { scratchAudit.PrimaryFailureReported = true; throw new InvalidOperationException(name); } assertions++; Console.WriteLine("PASS: " + name); }
+if (args.SequenceEqual(["--certificate-continuity-only"]) ||
+    args.SequenceEqual(["--certificate-renewal-only"]) ||
+    args.SequenceEqual(["--certificate-renewal-lifecycle-only"]))
+{
+    try
+    {
+        if (args[0] == "--certificate-continuity-only") await CertificateContinuityChecks.RunAsync(Check);
+        if (args[0] == "--certificate-renewal-only") await BrokerIdentityRenewalChecks.RunAsync(Check);
+        if (args[0] == "--certificate-renewal-lifecycle-only") await CertificateRenewalLifecycleChecks.RunAsync(Check);
+        Console.WriteLine($"RESULT=PASS assertions={assertions}"); return 0;
+    }
+    catch (Exception error) { Console.Error.WriteLine(error); Console.WriteLine("RESULT=FAIL"); return 1; }
+}
+if (args.SequenceEqual(["--claim-contract-only"]))
+{
+    try { await DeliveryClaimContractChecks.RunAsync(Check); Console.WriteLine($"RESULT=PASS assertions={assertions}"); return 0; }
+    catch (Exception error) { Console.Error.WriteLine(error); Console.WriteLine("RESULT=FAIL"); return 1; }
+}
+if (args.SequenceEqual(["--scratch-lifetime-only"]))
+{
+    try { await ScratchLifetimeChecks.RunAsync(Check); Console.WriteLine($"RESULT=PASS assertions={assertions}"); return 0; }
+    catch (Exception error) { Console.Error.WriteLine(error); Console.WriteLine("RESULT=FAIL"); return 1; }
+}
+if (args.SequenceEqual(["--benchmark-validation-only"]))
+{
+    try { await BenchmarkValidationChecks.RunAsync(Check); Console.WriteLine($"RESULT=PASS assertions={assertions}"); return 0; }
+    catch (Exception error) { Console.Error.WriteLine(error); Console.WriteLine("RESULT=FAIL"); return 1; }
+}
+if (args.SequenceEqual(["--postpush-cleanup-only"]))
+{
+    try
+    {
+        await ScratchLifetimeChecks.RunAsync(Check);
+        await OnboardingChecks.InboxAttributionAsync(Check);
+        await OnboardingChecks.LanProfileAsync(Check);
+        await InstructionsChecks.RunAsync(Check);
+        await MailboxChecks.RunAsync(Check);
+        await PollingLeaseChecks.RunAsync(Check);
+        Console.WriteLine($"RESULT=PASS assertions={assertions}"); return 0;
+    }
+    catch (Exception error) { Console.Error.WriteLine(error); Console.WriteLine("RESULT=FAIL"); return 1; }
+}
 if (args.Length == 1 && args[0] == "--claude-title-hook-only")
 {
     try { await ClaudeTitleHookChecks.RunAsync(Check); Console.WriteLine($"RESULT=PASS assertions={assertions}"); return 0; }
@@ -370,11 +416,14 @@ if (args.Length >= 1 && args[0] is "--pin-diagnostics-only" or "--claude-pin-dia
     }
     catch (Exception ex) { Console.Error.WriteLine(ex); Console.WriteLine("RESULT=FAIL"); return 1; }
 }
-string scratch = Path.Combine(AppContext.BaseDirectory, "scratch", Guid.NewGuid().ToString("N"));
+using var scratchOwner = OwnedScratch.Create("worker");
+string scratch = scratchOwner.Root;
 var keys = new HashSet<string>(StringComparer.Ordinal);
 int exit = 1;
 try
 {
+    await ScratchLifetimeChecks.RunAsync(Check);
+    await BenchmarkValidationChecks.RunAsync(Check);
     await ControlPipeChecks.RunAsync(Check);
     await RuntimeLifecycleChecks.RunAsync(Check);
     await DurableFailureChecks.RunAsync(Check);
@@ -388,6 +437,10 @@ try
     await CodexQueueChecks.RunAsync(Check);
     if (!args.SequenceEqual(new[] { "--existing-tests-only" }))
     {
+        await CertificateContinuityChecks.RunAsync(Check);
+        await BrokerIdentityRenewalChecks.RunAsync(Check);
+        await CertificateRenewalLifecycleChecks.RunAsync(Check);
+        await DeliveryClaimContractChecks.RunAsync(Check);
         FirewallSetupChecks.Run(Check);
         MessageLifetimeOptionChecks.Run(Check);
         await PollingLeaseChecks.RunAsync(Check);

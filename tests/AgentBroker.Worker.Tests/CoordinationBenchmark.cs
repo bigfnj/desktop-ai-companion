@@ -13,6 +13,9 @@ using System.Text.Json;
 // It measures the current store, runtime and MCP endpoint unmodified; no limit or code path is changed for it.
 internal static class CoordinationBenchmark
 {
+    internal static Action<string>? AfterTombstoneSeed;
+    internal static Action<IReadOnlyList<WorkerApplication>>? AfterDirectoryRegistration;
+    internal static Action<IReadOnlyList<WorkerApplication>>? AfterDirectoryMeasurement;
     private const int CommitSamples = 6;
 
     public static async Task<int> RunAsync(string[] args)
@@ -130,6 +133,7 @@ internal static class CoordinationBenchmark
                             RemainingReplies = 8, Status = (int)MessageStatus.Delivered, UpdatedAt = created, Reason = "recipient_receipt", Attempts = 1 });
                     }
                 }
+            AfterTombstoneSeed?.Invoke(storeDirectory);
             var limits = new BrokerLimits();
             var capProperty = typeof(BrokerLimits).GetProperty("MaximumTombstones");
             if (cap > 0 && capProperty is not null) capProperty.SetValue(limits, cap);
@@ -158,7 +162,8 @@ internal static class CoordinationBenchmark
             int listed = store.Messages(sender).Count;
             double messagesMs = scan.Elapsed.TotalMilliseconds;
             // The control keeps every seeded record; the tombstone build keeps the journal's live lines as well.
-            if (listed != acknowledged + CommitSamples && listed != acknowledged + tombstones + CommitSamples)
+            int expectedHistory = acknowledged + CommitSamples + (capProperty is null ? 0 : tombstones);
+            if (listed != expectedHistory)
                 throw new InvalidDataException("The store did not list the expected history.");
             // Lane broker-next (N-broker-e-02): one wait_for_messages pass for the sender, whose history every seeded record
             // shares, timed six times (the first in the process is the cold one). It runs the store's AcceptedIncoming query
@@ -266,6 +271,7 @@ internal static class CoordinationBenchmark
                 for (int index = 0; index < sessionsPerPeer; index++)
                     peer.Runtime.RegisterPollingAgent(Guid.NewGuid(), Guid.NewGuid(), "Benchmark peer session", false);
             int expected = peers * sessionsPerPeer;
+            AfterDirectoryRegistration?.Invoke(workers);
             List<double> runtime = [];
             int federated = 0;
             for (int index = 0; index < 3; index++)
@@ -274,21 +280,27 @@ internal static class CoordinationBenchmark
                 var all = await local.Runtime.DirectoryAsync(false, CancellationToken.None);
                 runtime.Add(watch.Elapsed.TotalMilliseconds);
                 federated = all.Count;
+                if (federated != expected) throw new InvalidDataException("The directory measurement did not return every expected session.");
             }
+            AfterDirectoryMeasurement?.Invoke(workers);
             using var http = Client(local.Application.Urls.First(url => url.StartsWith("http://127.0.0.1:", StringComparison.Ordinal)) + "/mcp");
             List<double> page = [];
             JsonElement? cursor = null;
             int returned = 0;
+            var seen = new HashSet<SessionAddress>();
             for (int index = 0; index < pages; index++)
             {
                 var watch = Stopwatch.StartNew();
                 var result = await CallAsync(http, "list_sessions", cursor is null ? new { limit = 16 } : new { limit = 16, afterAddress = cursor.Value });
                 page.Add(watch.Elapsed.TotalMilliseconds);
                 var sessions = Sessions(result);
+                if (sessions.Any(session => !seen.Add(session.GetProperty("address").Deserialize<SessionAddress>(new JsonSerializerOptions(JsonSerializerDefaults.Web))!)))
+                    throw new InvalidDataException("The directory page measurement repeated an address.");
                 returned += sessions.Length;
                 if (sessions.Length < 16) break;
                 cursor = sessions[^1].GetProperty("address").Clone();
             }
+            if (returned != Math.Min(expected, pages * 16)) throw new InvalidDataException("The directory page measurement did not return its expected prefix.");
             return JsonSerializer.Serialize(new { scenario = "directory", peers, sessionsPerPeer, expected, federated, returned, runtimeMs = runtime, pageMs = page });
         }
         finally

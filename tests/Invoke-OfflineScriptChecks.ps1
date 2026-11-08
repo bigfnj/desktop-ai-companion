@@ -70,6 +70,8 @@ function Invoke-CheckedChild([string]$Name, [string]$Executable, [string[]]$Argu
     foreach ($line in $output) { Write-Host "$line" }
     if ($null -eq $childExit -or $childExit -ne 0) { $script:failures.Add("$Name (exit $childExit)") }
     elseif (@($output | Where-Object { "$_" -match $Summary }).Count -ne 1) {
+        # A short plain discriminator survives either shell's formatted exception wrapping.
+        Write-Output ('OFFLINE-SUMMARY-MISSING:' + $Name)
         $script:failures.Add($Name + ': missing or ambiguous passing summary; did not prove the check ran')
     }
 }
@@ -94,6 +96,20 @@ if (-not [string]::IsNullOrWhiteSpace($PythonExecutable)) {
 }
 
 $powerShellChecks = @(
+    @{ Name = 'Test-ModulePublishCommit.ps1'; Path = (Join-Path $PSScriptRoot 'Test-ModulePublishCommit.ps1'); Args = @(); Summary = '^SUMMARY: Test-ModulePublishCommit passed [1-9][0-9]* checks; synthetic repository removed\.$' },
+    @{ Name = 'Test-CatalogDeadChild.ps1'; Path = (Join-Path $PSScriptRoot 'Test-CatalogDeadChild.ps1'); Args = @(); Summary = '^SUMMARY: Test-CatalogDeadChild passed [1-9][0-9]* checks; owned children disposed\.$' },
+    @{ Name = 'Test-GrantClaudeLocalMcpReadiness.ps1'; Path = (Join-Path $PSScriptRoot 'Test-GrantClaudeLocalMcpReadiness.ps1'); Args = @(); Summary = '^SUMMARY: Test-GrantClaudeLocalMcpReadiness passed [1-9][0-9]* checks; no live policy, CLI or settings access\.$' },
+    @{ Name = 'Refresh-AgentBrokerStatus.ps1'; Path = (Join-Path $PSScriptRoot '..\tools\agentbroker\Refresh-AgentBrokerStatus.ps1'); Args = @('-SelfTest'); Summary = '^\{"SelfTestPassed":true,"Checks":[1-9][0-9]*\}$' },
+    @{ Name = 'Test-LocalAgentBrokerHealth.ps1'; Path = (Join-Path $PSScriptRoot '..\tools\agentbroker\Test-LocalAgentBrokerHealth.ps1'); Args = @('-SelfTest'); Summary = '^PublicMetadataChecks=[1-9][0-9]*$' },
+    @{ Name = 'Test-CompletedWorkerBinaryCleanup.ps1'; Path = (Join-Path $PSScriptRoot 'Test-CompletedWorkerBinaryCleanup.ps1'); Args = @(); Summary = '^\s*"Result":\s*"PASS",?$' },
+    @{ Name = 'Test-BacklogCriteriaSources.ps1'; Path = (Join-Path $PSScriptRoot 'Test-BacklogCriteriaSources.ps1'); Args = @(); Summary = '^CriteriaSourceChecks=[1-9][0-9]*$' },
+    @{ Name = 'Test-CodexEditorProbePreparation.ps1'; Path = (Join-Path $PSScriptRoot 'Test-CodexEditorProbePreparation.ps1'); Args = @(); Summary = '^PASS: [1-9][0-9]* preparation checks; no GUI launched\.$' },
+    @{ Name = 'Test-OwnedTestTree.ps1'; Path = (Join-Path $PSScriptRoot 'Test-OwnedTestTree.ps1'); Args = @(); Summary = '^OwnedTreeChecks=[1-9][0-9]*$' },
+    @{ Name = 'Test-GateDispatchContracts.ps1'; Path = (Join-Path $PSScriptRoot 'Test-GateDispatchContracts.ps1'); Args = @(); Summary = '^GateDispatchChecks=[1-9][0-9]*$' },
+    @{ Name = 'Test-HarnessOutputContracts.ps1'; Path = (Join-Path $PSScriptRoot 'Test-HarnessOutputContracts.ps1'); Args = @(); Summary = '^HarnessOutputChecks=[1-9][0-9]*$' },
+    @{ Name = 'Install-LocalAgentBroker.ps1'; Path = (Join-Path $PSScriptRoot '..\tools\agentbroker\Install-LocalAgentBroker.ps1'); Args = @('-SelfTest'); Summary = '^PathPolicyChecks=[1-9][0-9]*$' },
+    @{ Name = 'Grant-ClaudeLocalMcpAllowance.ps1'; Path = (Join-Path $PSScriptRoot '..\tools\agentbroker\Grant-ClaudeLocalMcpAllowance.ps1'); Args = @('-SelfTest'); Summary = '^\{"SelfTestPassed":true,"Checks":[1-9][0-9]*,"LiveSettingsReadOrChanged":false,"FixtureCleaned":true\}$' },
+    @{ Name = 'Inspect-ClaudeMcpPolicy.ps1'; Path = (Join-Path $PSScriptRoot '..\tools\agentbroker\Inspect-ClaudeMcpPolicy.ps1'); Args = @('-SelfTest'); Summary = '^\{"SelfTestPassed":true,"Checks":[1-9][0-9]*,"LivePolicyRead":false\}$' },
     @{ Name = 'Test-PublicCommitPrivacy.ps1'; Path = (Join-Path $PSScriptRoot 'Test-PublicCommitPrivacy.ps1'); Args = @('-SelfTest'); Summary = '^Public privacy self-test passed: [1-9][0-9]* cases ' },
     @{ Name = 'Inspect-CodexMcpExposure.ps1'; Path = (Join-Path $PSScriptRoot '..\tools\agentbroker\Inspect-CodexMcpExposure.ps1'); Args = @('-SelfTest'); Summary = '^PASS: [1-9][0-9]* exposure classification controls; no client or endpoint invoked\.$' },
     @{ Name = 'Invoke-MutationShards.ps1'; Path = (Join-Path $PSScriptRoot '..\tools\agentbroker\Invoke-MutationShards.ps1'); Args = @('-SelfTest'); Summary = '^SelfTestChecks=[1-9][0-9]*$' },
@@ -105,10 +121,18 @@ $powerShellChecks = @(
 foreach ($check in $powerShellChecks) {
     Invoke-CheckedChild $check.Name $pwshPath (@('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $check.Path) + $check.Args) $check.Summary
 }
+$node = @(Get-Command -Name 'node' -CommandType Application -ErrorAction SilentlyContinue) | Select-Object -First 1
+$nodePath = if ($null -eq $node) { '' } else { $node.Source }
+Invoke-CheckedChild 'Inspect-ClaudeMcpEntry.mjs' $nodePath `
+    @((Join-Path $PSScriptRoot '..\tools\agentbroker\Inspect-ClaudeMcpEntry.mjs'), '--self-test') '^\{"status":"self_test_passed","checks":[1-9][0-9]*\}$'
+Invoke-CheckedChild 'Probe-IsolatedClaudeMcpSetup.mjs' $nodePath `
+    @((Join-Path $PSScriptRoot '..\tools\agentbroker\Probe-IsolatedClaudeMcpSetup.mjs'), '--self-test') '^\{"status":"self_test_passed","checks":[1-9][0-9]*,"fixtureRemoved":true,"publicFilesOpened":false,"cliLaunched":false\}$'
 Invoke-CheckedChild 'run_installer_shutdown_mutations.py --self-test' $PythonExecutable `
     @('-B', '-X', 'utf8', (Join-Path $PSScriptRoot 'run_installer_shutdown_mutations.py'), '--self-test') '^PASS [1-9][0-9]* restoration cases '
 Invoke-CheckedChild 'Test-MutationHarnessRestoration.py' $PythonExecutable `
     @('-B', '-X', 'utf8', (Join-Path $PSScriptRoot 'Test-MutationHarnessRestoration.py')) '^MutationRestorationChecks=[1-9][0-9]*$'
+Invoke-CheckedChild 'run_mutation_capture_checks.py' $PythonExecutable `
+    @('-B', '-X', 'utf8', (Join-Path $PSScriptRoot 'run_mutation_capture_checks.py')) '^MutationCaptureChecks=[1-9][0-9]*; Failures=0; Errors=0; Skipped=[0-9]+$'
 
 if ($failures.Count -gt 0) {
     throw ("$($failures.Count) of $ran offline script check(s) failed: " + ($failures -join ' | '))

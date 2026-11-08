@@ -210,22 +210,21 @@ if ($null -eq $catalogAppVersion) {
 }
 #
 # The rule is NOT "catalog.json equals ProductVersion.props", which is what it used to be. Those two
-# answer different questions: props is the newest version that has been BUILT, catalog.json is the
-# newest version a user can actually DOWNLOAD, and between an ABI bump and the release that ships it
+# answer different questions: props declares the build version, while catalog.json advertises an
+# update version. Between an ABI bump and the release that ships it
 # they are legitimately different. The old rule forced them together, which left only two ways to
 # land an ABI change -- cut a release immediately, or publish a catalog advertising a version that
 # does not exist on the releases page. The second is the worse one and the old rule made it the path
 # of least resistance.
 #
-# So it is now two checks, and neither is weaker than what it replaced:
+# This offline check enforces two local metadata agreements. It does not query GitHub releases or
+# verify downloadable assets. A local tag alone does not prove that a release succeeded or still exists.
 #
 #   1. The catalog must not EXCEED props. A catalog ahead of the build offers every user an update
 #      that cannot be downloaded.
-#   2. The catalog must MATCH THE NEWEST RELEASED TAG. This is the original protection, stated
-#      against the thing that actually determines it. The incident described above -- the catalog
-#      stuck at 1.1.0 while v1.1.1, v1.1.2 and v1.1.3 shipped, so nobody on 1.1.0 was offered the
-#      tray-icon fix -- fails check 2 exactly as it failed the old one. What no longer fails is an
-#      unreleased build sitting in the tree, which was never the defect.
+#   2. The catalog must MATCH THE NEWEST LOCAL VERSION TAG. This catches a catalog lagging behind
+#      the local tag set. A failed, pending or pruned GitHub release can leave such a tag behind;
+#      deciding published-release availability belongs to the separate app release process.
 $catalogVersionParsed = $null
 $productVersionParsed = $null
 if (-not [version]::TryParse($catalogAppVersion, [ref]$catalogVersionParsed)) {
@@ -247,11 +246,11 @@ if ($catalogVersionParsed -gt $productVersionParsed) {
 $releaseTags = @(Invoke-GitLines @('tag', '--list', 'v*'))
 if ($script:GitExit -ne 0 -or $releaseTags.Count -eq 0) {
     Write-Warning ("DEGRADED  no v* tags are reachable, so catalog.json app.version could not be " +
-                   "checked against the newest release (shallow clone?)")
-    throw ("Coverage narrowed silently: the catalog-versus-newest-release check could not run because " +
+                   "checked against the newest local version tag (shallow clone?)")
+    throw ("Coverage narrowed silently: the catalog-versus-newest-local-tag check could not run because " +
            "no v* tags are reachable. Fetch tags (CI uses fetch-depth: 0) and re-run. This refuses " +
-           "rather than passing, because a catalog that trails the newest release means no user is " +
-           "ever offered it, which is the failure this check exists for.")
+           "rather than passing without the local tag agreement. This offline check does not prove " +
+           "that a GitHub release or its downloadable assets exists.")
 }
 $taggedVersions = @()
 foreach ($releaseTag in $releaseTags) {
@@ -259,22 +258,21 @@ foreach ($releaseTag in $releaseTags) {
     if ([version]::TryParse($releaseTag.TrimStart('v'), [ref]$parsedTag)) { $taggedVersions += $parsedTag }
 }
 if ($taggedVersions.Count -eq 0) {
-    throw "No v* tag parsed as a version number, so the newest release could not be determined."
+    throw "No v* tag parsed as a version number, so the newest local version tag could not be determined."
 }
 $newestRelease = @($taggedVersions | Sort-Object -Descending | Select-Object -First 1)[0]
 if ($catalogVersionParsed -ne $newestRelease) {
-    throw ("catalog.json app.version is '$catalogAppVersion' but the newest release is " +
-           "'v$newestRelease'. The launch update check reads the catalog, so while it trails the " +
-           "newest release every user at or above '$catalogAppVersion' is told they are up to date. " +
-           "Regenerate the catalog (packaging\New-ContentCatalog.ps1) and commit it -- merging to " +
-           "master is what publishes it.")
+    throw ("catalog.json app.version is '$catalogAppVersion' but the newest local version tag is " +
+           "'v$newestRelease'. This proves a local metadata disagreement, not release availability. " +
+           "Verify the app release and its assets before changing the advertised catalog version; " +
+           "a failed or pending release can leave a newer local tag behind.")
 }
 if ($catalogVersionParsed -lt $productVersionParsed) {
-    Write-Host ("OK   app -- catalog.json app.version $catalogAppVersion matches the newest release " +
+    Write-Host ("OK   app -- catalog.json app.version $catalogAppVersion matches the newest local version tag " +
                 "v$newestRelease; ProductVersion.props is ahead at $productVersion (built, not released yet)")
 }
 else {
-    Write-Host "OK   app -- catalog.json app.version $catalogAppVersion matches the newest release and the built version"
+    Write-Host "OK   app -- catalog.json app.version $catalogAppVersion matches the newest local version tag and the declared build version"
 }
 
 $stale = @()

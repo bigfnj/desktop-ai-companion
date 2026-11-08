@@ -8,6 +8,7 @@ pwsh -NoProfile -File tools/agentbroker/Invoke-DeveloperTool.ps1 pwsh -NoProfile
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..')).TrimEnd('\')
+. (Join-Path $PSScriptRoot 'OwnedTestTree.ps1')
 $source = Join-Path $repo 'tools\agentbroker\Remove-CompletedWorkerBinaries.ps1'
 $tokens = $null; $errors = $null
 $ast = [Management.Automation.Language.Parser]::ParseFile($source,[ref]$tokens,[ref]$errors)
@@ -30,9 +31,13 @@ function Invoke-WorkerBinaryGit([string]$Repository,[string[]]$Arguments) {
     if ($LASTEXITCODE -ne 0) { throw 'worker_binary_git_metadata_failed' }
     return $output
 }
+$fixtureFailed = $false
+$registered = $false
+try {
 [void](Invoke-WorkerBinaryGit $tiny @('init','--quiet'))
 [void](Invoke-WorkerBinaryGit $tiny @('-c','user.name=bigfnj','-c','user.email=bigfnj@users.noreply.github.com','commit','--quiet','--allow-empty','-m','Owned cleanup safety fixture'))
 [void](Invoke-WorkerBinaryGit $tiny @('worktree','add','--quiet','--detach',$worker))
+$registered = $true
 $build = Join-Path $worker 'build'
 [void][IO.Directory]::CreateDirectory($build)
 $planFile = Join-Path $tiny 'artifacts\plan.json'
@@ -131,5 +136,20 @@ $partial = @($receipts | ForEach-Object { [IO.File]::ReadAllText($_) | ConvertFr
 Check ($partial.Count -eq 1 -and $partial[0].RemovedFiles -eq 1) 'partial receipt never reports full success'
 foreach ($path in @($log,$json,$raw,$sourceFile)) { Check ([IO.File]::Exists($path)) 'partial failure still preserves evidence' }
 $report = [ordered]@{ Result='PASS'; Checks=$checks; SyntheticOnly=$true; ActualCleanupFunctions=$true; ScratchDirectory=$scratch }
-[IO.File]::WriteAllText((Join-Path $scratch 'result.json'),($report | ConvertTo-Json),[Text.UTF8Encoding]::new($false))
+} catch { $fixtureFailed = $true; throw }
+finally {
+    try {
+        if ($registered) {
+            [void](Assert-WorkerBinaryPath $worker $scratch)
+            [void](Invoke-WorkerBinaryGit $tiny @('worktree','remove','--force',$worker))
+        }
+        Remove-OwnedTestTree $scratch (Join-Path $repo 'artifacts')
+    } catch {
+        if (-not $fixtureFailed) { throw }
+        Write-Warning ('Cleanup fixture retained; original failure preserved: ' + $scratch)
+    }
+}
+Check (-not (Test-Path -LiteralPath $scratch)) 'fixture and registered worktree removed'
+$report.Checks = $checks
+$report.ScratchRemoved = $true
 $report | ConvertTo-Json

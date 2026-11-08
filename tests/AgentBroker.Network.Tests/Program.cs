@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
+using System.Text.Json;
 using AgentBroker.Core;
 using AgentBroker.Worker;
 using AgentBroker.Worker.Discovery;
@@ -11,18 +12,42 @@ using AgentBroker.Worker.Security;
 using Microsoft.AspNetCore.Server.Kestrel.Https;
 
 int assertions = 0;
+using var scratchAudit = new ScratchAudit();
 var ownedKeys = new HashSet<string>(StringComparer.Ordinal);
 BrokerIdentity Identity(string directory, Guid id) { var identity = BrokerIdentity.LoadOrCreate(directory, id); ownedKeys.Add(identity.KeyName); return identity; }
-void Check(bool value, string name) { if (!value) throw new InvalidOperationException(name); assertions++; Console.WriteLine("PASS: " + name); }
+void Check(bool value, string name) { if (!value) { scratchAudit.PrimaryFailureReported = true; throw new InvalidOperationException(name); } assertions++; Console.WriteLine("PASS: " + name); }
 async Task Refuses(Func<Task> action, string name)
 {
     try { await action(); throw new InvalidOperationException("Expected refusal: " + name); }
     catch (Exception ex) when (ex is HttpRequestException or UnauthorizedAccessException or InvalidDataException) { Check(true, name); }
 }
-string scratch = Path.Combine(AppContext.BaseDirectory, "scratch", Guid.NewGuid().ToString("N"));
-Directory.CreateDirectory(scratch);
+using var scratchOwner = OwnedScratch.Create("network");
+string scratch = scratchOwner.Root;
+Console.WriteLine("WITNESS: POSTPUSH_NETWORK_EXECUTED");
+Console.WriteLine("NETWORK_WORKER_SHA256=" + Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(typeof(PeerFederation).Assembly.Location))));
+Console.WriteLine("NETWORK_HARNESS_SHA256=" + Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(System.Reflection.Assembly.GetExecutingAssembly().Location))));
 try
 {
+    if (args.SequenceEqual(["--certificate-renewal-only"]))
+    {
+        await CertificateRenewalNetworkChecks.RunAsync(scratch, ownedKeys, Check);
+        Console.WriteLine($"RESULT=PASS assertions={assertions}"); return 0;
+    }
+    if (args.Contains("--fixture-ownership-only"))
+    {
+        await NodeOwnershipContractChecks.RunAsync(Check);
+        Console.WriteLine($"RESULT=PASS assertions={assertions}"); return 0;
+    }
+    if (args.Contains("--dns-contract-only"))
+    {
+        CheckDnsBound(IPAddress.Parse("10.23.4.5"), DateTimeOffset.UtcNow);
+        Console.WriteLine($"RESULT=PASS assertions={assertions}"); return 0;
+    }
+    if (args.Contains("--federation-boundaries-only"))
+    {
+        await FederationBoundaryChecks.RunAsync(scratch, Identity, Check);
+        Console.WriteLine($"RESULT=PASS assertions={assertions}"); return 0;
+    }
     if (args.Contains("--paired-admission-only"))
     {
         Console.WriteLine("WITNESS: AUTHENTICATED_PAIRED_ADMISSION_EXECUTED");
@@ -36,8 +61,10 @@ try
         await PairedReconnectChecks.RunAsync(scratch, Identity, Check);
         Console.WriteLine($"RESULT=PASS assertions={assertions}"); return 0;
     }
+    await NodeOwnershipContractChecks.RunAsync(Check);
     await DiscoveryLifetimeChecks.RunAsync(Check);
-    if (args.Contains("--discovery-only")) return 0;
+    if (args.Contains("--discovery-only")) { Console.WriteLine($"RESULT=PASS assertions={assertions}"); return 0; }
+    await CertificateRenewalNetworkChecks.RunAsync(scratch, ownedKeys, Check);
     var clock = new TestClock();
     await using var a = await Node.Create(Path.Combine(scratch, "a"), clock, Identity);
     await using var b = await Node.Create(Path.Combine(scratch, "b"), clock, Identity);
@@ -73,14 +100,19 @@ try
         Check(response.StatusCode == HttpStatusCode.Forbidden, "payload broker ID cannot impersonate the client certificate");
         response = await stranger.PostAsJsonAsync("pair/approve", new { requestId = Guid.NewGuid(), nonce = new string('B', 64), peer = c.Advertisement, verificationCode = "NO" });
         Check(response.StatusCode == HttpStatusCode.Forbidden, "an unsolicited approval cannot create trust");
-        using var oversized = new ByteArrayContent(new byte[40000]); oversized.Headers.ContentType = new("application/json");
+        byte[] validPairing = JsonSerializer.SerializeToUtf8Bytes(new { requestId = Guid.NewGuid(), nonce = new string('A', 64), peer = c.Advertisement, expiresAt = clock.GetUtcNow().AddMinutes(1) });
+        byte[] oversizedPairing = Encoding.UTF8.GetBytes(new string(' ', 40000) + Encoding.UTF8.GetString(validPairing));
+        using (var parsed = JsonDocument.Parse(oversizedPairing)) Check(parsed.RootElement.GetProperty("nonce").GetString()!.Length == 64,
+            "PAIRING_BODY_WITNESS: oversized bytes are otherwise valid authenticated pairing JSON");
+        using var oversized = new ByteArrayContent(oversizedPairing); oversized.Headers.ContentType = new("application/json");
         response = await stranger.PostAsync("pair/request", oversized);
-        Check(!response.IsSuccessStatusCode, "oversized pairing body is refused");
-        using var chunked = new HttpRequestMessage(HttpMethod.Post, "pair/request") { Content = new ByteArrayContent(new byte[40000]) };
+        Check(!response.IsSuccessStatusCode, "PAIRING_BODY_LENGTH: otherwise valid oversized pairing body is refused");
+        using var chunked = new HttpRequestMessage(HttpMethod.Post, "pair/request") { Content = new ByteArrayContent(oversizedPairing) };
         chunked.Content.Headers.ContentType = new("application/json"); chunked.Headers.TransferEncodingChunked = true;
         using var chunkedResponse = await stranger.SendAsync(chunked);
-        Check(!chunkedResponse.IsSuccessStatusCode, "chunked pairing bodies enforce the same streaming size limit");
+        Check(!chunkedResponse.IsSuccessStatusCode, "PAIRING_BODY_STREAM: otherwise valid chunked pairing body enforces the streaming size limit");
     }
+    if (args.Contains("--body-contract-only")) { Console.WriteLine($"RESULT=PASS assertions={assertions}"); return 0; }
     await a.Federation.RequestPairAsync(b.Advertisement, default);
     var outbound = a.Federation.PairingOffers.Single(); var incoming = b.Federation.PairingOffers.Single();
     Check(outbound.VerificationCode == incoming.VerificationCode && outbound.RequestId == incoming.RequestId, "both local users see the same identity-bound verification code");
@@ -181,7 +213,7 @@ try
     Check(cache.Entries.Count == 32, "discovery cache is bounded at 32 brokers");
     clock.Advance(TimeSpan.FromSeconds(121)); Check(cache.Entries.Count == 0, "discovery metadata expires at its bounded TTL");
     for (int i = 0; i < 200; i++) { byte[] invalid = RandomNumberGenerator.GetBytes(i % 1400); DnsSdCodec.Parse(invalid, ip, clock.GetUtcNow()); }
-    Check(DnsSdCodec.Parse(new byte[1401], ip, clock.GetUtcNow()).Count == 0 && DnsSdCodec.IsQuery(DnsSdCodec.Query()), "malformed/oversized DNS is bounded and the service question parses");
+    CheckDnsBound(ip, clock.GetUtcNow());
     byte[] wrongClass = DnsSdCodec.Query(); wrongClass[^1] = 3;
     Check(!DnsSdCodec.IsQuery(wrongClass) && !DnsSdCodec.IsQuery(DnsSdCodec.Query()[..^1]), "non-IN and truncated DNS questions cannot trigger announcements");
     var goodbye = new BrokerAdvertisement(Guid.NewGuid(), "Synthetic", "https://10.23.4.5:7433/", new string('A', 64), clock.GetUtcNow());
@@ -199,10 +231,11 @@ try
         Check(persisted.BrokerId == brokerId && identity.Fingerprint == fingerprint && persisted.Peers().Single() == peerB, "restart preserves broker identity and explicit certificate-pinned trust");
     await PairedReconnectChecks.RunAsync(scratch, Identity, Check);
     await PairedAdmissionChecks.RunAsync(scratch, Identity, Check);
+    await FederationBoundaryChecks.RunAsync(scratch, Identity, Check);
     Console.WriteLine($"RESULT=PASS assertions={assertions}");
     return 0;
 }
-catch (Exception ex) { Console.Error.WriteLine(ex); Console.WriteLine("RESULT=FAIL"); return 1; }
+catch (Exception ex) { scratchAudit.PrimaryFailureReported = true; Console.Error.WriteLine(ex); Console.WriteLine("RESULT=FAIL"); return 1; }
 finally
 {
     // Only exact keys returned by this invocation's new scratch identities. Never enumerate the key store.
@@ -212,8 +245,18 @@ finally
         try { using var key = CngKey.Open(name, CngProvider.MicrosoftSoftwareKeyStorageProvider, CngKeyOpenOptions.Silent); key.Delete(); }
         catch (CryptographicException ex) { cleanupFailures.Add(ex); }
     }
-    if (cleanupFailures.Count != 0) throw new AggregateException("Owned test key cleanup failed.", cleanupFailures);
-    /* Failed encrypted metadata artifacts are intentionally retained for scoped diagnosis. */
+    if (cleanupFailures.Count != 0) { scratchAudit.PrimaryFailureReported = true; throw new AggregateException("Owned test key cleanup failed.", cleanupFailures); }
+    // The invocation-owned tree is removed after all nodes and exact CNG keys have been disposed.
+}
+
+void CheckDnsBound(IPAddress source, DateTimeOffset now)
+{
+    var advert = new BrokerAdvertisement(Guid.NewGuid(), "Synthetic", "https://10.23.4.5:7433/", new string('A', 64), now);
+    byte[] valid = DnsSdCodec.Announce(advert);
+    byte[] oversized = new byte[1401]; valid.CopyTo(oversized, 0);
+    Check(DnsSdCodec.Parse(valid, source, now).Count == 1 && DnsSdCodec.Parse(oversized, source, now).Count == 0,
+        "DNS_RESPONSE_SIZE: an otherwise valid advertisement is refused when padded past the datagram bound");
+    Check(DnsSdCodec.IsQuery(DnsSdCodec.Query()), "the service question parses");
 }
 
 sealed class TestClock : TimeProvider
@@ -228,6 +271,8 @@ sealed class SkewClock(TimeProvider parent, TimeSpan skew) : TimeProvider
 }
 sealed class Node : IAsyncDisposable
 {
+    private readonly object disposalGate = new();
+    private Task? disposal;
     public required string Directory { get; init; }
     public required BrokerStore Store { get; init; }
     public required BrokerIdentity Identity { get; init; }
@@ -240,7 +285,13 @@ sealed class Node : IAsyncDisposable
     public static async Task<Node> Create(string directory, TimeProvider clock, Func<string, Guid, BrokerIdentity> loadIdentity,
         Func<IReadOnlyList<BrokerAdvertisement>>? discovered = null, TimeSpan? reconnectInterval = null, bool enableLan = true)
     {
-        var store = new BrokerStore(directory, clock: clock); var identity = loadIdentity(directory, store.BrokerId);
+        var store = new BrokerStore(directory, clock: clock);
+        BrokerIdentity? identity = null;
+        WebApplication? app = null;
+        PeerFederation? federation = null;
+        try
+        {
+        identity = loadIdentity(directory, store.BrokerId);
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { Args = [], ContentRootPath = AppContext.BaseDirectory, EnvironmentName = "Production" });
         builder.Logging.ClearProviders();
         builder.WebHost.ConfigureKestrel(k => {
@@ -249,7 +300,7 @@ sealed class Node : IAsyncDisposable
                 ServerCertificate = identity.Certificate, ClientCertificateMode = ClientCertificateMode.AllowCertificate,
                 ClientCertificateValidation = (_, _, _) => true }));
         });
-        var app = builder.Build(); var probe = new PairingProbe();
+        app = builder.Build(); var probe = new PairingProbe();
         app.Use(async (context, next) => {
             if (context.Request.Path.StartsWithSegments("/federation") && probe.BeforeResponse is { } beforeResponse)
                 context.Response.OnStarting(() => beforeResponse(context));
@@ -285,12 +336,26 @@ sealed class Node : IAsyncDisposable
             try { await next(context); context.Abort(); }
             finally { context.Response.Body = original; }
         });
-        var federation = new PeerFederation(store, identity, new(directory, "Synthetic broker", LanPort: 0, EnableLan: enableLan), enableDiscovery: false, clock: clock)
+        federation = new PeerFederation(store, identity, new(directory, "Synthetic broker", LanPort: 0, EnableLan: enableLan), enableDiscovery: false, clock: clock)
         { DiscoverySource = discovered, ReconnectInterval = reconnectInterval ?? TimeSpan.FromSeconds(5) };
         federation.MapEndpoints(app); await app.StartAsync(); await federation.StartAsync(default);
         return new Node { Directory = directory, Store = store, Identity = identity, Federation = federation, App = app,
             Endpoint = app.Urls.Single(u => u.StartsWith("https://", StringComparison.Ordinal)) + "/",
             HttpEndpoint = app.Urls.Single(u => u.StartsWith("http://", StringComparison.Ordinal)) + "/", Pairing = probe };
+        }
+        catch (Exception failure)
+        {
+            try
+            {
+                await DisposeAllAsync(() => federation?.DisposeAsync() ?? ValueTask.CompletedTask,
+                    async () => { if (app is not null) await app.StopAsync(); },
+                    () => app?.DisposeAsync() ?? ValueTask.CompletedTask,
+                    () => { identity?.Dispose(); return ValueTask.CompletedTask; },
+                    () => { store.Dispose(); return ValueTask.CompletedTask; });
+            }
+            catch (Exception cleanup) { throw new AggregateException("Synthetic node setup and cleanup failed.", failure, cleanup); }
+            throw;
+        }
     }
     public BrokerSession Register(string name, bool privateSession = false)
     {
@@ -305,7 +370,20 @@ sealed class Node : IAsyncDisposable
         if (client is not null) handler.ClientCertificates.Add(client.Certificate);
         return new(handler) { BaseAddress = new Uri(Endpoint), Timeout = TimeSpan.FromSeconds(10) };
     }
-    public async ValueTask DisposeAsync() { await Federation.DisposeAsync(); await App.StopAsync(); await App.DisposeAsync(); Identity.Dispose(); Store.Dispose(); }
+    public ValueTask DisposeAsync()
+    {
+        lock (disposalGate) return new(disposal ??= DisposeAllAsync(() => Federation.DisposeAsync(),
+            async () => await App.StopAsync(), () => App.DisposeAsync(),
+            () => { Identity.Dispose(); return ValueTask.CompletedTask; },
+            () => { Store.Dispose(); return ValueTask.CompletedTask; }).AsTask());
+    }
+    internal static async ValueTask DisposeAllAsync(params Func<ValueTask>[] dispose)
+    {
+        List<Exception>? failures = null;
+        foreach (var action in dispose)
+            try { await action(); } catch (Exception error) { (failures ??= []).Add(error); }
+        if (failures is not null) throw new AggregateException("Synthetic node cleanup failed.", failures);
+    }
 }
 
 sealed class PairingProbe

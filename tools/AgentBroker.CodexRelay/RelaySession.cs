@@ -42,6 +42,7 @@ public sealed class RelaySession : IAsyncDisposable
     private int _resourcesDisposed;
 
     public RelaySession(RelayOptions options) => _options = options;
+    internal bool? OwnedEngineExited => _engine?.HasExited;
 
     public Task<int> RunAsync(Stream guiInput, Stream guiOutput, Stream engineError, CancellationToken cancellation)
     {

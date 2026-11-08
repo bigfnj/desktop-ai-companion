@@ -42,7 +42,9 @@ public sealed partial class BrokerRuntime(BrokerStore store, IPeerFederation fed
     // same rule as list_sessions (review of 25a0c65, finding 2).
     internal SenderReceipt View(MessageReceipt receipt, bool includeText = false, bool forPeer = false) => forPeer
         ? SenderReceipt.From(receipt, Now, includeText)
-        : SenderReceipt.From(receipt, Now, includeText, observations.BusySince(receipt), observations.EngineAtAttempt(receipt.Message.Id));
+        : SenderReceipt.From(receipt, Now, includeText,
+            observations.BusySince(receipt, BrokerStore.ReceiptAdmissionEpoch(receipt)),
+            observations.EngineAtAttempt(receipt.Message, BrokerStore.ReceiptAdmissionEpoch(receipt)));
 
     public void SetSessionPreference(string sessionId, bool? isPrivate, bool? isMuted)
     {
@@ -368,8 +370,9 @@ public sealed partial class BrokerRuntime(BrokerStore store, IPeerFederation fed
         : new(null, "paired broker \"" + (store.Peers().SingleOrDefault(peer => peer.BrokerId == sender.BrokerId)?.Name ?? "unknown") + "\" " +
             sender.BrokerId.ToString("D"));
 
-    private async Task DeliverAsync(MessageReceipt receipt, CancellationToken stop)
+    private async Task DeliverAsync(DeliveryClaim claim, CancellationToken stop)
     {
+        var receipt = claim.Receipt;
         AdapterResult result;
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(stop);
         deadline.CancelAfter(TimeSpan.FromSeconds(20));
@@ -401,6 +404,9 @@ public sealed partial class BrokerRuntime(BrokerStore store, IPeerFederation fed
                     : await adapter.SubmitAsync(receipt.Message, DescribeSender(receipt.Message.Sender), deadline.Token);
             }
         }
+        catch (AgentBroker.Worker.Federation.PeerSubmissionNotStartedException notStarted) when
+            (receipt.Message.Recipient.BrokerId != store.BrokerId && notStarted.BrokerId == receipt.Message.Recipient.BrokerId)
+        { result = new(AdapterAdmission.DeferredNotSubmitted, "peer_connection_unavailable"); }
         catch (AgentBroker.Worker.Federation.PeerAdmissionRefusedException refused) when
             (receipt.Message.Recipient.BrokerId != store.BrokerId && refused.BrokerId == receipt.Message.Recipient.BrokerId)
         { result = new(AdapterAdmission.Refused, refused.Code); }
@@ -421,29 +427,23 @@ public sealed partial class BrokerRuntime(BrokerStore store, IPeerFederation fed
         if (invalidResult)
             adapterErrors["adapter_result"] = "adapter_result_invalid: " + Interlocked.Increment(ref invalidAdapterResults) +
                 " malformed adapter results; affected claims use a fixed diagnostic instead of stopping delivery.";
-        // What this attempt learned about a local recipient, for the sender's receipt and the directory. Observation only.
-        if (receipt.Message.Recipient.BrokerId == store.BrokerId)
-            observations.Record(receipt.Message, result);
-        // A revocation may have resolved an in-flight claim while its IO was completing.
-        if (store.FindReceipt(receipt.Message.Id)?.Status != MessageStatus.Submitting) return;
-        try
+        // Publication shares selection's gate with successful atomic settlement. A rejected snapshot publishes nothing.
+        void Observe()
         {
-            if (result.Outcome == AdapterAdmission.DeferredNotSubmitted)
-            {
-                claims.ReleaseUnsubmittedClaim(receipt.Message.Id, result.Reason);
-                return;
-            }
-            store.CompleteDelivery(receipt.Message.Id, result.Outcome switch
+            if (receipt.Message.Recipient.BrokerId == store.BrokerId)
+                observations.Record(receipt.Message, result, claim.AdmissionEpoch);
+        }
+        if (result.Outcome == AdapterAdmission.DeferredNotSubmitted)
+            claims.ReleaseUnsubmittedClaim(claim, result.Reason, Observe);
+        else
+            claims.CompleteDelivery(claim, result.Outcome switch
             {
                 AdapterAdmission.Delivered => MessageStatus.Delivered,
                 AdapterAdmission.Held => MessageStatus.Held,
                 AdapterAdmission.Refused => MessageStatus.Refused,
                 AdapterAdmission.Submitted => MessageStatus.Submitted,
                 _ => MessageStatus.Uncertain,
-            }, result.Reason);
-        }
-        catch (BrokerException e) when (e.Code == "message_not_submitting")
-        { /* A concurrent acknowledgement or revocation already settled this claim. */ }
+            }, result.Reason, Observe);
     }
 
     private async Task ReconcilePeersAsync(CancellationToken stop)
@@ -471,7 +471,7 @@ public sealed partial class BrokerRuntime(BrokerStore store, IPeerFederation fed
                     var remote = await federation.GetReceiptAsync(peer, message.Message.Id, deadline.Token);
                     if (remote?.Message != message.Message || remote.Status is not
                         (MessageStatus.Delivered or MessageStatus.Held or MessageStatus.Refused or MessageStatus.Expired)) continue;
-                    store.RecordPeerReceipt(message.Message.Id, message.Message.Recipient, peer.BrokerId, remote.Status, remote.Reason);
+                    store.TryRecordPeerReceipt(message, message.Message.Recipient, peer.BrokerId, remote.Status, remote.Reason, out _);
                 }
                 // An unreadable receipt answer is that message's failure for this pass; it used to end the receipt loop, so
                 // no outbound message to any peer got its receipt again (A-broker-02).

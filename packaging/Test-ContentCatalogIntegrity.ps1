@@ -120,7 +120,7 @@ try {
     $deadThrew = '(did not throw)'
 }
 catch { $deadThrew = $_.Exception.Message }
-if ($deadThrew -notmatch 'exited or closed its output' -or $deadThrew -match 'did not return within' -or
+if ($deadThrew -notmatch 'exited or closed its (?:input|output)' -or $deadThrew -match 'did not return within' -or
     $deadThrew -notmatch 'Refusing to fall back') {
     throw ("Get-CatalogAsset did not refuse a child that exited before answering as a dead child; it said: " +
            $deadThrew + ". If this reads as a timeout, the two branches are no longer told apart.")

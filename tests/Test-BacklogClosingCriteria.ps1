@@ -48,6 +48,7 @@ $ErrorActionPreference = 'Stop'
 # under powershell.exe, and the failure is a Split-Path on an empty string rather than anything
 # that names the real problem.
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
+$scanBlocked = [string]::IsNullOrEmpty($Path)
 if ([string]::IsNullOrEmpty($RepoRoot)) { $RepoRoot = Split-Path -Parent $here }
 if ([string]::IsNullOrEmpty($Path)) { $Path = Join-Path $RepoRoot 'BACKLOG.md' }
 
@@ -235,11 +236,46 @@ for ($i = 0; $i -lt $lines.Count; $i++) {
     }
 }
 
+# Blocked-work items use headings rather than backlog glyphs. Explicit -Path keeps single-file mode.
+if ($scanBlocked) {
+    $blockedPath = Join-Path $RepoRoot 'docs\BLOCKED.md'
+    if (-not (Test-Path -LiteralPath $blockedPath -PathType Leaf)) { throw 'The default criteria source docs/BLOCKED.md is missing.' }
+    $blockedLines = @(Get-Content -LiteralPath $blockedPath -Encoding UTF8)
+    $blockedTitle = ''
+    $blockedClosed = $false
+    $blockedCriteria = 0
+    for ($b = 0; $b -lt $blockedLines.Count; $b++) {
+        $line = $blockedLines[$b]
+        if ($line -match '^##\s+(.+)$') {
+            $blockedTitle = $Matches[1]
+            $blockedClosed = $line.Contains($glyphTick) -or $line.Contains($glyphStop)
+        }
+        if ($line -notmatch '^\s*CLOSES-WHEN:') { continue }
+        $where = 'docs/BLOCKED.md:' + ($b + 1)
+        if ($line -notmatch '^\s*CLOSES-WHEN:\s*(\S+)\s+(\S+)(?:\s+"([^"]*)")?\s*$') {
+            $broken.Add($where + ' : CLOSES-WHEN does not parse.')
+            continue
+        }
+        $verb = $Matches[1]; $target = $Matches[2]
+        $needle = if ($Matches.Count -ge 4) { $Matches[3] } else { '' }
+        if (-not $blockedTitle -or ($needle -eq '' -and @('grep-present','grep-absent') -contains $verb)) {
+            $broken.Add($where + ' : CLOSES-WHEN requires an item heading and a quoted grep needle.')
+            continue
+        }
+        if ($blockedClosed) { continue }
+        $blockedCriteria++
+        if (Test-Criterion -Verb $verb -Target $target -Needle $needle -Where $where -Root $RepoRoot -BrokenList $broken) {
+            $satisfied.Add($where + ' : "' + $blockedTitle + '" -- its own CLOSES-WHEN is now satisfied.')
+        }
+    }
+    Write-Host "blocked closing criteria: $blockedCriteria live CLOSES-WHEN criterion/criteria evaluated in docs/BLOCKED.md"
+}
+
 # ZERO OPEN ITEMS IS NOT A PASS. It is either a finished backlog or a file this could not parse,
 # and the check cannot tell the two apart -- so it refuses to be the one that quietly says fine.
 # The same reasoning as the missing-target case above: a control that can run degraded has to say
 # so on every run rather than skip in silence.
-if ($open -eq 0) {
+if ($open -eq 0 -and $satisfied.Count -eq 0) {
     # DISTINGUISHED, rather than refused outright. The guard above is right that zero open is
     # ambiguous, but throwing made a FINISHED backlog impossible to represent -- it would red the
     # gate for ever. The ambiguity resolves with one more count: if the same pattern family finds

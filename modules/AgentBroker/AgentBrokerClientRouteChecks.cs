@@ -67,6 +67,21 @@ public sealed partial class AgentBrokerModule
             Inspect("claude", Claude("http://LOCALHOST:7432/mcp")).State == ClientConfiguration.DifferentEntry &&
             Inspect("codex", Codex("http://localhost:7999/mcp")).State == ClientConfiguration.DifferentEntry,
             "client route: localhost for another port, or not in its canonical spelling, is a different entry");
+        foreach (string url in new[] { literal, localhost })
+        {
+            command.Get = new(0, Claude(url), "");
+            string existing = Configure();
+            check(existing.Contains("already configured", StringComparison.Ordinal) && command.Calls.Count == 1,
+                "CLAUDE_EXISTING_HTTP: connecting the exact existing Claude endpoint reports configured without adding it again");
+        }
+        command.Get = new(0, AgentClientSetup.ServerName + ":\n  Scope: " + user +
+            "\n  Status: √ Connected\n  Type: stdio\n  Command: " + worker + "\n  Args: --mcp-stdio --data " + data + "\n", "");
+        string existingStdio = setup.ConfigureAsync("claude", worker, data, CancellationToken.None).GetAwaiter().GetResult();
+        check(existingStdio.Contains("already configured", StringComparison.Ordinal),
+            "CLAUDE_EXISTING_STDIO: connecting the exact existing Claude stdio entry reports configured");
+        command.Get = new(0, Claude("http://localhost:7999/mcp"), "");
+        check(Configure().Contains("Review it", StringComparison.Ordinal) && command.Calls.Count == 1,
+            "CLAUDE_DIFFERENT_EXISTING: another endpoint stays a review request and is never overwritten");
         command.Get = null;
     }
 

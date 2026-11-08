@@ -63,6 +63,8 @@ internal static class ObservationPruningChecks
 
     internal static async Task RunRuntimeAsync(Action<bool, string> check)
     {
+        await ReuseAfterRetentionAsync(check);
+        ReusedMessageIds(check);
         string? root = null;
         try
         {
@@ -259,6 +261,107 @@ internal static class ObservationPruningChecks
         clock.SetWallClock(originalAt);
         check(observations.BusySince(Receipt(old)) is null,
             "BUSY_EPISODE_ROLLBACK_NO_RESURRECTION: restoring wall time cannot resurrect a message from an ended episode");
+    }
+
+    private static async Task ReuseAfterRetentionAsync(Action<bool, string> check)
+    {
+        using var scratch = OwnedScratch.Create("observation-retention");
+        var clock = new ObservationClock();
+        using var store = new BrokerStore(scratch.Root, clock: clock);
+        await using var runtime = new BrokerRuntime(store, new CensusFederation(), [], clock: clock);
+        var observations = (DeliveryObservations)typeof(BrokerRuntime)
+            .GetField("observations", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(runtime)!;
+        var sender = new SessionAddress(store.BrokerId, "synthetic-sender", Guid.NewGuid());
+        var previous = new SessionAddress(store.BrokerId, "claude:" + Guid.NewGuid(), Guid.NewGuid());
+        var recipient = new SessionAddress(store.BrokerId, "codex:" + Guid.NewGuid(), Guid.NewGuid());
+        void Register(SessionAddress address) => store.Register(new(address, "Synthetic UUID reuse", "synthetic",
+            SessionCapabilities.Receive | SessionCapabilities.Reply, SessionActivity.Idle, clock.GetUtcNow().AddMinutes(1)));
+        foreach (var target in new[] { recipient, previous })
+        {
+            foreach (var address in new[] { sender, previous, recipient }) Register(address);
+            var original = store.Send(sender, previous, Guid.NewGuid(), "Synthetic retained UUID.", null, 1, store.BrokerId);
+            var binding = new EngineBinding(true, "synthetic-engine", clock.GetUtcNow());
+            observations.Record(original.Message, new(AdapterAdmission.DeferredNotSubmitted, "native_recipient_busy", EngineBinding: binding),
+                BrokerStore.ReceiptAdmissionEpoch(original));
+            clock.Advance(TimeSpan.FromDays(3));
+            check(store.FindReceipt(original.Message.Id) is null,
+                "OBS_UUID_RETENTION_WITNESS: the actual store forgets the expired admission before the UUID is reused");
+            foreach (var address in new[] { sender, previous, recipient }) Register(address);
+            var reused = store.Send(sender, target, original.Message.Id, "Synthetic new admission.", null, 1, store.BrokerId);
+            check(reused.Message.CreatedAt > original.Message.ExpiresAt && reused.Message.Recipient == target &&
+                reused.Status == MessageStatus.Accepted && reused.Attempts == 0,
+                "OBS_UUID_READMISSION_WITNESS: the actual store admits a UUID after retention for the same or another exact recipient");
+            check(runtime.View(reused).EngineBinding is null,
+                "OBS_UUID_ENGINE_BEFORE_ATTEMPT: a new admission never inherits a previous lifetime's engine observation");
+            observations.Record(reused.Message, new(AdapterAdmission.DeferredNotSubmitted, "native_recipient_busy"), BrokerStore.ReceiptAdmissionEpoch(reused));
+            check(runtime.View(reused).EngineBinding is null,
+                "OBS_UUID_ENGINE_AFTER_UNBOUND_ATTEMPT: an attempt without a binding cannot inherit the prior admission's engine");
+            check(runtime.View(original).EngineBinding is null,
+                "OBS_UUID_ENGINE_REPLACED: observing a new admission also discards the obsolete lifetime's engine entry");
+            if (target != previous)
+                observations.ObserveDirectory(new(previous, "Synthetic old recipient", "claude-native", SessionCapabilities.Receive,
+                    SessionActivity.Idle, clock.GetUtcNow().AddMinutes(1)));
+            check(runtime.View(reused with { Reason = "native_recipient_busy" }).BusySince == clock.GetUtcNow(),
+                "OBS_UUID_RETENTION_INDEX: the actual newly admitted receipt retains its own fresh busy observation");
+            var currentBinding = binding with { ObservedAt = clock.GetUtcNow() };
+            observations.Record(reused.Message, new(AdapterAdmission.DeferredNotSubmitted, "native_recipient_busy", EngineBinding: currentBinding),
+                BrokerStore.ReceiptAdmissionEpoch(reused));
+            observations.Record(reused.Message, new(AdapterAdmission.DeferredNotSubmitted, "native_recipient_busy"), BrokerStore.ReceiptAdmissionEpoch(reused));
+            check(runtime.View(reused).EngineBinding == currentBinding && runtime.View(original).EngineBinding is null,
+                "OBS_UUID_ENGINE_LIFETIME: a current binding survives same-admission attempts and cannot attach to the old receipt");
+        }
+    }
+
+    private static void ReusedMessageIds(Action<bool, string> check)
+    {
+        var clock = new ObservationClock();
+        var observations = new DeliveryObservations(clock);
+        Guid broker = Guid.NewGuid();
+        var sender = new SessionAddress(broker, "synthetic-sender", Guid.NewGuid());
+        var previous = new SessionAddress(broker, "claude:" + Guid.NewGuid(), Guid.NewGuid());
+        var recipient = new SessionAddress(broker, "codex:" + Guid.NewGuid(), Guid.NewGuid());
+        var busy = new AdapterResult(AdapterAdmission.DeferredNotSubmitted, "native_recipient_busy");
+        var original = new BrokerMessage(Guid.NewGuid(), Guid.NewGuid(), null, sender, previous,
+            "Synthetic retained UUID observation.", clock.GetUtcNow(), clock.GetUtcNow().AddDays(1));
+        observations.Record(original, busy);
+        clock.Advance(TimeSpan.FromDays(3));
+        var reused = original with { Recipient = recipient, CreatedAt = clock.GetUtcNow(), ExpiresAt = clock.GetUtcNow().AddDays(1) };
+        observations.Record(reused, busy);
+        observations.ObserveDirectory(new(previous, "Synthetic previous recipient", "claude-native",
+            SessionCapabilities.Receive, SessionActivity.Idle, clock.GetUtcNow().AddMinutes(1)));
+        var receipt = new MessageReceipt(reused, MessageStatus.Accepted, clock.GetUtcNow(), "native_recipient_busy");
+        check(observations.BusySince(receipt) == clock.GetUtcNow(),
+            "OBS_UUID_REUSE_RECIPIENT_INDEX: ending the previous recipient cannot erase a retained UUID's new busy episode");
+
+        clock.Advance();
+        var sameRecipient = reused with { CreatedAt = clock.GetUtcNow(), ExpiresAt = clock.GetUtcNow().AddDays(1) };
+        var sameReceipt = receipt with { Message = sameRecipient };
+        check(observations.BusySince(sameReceipt) is null,
+            "OBS_UUID_BUSY_BEFORE_ATTEMPT: a fresh observation for an earlier admission cannot attach to the new lifetime");
+        observations.Record(sameRecipient, busy);
+        check(observations.BusySince(sameReceipt) == clock.GetUtcNow(),
+            "OBS_UUID_SAME_RECIPIENT_RESET: even the same exact recipient gets a new per-message busy start on UUID reuse");
+
+        var bounded = new DeliveryObservations(clock);
+        bounded.Record(original, busy);
+        bounded.Record(reused, busy);
+        var unrelated = new SessionAddress(broker, "synthetic-unrelated", Guid.NewGuid());
+        Exception? evictionFailure = null;
+        try
+        {
+            for (int i = 0; i < DeliveryObservations.MaximumMessages; i++)
+            {
+                clock.Advance();
+                bounded.Record(reused with { Id = Guid.NewGuid(), Recipient = unrelated }, busy);
+            }
+        }
+        catch (Exception error) { evictionFailure = error; }
+        check(evictionFailure is null,
+            "OBS_UUID_REUSE_EVICTION: capacity eviction of a reused UUID cannot address an absent recipient index");
+        var index = (Dictionary<SessionAddress, HashSet<Guid>>)typeof(DeliveryObservations)
+            .GetField("busyMessagesByRecipient", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(bounded)!;
+        check(index.Values.Sum(messages => messages.Count) == DeliveryObservations.MaximumMessages && !index.ContainsKey(previous),
+            "OBS_UUID_REUSE_INDEX_BOUND: lifetime replacement and eviction retain exactly the live bounded recipient index");
     }
 
     private sealed class ObservationClock : TimeProvider

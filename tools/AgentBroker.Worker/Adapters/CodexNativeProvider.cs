@@ -162,7 +162,7 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
     private static AdapterDiscoveryDiagnostic ObservationDiagnostic() => new("codex_observation_only",
             "Codex sessions on a publisher-signed build that is not exactly reviewed are listed read-only; delivery is refused.");
 
-    public void CompleteDiscovery(IReadOnlyList<DesktopOwnerBinding> carriedBindings, bool updateTolerantDelivery)
+    public void CompleteDiscovery(bool updateTolerantDelivery)
     {
         // Publisher success is reportable even with no open chat or a skipped owner lookup. Keep both mode gates: a
         // provider configured for tolerance cannot claim that the adapter enabled it. This never grants authority.

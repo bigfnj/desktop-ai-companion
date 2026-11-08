@@ -41,7 +41,30 @@ public sealed record BrokerMessage(Guid Id, Guid ConversationId, Guid? ReplyTo,
     DateTimeOffset CreatedAt, DateTimeOffset ExpiresAt, int RemainingReplies = 8);
 
 public sealed record MessageReceipt(BrokerMessage Message, MessageStatus Status,
-    DateTimeOffset UpdatedAt, string? Reason = null, int Attempts = 0);
+    DateTimeOffset UpdatedAt, string? Reason = null, int Attempts = 0)
+{
+    // Internal snapshot identity never enters durable or federation JSON. With-copies preserve admission identity.
+    internal Guid AdmissionEpoch { get; init; } = Guid.NewGuid();
+    internal Guid ClaimNonce { get; init; }
+    public bool Equals(MessageReceipt? other) => ReferenceEquals(this, other) || other is not null &&
+        Message == other.Message && Status == other.Status && UpdatedAt == other.UpdatedAt &&
+        Reason == other.Reason && Attempts == other.Attempts;
+    public override int GetHashCode() => HashCode.Combine(Message, Status, UpdatedAt, Reason, Attempts);
+}
+
+// Local attempt handle. Broker endpoints never serialize this type.
+public sealed class DeliveryClaim
+{
+    private DeliveryClaim(MessageReceipt receipt) => Receipt = receipt;
+    public static DeliveryClaim Capture(MessageReceipt snapshot) => new(snapshot ?? throw new ArgumentNullException(nameof(snapshot)));
+    public MessageReceipt Receipt { get; }
+    public BrokerMessage Message => Receipt.Message;
+    public Guid AdmissionEpoch => Receipt.AdmissionEpoch;
+    public bool Matches(MessageReceipt? current) => current is { Status: MessageStatus.Submitting } &&
+        Receipt.Status == MessageStatus.Submitting && Receipt.Message.Id == current.Message.Id &&
+        Receipt.AdmissionEpoch == current.AdmissionEpoch && Receipt.ClaimNonce != Guid.Empty &&
+        Receipt.ClaimNonce == current.ClaimNonce;
+}
 
 // Delivery notices this store dropped since it opened, by why the last admission check refused them when their source's
 // retention ended (BrokerStore.WithSenderNotices). In memory only: never persisted and never sent to a peer.

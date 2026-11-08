@@ -174,7 +174,25 @@ public static class AgentBrokerLocalInstallNative {
         SendMessageTimeout(target, 0x0010, IntPtr.Zero, IntPtr.Zero, 3, 5000, out _);
         if (!process.WaitForExit(15000)) throw new IOException("Companion did not exit gracefully; no force was used.");
     }
-    public static Listener[] Listeners() {
+    public sealed class ListenerPlan {
+        public int LoopbackPort = 7432, LanPort = 7433;
+        public bool EnableLan = true;
+        public int ExpectedCount => EnableLan ? 2 : 1;
+        public bool Includes(int port) => port == LoopbackPort || EnableLan && port == LanPort;
+    }
+    public static ListenerPlan ListenerSettings(string json) {
+        var values = JsonSerializer.Deserialize<Dictionary<string,string>>(json,
+            new JsonSerializerOptions { MaxDepth = 16 }) ?? throw new IOException("AgentBroker listener settings are not an object.");
+        var plan = new ListenerPlan();
+        if (values.TryGetValue("loopbackPort", out var local) && int.TryParse(local, out var localPort)) plan.LoopbackPort = localPort;
+        if (values.TryGetValue("lanPort", out var lan) && int.TryParse(lan, out var lanPort)) plan.LanPort = lanPort;
+        if (values.TryGetValue("enableLan", out var enabled) && bool.TryParse(enabled, out var useLan)) plan.EnableLan = useLan;
+        if (plan.LoopbackPort < 1 || plan.LoopbackPort > 65535 || plan.LanPort < 1 || plan.LanPort > 65535 ||
+            plan.EnableLan && plan.LoopbackPort == plan.LanPort)
+            throw new IOException("AgentBroker loopbackPort, lanPort or enableLan settings are invalid.");
+        return plan;
+    }
+    public static Listener[] Listeners(ListenerPlan plan) {
         uint size = 0; uint status = GetExtendedTcpTable(IntPtr.Zero, ref size, false, 2, 3, 0);
         if (status != 122 && status != 0 || size > 1024 * 1024) throw new IOException("TCP owner table unavailable.");
         IntPtr memory = Marshal.AllocHGlobal((int)Math.Max(size, 4));
@@ -186,7 +204,7 @@ public static class AgentBrokerLocalInstallNative {
             for (int index = 0; index < count; index++) {
                 var row = Marshal.PtrToStructure<TcpRow>(IntPtr.Add(memory, 4 + index * rowSize));
                 int port = (int)(((row.Port & 255) << 8) | ((row.Port >> 8) & 255));
-                if (port == 7432 || port == 7433) found.Add(new Listener { Port = port, Pid = (int)row.Pid, Address = new IPAddress(row.Address).ToString() });
+                if (plan.Includes(port)) found.Add(new Listener { Port = port, Pid = (int)row.Pid, Address = new IPAddress(row.Address).ToString() });
             }
             return found.ToArray();
         } finally { Marshal.FreeHGlobal(memory); }
@@ -379,6 +397,24 @@ function Publish-UpdateMarker([string]$Path, $Snapshot) {
         Assert-NoReparseComponents $temporary
         if ($temporaryCreated -and [IO.File]::Exists($temporary)) { [IO.File]::Delete($temporary) }
     }
+}
+
+function Publish-NewSettingsStage([string]$Source, [string]$Destination, [string]$Parent) {
+    foreach ($path in @($Source, $Destination)) {
+        [void](Assert-ContainedPath $path $Parent)
+        Assert-NoReparseComponents $path
+    }
+    if (Test-Path -LiteralPath $Destination) { throw 'Settings destination already exists; it was preserved.' }
+    [IO.Directory]::Move($Source, $Destination)
+}
+
+function Get-RequiredListenerOwner([object[]]$Listeners, $Plan) {
+    if ($Listeners.Count -ne $Plan.ExpectedCount -or $Listeners.Count -lt 1) { return $null }
+    $owner = [int]$Listeners[0].Pid
+    if ($owner -le 1 -or @($Listeners | Where-Object { $_.Pid -ne $owner }).Count -ne 0) { return $null }
+    if (@($Listeners | Where-Object { $_.Port -eq $Plan.LoopbackPort -and $_.Address -ceq '127.0.0.1' }).Count -ne 1) { return $null }
+    if ($Plan.EnableLan -and @($Listeners | Where-Object { $_.Port -eq $Plan.LanPort }).Count -ne 1) { return $null }
+    return $owner
 }
 
 function Publish-UpdateStage([string]$Source, [string]$Destination, [string]$Replaced, [string]$Root) {
@@ -668,6 +704,7 @@ function Test-HostRuntimeTransaction([string]$Parent) {
     $plans = [Collections.Generic.List[object]]::new()
     $names = [string[]]@('existing.bin', 'added.bin', 'last.bin')
     $checks = 0
+    $transactionFailed = $false
     foreach ($folder in @($root, $source, $destination, $previous)) {
         Assert-NoReparseComponents $folder
         if (Test-Path -LiteralPath $folder) { throw 'Unique runtime transaction test already exists.' }
@@ -750,35 +787,20 @@ function Test-HostRuntimeTransaction([string]$Parent) {
         }
         $checks++
         return $checks
-    } finally {
-        foreach ($plan in $plans) { Close-HostRuntimePlan $plan }
-        $files = [Collections.Generic.List[string]]::new()
-        foreach ($name in $names) { $files.Add((Join-Path $source $name)); $files.Add((Join-Path $destination $name)) }
-        $files.Add((Join-Path $destination 'settings.json')); $files.Add((Join-Path $previous 'preserved.bin'))
-        if ($archived) { $files.Add((Join-Path $archived 'preserved.bin')) }
-        foreach ($plan in $plans) {
-            if ($plan.Stage) { foreach ($name in $names) { $files.Add((Join-Path $plan.New $name)); $files.Add((Join-Path $plan.Previous $name)) } }
+    } catch { $transactionFailed = $true; throw }
+    finally {
+        try {
+            foreach ($plan in $plans) { Close-HostRuntimePlan $plan }
+            Remove-OwnedTestTree $root $Parent
+        } catch {
+            if (-not $transactionFailed) { throw }
+            Write-Warning ('Runtime fixture cleanup refused; original failure preserved: ' + $root)
         }
-        foreach ($file in $files) {
-            [void](Assert-ContainedPath $file $root); Assert-NoReparseComponents $file
-            if ([IO.File]::Exists($file)) { [IO.File]::Delete($file) }
-        }
-        foreach ($plan in $plans) {
-            if ($plan.Stage) { foreach ($folder in @($plan.New, $plan.Previous, $plan.Stage)) {
-                [void](Assert-ContainedPath $folder $root); Assert-NoReparseComponents $folder
-                if ([IO.Directory]::Exists($folder)) { [IO.Directory]::Delete($folder, $false) }
-            } }
-        }
-        foreach ($folder in @($source, $destination, $previous, $archived)) {
-            if ($folder) { [void](Assert-ContainedPath $folder $root); Assert-NoReparseComponents $folder
-                if ([IO.Directory]::Exists($folder)) { [IO.Directory]::Delete($folder, $false) } }
-        }
-        [void](Assert-ContainedPath $root $Parent); Assert-NoReparseComponents $root
-        [IO.Directory]::Delete($root, $false)
     }
 }
 
 if ($SelfTest) {
+    . (Join-Path $PSScriptRoot '..\..\tests\OwnedTestTree.ps1')
     $checks = 0
     foreach ($name in @('AgentBroker.dll', 'worker/AgentBroker.Worker.exe', 'worker/licenses/THIRD-PARTY-NOTICES.txt')) {
         [void](Assert-EntryName $name); $checks++
@@ -834,7 +856,29 @@ if ($SelfTest) {
     $contractsFixture = Join-Path $testRoot 'Synthetic.Contracts.dll'
     $legacyModuleFixture = Join-Path $testRoot 'Synthetic.Module.1.0.4.dll'
     $busModuleFixture = Join-Path $testRoot 'Synthetic.Module.1.1.0.dll'
+    $fixtureFailed = $false
     try {
+        $lanOff = [AgentBrokerLocalInstallNative]::ListenerSettings('{"loopbackPort":"17432","lanPort":"17433","enableLan":"false"}')
+        $lanOn = [AgentBrokerLocalInstallNative]::ListenerSettings('{"loopbackPort":"17432","lanPort":"17433","enableLan":"true"}')
+        $local = [pscustomobject]@{ Port=17432; Address='127.0.0.1'; Pid=42 }
+        $lan = [pscustomobject]@{ Port=17433; Address='0.0.0.0'; Pid=42 }
+        if ($lanOff.ExpectedCount -ne 1 -or $lanOff.Includes(17433) -or -not $lanOff.Includes(17432) -or
+            (Get-RequiredListenerOwner @($local) $lanOff) -ne 42) { throw 'INSTALLER_LAN_OFF_LISTENER_CONTRACT' }
+        $checks++
+        if ($lanOn.ExpectedCount -ne 2 -or -not $lanOn.Includes(17433) -or $lanOn.Includes(7432) -or
+            (Get-RequiredListenerOwner @($local,$lan) $lanOn) -ne 42) { throw 'INSTALLER_CUSTOM_PORT_LISTENER_CONTRACT' }
+        $checks++
+        foreach ($rows in @(@($local), @($local,$local), @($local,[pscustomobject]@{ Port=17433; Address='0.0.0.0'; Pid=43 }),
+                            @([pscustomobject]@{ Port=17432; Address='0.0.0.0'; Pid=42 },$lan))) {
+            if ($null -ne (Get-RequiredListenerOwner $rows $lanOn)) { throw 'INSTALLER_LISTENER_OWNER_REFUSAL' }
+            $checks++
+        }
+        foreach ($json in @('{"loopbackPort":"0"}', '{"lanPort":"70000"}', '{"loopbackPort":"7433"}')) {
+            $refused = $false
+            try { [void][AgentBrokerLocalInstallNative]::ListenerSettings($json) } catch { $refused = $true }
+            if (-not $refused) { throw 'INSTALLER_INVALID_LISTENER_SETTINGS' }
+            $checks++
+        }
         [IO.File]::WriteAllBytes($original, [byte[]]@(1, 2, 3))
         $testInput = [IO.File]::Open($original, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
         try { [AgentBrokerLocalInstallNative]::VerifySingleLink($testInput) } finally { $testInput.Dispose() }
@@ -856,7 +900,7 @@ if ($SelfTest) {
 
         [void][IO.Directory]::CreateDirectory($newSettings)
         [IO.File]::WriteAllText((Join-Path $newSettings 'settings.json'), '{"enabled":"true"}', [Text.UTF8Encoding]::new($false))
-        [IO.Directory]::Move($newSettings, $publishedData)
+        Publish-NewSettingsStage $newSettings $publishedData $testRoot
         if ([IO.Directory]::Exists($newSettings) -or -not [IO.File]::Exists((Join-Path $publishedData 'settings.json'))) {
             throw 'Atomic new-settings publication test failed.'
         }
@@ -865,7 +909,7 @@ if ($SelfTest) {
         [void][IO.Directory]::CreateDirectory($occupiedData)
         [IO.File]::WriteAllText((Join-Path $collidingSettings 'settings.json'), '{"enabled":"true"}', [Text.UTF8Encoding]::new($false))
         $refused = $false
-        try { [IO.Directory]::Move($collidingSettings, $occupiedData) } catch { $refused = $true }
+        try { Publish-NewSettingsStage $collidingSettings $occupiedData $testRoot } catch { $refused = $true }
         if (-not $refused -or -not [IO.File]::Exists((Join-Path $collidingSettings 'settings.json')) -or
             [IO.File]::Exists((Join-Path $occupiedData 'settings.json'))) { throw 'Atomic settings collision refusal test failed.' }
         $checks++
@@ -1012,29 +1056,9 @@ if ($SelfTest) {
             if (-not $refused) { throw 'An unknown or malformed package version received a tool contract.' }
             $checks++
         }
-    }
-    finally {
-        foreach ($file in @($hardLink, $original, $versioned, $markerLink, $marker, $payloadLink, $contractsFixture, $legacyModuleFixture, $busModuleFixture,
-                            (Join-Path $newSettings 'settings.json'),
-                            (Join-Path $publishedData 'settings.json'), (Join-Path $collidingSettings 'settings.json'),
-                            (Join-Path $publishedStage 'settings.json'), (Join-Path $applicationStage 'payload.bin'),
-                            (Join-Path $expectedPayload 'AgentBroker.dll'), (Join-Path $expectedPayload 'worker\AgentBroker.Worker.dll'),
-                            (Join-Path $installedPayload 'AgentBroker.dll'), (Join-Path $installedPayload 'worker\AgentBroker.Worker.dll'))) {
-            [void](Assert-ContainedPath $file $testRoot)
-            Assert-NoReparseComponents $file
-            if ([IO.File]::Exists($file)) { [IO.File]::Delete($file) }
-        }
-        foreach ($folder in @($newSettings, $publishedData, $collidingSettings, $occupiedData, $publishedStage, $replacedStage,
-                              $applicationStage, (Join-Path $expectedPayload 'worker'), (Join-Path $installedPayload 'worker'),
-                              $expectedPayload, $installedPayload)) {
-            [void](Assert-ContainedPath $folder $testRoot)
-            Assert-NoReparseComponents $folder
-            if ([IO.Directory]::Exists($folder)) { [IO.Directory]::Delete($folder, $false) }
-        }
-        [void](Assert-ContainedPath $testRoot $testArtifacts)
-        Assert-NoReparseComponents $testRoot
-        [IO.Directory]::Delete($testRoot, $false)
-    }
+    } catch { $fixtureFailed = $true; throw }
+    finally { Complete-OwnedTestTree $testRoot $testArtifacts $fixtureFailed }
+    if (Test-Path -LiteralPath $testRoot) { throw 'INSTALLER_FIXTURE_CLEANED' }
     Write-Host "PathPolicyChecks=$checks"
     Write-Host 'ReleasePayloadFilesOpened=False'
     Write-Host 'SyntheticFixturesCleaned=True'
@@ -1183,6 +1207,10 @@ try {
         return
     }
     if ($CompanionProcessId -le 1) { throw 'Actual installation requires the exact running companion PID.' }
+    $listenerPlan = if ($StageUpdate) {
+        [AgentBrokerLocalInstallNative]::ListenerSettings((Read-PublicInstallerText $settingsPath))
+    } else { [AgentBrokerLocalInstallNative]::ListenerSettings('{}') }
+    Write-Host ("RequiredListeners=$($listenerPlan.ExpectedCount); loopbackPort=$($listenerPlan.LoopbackPort); lanPort=$($listenerPlan.LanPort); enableLan=$($listenerPlan.EnableLan)")
 
     $companion = [Diagnostics.Process]::GetProcessById($CompanionProcessId)
     $createdFiles = [Collections.Generic.List[string]]::new()
@@ -1204,7 +1232,7 @@ try {
             throw 'The supplied PID does not own the supported installed companion executable.'
         }
         $companionCreated = [AgentBrokerLocalInstallNative]::Created($companion)
-        $initialListeners = [AgentBrokerLocalInstallNative]::Listeners()
+        $initialListeners = [AgentBrokerLocalInstallNative]::Listeners($listenerPlan)
         if ($StageUpdate) {
             $siblings = [Diagnostics.Process]::GetProcessesByName('DesktopAICompanion')
             try {
@@ -1215,10 +1243,9 @@ try {
                     }
                 }
             } finally { foreach ($sibling in $siblings) { $sibling.Dispose() } }
-            if ($initialListeners.Length -ne 2 -or $initialListeners[0].Pid -ne $initialListeners[1].Pid -or
-                @($initialListeners.Where({ $_.Port -eq 7432 -and $_.Address -eq '127.0.0.1' })).Count -ne 1 -or
-                @($initialListeners.Where({ $_.Port -eq 7433 })).Count -ne 1) { throw 'The existing broker listener pair was not unique.' }
-            $previousWorker = [Diagnostics.Process]::GetProcessById($initialListeners[0].Pid)
+            $previousOwner = Get-RequiredListenerOwner $initialListeners $listenerPlan
+            if ($null -eq $previousOwner) { throw 'Existing listeners do not match preserved loopbackPort, lanPort and enableLan settings.' }
+            $previousWorker = [Diagnostics.Process]::GetProcessById($previousOwner)
             if (-not [AgentBrokerLocalInstallNative]::Image($previousWorker).Equals($workerExe, [StringComparison]::OrdinalIgnoreCase)) {
                 throw 'The existing listener owner was not the installed AgentBroker worker.'
             }
@@ -1267,10 +1294,10 @@ try {
             finally { $companionStopped = $companion.HasExited }
             $release = [Diagnostics.Stopwatch]::StartNew()
             while ($release.Elapsed -lt [TimeSpan]::FromSeconds(15)) {
-                if ($previousWorker.HasExited -and [AgentBrokerLocalInstallNative]::Listeners().Length -eq 0) { break }
+                if ($previousWorker.HasExited -and [AgentBrokerLocalInstallNative]::Listeners($listenerPlan).Length -eq 0) { break }
                 Start-Sleep -Milliseconds 200
             }
-            if (-not $previousWorker.HasExited -or [AgentBrokerLocalInstallNative]::Listeners().Length -ne 0) {
+            if (-not $previousWorker.HasExited -or [AgentBrokerLocalInstallNative]::Listeners($listenerPlan).Length -ne 0) {
                 throw 'The owned worker/listeners did not stop within the bounded graceful shutdown; no force was used.'
             }
             Write-Host 'PreviousWorkerExited=True'
@@ -1323,7 +1350,7 @@ try {
         # A competing data destination makes Move fail; never merge a newly enabled config into it.
         [void](Assert-ContainedPath $dataStage $dataParent)
         [void](Assert-ContainedPath $moduleData $dataParent)
-        [IO.Directory]::Move($dataStage, $moduleData)
+        Publish-NewSettingsStage $dataStage $moduleData $dataParent
         $dataInstalled = $true
         Write-Host 'ModuleInstalled=True'
         Write-Host 'SettingsCreated=True'
@@ -1351,10 +1378,10 @@ try {
         $timer = [Diagnostics.Stopwatch]::StartNew()
         $worker = $null
         while ($timer.Elapsed -lt [TimeSpan]::FromSeconds(45)) {
-            $listeners = [AgentBrokerLocalInstallNative]::Listeners()
-            if ($listeners.Length -eq 2 -and @($listeners.Where({ $_.Port -eq 7432 -and $_.Address -eq '127.0.0.1' })).Count -eq 1 -and
-                @($listeners.Where({ $_.Port -eq 7433 })).Count -eq 1 -and $listeners[0].Pid -eq $listeners[1].Pid) {
-                $candidate = [Diagnostics.Process]::GetProcessById($listeners[0].Pid)
+            $listeners = [AgentBrokerLocalInstallNative]::Listeners($listenerPlan)
+            $listenerOwner = Get-RequiredListenerOwner $listeners $listenerPlan
+            if ($null -ne $listenerOwner) {
+                $candidate = [Diagnostics.Process]::GetProcessById($listenerOwner)
                 try {
                     if ([AgentBrokerLocalInstallNative]::Image($candidate).Equals($workerExe, [StringComparison]::OrdinalIgnoreCase)) { $worker = $candidate; break }
                 } finally { if ($null -eq $worker) { $candidate.Dispose() } }
@@ -1362,16 +1389,14 @@ try {
             }
             Start-Sleep -Milliseconds 500
         }
-        if ($null -eq $worker) { throw 'The installed worker did not own both required listeners within the readiness deadline.' }
+        if ($null -eq $worker) { throw 'The installed worker did not own the listeners required by loopbackPort, lanPort and enableLan within the readiness deadline.' }
         try {
             $workerCreated = [AgentBrokerLocalInstallNative]::Created($worker)
             $probe = [AgentBrokerLocalInstallNative]::ProbeAsync($workerExe, $moduleData, $expectedTools).GetAwaiter().GetResult()
-            $listeners = [AgentBrokerLocalInstallNative]::Listeners()
+            $listeners = [AgentBrokerLocalInstallNative]::Listeners($listenerPlan)
             if ($worker.HasExited -or [AgentBrokerLocalInstallNative]::Created($worker) -ne $workerCreated -or
-                $listeners.Length -ne 2 -or @($listeners.Where({ $_.Pid -ne $worker.Id })).Count -ne 0 -or
-                @($listeners.Where({ $_.Port -eq 7432 -and $_.Address -eq '127.0.0.1' })).Count -ne 1 -or
-                @($listeners.Where({ $_.Port -eq 7433 })).Count -ne 1) {
-                throw 'Worker listener ownership changed during the MCP readiness probe.'
+                (Get-RequiredListenerOwner $listeners $listenerPlan) -ne $worker.Id) {
+                throw 'Worker ownership changed for the preserved loopbackPort, lanPort or enableLan contract during MCP readiness.'
             }
             if ($relaunched.HasExited -or [AgentBrokerLocalInstallNative]::Created($relaunched) -ne $relaunchedCreated -or
                 -not [AgentBrokerLocalInstallNative]::Image($relaunched).Equals($companionExe, [StringComparison]::OrdinalIgnoreCase)) {

@@ -127,12 +127,12 @@ internal static class NativeRecoveryToolChecks
         var peer = worker.Runtime.RegisterPollingAgent(Guid.NewGuid(), Guid.NewGuid(), "Synthetic recovery peer", false); store.Register(old);
         var incoming = store.Send(peer.Address, old.Address, Guid.NewGuid(), "Synthetic request 猫 and emoji 🐑\nLiteral path D:\\synthetic\\request; quoted empty string: \"\".", null, 0, store.BrokerId);
         if (store.BeginDelivery()?.Message.Id != incoming.Message.Id) throw new InvalidOperationException("Recovery seed did not claim its original incoming record.");
-        store.CompleteDelivery(incoming.Message.Id, MessageStatus.Submitted, "synthetic_submitted");
+        store.CompleteDelivery(store.FindReceipt(incoming.Message.Id)!, MessageStatus.Submitted, "synthetic_submitted");
         var outgoing = store.Send(old.Address, peer.Address, Guid.NewGuid(), "Synthetic prior native request.", null, 0, store.BrokerId);
         store.RecordRecipientReceipt(outgoing.Message.Id, peer.Address, store.BrokerId, MessageStatus.Delivered);
         var reply = store.AcceptReply(outgoing.Message.Id, Guid.NewGuid(), "Synthetic answer accepted while the exact requester was live.", store.BrokerId);
         if (store.BeginDelivery()?.Message.Id != reply.Message.Id) throw new InvalidOperationException("Recovery seed did not claim its original reply.");
-        store.CompleteDelivery(reply.Message.Id, MessageStatus.Submitted, "synthetic_submitted"); store.Disconnect(old.Address);
+        store.CompleteDelivery(store.FindReceipt(reply.Message.Id)!, MessageStatus.Submitted, "synthetic_submitted"); store.Disconnect(old.Address);
         return new(current.Address, old.Address, peer.Address, incoming, outgoing, reply);
     }
     private static BrokerSession Native(Guid brokerId, Guid sessionId, Guid incarnation) => new(new(brokerId, "codex:" + sessionId.ToString("D"), incarnation),

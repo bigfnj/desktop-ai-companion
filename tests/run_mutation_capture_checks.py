@@ -25,10 +25,14 @@ if __name__ == "__main__":
             "test_mutation_capture_harnesses",
             "test_mutation_baseline_reports",
             "test_mutation_caseplan",
+            "test_pin_diagnostic_harness",
+            "test_installer_witness_grading",
         ))
         result = unittest.TextTestRunner(verbosity=2).run(suite)
     finally:
         # An unexpected leftover is evidence. Do not recursively remove it.
         if not any(scratch.iterdir()):
             scratch.rmdir()
+    print(f"MutationCaptureChecks={result.testsRun}; Failures={len(result.failures)}; "
+          f"Errors={len(result.errors)}; Skipped={len(result.skipped)}", flush=True)
     raise SystemExit(0 if result.wasSuccessful() else 1)

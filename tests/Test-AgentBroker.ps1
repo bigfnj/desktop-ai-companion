@@ -10,13 +10,14 @@
     pwsh -NoProfile -File .\tests\Test-AgentBroker.ps1
 #>
 [CmdletBinding()]
-param([ValidateSet('Debug', 'Release')][string]$Configuration = 'Release')
+param([ValidateSet('Debug', 'Release')][string]$Configuration = 'Release', [switch]$CheckPayload)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $repoRoot = [IO.Path]::GetFullPath((Split-Path $PSScriptRoot -Parent))
+. (Join-Path $PSScriptRoot 'HarnessOutput.ps1')
 Write-Host '=== AgentBroker payload source and packaging contracts'
-& (Join-Path $PSScriptRoot 'Test-AgentBrokerPackaging.ps1') -RepoRoot $repoRoot
+& (Join-Path $PSScriptRoot 'Test-AgentBrokerPackaging.ps1') -RepoRoot $repoRoot -CheckPayload:$CheckPayload
 # N-broker-d-01: the Claude connection helper's --self-test (path policy, loopback endpoint, retry rule, connection fields,
 # reportable error codes) was run by nothing before AgentBroker 1.6.0. It needs node, as the pane's Connect Claude MCP
 # action does; a missing node fails here and is never skipped in silence. The source check after it catches a new thrown
@@ -115,6 +116,19 @@ if ($repinCheckExit -ne 0 -or $repinCheckSummary.Count -ne 1 -or @($repinCheckOu
     throw "AgentBroker scheduled re-pin check self-test failed: tools/agentbroker/Invoke-AgentBrokerRepinCheck.ps1 -SelfTest (exit $repinCheckExit)."
 }
 $repinCheckChecks = [int]([regex]::Match([string]$repinCheckSummary[0], '^PASS: ([0-9]+)').Groups[1].Value)
+# BEGIN AgentBroker LAN certificate self-test
+Write-Host '=== AgentBroker public LAN certificate self-test'
+$lanPublicOutput = @(& pwsh -NoProfile -File (Join-Path $repoRoot 'tools\agentbroker\Test-AgentBrokerLan.ps1') -SelfTest)
+$lanPublicExit = $LASTEXITCODE
+foreach ($line in $lanPublicOutput) { Write-Host $line }
+$lanPublicNames = @('LEGACY_EXACT_PIN','RENEWED_ANCHOR','BROKER_ID_REFUSED','CHANGED_KEY_REFUSED','CHANGED_PIN_REFUSED',
+    'EXPIRED_LIVE_REFUSED','PUBLIC_ONLY_CLIENT_DECLINED','PUBLIC_DECODER_REFUSES_OTHER_CONTENT','PUBLIC_METADATA_MATCH','PUBLIC_METADATA_BROKER_REFUSED')
+$lanPublicMissing = @($lanPublicNames | Where-Object { $name = $_; @($lanPublicOutput | Where-Object { "$_" -ceq ('PASS: LAN_' + $name) }).Count -ne 1 })
+$lanPublicSummary = @($lanPublicOutput | Where-Object { "$_" -ceq 'PASS: 10 AgentBroker LAN certificate checks; no connections opened' })
+if ($lanPublicExit -ne 0 -or $lanPublicOutput.Count -ne 11 -or $lanPublicSummary.Count -ne 1 -or $lanPublicMissing.Count -ne 0) {
+    throw 'AgentBroker public LAN certificate self-test failed: Test-AgentBrokerLan.ps1 -SelfTest.'
+}
+# END AgentBroker LAN certificate self-test
 $harnesses = @(
     @{ Name = 'Core'; Project = 'tests\AgentBroker.Core.Tests\AgentBroker.Core.Tests.csproj'
        Executable = "tests\AgentBroker.Core.Tests\bin\$Configuration\net10.0\AgentBroker.Core.Tests.exe"
@@ -139,6 +153,8 @@ $harnesses = @(
        Summary = '^RESULT=PASS assertions=([1-9][0-9]*)$' }
 )
 $failures = New-Object 'Collections.Generic.List[string]'
+# Floors are the measured final 2026-11-07 integration inventories (3178 total). Intentional suite removal needs an explicit review.
+$assertionFloors = @{ Core = 408; Relay = 40; Claude = 212; Desktop = 594; Adapter = 84; Network = 250; Worker = 1590 }
 $assertions = 0
 foreach ($harness in $harnesses) {
     Write-Host ("=== AgentBroker " + $harness.Name + ' deterministic harness')
@@ -153,12 +169,7 @@ foreach ($harness in $harnesses) {
         $harnessExit = $LASTEXITCODE
         foreach ($line in $output) { Write-Host $line }
         if ($harnessExit -ne 0) { throw "Harness failed (exit $harnessExit)." }
-        $summaries = @($output | Where-Object { "$_" -match $harness.Summary })
-        if ($summaries.Count -ne 1 -or @($output | Where-Object { "$_" -match '^(FAIL:|RESULT=FAIL|SKIP:)' }).Count -gt 0) {
-            throw 'Harness did not report exactly one nonempty passing assertion summary without failures/skips.'
-        }
-        $summaryMatch = [regex]::Match([string]$summaries[0], $harness.Summary)
-        $assertions += [int]$summaryMatch.Groups[1].Value
+        $assertions += Assert-HarnessSummary $output $harness.Name $harness.Summary $assertionFloors[$harness.Name]
     }
     catch { $failures.Add($harness.Name + ': ' + $_.Exception.Message) }
 }

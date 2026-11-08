@@ -12,12 +12,14 @@ internal static class ClaudeObservationChecks
 
     internal static async Task RunAsync(Action<bool, string> check)
     {
+        Console.WriteLine("WITNESS: CLAUDE_OBSERVATION_EXECUTED");
         PublisherSubjectChecks(check);
         await SignedObservationAsync(check);
         await ImageLeaseAsync(check);
         await RefusalsAsync(check);
         await CapabilitiesAndSubmissionAsync(check);
         await PinnedBehaviorAsync(check);
+        await BoundedDiscoveryAsync(check);
     }
 
     internal static void RunPublicImageCheck(Action<bool, string> check, string image)
@@ -343,6 +345,46 @@ internal static class ClaudeObservationChecks
             "CLAUDE_CENSUS_FILTER_RECOVERY: a valid next candidate set restores completeness");
     }
 
+    private static async Task BoundedDiscoveryAsync(Action<bool, string> check)
+    {
+        Console.WriteLine("WITNESS: CLAUDE_BOUNDED_DISCOVERY_EXECUTED");
+        var source = new ObservationSource();
+        source.ProcessIds = [source.Pid, source.Pid + 1];
+        await using var provider = new ClaudeNativeProvider(source);
+        check((await provider.DiscoverAsync(default)).Count == 2 && source.TrustReads == 1,
+            "CLAUDE_IMAGE_ONE_SAMPLE: two independently checked processes sharing a path use one held sample in this pass");
+        check((await provider.DiscoverAsync(default)).Count == 2 && source.TrustReads == 2,
+            "CLAUDE_IMAGE_NEXT_PASS_FRESH: a new discovery pass re-verifies public image trust and hash");
+        await provider.RefreshAsync(source.Pid, default);
+        check(source.TrustReads == 3,
+            "CLAUDE_IMAGE_REFRESH_FRESH: submission-side refresh cannot borrow a discovery sample");
+        source.ImageAt = pid => @"C:\Synthetic-Claude-Observation-" + pid + @"\claude.exe";
+        check((await provider.DiscoverAsync(default)).Count == 2 && source.TrustReads == 5,
+            "CLAUDE_IMAGE_DISTINCT_PATHS: distinct executable paths never share an image sample");
+        Console.WriteLine("CLAUDE_IMAGE_CALL_COUNTS: shared-path firstpass=1 nextpass=1 refresh=1 distinctpaths=2; no timing claim");
+
+        var scan = new ObservationSource { Version = Pin21306.Version, Hash = Pin21306.Sha256 };
+        scan.ProcessIds = Enumerable.Range(scan.Pid, 34).ToArray();
+        scan.MetadataAt = pid => pid == scan.Pid + 33 ? scan.Metadata with { ProcessId = pid }
+            : throw new IOException("Synthetic non-session process.");
+        await using var scanner = new ClaudeNativeProvider(scan);
+        var beyond = await scanner.DiscoverAsync(default);
+        check(beyond.Count == 1 && beyond[0].Target.ProcessId == scan.Pid + 33 && scan.MetadataReads == 34,
+            "CLAUDE_USABLE_SESSION_SCAN: non-session processes before the thirty-third slot cannot hide a later usable session");
+        scan.ProcessIds = Enumerable.Range(scan.Pid, 129).ToArray();
+        scan.MetadataAt = _ => throw new IOException("Synthetic non-session process.");
+        int before = scan.MetadataReads;
+        check((await scanner.DiscoverAsync(default)).Count == 0 && scan.MetadataReads - before == 128 && !scanner.DiscoveryCensusComplete,
+            "CLAUDE_SCAN_BOUNDED: the expanded usable-session search never performs more than128 expensive candidate inspections");
+        check(scanner.DiscoveryDiagnostics.Any(item => item.Code == "claude_discovery_truncated" && item.Note),
+            "CLAUDE_SCAN_TRUNCATION_NOTE: a capped census reports missing-session uncertainty without hiding healthy rows");
+        scan.ProcessIds = Enumerable.Range(scan.Pid, 33).ToArray();
+        scan.MetadataAt = null;
+        check((await scanner.DiscoverAsync(default)).Count == 32 && !scanner.DiscoveryCensusComplete &&
+            scanner.DiscoveryDiagnostics.Any(item => item.Code == "claude_discovery_truncated" && item.Note),
+            "CLAUDE_CANDIDATE_BOUND: at most32 usable sessions are returned and an unvisited tail is diagnosed");
+    }
+
     private static BrokerMessage Message(SessionAddress recipient)
         => new(Guid.NewGuid(), Guid.NewGuid(), null, new(Guid.NewGuid(), "synthetic-sender", Guid.NewGuid()),
             recipient, "Synthetic observation refusal witness.", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddMinutes(1));
@@ -366,6 +408,9 @@ internal static class ClaudeObservationChecks
         internal int Pid = 41001;
         internal IReadOnlyList<int>? ProcessIds;
         internal Exception? MetadataError, ListError;
+        internal Func<int, NativeSessionMetadata>? MetadataAt;
+        internal Func<int, string>? ImageAt;
+        internal int MetadataReads;
         internal ulong Started = checked((ulong)DateTime.UtcNow.AddDays(-1).ToFileTimeUtc());
         internal string Image = @"C:\Synthetic-Claude-Observation\claude.exe";
         internal string Version = "2.1.309.0";
@@ -387,8 +432,8 @@ internal static class ClaudeObservationChecks
         public IReadOnlyList<int> GetProcessIds()
         { if (ListError is not null) throw ListError; return ProcessIds ?? [Pid]; }
         public NativeSessionMetadata ReadMetadata(int processId)
-        { if (MetadataError is not null) throw MetadataError; return Metadata; }
-        public IClaudeDiscoveryProcess OpenProcess(int processId) => new ProcessView(this);
+        { MetadataReads++; if (MetadataError is not null) throw MetadataError; return MetadataAt?.Invoke(processId) ?? Metadata with { ProcessId = processId }; }
+        public IClaudeDiscoveryProcess OpenProcess(int processId) => new ProcessView(this, processId);
         public void RejectReparseComponents(string image)
         { if (Reparse) throw new IOException("Synthetic reparse component."); }
         public string? ReadProductVersion(string image) => Version;
@@ -404,10 +449,10 @@ internal static class ClaudeObservationChecks
             LeaseRechecks++;
             LeaseHeldThroughoutRecheck &= !Lease.Disposed;
         }
-        private sealed class ProcessView(ObservationSource source) : IClaudeDiscoveryProcess
+        private sealed class ProcessView(ObservationSource source, int pid) : IClaudeDiscoveryProcess
         {
             public string ProcessName => "claude";
-            public string ImagePath { get { source.RecheckLease(); return source.Image; } }
+            public string ImagePath { get { source.RecheckLease(); return source.ImageAt?.Invoke(pid) ?? source.Image; } }
             public ulong StartFileTime { get { source.RecheckLease(); return source.Started; } }
             public bool IsCurrentUser { get { source.RecheckLease(); return source.SameUser; } }
             public bool HasExited { get { source.RecheckLease(); return source.Exited; } }

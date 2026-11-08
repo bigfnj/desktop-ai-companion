@@ -22,12 +22,17 @@ checks each binding's own router trust, so a provider verdict cannot lend the ex
 router. Native owner discovery exposes opaque client IDs rather than trusted Desktop/VS Code host-version labels.
 Installed profile verification alone never enables wake. A discovery pass reuses a prior publisher-verification result while the engine processes' metadata is unchanged (image path and OS creation time of each engine and its Code.exe parent; `DiscoveryReuse`). This does not prove that the file now at the path is the image a running process mapped (the publisher check verifies the on-disk path under a held handle, a gap that predates the reuse); fresh verification at submission remains the input boundary. The exact-profile check is never reused, because it also covers `package.json` and unsigned extension JavaScript that can change while the engine runs. A failure or an empty set is never reused, every submission still verifies fresh, and a fresh refusal at submission forgets the reused success.
 
-Claude production discovery examines at most 32 processes named `claude`, public executable identities,
-and exact default-home numeric registry JSON files. It never lists credentials or follows log paths.
+Claude production discovery inspects at most 128 processes named `claude` and returns at most 32 usable
+candidates, checking public executable identities and exact default-home numeric registry JSON files.
+Non-session processes do not consume the usable-candidate bound; a capped census is reported as incomplete
+with a bounded diagnostic. It never lists credentials or follows log paths.
 An exclusive `procStart` or `procStartFt` numeric hint must match the actual OS creation FILETIME exactly;
-no .NET-tick epoch conversion/tolerance is allowed. Status is Unknown when the publisher's `updatedAt`
-is missing, future, or older than 2 minutes. Public image hash cache is bounded to 32 entries and scoped to native
-PID/start/path; the native connected-server identity is independently rehashed before any credential read.
+no .NET-tick epoch conversion/tolerance is allowed. Missing or implausibly future activity timestamps leave
+status Unknown. A long-idle timestamp remains valid when a fresh record and process identity still agree;
+the publisher's timestamp is a state transition, not a heartbeat. The exact-profile cache is bounded to 32
+PID/start/path entries. Unpinned public-image samples are held once per exact path within one discovery pass,
+then disposed; each next pass and independent refresh verifies again. The native connected-server image is
+independently rehashed and publisher-checked before any credential read.
 Claude delivery needs `claudePeerCredentials`. With `claudeUpdateTolerantDelivery` on (the module's default since the
 owner's decision of 2026-11-02; a worker launched without `--claude-update-tolerant-delivery` stays strict), a session
 whose image fails its exact pin but is Windows-verified as "Anthropic, PBC" is discovered as `UpdateTolerant` and gets
@@ -42,8 +47,11 @@ current mode/settings; no sender mode, self-sent privilege, child token or permi
 The platform's exact H05/W06 approval is still required before an agent executes any real key read.
 
 Both wrappers pass the shared external-peer provenance/routing envelope, retaining stable message UUIDs.
-No content is truncated. Codex refuses formatted text above 32 KiB and preserves the native 64 KiB frame
-preflight, with deterministic size refusal before model input. Claude allows 128 KiB formatted UTF8 text,
+No content is truncated. Codex refuses formatted text above 32 KiB and preflights the complete encoded request
+against its existing 64 KiB frame cap before owner rediscovery or receipt reservation. Both full provenance
+copies count, and required JSON escaping means some inputs below the broker's 16 KiB raw-text limit still
+exceed this native budget. Such input ends Refused/native_message_too_large; it is never sent partially or
+treated as an ambiguous transport result. Claude allows 128 KiB formatted UTF8 text,
 within the inspected native 1 MiB JSONL line guard. Core raw peer text remains 16 KiB. These per-adapter
 limits can refuse a control-heavy message accepted into the broker journal, with an explicit receipt.
 

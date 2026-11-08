@@ -106,6 +106,8 @@ internal static class DesktopFrames
     internal const int MaximumFrameBytes = 64 * 1024;
     private static readonly JsonSerializerOptions JsonOptions = new() { MaxDepth = 32 };
 
+    internal static int EncodedLength(JsonObject message) => JsonSerializer.SerializeToUtf8Bytes(message, JsonOptions).Length;
+
     internal static async Task WriteAsync(Stream stream, JsonObject message, CancellationToken token)
     {
         byte[] body = JsonSerializer.SerializeToUtf8Bytes(message, JsonOptions);

@@ -45,7 +45,7 @@ internal static class PairedAdmissionChecks
                 if (receipt.Status is MessageStatus.Refused or MessageStatus.Uncertain) return receipt;
                 await Task.Delay(50);
             }
-            throw new TimeoutException("Synthetic admission result did not settle.");
+            throw new InvalidOperationException("PAIRED_UNCERTAIN_SETTLEMENT: the expected terminal admission result did not settle.");
         }
         var refused = await Send();
         check(refused is { Status: MessageStatus.Refused, Reason: "recipient_cannot_receive" } &&

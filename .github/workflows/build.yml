@@ -68,8 +68,11 @@ jobs:
         run: |
           dotnet build .\tests\DesktopAICompanion.CoreTests\DesktopAICompanion.CoreTests.csproj `
             -c Release -p:Platform=x64 --nologo -v:minimal
-          & '.\tests\DesktopAICompanion.CoreTests\bin\Release\DesktopAICompanion.CoreTests.exe'
+          $coreOutput = @(& '.\tests\DesktopAICompanion.CoreTests\bin\Release\DesktopAICompanion.CoreTests.exe')
           if ($LASTEXITCODE -ne 0) { throw "Core tests failed (exit $LASTEXITCODE)." }
+          $coreOutput | ForEach-Object { Write-Host $_ }
+          . .\tests\HarnessOutput.ps1
+          $null = Assert-CoreRegressionSummary $coreOutput
           # The two out-of-gate harnesses COMPILE here too (RA-340), mirroring tests\run-gate.ps1. The window
           # soak and the stand-down probe are release-checklist steps rather than gate steps, but nothing
           # built them either: not build.ps1, not this workflow, not the product .sln. So a Contracts or
@@ -92,7 +95,8 @@ jobs:
         # sessions/engines only, with no vendor account, desktop interaction, or live credentials.
         if: ${{ !cancelled() && steps.dotnet_sdk.outcome == 'success' }}
         shell: pwsh
-        run: .\tests\Test-AgentBroker.ps1
+        # A failed host build still permits synthetic harnesses; the shipped-payload half needs its build output.
+        run: .\tests\Test-AgentBroker.ps1 -CheckPayload:('${{ steps.build.outcome }}' -eq 'success')
 
       - name: Run product self-tests
         # Calls the SAME script tests\run-gate.ps1 calls, rather than carrying its own copy of

@@ -11,7 +11,8 @@ internal static class SendAdvisoryChecks
 {
     internal static async Task RunAsync(Action<bool, string> check)
     {
-        string scratch = Path.Combine(AppContext.BaseDirectory, "scratch", "send-advisory-" + Guid.NewGuid().ToString("N"));
+        using var scratchOwner = OwnedScratch.Create("send-advisory");
+        string scratch = scratchOwner.Root;
         Guid brokerId;
         using (var seed = new BrokerStore(Path.Combine(scratch, "store"))) brokerId = seed.BrokerId;
         string keyName = AgentBroker.Worker.Security.BrokerIdentity.KeyNameFor(scratch, brokerId);

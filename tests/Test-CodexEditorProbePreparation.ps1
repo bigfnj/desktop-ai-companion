@@ -1,16 +1,33 @@
 #requires -Version 5.1
-# Runs only PrepareOnly/revalidation paths. Never passes -Launch or starts VS Code.
+# Calls actual preparation/revalidation functions with synthetic image metadata. Never launches VS Code.
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$helper = Join-Path $repoRoot 'tools\agentbroker\Open-CodexEditorProbe.ps1'
+$helperPath = Join-Path $repoRoot 'tools\agentbroker\Open-CodexEditorProbe.ps1'
+. (Join-Path $PSScriptRoot 'OwnedTestTree.ps1')
+$tokens = $null; $parseErrors = $null
+$syntax = [Management.Automation.Language.Parser]::ParseFile($helperPath, [ref]$tokens, [ref]$parseErrors)
+if ($parseErrors.Count) { throw 'Editor probe must parse before component checks.' }
+foreach ($definition in @($syntax.FindAll({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] }, $true))) {
+    . ([scriptblock]::Create($definition.Extent.Text))
+}
+$artifactRoot = Join-Path $repoRoot 'artifacts\agentbroker-editor-probes'
+$sourceRoot = Join-Path $repoRoot 'tools\agentbroker\vscode-editor-probe'
+$encoding = New-Object Text.UTF8Encoding($false)
+function Invoke-ProbeFixture([string]$TargetThreadId, [string]$PreparedWorkspace, [string]$ExpectedTargetThreadId) {
+    $state = Resolve-ProbePreparation $TargetThreadId $PreparedWorkspace $ExpectedTargetThreadId {
+        [pscustomobject]@{ Exe='C:\synthetic\Code.exe'; Cmd='C:\synthetic\code.cmd'; Cli='C:\synthetic\cli.js' }
+    }
+    Get-ProbePreparationReport $state.Prepared $state.Cli @(Get-ProbeLaunchArguments $state.Prepared) $false
+}
+$helper = ${function:Invoke-ProbeFixture}
 $checks = 0
 function Check([bool]$Condition, [string]$Description) {
     if (-not $Condition) { throw ('Test-CodexEditorProbePreparation.ps1: ' + $Description) }
     $script:checks++
 }
-function Refuses([scriptblock]$Action, [string]$Description) {
+function Refuses([scriptblock]$Action, [string]$Description, [string]$ExpectedMessage = '') {
     $failed = $false
-    try { $null = & $Action } catch { $failed = $true }
+    try { $null = & $Action } catch { $failed = -not $ExpectedMessage -or $_.Exception.Message -ceq $ExpectedMessage }
     Check $failed $Description
 }
 function Prepare {
@@ -18,13 +35,17 @@ function Prepare {
     return (($json -join "`n") | ConvertFrom-Json)
 }
 $prepared = Prepare
+$root = Split-Path -Parent $prepared.Workspace
+$preparationParent = Join-Path $repoRoot 'artifacts\agentbroker-editor-probes'
+$foreignRoot = $null
+$testFailed = $false
+try {
 Check ($prepared.Status -eq 'prepared_only' -and $prepared.Launched -eq $false) 'default run opens no GUI'
 Check (-not [IO.File]::Exists($prepared.Result)) 'preparation does not invent an editor result'
 Check ($prepared.Arguments.Count -eq 3 -and $prepared.Arguments[0] -ceq '--new-window') 'fixed command forces a separate window'
 Check ($prepared.Arguments[1] -ceq ('--extensionDevelopmentPath=' + $prepared.ExtensionDevelopmentPath)) 'fixed development path'
 Check ($prepared.Arguments[2] -ceq $prepared.Workspace) 'exact prepared workspace is the only path argument'
 Check (($prepared.Arguments -join ' ') -notmatch '(?i)disable|user-data|extensions-dir|profile|reuse|inspect|trust') 'no settings or security overrides'
-$root = Split-Path -Parent $prepared.Workspace
 $manifest = [IO.File]::ReadAllText($prepared.Manifest) | ConvertFrom-Json
 $document = [IO.File]::ReadAllText($prepared.Workspace) | ConvertFrom-Json
 Check ($manifest.probeId -cmatch '^[0-9a-f]{32}$') 'unique preparation identity'
@@ -55,7 +76,7 @@ try {
 # Exercise the actual pure production predicate with metadata only. No alternate EXE or protected fixture is created.
 $tokens = $null
 $parseErrors = $null
-$syntax = [Management.Automation.Language.Parser]::ParseFile($helper, [ref]$tokens, [ref]$parseErrors)
+$syntax = [Management.Automation.Language.Parser]::ParseFile($helperPath, [ref]$tokens, [ref]$parseErrors)
 $definition = $syntax.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Confirm-CodeImageMetadata' }, $true)
 if ($null -eq $definition) { throw 'Actual public-image metadata predicate not found.' }
 . ([scriptblock]::Create($definition.Extent.Text))
@@ -67,7 +88,21 @@ Refuses { Confirm-CodeImageMetadata $syntheticImage 'CHANGED-HASH' '1.2.3' $synt
 Refuses { Confirm-CodeImageMetadata $syntheticImage 'SYNTHETIC-HASH' '1.2.4' $syntheticImage 'SYNTHETIC-HASH' '1.2.3' } 'actual predicate refuses an installed version mismatch'
 Refuses { & $helper -TargetThreadId 'bad-id' } 'malformed target refuses'
 Refuses { & $helper -TargetThreadId '00000000-0000-0000-0000-000000000000' } 'empty target refuses'
-Refuses { & $helper -PreparedWorkspace (Join-Path $repoRoot 'foreign.code-workspace') } 'foreign workspace refuses before read'
+$foreignId = [guid]::NewGuid().ToString('N')
+$foreignRoot = Join-Path $repoRoot ('artifacts\editor-probe-' + $foreignId)
+[void](Assert-OwnedTestPath $foreignRoot)
+[void][IO.Directory]::CreateDirectory((Join-Path $foreignRoot 'extension'))
+[void][IO.Directory]::CreateDirectory((Join-Path $foreignRoot 'workspace'))
+$foreignManifest = [IO.File]::ReadAllText($prepared.Manifest) | ConvertFrom-Json
+$foreignWorkspace = [IO.File]::ReadAllText($prepared.Workspace) | ConvertFrom-Json
+$foreignManifest.probeId = $foreignId
+$foreignWorkspace.settings.'agentbrokerEditorProbe.preparationId' = $foreignId
+[IO.File]::WriteAllText((Join-Path $foreignRoot 'prepared.json'), ($foreignManifest | ConvertTo-Json -Depth 8), (New-Object Text.UTF8Encoding($false)))
+$foreignPath = Join-Path $foreignRoot 'probe.code-workspace'
+[IO.File]::WriteAllText($foreignPath, ($foreignWorkspace | ConvertTo-Json -Depth 8), (New-Object Text.UTF8Encoding($false)))
+foreach ($name in @('extension.js','package.json')) { [IO.File]::Copy((Join-Path $prepared.ExtensionDevelopmentPath $name), (Join-Path $foreignRoot ('extension\' + $name))) }
+Check ([IO.File]::Exists($foreignPath)) 'foreign scope fixture is a real otherwise valid workspace'
+Refuses { & $helper -PreparedWorkspace $foreignPath } 'foreign workspace refuses at scope before read' 'Probe path is outside its allowed ordinary local scope.'
 Refuses { & $helper -PreparedWorkspace $prepared.Workspace -TargetThreadId '22222222-2222-4222-8222-222222222222' } 'prepared target cannot be replaced'
 $workspaceBytes = [IO.File]::ReadAllBytes($prepared.Workspace)
 try {
@@ -105,4 +140,10 @@ try {
     $null = [IO.Directory]::CreateDirectory($link)
 }
 Check ([IO.Directory]::Exists($target)) 'junction target preserved'
+} catch { $testFailed = $true; throw }
+finally {
+    if ($foreignRoot) { Complete-OwnedTestTree $foreignRoot (Join-Path $repoRoot 'artifacts') $testFailed }
+    Complete-OwnedTestTree $root $preparationParent $testFailed
+}
+Check (-not (Test-Path -LiteralPath $root) -and (-not $foreignRoot -or -not (Test-Path -LiteralPath $foreignRoot))) 'owned preparation fixtures removed'
 Write-Output ('PASS: ' + $checks + ' preparation checks; no GUI launched.')

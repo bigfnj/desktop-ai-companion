@@ -207,6 +207,7 @@ internal static class PollingLeaseChecks
 
     private sealed class Fixture : IAsyncDisposable
     {
+        private readonly OwnedScratch scratch = OwnedScratch.Create("polling-lease");
         internal ManualClock Clock { get; } = new();
         internal BrokerStore Store { get; }
         internal BrokerRuntime Runtime { get; }
@@ -214,7 +215,7 @@ internal static class PollingLeaseChecks
         internal BrokerTools Tools { get; }
         internal Fixture()
         {
-            string root = Path.Combine(AppContext.BaseDirectory, "scratch", "polling-lease-" + Guid.NewGuid().ToString("N"));
+            string root = scratch.Root;
             Directory.CreateDirectory(root);
             Store = new BrokerStore(Path.Combine(root, "store"), clock: Clock);
             Runtime = new BrokerRuntime(Store, new NoPeers(), [], new SessionPreferences(root), Clock);
@@ -225,7 +226,11 @@ internal static class PollingLeaseChecks
         internal BrokerSession? Current(SessionAddress address) => Store.Directory().SingleOrDefault(session => session.Address == address);
         internal BrokerMessage Message(SessionAddress sender, SessionAddress recipient) => new(Guid.NewGuid(), Guid.NewGuid(), null,
             sender, recipient, "Synthetic polling message", Clock.GetUtcNow(), Clock.GetUtcNow().AddHours(1));
-        public async ValueTask DisposeAsync() { await Runtime.DisposeAsync(); Store.Dispose(); }
+        public async ValueTask DisposeAsync()
+        {
+            try { await Runtime.DisposeAsync(); }
+            finally { try { Store.Dispose(); } finally { scratch.Dispose(); } }
+        }
     }
 
     private sealed class NoPeers : IPeerFederation

@@ -74,6 +74,16 @@ function Invoke-Git([string[]]$GitArgs, [string]$What) {
     }
     finally { $ErrorActionPreference = $previous }
 }
+function Invoke-ModulePayloadCommit([string]$Repository, [string]$ZipRelativePath,
+    [string]$Subject, [string]$Body) {
+    $paths = @($ZipRelativePath, 'modules-dist/modules.json')
+    $null = Invoke-Git (@('-C', $Repository, 'add', '--') + $paths) 'git add payload'
+    $changes = @(Invoke-Git (@('-C', $Repository, 'diff', '--cached', '--name-only', '--') + $paths) 'git diff payload')
+    if ($changes.Count -eq 0) { return $false }
+    # --only commits these worktree paths and leaves every unrelated index entry intact.
+    $null = Invoke-Git (@('-C', $Repository, 'commit', '--only', '-q', '-m', $Subject, '-m', $Body, '--') + $paths) 'git commit payload'
+    return $true
+}
 $moduleId = $ModuleId.ToLowerInvariant()
 $distDir = Join-Path $repoRoot 'modules-dist'
 $zipPath = Join-Path $distDir ($moduleId + '.zip')
@@ -401,7 +411,6 @@ Write-Host '=== commit the payload' -ForegroundColor Cyan
 Push-Location $repoRoot
 try {
     if ($Commit) {
-        Invoke-Git @('add', '--', $zipRelPath, 'modules-dist/modules.json') 'git add'
         # The exact PowerShell version goes in the body, so a catalog hash that moves on a republish with
         # no content change can be attributed to the runtime: System.IO.Compression's deflate output
         # differs between .NET 8, 9 and 10, i.e. between pwsh 7.4, 7.5 and 7.6 (F213). The subject keeps
@@ -417,9 +426,8 @@ try {
         if ($publishBody -match '\{\d+\}') {
             throw "The publish commit body still carries a format placeholder, so the PowerShell version would not be recorded: $publishBody"
         }
-        Invoke-Git @('commit', '-q', '-m', ("chore(modules): publish {0} {1}" -f $moduleId, $version),
-                     '-m', $publishBody) 'git commit'
-        Write-Host '  committed.'
+        $committed = Invoke-ModulePayloadCommit $repoRoot $zipRelPath ("chore(modules): publish {0} {1}" -f $moduleId, $version) $publishBody
+        Write-Host $(if ($committed) { '  committed.' } else { '  payload already committed; continuing to the catalog.' })
     }
 
     # Whether or not we committed, the catalog may only be generated from a committed, up-to-date blob.

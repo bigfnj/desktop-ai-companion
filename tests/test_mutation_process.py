@@ -3,6 +3,7 @@
 import os
 from pathlib import Path
 import re
+import runpy
 import subprocess
 import tempfile
 import unittest
@@ -121,10 +122,26 @@ class MutationProcessTests(unittest.TestCase):
         self.assertEqual(raw.stderr, b"")
         self.assertEqual(raw.stdout, b"FAIL: synthetic \x97 witness\r\n")
         self.assertEqual(decode_output(raw.stdout, lambda: "cp1252"), "FAIL: synthetic \u2014 witness\r\n")
-        if _windows_ansi_encoding() == "cp1252":
-            result = run_text(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command], timeout=30)
-            self.assertEqual(result.stdout, "FAIL: synthetic \u2014 witness\n")
-            self.assertEqual(result.returncode, 7)
+    @unittest.skipUnless(os.name == "nt" and _windows_ansi_encoding() == "cp1252",
+                         "run_text fixed legacy witness requires Windows ANSI code page 1252")
+    def test_actual_legacy_powershell_run_text_cp1252_witness(self):
+        command = ("$s = [Console]::OpenStandardOutput(); "
+                   "$b = [byte[]](70,65,73,76,58,32,115,121,110,116,104,101,116,105,99,32,151,32,119,105,116,110,101,115,115,13,10); "
+                   "$s.Write($b,0,$b.Length); $s.Flush(); exit 7")
+        result = run_text(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command], timeout=30)
+        self.assertEqual(result.stdout, "FAIL: synthetic \u2014 witness\n")
+        self.assertEqual(result.returncode, 7)
+
+    @unittest.skipUnless(os.name == "nt", "Windows ANSI-codepage selection")
+    def test_other_ansi_codepage_reports_the_run_text_skip_explicitly(self):
+        for encoding, skipped in (("cp1252", False), ("cp932", True)):
+            with self.subTest(encoding=encoding), patch("mutation_process._windows_ansi_encoding", return_value=encoding):
+                loaded = runpy.run_path(str(Path(__file__).resolve()), run_name="synthetic_legacy_skip")
+                method = loaded["MutationProcessTests"].test_actual_legacy_powershell_run_text_cp1252_witness
+                self.assertEqual(bool(getattr(method, "__unittest_skip__", False)), skipped,
+                                 'test_mutation_process.py: NON1252_SKIP_VISIBLE')
+                if skipped:
+                    self.assertIn("1252", method.__unittest_skip_why__)
 
 
 if __name__ == "__main__":

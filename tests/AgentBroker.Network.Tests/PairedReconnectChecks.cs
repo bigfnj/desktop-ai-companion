@@ -144,13 +144,13 @@ internal static class PairedReconnectChecks
         }
         b.Pairing.BeforeInfo = null;
         // These hints pass the identity prefilter but must fail the literal private HTTPS policy.
-        foreach (string endpoint in new[] { "https://example.test:7433/", "https://203.0.113.3:7433/", "http://127.0.0.1:7433/", "https://127.0.0.1:7433/other" })
+        foreach (string endpoint in new[] { "https://example.test:7433/", "https://203.0.113.3:7433/", b.HttpEndpoint, b.Endpoint + "other" })
         {
             int requests = b.Pairing.InfoRequests;
             hints.Set(b.Advertisement with { Endpoint = endpoint });
             await a.Federation.ReconnectDiscoveredAsync(default);
             check(a.Store.Peers().Single() == trust && b.Pairing.InfoRequests == requests,
-                "rediscovery rejects nonliteral, public, nonHTTPS or nonroot address " + endpoint);
+                "RECONNECT_ENDPOINT_POLICY: rediscovery rejects nonliteral, public, nonHTTPS or nonroot address " + endpoint);
         }
         int before = b.Pairing.InfoRequests;
         await using var disabled = await Node.Create(Path.Combine(scratch, "lan-disabled"), clock, identity, hints.Read, TimeSpan.FromMilliseconds(20), enableLan: false);
@@ -244,9 +244,10 @@ internal static class PairedReconnectChecks
             a.Store.AuthorizePeer(Trust(b, clock) with { Endpoint = "https://127.0.0.1:1/" });
             hints.Set(b.Advertisement);
             await arrived.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var reconnect = a.Federation.ReconnectCompletion;
             await a.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
             a = null!;
-            check(true, "shutdown cancels and joins pending reconnect I/O before disposing identity and durable state");
+            check(reconnect.IsCompletedSuccessfully, "RECONNECT_SHUTDOWN_JOINED: shutdown cancels and joins the actual reconnect task before disposing identity and durable state");
         }
         finally { if (a is not null) await a.DisposeAsync(); }
     }

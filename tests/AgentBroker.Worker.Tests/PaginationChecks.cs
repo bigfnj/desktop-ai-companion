@@ -61,9 +61,13 @@ internal static class PaginationChecks
                 "pagination preserves each complete sixteen-KiB message without truncating escaped contents");
             var seen = new List<Guid>();
             JsonElement page = first;
+            int inboxPages = 0;
+            var seenIds = new HashSet<Guid>();
             while (true)
             {
                 var ids = page.EnumerateArray().Select(item => item.GetProperty("message").GetProperty("id").GetGuid()).ToArray();
+                check(++inboxPages <= (receipts.Count + 15) / 16 + 1 && ids.All(seenIds.Add),
+                    "INBOX_TRAVERSAL_PROGRESS: every page advances within the independently known fixture bound");
                 seen.AddRange(ids);
                 if (ids.Length < 16) break;
                 page = await bridge.ArrayAsync("read_inbox", new { session = recipient, afterMessageId = ids[^1] });
@@ -96,9 +100,13 @@ internal static class PaginationChecks
             var directoryPage = await bridge.ArrayAsync("list_sessions", new { });
             check(directoryPage.GetArrayLength() == 16, "default directory page is bounded even when more live sessions exist");
             var addresses = new List<SessionAddress>();
+            int directoryPages = 0;
+            var seenAddresses = new HashSet<SessionAddress>();
             while (true)
             {
                 var current = directoryPage.EnumerateArray().Select(item => item.GetProperty("address").Deserialize<SessionAddress>(WebJson)!).ToArray();
+                check(++directoryPages <= (expected.Length + 15) / 16 + 1 && current.All(seenAddresses.Add),
+                    "DIRECTORY_TRAVERSAL_PROGRESS: every page advances within the independently known fixture bound");
                 addresses.AddRange(current);
                 if (current.Length < 16) break;
                 directoryPage = await bridge.ArrayAsync("list_sessions", new { afterAddress = current[^1] });

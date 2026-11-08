@@ -73,7 +73,7 @@ internal static class CodexTrustPolicyChecks
                 check(verified.Capabilities.HasFlag(SessionCapabilities.WakeIdle | SessionCapabilities.NativeIdleGuard) &&
                     store.BeginDelivery()?.Message.Id == waiting.Id,
                     File + "TRANSIENT_DISCOVERY_DEFERS WITNESS: once a pass completes the check the waiting message is claimed (" + mode + ")");
-                store.CompleteDelivery(waiting.Id, MessageStatus.Submitted, "synthetic_submitted");
+                store.CompleteDelivery(store.FindReceipt(waiting.Id)!, MessageStatus.Submitted, "synthetic_submitted");
 
                 // The bound: an engine check that never completes must not hold the queue for the message lifetime.
                 ioFailure = true;

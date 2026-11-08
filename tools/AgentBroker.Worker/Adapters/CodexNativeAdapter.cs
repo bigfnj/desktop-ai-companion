@@ -21,7 +21,7 @@ public interface ICodexNativeProvider : IAsyncDisposable
     bool VerificationPending => false;
     IReadOnlyList<AdapterDiscoveryDiagnostic> DiscoveryDiagnostics => Array.Empty<AdapterDiscoveryDiagnostic>();
     // Report-only completion after the pass saves its bindings. The actual adapter mode also gates reporting.
-    void CompleteDiscovery(IReadOnlyList<DesktopOwnerBinding> carriedBindings, bool updateTolerantDelivery) { }
+    void CompleteDiscovery(bool updateTolerantDelivery) { }
     bool IsDeliveryAuthorized(DesktopOwnerBinding binding) => NativeIdleGuard;
     // A provider without the update-tolerant policy can only ever report the reviewed exact path.
     CodexDeliveryAuthority Authorize(DesktopOwnerBinding binding)
@@ -134,7 +134,6 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
             var found = new Dictionary<SessionAddress, DesktopOwnerBinding>();
             var observations = new Dictionary<SessionAddress, BindingObservation>();
             var sessions = new List<BrokerSession>();
-            var carried = new List<DesktopOwnerBinding>();
             int stale = 0, missing = 0, invalid = 0;
             // skipped: not renewed this pass; slow: the lookups that themselves timed out or failed. A conversation merely not
             // reached before the deadline keeps its place, mark included: it used to lose a mark it had, so a conversation
@@ -202,8 +201,6 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
                     : pending && clock.GetUtcNow() - pendingNow[address] < VerificationPendingBound ? SessionCapabilities.Receive
                     : SessionCapabilities.None;
                 sessions.Add(new(address, row.DisplayLabel, Id, capabilities, activity, clock.GetUtcNow().AddSeconds(30)));
-                if (guarded && updateTolerant && provider.Authorize(binding) == CodexDeliveryAuthority.UpdateTolerant)
-                    carried.Add(binding);
             }
             // A skipped conversation keeps its earlier binding for as long as it keeps being skipped, as it did when a failed
             // pass left every binding in place; submission resolves the owner afresh before any input either way. Its
@@ -225,7 +222,7 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
             staleLastPass = stale; missingLastPass = missing; invalidLastPass = invalid;
             // Reporting cannot prevent a successfully resolved binding from being saved. Empty passes still report
             // publisher verification; a note never grants delivery authority.
-            provider.CompleteDiscovery(carried, updateTolerant);
+            provider.CompleteDiscovery(updateTolerant);
             // Report only: each listed row's thread writer lock, observed after every capability and address above was decided,
             // in the background and kept beside the rows, never in them, so it can neither change one nor delay the pass.
             // A skipped conversation keeps its old observation while its binding is retained, but its lease is not renewed.

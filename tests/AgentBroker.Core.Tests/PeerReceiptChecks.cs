@@ -27,7 +27,7 @@ internal static class PeerReceiptChecks
             var message = new BrokerMessage(Guid.NewGuid(), Guid.NewGuid(), null, sender.Address, remote, text, clock.GetUtcNow(), clock.GetUtcNow().AddMinutes(30));
             store.Accept(message, store.BrokerId);
             if (store.BeginDelivery()?.Message.Id != message.Id) throw new InvalidOperationException("Synthetic forward was not claimed.");
-            store.CompleteDelivery(message.Id, MessageStatus.Submitted, "peer_receipt");
+            store.CompleteDelivery(store.FindReceipt(message.Id)!, MessageStatus.Submitted, "peer_receipt");
             return message;
         }
         string? NoticeAbout(BrokerMessage message) => store.Messages(sender.Address)
@@ -35,7 +35,7 @@ internal static class PeerReceiptChecks
             .Select(r => r.Message.Text).SingleOrDefault();
 
         var lapsed = Forwarded("Synthetic message the paired broker lets expire.");
-        var settled = store.RecordPeerReceipt(lapsed.Id, remote, peerId, MessageStatus.Expired);
+        var settled = store.RecordPeerReceipt(store.FindReceipt(lapsed.Id)!, remote, peerId, MessageStatus.Expired);
         Check(settled.Status == MessageStatus.Refused && settled.Reason == "peer_expired",
             "PEER_EXPIRED_REASON: a paired broker's Expired is recorded as Refused with reason peer_expired");
         Check(NoticeAbout(lapsed) is { } expiredNotice && expiredNotice.Contains("expired at the recipient's paired broker", StringComparison.Ordinal) &&
@@ -43,27 +43,27 @@ internal static class PeerReceiptChecks
             "PEER_EXPIRED_NOTICE: the sender's notice says the message expired at the paired broker, not that its recipient refused it");
 
         var refused = Forwarded("Synthetic message the remote recipient refuses.");
-        var declined = store.RecordPeerReceipt(refused.Id, remote, peerId, MessageStatus.Refused);
+        var declined = store.RecordPeerReceipt(store.FindReceipt(refused.Id)!, remote, peerId, MessageStatus.Refused);
         Check(declined.Status == MessageStatus.Refused && declined.Reason == "recipient_receipt" &&
             NoticeAbout(refused) is { } refusedNotice && refusedNotice.Contains("was refused by its recipient", StringComparison.Ordinal),
             "PEER_REFUSED_UNCHANGED: a remote recipient's own refusal still reads as refused by its recipient");
         foreach (string reason in new[] { "recipient_replaced", "recipient_unavailable", "recipient_cannot_receive", "private_session", "recipient_queue_full", "message_limit" })
         {
             var message = Forwarded("Synthetic known peer refusal.");
-            Check(store.RecordPeerReceipt(message.Id, remote, peerId, MessageStatus.Refused, reason).Reason == reason,
+            Check(store.RecordPeerReceipt(store.FindReceipt(message.Id)!, remote, peerId, MessageStatus.Refused, reason).Reason == reason,
                 "PEER_KNOWN_REASON: only recognized refusal metadata survives receipt reconciliation");
         }
         foreach (string? reason in new[] { "unknown_future_code", "bad\nprivate_reason", "RECIPIENT_REPLACED", new string('x', 81), null })
         {
             var message = Forwarded("Synthetic unrecognized peer refusal.");
-            Check(store.RecordPeerReceipt(message.Id, remote, peerId, MessageStatus.Refused, reason).Reason == "recipient_receipt",
+            Check(store.RecordPeerReceipt(store.FindReceipt(message.Id)!, remote, peerId, MessageStatus.Refused, reason).Reason == "recipient_receipt",
                 "PEER_UNKNOWN_REASON: malformed or unrecognized peer text never becomes receipt metadata");
         }
         var expiredWithReason = Forwarded("Synthetic expired peer metadata.");
-        Check(store.RecordPeerReceipt(expiredWithReason.Id, remote, peerId, MessageStatus.Expired, "recipient_replaced").Reason == "peer_expired",
+        Check(store.RecordPeerReceipt(store.FindReceipt(expiredWithReason.Id)!, remote, peerId, MessageStatus.Expired, "recipient_replaced").Reason == "peer_expired",
             "PEER_EXPIRED_REASON_PRIORITY: expiry keeps its special meaning regardless of supplied refusal metadata");
         var deliveredWithReason = Forwarded("Synthetic successful peer metadata.");
-        Check(store.RecordPeerReceipt(deliveredWithReason.Id, remote, peerId, MessageStatus.Delivered, "recipient_replaced").Reason == "recipient_receipt",
+        Check(store.RecordPeerReceipt(store.FindReceipt(deliveredWithReason.Id)!, remote, peerId, MessageStatus.Delivered, "recipient_replaced").Reason == "recipient_receipt",
             "PEER_REASON_STATUS_SCOPE: refusal metadata never decorates a successful receipt");
         return passed;
     }

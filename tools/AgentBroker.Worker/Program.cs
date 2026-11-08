@@ -28,12 +28,48 @@ try
     if (args.Length > 0 && args[0] == ChannelBridgeOptions.Command)
         return await McpChannelBridge.RunAsync(ChannelBridgeOptions.Parse(args), Console.OpenStandardInput(), Console.OpenStandardOutput());
     var options = WorkerOptions.Parse(args);
-    await using var worker = await WorkerApplication.CreateAsync(options);
-    await worker.StartAsync();
-    // No access token, certificate bytes, message body or local path is written to stdout.
-    Console.WriteLine(JsonSerializer.Serialize(new { ready = true, brokerId = worker.Runtime.Store.BrokerId,
-        endpoints = worker.Application.Urls.ToArray() }));
-    return await WorkerLifetime.WaitForShutdownAsync(worker, Console.Error);
+    using var externalStop = new CancellationTokenSource();
+    void RequestExternalStop()
+    {
+        try { externalStop.Cancel(); }
+        catch (ObjectDisposedException) { }
+    }
+    ConsoleCancelEventHandler cancel = (_, signal) => { signal.Cancel = true; RequestExternalStop(); };
+    EventHandler exit = (_, _) => RequestExternalStop();
+    Console.CancelKeyPress += cancel;
+    AppDomain.CurrentDomain.ProcessExit += exit;
+    try
+    {
+        DateTimeOffset? previousRenewalDue = null;
+        while (!externalStop.IsCancellationRequested && WorkerLifetime.ParentIsAlive(options))
+        {
+            int result;
+            // A renewed leaf is loaded only after the previous listeners, store and certificate are disposed.
+            await using (var worker = await WorkerApplication.CreateAsync(options, token: externalStop.Token))
+            {
+                if (previousRenewalDue is not null &&
+                    !WorkerLifetime.RenewalProgressed(previousRenewalDue, worker.CertificateRenewalDueAt, DateTimeOffset.UtcNow))
+                {
+                    Console.Error.WriteLine("agentbroker: certificate_renewal_not_advanced");
+                    return 73;
+                }
+                await worker.StartAsync(externalStop.Token);
+                // No access token, certificate bytes, message body or local path is written to stdout.
+                Console.WriteLine(JsonSerializer.Serialize(new { ready = true, brokerId = worker.Runtime.Store.BrokerId,
+                    endpoints = worker.Application.Urls.ToArray() }));
+                result = await WorkerLifetime.WaitForShutdownAsync(worker, Console.Error, externalStop.Token);
+                previousRenewalDue = worker.CertificateRenewalDueAt;
+            }
+            if (result != WorkerLifetime.CertificateRestartExitCode) return result;
+        }
+        return 0;
+    }
+    catch (OperationCanceledException) when (externalStop.IsCancellationRequested) { return 0; }
+    finally
+    {
+        Console.CancelKeyPress -= cancel;
+        AppDomain.CurrentDomain.ProcessExit -= exit;
+    }
 }
 catch (Exception e) when (e is ArgumentException or FormatException or OverflowException)
 { Console.Error.WriteLine("agentbroker: invalid_arguments"); return 2; }

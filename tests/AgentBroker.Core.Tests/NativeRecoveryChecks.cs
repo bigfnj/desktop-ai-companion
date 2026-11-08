@@ -32,12 +32,12 @@ internal static class NativeRecoveryChecks
             incomingId = Guid.NewGuid(); outgoingId = Guid.NewGuid(); replyId = Guid.NewGuid();
             var incoming = store.Send(peer.Address, old.Address, incomingId, "Synthetic original request.", null, 0, store.BrokerId);
             Check(store.BeginDelivery()?.Message.Id == incomingId, "RECOVERY_WITNESS_INFLIGHT: original request is actually submitting");
-            store.CompleteDelivery(incomingId, MessageStatus.Submitted, "synthetic_submitted");
+            store.CompleteDelivery(store.FindReceipt(incomingId)!, MessageStatus.Submitted, "synthetic_submitted");
             store.Send(old.Address, peer.Address, outgoingId, "Synthetic outgoing request.", null, 0, store.BrokerId);
             store.RecordRecipientReceipt(outgoingId, peer.Address, store.BrokerId, MessageStatus.Delivered);
             var reply = store.AcceptReply(outgoingId, replyId, "Synthetic exact-address answer.", store.BrokerId);
             Check(store.BeginDelivery()?.Message.Id == replyId, "RECOVERY_WITNESS_REPLY: actual reply uses its original recipient");
-            store.CompleteDelivery(replyId, MessageStatus.Submitted, "synthetic_submitted");
+            store.CompleteDelivery(store.FindReceipt(replyId)!, MessageStatus.Submitted, "synthetic_submitted");
             Guid inflightId = store.Send(peer.Address, old.Address, Guid.NewGuid(), "Synthetic in-flight native input.", null, 0, store.BrokerId).Message.Id;
             Check(store.BeginDelivery()?.Message.Id == inflightId, "RECOVERY_WITNESS_SUBMITTING: a separate native input remains in flight");
             current = old with { Address = old.Address with { Incarnation = Guid.NewGuid() } };
@@ -177,7 +177,7 @@ internal static class NativeRecoveryChecks
             var sender = Native(store, clock); var recipient = Native(store, clock); Discover(store, sender); Discover(store, recipient);
             var sent = store.Send(sender.Address, recipient.Address, Guid.NewGuid(), "Synthetic late receipt", null, 1, store.BrokerId);
             Check(store.BeginDelivery()?.Message.Id == sent.Message.Id, "RECOVERY_ACTION_WITNESS: actual native submission precedes late receipt");
-            if (status != MessageStatus.Submitting) store.CompleteDelivery(sent.Message.Id, status);
+            if (status != MessageStatus.Submitting) store.CompleteDelivery(store.FindReceipt(sent.Message.Id)!, status);
             clock.Advance(TimeSpan.FromSeconds(61));
             var entry = store.ReadNativeRecovery(recipient.Address).Entries.Single(value => value.Receipt.Message.Id == sent.Message.Id);
             var acknowledged = store.RecordRecipientReceipt(sent.Message.Id, recipient.Address, store.BrokerId, MessageStatus.Delivered);
@@ -256,9 +256,9 @@ internal static class NativeRecoveryChecks
             var sender = Native(store); var old = Native(store) with { Activity = SessionActivity.Idle };
             senderAddress = sender.Address; oldAddress = old.Address; store.Register(sender); store.Register(old);
             submittedId = store.Send(sender.Address, old.Address, Guid.NewGuid(), "Synthetic already submitted", null, 0, store.BrokerId).Message.Id;
-            store.BeginDelivery(); store.CompleteDelivery(submittedId, MessageStatus.Submitted);
+            store.BeginDelivery(); store.CompleteDelivery(store.FindReceipt(submittedId)!, MessageStatus.Submitted);
             uncertainId = store.Send(sender.Address, old.Address, Guid.NewGuid(), "Synthetic already uncertain", null, 0, store.BrokerId).Message.Id;
-            store.BeginDelivery(); store.CompleteDelivery(uncertainId, MessageStatus.Uncertain);
+            store.BeginDelivery(); store.CompleteDelivery(store.FindReceipt(uncertainId)!, MessageStatus.Uncertain);
             store.Register(old with { Activity = SessionActivity.Busy });
             queuedId = store.Send(sender.Address, old.Address, Guid.NewGuid(), "Synthetic queued before restart", null, 0, store.BrokerId).Message.Id;
         }

@@ -8,7 +8,8 @@ internal static class ReplyToolChecks
 {
     internal static async Task RunStandaloneAsync(Action<bool, string> check)
     {
-        string scratch = Path.Combine(AppContext.BaseDirectory, "scratch", "reply-http-" + Guid.NewGuid().ToString("N"));
+        using var scratchOwner = OwnedScratch.Create("reply-http");
+        string scratch = scratchOwner.Root;
         Guid brokerId;
         using (var seed = new BrokerStore(Path.Combine(scratch, "store"))) brokerId = seed.BrokerId;
         string keyName = AgentBroker.Worker.Security.BrokerIdentity.KeyNameFor(scratch, brokerId);

@@ -11,86 +11,166 @@ namespace AgentBroker.Worker.Security;
 public sealed class BrokerIdentity : IDisposable
 {
     private sealed record StoredIdentity(int Version, Guid BrokerId, string KeyName, byte[] Certificate);
+    private sealed record RenewableIdentity(int Version, Guid BrokerId, string KeyName, byte[] OriginalAnchorDER, byte[] CurrentCertificateDER);
+    private const int MaximumCiphertextBytes = 131072;
+    private static readonly TimeSpan RenewalWindow = TimeSpan.FromDays(90);
     public Guid BrokerId { get; }
     public X509Certificate2 Certificate { get; }
     public string KeyName { get; }
-    public string Fingerprint => Certificate.GetCertHashString(HashAlgorithmName.SHA256);
-    private BrokerIdentity(Guid id, X509Certificate2 certificate, string keyName) { BrokerId = id; Certificate = certificate; KeyName = keyName; }
+    public string Fingerprint { get; }
+    public DateTimeOffset RenewalDueAt => new DateTimeOffset(Certificate.NotAfter.ToUniversalTime()) - RenewalWindow;
+    private BrokerIdentity(Guid id, X509Certificate2 certificate, string keyName, string fingerprint)
+    { BrokerId = id; Certificate = certificate; KeyName = keyName; Fingerprint = fingerprint; }
     public static string KeyNameFor(string dataDir, Guid brokerId)
     {
         if (brokerId == Guid.Empty) throw new ArgumentException("Empty broker identity.");
         string directory = Path.TrimEndingDirectorySeparator(Path.GetFullPath(dataDir));
         return "AgentBroker.v1." + brokerId.ToString("N") + "." + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(directory.ToUpperInvariant())))[..16];
     }
-    public static BrokerIdentity LoadOrCreate(string dataDir, Guid brokerId)
+    public static BrokerIdentity LoadOrCreate(string dataDir, Guid brokerId) => LoadOrCreate(dataDir, brokerId, DateTimeOffset.UtcNow);
+
+    internal static BrokerIdentity LoadOrCreate(string dataDir, Guid brokerId, DateTimeOffset now) =>
+        LoadOrCreate(dataDir, brokerId, now, static (temporary, destination) => File.Replace(temporary, destination, null));
+
+    // The replacement seam verifies failure ownership without touching another identity or the installed app.
+    internal static BrokerIdentity LoadOrCreate(string dataDir, Guid brokerId, DateTimeOffset now, Action<string, string> replace)
     {
         if (brokerId == Guid.Empty) throw new ArgumentException("Empty broker identity.");
+        ArgumentNullException.ThrowIfNull(replace);
+        now = now.ToUniversalTime();
         string directory = Path.TrimEndingDirectorySeparator(Path.GetFullPath(dataDir));
         RejectLinks(directory, allowMissing: true);
         Directory.CreateDirectory(directory);
         RejectLinks(directory);
         string path = Path.Combine(directory, "tls-identity.dat");
         string keyName = KeyNameFor(directory, brokerId);
-        X509Certificate2 certificate;
         if (File.Exists(path))
         {
             RejectLinks(path);
-            if (new FileInfo(path).Length > 131072) throw new InvalidDataException("Identity ciphertext is oversized.");
+            if (new FileInfo(path).Length > MaximumCiphertextBytes) throw new InvalidDataException("Identity ciphertext is oversized.");
             byte[] plain = UserProtection.Unseal(File.ReadAllBytes(path));
             try
             {
-                var stored = JsonSerializer.Deserialize<StoredIdentity>(plain) ?? throw new InvalidDataException("Empty identity metadata.");
-                if (stored.Version != 1 || stored.BrokerId != brokerId || stored.KeyName != keyName || stored.Certificate is null || stored.Certificate.Length > 16384)
-                    throw new InvalidDataException("Stored TLS identity does not match this broker. Identity was preserved.");
+                var (anchorBytes, currentBytes) = ReadMetadata(plain, brokerId, keyName);
                 using var key = CngKey.Open(keyName, CngProvider.MicrosoftSoftwareKeyStorageProvider, CngKeyOpenOptions.Silent);
                 if (key.IsMachineKey || key.ExportPolicy != CngExportPolicies.None || key.AlgorithmGroup != CngAlgorithmGroup.Rsa)
                     throw new InvalidDataException("Stored runtime key has an unexpected policy.");
                 using var rsa = new RSACng(key);
-                using var publicCertificate = X509CertificateLoader.LoadCertificate(stored.Certificate);
-                certificate = publicCertificate.CopyWithPrivateKey(rsa);
+                using var anchor = X509CertificateLoader.LoadCertificate(anchorBytes);
+                using var current = X509CertificateLoader.LoadCertificate(currentBytes);
+                string fingerprint = anchor.GetCertHashString(HashAlgorithmName.SHA256);
+                if (!anchor.RawData.AsSpan().SequenceEqual(anchorBytes) || !current.RawData.AsSpan().SequenceEqual(currentBytes) ||
+                    !CertificateContinuity.IsValidAnchor(anchor, brokerId) ||
+                    anchor.NotBefore.ToUniversalTime() > now.UtcDateTime || current.NotBefore.ToUniversalTime() > now.UtcDateTime)
+                    throw InvalidIdentity();
+                // Expired local metadata is recoverable only after its original identity and key validate.
+                var lastValidInstant = new DateTimeOffset(current.NotAfter.ToUniversalTime()).AddTicks(-1);
+                var validationTime = now < lastValidInstant ? now : lastValidInstant;
+                if (!CertificateContinuity.MatchesPinnedCertificate(current, brokerId, fingerprint, validationTime)) throw InvalidIdentity();
+                using var anchorPublicKey = anchor.GetRSAPublicKey();
+                if (anchorPublicKey is null || !anchorPublicKey.ExportSubjectPublicKeyInfo().AsSpan().SequenceEqual(rsa.ExportSubjectPublicKeyInfo()))
+                    throw InvalidIdentity();
+                if (now < new DateTimeOffset(current.NotAfter.ToUniversalTime()) - RenewalWindow)
+                    return new(brokerId, current.CopyWithPrivateKey(rsa), keyName, fingerprint);
+
+                var renewed = CreateCertificate(rsa, brokerId, now, anchor);
+                try
+                {
+                    if (!CertificateContinuity.MatchesPinnedCertificate(renewed, brokerId, fingerprint, now) || !renewed.HasPrivateKey)
+                        throw InvalidIdentity();
+                    WriteMetadata(directory, path, new RenewableIdentity(2, brokerId, keyName, anchorBytes, renewed.RawData), replace);
+                    return new(brokerId, renewed, keyName, fingerprint);
+                }
+                catch { renewed.Dispose(); throw; }
             }
             catch (JsonException ex) { throw new InvalidDataException("Invalid identity metadata. Identity was preserved.", ex); }
             finally { CryptographicOperations.ZeroMemory(plain); }
         }
-        else
+        // No overwrite flag and no machine-key flag. An orphaned key is preserved and startup fails closed.
+        using var newKey = CngKey.Create(CngAlgorithm.Rsa, keyName, new CngKeyCreationParameters {
+            Provider = CngProvider.MicrosoftSoftwareKeyStorageProvider, ExportPolicy = CngExportPolicies.None,
+            KeyUsage = CngKeyUsages.Signing | CngKeyUsages.Decryption,
+            Parameters = { new CngProperty("Length", BitConverter.GetBytes(3072), CngPropertyOptions.None) } });
+        X509Certificate2? certificate = null;
+        try
         {
-            // No overwrite flag and no machine-key flag. An orphaned key is preserved and startup fails closed.
-            using var key = CngKey.Create(CngAlgorithm.Rsa, keyName, new CngKeyCreationParameters {
-                Provider = CngProvider.MicrosoftSoftwareKeyStorageProvider, ExportPolicy = CngExportPolicies.None,
-                KeyUsage = CngKeyUsages.Signing | CngKeyUsages.Decryption,
-                Parameters = { new CngProperty("Length", BitConverter.GetBytes(3072), CngPropertyOptions.None) } });
-            try
-            {
-                using var rsa = new RSACng(key);
-                var request = new CertificateRequest("CN=AgentBroker-" + brokerId.ToString("N"), rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
-                request.CertificateExtensions.Add(new X509BasicConstraintsExtension(false, false, 0, true));
-                request.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.DigitalSignature | X509KeyUsageFlags.KeyEncipherment, true));
-                request.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(new OidCollection {
-                    new("1.3.6.1.5.5.7.3.1"), new("1.3.6.1.5.5.7.3.2") }, false));
-                var san = new SubjectAlternativeNameBuilder(); san.AddDnsName("broker-" + brokerId.ToString("N") + ".local"); request.CertificateExtensions.Add(san.Build());
-                certificate = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-5), DateTimeOffset.UtcNow.AddYears(5));
-                byte[] plain = JsonSerializer.SerializeToUtf8Bytes(new StoredIdentity(1, brokerId, keyName, certificate.RawData));
-                byte[] encrypted;
-                try { encrypted = UserProtection.Seal(plain); }
-                finally { CryptographicOperations.ZeroMemory(plain); }
-                string temporary = Path.Combine(directory, "identity-" + Guid.NewGuid().ToString("N") + ".tmp");
-                try
-                {
-                    using (var output = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, FileOptions.WriteThrough))
-                    { output.Write(encrypted); output.Flush(true); }
-                    File.Move(temporary, path, false);
-                }
-                finally { if (File.Exists(temporary)) File.Delete(temporary); }
-            }
-            catch { key.Delete(); throw; }
+            using var rsa = new RSACng(newKey);
+            certificate = CreateCertificate(rsa, brokerId, now);
+            if (!CertificateContinuity.IsValidAnchor(certificate, brokerId) || !IsFor(certificate, brokerId, now) || !certificate.HasPrivateKey)
+                throw InvalidIdentity();
+            WriteMetadata(directory, path, new StoredIdentity(1, brokerId, keyName, certificate.RawData), null);
+            return new(brokerId, certificate, keyName, certificate.GetCertHashString(HashAlgorithmName.SHA256));
         }
-        if (!IsFor(certificate, brokerId) || !certificate.HasPrivateKey)
-        { certificate.Dispose(); throw new InvalidDataException("Stored TLS identity does not match this broker. Identity was preserved."); }
-        return new(brokerId, certificate, keyName);
+        catch { certificate?.Dispose(); newKey.Delete(); throw; }
     }
-    public static bool IsFor(X509Certificate2 certificate, Guid brokerId) =>
+
+    private static (byte[] Anchor, byte[] Current) ReadMetadata(byte[] plain, Guid brokerId, string keyName)
+    {
+        using var document = JsonDocument.Parse(plain, new JsonDocumentOptions { MaxDepth = 8 });
+        var root = document.RootElement;
+        if (root.ValueKind != JsonValueKind.Object) throw InvalidIdentity();
+        var members = root.EnumerateObject().Select(property => property.Name).ToArray();
+        if (members.Length != members.Distinct(StringComparer.Ordinal).Count() ||
+            !root.TryGetProperty("Version", out var version) || version.ValueKind != JsonValueKind.Number ||
+            !version.TryGetInt32(out int number)) throw InvalidIdentity();
+        byte[] anchor, current;
+        Guid storedId;
+        string storedKey;
+        if (number == 1 && members.Order(StringComparer.Ordinal).SequenceEqual(new[] { "BrokerId", "Certificate", "KeyName", "Version" }))
+        {
+            var stored = JsonSerializer.Deserialize<StoredIdentity>(plain) ?? throw InvalidIdentity();
+            storedId = stored.BrokerId; storedKey = stored.KeyName;
+            anchor = current = stored.Certificate;
+        }
+        else if (number == 2 && members.Order(StringComparer.Ordinal).SequenceEqual(new[] { "BrokerId", "CurrentCertificateDER", "KeyName", "OriginalAnchorDER", "Version" }))
+        {
+            var stored = JsonSerializer.Deserialize<RenewableIdentity>(plain) ?? throw InvalidIdentity();
+            storedId = stored.BrokerId; storedKey = stored.KeyName;
+            anchor = stored.OriginalAnchorDER; current = stored.CurrentCertificateDER;
+        }
+        else throw InvalidIdentity();
+        if (storedId != brokerId || storedKey != keyName || anchor is not { Length: > 0 and <= CertificateContinuity.MaximumAnchorBytes } ||
+            current is not { Length: > 0 and <= CertificateContinuity.MaximumLeafBytes }) throw InvalidIdentity();
+        return (anchor, current);
+    }
+
+    private static X509Certificate2 CreateCertificate(RSA rsa, Guid brokerId, DateTimeOffset now, X509Certificate2? anchor = null)
+    {
+        var request = new CertificateRequest("CN=AgentBroker-" + brokerId.ToString("N"), rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        request.CertificateExtensions.Add(new X509BasicConstraintsExtension(false, false, 0, true));
+        request.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.DigitalSignature | X509KeyUsageFlags.KeyEncipherment, true));
+        request.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(new OidCollection {
+            new("1.3.6.1.5.5.7.3.1"), new("1.3.6.1.5.5.7.3.2") }, false));
+        var san = new SubjectAlternativeNameBuilder(); san.AddDnsName("broker-" + brokerId.ToString("N") + ".local");
+        request.CertificateExtensions.Add(san.Build());
+        if (anchor is not null) request.CertificateExtensions.Add(CertificateContinuity.CreateAnchorExtension(anchor, brokerId));
+        return request.CreateSelfSigned(now.AddMinutes(-5), now.AddYears(5));
+    }
+
+    private static void WriteMetadata<T>(string directory, string path, T metadata, Action<string, string>? replace)
+    {
+        byte[] plain = JsonSerializer.SerializeToUtf8Bytes(metadata);
+        byte[] encrypted;
+        try { encrypted = UserProtection.Seal(plain); }
+        finally { CryptographicOperations.ZeroMemory(plain); }
+        if (encrypted.Length > MaximumCiphertextBytes) throw new InvalidDataException("Identity ciphertext is oversized.");
+        string temporary = Path.Combine(directory, "identity-" + Guid.NewGuid().ToString("N") + ".tmp");
+        try
+        {
+            using (var output = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, FileOptions.WriteThrough))
+            { output.Write(encrypted); output.Flush(true); }
+            RejectLinks(path, allowMissing: replace is null);
+            if (replace is null) File.Move(temporary, path, false);
+            else replace(temporary, path);
+        }
+        finally { if (File.Exists(temporary)) File.Delete(temporary); }
+    }
+
+    private static InvalidDataException InvalidIdentity() => new("Stored TLS identity does not match this broker. Identity was preserved.");
+    public static bool IsFor(X509Certificate2 certificate, Guid brokerId) => IsFor(certificate, brokerId, DateTimeOffset.UtcNow);
+    private static bool IsFor(X509Certificate2 certificate, Guid brokerId, DateTimeOffset now) =>
         certificate.GetNameInfo(X509NameType.SimpleName, false) == "AgentBroker-" + brokerId.ToString("N") &&
-        certificate.NotBefore.ToUniversalTime() <= DateTime.UtcNow && certificate.NotAfter.ToUniversalTime() > DateTime.UtcNow;
+        certificate.NotBefore.ToUniversalTime() <= now.UtcDateTime && certificate.NotAfter.ToUniversalTime() > now.UtcDateTime;
     private static void RejectLinks(string path, bool allowMissing = false)
     {
         for (string? current = Path.GetFullPath(path); current is not null; current = Path.GetDirectoryName(current))

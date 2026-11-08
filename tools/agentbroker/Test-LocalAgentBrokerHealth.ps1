@@ -43,11 +43,19 @@ function Test-PublicInfo([string]$Json) {
     finally { if ($document) { $document.Dispose() } }
 }
 
+function Get-HostAliasAuthority([uri]$Endpoint) {
+    return 'untrusted.invalid:' + $Endpoint.Port
+}
+
 if ($SelfTest) {
     $sample = @{ brokerId = [guid]::NewGuid().ToString(); name = 'Synthetic broker';
         endpoint = 'https://127.0.0.1:7433/'; certificateSha256 = ('A' * 64); seenAt = [DateTimeOffset]::UtcNow.ToString('O') }
     if (-not (Test-PublicInfo ($sample | ConvertTo-Json -Compress))) { throw 'Valid public metadata was refused.' }
-    $checks = 1
+    if ((Get-HostAliasAuthority ([uri]'http://127.0.0.1:7432/broker/info')) -cne 'untrusted.invalid:7432' -or
+        (Get-HostAliasAuthority ([uri]'http://127.0.0.1:17432/broker/info')) -cne 'untrusted.invalid:17432') {
+        throw 'Test-LocalAgentBrokerHealth.ps1: HOST_ALIAS_PRESERVES_REQUEST_PORT'
+    }
+    $checks = 2
     foreach ($case in @(@('brokerId', [guid]::Empty.ToString()), @('certificateSha256', 'invalid'),
                         @('endpoint', 'http://127.0.0.1:7433/'), @('endpoint', 'https://example.invalid:7433/'),
                         @('endpoint', 'https://user@127.0.0.1:7433/'), @('endpoint', 'https://127.0.0.1:7433/?query'),
@@ -125,7 +133,7 @@ try {
     $infoValid = $info.Status -eq 200 -and (Test-PublicInfo $info.Body)
     $federation = (Invoke-HealthGet '/federation/directory').Status -eq 403
     $origin = (Invoke-HealthGet '/broker/info' 'Origin' 'https://untrusted.invalid').Status -eq 403
-    $hostAlias = (Invoke-HealthGet '/broker/info' 'Host' 'localhost').Status -eq 403
+    $hostAlias = (Invoke-HealthGet '/broker/info' 'Host' (Get-HostAliasAuthority ([uri]'http://127.0.0.1:7432/broker/info'))).Status -eq 403
     Write-Host "PublicInfoValid=$infoValid"
     Write-Host "UnpairedDirectoryRefused=$federation"
     Write-Host "BrowserOriginRefused=$origin"

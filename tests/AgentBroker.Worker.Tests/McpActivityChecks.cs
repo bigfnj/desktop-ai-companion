@@ -13,7 +13,8 @@ internal static class McpActivityChecks
 {
     public static async Task RunAsync(Action<bool, string> check)
     {
-        string scratch = Path.Combine(AppContext.BaseDirectory, "scratch", "mcp-activity-" + Guid.NewGuid().ToString("N"));
+        using var scratchOwner = OwnedScratch.Create("mcp-activity");
+        string scratch = scratchOwner.Root;
         var options = new WorkerOptions(scratch, "Synthetic MCP activity", LoopbackPort: 0, LanPort: 0,
             EnableLan: true, AllowUnauthenticatedLoopback: false)
         { LanListenAddress = IPAddress.Loopback, EnableBrokerDiscovery = false };

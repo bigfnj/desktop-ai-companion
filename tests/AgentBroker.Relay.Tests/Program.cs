@@ -19,6 +19,14 @@ internal static class Program
         if (args.FirstOrDefault() == "--synthetic-engine") return await ChildAsync(args).ConfigureAwait(false);
         try
         {
+            Console.WriteLine("WITNESS: POSTPUSH_RELAY_EXECUTED");
+            Console.WriteLine("RELAY_PRODUCT_SHA256=" + Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(typeof(RelaySession).Assembly.Location))));
+            Console.WriteLine("RELAY_HARNESS_SHA256=" + Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(System.Reflection.Assembly.GetExecutingAssembly().Location))));
+            if (args.SequenceEqual(["--relay-listener-only"]))
+            {
+                await ControlListenerFailureAsync();
+                Console.WriteLine("RESULT=PASS assertions=" + _checks); return 0;
+            }
             await RejectWrongHashAsync().ConfigureAwait(false);
             await PreserveAndInjectAsync().ConfigureAwait(false);
             await RejectWrongVersionAsync().ConfigureAwait(false);
@@ -189,7 +197,7 @@ internal static class Program
         try { await completion.WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false); throw new InvalidOperationException("Expected listener failure."); }
         catch (IOException) { }
         Check("an unavailable control listener cannot silently leave a relay running", completion.IsFaulted);
-        Check("control listener failure cleans up the launched engine", run.EngineHasExited());
+        Check("RELAY_LISTENER_ENGINE_EXIT: control listener failure cleans up the actual Process.Start-owned engine", run.OwnedEngineExited == true);
     }
 
     private static async Task DisposeWhileRunningAsync()
@@ -258,6 +266,7 @@ internal static class Program
         internal readonly OutputStream Errors = new();
         internal string Counter => Path.Combine(_scratch, "launches.log");
         internal string PipeName => _pipeName;
+        internal bool? OwnedEngineExited => _relay.OwnedEngineExited;
         internal IReadOnlyList<string> Arguments { get; }
 
         internal Rig(string? hash = null, string version = Version, TimeSpan? responseTimeout = null)

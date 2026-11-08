@@ -25,6 +25,11 @@ if (args.SequenceEqual(new[] { "--discovery-invalidation-only" }))
     try { await DiscoveryInvalidationChecks.RunAsync(Check); Console.WriteLine($"AgentBroker discovery invalidation checks passed: {passed}"); return 0; }
     catch (Exception error) { Console.Error.WriteLine(error); Console.WriteLine("RESULT=FAIL"); return 1; }
 }
+if (args.SequenceEqual(new[] { "--native-input-only" }))
+{
+    try { await NativeInputChecks.RunAsync(Check); Console.WriteLine($"AgentBroker native input checks passed: {passed}"); return 0; }
+    catch (Exception error) { Console.Error.WriteLine(error); Console.WriteLine("RESULT=FAIL"); return 1; }
+}
 if (args.SequenceEqual(new[] { "--desktop-package-profile-only" }))
 {
     try
@@ -349,7 +354,7 @@ await using (var adapter = await DesktopAdapter.ConnectForTestAsync(connection,
     var duplicate = await adapter.SubmitExternalPeerAsync(binding!, messageId, foreign);
     Check(duplicate == outcome && connection.SubmissionCount == 1, "External duplicate returns original receipt without reinjection.");
     await Refuses("message_id_collision", () => adapter.SubmitAuthorizedPlaintextAsync(binding!, messageId, foreign));
-    await Refuses("message_frame_too_large", () => adapter.SubmitExternalPeerAsync(binding!, Guid.NewGuid(), new string('\u732b', 5000)));
+    await Refuses("message_frame_too_large", () => adapter.SubmitExternalPeerAsync(binding!, Guid.NewGuid(), new string('"', 8000)));
 }
 
 await using (var connection = new FakeConnection())
@@ -614,6 +619,7 @@ if (!args.SequenceEqual(new[] { "--existing-tests-only" })) PinDocumentChecks.Ru
 // The report-only engine binding (lane broker-163).
 if (!args.SequenceEqual(new[] { "--existing-tests-only" })) EngineBindingChecks.Run(Check);
 if (!args.SequenceEqual(new[] { "--existing-tests-only" })) await DiscoveryInvalidationChecks.RunAsync(Check);
+if (!args.SequenceEqual(new[] { "--existing-tests-only" })) await NativeInputChecks.RunAsync(Check);
 
 // O-agentbroker-02 (2026-10-29): discovery reuses a success only for the exact same running engine processes.
 {

@@ -204,6 +204,27 @@ public static class ClaudeUserGrant {
             using (var input=new FileStream(handle,FileAccess.Read)) return Convert.ToHexString(SHA256.HashData(input))==Pin;
         }
     }
+    public static string RefusalReason(Exception error) {
+        string[] known={"unsafe_path","linked_path","nonordinary_file","resolved_path_mismatch","open_refused",
+            "unsupported_settings","unsupported_allowlist","oversize_allowlist","preservation_check_failed",
+            "oversize_write","private_acl_failed","concurrent_modification","canonical_directory_absent","cli_pin_mismatch"};
+        for(int depth=0;error!=null && depth<8;depth++,error=error.InnerException)
+            if(Array.IndexOf(known,error.Message)>=0) return error.Message;
+        return "operation_unavailable";
+    }
+    public static void CleanupSelfTest(string root,string parent) {
+        string full=System.IO.Path.GetFullPath(root);
+        if(!string.Equals(System.IO.Path.GetDirectoryName(full),System.IO.Path.GetFullPath(parent).TrimEnd('\\'),StringComparison.OrdinalIgnoreCase) ||
+            !System.IO.Path.GetFileName(full).StartsWith("user-grant-selftest-",StringComparison.Ordinal))
+            throw new IOException("synthetic_cleanup_scope");
+        OrdinaryPath(full);
+        foreach(string entry in Directory.GetFileSystemEntries(full)) {
+            if((File.GetAttributes(entry)&(FileAttributes.Directory|FileAttributes.ReparsePoint))!=0)
+                throw new IOException("synthetic_cleanup_scope");
+            File.Delete(entry);
+        }
+        Directory.Delete(full,false);
+    }
     static void WritePrivate(string path,byte[] bytes) {
         if (bytes.Length>2097152) throw new IOException("oversize_write");
         OrdinaryPath(path);
@@ -257,6 +278,8 @@ public static class ClaudeUserGrant {
         string path=System.IO.Path.Combine(root,"synthetic-settings.json");
         int checks=0;
         Action<bool> check=value=>{if(!value)throw new IOException("synthetic_check_"+checks);checks++;};
+        check(RefusalReason(new Exception("SYNTHETIC_PRIVATE",new IOException("concurrent_modification")))=="concurrent_modification");
+        check(RefusalReason(new IOException("SYNTHETIC_PRIVATE"))=="operation_unavailable");
         string original="{\"allowedMcpServers\":[{\"serverUrl\":\"https://synthetic.invalid/*\"},{\"serverCommand\":[\"synthetic\",\"--argument\"]}],\"deniedMcpServers\":[{\"serverName\":\"synthetic-denied\"}],\"unrelated\":{\"numeric\":123456789012345678901234567890,\"unicode\":\"雪\",\"nested\":[null,false,{\"secret\":\"synthetic-only\"}]},\"allowManagedMcpServersOnly\":false}";
         File.WriteAllText(path,original,new UTF8Encoding(false));
         var plan=PrepareAt(path);
@@ -302,13 +325,23 @@ public static class ClaudeUserGrant {
 if ($SelfTest) {
     $fixtureRoot = [IO.Path]::Combine($PSScriptRoot, 'user-grant-selftest-' + [Guid]::NewGuid().ToString('N'))
     [void] [IO.Directory]::CreateDirectory($fixtureRoot)
+    $count = 0
+    $selfTestError = $null
+    $cleanupError = $null
     try {
         $count = [ClaudeUserGrant]::SelfTest($fixtureRoot)
-        [pscustomobject]@{ SelfTestPassed = $true; Checks = $count; LiveSettingsReadOrChanged = $false } | ConvertTo-Json -Compress
+    } catch {
+        $selfTestError = $_
     } finally {
-        # Empty-only removal, never recurse over a computed or foreign directory.
-        [IO.Directory]::Delete($fixtureRoot, $false)
+        # Only direct ordinary files in our exact newly created fixture; never traverse links.
+        try { [ClaudeUserGrant]::CleanupSelfTest($fixtureRoot, $PSScriptRoot) }
+        catch { $cleanupError = $_ }
     }
+    $cleaned = -not [IO.Directory]::Exists($fixtureRoot)
+    [pscustomobject]@{ SelfTestPassed = ($null -eq $selfTestError -and $null -eq $cleanupError); Checks = $count;
+        LiveSettingsReadOrChanged = $false; FixtureCleaned = $cleaned } | ConvertTo-Json -Compress
+    if ($null -ne $selfTestError) { throw $selfTestError }
+    if ($null -ne $cleanupError) { throw $cleanupError }
     return
 }
 
@@ -341,8 +374,14 @@ if (($userSummary.Present -and -not $userSummary.Parsed) -or -not $userSummary.A
 }
 try {
     $plan = [ClaudeUserGrant]::PrepareCanonical()
+    $cliPinVerified = $false
+    $cliPinStatus = 'cli_pin_mismatch'
+    try {
+        $cliPinVerified = [ClaudeUserGrant]::VerifyPinnedCli()
+    } catch { $cliPinStatus = [ClaudeUserGrant]::RefusalReason($_.Exception) }
+    if ($cliPinVerified) { $cliPinStatus = 'verified' }
     if ($Apply) {
-        if (-not [ClaudeUserGrant]::VerifyPinnedCli()) { throw 'cli_pin_mismatch' }
+        if (-not $cliPinVerified) { throw [IO.IOException]::new($cliPinStatus) }
         $result = [ClaudeUserGrant]::Publish($plan)
         [pscustomobject]@{
             Applied = $result.Applied
@@ -357,6 +396,8 @@ try {
     } else {
         [pscustomobject]@{
             DryRun = $true
+            CliPinVerified = $cliPinVerified
+            CliPinStatus = $cliPinStatus
             ChangeNeeded = $plan.ChangeNeeded
             ExistingAllowedRules = $plan.ExistingAllowedRules
             AllOtherValuesPreserved = $plan.AllOtherValuesPreserved
@@ -365,4 +406,7 @@ try {
             EffectiveAuthorizationDetermined = $false
         } | ConvertTo-Json -Compress
     }
-} catch { throw 'The exact user allowance operation was refused. No automatic retry or rollback was attempted.' }
+} catch {
+    $reason = [ClaudeUserGrant]::RefusalReason($_.Exception)
+    throw ('The exact user allowance operation was refused: ' + $reason + '. No automatic retry or rollback was attempted.')
+}

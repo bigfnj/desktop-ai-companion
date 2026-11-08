@@ -208,7 +208,8 @@ internal static class PeerDiagnosticsChecks
         await using var runtime = new BrokerRuntime(store, federation, []);
         var elapsed = Stopwatch.StartNew();
         PeerDiagnosticView[] rows;
-        try { rows = await PeerDiagnostics.CollectAsync(runtime, default); }
+        try { rows = await PeerDiagnostics.CollectAsync(runtime, default).WaitAsync(TimeSpan.FromSeconds(8)); }
+        catch (TimeoutException error) { throw new InvalidOperationException("PEER_DIAGNOSTIC_TEST_BOUND: product budget exceeded the independent test bound.", error); }
         finally { elapsed.Stop(); }
         check(elapsed.Elapsed >= TimeSpan.FromSeconds(4) && elapsed.Elapsed < TimeSpan.FromSeconds(8),
             "peer diagnostics enforces one actual five-second budget even when transports ignore cancellation");

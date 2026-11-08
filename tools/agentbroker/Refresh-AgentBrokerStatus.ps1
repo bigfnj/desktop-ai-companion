@@ -11,14 +11,56 @@ powershell.exe -NoProfile -Mta -ExecutionPolicy Bypass -File tools/agentbroker/R
 .EXAMPLE
 powershell.exe -NoProfile -Mta -ExecutionPolicy Bypass -File tools/agentbroker/Refresh-AgentBrokerStatus.ps1 -CompanionProcessId 53772 -Invoke
 #>
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName = 'Live')]
 param(
-    [Parameter(Mandatory = $true)][ValidateRange(2, 2147483647)][int]$CompanionProcessId,
+    [Parameter(Mandatory = $true, ParameterSetName = 'Live')][ValidateRange(2, 2147483647)][int]$CompanionProcessId,
+    [Parameter(Mandatory = $true, ParameterSetName = 'SelfTest')][switch]$SelfTest,
     [switch]$Invoke,
     [ValidateRange(1, 15)][int]$WaitSeconds = 8
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+function Convert-KnownStatus([string]$Status, [string]$Native, [string]$Traffic,
+    [int]$RefreshSuccessCount = 0, [int]$RefreshUnavailableCount = 0) {
+    return [pscustomobject]@{
+        Starting = $Status -ceq 'Starting'
+        Running = $Status -cmatch '^Running\. [0-9]+ sessions, [0-9]+ paired brokers\.(?: MCP |$)'
+        Standby = $Status -cmatch '^Connected to the existing broker \(standby\)\. [0-9]+ sessions, [0-9]+ paired brokers\.(?: MCP |$)'
+        Disabled = $Status -ceq 'Disabled'
+        McpStatusPresent = $Status.Contains('. MCP ')
+        McpReady = $Status.Contains('. MCP ready.')
+        ClaudeMcpSeen = $Traffic -cmatch 'Claude client: seen (?:just now|[0-9]+ (?:min|h|days) ago)'
+        CodexMcpSeen = $Traffic -cmatch 'Codex client: seen (?:just now|[0-9]+ (?:min|h|days) ago)'
+        NativeStatusMissing = $Native -ceq 'No worker status yet.'
+        NoAdapterErrors = $Native -ceq 'No adapter errors reported.'
+        RefreshSuccessCount = $RefreshSuccessCount
+        RefreshUnavailableCount = $RefreshUnavailableCount
+    }
+}
+if ($SelfTest) {
+    $checks = 0
+    foreach ($age in @('just now', '2 min ago', '3 h ago', '4 days ago')) {
+        $state = Convert-KnownStatus 'Running. 2 sessions, 1 paired brokers. MCP ready.' 'No adapter errors reported.' `
+            ('Claude client: seen ' + $age + '. Codex client: seen ' + $age + '.')
+        if (-not $state.Running -or -not $state.McpReady -or -not $state.ClaudeMcpSeen -or -not $state.CodexMcpSeen) {
+            throw 'STATUS_TRAFFIC_ROW: source-identified MCP traffic was not recognized.'
+        }
+        $checks++
+    }
+    $state = Convert-KnownStatus 'Claude: seen just now. Codex: seen just now.' 'No worker status yet.' `
+        'Claude client: not seen. Codex client: not seen.'
+    if ($state.ClaudeMcpSeen -or $state.CodexMcpSeen -or -not $state.NativeStatusMissing) {
+        throw 'STATUS_TRAFFIC_NOT_STATUS: unrelated status text or unseen clients must not count as traffic.'
+    }
+    $checks++
+    $state = Convert-KnownStatus 'Disabled' 'No adapter errors reported.' 'Claude: seen just now. Codex: seen just now.'
+    if ($state.ClaudeMcpSeen -or $state.CodexMcpSeen -or -not $state.Disabled) {
+        throw 'STATUS_TRAFFIC_CURRENT_LABEL: retired traffic labels must not match.'
+    }
+    $checks++
+    [pscustomobject]@{ SelfTestPassed = $true; Checks = $checks } | ConvertTo-Json -Compress
+    return
+}
 if ($PSVersionTable.PSVersion.Major -ne 5 -or [Environment]::OSVersion.Platform -ne 'Win32NT') {
     throw 'Use Windows PowerShell 5.1 for the installed UI Automation assemblies.'
 }
@@ -66,20 +108,10 @@ function Get-StatusRowText($Window, [string]$Label) {
 function Get-KnownStatus($Window) {
     $status = Get-StatusRowText $Window 'Status'
     $native = Get-StatusRowText $Window 'Native adapters'
-    return [pscustomobject]@{
-        Starting = $status -ceq 'Starting'
-        Running = $status -cmatch '^Running\. [0-9]+ sessions, [0-9]+ paired brokers\.(?: MCP |$)'
-        Standby = $status -cmatch '^Connected to the existing broker \(standby\)\. [0-9]+ sessions, [0-9]+ paired brokers\.(?: MCP |$)'
-        Disabled = $status -ceq 'Disabled'
-        McpStatusPresent = $status.Contains('. MCP ')
-        McpReady = $status.Contains('. MCP ready.')
-        ClaudeMcpSeen = $status -cmatch 'Claude: seen (?:just now|[0-9]+ (?:min|h|days) ago)'
-        CodexMcpSeen = $status -cmatch 'Codex: seen (?:just now|[0-9]+ (?:min|h|days) ago)'
-        NativeStatusMissing = $native -ceq 'No worker status yet.'
-        NoAdapterErrors = $native -ceq 'No adapter errors reported.'
-        RefreshSuccessCount = @(Get-VisibleMatches $Window 'Status refreshed.' ([System.Windows.Automation.ControlType]::Text)).Count
-        RefreshUnavailableCount = @(Get-VisibleMatches $Window 'The broker is unavailable. Try again after it reconnects.' ([System.Windows.Automation.ControlType]::Text)).Count
-    }
+    $traffic = Get-StatusRowText $Window 'MCP client traffic'
+    $success = @(Get-VisibleMatches $Window 'Status refreshed.' ([System.Windows.Automation.ControlType]::Text)).Count
+    $unavailable = @(Get-VisibleMatches $Window 'The broker is unavailable. Try again after it reconnects.' ([System.Windows.Automation.ControlType]::Text)).Count
+    return Convert-KnownStatus $status $native $traffic $success $unavailable
 }
 
 function Write-KnownStatus([string]$Prefix, $State) {

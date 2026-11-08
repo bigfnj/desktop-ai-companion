@@ -12,7 +12,8 @@ internal static class LoopbackHostChecks
 {
     internal static async Task RunAsync(Action<bool, string> check)
     {
-        string scratch = Path.Combine(AppContext.BaseDirectory, "scratch", "loopback-host-" + Guid.NewGuid().ToString("N"));
+        using var scratchOwner = OwnedScratch.Create("loopback-host");
+        string scratch = scratchOwner.Root;
         var options = new WorkerOptions(scratch, "Synthetic loopback host", LoopbackPort: 0, LanPort: 0,
             EnableLan: false, AllowUnauthenticatedLoopback: true) { EnableBrokerDiscovery = false };
         string? keyName = null;

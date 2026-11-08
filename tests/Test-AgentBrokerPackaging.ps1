@@ -11,6 +11,20 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 if ([string]::IsNullOrWhiteSpace($RepoRoot)) { $RepoRoot = Split-Path $PSScriptRoot -Parent }
 $RepoRoot = [IO.Path]::GetFullPath($RepoRoot)
+# The ZIP publisher deliberately requires PowerShell 7 for reproducible compression. Keep the
+# standalone check callable from Windows PowerShell while running its complete contract on that runtime.
+if ($PSVersionTable.PSVersion.Major -lt 7) {
+    . (Join-Path $RepoRoot 'tests\HarnessOutput.ps1')
+    $childArguments = @('-NoProfile', '-File', $PSCommandPath, '-RepoRoot', $RepoRoot)
+    if ($CheckPayload) { $childArguments += '-CheckPayload' }
+    $childOutput = @(& pwsh @childArguments)
+    $childExit = $LASTEXITCODE
+    foreach ($line in $childOutput) { Write-Host $line }
+    if ($childExit -ne 0) { throw "AgentBroker packaging PowerShell 7 child failed (exit $childExit)." }
+    $minimum = if ($CheckPayload) { 52 } else { 28 }
+    [void](Assert-HarnessSummary $childOutput 'AgentBroker packaging PowerShell 7 child' '^AgentBroker packaging PASS: ([1-9][0-9]*) assertions\.$' $minimum)
+    return
+}
 . (Join-Path $RepoRoot 'packaging\ModuleWatchSet.ps1')
 . (Join-Path $RepoRoot 'packaging\StagingPathSafety.ps1')
 $checks = 0
