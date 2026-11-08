@@ -16171,10 +16171,11 @@ CASES = (
     # back: the button inside the row's left-hand panel, straight before Uninstall, as host 1.8.0 shipped it.
     # Re-pointed by the same lane's uninstall-column change: Uninstall is now added straight after the name, before the
     # sign-in button exists, so the button is put back by inserting it at Uninstall's place.
-    ("signin-right: the sign-in button sits in the row's panel straight before Uninstall again",
+    # Re-pointed by burndown/w7-options-ui-1 (N-audit-1106-257): the grant is recorded under the module's own id now.
+    ("signin-right: the sign-in button sits in the row's panel straight before Uninstall again; bd-w7-options-ui-1: re-pointed at the grant id (N-audit-1106-257)",
      os.path.join(REPO, "src", "Portable", "Wpf", "ModulesPaneControl.cs"),
-     b'                    signIn.Click += delegate { SetSignInAllowed(id, signInName, !allowed); };\n',
-     b'                    signIn.Click += delegate { SetSignInAllowed(id, signInName, !allowed); };\n'
+     b'                    signIn.Click += delegate { SetSignInAllowed(grantId, signInName, !allowed); };\n',
+     b'                    signIn.Click += delegate { SetSignInAllowed(grantId, signInName, !allowed); };\n'
      b'                    sp.Children.Insert(sp.Children.IndexOf(uninstall), signIn);\n'
      b'                    signIn = null;\n',
      HOST_CSPROJ, EXE,

@@ -1221,6 +1221,45 @@ CASES = [
      "                            _seams.MarkForUpdate(module.Id);   // the next launch swaps the staged copy in\n",
      "",
      "wpf", "install-press: Reinstall stages the payload and marks it for the next launch"),
+    # ---- burndown/w7-options-ui-1 ----
+    # Modules pane rows, burn-down wave 7. "bd-w7-options-ui-1:" for one --only. Each rebuilds the host and runs
+    # --wpf-options-selftest over ModulesPaneProbe's fakes.
+    # N-audit-1106-259: the Reinstall row asks the loader's question with no requirement, so a build this host cannot
+    # run is offered, downloaded and staged again.
+    ("bd-w7-options-ui-1: Reinstall no longer asks the loader's question (N-audit-1106-259)", MODULESPANE,
+     "                            System.Windows.Forms.Application.ProductVersion, offered.MinHostVersion, out requirement))\n",
+     "                            System.Windows.Forms.Application.ProductVersion, \"\", out requirement))\n",
+     "wpf", "reinstall-newer: Reinstall of a build this host cannot run is held and downloads nothing"),
+    # The held button keeps its handler, so a press still downloads.
+    ("bd-w7-options-ui-1: a held Reinstall keeps its Click handler (N-audit-1106-259)", MODULESPANE,
+     "                if (offersReinstall)\n                    repair.Click += async delegate { await InstallModuleAsync(offered, repair); };\n",
+     "                if (offered != null)\n                    repair.Click += async delegate { await InstallModuleAsync(offered, repair); };\n",
+     "wpf", "reinstall-newer: Reinstall of a build this host cannot run is held and downloads nothing"),
+    # The row says nothing about the build it holds back.
+    ("bd-w7-options-ui-1: a held Reinstall says nothing about what the build needs (N-audit-1106-259)", MODULESPANE,
+     "                        Text = \"v\" + offered.Version + \" needs a newer app: \" + reinstallNeeds,\n",
+     "                        Text = \"\",\n",
+     "wpf", "reinstall-newer: the row names the build and the app it needs"),
+    # N-audit-1106-258: the row stops asking whether its uninstall waits for the next start.
+    ("bd-w7-options-ui-1: a row whose uninstall waits says nothing again (N-audit-1106-258)", MODULESPANE,
+     "            if (_seams.IsBeingRemoved(id))\n",
+     "            if (_seams.IsBeingRemoved(\"no such module\"))\n",
+     "wpf", "uninstall-pending: each row whose uninstall waits for the next start says so"),
+    # It says the uninstall waits, but not that the row's Update cancels it.
+    ("bd-w7-options-ui-1: the pending-uninstall line leaves out what Update does (N-audit-1106-258)", MODULESPANE,
+     "                        ? \" Updating it cancels the uninstall.\"\n",
+     "                        ? \"\"\n",
+     "wpf", "uninstall-pending: a row still offering Update or Reinstall says that pressing it cancels the uninstall"),
+    # N-audit-1106-257: the pane looks a loaded module up by Info.Id again instead of by the folder it came from.
+    ("bd-w7-options-ui-1: the live lookup matches the folder against Info.Id again (N-audit-1106-257)", MODULESPANE,
+     "                if (string.Equals(from ?? m.Info.Id, folder, StringComparison.OrdinalIgnoreCase))\n",
+     "                if (string.Equals(m.Info.Id, folder, StringComparison.OrdinalIgnoreCase))\n",
+     "wpf", "renamed-folder: a module loaded from a folder not named after its id shows its live version on its row"),
+    # The sign-in grant is asked under the row's folder, which the store's gate never checks.
+    ("bd-w7-options-ui-1: the sign-in grant is keyed by the row's folder (N-audit-1106-257)", MODULESPANE,
+     "                string grantId = string.IsNullOrWhiteSpace(info.Id) ? id : info.Id.Trim();\n",
+     "                string grantId = id;\n",
+     "wpf", "renamed-folder: its sign-in row reads the grant recorded under the module's own id"),
 ]
 
 

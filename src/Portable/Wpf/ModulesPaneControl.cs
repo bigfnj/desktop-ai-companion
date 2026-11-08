@@ -487,19 +487,50 @@ namespace DesktopAICompanion.Wpf
                    "token stays), or reinstall with \"Clear all settings and modules\" ticked, which resets the whole app.";
         }
 
-        // The live ModuleInfo for a currently-loaded module id, or null when it's on disk but not (yet)
+        // The live ModuleInfo for the module loaded from the folder <id>, or null when it's on disk but not (yet)
         // loaded -- e.g. just installed, still waiting on the restart prompt. The shipped seam for LoadedInfo.
         internal static ModuleInfo LiveLoadedInfo(string id)
         {
             try
             {
                 if (Program.Mainthread == null) return null;
-                foreach (IModule m in Program.Mainthread.LoadedModules)
-                    if (m != null && m.Info != null && string.Equals(m.Info.Id, id, StringComparison.OrdinalIgnoreCase))
-                        return m.Info;
+                return LoadedInfoIn(Program.Mainthread.LoadedModules, id);
             }
             catch { }
             return null;
+        }
+
+        /// <summary>
+        /// The ModuleInfo of the module in <paramref name="loaded"/> that came from the folder named <paramref name="folder"/>.
+        /// KEYED BY THE FOLDER (N-audit-1106-257): every row is a folder (EnumerateInstalledIds), and so are the loader's
+        /// failures and the removal marker, but this matched the folder name against Info.Id, so a module that loaded fine
+        /// from a folder not named after its id read "installed — restart to activate" forever, with no version, no update
+        /// offer and no sign-in row (ModuleHost records no failure for a load that worked). The folder is the one the
+        /// module's own assembly was loaded from: ModuleHost loads every module by path (LoadFromAssemblyPath), so the
+        /// location is always there, and the pane needs nothing new from the loader. A module whose assembly has no
+        /// location, which no loader path makes, is matched by Info.Id as before. Flagging or refusing a module whose id
+        /// differs from its folder, or duplicates a loaded id, is the loader's business, not this lookup's.
+        /// </summary>
+        internal static ModuleInfo LoadedInfoIn(IEnumerable<IModule> loaded, string folder)
+        {
+            if (loaded == null) return null;
+            foreach (IModule m in loaded)
+            {
+                if (m == null || m.Info == null) continue;
+                string from = LoadedFolderOf(m);
+                if (string.Equals(from ?? m.Info.Id, folder, StringComparison.OrdinalIgnoreCase))
+                    return m.Info;
+            }
+            return null;
+        }
+
+        /// <summary>The name of the folder <paramref name="module"/>'s assembly was loaded from, or null when it has no location.</summary>
+        internal static string LoadedFolderOf(IModule module)
+        {
+            string location = module.GetType().Assembly.Location;
+            if (string.IsNullOrEmpty(location)) return null;
+            string directory = Path.GetDirectoryName(location);
+            return string.IsNullOrEmpty(directory) ? null : Path.GetFileName(directory);
         }
 
         // Why a module on disk is not running, or null when it loaded fine (or the host isn't up). Without
@@ -574,9 +605,24 @@ namespace DesktopAICompanion.Wpf
             // A broken install has one non-destructive way out: replace the install folder from the catalog.
             // The existing install flow already does exactly that and leaves the module's data alone, so a
             // "Reinstall" is the same call as a first install -- it just needs the catalog fetched first.
+            bool offersReinstall = false;
             if (failure != null && !failure.NeedsNewerHost)
             {
                 CatalogModule offered = CatalogEntry(id);
+                // THE LOADER'S QUESTION, ASKED HERE TOO (N-audit-1106-259), as the install row and UpdateOfferFor ask it.
+                // Reinstall offered the catalog's build whatever it needed, so a build whose MinHostVersion this host
+                // cannot satisfy was downloaded, staged over the broken copy and refused by the loader at the next start:
+                // the restart bought nothing, and the row came back saying the same thing. The button stays, so the
+                // row keeps its column, but held and with no handler, and the row names the build and what it needs.
+                string reinstallNeeds = null;
+                if (offered != null)
+                {
+                    string requirement;
+                    if (!Plugins.ModuleHostRequirement.IsSatisfied(
+                            System.Windows.Forms.Application.ProductVersion, offered.MinHostVersion, out requirement))
+                        reinstallNeeds = string.IsNullOrWhiteSpace(requirement) ? "this module needs a newer version of the app" : requirement;
+                }
+                offersReinstall = offered != null && reinstallNeeds == null;
                 var repair = new Button
                 {
                     Content = offered != null ? "Reinstall v" + offered.Version : "Reinstall",
@@ -584,14 +630,26 @@ namespace DesktopAICompanion.Wpf
                     Padding = new Thickness(8, 1, 8, 1),
                     Margin = new Thickness(6, 0, 0, 0),
                     VerticalAlignment = VerticalAlignment.Center,
-                    IsEnabled = offered != null && !_updatingAll,
-                    ToolTip = offered != null
+                    IsEnabled = offersReinstall && !_updatingAll,
+                    ToolTip = offersReinstall
                         ? "Download this module again and replace the installed copy. Your settings are kept."
-                        : "Use “Check for modules online” first, so there is a copy to reinstall from.",
+                        : offered != null
+                            ? "This build needs a newer version of the app, so reinstalling it would not help."
+                            : "Use “Check for modules online” first, so there is a copy to reinstall from.",
                 };
-                if (offered != null)
+                if (offersReinstall)
                     repair.Click += async delegate { await InstallModuleAsync(offered, repair); };
                 sp.Children.Add(repair);
+                if (reinstallNeeds != null)
+                {
+                    nameStack.Children.Add(new TextBlock
+                    {
+                        Text = "v" + offered.Version + " needs a newer app: " + reinstallNeeds,
+                        FontSize = 11,
+                        Foreground = Brushes.Goldenrod,
+                        TextWrapping = TextWrapping.Wrap,
+                    });
+                }
             }
 
             // An update offer needs the module's LIVE version, so it only appears for a loaded module (a
@@ -599,6 +657,7 @@ namespace DesktopAICompanion.Wpf
             // hand. The pane now fetches that itself when it opens, so this no longer waits on a button.
             // UpdateOfferFor decides it, for this row and for Update all alike.
             UpdateOffer offer = UpdateOfferFor(id, info);
+            bool offersUpdate = false;
             if (offer != null && offer.Staged)
             {
                 // Staged by Update all, or by this row with the restart declined: the next start applies it, so
@@ -641,6 +700,26 @@ namespace DesktopAICompanion.Wpf
                 ModuleInfo installedInfo = info;
                 update.Click += async delegate { await UpdateModuleAsync(newer, update, installedInfo); };
                 sp.Children.Add(update);
+                offersUpdate = true;
+            }
+
+            // THE ROW SAYS ITS UNINSTALL WAITS (N-audit-1106-258). An uninstall whose restart was declined is only marked
+            // for the next start, and its row looked like any other: the live version, an enabled Update, nothing about
+            // the removal, so a later press of that Update cancelled the uninstall without a word (its MarkForUpdate
+            // forgets the removal, F352). The row's Update and Reinstall stay offered: pressing one is choosing the
+            // module, and the update winning is the documented outcome (UpdateAllAsync leaves such a module out for
+            // that reason), so the line says what the press does instead. Right under the version, which it qualifies.
+            if (_seams.IsBeingRemoved(id))
+            {
+                nameStack.Children.Insert(2, new TextBlock
+                {
+                    Text = "Set to be uninstalled at the next start." + (offersUpdate
+                        ? " Updating it cancels the uninstall."
+                        : offersReinstall ? " Reinstalling it cancels the uninstall." : ""),
+                    FontSize = 11,
+                    Foreground = Brushes.Goldenrod,
+                    TextWrapping = TextWrapping.Wrap,
+                });
             }
 
             // THE ROW SAYS WHY ITS UPDATE IS MISSING (mockup M2): the catalog's entry for this module was refused, so
@@ -669,11 +748,16 @@ namespace DesktopAICompanion.Wpf
             // Unavailable, and its Allow then failed in HostCredentialStore.Record, which keeps such a record as it is.
             // The button is docked at the row's right edge, apart from the rest (the owner, 2026-11-02): it sat where every
             // other row has Uninstall and pushed that one along, so a hand used to the column pressed Revoke.
+            // The grant is asked and recorded under the module's OWN id, the one the store's gate checks (HostCredentialStore
+            // .Refusal, CompanionHost's attribution), never the row's folder: since rows find a module by its folder
+            // (LoadedInfoIn, N-audit-1106-257), a module loaded from a folder named otherwise has a row here, and an Allow
+            // filed under the folder name would read as recorded while the gate went on answering not allowed.
             Button signIn = null;
             if (info != null && _seams.SignInGranted != null &&
                 (info.Permissions & ModulePermissions.ClaudeCodeSignIn) == ModulePermissions.ClaudeCodeSignIn)
             {
-                bool? granted = _seams.SignInGranted(id);
+                string grantId = string.IsNullOrWhiteSpace(info.Id) ? id : info.Id.Trim();
+                bool? granted = _seams.SignInGranted(grantId);
                 string signInCaption;
                 nameStack.Children.Add(new TextBlock
                 {
@@ -698,7 +782,7 @@ namespace DesktopAICompanion.Wpf
                             : "Let this module read, replace and remove the Claude Code sign-in token the app keeps for the modules you allow.",
                     };
                     string signInName = info.Name;
-                    signIn.Click += delegate { SetSignInAllowed(id, signInName, !allowed); };
+                    signIn.Click += delegate { SetSignInAllowed(grantId, signInName, !allowed); };
                 }
             }
 
