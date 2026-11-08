@@ -1192,7 +1192,12 @@ def timeout_footer_self_test(args, labels):
         except json.JSONDecodeError as failure:
             raise AssertionError("V1_TIMEOUT_SEPARATOR_WITNESS valid final record merged with footer") from failure
         assert separated[-1]["type"] == "footer" and separated[-2] == body[-1], "V1_TIMEOUT_SEPARATOR_WITNESS"
-        for invalid in (b"{", b"\xff", b"[]\n", b'{"type":"unknown"}\n', b'{"type":"footer"}\n',
+        for invalid in (b"{", b"\xff"):
+            trace.write_bytes(invalid)
+            expect_refusal(lambda: v1_append_timeout_footer(trace, 3),
+                           "V1_TIMEOUT_TRACE_INVALID cannot count", "V1_TIMEOUT_JSON_WITNESS")
+            assert trace.read_bytes() == invalid, "V1_TIMEOUT_JSON_PREFIX_WITNESS"
+        for invalid in (b"[]\n", b'{"type":"unknown"}\n', b'{"type":"footer"}\n',
                         (json.dumps(body[0]) + "\n").encode("utf-8"),
                         (json.dumps(header) + "\n" + json.dumps(header) + "\n").encode("utf-8")):
             trace.write_bytes(invalid)
@@ -1735,7 +1740,9 @@ def mutate(args):
         ("bd-codex-parity2-final: timeout-entrypoint-zero-footer", [('            v1_append_timeout_footer(trace, ' + 'doc["ticks"], observe=observe)',
             '            with trace.open("a", encoding="utf-8") as stream:\n                stream.write(json.dumps({"type": "footer", "ticks": doc["ticks"], "status": "timeout", "draws": 0, "states": 0, "events": 0}) + chr(10))')], "V1_TIMEOUT_ENTRY_WITNESS"),
         ("bd-codex-parity2-final: timeout-record-separator", [('if prefix and not prefix.' + 'endswith(', 'if False and not prefix.endswith(')], "V1_TIMEOUT_SEPARATOR_WITNESS"),
-        ("bd-codex-parity2-final: timeout-invalid-json", [('raise Refusal("V1_TIMEOUT_TRACE_INVALID cannot count an incomplete ' + 'or malformed JSONL prefix") from failure', 'records = []')], "V1_TIMEOUT_INVALID_WITNESS"),
+        # The former records=[] mutant is independently refused by the no-header guard (P3-20), so it is retired.
+        ("bd-codex-parity2-final: timeout-invalid-json-fabricated-counts", [('raise Refusal("V1_TIMEOUT_TRACE_INVALID cannot count an incomplete ' +
+            'or malformed JSONL prefix") from failure', 'return {"draws": 0, "states": 0, "events": 0}')], "V1_TIMEOUT_JSON_WITNESS"),
         ("bd-codex-parity2-final: timeout-record-shape", [('if not isinstance(row, dict) or row.get("type") ' + 'not in ("header", "state", "event"):', 'if False:')], "V1_TIMEOUT_INVALID_WITNESS"),
         ("bd-codex-parity2-final: timeout-header-order", [('if (index == 0 and kind != "header") or ' + '(index > 0 and kind == "header"):', 'if False:')], "V1_TIMEOUT_INVALID_WITNESS")])
     # ---- burndown/codex-parity-3 ----
