@@ -37,9 +37,10 @@ that animation-loop model.
    file fallback (`CrossSessionLock`), so **up to two** instances can run across console/RDP sessions.
    A third shows *"Only 2 instances are allowed"* and exits before mutable settings are loaded.
 2. **Locked runtime dependencies.** The supported build restores dependencies through locked
-   `PackageReference` entries. NAudio 2.3.0 and the other managed runtime assemblies are shipped beside
-   `DesktopAICompanion.exe` according to `packaging/runtime-files.txt`; the former embedded-assembly loader and
-   vendored DLLs have been removed. The portable ZIP is self-contained as a directory, not as a single
+   `PackageReference` entries. NAudio 3 (a preview: `NAudio.Core`, `NAudio.WinMM` and `NAudio.Dmo`,
+   pinned in the csproj, plus the `NAudio.Midi` that WinMM pulls in) and the other managed runtime
+   assemblies are shipped beside `DesktopAICompanion.exe` according to `packaging/runtime-files.txt`; no
+   NAudio 2 assembly ships. The former embedded-assembly loader and vendored DLLs have been removed. The portable ZIP is self-contained as a directory, not as a single
    executable.
 3. **Command-line policy** (`Program.cs:Main`): `localxml=<file>` accepts an existing `.xml` file only
    after a strict UTF-8, 4 MiB bounded read. Legacy `webxml=` and `install=` sources are rejected.
@@ -101,8 +102,16 @@ executable. A `DesktopAICompanion.portable` marker forces portable behavior, and
   to a `Bitmap`, then cut into `TilesX × TilesY` equal cells. `spriteWidth/spriteHeight` are the cell
   size; each cell becomes its own `Bitmap` in `Xml.sprites` (list order = row-major, top-left first).
   The 48×48 icon (`<header><icon>`) is decoded into `Xml.bitmapIcon`. **HD scaling:** frames are
-  nearest-neighbour upscaled by `iScale`, but capped so a cell never exceeds 255 px (an `ImageList`
-  limit) (`Xml.ReadImages` `while (... > 255) iScale--`).
+  resized by a fractional factor, the size slider's (`ScalePolicy.ClampFactorD`, `MinimumFactorD` to
+  `MaximumFactorD`), which `ScalePolicy.FitFactorForFrameD` lowers until a cell's larger side fits the
+  validator's frame limit for this document's clock (`CompanionXmlValidator.MaximumFrameDimensionFor`:
+  `MaximumSpriteFrameDimension`, 256 px, for a classic companion; `TickMaximumFrameDimension`, 768 px, for
+  a tick-clock one). A tick companion above 1:1 is lowered further to fit the generated-pixel budget
+  (`Xml.TickFactorWithinBudget`). Upscales and magenta-key sheets stay nearest-neighbour; only an alpha
+  sheet being shrunk gets a smooth downscale. XML's `scale` variable sees the rounded integer, never
+  below 1 (`ScalePolicy.LevelForExpression`, `Xml.ScaleFactor`). All of it is staged in `Xml.ReadImages`.
+  (This described an integer `iScale` capped at 255 px by a `while` loop, for an `ImageList` limit, until
+  N-audit-1106-194; neither the loop nor the `ImageList` exists now.)
 - **Populate the model** (`Xml.LoadAnimations(Animations)`): iterates the deserialized nodes and fills
   the `Animations` dictionaries. Key detail — **four animation *names* are special** and are captured by
   name into fields used by the engine's lifecycle:
@@ -218,8 +227,11 @@ form containing a single `pictureBox1` that fills it and an `imageList1` holding
 - **`SetNewAnimation(id)`**: if `id < 0` → `Play` (respawn). Otherwise load `CurrentAnimation`,
   `UpdateValues(DisplayIndex)`, spawn any children the id declares (see §7), and set `timer1.Interval`
   to the animation's start interval. If `id == AnimationKill`, no further animation is set.
-- **`Timer1_Tick`**: disables the timer, calls `NextStep()`, increments `AnimationStep`, re-enables. Any
-  exception surfaces a "Fatal Error" dialog with the current animation dump.
+- **`Timer1_Tick`**: disables the timer, calls `NextStep()`, increments `AnimationStep`, re-enables. An
+  exception shows no dialog: the fault is written to the diagnostic log with the animation and step, and
+  the companion respawns through `Play()`. A child is closed at its first fault, and a companion's third
+  fault in a session (`MaximumTickFaults`) removes it, as does a respawn that throws again.
+  (This said a "Fatal Error" dialog with the animation dump until N-audit-1106-195; RA-234 removed it.)
 - **`NextStep`** — the heart of the engine. Per tick it:
   1. Picks the frame for `AnimationStep` (honouring `RepeatFrom`/`Repeat` via a modulo index).
   2. Interpolates `interval`, `Opacity`, `OffsetY`, and the per-step velocity `x,y` linearly from
@@ -286,12 +298,18 @@ app was started with Shift held, the debug menu. `Form2_DragEnter`/`DragDrop` ac
 
 ## 8. Audio — NAudio
 
-`Animations.TSound` wraps NAudio: `Load(byte[])` builds an `Mp3FileReader` + `WaveOut`; `Play(loop)`
-plays if `MyData.GetVolume() > 0`, seeking to start each time and re-playing on `PlaybackStopped` for
-loops. Sounds are keyed by animation id and fired from `SetNextGeneralAnimation` with a probability roll
-(§5.1). MP3 bytes come from base64 in `<sounds><sound><base64>` (a leading `;base64,` data-URI prefix is
-stripped in `Animations.AddSound`). If audio fails, volume is forced to 0 and the error is recorded in
-`ErrorMessages.AudioErrorMessage`.
+`Animations.TSound` holds data and no NAudio: the animation id, the probability, the loop count and the
+raw MP3 bytes. Sounds are keyed by animation id; when `SetNextGeneralAnimation` picks an animation that
+has some, it selects at most one variant with a probability roll (`Animations.SelectSoundForRoll`, §5.1)
+and hands its bytes to `Animations.SoundSink`, which `StartUp` installs. The sink plays them through the
+host's one `AudioOutput`, at the user's volume (`MyData.GetVolume()`), only while pet sounds are on, that
+pet type is not muted and no fullscreen window is holding sound. `AudioOutput` decodes each MP3 once (ACM,
+the OS codec) into a cached buffer and adds it, looping or not, as an input to one shared mixer on a
+DirectSound output, so sounds overlap. It swallows device errors: a machine with no audio device stays
+silent and nothing is thrown into the engine. MP3 bytes come from base64 in `<sounds><sound><base64>` (a
+leading `;base64,` data-URI prefix is stripped in `Animations.AddSound`). (This described a per-sound
+`Mp3FileReader` + `WaveOut` inside `TSound` and an `ErrorMessages.AudioErrorMessage` until
+N-audit-1106-196; neither exists now.)
 
 ## 9. Settings, tray, and lifecycle
 
